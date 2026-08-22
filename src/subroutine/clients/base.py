@@ -93,14 +93,25 @@ class Listing(list[LISTED]):
 	#: Whether the instance holds rows beyond the ones here.
 	has_more: bool = False
 
+	#: Which kinds of thing this answer is *able* to include, where the instance said (`#1085`).
+	#: Empty everywhere but the change feed, which narrows to the kinds a credential may read
+	#: rather than refusing because of one it never asked about — so *nothing happened* and
+	#: *I cannot see that* would otherwise be the same empty page.
+	covers: tuple[str, ...] = ()
+
 	def __init__ (
-		self, rows: typing.Iterable[LISTED] = (), *, has_more: bool = False
+		self,
+		rows: typing.Iterable[LISTED] = (),
+		*,
+		has_more: bool = False,
+		covers: typing.Iterable[str] = (),
 	) -> None:
 		"""Hold the rows, and what the instance said about the ones past them."""
 
 		super().__init__(rows)
 
 		self.has_more = has_more
+		self.covers = tuple(covers)
 
 
 @dataclasses.dataclass(frozen=True)

@@ -50,6 +50,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.documents
+import subroutine.domain.events
 import subroutine.domain.filtering
 import subroutine.domain.text
 import subroutine.domain.workspaces
@@ -1589,6 +1590,44 @@ def test_a_boolean_given_a_string_is_refused_rather_than_read_as_true (
 
 	assert refused, "and a string saying the same thing must not turn the filter on"
 	assert "today" in text and "true or false" in text, text
+
+
+def test_the_change_feed_tells_an_agent_which_kinds_it_covers (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1085` on the surface it was found for, and Simon's decision of 2026-08-22.
+
+	**This is the first call of a session**, per the skill, so a credential narrowed away from
+	one of the three kinds used to fail before doing anything — refused the whole feed because
+	of a kind it never asked about. It gets what it may read now, and the answer says what it
+	is a feed *of*.
+
+	**Asserted on both the empty and the populated answer**, because they are two separate
+	returns and the empty one is where the sentence matters most: *nothing has changed* and
+	*I am not shown that* are otherwise the same four words.
+
+	**The sleep is the feed's own watermark, not flakiness insurance.** Events under a second
+	old are withheld deliberately — a ``seq`` becomes visible at commit rather than at insert,
+	so reporting the newest instantly is how a change ends up behind a cursor that has already
+	passed it. Without waiting, the second call returns the *empty* branch and the populated one
+	is asserted by nothing while the test reads as covering both.
+	"""
+
+	empty, failed = _called(bound, "subroutine_changes")
+
+	assert not failed, empty
+	assert "Nothing has changed." in empty, empty
+	assert "covers tasks, projects and documents" in empty, empty
+
+	_added(bound, "Something happened")
+	time.sleep(subroutine.domain.events.WATERMARK.total_seconds() + 0.2)
+
+	after, failed = _called(bound, "subroutine_changes")
+
+	assert not failed, after
+	assert "Nothing has changed." not in after, "the wait was not long enough to populate it"
+	assert "covers tasks, projects and documents" in after, after
+	assert "Resume with since=" in after, "the resumption line is still there"
 
 
 def test_a_number_given_text_is_refused_by_name_rather_than_leaking_python (

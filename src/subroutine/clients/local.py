@@ -1195,6 +1195,9 @@ class Client:
 			return subroutine.clients.base.Listing(
 				[subroutine.views.event(row, described) for row in rows],
 				has_more=more,
+				# The same function the route answers with, so the two transports cannot say
+				# different things about one credential (`#1085`).
+				covers=subroutine.domain.scoping.readable_event_kinds(actor),
 			)
 
 	def projects (

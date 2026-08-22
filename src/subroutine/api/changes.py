@@ -48,6 +48,7 @@ import subroutine.config
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.paging
+import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -68,7 +69,7 @@ ACTOR_ME = "me"
 @router.get(
 	"",
 	summary="What changed since you last looked",
-	response_model=subroutine.views.Collection[subroutine.views.Event],
+	response_model=subroutine.views.Changes,
 	name="list_changes",
 )
 def listing (
@@ -188,4 +189,9 @@ def _page (
 		# offer a second way to page that the endpoint does not accept.
 		subroutine.views.Page(limit=size, has_more=has_more, total=None),
 		shape,
+		# **Said on every answer, narrowed or not** (`#1085`). A credential that may read only
+		# some of these kinds now gets a feed of those rather than a refusal about one it never
+		# asked about — so the answer has to say what it is a feed *of*, or the difference
+		# between "nothing happened" and "I cannot see that" is invisible.
+		covers=subroutine.domain.scoping.readable_event_kinds(actor),
 	)

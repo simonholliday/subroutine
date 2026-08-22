@@ -220,6 +220,7 @@ def response (
 	page: typing.Any,
 	shape: Shape,
 	links: typing.Sequence[typing.Any] | None = None,
+	covers: typing.Sequence[str] | None = None,
 ) -> typing.Any:
 	"""Return a collection, shaped, and typed loosely enough for FastAPI to leave it alone.
 
@@ -233,10 +234,18 @@ def response (
 	it was. It survives shaping untouched on purpose: ``?fields=`` selects fields *of an item*
 	and an edge is not one, so asking for two fields and the link graph gives you both rather
 	than an empty graph.
+
+	``covers`` is the change feed's statement of which kinds of thing it can carry (`#1085`).
+	Unlike ``links`` it is on that endpoint's declared response model, because it is always
+	present there — so the OpenAPI document stays honest about the ordinary case, which is the
+	rule the paragraph above is applying in the other direction.
 	"""
 
-	if shape.is_default and links is None:
+	if shape.is_default and links is None and covers is None:
 		return {"items": list(items), "page": page}
+
+	if shape.is_default and links is None:
+		return {"items": list(items), "page": page, "covers": list(covers or ())}
 
 	content: dict[str, typing.Any] = {
 		"items": [
@@ -245,6 +254,9 @@ def response (
 		],
 		"page": page.model_dump(mode="json"),
 	}
+
+	if covers is not None:
+		content["covers"] = list(covers)
 
 	if links is not None:
 		content["links"] = [edge.model_dump(mode="json") for edge in links]

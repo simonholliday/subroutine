@@ -486,6 +486,47 @@ def the_other_kind (
 #: somebody was added to one.
 _WORKSPACE_LEVEL = ("workspace", "workspace_member")
 
+#: The verb that decides whether the change feed can carry each kind of event. Documents share
+#: ``task:read`` — that is what ``readable_documents`` asks and this must agree with it, which
+#: is why it is read from :mod:`subroutine.permissions` rather than spelled out again.
+_FEED_KINDS = {
+	"task": subroutine.permissions.TASK_READ,
+	"project": subroutine.permissions.PROJECT_READ,
+	"document": subroutine.permissions.TASK_READ,
+}
+
+
+def readable_event_kinds (
+	principal: subroutine.domain.authentication.Principal,
+) -> tuple[str, ...]:
+	"""Return which kinds of thing this credential may be told about — `#1085`.
+
+	**A feed is not a listing of one kind, and that is the whole distinction** (cold review
+	`#1062`, and Simon's decision of 2026-08-22). `refuse_a_read_out_of_scope` refuses rather
+	than narrowing to nothing, which is right for a listing: there, refusing and returning an
+	empty page describe the same set and only one of them is honest about *why*. The change
+	feed asks about three kinds at once, so a credential narrowed to two was refused outright
+	because of the third — one it never asked about and may not know exists.
+
+	**It bit the audience the feed was built for.** The agent skill names ``subroutine_changes``
+	as the first call of a session, so any agent issued a read-narrowed credential failed on its
+	first call rather than degrading to the two thirds it could see.
+
+	**Refusing survives where nothing is readable**, which is `#930` intact: a credential that
+	may read none of these gets the refusal and its operator gets the remedy, rather than an
+	empty page that reads as *nothing has happened*.
+
+	Workspace-level events are not gated here. They are narrowed by membership rather than by
+	joining a row anybody could be scoped out of, and there is no read verb between a member and
+	the fact that they are one.
+	"""
+
+	return tuple(
+		kind
+		for kind, permission in _FEED_KINDS.items()
+		if not subroutine.domain.authorization.outside_token_scope(principal, permission)
+	)
+
 
 def visible_events (
 	principal: subroutine.domain.authentication.Principal,
@@ -551,11 +592,22 @@ def visible_events (
 
 	model = subroutine.db.models.activity.Event
 
+	# **Narrowed to the kinds this credential may read, rather than refused because of one it
+	# did not ask about** (`#1085`). Each builder below calls `refuse_a_read_out_of_scope` for
+	# its own verb, so composing all three made the feed as narrow as the *narrowest* of them —
+	# which for a `task:read`-less credential was nothing at all.
+	kinds = readable_event_kinds(principal)
+
+	if not kinds:
+		# `#930` intact where it belongs: nothing here is readable, so an empty page would be
+		# a plausible, complete, wrong answer to *may I read this*.
+		refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
+
 	# Read out of the statements every other listing starts from, rather than restated here.
 	# A hand-written copy of these predicates is exactly how `ls` and the agenda came to
 	# disagree about who may see a private project.
-	identifiers = {
-		"task": readable_tasks(
+	builders = {
+		"task": lambda: readable_tasks(
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -563,13 +615,13 @@ def visible_events (
 			include_archived=True,
 			include_templates=True,
 		).with_only_columns(subroutine.db.models.work.Task.id),
-		"project": readable_projects(
+		"project": lambda: readable_projects(
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
 			include_archived=True,
 		).with_only_columns(subroutine.db.models.project.Project.id),
-		"document": readable_documents(
+		"document": lambda: readable_documents(
 			principal,
 			workspace_ids=workspace_ids,
 			include_deleted=True,
@@ -578,12 +630,17 @@ def visible_events (
 		).with_only_columns(subroutine.db.models.work.Document.id),
 	}
 
+	# **Built lazily, and that is load-bearing rather than tidy.** Each builder refuses a
+	# credential outside its own read scope, so calling one for a kind this caller may not read
+	# raises — which is the defect. Only the kinds that survived are asked for.
+	identifiers = {kind: builders[kind]() for kind in kinds}
+
 	clauses = [
 		sqlalchemy.and_(model.entity_type == kind, model.entity_id.in_(rows))
 		for kind, rows in identifiers.items()
 	]
 
-	# The same three sets answer the comments, because `subject_type` is only ever one of them.
+	# The same sets answer the comments, because `subject_type` is only ever one of them.
 	clauses += [
 		sqlalchemy.and_(model.subject_type == kind, model.subject_id.in_(rows))
 		for kind, rows in identifiers.items()

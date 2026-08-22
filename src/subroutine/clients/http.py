@@ -1472,6 +1472,12 @@ class Client:
 		has_more = bool(page.get("has_more"))
 		cursor = page.get("next_cursor")
 
+		# **Read from the first page and not refreshed while following** (`#1085`). It is a
+		# property of the credential rather than of the page, so a later one saying something
+		# different would mean the answer had changed under the caller — and an instance a
+		# release behind sends no such key, which reads as "did not say" rather than "nothing".
+		covers = tuple(body.get("covers") or ())
+
 		while wanted is not None and path is not None and params is not None:
 			# **Four ways to stop, and the last is the one that matters.** The caller has what
 			# it asked for; the instance says there is no more; it offered no cursor; or a page
@@ -1499,7 +1505,7 @@ class Client:
 			has_more = bool(page.get("has_more"))
 			cursor = page.get("next_cursor")
 
-		return subroutine.clients.base.Listing(collected, has_more=has_more)
+		return subroutine.clients.base.Listing(collected, has_more=has_more, covers=covers)
 
 	def _not_an_instance (
 		self, because: str, *, body: typing.Any | None = None

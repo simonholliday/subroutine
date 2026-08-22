@@ -1127,6 +1127,65 @@ def test_a_read_narrowed_credential_cannot_read_past_its_scope (
 	assert _titles(session, permitted, world.workspace)
 
 
+def test_the_change_feed_narrows_to_the_kinds_a_credential_may_read (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#1085`, and Simon's decision of 2026-08-22 — the one place `SR#930` needed refining.
+
+	*Refuse rather than narrow to nothing* is right for a listing of one kind: there, refusing
+	and returning an empty page describe the same set, and only one of them says why. The change
+	feed asks about **three** kinds at once, and each enforced its own read scope — so a
+	credential narrowed away from one was refused the whole feed because of a kind it never
+	asked about and may not know exists.
+
+	**It bit the audience the feed was built for.** The agent skill names `subroutine_changes`
+	as the first call of a session, so any agent issued a read-narrowed credential failed on its
+	first call rather than degrading to what it could see.
+
+	**Refusing survives where nothing is readable**, which is `SR#930` intact and is the second
+	half of this test — otherwise the fix would have quietly turned *may I read this* into an
+	empty page, which is the answer that reads as *nothing has happened*.
+	"""
+
+	tasks_only, _one = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="tasks", scopes=["task:read"]
+	)
+	projects_only, _two = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="projects", scopes=["project:read"]
+	)
+	neither, _three = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="neither", scopes=["task:delete"]
+	)
+	session.flush()
+
+	def kinds (token: typing.Any) -> tuple[str, ...]:
+		"""Return which kinds of event one credential may be told about."""
+
+		return subroutine.domain.scoping.readable_event_kinds(
+			subroutine.domain.authentication.Principal(user=world.owner, token=token)
+		)
+
+	# Documents share `task:read`, which is what `readable_documents` asks — so the pair moves
+	# together and a test naming only tasks would miss half of what this credential gained.
+	assert kinds(tasks_only) == ("task", "document")
+	assert kinds(projects_only) == ("project",)
+	assert kinds(neither) == ()
+
+	# The feed is buildable for the two that can see something, and refused for the one that
+	# cannot — which is the whole distinction this item turned on.
+	for token in (tasks_only, projects_only):
+		subroutine.domain.scoping.visible_events(
+			subroutine.domain.authentication.Principal(user=world.owner, token=token),
+			workspace_ids=[world.workspace.id],
+		)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.scoping.visible_events(
+			subroutine.domain.authentication.Principal(user=world.owner, token=neither),
+			workspace_ids=[world.workspace.id],
+		)
+
+
 def test_a_credential_with_no_scopes_is_narrowed_by_none_of_this (
 	session: sqlalchemy.orm.Session, world: World
 ) -> None:

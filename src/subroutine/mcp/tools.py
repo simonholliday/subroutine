@@ -1361,16 +1361,46 @@ def _changed (
 		limit=DEFAULT_LIMIT if given is None else given,
 	)
 
+	# **Said whether or not anything changed, and that is the point** (`#1085`). A credential
+	# narrowed away from one of the three kinds used to be refused this feed outright; it now
+	# gets the kinds it may read — so *nothing has changed* and *I am not shown that* are two
+	# answers that would otherwise be the same sentence. Stated positively, per Simon's
+	# decision of 2026-08-22: what this covers, rather than what was left out, which needs the
+	# reader to know what exists before it means anything.
+	#
+	# Silent on an instance that does not publish it, which is one a release behind — that is
+	# "did not say", and inventing a list here would be a claim this surface cannot support.
+	coverage = f"This feed covers {_kinds_named(events.covers)}." if events.covers else ""
+
 	if not events:
-		return "Nothing has changed."
+		return " ".join(filter(None, ["Nothing has changed.", coverage]))
 
 	lines = [
 		f"{event.seq}  {event.created_at.astimezone():%d %b %H:%M}  {_happened(event)}  "
 		f"{_named(event)}"
 		for event in events
 	]
+	footer = f"Resume with since={events[-1].seq}."
 
-	return "\n".join([*lines, f"Resume with since={events[-1].seq}."])
+	return "\n".join([*lines, " ".join(filter(None, [footer, coverage]))])
+
+
+def _kinds_named (kinds: typing.Sequence[str]) -> str:
+	"""Say which kinds a feed carries, in words rather than as a vocabulary — `#1085`.
+
+	Pluralised, because the sentence is about a class of thing and *covers task and document*
+	reads as two particular ones. Joined here rather than through a shared helper: this
+	repository already has four spellings of *join a list into a sentence* and they differ on
+	purpose — "and" against "or", Oxford comma against none — so a fifth caller of one of them
+	would have to accept somebody else's punctuation.
+	"""
+
+	said = [f"{kind}s" for kind in kinds]
+
+	if len(said) < 2:
+		return "".join(said)
+
+	return f"{', '.join(said[:-1])} and {said[-1]}"
 
 
 def _named (event: subroutine.views.Event) -> str:

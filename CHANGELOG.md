@@ -397,6 +397,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A credential narrowed to some kinds of read can ask what has changed.** `GET /v1/changes`
+  and `subroutine_changes` narrow by tasks, projects and documents at once, and each enforced
+  its own read scope — so a token scoped `task:read` was refused the whole feed because of a
+  kind it had never asked about. The agent skill names this as the first call of a session, so
+  such a credential failed before doing anything.
+
+  It now covers whatever the credential may read, and **says which**: the response carries
+  `covers`, and an agent is told *this feed covers tasks and documents*. Stated on every
+  answer, narrowed or not, because otherwise an empty feed means either *nothing happened* or
+  *I am not shown that* and there is no way to tell them apart.
+
+  A credential that may read none of them is still refused rather than handed an empty page.
+
 - **Turning calendar feeds off now stops new ones being made.** `calendars_enabled` was read
   only where a feed is served, so on an instance with it off `subroutine calendar create` and
   `POST /v1/calendars` still handed you a URL — one that answered `404` for ever.

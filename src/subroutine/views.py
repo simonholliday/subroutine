@@ -839,6 +839,28 @@ class Event(pydantic.BaseModel):
 		)
 
 
+
+class Changes(Collection[Event]):
+	"""The change feed, and which kinds of thing it is able to tell you about — `#1085`.
+
+	**Stated positively, and always**, which is Simon's refinement of 2026-08-22 on the
+	obvious alternative. Naming what was *left out* would need the reader to know which kinds
+	exist before the omission means anything, and would say nothing at all to a caller who is
+	not narrowed. *This feed covers tasks and documents* is a complete sentence either way.
+
+	**It exists because a feed is not a listing of one kind.** A credential narrowed away from
+	one of the three used to be refused the whole feed, because each kind enforces its own read
+	scope — so an agent whose skill tells it to *ask what changed first* failed on its first
+	call rather than degrading to the two thirds it could see.
+
+	``covers`` is a subset of ``scoping.readable_event_kinds``' vocabulary, in a stable order.
+	Workspace-level events are not listed: they are narrowed by membership rather than by a
+	read verb, so they are carried for everyone and naming them would imply they could be
+	withheld.
+	"""
+
+	covers: list[str]
+
 class Link(pydantic.BaseModel):
 	"""One link, seen from the item that was asked about (docs/design.md §5.7).
 

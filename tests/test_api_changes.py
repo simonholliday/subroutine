@@ -81,6 +81,44 @@ def _feed (world: test_api_tasks.World, **query: typing.Any) -> list[dict[str, t
 	return items
 
 
+def test_the_feed_says_which_kinds_it_covers_and_narrows_rather_than_refusing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1085`, over the transport an agent actually reaches.
+
+	A credential narrowed to ``task:read`` was refused this feed outright, because
+	``scoping.visible_events`` composes three per-kind statements and each enforces its own
+	read scope — so one kind it never asked about decided the whole answer. The agent skill
+	names this as the first call of a session, so that credential failed before doing anything.
+
+	**The coverage sentence is what makes narrowing honest** and is on every answer, narrowed
+	or not — Simon's refinement of 2026-08-22. Without it an empty feed means either *nothing
+	happened* or *I am not shown that*, and a caller cannot tell which. Stated positively,
+	because naming what was left out needs the reader to know what exists first.
+	"""
+
+	wide = test_api_tasks._world(session)
+	narrow = test_api_tasks._world(session, scopes=["task:read"])
+	blind = test_api_tasks._world(session, scopes=["task:delete"])
+
+	wide.call("POST", "/v1/tasks", json={"title": "Something happened"})
+
+	full = wide.call("GET", "/v1/changes")
+
+	assert full.status_code == 200
+	assert full.json()["covers"] == ["task", "project", "document"], full.json()["covers"]
+
+	# The case that was a 403 before: two thirds of the answer was available all along.
+	partial = narrow.call("GET", "/v1/changes")
+
+	assert partial.status_code == 200, partial.json()
+	assert partial.json()["covers"] == ["task", "document"], partial.json()["covers"]
+
+	# `#930` intact: a credential that may read none of these is refused rather than handed an
+	# empty page, which is the answer that reads as "nothing has happened".
+	assert blind.call("GET", "/v1/changes").status_code == 403
+
+
 def test_the_feed_reports_what_happened (world: test_api_tasks.World) -> None:
 	"""The whole point, in one call and without naming a subject."""
 
