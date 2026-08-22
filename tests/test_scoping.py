@@ -1148,29 +1148,55 @@ def test_a_credential_with_no_scopes_is_narrowed_by_none_of_this (
 	assert _titles(session, wide, world.workspace)
 
 
-def test_the_read_scope_can_be_waived_in_exactly_one_place () -> None:
-	"""`#930`. An opt-out with one caller is a decision; with three it is a hole.
+#: Every place the read scope is waived, and why each one is entitled to. **The reason is the
+#: entry** — a count would say two waivers are allowed and let the next one take either slot.
+#:
+#: The test both of these have to pass is the same: *did the caller ask to see this?* A caller
+#: who asked for projects and holds no ``project:read`` is what `#930`'s enforcement exists to
+#: refuse. A caller who asked for something else, and had a project read on their behalf on the
+#: way, is not.
+READ_SCOPE_WAIVERS = {
+	"domain/projects.py": (
+		"`keys_for` resolves ids that came out of the caller's *own* token, so naming them "
+		"discloses nothing they do not already hold — and enforcing there stopped a narrowed "
+		"credential running `whoami` at all (`#930`)."
+	),
+	"domain/scoping.py": (
+		"`prioritised_projects` applies an ordering and names the project it favoured; nobody "
+		"asked it for a listing. Enforcing there meant one `project prioritise` answered 403 "
+		"to every `task:read` credential in the workspace (`#1065`)."
+	),
+}
 
-	``readable_projects`` takes ``enforce_read_scope=False`` for one reason: ``keys_for``
-	resolves ids that came out of the caller's *own* token, so naming them discloses nothing
-	they do not already hold, and enforcing there would stop a narrowed credential running
-	``whoami`` at all.
 
-	**Found by the suite rather than by reasoning.** The check went in without the exception
-	and took five tests with it, all of them about a credential describing itself — which is
-	the case the enforcement is least entitled to refuse.
+def test_the_read_scope_is_waived_only_where_a_reason_is_written_down () -> None:
+	"""`#930`. An opt-out with a written reason is a decision; a bare one is a hole.
+
+	**Found by the suite rather than by reasoning.** The check went in without the first
+	exception and took five tests with it, all of them about a credential describing itself —
+	which is the case the enforcement is least entitled to refuse. It found the second one too:
+	`#1065`'s fix was refused by this test until the reason was written here.
+
+	**Named rather than counted, which is the change `#1065` made.** The count said *one
+	waiver*, so raising it to two would have permitted a second anywhere. What each entry has
+	to carry is the argument, because the argument is what a third one has to match.
 	"""
 
-	waivers = [
-		f"{path.relative_to(SOURCE)}:{number}"
-		for path in sorted(SOURCE.rglob("*.py"))
-		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
-		if "enforce_read_scope=False" in line
-	]
+	waivers: dict[str, list[str]] = {}
 
-	assert len(waivers) == 1, (
-		f"the read-scope waiver is used {len(waivers)} times: {waivers}. Each one is a "
-		f"listing that is not narrowed by the caller's own scopes — add the reason to this "
-		f"test, or do not waive it."
+	for path in sorted(SOURCE.rglob("*.py")):
+		for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+			if "enforce_read_scope=False" in line:
+				waivers.setdefault(str(path.relative_to(SOURCE)), []).append(f"line {number}")
+
+	assert set(waivers) == set(READ_SCOPE_WAIVERS), (
+		f"the read-scope waiver is used in {sorted(waivers)} and the reasons here cover "
+		f"{sorted(READ_SCOPE_WAIVERS)}. Each one is a read the caller's own scopes do not "
+		f"narrow — write the reason into READ_SCOPE_WAIVERS, or do not waive it."
 	)
-	assert waivers[0].startswith("domain/projects.py"), waivers
+
+	for module, places in waivers.items():
+		assert len(places) == 1, (
+			f"{module} waives the read scope at {places}. One reason is recorded for it, so "
+			f"a second site there is one nobody has argued for."
+		)

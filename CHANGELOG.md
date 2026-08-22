@@ -349,6 +349,19 @@ upgrade involves.
 
 ### Fixed
 
+- **Prioritising a project no longer takes narrowed credentials offline.** A workspace with a
+  prioritised project resolved that project through the check that refuses a caller whose token
+  does not carry `project:read` — and that resolution happens on every ranked listing and on
+  `GET /v1/me`. So one `subroutine project prioritise` turned three of those into a 403 for
+  every token in the workspace scoped to reading tasks alone, naming a permission the caller
+  had never used.
+
+  Nothing was disclosed by the fix: a project the caller cannot see is still absent, and still
+  contributes no ranking.
+
+  Upgrading matters only if you have prioritised a project **and** issued a narrowed
+  credential. If you did and things stopped working, this is why, and nothing needs undoing.
+
 - **A day in a calendar feed and on an agent's row is the day it was written for.** Both took
   the calendar date of the stored UTC instant. An all-day deadline is stored as the last
   microsecond of its day and an all-day plan as the first, both in the writer's own timezone —

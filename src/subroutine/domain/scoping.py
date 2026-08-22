@@ -173,9 +173,14 @@ def readable_projects (
 	nothing at all.
 	"""
 
-	# **Opt-out rather than opt-in, so forgetting it is safe.** The single caller that turns it
-	# off is `projects.keys_for`, which resolves ids out of the caller's own token for display
-	# and is named in that function's own comment (`#930`).
+	# **Opt-out rather than opt-in, so forgetting it is safe.** Two callers turn it off and
+	# each says why where it does it: `projects.keys_for`, which resolves ids out of the
+	# caller's own token for display (`#930`), and `prioritised_projects` below, which applies
+	# an ordering rather than listing anything (`#1065`).
+	#
+	# **Both are reads nobody asked for**, which is the test to apply to a third: a caller
+	# who did not ask to see projects must not be refused because something else went looking
+	# at one on their behalf. A caller who *did* ask is the case this exists for.
 	if enforce_read_scope:
 		refuse_a_read_out_of_scope(principal, subroutine.permissions.PROJECT_READ)
 
@@ -267,9 +272,23 @@ def prioritised_projects (
 	if not chosen:
 		return {}
 
-	visible = readable_projects(principal, workspace_ids=workspace_ids).where(
-		project.id.in_(chosen)
-	)
+	# **The read scope is not enforced here, and that is the second permitted opt-out**
+	# (`#1065`). This call *applies* an ordering and names the project the ordering favoured;
+	# it does not list projects, and no caller asked to. Enforcing it meant that one
+	# `subroutine project prioritise` took every `task:read`-scoped credential in the
+	# workspace offline — measured, `/v1/me`, `/v1/tasks`, `/v1/agenda` and `/v1/changes` all
+	# 403, naming a verb the caller never exercised and does not need.
+	#
+	# **The visibility narrowing below still applies**, which is what keeps the disclosure
+	# argument in this function's docstring true: `visible_projects` and `within_project_scope`
+	# are inside `readable_projects` regardless, so a project the caller cannot see is absent
+	# rather than named. What is given up is narrower than it looks — a credential without
+	# `project:read` learns the *address* of a project it can already see.
+	#
+	# Simon's decision of 2026-08-22, taken over two alternatives written up on `#1065`.
+	visible = readable_projects(
+		principal, workspace_ids=workspace_ids, enforce_read_scope=False
+	).where(project.id.in_(chosen))
 
 	return {chosen[row.id]: row for row in session.scalars(visible)}
 

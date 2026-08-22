@@ -39,8 +39,10 @@ import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.tasks
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import test_api_tasks
 
 
 class World(typing.NamedTuple):
@@ -154,6 +156,118 @@ def world (session: sqlalchemy.orm.Session) -> World:
 		web=web,
 		dist=dist,
 		ops=ops,
+	)
+
+
+@pytest.mark.parametrize("path", ["/v1/me", "/v1/tasks", "/v1/agenda", "/v1/documents"])
+def test_prioritising_a_project_leaves_a_narrowed_credential_reading (
+	session: sqlalchemy.orm.Session, path: str
+) -> None:
+	"""One command must not take every ``task:read`` credential offline (`SR#1065`).
+
+	``prioritised_projects`` resolved the workspace's pointer through ``readable_projects``,
+	whose first act is to refuse a caller whose token does not carry ``project:read``. It is
+	reached from the ordering on every ranked listing and from ``views.me()``, so a single
+	``subroutine project prioritise`` turned four of these five routes into a **403 naming a
+	verb the caller never exercised** — and the operator's remedy read as *widen the
+	credential*.
+
+	**Invisible until somebody used the feature**, which is why it shipped: the early return
+	on a workspace with nothing prioritised never reaches the refusal, so every existing test
+	and every workspace on the instance took the quiet path.
+
+	Driven over HTTP per route rather than against the function, because what broke was not a
+	query — it was the four unrelated things that ask this one question on a caller's behalf.
+	``/v1/documents`` is in the list because it is the one that *survived*, and only because a
+	priority ordering is tasks-only (`SR#661`): a fix that made the others pass by disabling
+	the ordering would have to explain this row too.
+
+	**``/v1/changes`` is deliberately not here**, and finding out why corrected a claim of
+	mine. I reported it as a fifth casualty; it is refused for a ``task:read`` token whether or
+	not anything is prioritised, because the feed narrows by all three entity kinds and each
+	enforces its own read scope. The before-and-after runs that produced the claim tested
+	different sets of paths, so "403 after" was read as "403 *because*". That is `SR#1085`, a
+	different question, and the guard for it belongs with it.
+	"""
+
+	world = test_api_tasks._world(session, scopes=["task:read"])
+
+	project = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="web",
+		title="Website",
+		actor=subroutine.domain.authentication.Principal(user=world.user, token=None),
+	)
+	session.flush()
+
+	assert world.call("GET", path).status_code == 200, (
+		f"{path} was already refused before anything was prioritised, so this test cannot "
+		f"show what prioritising did"
+	)
+
+	subroutine.domain.workspaces.update(
+		session,
+		world.workspace,
+		prioritised_project=project,
+		actor=subroutine.domain.authentication.Principal(user=world.user, token=None),
+	)
+	session.flush()
+
+	response = world.call("GET", path)
+
+	assert response.status_code == 200, (
+		f"{path} answered {response.status_code} once a project was prioritised: "
+		f"{response.json().get('detail')}"
+	)
+
+
+def test_a_narrowed_credential_is_not_told_which_project_is_prioritised_if_it_cannot_see_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Skipping the read-scope check does not skip the visibility narrowing (`SR#1065`).
+
+	The disclosure argument in ``prioritised_projects``' docstring is what the opt-out had to
+	leave standing: a workspace's focus is a workspace-level fact and the surfaces say the
+	project's name out loud, so a caller who is not a member of a private project must not
+	learn a workspace is focused on it.
+
+	``visible_projects`` and ``within_project_scope`` sit inside ``readable_projects``
+	regardless of the scope check, so this passes — and it is here because it is what somebody
+	removing the narrowing "while they are in there" would break, with no other test failing.
+	"""
+
+	world = test_api_tasks._world(session, scopes=["task:read"])
+	owner = subroutine.domain.authentication.Principal(user=world.user, token=None)
+
+	secret = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="secret",
+		title="Something private",
+		visibility="private",
+		actor=owner,
+	)
+	session.flush()
+
+	subroutine.domain.workspaces.update(
+		session, world.workspace, prioritised_project=secret, actor=owner
+	)
+	session.flush()
+
+	stranger = subroutine.domain.users.create(
+		session, username=f"nobody-{uuid.uuid4().hex[:8]}", actor=owner
+	)
+	session.flush()
+
+	found = subroutine.domain.scoping.prioritised_projects(
+		session,
+		subroutine.domain.authentication.Principal(user=stranger, token=None),
+		workspace_ids=[world.workspace.id],
+	)
+
+	assert found == {}, (
+		"a caller who cannot see the project was told the workspace is focused on it"
 	)
 
 
