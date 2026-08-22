@@ -440,26 +440,25 @@ def in_force (setting: Setting, *, stored: typing.Sequence[dict[str, typing.Any]
 	return setting.default
 
 
-def for_projects (
-	session: sqlalchemy.orm.Session,
-	setting: Setting,
-	ids: typing.Collection[uuid.UUID],
-) -> dict[uuid.UUID, typing.Any]:
-	"""Return the value in force for each of these projects, looking upwards.
+def _chains (
+	session: sqlalchemy.orm.Session, ids: typing.Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, typing.Any]]]:
+	"""Return, for each project, the stored settings to consult and in what order.
 
-	    this project -> its parent -> ... -> the workspace -> the default
+	    this project -> its parent -> ... -> the workspace
 
-	**Two queries for a whole page, never one per row.** ``project.path`` already carries every
-	ancestor's id, so the ancestors are looked up rather than walked — the shape
+	**Three queries for a whole page, never one per row.** ``project.path`` already carries
+	every ancestor's id, so the ancestors are looked up rather than walked — the shape
 	:func:`subroutine.domain.projects.paths_for` uses, and for the same reason: a colour is
 	rendered on every line, so the per-row version is `#39`'s N+1 on the one column that is
 	always there.
 
-	**Resolved here rather than in each client**, which corrects `#1023` §7. A row carries
-	``project_path``, so a browser genuinely *could* walk it — but knowing which ancestor holds a
-	value means holding every project's settings and repeating the walk in three surfaces.
-	`#925`'s rule settles it: when a client would need a copy of a rule to render a field,
-	publish the rendering instead.
+	**The walk and the resolution are two things, which is `#1072`.** They were one, so asking
+	for a second setting asked for a second walk — and :class:`subroutine.views.Vocabulary`
+	needs two on every task, document and agenda listing, under a comment claiming the walk was
+	shared. It was not, and the comment is what stopped anybody checking. The docstring here
+	said *"two queries"* where there have always been three, which is the same sentence being
+	believed rather than counted.
 
 	**The workspace is derived per project rather than passed in**, which is not merely
 	convenient: the agenda spans workspaces (`#989`), so a page's projects do not share one. A
@@ -520,18 +519,61 @@ def for_projects (
 		.all()
 	)
 
-	resolved = {}
+	chains = {}
 
 	for identity, path, workspace_id in rows:
 		# **Deepest first, which is what "the nearest ancestor" means.** `path` is written
 		# root-first and includes the project's own id, so the chain is that list reversed —
 		# and the workspace is the last link after it.
-		chain = [
-			dict(held.get(uuid.UUID(segment)) or {})
-			for segment in reversed(subroutine.domain.hierarchy.path_segments(path))
+		chains[identity] = [
+			*[
+				dict(held.get(uuid.UUID(segment)) or {})
+				for segment in reversed(subroutine.domain.hierarchy.path_segments(path))
+			],
+			dict(spaces.get(workspace_id) or {}),
 		]
-		resolved[identity] = in_force(
-			setting, stored=[*chain, dict(spaces.get(workspace_id) or {})]
-		)
 
-	return resolved
+	return chains
+
+
+def several_for_projects (
+	session: sqlalchemy.orm.Session,
+	settings: typing.Sequence[Setting],
+	ids: typing.Collection[uuid.UUID],
+) -> dict[str, dict[uuid.UUID, typing.Any]]:
+	"""Return each setting's value in force for each of these projects, from one walk.
+
+	Keyed by :attr:`Setting.key`, because a caller asking for two already holds both entries
+	and a key is what it can name in a comment.
+
+	**Resolved here rather than in each client**, which corrects `#1023` §7. A row carries
+	``project_path``, so a browser genuinely *could* walk it — but knowing which ancestor holds
+	a value means holding every project's settings and repeating the walk in three surfaces.
+	`#925`'s rule settles it: when a client would need a copy of a rule to render a field,
+	publish the rendering instead.
+	"""
+
+	chains = _chains(session, ids)
+
+	return {
+		setting.key: {
+			identity: in_force(setting, stored=chain) for identity, chain in chains.items()
+		}
+		for setting in settings
+	}
+
+
+def for_projects (
+	session: sqlalchemy.orm.Session,
+	setting: Setting,
+	ids: typing.Collection[uuid.UUID],
+) -> dict[uuid.UUID, typing.Any]:
+	"""Return the value in force for one setting, for each of these projects.
+
+	    this project -> its parent -> ... -> the workspace -> the default
+
+	:func:`several_for_projects` with one entry. Kept because most callers want one and would
+	otherwise index a mapping by a key they had just supplied.
+	"""
+
+	return several_for_projects(session, [setting], ids)[setting.key]

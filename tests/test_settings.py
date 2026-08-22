@@ -21,6 +21,7 @@ import subroutine.domain.palette
 import subroutine.domain.projects
 import subroutine.domain.settings
 import subroutine.errors
+import subroutine.views
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -306,6 +307,114 @@ def test_resolving_a_page_of_projects_costs_a_fixed_number_of_queries (
 	assert few > 0, "the fixture is not exercising the query path at all"
 	assert many == few, (
 		f"resolving ten projects cost {many} queries where two cost {few} — this walks per row"
+	)
+
+
+def test_two_settings_cost_one_walk_rather_than_two (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1072`. The growth test above is satisfied by a constant overhead, and this is it.
+
+	:class:`subroutine.views.Vocabulary` needs two settings on **every** task, document and
+	agenda listing, and asked twice — three queries each, six per page — under a comment saying
+	the second was *"resolved up the same chain and in the same two queries … so the walk is
+	shared with the colour rather than repeated"*. It was not shared, and a sentence claiming a
+	property the code does not have is what stops the next reader counting.
+
+	**Counted rather than timed**, like its neighbour, and asserting *the same as one* rather
+	than a number: what is wrong is paying per setting, not the size of the walk.
+	"""
+
+	wanted = []
+
+	for index in range(4):
+		made = subroutine.domain.projects.create(
+			session, workspace_id=world.id, key=f"q{index}", title=f"Q{index}"
+		)
+		wanted.append(made.id)
+
+	session.flush()
+
+	counted: list[int] = []
+
+	def watch (*_args: object, **_kwargs: object) -> None:
+		counted.append(1)
+
+	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
+
+	try:
+		counted.clear()
+		subroutine.domain.settings.several_for_projects(
+			session, [subroutine.domain.settings.COLOUR], wanted
+		)
+		one = len(counted)
+
+		counted.clear()
+		both = subroutine.domain.settings.several_for_projects(
+			session,
+			[subroutine.domain.settings.COLOUR, subroutine.domain.settings.HIDDEN_STATUSES],
+			wanted,
+		)
+		two = len(counted)
+
+	finally:
+		sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", watch)
+
+	assert one > 0, "the fixture is not exercising the query path at all"
+	assert two == one, (
+		f"two settings cost {two} queries where one costs {one} — the walk is being repeated "
+		f"per setting rather than shared"
+	)
+
+	assert set(both) == {
+		subroutine.domain.settings.COLOUR.key,
+		subroutine.domain.settings.HIDDEN_STATUSES.key,
+	}
+
+
+def test_a_page_of_rows_resolves_both_of_its_settings_once (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""Driven through the thing that actually pays it, which is the whole reason it matters.
+
+	The test above proves the domain can do it in one walk; this proves the caller does. A
+	function that batches and a caller that calls it twice is the same cost with a better
+	docstring — and that is precisely the state `SR#1072` found.
+	"""
+
+	made = [
+		subroutine.domain.projects.create(
+			session, workspace_id=world.id, key=f"r{index}", title=f"R{index}"
+		)
+		for index in range(4)
+	]
+	session.flush()
+
+	counted: list[str] = []
+
+	def watch (
+		_connection: object,
+		_cursor: object,
+		statement: str,
+		*_rest: object,
+		**_kwargs: object,
+	) -> None:
+		counted.append(statement)
+
+	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
+
+	try:
+		subroutine.views.Vocabulary.for_projects(session, made)
+
+	finally:
+		sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", watch)
+
+	settings_reads = [one for one in counted if "settings" in one.lower()]
+
+	assert settings_reads, "the fixture is not reaching the settings walk at all"
+	assert len(settings_reads) <= 3, (
+		f"building a page's vocabulary read stored settings {len(settings_reads)} times:\n"
+		+ "\n".join(settings_reads)
 	)
 
 

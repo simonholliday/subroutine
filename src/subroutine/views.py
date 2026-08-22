@@ -1850,16 +1850,19 @@ class Vocabulary:
 		# browser could walk it — and would then hold a copy of the inheritance rule, in three
 		# surfaces. `#925`: when a client would need a copy of a rule to render a field, publish
 		# the rendering instead.
-		self.project_colours = subroutine.domain.settings.for_projects(
-			session, subroutine.domain.settings.COLOUR, set(project_ids)
+		#
+		# **Both settings from one walk** (`#1072`). This asked twice, each call running three
+		# queries — six per page, on every task, document and agenda listing — beneath a
+		# comment saying the walk was *"shared with the colour rather than repeated"*. It was
+		# not, and the sentence is what stopped anybody counting. `hidden_statuses` is read
+		# only by a page of projects; it is loaded here because now the walk really is shared.
+		in_force = subroutine.domain.settings.several_for_projects(
+			session,
+			[subroutine.domain.settings.COLOUR, subroutine.domain.settings.HIDDEN_STATUSES],
+			set(project_ids),
 		)
-
-		#: What each project does not offer, resolved up the same chain and in the same two
-		#: queries. Only a page of projects reads it — a task's row does not carry it — but it
-		#: is loaded here so the walk is shared with the colour rather than repeated.
-		self.hidden_statuses = subroutine.domain.settings.for_projects(
-			session, subroutine.domain.settings.HIDDEN_STATUSES, set(project_ids)
-		)
+		self.project_colours = in_force[subroutine.domain.settings.COLOUR.key]
+		self.hidden_statuses = in_force[subroutine.domain.settings.HIDDEN_STATUSES.key]
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
 		# question of either. Two queries rather than one because the join tables are two —
