@@ -4,6 +4,17 @@
 this a logging filter rather than middleware: by the time uvicorn logs a request the response
 has already gone, and nothing an ASGI app can do reaches that line.
 
+**A third kind arrives in the *path*** (`#1065`'s neighbour, `#1069`). A calendar feed's
+address is ``GET /v1/calendars/<prefix>/<secret>.ics`` — the credential is a path segment, and
+:func:`redacted` rebuilt the *query*, returning a path with no ``?`` in it untouched. So the
+line was written in full on every poll, every fifteen minutes, for the life of each
+subscription: a long-lived bearer credential that does not expire, re-logged indefinitely.
+
+``docs/design.md`` argues that a path segment "is at least conventionally treated as part of
+the resource" and that is the counter-example — an access log records paths, and so does every
+aggregator an operator ships them to. ``docs/hosting.md``'s nginx advice (``$uri`` rather than
+``$request``) keeps the path, so following it does not help with this one.
+
 Two kinds of secret arrive in a query string here, and both were measured rather than assumed:
 
 * **A sign-in link.** ``GET /signin?link=sr_lnk_…`` is how a person trades a link for a session
@@ -33,9 +44,13 @@ a link travels rather than a change to how one is written down.
 """
 
 import copy
+import functools
 import logging
+import re
 import urllib.parse
 
+import subroutine.api.app
+import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.sessions
 
@@ -80,34 +95,114 @@ def secret_parameters () -> frozenset[str]:
 	)
 
 
-def redacted (path: str) -> str:
-	"""Return a request path with any credential in its query replaced.
+#: Which *path* parameters hold a credential rather than an identifier. A route naming one of
+#: these has its value replaced in the access log.
+#:
+#: **A register rather than a list of routes**, so the second route to carry a secret in its
+#: path is covered by declaring the parameter, and ``tests/test_api_logs.py`` fails when a
+#: mounted route uses a name here that nothing redacts. ``prefix`` is deliberately absent: it
+#: identifies the feed and is stored in the clear, which is what makes a revoked one
+#: diagnosable from a log at all.
+SECRET_PATH_PARAMETERS = frozenset({"secret"})
 
-	**The path is rebuilt from its parsed parts rather than patched by a substitution**, so a
+
+@functools.cache
+def secret_path_patterns () -> tuple[re.Pattern[str], ...]:
+	"""Return a matcher for every mounted route whose path carries a credential.
+
+	**Derived from the routes rather than written out**, which is this module's rule for the
+	query half too: the names of the token parameters come from the set that exists to refuse
+	them, and the link's from the route that declares it. A path spelled here would be a second
+	copy of a route, free to stop matching the day somebody moves it — and the failure mode of
+	*that* is a credential quietly reappearing in the log.
+
+	Each parameter becomes ``[^/]+``; the one named in :data:`SECRET_PATH_PARAMETERS` becomes a
+	capture, and everything between is escaped, so a literal ``.ics`` cannot match a character
+	the route did not put there.
+
+	Cached because this runs on every logged line and the routes cannot change inside a process.
+	"""
+
+	patterns = []
+
+	for path, _methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS):
+		if not any(f"{{{name}}}" in path for name in SECRET_PATH_PARAMETERS):
+			continue
+
+		built = ""
+
+		for piece in re.split(r"(\{[^{}]+\})", path):
+			if not piece.startswith("{") or not piece.endswith("}"):
+				built += re.escape(piece)
+
+			elif piece[1:-1] in SECRET_PATH_PARAMETERS:
+				built += "([^/]+)"
+
+			else:
+				built += "[^/]+"
+
+		patterns.append(re.compile(f"^{built}$"))
+
+	return tuple(patterns)
+
+
+def _without_a_secret_segment (path: str) -> str:
+	"""Return a request path with any credential in it replaced.
+
+	A path either names one of the routes that carry a secret or it does not, so this is a
+	match rather than a substitution — a scan for anything *shaped* like a credential would
+	redact whatever an item's title happened to look like.
+	"""
+
+	for pattern in secret_path_patterns():
+		found = pattern.match(path)
+
+		if found is None:
+			continue
+
+		start, end = found.span(1)
+
+		return path[:start] + REDACTED + path[end:]
+
+	return path
+
+
+def redacted (path: str) -> str:
+	"""Return a request path with any credential in it replaced, wherever it sits.
+
+	**The query is rebuilt from its parsed parts rather than patched by a substitution**, so a
 	secret containing something that looks like a separator cannot leave a fragment of itself
 	behind. Everything not a secret is preserved, because an access log with the parameters
 	removed is an access log nobody can debug with.
 
-	A path with no query is returned unchanged and untouched — this runs on every request, and
-	the overwhelming majority carry nothing to hide.
+	**Both halves, and the path half is why this is not an early return any more** (`#1069`).
+	This began by looking for a ``?`` and giving back anything without one untouched, which was
+	the whole truth while every credential arrived as a parameter. A calendar feed's secret is a
+	path segment, so the request that carries a credential most often — every fifteen minutes,
+	for months — was the one shape this could not see.
+
+	Still cheap on the ordinary request: a path with no query and no match against the one route
+	that carries a secret comes back as itself.
 	"""
 
 	split = path.find("?")
+	address = path if split < 0 else path[:split]
+	address = _without_a_secret_segment(address)
 
 	if split < 0:
-		return path
+		return address
 
 	secrets = secret_parameters()
 	query = urllib.parse.parse_qsl(path[split + 1:], keep_blank_values=True)
 
 	if not any(name.lower() in secrets for name, _value in query):
-		return path
+		return f"{address}?{path[split + 1:]}"
 
 	kept = [
 		(name, REDACTED if name.lower() in secrets else value) for name, value in query
 	]
 
-	return f"{path[:split]}?{urllib.parse.urlencode(kept)}"
+	return f"{address}?{urllib.parse.urlencode(kept)}"
 
 
 class Redacting (logging.Filter):

@@ -20,6 +20,26 @@ upgrade involves.
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+### Security
+
+- **A calendar feed's address no longer reaches this instance's access log.** The credential in
+  a feed URL is a path segment rather than a query parameter, and the redaction that keeps
+  sign-in links and misplaced API tokens out of the log rebuilt the query — so a path with no
+  `?` in it went through untouched. Every poll wrote the whole address down, roughly every
+  fifteen minutes, for as long as the subscription lasted.
+
+  That is the worst credential to log: unlike a sign-in link it does not expire and is not spent
+  by being used, so an old log file is a working feed.
+
+  The short prefix is kept, so you can still tell which subscription is polling. `docs/hosting.md`
+  now covers the half we cannot reach — a proxy in front of this logs the same line, and the
+  usual advice there (log `$uri` rather than `$request`) does not help, because `$uri` is exactly
+  where a feed's secret sits.
+
+  If you have served calendar feeds and keep access logs, treat the feeds in them as disclosed:
+  `subroutine calendar reset <ref>` gives one a new address without disturbing the subscription's
+  settings, and `revoke` ends it.
+
 ### Added
 
 - **A client can say which version it expects to be changing.** `expected_version` — §8.9's

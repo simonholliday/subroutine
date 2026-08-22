@@ -1313,6 +1313,13 @@ from its own access log — you will see `GET /signin?link=REDACTED` rather than
 it does the same for an API token somebody has wrongly put in `?token=`, `?api_key=` or
 `?access_token=`, which is refused but is a real credential by the time it is refused.
 
+**A calendar feed's address carries its credential in the path, not in the query**, and that is
+the one you should care most about: a subscription polls roughly every fifteen minutes for as
+long as somebody keeps it, and a feed secret does not expire. `subroutine serve` redacts it too —
+`GET /v1/calendars/145ed614/REDACTED.ics` — keeping the short prefix, which identifies the feed
+so that you can still tell which subscription is polling. `subroutine calendar revoke <ref>`
+ends one, and `reset` gives it a new address without disturbing anything else.
+
 **Your proxy logs the same request line, and we cannot reach that.** If you run one, tell it to
 drop the query string from the paths it records. In Nginx that is a `log_format` using `$uri`
 rather than `$request`:
@@ -1320,6 +1327,18 @@ rather than `$request`:
 ```nginx
 log_format subroutine '$remote_addr - "$request_method $uri" $status';
 access_log /var/log/nginx/subroutine.log subroutine;
+```
+
+**That handles the query and not the path**, so it is not enough on its own for calendar feeds —
+`$uri` is exactly the part a feed's secret sits in. If you serve feeds through a proxy and keep
+its access log, either turn logging off for `/v1/calendars/` or rewrite the path before it is
+recorded:
+
+```nginx
+location /v1/calendars/ {
+	access_log off;
+	proxy_pass http://127.0.0.1:8471;
+}
 ```
 
 Two things worth knowing rather than guessing:

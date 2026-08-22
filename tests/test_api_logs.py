@@ -117,6 +117,112 @@ def test_a_path_with_no_query_is_untouched () -> None:
 	assert "/healthz" in _logged("/healthz")
 
 
+def test_a_calendar_feed_secret_does_not_reach_the_access_log () -> None:
+	"""The credential is a *path segment*, and this looked only at the query (`SR#1069`).
+
+	**The one request that carries a credential over and over.** A subscription polls its feed
+	roughly every fifteen minutes for as long as somebody keeps it, so this line is written
+	tens of thousands of times per feed — and unlike a sign-in link a feed secret does not
+	expire, so an old log is a working credential.
+
+	Driven through uvicorn's own formatter, like every other case here, because what matters is
+	the line a handler writes rather than what one function returns.
+	"""
+
+	secret = "JJFjVTs4jjak_qGOXkucTeZdt3OSwTQkLKQ22GAl9bc"
+	line = _logged(f"/v1/calendars/145ed614/{secret}.ics")
+
+	assert secret not in line, f"a feed credential was written to the access log:\n{line}"
+	assert subroutine.api.logs.REDACTED in line
+
+	# **The prefix survives, and that is deliberate.** It identifies the feed and is stored in
+	# the clear, so an operator can still tell which subscription is polling — which is most of
+	# what anybody reads an access log for. Redacting the whole address would make the line
+	# useless rather than safe.
+	assert "145ed614" in line
+
+
+def test_a_path_that_merely_resembles_a_feed_is_left_alone () -> None:
+	"""A match against the route, not a scan for anything credential-shaped (`SR#1069`).
+
+	The alternative — redact anything that *looks like* a secret — would rewrite whatever an
+	item's title happened to resemble, and an access log that quietly edits paths is worse than
+	one that prints them: nobody can tell a redaction from a request that was really made.
+	"""
+
+	for ordinary in (
+		"/v1/calendars",
+		"/v1/calendars/145ed614/reset",
+		"/v1/calendars/145ed614/JJFjVTs4jjak.ics/extra",
+		"/v1/tasks/JJFjVTs4jjak_qGOXkucTeZdt3OSwTQkLKQ22GAl9bc.ics",
+	):
+		assert subroutine.api.logs.redacted(ordinary) == ordinary, ordinary
+
+
+def test_a_feed_secret_is_removed_even_when_the_line_also_carries_a_query () -> None:
+	"""Both halves, because the path half was added to a function that returned early.
+
+	``redacted`` looked for a ``?``, and gave back anything without one untouched. Adding the
+	path half in front of that early return is the whole fix — and a version that redacted the
+	path *instead* of the query, or handed back a re-encoded query when there was nothing to
+	hide, would pass every other test in this file.
+	"""
+
+	secret = "JJFjVTs4jjak_qGOXkuc"
+	both = f"/v1/calendars/145ed614/{secret}.ics?refresh=1&link=sr_lnk_something"
+	answer = subroutine.api.logs.redacted(both)
+
+	assert secret not in answer, answer
+	assert "sr_lnk_something" not in answer, answer
+	assert "refresh=1" in answer, f"an unrelated parameter was lost: {answer}"
+
+
+def test_every_route_carrying_a_secret_in_its_path_is_redacted () -> None:
+	"""Derived from the routes, so a second such route is covered by declaring the parameter.
+
+	**Both directions, because either alone is satisfiable by an empty scan.** A route naming a
+	secret parameter that no pattern matches is a credential reaching the log; a name in the
+	register that no route uses is an entry nobody can tell has stopped being needed, which is
+	the shape every excuse list here has a test for (`SR#405`).
+
+	The reach is what makes this worth having: the query half of this module is derived from the
+	two sources that declare those parameters, and until now the path half was derived from
+	nothing because there was no path half.
+	"""
+
+	carried = {
+		path: name
+		for path, _methods, _route in subroutine.api.routing.mounted(
+			subroutine.api.app.ROUTERS
+		)
+		for name in subroutine.api.logs.SECRET_PATH_PARAMETERS
+		if f"{{{name}}}" in path
+	}
+
+	assert carried, (
+		"no mounted route carries a path parameter named in SECRET_PATH_PARAMETERS, so this "
+		"scan is reading nothing and every assertion below it is vacuous"
+	)
+
+	assert set(subroutine.api.logs.SECRET_PATH_PARAMETERS) == set(carried.values()), (
+		f"SECRET_PATH_PARAMETERS names {sorted(subroutine.api.logs.SECRET_PATH_PARAMETERS)} "
+		f"and the routes use {sorted(set(carried.values()))} — an entry nothing uses cannot be "
+		f"told from one that is doing its job"
+	)
+
+	patterns = subroutine.api.logs.secret_path_patterns()
+
+	for template in carried:
+		filled = template
+		for name in ("prefix", "secret", "id_or_prefix", "id_or_key", "ref", "workspace"):
+			filled = filled.replace(f"{{{name}}}", f"value-for-{name}")
+
+		assert any(pattern.match(filled) for pattern in patterns), (
+			f"{template} carries a secret in its path and matches no redaction pattern; "
+			f"filled in, it reads {filled}"
+		)
+
+
 def test_the_link_parameter_is_one_the_route_really_declares () -> None:
 	"""**The redaction list is checked against the route rather than against itself.**
 
