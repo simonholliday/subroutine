@@ -3025,6 +3025,86 @@ def token (
 	return IssuedToken(**fields, token=secret, account_created=account_created)
 
 
+class CalendarNames(typing.NamedTuple):
+	"""What a page of calendar feeds shares: project addresses and item-type keys, by id."""
+
+	projects: dict[str, str]
+	types: dict[uuid.UUID, str]
+
+
+def _named_for (
+	rows: typing.Sequence[subroutine.db.models.identity.CalendarFeed],
+	session: sqlalchemy.orm.Session | None,
+	principal: subroutine.domain.authentication.Principal | None,
+) -> CalendarNames:
+	"""Resolve every project and item type this page names, in two queries rather than 2N.
+
+	**Batch-loaded like every other listing here** (`#1080`). This was done per row, one query
+	each, which is bounded by how many feeds one person has and is therefore small — and is the
+	opposite of the rule `#39` and `#856` are about. A small N is why it had not bitten, not why
+	it was right, and the shape is what the next reader copies.
+
+	``keys_for`` narrows, so a project the reader cannot see stays a UUID rather than disclosing
+	its name; it answers in the order it was asked, which is what lets the pairs be zipped back.
+	"""
+
+	projects: dict[str, str] = {}
+	types: dict[uuid.UUID, str] = {}
+
+	if session is not None and principal is not None:
+		wanted = sorted(
+			{str(row.project_id) for row in rows if row.project_id is not None}
+		)
+
+		if wanted:
+			# `strict=True`, because `keys_for` answering a different length would silently
+			# pair a project with another project's address — a plausible, complete, wrong
+			# answer, and the one thing a zip can do that a loop cannot.
+			projects = dict(
+				zip(
+					wanted,
+					subroutine.domain.projects.keys_for(session, principal, wanted),
+					strict=True,
+				)
+			)
+
+	if session is not None:
+		asked = {
+			uuid.UUID(one)
+			for row in rows
+			if row.item_type_ids is not None
+			for one in row.item_type_ids
+		}
+
+		if asked:
+			model = subroutine.db.models.vocabulary.ItemType
+			types = {
+				one.id: one.key
+				for one in session.scalars(
+					sqlalchemy.select(model).where(model.id.in_(asked))
+				)
+			}
+
+	return CalendarNames(projects=projects, types=types)
+
+
+def calendars (
+	rows: typing.Sequence[subroutine.db.models.identity.CalendarFeed],
+	*,
+	now: datetime.datetime | None = None,
+	session: sqlalchemy.orm.Session | None = None,
+	principal: subroutine.domain.authentication.Principal | None = None,
+) -> list[Calendar]:
+	"""Render a page of calendar feeds, resolving what they share once."""
+
+	named = _named_for(rows, session, principal)
+
+	return [
+		calendar(row, now=now, session=session, principal=principal, named=named)
+		for row in rows
+	]
+
+
 def calendar (
 	row: subroutine.db.models.identity.CalendarFeed,
 	*,
@@ -3033,8 +3113,13 @@ def calendar (
 	now: datetime.datetime | None = None,
 	session: sqlalchemy.orm.Session | None = None,
 	principal: subroutine.domain.authentication.Principal | None = None,
+	named: CalendarNames | None = None,
 ) -> Calendar:
 	"""Render one calendar feed, with its URL only where one has just been minted.
+
+	``named`` is what a page resolved once; a caller with a single row leaves it out and this
+	resolves for that row through the same function, so there is one path rather than a batched
+	one and a per-row one free to disagree (`#1080`).
 
 	``issued`` rather than ``url is not None`` decides which type comes back, and the two are
 	genuinely different questions: an instance with no ``public_url`` mints a feed and can
@@ -3045,6 +3130,7 @@ def calendar (
 	"""
 
 	moment = now or subroutine.db.types.utcnow()
+	found = named if named is not None else _named_for([row], session, principal)
 	ids = None if row.item_type_ids is None else [uuid.UUID(one) for one in row.item_type_ids]
 	fields = {
 		"id": row.id,
@@ -3060,18 +3146,19 @@ def calendar (
 		# UUID rather than disclosing its name.
 		"project_key": (
 			None
-			if row.project_id is None or session is None or principal is None
-			else next(
-				iter(
-					subroutine.domain.projects.keys_for(
-						session, principal, [str(row.project_id)]
-					)
-				),
-				None,
-			)
+			if row.project_id is None
+			else found.projects.get(str(row.project_id))
 		),
 		"item_type_ids": ids,
-		"item_types": None if ids is None else _item_type_keys(session, ids),
+		"item_types": (
+			None
+			if ids is None or session is None
+			# **An id that names nothing is dropped rather than passed through**, which is the
+			# opposite of what a project gets here. A filter naming a deleted type genuinely
+			# matches nothing, so reporting the raw id would read as a type whose key we failed
+			# to find — the reach is not being under-reported, it is empty.
+			else [found.types[one] for one in ids if one in found.types]
+		),
 		"usable": row.revoked_at is None
 		and (row.expires_at is None or row.expires_at > moment),
 		"created_at": row.created_at,
@@ -3084,37 +3171,6 @@ def calendar (
 		return Calendar(**fields)
 
 	return IssuedCalendar(**fields, url=url)
-
-
-def _item_type_keys (
-	session: sqlalchemy.orm.Session | None, ids: typing.Sequence[uuid.UUID]
-) -> list[str] | None:
-	"""Return the keys of these item types, in the order the filter stores them.
-
-	**The key rather than the label**, because this is what goes back into ``--type`` and into
-	a request body. A label is for reading and a key is for typing, and a listing whose values
-	cannot be sent back is `#151`'s own complaint.
-
-	``None`` where there is no session to ask, which is a caller that cannot resolve rather
-	than a filter that matches everything — the difference matters, because ``item_type_ids``
-	says which it is and this field is only ever the readable rendering of that one.
-
-	**An id that names nothing is dropped rather than passed through**, which is the opposite
-	of what :func:`calendar` does with a project. A filter naming a deleted type genuinely
-	matches nothing, so reporting the raw id would read as a type whose key we failed to
-	find — the reach is not being under-reported, it is empty.
-	"""
-
-	if session is None:
-		return None
-
-	model = subroutine.db.models.vocabulary.ItemType
-	named = {
-		one.id: one.key
-		for one in session.scalars(sqlalchemy.select(model).where(model.id.in_(ids)))
-	}
-
-	return [named[one] for one in ids if one in named]
 
 
 def member (

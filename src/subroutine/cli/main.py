@@ -2325,7 +2325,17 @@ def calendar_create (
 				workspace=workspace.strip() or None,
 				project=project.strip() or None,
 				audience="assigned_to_me" if mine else "everything",
-				item_types=[one for one in (item_type or []) if one.strip()] or None,
+				# **`or None` is what a blank `--type` must not be collapsed into** (`#1081`).
+				# `None` means every type, so tidying an all-blank list into it answered *show
+				# me nothing* with *show me everything* — the refusal
+				# `domain.calendars.create` states in those very words, undone one layer up by
+				# the step that drops the blanks. The option not being given is the only thing
+				# that means nothing was asked.
+				item_types=(
+					None
+					if not item_type
+					else [one for one in item_type if one.strip()]
+				),
 				expires=expires.strip() or None,
 			)
 

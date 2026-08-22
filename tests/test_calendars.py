@@ -21,6 +21,7 @@ import uuid
 import zoneinfo
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -28,6 +29,7 @@ import subroutine.api.calendars
 import subroutine.auth
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -40,6 +42,7 @@ import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
+import subroutine.views
 import test_api_tasks
 
 NOW = datetime.datetime(2026, 8, 17, 9, 0, tzinfo=datetime.UTC)
@@ -972,6 +975,68 @@ def test_a_feed_is_not_something_anybody_else_can_read_or_act_on (
 		refused = api_support.call(world.application, method, address, headers=theirs)
 
 		assert refused.status_code == 404, f"{method} {address}: {refused.text}"
+
+
+def test_a_page_of_feeds_costs_what_one_costs (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1080`. Bounded by how many feeds one person has, and the wrong shape all the same.
+
+	``views.calendar`` resolved the project address and the item-type keys **per row**, one
+	query each, on ``calendar list``. Small, because nobody has hundreds of feeds — and the
+	opposite of the batch-loading rule every other listing here follows. A small N is why it
+	had not bitten, not why it was right, and the shape is what the next reader copies.
+
+	**Counted rather than timed**, this project's rule for `SR#39`-shaped claims: on a fixture
+	this size a per-row walk is too fast to measure, so what is asserted is that five feeds cost
+	what one does.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+	kinds = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.ItemType).where(
+			subroutine.db.models.vocabulary.ItemType.workspace_id == workspace.id
+		)
+	).all()
+
+	made = [
+		_feed(
+			session,
+			workspace,
+			owner,
+			title=f"Feed {index}",
+			project_id=project.id,
+			item_type_ids=[kinds[0].id],
+		)[0]
+		for index in range(5)
+	]
+	session.flush()
+
+	counted: list[int] = []
+
+	def watch (*_args: object, **_kwargs: object) -> None:
+		counted.append(1)
+
+	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
+
+	try:
+		counted.clear()
+		subroutine.views.calendars(made[:1], session=session, principal=actor)
+		one = len(counted)
+
+		counted.clear()
+		subroutine.views.calendars(made, session=session, principal=actor)
+		five = len(counted)
+
+	finally:
+		sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", watch)
+
+	assert one > 0, "the fixture is not reaching the query path at all"
+	assert five == one, (
+		f"rendering five feeds cost {five} queries where one cost {one} — this resolves per row"
+	)
 
 
 def test_a_type_filter_that_matches_nothing_is_refused_rather_than_read_as_all (

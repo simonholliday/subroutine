@@ -3073,6 +3073,36 @@ def test_a_calendar_address_is_printed_once_and_never_again (
 	assert "revoked" in run("calendar", "list", "--revoked").output
 
 
+def test_a_blank_type_filter_is_refused_at_the_terminal_too (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#1081`. The domain refuses this in those very words, and the command undid it.
+
+	``domain.calendars.create`` turns down an empty type filter because ``None`` means *every
+	type*, so collapsing ``[]`` into it answers *show me nothing* with *show me everything*.
+	``calendar create`` dropped the blanks and then wrote ``or None`` — so ``--type ''`` became
+	exactly that answer, one layer above the refusal, and by the *tidying* step rather than by
+	any decision.
+
+	**A refusal the domain states wants a test that drives each surface**, not one that drives
+	the domain: the domain's own test passed throughout. Related to `SR#1060`, which is the same
+	question asked of delivery.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+
+	refused = run("calendar", "create", "Nothing at all", "--type", "", expect=1)
+
+	assert "would show nothing" in refused.output, refused.output
+
+	# And the ordinary case still means *every type*, which is the half a fix could break by
+	# refusing an absent option as though it were a blank one.
+	made = run("calendar", "create", "My work")
+
+	assert "only time it is shown" in made.output, made.output
+
+
 def test_a_whole_calendar_address_is_refused_rather_than_read_for_its_reference (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

@@ -180,10 +180,7 @@ def listing (
 	)
 
 	return subroutine.api.shaping.response(
-		[
-			subroutine.views.calendar(row, session=session, principal=actor)
-			for row in found
-		],
+		subroutine.views.calendars(found, session=session, principal=actor),
 		subroutine.views.Page(
 			limit=len(found), has_more=False, next_cursor=None, total=len(found)
 		),

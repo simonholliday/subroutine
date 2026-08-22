@@ -369,6 +369,12 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine calendar create --type ''` is refused rather than read as every type.** An
+  empty type filter has always been turned down — a calendar showing no item types shows
+  nothing, and reading that as *no filter* answers it with *everything*. The command dropped
+  blank values and then treated an empty list as *nothing was asked*, which is exactly the
+  answer the refusal exists to prevent.
+
 - **An agent is told when its listing was cut.** `subroutine_list` and `subroutine_search`
   returned exactly the number asked for and nothing else, so twenty results and *the first
   twenty of many* read identically — while the agenda, in the same tool, has always said "N more
