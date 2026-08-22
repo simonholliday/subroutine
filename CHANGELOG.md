@@ -315,6 +315,34 @@ upgrade involves.
 
 ### Changed
 
+- **A day you write now means the day it is where your *account* is, not where your keyboard
+  is.** `subroutine add "… by friday"`, `plan`, `defer`, `agenda <day>` and an agent's `plan`
+  and `defer` all used to resolve the word against the machine they were typed on. Your agenda
+  is counted in your account's timezone, so near midnight with the two differing, `subroutine
+  agenda today` and a bare `subroutine agenda` could be about different days, and nothing said
+  which.
+
+  **For an agent it was worse than a mismatch.** Since 0.5.0 a relayed tool call runs *inside*
+  the instance, so the "machine" whose timezone decided the day was the **server**. That is
+  nobody's zone and not one anybody chose.
+
+  Set yours with `subroutine user timezone <zone>`, and `subroutine whoami` reports it. If you
+  have never set one, nothing changes: your account took this machine's zone when it was
+  created.
+
+  Two consequences worth knowing. Two accounts in different zones now genuinely file different
+  Fridays — which is the truth of the arrangement rather than the third answer, matching
+  neither, that was being sent before. And an older instance that does not publish the new
+  field is unchanged: this machine's zone is still the fallback.
+
+- **`GET /v1/meta` and `GET /v1/me` report `reader_timezone` on each workspace.** The timezone
+  chain — explicit, then your account, then the workspace, then the instance — resolved for
+  *you*, in *that* workspace. It is what the change above reads, and it is published so that a
+  client never has to hold a copy of the rule to know what `friday` means.
+
+  The raw `timezone` beside it on `/v1/me` is unchanged and still means what the workspace
+  itself says, which is null where it says nothing.
+
 - **The agent skill says that a report is not an assignment.** It described filing as something
   you do on the way to working — *"file the work before you start it"* — and had no sentence
   for the commoner case, where somebody has told you about a problem and what they want is for

@@ -10,7 +10,6 @@ doing today" is a question about a person's day rather than about a workspace �
 appointment and the deployment are both in it (docs/design.md §13.7).
 """
 
-import datetime
 import uuid
 
 import fastapi
@@ -42,8 +41,12 @@ router = fastapi.APIRouter(
 def read (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
-	date: datetime.date | None = fastapi.Query(
-		None, description="The day to build the agenda for. Defaults to today, in your zone."
+	date: str | None = fastapi.Query(
+		None,
+		description=(
+			"The day to build the agenda for — 2026-09-01, 'friday' or 'today'. Defaults to "
+			"today, in your zone."
+		),
 	),
 	timezone: str | None = fastapi.Query(
 		None, description="Interpret the day in this zone, overriding your own."
@@ -76,7 +79,21 @@ def read (
 		workspace_ids=_scope(session, actor, workspace_id),
 		now=now,
 		timezone=zone,
-		date=date,
+		# **The word is read here rather than by whoever typed it** (`#1083`, decision
+		# `#1088`). This used to be a `datetime.date`, so every client had to decide what
+		# `today` meant before asking — the terminal against the laptop's zone, an agent
+		# against the server's — while the answer coming back was bucketed in the account's.
+		# So `subroutine agenda today` and a bare `subroutine agenda` could be about different
+		# days. One is resolved in `zone` above, which is the same chain the buckets use.
+		#
+		# An ISO date still parses, so nothing a client sent before this reads differently.
+		date=(
+			None
+			if date is None
+			else subroutine.domain.schedule.interpret_written_day(
+				date, timezone=zone, now=now, field="date"
+			)
+		),
 		horizon_days=horizon_days,
 		unscheduled_limit=unscheduled_limit,
 	)

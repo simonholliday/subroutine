@@ -231,7 +231,13 @@ class Client:
 				instance=None if instance is None else subroutine.views.instance(instance),
 				workspaces=tuple(
 					subroutine.views.workspace_ref(
-						workspace, prioritised=focused.get(workspace.id)
+						workspace,
+						prioritised=focused.get(workspace.id),
+						# The same answer the HTTP transport publishes, from the same
+						# function — `#1083`, decision `#1088`.
+						reader_timezone=subroutine.domain.schedule.zone_for(
+							user=actor.user, workspace=workspace, instance=instance
+						),
 					)
 					for workspace in reachable
 				),
@@ -252,7 +258,7 @@ class Client:
 	def agenda (
 		self,
 		*,
-		date: datetime.date | None = None,
+		date: datetime.date | str | None = None,
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
@@ -284,7 +290,15 @@ class Client:
 				),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,
-				date=date,
+				# Read here rather than by the caller, so both transports resolve one word
+				# the same way and in the account's zone — `#1083`, decision `#1088`.
+				date=(
+					date
+					if date is None or isinstance(date, datetime.date)
+					else subroutine.domain.schedule.interpret_written_day(
+						date, timezone=zone, now=subroutine.db.types.utcnow(), field="date"
+					)
+				),
 				horizon_days=horizon_days,
 				unscheduled_limit=(
 					subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT

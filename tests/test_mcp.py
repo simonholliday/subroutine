@@ -22,6 +22,7 @@ import time
 import typing
 import unittest.mock
 import uuid
+import zoneinfo
 
 import pytest
 import sqlalchemy
@@ -2188,6 +2189,84 @@ def test_a_day_an_agent_is_told_is_the_day_the_day_was_meant (
 		)
 
 
+@pytest.mark.parametrize(
+	("timezone", "at", "expected"),
+	[
+		("Pacific/Auckland", "2027-08-05T13:00:00Z", datetime.date(2027, 8, 6)),
+		("America/Los_Angeles", "2027-08-05T04:00:00Z", datetime.date(2027, 8, 4)),
+		("UTC", "2027-08-05T13:00:00Z", datetime.date(2027, 8, 5)),
+	],
+)
+def test_a_day_an_agent_writes_is_read_in_the_account_s_zone (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	monkeypatch: pytest.MonkeyPatch,
+	timezone: str,
+	at: str,
+	expected: datetime.date,
+) -> None:
+	"""The write half of `SR#1064`, and its zone was nobody's — decision `SR#1088`.
+
+	``_moment`` read ``config.system_timezone()``, under a comment calling it *"the client's
+	own zone"*. That was true of a stdio adapter on the agent's own machine and false of every
+	relayed connection: since `SR#539` this module runs **inside the instance**, so the word an
+	agent wrote was resolved against the server's ``/etc/localtime``.
+
+	The account's zone decides it now, published on ``/v1/me`` as ``reader_timezone`` so that
+	no client has to hold a copy of §6.5 to know what ``today`` means (`SR#925`).
+
+	**Only the *day* discriminates, and that is worth knowing before changing this.** The first
+	version asserted the stored instant was midnight in the account's zone — and it passed
+	against the original code, because the adapter resolved ``today`` to a bare ``date`` and
+	the *instance* then turned that date into midnight in the account's zone. So the boundary
+	was already right and the day was wrong, which is the one thing an assertion about the
+	boundary cannot see.
+
+	**The clock is frozen, and each zone gets an instant chosen to make it disagree.** On a
+	real clock every zone shares a date with UTC for part of every day, so between 07:00 and
+	12:00 UTC neither Auckland nor Los Angeles disagrees and the whole parametrisation is
+	vacuous for five hours — a suite that looks thorough and asserts nothing, which is
+	`SR#737`'s shape. Auckland at 13:00 UTC is already tomorrow; Los Angeles at 04:00 UTC is
+	still yesterday. **UTC is the control**: it cannot show the defect, and it is here so that a
+	fix which hard-codes one zone fails rather than passing two cases and looking careful.
+	"""
+
+	who = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	assert len(who) == 1, "the fixture's one account is what carries the zone"
+
+	who[0].timezone = timezone
+	session.flush()
+
+	frozen = datetime.datetime.fromisoformat(at)
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: frozen)
+
+	assert frozen.astimezone(zoneinfo.ZoneInfo(timezone)).date() == expected, (
+		"the case is built so the account's today differs from the runner's; if this fires "
+		"the instant and the expected day have come apart"
+	)
+
+	ref = _added(bound, "Sand the door")
+
+	changed, failed = _called(bound, "subroutine_update", ref=ref, plan="today")
+	assert not failed, changed
+
+	row = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.ref == ref
+		)
+	).one()
+
+	assert row.starts_at is not None, "the plan reached no column at all"
+	assert row.starts_is_all_day, "'today' names a whole day, not an o'clock"
+
+	stored = row.starts_at.astimezone(zoneinfo.ZoneInfo(timezone)).date()
+
+	assert stored == expected, (
+		f"{timezone}: at {at} it is {expected} there, and an agent planning something for "
+		f"'today' had it stored as {stored} — so the word was read in some other zone"
+	)
+
+
 def test_a_listing_an_agent_asked_for_says_when_it_was_cut (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -4112,6 +4191,12 @@ def test_a_day_resolves_on_a_machine_whose_zone_abbreviation_is_not_a_zone () ->
 
 	Driven through the real function rather than by inspecting what it passes: the assertion is
 	that a day resolves, which is what the user could not do.
+
+	**The zone is passed in now rather than read here** (`#1064`, decision `#1088`), because the
+	process's zone is the *server's* for every relayed connection. The defect this reproduces is
+	unmoved: it was never about *which* zone was chosen but about the value being an
+	abbreviation, and ``config.system_timezone()`` — which is what a caller falls back to when
+	the instance publishes none — is the expression that used to be wrong.
 	"""
 
 	original = os.environ.get("TZ")
@@ -4119,7 +4204,9 @@ def test_a_day_resolves_on_a_machine_whose_zone_abbreviation_is_not_a_zone () ->
 	time.tzset()
 
 	try:
-		resolved = subroutine.mcp.tools._day("friday", field="plan")
+		resolved = subroutine.mcp.tools._day(
+			"friday", field="plan", timezone=subroutine.config.system_timezone()
+		)
 
 	finally:
 		if original is None:

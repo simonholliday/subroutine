@@ -160,7 +160,7 @@ class Client:
 	def agenda (
 		self,
 		*,
-		date: datetime.date | None = None,
+		date: datetime.date | str | None = None,
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
@@ -172,7 +172,7 @@ class Client:
 			"GET",
 			"/v1/agenda",
 			params=_given(
-				date=None if date is None else date.isoformat(),
+				date=_written(date),
 				timezone=timezone,
 				horizon_days=horizon_days,
 				unscheduled_limit=unscheduled_limit,
@@ -1746,6 +1746,23 @@ def _asked (
 		sending["expected_version"] = expected_version
 
 	return sending
+
+
+def _written (
+	value: datetime.datetime | datetime.date | str | None,
+) -> str | None:
+	"""Render a date for the wire, leaving a written day exactly as it was typed.
+
+	``"friday"`` is not something this can resolve and must not try (`#1088`): §6.5's chain
+	lives on the instance, and a client that resolved first would be answering in whatever zone
+	the machine it runs on happens to be set to. A ``date`` or ``datetime`` is already a
+	decision somebody made and goes as ISO.
+	"""
+
+	if value is None or isinstance(value, str):
+		return value
+
+	return value.isoformat()
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:

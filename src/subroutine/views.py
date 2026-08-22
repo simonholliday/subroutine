@@ -50,11 +50,13 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.durations
 import subroutine.domain.events
+import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
+import subroutine.domain.schedule
 import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -235,6 +237,26 @@ class WorkspaceRef(pydantic.BaseModel):
 	id: uuid.UUID
 	slug: str
 	title: str
+
+	#: The zone this caller's *typed* days are read in here — §6.5's chain already resolved,
+	#: for this account, in this workspace (decision `#1088`).
+	#:
+	#: **Published rather than left to the client to derive** (`#925`, `#1083`). A written day
+	#: like ``friday`` or ``today`` means the day it is in the **account's** zone, and only the
+	#: instance holds that chain: a client resolving it reached for whatever zone the machine it
+	#: runs on was set to — the laptop for a terminal, and the *server's* ``/etc/localtime`` for
+	#: a relayed agent, since `#539` runs those tools inside the instance. One word therefore
+	#: meant up to three different days depending on who asked.
+	#:
+	#: **The chain is resolved here rather than published in parts**, which is the difference
+	#: between this and the raw ``timezone`` on :class:`WorkspaceAccess`: a client given the
+	#: three levels would hold a copy of §6.5, and two copies of a rule is what this codebase
+	#: spends most of its time removing.
+	#:
+	#: **Null means this response does not carry it**, not that no zone applies — an instance one
+	#: release behind sends no such key (`#345`, `#482`), and only ``GET /v1/meta`` fills it in.
+	#: A caller that finds it null falls back to its own machine, which is what it did before.
+	reader_timezone: str | None = None
 
 	#: The address of the one project whose work rises in this workspace's ranked listings
 	#: (decision ``#982``), or null for none — which is most workspaces.
@@ -2646,6 +2668,16 @@ def workspace_access (
 		slug=row.slug,
 		title=row.title,
 		timezone=row.timezone,
+		# **The raw level above, and §6.5 already resolved below it.** ``timezone`` is what this
+		# workspace itself says, null where it says nothing; ``reader_timezone`` is the answer
+		# — what a day *this caller types here* means (`#1083`, decision `#1088`). Both are
+		# published because they answer different questions, and a client that only had the
+		# parts would have to hold a copy of the chain to get from one to the other.
+		reader_timezone=subroutine.domain.schedule.zone_for(
+			user=principal.user,
+			workspace=row,
+			instance=subroutine.domain.instances.get(session),
+		),
 		prioritised_project=prioritised,
 		role=grant.from_role,
 		permissions=sorted(grant.permissions),
@@ -3203,12 +3235,24 @@ def member (
 
 
 def workspace_ref (
-	row: subroutine.db.models.identity.Workspace, *, prioritised: str | None
+	row: subroutine.db.models.identity.Workspace,
+	*,
+	prioritised: str | None,
+	reader_timezone: str | None = None,
 ) -> WorkspaceRef:
-	"""Render one workspace as a client addresses it."""
+	"""Render one workspace as a client addresses it.
+
+	``reader_timezone`` is left out where the caller has no principal to resolve it for — a
+	member listing describes a workspace rather than answering *what does 'friday' mean to me*,
+	and a zone reported there would be about whoever happened to be asking.
+	"""
 
 	return WorkspaceRef(
-		id=row.id, slug=row.slug, title=row.title, prioritised_project=prioritised
+		id=row.id,
+		slug=row.slug,
+		title=row.title,
+		reader_timezone=reader_timezone,
+		prioritised_project=prioritised,
 	)
 
 

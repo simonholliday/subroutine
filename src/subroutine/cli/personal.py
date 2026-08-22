@@ -134,6 +134,26 @@ class Reached:
 
 		return self.client.connection.name
 
+	def reader_timezone (self, workspace: str | None) -> str | None:
+		"""Return the zone this connection says the caller reads a *typed* day in.
+
+		§6.5's chain, resolved by the instance and published on ``/v1/meta`` (`#1083`, decision
+		`#1088`). ``None`` where the instance is a release behind and sends no such key, which
+		is the caller's cue to fall back to this machine — the answer it gave before.
+
+		**Matched by slug, and unmatched falls through to the first workspace this connection
+		reaches.** A command that names no workspace is acting in whichever one the context
+		chose, and every workspace on one instance shares a user and an instance zone; the level
+		that can differ is the workspace's own, which is null on every workspace here and is a
+		fallback below the account's in any case.
+		"""
+
+		for candidate in self.identity.workspaces:
+			if workspace is not None and candidate.slug == workspace.strip().lower():
+				return candidate.reader_timezone
+
+		return self.identity.workspaces[0].reader_timezone if self.identity.workspaces else None
+
 	def slug_of (self, workspace_id: typing.Any) -> str | None:
 		"""Return the short name of one of this connection's workspaces."""
 
@@ -170,6 +190,31 @@ class World:
 	#: Two connections that turned out to name one instance, if any — held rather than raised
 	#: (`#942`). See :meth:`merging` for why it is carried this far.
 	collision: subroutine.errors.SubroutineError | None = None
+
+	def typed_day_zone (self, connection: str | None, workspace: str | None) -> str:
+		"""Return the zone a day *typed here* should be read in — `#1083`, decision `#1088`.
+
+		The **account's**, resolved by the instance that will store it and published on
+		``/v1/meta``. This used to be ``settings.default_timezone``, whose default is this
+		machine's OS zone — so ``subroutine agenda today`` and a bare ``subroutine agenda``
+		could name different days near midnight, because the answer is bucketed in the
+		account's zone and the question was asked in the laptop's.
+
+		**Falls back to this machine when the instance does not say**, which is an instance one
+		release behind (`#345`): the old answer, rather than a refusal for a field that has
+		only just started existing.
+		"""
+
+		for reached in self.reached:
+			if connection is None or reached.name == connection:
+				said = reached.reader_timezone(workspace)
+
+				if said is not None:
+					return said
+
+				break
+
+		return self.settings.default_timezone
 
 	def merging (self) -> None:
 		"""Refuse to combine answers from connections that turn out to be one instance.
@@ -421,7 +466,7 @@ AGENDA_SECTIONS: tuple[tuple[str, str, bool], ...] = agenda_sections(
 def agenda_asked (
 	*,
 	workspace: str | None,
-	date: datetime.date | None = None,
+	date: datetime.date | str | None = None,
 	horizon_days: int | None = None,
 ) -> dict[str, typing.Any]:
 	"""Return what the agenda asks every connection for.
@@ -1893,8 +1938,8 @@ def _completions (item: Reached) -> str:
 	return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
 
 
-def _day (world: World, written: str) -> datetime.date:
-	"""Read a day the user named, in their timezone.
+def _day (world: World, written: str, *, at: "Located") -> datetime.date:
+	"""Read a day the user named, **in their account's zone** (`#1083`, decision `#1088`).
 
 	**A weekday name is resolved here rather than by the expression grammar** (`#167`).
 	``plan 1 friday`` is promised by ``explain dates``, by ``plan --help`` twice, by
@@ -1902,11 +1947,16 @@ def _day (world: World, written: str) -> datetime.date:
 	``add "Something by friday"`` did. Weekdays are what a person types; §9.3's expressions
 	serve programs, which have a calendar and should send a date. The two vocabularies meet
 	in ``dates.day_named``, so there is one answer to what "friday" means.
+
+	**The zone is the instance's answer, not this machine's.** ``friday`` is the soonest Friday
+	counting *today*, so which day it names depends on whose today — and the account's is the
+	one the agenda is bucketed in. Asking the laptop made a written date and the answer about it
+	disagree, which is what `#1001` filed and `#1088` settled.
 	"""
 
 	resolved = subroutine.domain.schedule.interpret_written_day(
 		written,
-		timezone=world.settings.default_timezone,
+		timezone=world.typed_day_zone(at.connection, at.workspace),
 		now=subroutine.db.types.utcnow(),
 		field="when",
 	)
@@ -1920,12 +1970,12 @@ def _day (world: World, written: str) -> datetime.date:
 	return resolved
 
 
-def _moment (world: World, written: str) -> datetime.datetime | datetime.date:
+def _moment (world: World, written: str, *, at: "Located") -> datetime.datetime | datetime.date:
 	"""Read a day the user named, **keeping a time of day when they wrote one** (`#858`).
 
-	`_day`'s sibling, for the one command whose field carries a clock. Same vocabulary and
-	the same refusal — both go through ``schedule.interpret_written_moment``, and `_day` is
-	that function with the time thrown away, so there is no second grammar to drift.
+	`_day`'s sibling, for the one command whose field carries a clock. Same vocabulary, the
+	same refusal and the same zone — both go through ``schedule.interpret_written_moment``, and
+	`_day` is that function with the time thrown away, so there is no second grammar to drift.
 
 	**Two readers disagree about a deferred item and both are right** (`#771`, and `#858`
 	asked for this to be written down). ``readiness.undeferred`` compares to the minute, so
@@ -1942,7 +1992,7 @@ def _moment (world: World, written: str) -> datetime.datetime | datetime.date:
 
 	resolved = subroutine.domain.schedule.interpret_written_moment(
 		written,
-		timezone=world.settings.default_timezone,
+		timezone=world.typed_day_zone(at.connection, at.workspace),
 		now=subroutine.db.types.utcnow(),
 		field="when",
 	)
@@ -1954,6 +2004,30 @@ def _moment (world: World, written: str) -> datetime.datetime | datetime.date:
 		)
 
 	return resolved
+
+
+def _a_readable_day (written: str) -> str:
+	"""Return a written day unchanged, refusing here what every connection would refuse — `#1083`.
+
+	**Readability only. The day itself is resolved by the instance**, in the account's zone
+	(decision `#1088`), which is the whole point of sending the word rather than a date.
+
+	This exists because the agenda *fans out*: a connection that refuses is reported and the
+	others still answer, so a mistyped day printed a refusal and then ``Nothing due then.`` —
+	a plausible, complete, wrong answer sitting directly beneath the reason it was wrong. A
+	write goes to one connection and needs no such check, which is why ``plan`` and ``defer``
+	have none.
+
+	**The zone passed here cannot matter and the answer is thrown away.** Whether a word parses
+	is a property of the vocabulary; *which day it names* is the question this deliberately does
+	not ask. Anything else would be the machine's zone deciding a day again, one function along.
+	"""
+
+	subroutine.domain.schedule.interpret_written_day(
+		written, timezone="UTC", now=subroutine.db.types.utcnow(), field="when"
+	)
+
+	return written
 
 
 def _change_line (event: subroutine.views.Event) -> str:
@@ -4400,18 +4474,12 @@ def register (
 				# mean, and it is the same argument `--type` already makes.
 				recurrence=repeat.strip() or None,
 				recurrence_anchor=repeat_from.strip() or None,
-				# **This machine's zone, because a date somebody types means the day it is
-				# where they are** (§13.7). Resolved here so every connection files the same
-				# Friday; it was not passed at all, so each instance applied its own notion
-				# of the caller and a person with two profiles filed *two different Fridays*.
-				#
-				# **The agenda deliberately does the opposite now** (`#995`): it sends no zone
-				# and lets §6.5's chain decide, because *which day is this answer about* is a
-				# question about the reader rather than about the keyboard. Writing and
-				# reading part company here on purpose — and whether a written date should
-				# resolve against the writer's account rather than their machine is a real
-				# question this leaves open rather than answers.
-				timezone=world.settings.default_timezone,
+				# **No zone is sent, so §6.5's chain decides** — decision `#1088`: a day is
+				# resolved in the **account's** zone, never the machine's. This used to fill
+				# the chain's `explicit` slot — its *top* — with this machine's OS zone, which
+				# is `#1014`'s defect and the reason reading and writing came apart (`#1001`).
+				# Two accounts in different zones now genuinely file different Fridays;
+				# `_report_zones` says so, and `#1089` is `whoami` saying it here.
 				# **No `--repeat-trigger`, deliberately** (`#94`). `time` is refused by name
 				# until `#916` expands a rule into a date-ranged view, so the flag would offer
 				# one accepted value and one that always fails — a control with nothing to
@@ -5088,7 +5156,7 @@ def register (
 			changed = client.schedule(
 				ref=task.ref,
 				workspace=located.workspace,
-				starts=_day(world, _asked(when, "Which day?")),
+				starts=_day(world, _asked(when, "Which day?"), at=located),
 			)
 
 			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
@@ -5134,7 +5202,7 @@ def register (
 			changed = client.schedule(
 				ref=task.ref,
 				workspace=located.workspace,
-				snooze=_moment(world, _asked(when, "Hide it until when?")),
+				snooze=_moment(world, _asked(when, "Hide it until when?"), at=located),
 			)
 
 			hidden = f"Hidden until {_when_rendered(changed)}"
@@ -7044,11 +7112,9 @@ def _agenda (
 	"""
 
 	with program.opened(strict=strict) as world:
-		# **Read here, in this machine's zone, which is what `plan` and `defer` do** (`#1001`
-		# owns the seam). What comes back is an *absolute* date, so which zone the buckets are
-		# counted in is still §6.5's answer and still the reader's — the only question this
-		# settles is which day the word named.
-		day = None if not when else _day(world, when)
+		# Sent as it was typed; each instance reads it in its own reader's zone. See
+		# `_a_readable_day` for why this stopped resolving the word here (`#1083`).
+		day = _a_readable_day(when) if when else None
 
 		asked = agenda_asked(workspace=workspace, date=day, horizon_days=days)
 

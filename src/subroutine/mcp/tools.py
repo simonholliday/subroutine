@@ -2442,7 +2442,45 @@ def _ref (arguments: dict[str, typing.Any], *, field: str = "ref") -> int:
 	return found
 
 
-def _day (given: typing.Any, *, field: str) -> datetime.date | None:
+def _typed_day_zone (client: subroutine.clients.base.Client, workspace: str | None) -> str:
+	"""Return the zone a day an agent typed should be read in — `#1064`, decision `#1088`.
+
+	The **account's**, resolved by the instance and published on ``/v1/meta``, which
+	``identity()`` is already the answer to. Nothing extra is fetched on the path that matters:
+	since `#539` these tools run inside the instance for a relayed connection, so this is a
+	local call rather than a round trip.
+
+	**What it replaces was nobody's zone.** ``config.system_timezone()`` is the *process's* —
+	the agent's machine when the connection is local, and the server's ``/etc/localtime`` for
+	every relayed one. So the day an agent named was decided by whichever host happened to be
+	running the adapter, and `#1083` had the same shape one file along at the terminal.
+
+	Falls back to the process's zone only where the instance sends no such key, which is one a
+	release behind (`#345`) — the answer it gave before, rather than a refusal for a field that
+	has only just started existing.
+	"""
+
+	# **``me`` rather than ``identity``**, and the reason is a guard rather than taste:
+	# ``identity`` is excused from this surface on §21.2's budget, and `test_reach` refuses a
+	# method that is both excused and called here — correctly, because an excuse claiming a
+	# capability is absent and a call reaching it are two statements that must not disagree.
+	# ``subroutine_whoami`` already reaches ``me``, so nothing about what an agent can do moves.
+	reachable = client.me().workspaces
+	wanted = None if workspace is None else workspace.strip().lower()
+
+	for candidate in reachable:
+		if wanted is not None and candidate.slug != wanted:
+			continue
+
+		if candidate.reader_timezone is not None:
+			return candidate.reader_timezone
+
+		break
+
+	return subroutine.config.system_timezone()
+
+
+def _day (given: typing.Any, *, field: str, timezone: str) -> datetime.date | None:
 	"""Read a day an agent named, or ``None`` to clear it.
 
 	**The same grammar a person types** (§6.13, `domain.schedule.interpret_written_day`) —
@@ -2459,20 +2497,22 @@ def _day (given: typing.Any, *, field: str) -> datetime.date | None:
 	string. Omitting the argument is what leaves the day alone.
 	"""
 
-	moment = _moment(given, field=field)
+	moment = _moment(given, field=field, timezone=timezone)
 
 	if isinstance(moment, datetime.datetime):
-		# Back to a day in the zone the moment was read in, which is the agent's own — the
-		# same conversion `schedule.interpret_written_day` does, and for its reason: reading
-		# it in UTC would make a Friday evening into Saturday for anybody east of Greenwich.
+		# Back to a day in the zone the moment was read in — the same conversion
+		# `schedule.interpret_written_day` does, and for its reason: reading it in UTC would
+		# make a Friday evening into Saturday for anybody east of Greenwich.
 		return moment.astimezone(
-			subroutine.domain.dates.zone(subroutine.config.system_timezone(), field)
+			subroutine.domain.dates.zone(timezone, field)
 		).date()
 
 	return moment
 
 
-def _moment (given: typing.Any, *, field: str) -> datetime.datetime | datetime.date | None:
+def _moment (
+	given: typing.Any, *, field: str, timezone: str
+) -> datetime.datetime | datetime.date | None:
 	"""Read a day an agent named, **keeping a time of day when it wrote one** (`#858`).
 
 	`_day`'s sibling and its implementation — `_day` is this with the clock thrown away, so
@@ -2481,6 +2521,10 @@ def _moment (given: typing.Any, *, field: str) -> datetime.datetime | datetime.d
 
 	A weekday, a bare date and a §9.3 expression all name a day; only a written time is
 	honoured, which is the rule ``schedule.interpret_written_moment`` states in full.
+
+	**``timezone`` is the account's, passed in** (`#1064`, decision `#1088`). It used to be
+	``config.system_timezone()`` read right here, which is the *server's* for every relayed
+	connection — see :func:`_typed_day_zone` for why that was nobody's zone.
 	"""
 
 	if not isinstance(given, str):
@@ -2494,31 +2538,7 @@ def _moment (given: typing.Any, *, field: str) -> datetime.datetime | datetime.d
 	# thing in the same words. A second message here would be a place for the two to drift.
 	return subroutine.domain.schedule.interpret_written_moment(
 		given,
-		# **The process's own zone — which is the agent's machine only when the connection is
-		# local, and is the *server's* for every relayed one** (`#1064`). An agent saying
-		# "friday" means the Friday it is looking at, and resolving that in UTC turns it into
-		# Thursday for anybody west of Greenwich after four in the afternoon; that argument is
-		# right and this is no longer where it lands. Since `#539` this module runs inside the
-		# instance for a relayed connection, so what is read here is the server's
-		# ``/etc/localtime`` — nobody's zone, and not one anybody chose.
-		#
-		# **Left as it is deliberately, because the replacement is a decision rather than a
-		# spelling.** The two candidates are §6.5's chain, which costs this adapter a
-		# round-trip or a copy of a rule it does not hold, and moving the resolution into the
-		# domain, which changes what a *written time* on ``plan`` does and would have to move
-		# for the terminal in the same breath or the two surfaces disagree. `#1083` is the
-		# same question asked of the terminal and the two want one answer.
-		#
-		# **Read the way `init` reads it, not off a datetime** (`#532`). This was
-		# `str(utcnow().astimezone().tzinfo)`, and `astimezone()` yields a *fixed-offset* zone
-		# whose `str()` is the **abbreviation** — so it passed `BST`, `PDT`, `CEST` or `AEST`
-		# into a function that requires a zoneinfo key, and `plan` and `defer` failed outright.
-		#
-		# Nothing caught it because a handful of abbreviations *are* zoneinfo keys — `UTC`,
-		# `GMT`, `EST`, `MST`. It therefore works in UTC, which is every CI job and every test
-		# here, and in London in winter, and fails in London from late March to October. Found
-		# on a stranger's laptop, in August.
-		timezone=subroutine.config.system_timezone(),
+		timezone=timezone,
 		now=subroutine.db.types.utcnow(),
 		field=field,
 	)
@@ -2714,6 +2734,9 @@ def _updated (
 	if "repeat" in arguments:
 		changes["recurrence"] = arguments["repeat"] or None
 
+	ref = _ref(arguments)
+	workspace = _text(arguments, "workspace")
+
 	# **``defer`` reads a clock and ``plan`` does not** (`#858`). ``snoozed_until`` carries a
 	# time everywhere it is stored, so a surface that truncates is throwing away something the
 	# writer said; ``starts_at`` is rendered by nothing at this scale yet, which is `#576`.
@@ -2723,20 +2746,29 @@ def _updated (
 	# one field meaning two different things depending on which surface set it — the
 	# divergence this codebase spends most of its time removing, introduced by the fix for
 	# something else.
-	days: dict[str, datetime.datetime | datetime.date | None] = {
-		field: (_moment if field == "defer" else _day)(arguments[field], field=field)
-		for field in ("plan", "defer")
-		if field in arguments
-	}
+	#
+	# **The zone is looked up once, and only when a day was actually named** (`#1064`). It was
+	# read from the process inside each helper before, which is the server's for every relayed
+	# connection — see :func:`_typed_day_zone`. Asking here rather than in the helpers is what
+	# keeps a change with no dates in it from fetching an identity it has no use for.
+	days: dict[str, datetime.datetime | datetime.date | None] = {}
+
+	if any(field in arguments for field in ("plan", "defer")):
+		zone = _typed_day_zone(client, workspace)
+
+		days = {
+			field: (_moment if field == "defer" else _day)(
+				arguments[field], field=field, timezone=zone
+			)
+			for field in ("plan", "defer")
+			if field in arguments
+		}
 
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
 			"description, repeat, plan or defer."
 		)
-
-	ref = _ref(arguments)
-	workspace = _text(arguments, "workspace")
 
 	# **Two calls, because they are two endpoints** — `PATCH /v1/tasks` and the scheduling
 	# verbs §12.2's `plan` and `defer` reach. Folding them into one client method here would

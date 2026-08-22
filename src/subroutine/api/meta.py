@@ -53,6 +53,7 @@ import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.projects
+import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
@@ -220,7 +221,13 @@ def document (
 		workspace=None if chosen is None else chosen.id,
 		workspaces=[
 			subroutine.views.workspace_ref(
-				workspace, prioritised=focused.get(workspace.id)
+				workspace,
+				prioritised=focused.get(workspace.id),
+				# §6.5 resolved for this caller, here — so a client never has to hold a copy
+				# of the chain to know what `friday` means (`#1083`, decision `#1088`).
+				reader_timezone=subroutine.domain.schedule.zone_for(
+					user=actor.user, workspace=workspace, instance=instance
+				),
 			)
 			for workspace in reachable
 		],

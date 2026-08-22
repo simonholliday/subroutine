@@ -250,7 +250,7 @@ class Client(typing.Protocol):
 	def agenda (
 		self,
 		*,
-		date: datetime.date | None = None,
+		date: datetime.date | str | None = None,
 		timezone: str | None = None,
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,

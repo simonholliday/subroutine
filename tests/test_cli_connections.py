@@ -2968,42 +2968,48 @@ def test_a_credentials_file_anybody_can_read_is_said_by_an_ordinary_command (
 	assert str(where) not in run("list").output, "and nothing is said when it is not loose"
 
 
-def test_writing_a_date_reads_this_machine_s_zone_and_reading_the_agenda_does_not (
+def test_neither_writing_a_date_nor_reading_the_agenda_consults_this_machine (
 	home: pathlib.Path,
 	run: typing.Callable[..., typer.testing.Result],
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""The seam `SR#995` left, stated in a way a clock cannot move.
+	"""The seam `SR#995` left, closed by `SR#1083` — and this used to assert the other half.
 
-	**Writing a date resolves where you are typing.** ``add "Pay the rent by friday"`` means
-	the Friday it is where the person is, so this machine's zone is what decides it — and it is
-	sent, so every connection files the same day rather than each applying its own notion of
-	the caller.
+	**It was the record of a genuine split**: writing a date resolved where you were *typing*
+	and reading the agenda resolved where you keep your diary, so ``subroutine agenda today``
+	and a bare ``subroutine agenda`` could name different days near midnight with nothing
+	saying which. `SR#1001` filed that seam and decision `SR#1088` settled it — **the account's
+	zone, always** — so the machine decides neither half now.
 
-	**Reading the agenda resolves where the reader keeps their diary.** ``agenda`` used to send
-	the same machine zone and no longer sends one at all: §6.5's chain decides, so the terminal,
-	the browser and an agent are about one day. Its old reason was the merge, and the value it
-	sent on a mismatched pair was a *third* answer matching neither instance.
+	**Asserted through a setting neither can use**, which is what the earlier version got right
+	and is kept: comparing days depends on what time the suite runs, and an unusable zone is
+	unusable at every hour. So the claim is that a zone this machine could not resolve reaches
+	*neither* command, where before it reached exactly one.
 
-	**Asserted through a setting neither could use**, deliberately: a test comparing days
-	depends on what time it is run, which this suite has been bitten by, and an unusable zone
-	is unusable at every hour. So the pair is one command refusing it and one not reading it —
-	which is the seam itself rather than a claim about a date.
+	**Not vacuous**, and that is worth stating because a passing pair looks like one: the
+	fallback in ``World.typed_day_zone`` is this same setting, for an instance a release behind
+	that publishes no ``reader_timezone``. Without the field being read, ``add`` refuses here
+	exactly as it used to — which is what the earlier version asserted.
 	"""
 
 	run("init", "--workspace", "Personal")
+	run("add", "Pay the rent")
 	monkeypatch.setenv("SUBROUTINE_DEFAULT_TIMEZONE", "Nowhere/Atall")
 
-	filed = run("add", "Pay the rent by friday", expect=1)
-
-	assert "Nowhere/Atall" in filed.output, (
-		"a written date is resolved here, so a zone this machine cannot use is refused here"
-	)
-
-	# Not merely "it exits 0": a command that printed a refusal and carried on would too.
-	assert "Nowhere" not in run("agenda").output, (
-		"the agenda stopped reading this setting, so a bad one cannot reach it (SR#995)"
-	)
+	# **Three commands, because the machine reached them by three different routes** and a
+	# test on one says nothing about the others. Capture sent the zone as §6.5's `explicit`
+	# slot; `plan` and `defer` resolved the word here before sending a date; the agenda had
+	# already stopped at `SR#995`.
+	for said in (
+		run("add", "Pay the gas by friday").output,
+		run("plan", "1", "friday").output,
+		run("defer", "1", "friday").output,
+		run("agenda").output,
+		run("agenda", "friday").output,
+	):
+		assert "Nowhere" not in said, (
+			"this machine's zone reached a command that resolves a written day (SR#1083)"
+		)
 
 
 def test_a_calendar_address_is_printed_once_and_never_again (
