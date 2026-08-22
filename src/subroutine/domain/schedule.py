@@ -121,6 +121,31 @@ def zone_for (
 	return DEFAULT_TIMEZONE
 
 
+def day_in (instant: datetime.datetime, timezone: str | None) -> datetime.date:
+	"""Return the calendar day one instant fell on, where it was stored (`#773`).
+
+	**A day-scale date is a fact about a place**, so reading it anywhere else makes it a
+	different day. A deadline is stored as the last microsecond of its day and a plan as the
+	first, both in the writer's zone — so taking ``.date()`` off the UTC instant reports a
+	deadline a day late for everybody west of Greenwich and a plan a day early for everybody
+	east of it, London in summer included. Neither is a rounding error: it is the wrong day,
+	on the field whose whole content is which day.
+
+	**One function because the rule had four readers and two of them had it wrong.** The
+	terminal and the browser converted; the calendar feed (`#1063`) and the agent surface
+	(`#1064`) took ``.date()`` on the stored instant. Both were written by somebody who had
+	read the rule elsewhere, which is what says the rule needed a home rather than a
+	restatement.
+
+	``None`` falls back to :data:`DEFAULT_TIMEZONE` rather than refusing, because a row that
+	was never scheduled carries no zone and asking for its day is a legitimate question.
+	"""
+
+	return instant.astimezone(
+		subroutine.domain.dates.zone(timezone or DEFAULT_TIMEZONE)
+	).date()
+
+
 def interpret (
 	value: datetime.datetime | datetime.date | str | None,
 	*,

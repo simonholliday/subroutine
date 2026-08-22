@@ -7982,13 +7982,11 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 	if instant is None:
 		return "—"
 
-	local = instant.astimezone(
-		subroutine.domain.dates.zone(timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE)
-	)
-
 	# Through the same function as a calendar date, so an instant and a day cannot come to
-	# disagree about when a year is worth printing — one rule, one place.
-	return _dated(local.date())
+	# disagree about when a year is worth printing — one rule, one place. The conversion is
+	# `schedule.day_in` for the same reason one level down: this file had the rule right and
+	# two other surfaces had it wrong (`#1063`, `#1064`).
+	return _dated(subroutine.domain.schedule.day_in(instant, timezone))
 
 
 def _when_rendered (task: subroutine.views.Task) -> str:

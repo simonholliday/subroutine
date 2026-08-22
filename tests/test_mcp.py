@@ -917,7 +917,7 @@ def test_an_agent_can_make_and_list_a_project (
 
 	listed, failed = _called(bound, "subroutine_project")
 
-	assert not failed, listed
+	assert not failed
 	assert "Website redesign" in listed
 
 
@@ -2130,6 +2130,58 @@ def test_a_planned_day_is_reported_where_a_deadline_is (
 	assert not failed
 	assert "2027-03-01" in text, f"the planned day was read and reported nowhere:\n{text}"
 	assert "2027-03-05" in text, f"the deadline was dropped:\n{text}"
+
+
+@pytest.mark.parametrize(
+	"timezone", ["America/Los_Angeles", "Europe/London", "Pacific/Auckland", "UTC"]
+)
+def test_a_day_an_agent_is_told_is_the_day_the_day_was_meant (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	timezone: str,
+) -> None:
+	"""An agent reads a day in the zone it was written in (`SR#1064`).
+
+	A deadline is stored as the last microsecond of its day and a plan as the first, both
+	local to whoever set them — so ``.date()`` on the stored UTC instant reported a Los
+	Angeles deadline **a day late** and a London plan **a day early**. The terminal and the
+	browser convert (`SR#773`); this surface did not.
+
+	**It matters most here.** The skill names this line as the check — *"whatever it read is
+	echoed back, so check that line"* — so an agent doing exactly as instructed was told the
+	wrong day by the sentence whose job is to be right about it.
+
+	Driven per zone because the defect is invisible in UTC, which is every CI job. UTC is kept
+	in the list so a fix that drops the conversion entirely fails here rather than passing
+	three cases and looking careful.
+	"""
+
+	who = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	assert len(who) == 1, "the fixture's one account is what carries the zone"
+
+	who[0].timezone = timezone
+	session.flush()
+
+	# **August rather than March, and that is measured rather than tidy.** London is GMT in
+	# March, so both instants land on their own UTC date and the zone cannot show the defect
+	# — it passed against the original code on a spring date. In August it is BST and a plan
+	# stored at local midnight is 23:00 the evening before.
+	meant = "2027-08-05"
+	ref = _added(bound, f"Sand the door on 2027-08-01 by {meant}")
+
+	listed, failed = _called(bound, "subroutine_list")
+	assert not failed, listed
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+	assert not failed
+
+	for surface, answer in (("the listing row", listed), ("show", shown)):
+		assert meant in answer, (
+			f"{timezone}: {surface} reported a deadline set for {meant} as:\n{answer}"
+		)
+		assert "2027-08-01" in answer, (
+			f"{timezone}: {surface} reported a plan set for 2027-08-01 as:\n{answer}"
+		)
 
 
 def test_an_ordinary_capture_carries_no_extra_line (

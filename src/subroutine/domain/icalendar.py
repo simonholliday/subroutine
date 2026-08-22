@@ -17,6 +17,7 @@ import uuid
 
 import subroutine.db.models.work
 import subroutine.domain.calendars
+import subroutine.domain.schedule
 
 #: What this program calls itself in the files it produces. RFC 5545 wants a globally unique
 #: identifier for the software; the shape is conventional rather than parsed.
@@ -109,8 +110,16 @@ def _event (
 		# **A `DATE` value, and `DTEND` is the day *after*** — RFC 5545 makes the end
 		# exclusive, so an all-day event ending on its own date is zero days long and
 		# disappears in some clients while showing in others.
-		lines.append(f"DTSTART;VALUE=DATE:{_day(when)}")
-		lines.append(f"DTEND;VALUE=DATE:{_day(when + datetime.timedelta(days=1))}")
+		#
+		# **The day is resolved once and the end is a calendar day after it**, rather than
+		# a day added to the instant and converted afterwards. Twenty-four hours is not a
+		# day on either night the clocks move: local midnight on 25 October 2026 plus 24
+		# hours is 23:00 *the same evening* in London, so `DTEND` would equal `DTSTART` and
+		# the event would be the zero-length one this comment exists to prevent.
+		started = subroutine.domain.schedule.day_in(when, task.timezone)
+
+		lines.append(f"DTSTART;VALUE=DATE:{_basic(started)}")
+		lines.append(f"DTEND;VALUE=DATE:{_basic(started + datetime.timedelta(days=1))}")
 
 	else:
 		lines.append(f"DTSTART:{_instant(when)}")
@@ -159,10 +168,22 @@ def _instant (when: datetime.datetime) -> str:
 	return when.astimezone(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _day (when: datetime.datetime) -> str:
-	"""Return one date as basic format — ``20260817``, with no time and no zone."""
+def _basic (day: datetime.date) -> str:
+	"""Return one date as basic format — ``20260817``, with no time and no zone.
 
-	return when.strftime("%Y%m%d")
+	**It takes a day rather than an instant** (`#1063`). This was handed the stored UTC
+	instant and called ``strftime`` on it, which put a Los Angeles deadline a day late and a
+	London plan a day early: an all-day deadline is the last microsecond of its day and an
+	all-day plan the first, both local to the writer, so the UTC calendar date is the writer's
+	only in UTC. Taking a :class:`datetime.date` is what makes the conversion the caller's and
+	therefore impossible to forget — the type refuses the instant.
+
+	A `DATE` value carries no zone, which is what makes this the whole of the correctness:
+	there is nowhere for a client to reinterpret it, so whatever is written here is what
+	somebody reads.
+	"""
+
+	return day.strftime("%Y%m%d")
 
 
 def _escaped (value: str) -> str:

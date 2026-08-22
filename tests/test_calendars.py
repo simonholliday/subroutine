@@ -18,6 +18,7 @@ on 2026-08-09 (`SR#737`).
 import datetime
 import typing
 import uuid
+import zoneinfo
 
 import pytest
 import sqlalchemy.orm
@@ -409,6 +410,113 @@ def test_a_task_with_both_dates_appears_under_both_and_they_are_told_apart (
 	assert len(identities) == 2 and len(set(identities)) == 2, (
 		f"two events arrived under one identity, so a client will drop one: {identities}"
 	)
+
+
+@pytest.mark.parametrize(
+	("timezone", "written", "field", "all_day_flag"),
+	[
+		# A deadline is stored as the last microsecond of its day, so west of Greenwich the
+		# UTC instant is already tomorrow.
+		("America/Los_Angeles", datetime.time(23, 59, 59, 999999), "due_at", "due_is_all_day"),
+		("Pacific/Auckland", datetime.time(23, 59, 59, 999999), "due_at", "due_is_all_day"),
+		# A plan is stored as the first, so east of it the UTC instant is still yesterday.
+		("Europe/London", datetime.time(0, 0), "starts_at", "starts_is_all_day"),
+		("Pacific/Auckland", datetime.time(0, 0), "starts_at", "starts_is_all_day"),
+		# The zone the defect cannot be seen in, kept so a fix that simply drops the
+		# conversion fails here too rather than passing three cases and looking careful.
+		("UTC", datetime.time(0, 0), "starts_at", "starts_is_all_day"),
+	],
+)
+def test_an_all_day_event_lands_on_the_day_its_writer_meant (
+	timezone: str, written: datetime.time, field: str, all_day_flag: str
+) -> None:
+	"""An all-day `DATE` is the writer's day, not the UTC instant's (`SR#1063`).
+
+	**A `DATE` value carries no zone**, so whatever is written is what somebody reads: there
+	is no conversion left for a client to get right. That is what makes this the one surface
+	where the day has to be correct on the way out, and the one where a wrong day is least
+	likely to be questioned.
+
+	Driven per zone rather than once, because the defect is invisible in UTC — which is every
+	CI job and every other test in this file.
+	"""
+
+	zone = zoneinfo.ZoneInfo(timezone)
+	meant = datetime.date(2026, 8, 17)
+	stored = datetime.datetime.combine(meant, written, tzinfo=zone).astimezone(datetime.UTC)
+
+	class _Row:
+		"""The smallest thing the renderer reads, so this needs no database."""
+
+		id = uuid.UUID("11111111-2222-3333-4444-555555555555")
+		title = "Something all day"
+		starts_at = None
+		due_at = None
+		starts_is_all_day = False
+		due_is_all_day = False
+		estimate_minutes = None
+
+	setattr(_Row, field, stored)
+	setattr(_Row, all_day_flag, True)
+	_Row.timezone = timezone  # type: ignore[attr-defined]
+
+	rendered = subroutine.domain.icalendar.render(
+		[subroutine.domain.calendars.Occasion(task=_Row(), field=field)],  # type: ignore[arg-type]
+		name="Work", instance_id=uuid.uuid4(), now=NOW,
+	)
+
+	assert f"DTSTART;VALUE=DATE:{meant:%Y%m%d}" in rendered, (
+		f"{timezone}: {field} written for {meant} was published as "
+		f"{[line for line in rendered.split(chr(13) + chr(10)) if 'DTSTART' in line]}"
+	)
+
+	# **The end is a calendar day later, which is not twenty-four hours later.** RFC 5545
+	# makes `DTEND` exclusive, so an all-day event ending on its own date is zero days long;
+	# and adding a day to the *instant* gets that wrong on the night the clocks go back,
+	# where local midnight plus 24 hours is 23:00 the same evening.
+	after = meant + datetime.timedelta(days=1)
+
+	assert f"DTEND;VALUE=DATE:{after:%Y%m%d}" in rendered
+
+
+def test_an_all_day_event_spans_one_day_across_a_clock_change () -> None:
+	"""The two nights a day is not twenty-four hours long (`SR#1063`).
+
+	The zero-length event the `DTEND` rule exists to prevent, reachable only by arithmetic on
+	the instant. This is the case that decided the fix resolves the day *once* and adds a
+	calendar day to it, rather than converting an instant that has already had 24 hours added.
+	"""
+
+	london = zoneinfo.ZoneInfo("Europe/London")
+
+	for meant in (datetime.date(2026, 10, 25), datetime.date(2026, 3, 29)):
+		stored = datetime.datetime.combine(
+			meant, datetime.time(0, 0), tzinfo=london
+		).astimezone(datetime.UTC)
+
+		class _Row:
+			"""One all-day plan on a night the clocks move."""
+
+			id = uuid.UUID("11111111-2222-3333-4444-555555555555")
+			title = "Something all day"
+			starts_at = stored
+			due_at = None
+			starts_is_all_day = True
+			due_is_all_day = False
+			estimate_minutes = None
+			timezone = "Europe/London"
+
+		rendered = subroutine.domain.icalendar.render(
+			[subroutine.domain.calendars.Occasion(task=_Row(), field="starts_at")],  # type: ignore[arg-type]
+			name="Work", instance_id=uuid.uuid4(), now=NOW,
+		)
+
+		after = meant + datetime.timedelta(days=1)
+
+		assert f"DTSTART;VALUE=DATE:{meant:%Y%m%d}" in rendered, meant
+		assert f"DTEND;VALUE=DATE:{after:%Y%m%d}" in rendered, (
+			f"{meant}: the event is zero days long, which some clients hide entirely"
+		)
 
 
 def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:

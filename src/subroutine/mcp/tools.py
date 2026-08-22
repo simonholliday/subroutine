@@ -1639,6 +1639,25 @@ def _agenda_asked (arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
 	}
 
 
+def _day_of (
+	instant: datetime.datetime,
+	item: subroutine.views.Task | subroutine.views.Document,
+) -> str:
+	"""Return the day an instant fell on, **where the item lives** (`#1064`).
+
+	The terminal's ``_render_date`` in the same words, so `#674`'s guard is comparing two
+	renderings that agree rather than two that happen to name the same fields. Both go through
+	:func:`subroutine.domain.schedule.day_in`, which is where the reason lives.
+
+	A document carries no ``timezone`` — it has no dates of its own to read — and the fallback
+	handles it, which is why this takes the item rather than the string.
+	"""
+
+	return subroutine.domain.schedule.day_in(
+		instant, getattr(item, "timezone", None)
+	).isoformat()
+
+
 def _line (
 	item: subroutine.views.Task | subroutine.views.Document,
 	*,
@@ -1747,11 +1766,15 @@ def _line (
 		# `for` rather than `on`, matching the CLI's own phrase, even though `on` is the word
 		# §6.13 actually parses. One product says one thing; whether *both* should say `on` is
 		# a question about voice and is `#691`.
+		# **In the task's own zone, which is the rule this line did not follow** (`#1064`).
+		# These were ``.date()`` on the stored instant, so a Los Angeles deadline read a day
+		# late and a London plan a day early — on the line the paragraph above calls *the*
+		# check. The check said the wrong day and said it confidently.
 		if item.starts_at is not None:
-			cells.append(f"for {item.starts_at.date().isoformat()}")
+			cells.append(f"for {_day_of(item.starts_at, item)}")
 
 		if item.due_at is not None:
-			cells.append(f"due {item.due_at.date().isoformat()}")
+			cells.append(f"due {_day_of(item.due_at, item)}")
 
 		# **On the row, not only in `show`** (`#922`). `_more`'s own argument for carrying it
 		# is that a repeat changes what every other fact means — *due Thursday* on something
@@ -1877,10 +1900,10 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
 		# one that has come round is still the answer to why this was not on the list in June.
 		if item.snoozed_until is not None:
-			facts.append(f"from {item.snoozed_until.date().isoformat()}")
+			facts.append(f"from {_day_of(item.snoozed_until, item)}")
 
 		if item.completed_at is not None:
-			facts.append(f"done {item.completed_at.date().isoformat()}")
+			facts.append(f"done {_day_of(item.completed_at, item)}")
 
 		# **Both renderings say it, which `#674`'s guard is what made true** (`#94`). It caught
 		# this within the hour of the terminal gaining it: a repeat is the fact that most
@@ -1920,7 +1943,7 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	# item in the trash is at least reading it; a model may act on what it read. This is the
 	# one fact in the list that is not about a choice — it changes what all the others mean.
 	if item.deleted_at is not None:
-		facts.append(f"deleted {item.deleted_at.date().isoformat()}")
+		facts.append(f"deleted {_day_of(item.deleted_at, item)}")
 
 	return facts
 
@@ -2436,10 +2459,20 @@ def _moment (given: typing.Any, *, field: str) -> datetime.datetime | datetime.d
 	# thing in the same words. A second message here would be a place for the two to drift.
 	return subroutine.domain.schedule.interpret_written_moment(
 		given,
-		# **The client's own zone, which for a stdio adapter is the machine the agent runs
-		# on.** An agent saying "friday" means the Friday it is looking at, and resolving that
-		# in UTC turns it into Thursday for anybody west of Greenwich after four in the
-		# afternoon — the same westward-drift bug `defer` already met once.
+		# **The process's own zone — which is the agent's machine only when the connection is
+		# local, and is the *server's* for every relayed one** (`#1064`). An agent saying
+		# "friday" means the Friday it is looking at, and resolving that in UTC turns it into
+		# Thursday for anybody west of Greenwich after four in the afternoon; that argument is
+		# right and this is no longer where it lands. Since `#539` this module runs inside the
+		# instance for a relayed connection, so what is read here is the server's
+		# ``/etc/localtime`` — nobody's zone, and not one anybody chose.
+		#
+		# **Left as it is deliberately, because the replacement is a decision rather than a
+		# spelling.** The two candidates are §6.5's chain, which costs this adapter a
+		# round-trip or a copy of a rule it does not hold, and moving the resolution into the
+		# domain, which changes what a *written time* on ``plan`` does and would have to move
+		# for the terminal in the same breath or the two surfaces disagree. `#1083` is the
+		# same question asked of the terminal and the two want one answer.
 		#
 		# **Read the way `init` reads it, not off a datetime** (`#532`). This was
 		# `str(utcnow().astimezone().tzinfo)`, and `astimezone()` yields a *fixed-offset* zone

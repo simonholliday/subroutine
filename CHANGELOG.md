@@ -349,6 +349,22 @@ upgrade involves.
 
 ### Fixed
 
+- **A day in a calendar feed and on an agent's row is the day it was written for.** Both took
+  the calendar date of the stored UTC instant. An all-day deadline is stored as the last
+  microsecond of its day and an all-day plan as the first, both in the writer's own timezone —
+  so outside UTC one of the two always fell on the wrong date: a Los Angeles deadline arrived a
+  day late, a London plan a day early, and in a calendar a reader sees a date and never a
+  conversion.
+
+  The terminal and the web page have converted since the rule was written; these were the two
+  surfaces that did not. All three now go through one function, so there is one place to be
+  right.
+
+  A knock-on the fix uncovered: an all-day event's end is a calendar day after its start, and
+  that is not twenty-four hours after it. On the night the clocks go back, midnight plus a day
+  is 23:00 the same evening — which would have published a zero-length event, and some
+  calendars hide those entirely.
+
 - **A client reads past the first page, and says when it has not.** Every listing method — on
   both transports — read a response's `items` and threw the rest of the envelope away, so
   `limit=500` returned `max_page_size` rows and nothing said so. The API was correct throughout:
