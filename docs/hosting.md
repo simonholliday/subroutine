@@ -149,7 +149,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `rate_limit_per_minute` | `600` | Requests per credential per minute, once limiting is on |
 | `rate_limit_failures_per_minute` | `30` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
 | `rate_limit_polls_per_minute` | `60` | Calendar fetches per **feed** per minute. Its own bucket rather than a share of the one above: a poller and a person make requests at different rates, and one misconfigured calendar client should not empty the allowance its owner's terminal draws from |
-| `calendars_enabled` | `true` | Whether this instance serves calendar feeds at all. A feed URL is a bearer credential that ends up in a phone's settings and possibly in a screenshot, and a leak is undetectable from here — turn it off and the address answers 404 exactly as an address naming nothing does |
+| `calendars_enabled` | `true` | Whether this instance has calendar feeds at all. A feed URL is a bearer credential that ends up in a phone's settings and possibly in a screenshot, and a leak is undetectable from here — turn it off and every address answers 404 exactly as an address naming nothing does, and no new feed can be minted. Listing and revoking keep working, so an operator who turned it off *because* something leaked can still end the subscription |
 | `request_timeout_seconds` | `30` | How long the database work behind one request may spend on any single statement before it is given up on. A backstop rather than a budget: a request that reaches it has met something the design does not account for, and a bound is what turns a hang into a message somebody can act on. **PostgreSQL only** — see below |
 | `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy — every field has its own limit, and ten megabytes is far more than any legitimate write |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
@@ -1153,7 +1153,7 @@ Two settings decide the shape of this, and both are in
 
 | | |
 | --- | --- |
-| `calendars_enabled` | Turn the whole feature off. Every feed address then answers `404`, exactly as an address naming nothing does — so an instance with it off is indistinguishable from one that never had a feed |
+| `calendars_enabled` | Turn the whole feature off. Every feed address then answers `404`, exactly as an address naming nothing does — so an instance with it off is indistinguishable from one that never had a feed — and creating or resetting one is refused by name. Listing and revoking still work, because turning a feature off must not be a way to trap a credential somebody cannot end |
 | `rate_limit_polls_per_minute` | How often one feed may be fetched. Its own bucket rather than a share of the ordinary allowance, because a misconfigured calendar client should not empty the one its owner's terminal draws from |
 
 **Turn it off if you would rather not have bearer credentials in URLs at all.** That is a

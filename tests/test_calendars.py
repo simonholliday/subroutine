@@ -182,7 +182,7 @@ def test_a_revoked_or_expired_feed_stops_working_and_a_reset_moves_the_url (
 
 	# **A reset keeps the row and moves the secret**, which is what makes it different from
 	# revoking and creating another: the scope, the audience and `last_polled_at` survive.
-	again = subroutine.domain.calendars.reset(session, feed)
+	again = subroutine.domain.calendars.reset(session, feed, enabled=True)
 	session.flush()
 
 	with pytest.raises(subroutine.errors.NotFound):
@@ -794,6 +794,56 @@ def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
 	}, (
 		"a disabled instance answers differently from one where the address names nothing, "
 		"which tells whoever holds a leaked URL that it was real"
+	)
+
+
+def test_turning_calendar_feeds_off_refuses_to_mint_one_and_still_lets_one_be_ended (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1068`, cold review `SR#1062`'s M-2 — and Simon's decision of 2026-08-22.
+
+	``calendars_enabled`` was read on the feed route alone, so an operator who had turned feeds
+	off could still be handed a URL that answered 404 for ever. `docs/connecting.md` told that
+	person *"if the command is refused outright, feeds may be turned off on that instance"* —
+	naming a symptom that could not occur.
+
+	**It is a kill switch for the feature, not only for serving**, so minting is refused. And
+	the two exceptions are the decision rather than an oversight:
+
+	* **Revoking keeps working**, because turning something off must never be a way to trap a
+	  live credential. An operator who disables feeds *because* one leaked would otherwise be
+	  unable to end it.
+	* **Listing keeps working**, one step back from that: you cannot revoke what you cannot see,
+	  and a listing discloses nothing to somebody who already owns the instance.
+
+	**Reset counts as minting**, which is the half easiest to miss: it hands back a new working
+	URL exactly as creating does, and it is not how you stop a feed — that is revoking, which is
+	why the pair sit on opposite sides here.
+	"""
+
+	off = test_api_tasks._world(session, instance={"calendars_enabled": False})
+	on = test_api_tasks._world(session, instance={"calendars_enabled": True})
+
+	made = on.call("POST", "/v1/calendars", json={"title": "Mine"})
+	assert made.status_code == 201, made.json()
+
+	feed = made.json()["id"]
+
+	refused = off.call("POST", "/v1/calendars", json={"title": "Another"})
+
+	assert refused.status_code == 403, refused.json()
+	assert "turned off" in refused.json()["detail"]
+
+	# The half that reads as an ending and is not: a new URL, from the same switch's far side.
+	reset = off.call("POST", f"/v1/calendars/{feed}/reset")
+
+	assert reset.status_code == 403, reset.json()
+
+	assert off.call("GET", "/v1/calendars").status_code == 200, (
+		"a feed nobody can list is a feed nobody can revoke"
+	)
+	assert off.call("DELETE", f"/v1/calendars/{feed}").status_code in (200, 204), (
+		"turning the feature off must not trap a credential that is already in the world"
 	)
 
 

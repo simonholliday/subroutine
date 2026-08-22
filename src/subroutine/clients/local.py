@@ -1468,6 +1468,7 @@ class Client:
 				audience=audience,
 				item_types=item_types,
 				expires=expires,
+				enabled=self.settings.calendars_enabled,
 			)
 			rendered = subroutine.views.calendar(
 				feed,
@@ -1490,7 +1491,9 @@ class Client:
 
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
-			minted = subroutine.domain.calendars.reset(session, found)
+			minted = subroutine.domain.calendars.reset(
+				session, found, enabled=self.settings.calendars_enabled
+			)
 			rendered = subroutine.views.calendar(
 				found,
 				url=subroutine.domain.calendars.address(

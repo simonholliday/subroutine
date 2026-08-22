@@ -149,6 +149,41 @@ def create (
 	return feed, minted
 
 
+def refuse_when_disabled (enabled: bool) -> None:
+	"""Refuse to put a new feed URL into the world when the feature is off — `#1068`.
+
+	**Simon's decision of 2026-08-22: ``calendars_enabled`` is a kill switch for the feature,
+	not only for serving.** `docs/hosting.md` has always described it as *"whether this instance
+	serves calendar feeds at all"*, and only the feed route read it — so an operator who had
+	turned feeds off could still be handed a URL, and it answered 404 for ever. `docs/connecting.md`
+	told that person *"if the command is refused outright, feeds may be turned off on that
+	instance"*, describing a symptom that could not occur.
+
+	**Minting and resetting only.** Revoking and listing keep working with the feature off, and
+	that is the decision rather than an oversight: turning something off must never be a way to
+	trap a live credential. An operator who disables feeds *because* one leaked would otherwise
+	be unable to end it — and you cannot revoke what you cannot list. The switch governs the two
+	acts that put a working credential into the world; ending one is neither.
+
+	**Here rather than in either transport**, for the reason :func:`issue` itself is: the CLI
+	reaches the domain directly and the API reaches it through a route, and a check written once
+	per transport is two statements that must agree.
+
+	``enabled`` is required rather than defaulted, deliberately. A default is what lets one
+	caller forget and look identical to one that was never meant to be guarded — `#909`'s
+	lesson, where an argument in two halves drifted because the second had one.
+	"""
+
+	if enabled:
+		return
+
+	raise subroutine.errors.Forbidden(
+		"Calendar feeds are turned off on this instance.",
+		hint="An operator can set 'calendars_enabled = true' in config.toml and restart. "
+		"Existing feeds can still be listed and revoked.",
+	)
+
+
 def issue (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
@@ -159,6 +194,7 @@ def issue (
 	audience: str = "everything",
 	item_types: typing.Sequence[str] | None = None,
 	expires: str | None = None,
+	enabled: bool,
 	now: datetime.datetime | None = None,
 ) -> tuple[subroutine.db.models.identity.CalendarFeed, subroutine.auth.IssuedToken]:
 	"""Mint a feed from what somebody typed, resolving each name to what it points at.
@@ -173,6 +209,11 @@ def issue (
 	caller can reach more than one. A feed spanning workspaces could not exist anyway: refs
 	collide across them (§6.2), so two items would share an event identity.
 	"""
+
+	# Before anything is resolved, so a disabled instance answers the same way whatever else is
+	# wrong with the request — a refusal that depended on the workspace existing would be two
+	# answers to one question.
+	refuse_when_disabled(enabled)
 
 	found = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 	scope = (
@@ -287,7 +328,10 @@ def resolve (
 
 
 def reset (
-	session: sqlalchemy.orm.Session, feed: subroutine.db.models.identity.CalendarFeed
+	session: sqlalchemy.orm.Session,
+	feed: subroutine.db.models.identity.CalendarFeed,
+	*,
+	enabled: bool,
 ) -> subroutine.auth.IssuedToken:
 	"""Give a feed a new secret, so the URL somebody had stops working immediately.
 
@@ -295,7 +339,12 @@ def reset (
 	leaked URL is fixed without losing the feed's scope, its audience or the record of when
 	it was last polled. Revoking and creating another would lose all three and hand back a
 	different id.
+
+	**Refused when the feature is off** (`#1068`), because a reset mints a working URL exactly
+	as :func:`issue` does. :func:`refuse_when_disabled` carries the whole argument.
 	"""
+
+	refuse_when_disabled(enabled)
 
 	minted = _mint_unused_secret(session)
 

@@ -3012,6 +3012,43 @@ def test_neither_writing_a_date_nor_reading_the_agenda_consults_this_machine (
 		)
 
 
+def test_a_terminal_is_refused_a_new_feed_when_the_feature_is_off (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#1068` at the terminal, because the CLI reaches the domain by its own road.
+
+	The check sits in ``domain.calendars`` rather than in either transport for exactly this
+	reason: `subroutine calendar create` does not go through the API, so a refusal written on
+	the route would leave the command a person is most likely to type unguarded — and this is
+	the surface `docs/connecting.md`'s *"if the command is refused outright"* is about.
+
+	**Revoking still works**, driven rather than asserted, because that is the half of the
+	decision somebody tidying this later would take out.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://tasks.example.com"\n')
+	made = run("calendar", "create", "My work")
+
+	prefix = next(
+		word.split("/")[-2] for word in made.output.split()
+		if word.startswith("https://tasks.example.com/v1/calendars/")
+	)
+
+	declare(home, "\ncalendars_enabled = false\n")
+
+	assert "turned off" in run("calendar", "create", "Another", expect=1).output
+	assert "turned off" in run("calendar", "reset", prefix, expect=1).output
+
+	assert prefix in run("calendar", "list").output, (
+		"a feed nobody can list is a feed nobody can revoke"
+	)
+	# Not merely "it exits 0": a command that printed a refusal and carried on would too.
+	assert "turned off" not in run("calendar", "revoke", prefix).output, (
+		"turning the feature off must not trap a credential already in the world"
+	)
+
+
 def test_a_calendar_address_is_printed_once_and_never_again (
 	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
 ) -> None:

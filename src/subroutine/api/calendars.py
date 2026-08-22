@@ -135,6 +135,7 @@ def create (
 		audience=body.audience,
 		item_types=body.item_types,
 		expires=body.expires,
+		enabled=settings.calendars_enabled,
 	)
 	rendered = subroutine.views.calendar(
 		feed,
@@ -206,7 +207,9 @@ def reset (
 	"""
 
 	found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
-	minted = subroutine.domain.calendars.reset(session, found)
+	minted = subroutine.domain.calendars.reset(
+		session, found, enabled=settings.calendars_enabled
+	)
 	rendered = subroutine.views.calendar(
 		found,
 		url=subroutine.domain.calendars.address(settings.public_url, minted),

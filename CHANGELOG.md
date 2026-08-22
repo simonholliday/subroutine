@@ -397,6 +397,17 @@ upgrade involves.
 
 ### Fixed
 
+- **Turning calendar feeds off now stops new ones being made.** `calendars_enabled` was read
+  only where a feed is served, so on an instance with it off `subroutine calendar create` and
+  `POST /v1/calendars` still handed you a URL — one that answered `404` for ever.
+  `docs/connecting.md` told you that a refusal there meant feeds were turned off, and the
+  command was never refused.
+
+  **Listing and revoking keep working with the feature off**, deliberately: turning something
+  off must not be a way to trap a credential that is already in the world, and an operator who
+  disables feeds *because* one leaked needs to be able to end it. Resetting counts as making,
+  because it hands back a new working URL.
+
 - **`GET /v1/tasks?format=compact` shows a day-scale date on the day it was meant.** The cheap
   listing format truncated the stored instant with no timezone, so a plan read a day early for
   anybody east of UTC and a deadline a day late for anybody west of it. Every other surface —
