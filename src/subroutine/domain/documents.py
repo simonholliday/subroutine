@@ -23,6 +23,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.mixins
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -798,6 +799,57 @@ def status_for (
 			field="status",
 			noun="status",
 		),
+	)
+
+
+def statuses_in_category (
+	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, category: str
+) -> list[uuid.UUID]:
+	"""Return the ids of every document status in one category, for a listing to narrow by.
+
+	**The twin of :func:`subroutine.domain.tasks.statuses_in_category`, and it had to exist**
+	(`#1087`). A status *key* is a workspace's own and renameable; ``category`` is the fixed
+	field beside it, published so a client may branch on it (§5.5). Without this a caller
+	asking *which documents are in force here* had to name keys — and the keys are exactly the
+	thing an installation may have changed, so the honest question could not be asked at all.
+
+	**Measured before it was built**: `#1036` found an installation that renamed ``active``,
+	and the whole of what binds an agent became a protocol error reading *there is no document
+	status called 'active' here* — because both transports refuse an unknown key by name. The
+	workaround was a client reading ``/v1/meta``, filtering by category and sending the keys
+	back, which is a copy of a rule the server should be answering (`#925`).
+
+	A task's categories are refused here by name, as a document's are on the task side. They
+	are different vocabularies for a good reason — a superseded specification is not "done" —
+	and passing one to the wrong listing is a mistake worth being told about rather than an
+	empty page.
+	"""
+
+	if category not in subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES:
+		known = ", ".join(subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES)
+
+		raise subroutine.errors.ValidationError(
+			f"{category!r} is not a status category a document can be in.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="status_category",
+					code="invalid_field_value",
+					message=f"No document status category called {category!r}.",
+					hint=f"A document is in one of: {known}.",
+				)
+			],
+		)
+
+	model = subroutine.db.models.vocabulary.Status
+
+	return list(
+		session.scalars(
+			sqlalchemy.select(model.id).where(
+				model.workspace_id == workspace_id,
+				model.entity_type == "document",
+				model.category == category,
+			)
+		)
 	)
 
 

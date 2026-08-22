@@ -316,6 +316,7 @@ class Client:
 		q: str | None = None,
 		deleted: bool = False,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
@@ -331,6 +332,7 @@ class Client:
 				q=q,
 				deleted="true" if deleted else None,
 				status=status,
+				status_category=status_category,
 				type=type,
 			),
 		)

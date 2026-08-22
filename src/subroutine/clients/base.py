@@ -402,10 +402,18 @@ class Client(typing.Protocol):
 		q: str | None = None,
 		deleted: bool = False,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
+
+		``status_category`` is the one to reach for, and ``status`` the one that breaks
+		(`#1087`). A key is this workspace's own and renameable; the category beside it is
+		fixed, so *which documents are in force here* is a question that survives an
+		installation renaming ``active`` — and `#1036` is the worked example of what happens
+		when it does not, because both transports refuse an unknown key by name rather than
+		answering emptily.
 
 		``status`` and ``type`` are what make §6.14's lifecycle usable from a client (`#501`).
 		A document is *draft*, then *active*, then *superseded*, and asking for this

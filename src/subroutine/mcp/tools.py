@@ -324,15 +324,14 @@ def references (
 			#
 			# **And it carried no status either, which is the same argument one field along**
 			# (`#1075`'s sibling, `#1076`). This said `?status=active`, and a status key is
-			# renameable where its category is not (§5.5) — `_in_force_keys` exists in this
-			# very file because sending that literal turned the whole resource into *there is
-			# no document status called 'active' here*. A signpost naming it was the same
-			# defect on a surface where nothing would refuse it: the URL simply answers about
-			# a status the reader does not have.
+			# renameable where its category is not (§5.5) — sending that literal turned the
+			# whole resource into *there is no document status called 'active' here*. A
+			# signpost naming it was the same defect on a surface where nothing would refuse
+			# it: the URL simply answers about a status the reader does not have.
 			#
-			# Narrowing honestly would need `?status_category=`, which `GET /v1/documents`
-			# does not offer where `GET /v1/tasks` does — that gap is `#1087`.
-			also_at="/v1/documents",
+			# It narrows by *category* now (`#1087`), which is fixed, so this points at the
+			# same question the resource answers rather than at every document there is.
+			also_at="/v1/documents?status_category=current",
 		),
 	]
 
@@ -533,28 +532,26 @@ def _governing (
 	it that — and the closing count says how many the index holds either way.
 	"""
 
-	found: list[subroutine.views.Document] = []
-	seen: set[int] = set()
-	bound = meta.limits.max_page_size
-	cut = False
-
-	for status in _in_force_keys(meta):
-		listed = client.documents(
-			workspace=workspace, type=kind.key, status=status, limit=bound
-		)
-		cut = cut or listed.has_more
-
-		for document in listed:
-			if document.ref not in seen:
-				seen.add(document.ref)
-				found.append(document)
+	# **One request naming the *category*, which is what `#1087` built** (`#925`). This used to
+	# read `/v1/meta`, filter its statuses by category and send the keys back one call at a
+	# time — a copy of a rule the server should be answering, and it existed only because
+	# `GET /v1/documents` took a renameable key and nothing else. The dedupe that went with it
+	# is gone too: a status belongs to one category, so one call cannot return a row twice.
+	listed = client.documents(
+		workspace=workspace,
+		type=kind.key,
+		status_category=subroutine.domain.documents.CURRENT_CATEGORY,
+		limit=meta.limits.max_page_size,
+	)
+	found = list(listed)
+	cut = listed.has_more
 
 	if not found:
 		return [], 0
 
 	# Ref descending is the same ordering as newest-first — a ref is allocated in creation
-	# order within a workspace (§6.2) — and unlike ``created_at`` it stays deterministic when
-	# an installation has more than one in-force status and the two pages are merged here.
+	# order within a workspace (§6.2) — and it stays deterministic where ``created_at`` would
+	# not, because two documents written in one transaction share an instant.
 	found.sort(key=lambda document: document.ref, reverse=True)
 
 	section = [
@@ -584,33 +581,6 @@ def _governing (
 		]
 
 	return section, len(found)
-
-
-def _in_force_keys (meta: subroutine.views.Meta) -> list[str]:
-	"""Return this workspace's status keys that mean *in force*, by their fixed category.
-
-	**The key is renameable and the category is not** (§5.5), and this resource used to send
-	``status="active"`` as a literal. **Measured while falsifying rather than assumed**: an
-	installation that renamed that status did not get an empty index, which is what `#1036`
-	predicted — it got no index at all, because both transports refuse an unknown status by
-	name. So the whole of what binds an agent became a protocol error reading *there is no
-	document status called 'active' here*, on the one channel it is told to read before its
-	first write. `#496`'s shape, and worse than `#496`, which at least answered.
-
-	It needs no request of its own: ``/v1/meta`` is already in hand for `#496`'s
-	ambiguous-workspace check, and it publishes every status with the category beside it.
-	"""
-
-	return [
-		status.key
-		for status in meta.statuses.get(DOCUMENT_VOCABULARY, [])
-		if status.category == subroutine.domain.documents.CURRENT_CATEGORY
-	]
-
-
-#: Which of ``/v1/meta``'s per-workspace vocabulary groups holds a document's statuses. An
-#: entity kind rather than a status or a type, so unlike either of those it is fixed.
-DOCUMENT_VOCABULARY = "document"
 
 
 def _on_one_line (title: str) -> str:

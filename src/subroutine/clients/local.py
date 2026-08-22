@@ -692,6 +692,7 @@ class Client:
 		q: str | None = None,
 		deleted: bool = False,
 		status: str | None = None,
+		status_category: str | None = None,
 		type: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
@@ -720,6 +721,17 @@ class Client:
 				None
 				if status is None
 				else subroutine.domain.documents.status_for(session, chosen.id, status).id
+			)
+			# **A category, not a key** (`#1087`). Resolved here rather than compared as a
+			# string because the answer is a set of ids and the refusal for an unknown category
+			# lives in the domain, so both transports say the same sentence about the same
+			# mistake.
+			in_category = (
+				None
+				if status_category is None
+				else subroutine.domain.documents.statuses_in_category(
+					session, chosen.id, status_category
+				)
 			)
 
 			# The same choice the task listing above makes, for the same reason (`#823`): a
@@ -776,6 +788,11 @@ class Client:
 						sqlalchemy.true()
 						if wanted_status is None
 						else model.status_id == wanted_status
+					)
+					.where(
+						sqlalchemy.true()
+						if in_category is None
+						else model.status_id.in_(in_category)
 					)
 					.where(
 						sqlalchemy.true()

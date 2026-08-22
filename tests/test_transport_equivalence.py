@@ -3176,6 +3176,54 @@ def test_both_narrow_documents_to_the_ones_still_in_force (pair: Pair) -> None:
 	assert drafting.ref not in in_force and unrelated.ref not in in_force
 
 
+def test_both_narrow_documents_by_a_category_a_rename_cannot_move (pair: Pair) -> None:
+	"""`SR#1087`. The test above asks by *key*; this asks the question a key cannot answer.
+
+	A key is the workspace's own and renameable, and the category beside it is fixed (§5.5).
+	`SR#1036` measured what a client holding a literal key gets when one is renamed: not an
+	empty answer but a refusal, *there is no document status called 'active' here*, because
+	both transports refuse an unknown key by name.
+
+	**The rename is what makes this more than a second spelling of its neighbour.** Without it
+	both filters answer identically and this asserts nothing the test above has not.
+	"""
+
+	local, remote = pair.both()
+
+	settled = local.create_document(title="A decision taken", type="decision")
+	drafting = local.create_document(
+		title="Still being written", type="decision", status="draft"
+	)
+
+	renamed = pair.session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.Status).where(
+			subroutine.db.models.vocabulary.Status.workspace_id == pair.workspace.id,
+			subroutine.db.models.vocabulary.Status.entity_type == "document",
+			subroutine.db.models.vocabulary.Status.key == "active",
+		)
+	).one()
+	renamed.key = "in-force"
+	pair.session.flush()
+
+	in_force = {found.ref for found in local.documents(status_category="current")}
+
+	assert in_force == {found.ref for found in remote.documents(status_category="current")}, (
+		"the two transports disagree about which documents are in force, which is the one "
+		"question this filter exists to answer"
+	)
+	assert in_force == {settled.ref}
+	assert drafting.ref not in in_force
+
+	for named, client in (("local", local), ("remote", remote)):
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.documents(status_category="done")
+
+		assert "document" in str(refused.value), (
+			f"the {named} client accepted a *task's* status category for a document listing, "
+			"or refused it without saying which vocabulary it was reading"
+		)
+
+
 def test_both_narrow_projects_the_same_way (pair: Pair) -> None:
 	"""`#501`. `parent`, `visibility` and `include_archived` reached no client either."""
 

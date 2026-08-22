@@ -530,6 +530,20 @@ upgrade involves.
   is 23:00 the same evening — which would have published a zero-length event, and some
   calendars hide those entirely.
 
+- **A document listing can be asked which documents are *in force*, by a name a workspace
+  cannot rename.** `GET /v1/documents?status_category=current` — draft, current, superseded or
+  archived — beside the status key it already took. `GET /v1/tasks` has taken a category since
+  0.4.0; this one had only the key, and a key belongs to the workspace and may be changed.
+
+  That was not a degradation but a failure: an installation that renamed `active` was answered
+  *there is no document status called 'active' here*, because both transports refuse an unknown
+  key by name. So a client asking the question with a literal — which is what the agent-facing
+  index of what binds you had to do — stopped working entirely rather than answering emptily.
+
+  The index now asks in one request per kind instead of one per status, and the signpost for a
+  client without resources points at the same narrowed question rather than at every document
+  there is.
+
 - **`subroutine changes --limit N` reads N changes over a network connection, not one page of
   them.** Every other listing learned to follow a page boundary last week; the change feed did
   not, because its cursor is not the opaque one the others hand back — it is the `seq` on the

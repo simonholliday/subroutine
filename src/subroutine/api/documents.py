@@ -206,6 +206,16 @@ def listing (
 	project: str | None = fastapi.Query(None, description="Restrict to one project."),
 	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
+	status_category: str | None = fastapi.Query(
+		None,
+		description=(
+			"Restrict to one status category: draft, current, superseded or archived. Unlike "
+			"'status' this survives an installation renaming its statuses, so it is the handle "
+			"to ask which documents are in force with. A document's categories are its own — "
+			"a superseded specification is not 'done'."
+		),
+		examples=["current"],
+	),
 	q: str | None = fastapi.Query(
 		None, description="Words to look for in the title or the body. Every one must appear."
 	),
@@ -267,6 +277,19 @@ def listing (
 		statement = statement.where(
 			model.status_id
 			== subroutine.domain.documents.status_for(session, workspace.id, status).id
+		)
+
+	# **A category rather than a key, and it is the only honest way to ask** (`#1087`). A key
+	# is this workspace's own and renameable (§5.5); the category beside it is fixed, which is
+	# why a client may branch on it. Both are accepted and they intersect rather than one
+	# overriding the other, exactly as on the task listing.
+	if status_category is not None:
+		statement = statement.where(
+			model.status_id.in_(
+				subroutine.domain.documents.statuses_in_category(
+					session, workspace.id, status_category
+				)
+			)
 		)
 
 	# **Resolved before the `if`, and from *this application's* settings** (`#883`). It was

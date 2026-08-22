@@ -6,12 +6,15 @@ system, derive tasks from it, and read the relationship back from both ends. Tha
 machinery for it.
 """
 
+import json
 import typing
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.vocabulary
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.projects
@@ -935,4 +938,89 @@ def test_a_link_made_from_the_far_end_records_the_item_the_reader_was_on (
 
 	assert withdrawn, (
 		f"the link was withdrawn while reading {near['ref']} and its history does not say so"
+	)
+
+
+def test_what_is_in_force_is_asked_for_by_category_and_survives_a_rename (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1087` — the question that could not be asked, and `SR#1036` is why it matters.
+
+	A status **key** belongs to the workspace and is renameable; the **category** beside it is
+	fixed, which is the whole reason a client may branch on it (§5.5). `GET /v1/tasks` has taken
+	``status_category`` since `SR#710` and this listing took a key and nothing else — so *which
+	documents are in force here* was answerable only by naming keys, and the keys are exactly
+	the thing an installation may have changed.
+
+	**The rename is the test, not a flourish.** `SR#1036` measured what happens without it: an
+	installation that renamed ``active`` did not get an empty index, it got a protocol error
+	reading *there is no document status called 'active' here*, because both transports refuse
+	an unknown key by name. So a client holding a literal key does not degrade, it fails — on
+	the one channel an agent is told to read before its first write.
+
+	The refusal on the old key is asserted too. Without it this would pass against a listing
+	that ignored ``status`` entirely and answered everything.
+	"""
+
+	written = world.call(
+		"POST", "/v1/documents", json={"title": "Colour marks exceptions", "type": "decision"}
+	).json()
+
+	world.call("PATCH", f"/v1/documents/{written['ref']}", json={"status": "active"})
+
+	# The installation renames its own vocabulary, which §5.5 exists to allow.
+	renamed = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.Status).where(
+			subroutine.db.models.vocabulary.Status.workspace_id == world.workspace.id,
+			subroutine.db.models.vocabulary.Status.entity_type == "document",
+			subroutine.db.models.vocabulary.Status.key == "active",
+		)
+	).one()
+	renamed.key = "in-force"
+	world.session.flush()
+
+	assert renamed.category == "current", (
+		"the seeded 'active' status is not in the 'current' category, so this test is asking "
+		"about the wrong one and would pass for the wrong reason"
+	)
+
+	by_key = world.call("GET", "/v1/documents?status=active")
+
+	assert by_key.status_code == 422, (
+		"naming a status that no longer exists was answered rather than refused, so the "
+		"premise this filter exists for does not hold"
+	)
+
+	by_category = world.call("GET", "/v1/documents?status_category=current")
+
+	assert by_category.status_code == 200, by_category.json()
+	assert [row["ref"] for row in by_category.json()["items"]] == [written["ref"]], (
+		"asking for what is in force by its fixed category did not find the document that is"
+	)
+
+	elsewhere = world.call("GET", "/v1/documents?status_category=superseded")
+
+	assert elsewhere.json()["items"] == [], (
+		"every category answered the same rows, so the parameter is being ignored"
+	)
+
+
+def test_a_task_status_category_is_refused_by_a_document_listing (
+	world: test_api_tasks.World,
+) -> None:
+	"""The two vocabularies are different on purpose, and mixing them is worth being told.
+
+	A superseded specification is not "done", which is why `subroutine.db.mixins` keeps two
+	sets. Passing a task's category here would otherwise match nothing and read as *there are
+	no documents in force*, which is a plausible, complete, wrong answer — the shape this
+	project keeps meeting.
+	"""
+
+	refused = world.call("GET", "/v1/documents?status_category=done")
+
+	assert refused.status_code == 422
+	assert "done" in refused.json()["detail"]
+	assert "draft, current, superseded, archived" in json.dumps(refused.json()), (
+		"the refusal does not say which categories a document can be in, so the caller has to "
+		"guess a second time"
 	)

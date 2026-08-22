@@ -383,7 +383,12 @@ def test_the_conventions_resource_lists_what_is_in_force_and_nothing_else () -> 
 	text = answer["result"]["contents"][0]["text"]
 
 	assert client.documents.call_args_list == [
-		unittest.mock.call(workspace=None, type=kind.key, status="active", limit=200)
+		unittest.mock.call(
+			workspace=None,
+			type=kind.key,
+			status_category=subroutine.domain.documents.CURRENT_CATEGORY,
+			limit=200,
+		)
 		for kind in subroutine.domain.documents.GOVERNING
 	]
 
@@ -619,30 +624,41 @@ def test_a_page_that_is_exactly_full_and_complete_claims_nothing (
 	)
 
 
-def test_two_short_statuses_adding_up_to_a_page_claim_nothing (
-	monkeypatch: pytest.MonkeyPatch,
+def test_a_second_in_force_status_costs_no_second_request (
 ) -> None:
-	"""And the same inference wrong in the other direction (`SR#1075`).
+	"""`SR#1075`'s cause removed rather than its symptom guarded (`SR#1087`).
 
-	This section is merged across **every in-force status**, each fetched at the full bound, so
-	two statuses returning half a page each made `len(found)` reach it with no page full
-	anywhere. An installation that added one in-force status to its own vocabulary — which
-	§5.5 exists to allow — was told its conventions might be incomplete on every read.
+	**This test used to build the defect and is now the proof it cannot happen.** The section
+	was merged across *every* in-force status, each fetched at the full bound — so two statuses
+	returning half a page each made the total reach `max_page_size` with no page full anywhere,
+	and an installation that added one in-force status to its own vocabulary was told its
+	conventions might be incomplete on every read.
+
+	It merged because `GET /v1/documents` took a renameable *key* and nothing else, so a client
+	that wanted *what is in force* had to read `/v1/meta`, filter by category and ask once per
+	key — a copy of a rule the server should be answering (`SR#925`). `?status_category=` ends
+	that: one request per governing type, whatever an installation calls its statuses, and
+	`has_more` comes from the instance rather than from adding pages up.
+
+	**The count is what carries it.** Asserting only that nothing claims truncation would pass
+	against the merge as well, since that defect needed two short pages to produce one false
+	claim — and the reason to keep this test rather than delete it is that the *cause* is worth
+	a guard where the symptom already has two.
 	"""
-
-	monkeypatch.setattr(
-		subroutine.mcp.tools, "_in_force_keys", lambda meta: ["active", "agreed"]
-	)
 
 	client = _client()
 	client.documents.side_effect = [
-		_listing(100, first=1),
-		_listing(100, first=101),
-		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:] for _status in range(2)],
+		_listing(100, first=1 + 100 * index)
+		for index, _kind in enumerate(subroutine.domain.documents.GOVERNING)
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
 
+	assert client.documents.call_count == len(subroutine.domain.documents.GOVERNING), (
+		"the index asked more than once per governing type, so it is merging pages again and "
+		"whatever it says about being cut is an inference rather than the instance's answer"
+	)
+
 	assert "a full page" not in answer["result"]["contents"][0]["text"], (
-		"two short pages were added up and reported as one truncated one"
+		"short pages were added up and reported as one truncated page"
 	)
