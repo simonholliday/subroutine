@@ -48,6 +48,7 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.instances
@@ -2896,6 +2897,92 @@ def answering_to (
 		frontier = set(fresh)
 
 	return sorted(found.values())
+
+
+def _same_clock (one: str, other: str) -> bool:
+	"""Report whether two zone names keep the same time as each other all year — `#1089`.
+
+	**Names are compared through their offsets rather than as strings**, because two spellings
+	of one zone are ordinary: this machine reports ``Etc/UTC`` where ``init`` records ``UTC``,
+	and 466 of the 521 tasks on the instance this project runs on carry the first against 7
+	carrying the second. A string comparison told everybody their machine disagreed with their
+	account, which is the state a line like this exists to be *quiet* about.
+
+	**Sampled across a year rather than at this instant**, which is the difference that matters:
+	``Europe/London`` and ``UTC`` keep the same clock every winter and part company every
+	summer, so a check made in January would go silent about a real divergence until March.
+
+	Two genuinely distinct zones that never differ — ``Europe/London`` and ``Europe/Dublin`` —
+	are treated as the same, and that is correct rather than a compromise: a day resolved in
+	either lands on the same date, so there is nothing for the reader to act on.
+
+	An unknown name cannot be compared and is reported as a difference, which is the safe
+	direction: saying so lets somebody fix a zone this program cannot read.
+	"""
+
+	try:
+		here = subroutine.domain.dates.zone(one)
+		there = subroutine.domain.dates.zone(other)
+
+	except subroutine.errors.SubroutineError:
+		return False
+
+	at = subroutine.db.types.utcnow()
+
+	return all(
+		at.astimezone(here).utcoffset() == at.astimezone(there).utcoffset()
+		for at in (at + datetime.timedelta(days=days) for days in (0, 91, 182, 273))
+	)
+
+
+def zones (me: Me, *, machine: str | None) -> list[str]:
+	"""Say which zone this account's days are read in, and when the machine differs — `#1089`.
+
+	Decision `#1088` makes the **account's** zone the authority for everything: resolving a day
+	somebody typed, bucketing an agenda, rendering a moment. The machine's zone is used for one
+	thing only, seeding the first account at ``init``.
+
+	**That rule has exactly one failure mode and it is silent.** Somebody who moves country, or
+	whose account was made by ``user create`` rather than ``init``, has their days resolved
+	somewhere they are not, and nothing says so. They meet it as *the dates are slightly wrong*
+	with no thread to pull — which is the shape `#381` built the version lines for, one fact
+	along.
+
+	**A plain statement rather than a warning**, per `#1088` §8. Working from a laptop in
+	another country is not a mistake, and a warning that fires on an ordinary state is one
+	people learn to skip past. This says the two zones and leaves the judgement.
+
+	``machine`` is ``None`` where the caller's own machine is not visible from here, which is
+	the MCP surface: since `#539` those tools run *inside* the instance, so reading the process
+	zone there would compare an account against the **server** and call it the caller's. That
+	is `#564`'s mistake exactly — a three-way check that was inert in the direction that
+	reassures — so this says nothing rather than something it cannot know.
+
+	**Silent when they agree**, which is the ordinary case, and silent when the instance is a
+	release behind and publishes no resolved zone: the second is *did not say* rather than
+	*they match*, and a line either way would be a claim this cannot support.
+	"""
+
+	said = sorted({
+		workspace.reader_timezone
+		for workspace in me.workspaces
+		if workspace.reader_timezone is not None
+	})
+
+	if not said or machine is None:
+		return []
+
+	if any(_same_clock(name, machine) for name in said):
+		return []
+
+	# Named rather than counted: with more than one the reader needs to know which workspace
+	# is which, and that is what the block above this already prints.
+	where = said[0] if len(said) == 1 else ", ".join(said)
+
+	return [
+		f"Your days are read in {where}; this machine is set to {machine}.",
+		f"Set your account's zone with 'subroutine user timezone {machine}' if that is wrong.",
+	]
 
 
 def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list[str]:

@@ -35,6 +35,7 @@ import subroutine
 import subroutine.api.app
 import subroutine.auth
 import subroutine.cli.main
+import subroutine.config
 import subroutine.credentials
 import subroutine.domain.profiles
 import subroutine.domain.tokens
@@ -2223,6 +2224,58 @@ def test_whoami_says_which_versions_are_in_play (
 	# One process reaching its own database cannot disagree with itself, so the advice half
 	# stays silent — the rule every listing here keeps about what is true of every row.
 	assert "disagree" not in answer
+
+
+def test_whoami_says_when_this_machine_is_not_where_your_days_are_read (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1089`, and it is what makes decision `SR#1088` self-correcting.
+
+	That decision makes the **account's** zone the authority for everything — resolving a day
+	somebody typed, bucketing an agenda, rendering a moment — and the machine's zone is used
+	for one thing only, seeding the first account at `init`. The failure mode is silent:
+	somebody who moves country, or whose account was made by `user create`, has their days
+	resolved somewhere they are not and meets it as *the dates are slightly wrong*.
+
+	**Both directions, because a line that fires for everybody is not a signal.** `init` seeds
+	the account from this machine, so the ordinary state is agreement and says nothing; the
+	line appears only once the two have come apart.
+
+	**A statement rather than a warning**, per `SR#1088` §8: working from a laptop in another
+	country is not a mistake, and a warning that fires on an ordinary state teaches people to
+	skip past it. It names its own remedy, which is a command that already exists.
+
+	**Both zones are pinned rather than taken from the runner**, which the first version of
+	this did — and it failed, because this suite runs in `Europe/London` while the machine
+	reports `Etc/UTC`, so the *agreeing* half was not agreeing. `SR#532`'s lesson one field
+	along: a test whose subject is a timezone must not read the one it is running in.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("user", "timezone", "Europe/London")
+
+	monkeypatch.setattr(subroutine.config, "system_timezone", lambda: "Europe/London")
+
+	assert "this machine is set to" not in run("whoami").output, (
+		"an account and a machine keeping the same clock have nothing to say to each other"
+	)
+
+	# Two spellings of one zone are ordinary — this machine reports `Etc/UTC` where `init`
+	# records `UTC` — so the comparison is on the clock rather than on the name.
+	run("user", "timezone", "UTC")
+	monkeypatch.setattr(subroutine.config, "system_timezone", lambda: "Etc/UTC")
+
+	assert "this machine is set to" not in run("whoami").output, (
+		"'UTC' and 'Etc/UTC' are one zone, and saying they differ is the noise this avoids"
+	)
+
+	run("user", "timezone", "Pacific/Auckland")
+
+	answer = run("whoami").output
+
+	assert "Your days are read in Pacific/Auckland" in answer, answer
+	assert "this machine is set to" in answer, answer
+	assert "subroutine user timezone" in answer, "the remedy is named rather than implied"
 
 
 def test_whoami_reports_the_plugin_that_started_it (

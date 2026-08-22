@@ -1335,6 +1335,22 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 		)
 	)
 
+	# **`machine` follows `program`'s own test** (`#1089`, `#564`). Where the caller's
+	# installation is not visible from here the process is the *server*, so reading its zone
+	# would compare an account against a machine nobody is sitting at and label it the
+	# caller's — which is the direction that reassures, and therefore the worst one to get
+	# wrong.
+	lines.extend(
+		subroutine.views.zones(
+			me,
+			machine=(
+				None
+				if beside_the_caller is None
+				else subroutine.config.system_timezone()
+			),
+		)
+	)
+
 	return "\n".join(lines)
 
 

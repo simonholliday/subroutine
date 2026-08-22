@@ -42,6 +42,17 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine whoami` says when this machine's timezone is not the one your account uses.**
+  Your account's zone decides which day a written date means and how your agenda is counted;
+  this machine's is used only to seed the first account. Somebody who moves country, or whose
+  account was made by `subroutine user create`, would otherwise meet that as *the dates are
+  slightly wrong* with nothing to point at.
+
+  A plain line rather than a warning — working from a laptop in another country is not a
+  mistake — and silent when the two keep the same clock, which includes two spellings of one
+  zone such as `UTC` and `Etc/UTC`.
+
+
 - **A client can say which version it expects to be changing.** `expected_version` — §8.9's
   optimistic concurrency check — was accepted by five update routes and passed by no client
   method, so the whole of it was reachable over raw HTTP and from nothing anybody would write.

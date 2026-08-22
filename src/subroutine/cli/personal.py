@@ -4235,6 +4235,15 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 			):
 				program.console.print(line)
 
+			# **After the versions, and for the same reason they are here** (`#1089`): a
+			# divergence nobody can see from inside, reported by the one command whose job is
+			# *what am I actually talking to*. Per connection, because each names an account
+			# and two accounts may sit in different zones.
+			for line in subroutine.views.zones(
+				answer.value, machine=subroutine.config.system_timezone()
+			):
+				program.console.print(line)
+
 		_report(program, world, gathered.failures)
 
 
