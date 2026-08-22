@@ -369,6 +369,15 @@ upgrade involves.
 
 ### Fixed
 
+- **A repeating item is one event on a calendar, not two.** A repeating series is stored as a
+  rule plus one live occurrence, and the feed sent both — the rule as a recurring event covering
+  every date, and the live occurrence again as a separate event sitting on top of one of them.
+  Every finished occurrence still inside the seven-day past window doubled up the same way.
+
+  An occurrence you have **moved** is still sent on its own, because the rule no longer
+  describes where it is. Dropping those would have shown you the time a meeting was going to be
+  at rather than the time you moved it to, which is worse than the duplicate.
+
 - **Prioritising a project no longer takes narrowed credentials offline.** A workspace with a
   prioritised project resolved that project through the check that refuses a caller whose token
   does not carry `project:read` — and that resolution happens on every ranked listing and on

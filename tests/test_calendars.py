@@ -376,6 +376,102 @@ def test_a_feed_keeps_work_somebody_has_finished (
 	)
 
 
+def test_a_repeating_series_is_one_event_on_the_calendar (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A grid and a copy of one of its own occurrences is two events (`SR#1067`).
+
+	A `schedule` series exists as a template carrying the rule **and** as one live instance
+	(decision `SR#972` §1). Both were emitted: the template as an `RRULE` covering every
+	occurrence, and the instance again as a standalone event on a date the grid already
+	carries. The changelog says a repeating item arrives "as a repeating event rather than as
+	several hundred copies"; it arrived as a repeating event plus a copy.
+
+	**No test put a series through a feed at all**, which is the reason this shipped — every
+	other test in this file files a one-off.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Standup",
+		starts=NOW + datetime.timedelta(days=1),
+		recurrence="every monday",
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	shown = subroutine.domain.calendars.occasions(session, feed, now=NOW)
+	standups = [one for one in shown if one.task.title == "Standup"]
+
+	assert len(standups) == 1, (
+		f"one weekly series produced {len(standups)} events: "
+		f"{[(one.field, getattr(one.task, one.field), one.rule) for one in standups]}"
+	)
+
+	assert standups[0].rule, (
+		"the one event kept is the standalone occurrence rather than the rule, so a client "
+		"sees this Monday and no others"
+	)
+
+
+def test_an_occurrence_somebody_moved_is_still_on_the_calendar (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Skipped only when it duplicates, which is not the same as *belongs to a series*.
+
+	The obvious fix for `SR#1067` — drop every instance whose template carries a rule — puts
+	the calendar back to showing the date an occurrence *was going to be* on, which is worse
+	than the duplicate it removes: a person who moved this week's standup would see the old
+	time and nothing else.
+
+	``occurrence_at`` is the slot the series minted the row for, and rescheduling changes the
+	date without touching it, so the two parting company is exactly *this has been moved*.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	created = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Standup",
+		starts=NOW + datetime.timedelta(days=1),
+		recurrence="every monday",
+	)
+	session.flush()
+
+	moved = NOW + datetime.timedelta(days=3)
+	subroutine.domain.tasks.update(session, created, starts=moved, actor=actor)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	standups = [
+		one
+		for one in subroutine.domain.calendars.occasions(session, feed, now=NOW)
+		if one.task.title == "Standup"
+	]
+
+	assert len(standups) == 2, (
+		f"a moved occurrence and the rule it left are two things, and this feed shows "
+		f"{len(standups)}"
+	)
+
+	assert any(
+		one.rule is None and getattr(one.task, one.field) == moved for one in standups
+	), (
+		"the occurrence was moved and the calendar shows only the grid, so a reader is told "
+		"the old date"
+	)
+
+
 def test_a_task_with_both_dates_appears_under_both_and_they_are_told_apart (
 	session: sqlalchemy.orm.Session,
 ) -> None:

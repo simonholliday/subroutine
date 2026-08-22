@@ -470,11 +470,56 @@ def occasions (
 	latest = moment + datetime.timedelta(days=FUTURE_DAYS)
 
 	found: list[Occasion] = []
+	rows = list(session.scalars(statement))
 
-	for row in session.scalars(statement):
-		found.extend(_occasions_of(row, earliest=earliest, latest=latest))
+	# **Templates first, so an instance can be asked whether its own grid is already here**
+	# (`#1067`). A `schedule` series was emitted twice: the template as an `RRULE` covering
+	# every occurrence, and its live instance again as a standalone event on a date the grid
+	# already carries. The changelog says a repeating item arrives "as a repeating event
+	# rather than as several hundred copies"; it arrived as a repeating event plus a copy.
+	gridded = set()
+
+	for row in rows:
+		if not row.is_template:
+			continue
+
+		occasions = _occasions_of(row, earliest=earliest, latest=latest)
+
+		if occasions:
+			gridded.add(row.id)
+
+		found.extend(occasions)
+
+	for row in rows:
+		if not row.is_template and not _is_on_its_grid(row, gridded):
+			found.extend(_occasions_of(row, earliest=earliest, latest=latest))
 
 	return found
+
+
+def _is_on_its_grid (row: subroutine.db.models.work.Task, gridded: set[uuid.UUID]) -> bool:
+	"""Say whether this occurrence is already described by a rule emitted in this feed.
+
+	**Skipped only when it duplicates, which is not the same as *belongs to a series***. An
+	occurrence somebody has moved is no longer on the grid, so the rule does not describe where
+	it actually is — dropping it would leave the calendar showing the date it was *going* to be
+	on, which is worse than the duplicate this exists to remove.
+
+	``occurrence_at`` is the slot the series minted this row for, and rescheduling changes the
+	date without touching it, so the two parting company is exactly *this has been moved*.
+
+	**The case it cannot see**, written down rather than left to be discovered: a series
+	carrying both a start and a deadline records one ``occurrence_at`` — ``due_at or
+	starts_at`` — so moving only the *start* of such a series is a move this reads as none. The
+	feed then shows the grid's start rather than the moved one. Narrow enough to accept and too
+	specific to guess at; what it wants is `RECURRENCE-ID` overrides, which need a per-field
+	original this schema does not keep.
+	"""
+
+	if row.recurrence_template_id not in gridded:
+		return False
+
+	return row.occurrence_at is not None and row.occurrence_at == (row.due_at or row.starts_at)
 
 
 def _occasions_of (
