@@ -369,6 +369,19 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent asking too much of the database is told so, not shown the query.** A statement
+  this instance stopped waiting for — a timeout, a lock, a deadlock — reached an HTTP caller as
+  `request_timed_out` with a remedy, and reached an agent as SQLAlchemy's raw text: the
+  statement, the values bound into it, and a link to somebody else's website. The MCP tools run
+  inside the instance on the same bounded session, so both surfaces meet this and only one of
+  them handled it. Both now say the same sentence.
+
+- **A refusal names the bound that actually applied.** The same message said "after N seconds"
+  for a deadlock and for a lock wait, neither of which `request_timeout_seconds` bounds — a
+  deadlock is broken by PostgreSQL's own detector, and this instance deliberately sets no lock
+  timeout. On an instance with the bound turned off it read "after 0 seconds". The number is
+  named only where it is the number that fired.
+
 - **A repeating item is one event on a calendar, not two.** A repeating series is stored as a
   rule plus one live occurrence, and the feed sent both — the rule as a recurring event covering
   every date, and the live occurrence again as a separate event sitting on top of one of them.

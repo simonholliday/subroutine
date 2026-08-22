@@ -21,6 +21,7 @@ import dataclasses
 import json
 import typing
 
+import subroutine.db.failures
 import subroutine.errors
 
 #: The specification revision these shapes were taken from. Sent back verbatim when the
@@ -577,6 +578,22 @@ def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 	"""
 
 	if not isinstance(failure, subroutine.errors.SubroutineError):
+		# **A database that stopped waiting is a refusal, not a bug** (`#1070`). Since `#539`
+		# these tools run inside the served instance on its bounded session, so a lock, a
+		# deadlock or a statement given up on arrives here exactly as it arrives at an HTTP
+		# route — where it is answered `request_timed_out` with a remedy. Here it fell through
+		# to `str(failure)`, which is SQLAlchemy's own text: the statement, **the bound
+		# parameters** and a link to its website. Somebody's data in a model's context is the
+		# part that makes this more than untidy.
+		#
+		# No `seconds`, deliberately: this surface does not hold the settings, and
+		# `db.failures` names the bound only where it knows it rather than inventing one
+		# (`#1077`).
+		stopped = subroutine.db.failures.gave_up(failure)
+
+		if stopped is not None:
+			return _explained(stopped, tool)
+
 		return str(failure) or repr(failure)
 
 	lines = [failure.detail]

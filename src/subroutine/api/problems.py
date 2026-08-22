@@ -25,6 +25,7 @@ import subroutine.api.dependencies
 import subroutine.api.middleware
 import subroutine.api.routing
 import subroutine.api.security
+import subroutine.db.failures
 import subroutine.domain.versions
 import subroutine.errors
 
@@ -248,21 +249,6 @@ def handle_a_lost_update (
 	return respond(request, subroutine.domain.versions.raced())
 
 
-#: What PostgreSQL calls each way of giving up, and what this instance tells the caller it was
-#: waiting for. Keyed on SQLSTATE rather than on the message, which is localised and which
-#: `#568` is precisely about not reading twice.
-#:
-#: **``57014`` is not only a timeout, which is why the wording does not claim it is.** The same
-#: state answers a statement an operator cancelled with ``pg_cancel_backend``, so this says the
-#: request was given up on and leaves the cause where the database put it — the rule this
-#: project records and has broken three times.
-GAVE_UP: dict[str, str] = {
-	"57014": "was given up on before it finished",
-	"55P03": "waited for something another transaction was holding, and was given up on",
-	"40P01": "and another were each waiting for what the other held, so this one was stopped",
-}
-
-
 def handle_a_request_that_did_not_finish (
 	request: starlette.requests.Request, exception: Exception
 ) -> starlette.responses.Response:
@@ -278,39 +264,22 @@ def handle_a_request_that_did_not_finish (
 	database can raise — a connection dropped, a disk full, a database shut down underneath us
 	— and none of those is this. Delegating rather than re-raising keeps them logged with their
 	request id by the one function that does that.
+
+	**The words are :mod:`subroutine.db.failures`' rather than this module's** (`#1070`). Since
+	`#539` the MCP tools run inside this instance on the same bounded session, so an agent meets
+	this condition too and was handed SQLAlchemy's raw text for it. One translation, two
+	surfaces.
 	"""
 
-	said = GAVE_UP.get(_sqlstate(exception))
-
-	if said is None:
-		return handle_unexpected_error(request, exception)
-
-	seconds = subroutine.api.dependencies.settings(request).request_timeout_seconds
-
-	return respond(
-		request,
-		subroutine.errors.RequestTimedOut(
-			f"This request {said}, after {seconds} seconds.",
-			hint=(
-				"Nothing was changed by it. Retrying may work; if it does not, ask for less "
-				"in one request — a narrower filter, a smaller page, or one item rather than "
-				"a listing."
-			),
-		),
+	answer = subroutine.db.failures.gave_up(
+		exception,
+		seconds=subroutine.api.dependencies.settings(request).request_timeout_seconds,
 	)
 
+	if answer is None:
+		return handle_unexpected_error(request, exception)
 
-def _sqlstate (exception: Exception) -> str:
-	"""Return the five-character state the database reported, or the empty string.
-
-	Read off the driver's own exception rather than off SQLAlchemy's wrapper, and defensively:
-	a driver that names it something else should cost this translation rather than every
-	database failure, which would then reach the caller as a crash inside an error handler.
-	"""
-
-	original = getattr(exception, "orig", None)
-
-	return str(getattr(original, "sqlstate", "") or "")
+	return respond(request, answer)
 
 
 def handle_unexpected_error (

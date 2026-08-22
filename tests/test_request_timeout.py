@@ -24,7 +24,9 @@ import api_support
 import subroutine.api.app
 import subroutine.api.dependencies
 import subroutine.config
+import subroutine.db.failures
 import subroutine.db.session
+import subroutine.mcp.protocol
 
 #: What the bounded sessions in this file are given, in seconds. One rather than the shipped
 #: thirty because every test here has to wait it out, and the number under test is the
@@ -359,6 +361,116 @@ def test_a_lock_this_instance_stopped_waiting_for_is_reported_as_a_wait (
 	"""
 
 	assert "waited" in _refused("55P03", session)["detail"]
+
+
+#: A tool the failure can be attributed to. Its only part in this is naming a field back to the
+#: caller, which none of these refusals does — so any tool serves, and one built here keeps the
+#: test off whichever real tool somebody renames next.
+_ANY_TOOL = subroutine.mcp.protocol.Tool(
+	name="subroutine_probe",
+	title="Probe",
+	description="Stand in for whichever tool was being called.",
+	schema={"type": "object", "properties": {}},
+	call=lambda arguments: "",
+)
+
+
+def _raised (state: str) -> sqlalchemy.exc.OperationalError:
+	"""Return the exception a driver reporting ``state`` would hand SQLAlchemy.
+
+	The statement and the parameters are real-shaped on purpose: what `SR#1070` is about is
+	that an agent was shown them, so a stand-in with nothing in it could not fail.
+	"""
+
+	class Reported(Exception):
+		"""Stand in for the driver's own exception, which is all this reads."""
+
+		sqlstate = state
+
+	return sqlalchemy.exc.OperationalError(
+		"SELECT task.title FROM task WHERE task.workspace_id = %(workspace_id)s",
+		{"workspace_id": "019fad98-4313-7e36-b972-f7decf66f8ae"},
+		Reported(),
+	)
+
+
+def test_an_agent_is_told_a_request_was_given_up_on_rather_than_shown_the_sql () -> None:
+	"""The MCP tools run inside this instance, on the same bounded session (`SR#1070`).
+
+	Since `SR#539` these tools are answered server-side, so ``57014``, ``55P03`` and ``40P01``
+	arrive inside a tool call exactly as they arrive at an HTTP route — where they are answered
+	`request_timed_out` with a remedy. Here the dispatcher's catch-all rendered
+	``str(failure)``, which is SQLAlchemy's own text: **the statement, the bound parameters,
+	and a link to its website**.
+
+	The parameters are the part that decides this is more than untidy: they are somebody's
+	data, and a model carries what it is shown.
+	"""
+
+	answer = subroutine.mcp.protocol._explained(_raised("57014"), _ANY_TOOL)
+
+	assert "SELECT" not in answer, f"the statement reached the agent:\n{answer}"
+	assert "workspace_id" not in answer, f"a bound parameter reached the agent:\n{answer}"
+	assert "sqlalche" not in answer, f"a link to somebody else's website:\n{answer}"
+
+	assert "given up on" in answer, answer
+	assert "Retrying may work" in answer, (
+		f"the agent was told what happened and not what to do about it:\n{answer}"
+	)
+
+
+@pytest.mark.parametrize("state", ["55P03", "40P01"])
+def test_a_bound_this_instance_did_not_set_is_not_named_in_the_refusal (state: str) -> None:
+	"""`SR#1077`. The refusal said "after N seconds" for two states it does not bound.
+
+	``request_timeout_seconds`` is ``statement_timeout`` and bounds ``57014`` alone. A deadlock
+	is detected at PostgreSQL's own ``deadlock_timeout``, and ``55P03`` is ``lock_timeout``,
+	which ``db/session._bounded_by`` **deliberately does not set** and writes down why — so the
+	number was one that had nothing to do with either, and read *"after 0 seconds"* on an
+	instance with the bound turned off.
+
+	A refusal must not assert a cause it has not established. This is the same fault one field
+	along: the cause was right and the *bound* was invented.
+	"""
+
+	answer = subroutine.db.failures.gave_up(_raised(state), seconds=30)
+
+	assert answer is not None
+	assert "30 seconds" not in answer.detail, answer.detail
+	assert "seconds" not in answer.detail, answer.detail
+
+	bounded = subroutine.db.failures.gave_up(_raised("57014"), seconds=30)
+
+	assert bounded is not None
+	assert "after 30 seconds" in bounded.detail, (
+		f"the one state this bound really does bound stopped naming it: {bounded.detail}"
+	)
+
+
+def test_a_surface_that_does_not_know_the_bound_claims_no_number () -> None:
+	"""Better than claiming the wrong one, which is what an invented default would be.
+
+	The MCP dispatcher holds no settings, so it passes none. The sentence then says what
+	happened and what to do, and nothing about how long anybody waited.
+	"""
+
+	answer = subroutine.db.failures.gave_up(_raised("57014"))
+
+	assert answer is not None
+	assert "seconds" not in answer.detail, answer.detail
+	assert "given up on" in answer.detail
+
+
+def test_anything_else_is_not_this_functions_to_report () -> None:
+	"""The falsification that matters, at the layer both surfaces now share.
+
+	``OperationalError`` is most of what a database can raise. Answering ``None`` rather than
+	guessing is what keeps a dropped connection going to the handler that logs it with a
+	traceback — on **both** surfaces now, rather than on one.
+	"""
+
+	assert subroutine.db.failures.gave_up(_raised("08006")) is None
+	assert subroutine.db.failures.gave_up(Exception("nothing to do with a database")) is None
 
 
 def test_any_other_database_failure_is_still_reported_as_a_bug (
