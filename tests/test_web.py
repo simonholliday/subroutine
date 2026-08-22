@@ -712,6 +712,8 @@ class _Leased:
 	"""
 
 	def __init__ (self, expires: datetime.datetime) -> None:
+		"""Stand in for a claimed row, holding only what the renderer reads."""
+
 		self.claimed_by_id = uuid.uuid4()
 		self.claim_expires_at = expires
 
@@ -1132,6 +1134,8 @@ def _contrast (one: str, other: str) -> float:
 	"""The WCAG 2.1 ratio between two ``#rrggbb`` colours, from 1 to 21."""
 
 	def luminance (colour: str) -> float:
+		"""Return one hex colour's relative luminance, the way WCAG defines it."""
+
 		channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
 		linear = [
 			channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
@@ -1354,6 +1358,8 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	#: and is nothing at all in spacing, so an unscoped lookup answers a question about padding
 	#: with a type token. Caught by reading the message a falsification printed.
 	def advice (part: str, allowed: set[str]) -> str:
+		"""Name the token this literal should have been, where one matches it."""
+
 		for name in sorted(allowed):
 			if steps[name].strip() == part:
 				return f"write var({name})"
@@ -4501,6 +4507,8 @@ def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 	app = _served_modules()["app.js"]
 
 	def listed (name: str) -> list[str]:
+		"""Read one exported array out of the served app, by its name."""
+
 		found = re.search(rf"export const {name} = \[(.*?)\];", app, re.S)
 
 		assert found is not None, f"{name} is no longer declared, so this is checking nothing"
@@ -4906,6 +4914,8 @@ def test_only_a_browser_is_given_the_app_for_an_unmatched_address () -> None:
 	assert subroutine.api.web.NAVIGATION == "text/html"
 
 	def asking (accept: str) -> bool:
+		"""Say whether a request with this `Accept` header wants the page."""
+
 		request = starlette.requests.Request({
 			"type": "http", "method": "GET", "path": "/x", "headers":
 				[(b"accept", accept.encode())],
@@ -5746,6 +5756,8 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	secret = issued.value.get_secret_value()
 
 	def call (method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
+		"""Make one authenticated request against this instance."""
+
 		return api_support.call(
 			application, method, path, headers={"authorization": f"Bearer {secret}"}, **kwargs
 		)
@@ -7634,6 +7646,8 @@ def test_a_row_says_the_time_it_finished_and_names_today_and_yesterday (
 	stamp = int(now.timestamp() * 1000)
 
 	def at (hours: float) -> str:
+		"""Return an instant this many hours from now, as the feed writes one."""
+
 		return (now + datetime.timedelta(hours=hours)).isoformat()
 
 	today, yesterday, older = _views(tmp_path, [

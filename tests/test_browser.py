@@ -1744,6 +1744,8 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	opened, _written, _refusing, *_ = running
 
 	def background (page: typing.Any) -> str:
+		"""Return the colour the page has actually painted behind everything."""
+
 		painted = page.eval_on_selector(
 			"body", "node => getComputedStyle(node).backgroundColor"
 		)
@@ -3039,6 +3041,8 @@ def _contrast (ink: str, behind: str) -> float:
 	"""
 
 	def channels (value: str) -> tuple[float, float, float]:
+		"""Read a computed `rgb(...)` into its three numbers."""
+
 		found = [float(part) for part in re.findall(r"[\d.]+", value)][:3]
 
 		assert len(found) == 3, f"not a computed colour: {value!r}"
@@ -3046,6 +3050,8 @@ def _contrast (ink: str, behind: str) -> float:
 		return typing.cast(tuple[float, float, float], tuple(found))
 
 	def luminance (value: str) -> float:
+		"""Return one colour's relative luminance, the way WCAG defines it."""
+
 		linear = []
 
 		for part in channels(value):
@@ -3301,6 +3307,8 @@ def _oklab (value: str) -> tuple[float, float, float]:
 	assert len(found) == 3, f"not a computed colour: {value!r}"
 
 	def linear (part: float) -> float:
+		"""Undo sRGB's transfer function for one channel."""
+
 		scaled = part / 255
 
 		return scaled / 12.92 if scaled <= 0.04045 else ((scaled + 0.055) / 1.055) ** 2.4

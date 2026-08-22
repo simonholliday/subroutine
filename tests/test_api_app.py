@@ -47,6 +47,8 @@ def test_liveness_answers_without_touching_the_database (
 	"""
 
 	def unusable () -> typing.NoReturn:
+		"""Stand in for a session factory, and fail if anything asks for one."""
+
 		raise AssertionError("liveness must not open a session")
 
 	application = api_support.build_app(typing.cast(typing.Any, unusable))

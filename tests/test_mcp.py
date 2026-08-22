@@ -3357,6 +3357,8 @@ class _Recorded:
 			return attribute
 
 		def recording (*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+			"""Note that this method was called, then call the real one."""
+
 			self.called.append(name)
 
 			return attribute(*args, **kwargs)

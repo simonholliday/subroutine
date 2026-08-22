@@ -1017,6 +1017,8 @@ def test_a_page_of_feeds_costs_what_one_costs (
 	counted: list[int] = []
 
 	def watch (*_args: object, **_kwargs: object) -> None:
+		"""Count one statement."""
+
 		counted.append(1)
 
 	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)

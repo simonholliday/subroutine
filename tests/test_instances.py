@@ -1722,6 +1722,8 @@ def test_a_connection_that_has_gone_by_the_second_look_is_not_using_the_database
 	asked = []
 
 	def _answered (engine: sqlalchemy.engine.Engine) -> str | None:
+		"""Record which engine was asked, and give the next prepared answer."""
+
 		asked.append(engine)
 
 		return next(answers)

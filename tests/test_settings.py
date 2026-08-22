@@ -234,6 +234,8 @@ def test_a_project_takes_the_nearest_ancestors_colour (
 	wanted = [parent.id, child.id]
 
 	def resolved () -> dict[uuid.UUID, str | None]:
+		"""Ask what colour each project has in force right now."""
+
 		return subroutine.domain.settings.for_projects(
 			session, subroutine.domain.settings.COLOUR, wanted
 		)
@@ -284,6 +286,8 @@ def test_resolving_a_page_of_projects_costs_a_fixed_number_of_queries (
 	counted = []
 
 	def watch (*_args: object, **_kwargs: object) -> None:
+		"""Count one statement."""
+
 		counted.append(1)
 
 	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
@@ -338,6 +342,8 @@ def test_two_settings_cost_one_walk_rather_than_two (
 	counted: list[int] = []
 
 	def watch (*_args: object, **_kwargs: object) -> None:
+		"""Count one statement."""
+
 		counted.append(1)
 
 	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
@@ -399,6 +405,8 @@ def test_a_page_of_rows_resolves_both_of_its_settings_once (
 		*_rest: object,
 		**_kwargs: object,
 	) -> None:
+		"""Keep the SQL of one statement, so the assertion can say which ones it means."""
+
 		counted.append(statement)
 
 	sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", watch)
@@ -659,6 +667,8 @@ def test_a_project_takes_the_nearest_ancestors_hidden_statuses (
 	wanted = [parent.id, child.id]
 
 	def resolved () -> dict[uuid.UUID, object]:
+		"""Ask what each project hides right now."""
+
 		return subroutine.domain.settings.for_projects(
 			session, subroutine.domain.settings.HIDDEN_STATUSES, wanted
 		)

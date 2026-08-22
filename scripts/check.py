@@ -196,7 +196,7 @@ def _not_yet_added () -> list[str]:
 	a green run and a red one. It is printed anyway, because the failure it came from was not
 	really about those two guards.
 
-    **The gate is at its blindest exactly when it is trusted most.** The rule everybody takes
+	**The gate is at its blindest exactly when it is trusted most.** The rule everybody takes
 	from `c35a64b` is *run the gate just before committing*, and that is precisely the moment a
 	new file is still untracked. A summary saying "All 8 passed" over three files nothing read
 	means something different from what it says, and the next guard written against

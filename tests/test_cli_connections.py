@@ -1105,6 +1105,8 @@ def test_serving_bounds_how_long_a_stopping_server_waits (
 	passed: dict[str, typing.Any] = {}
 
 	def instead_of_listening (app: typing.Any, **given: typing.Any) -> None:
+		"""Record what `serve` would have bound to, rather than binding to it."""
+
 		passed.update(given)
 
 	monkeypatch.setattr("uvicorn.run", instead_of_listening)

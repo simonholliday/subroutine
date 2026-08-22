@@ -449,6 +449,8 @@ def test_installing_elsewhere_leaves_this_checkout_alone (tmp_path: pathlib.Path
 	"""
 
 	def hooks_path (repository: pathlib.Path) -> str:
+		"""Return where git says this repository looks for its hooks."""
+
 		answer = subprocess.run(
 			["git", "config", "--get", "core.hooksPath"],
 			cwd=repository, capture_output=True, text=True,

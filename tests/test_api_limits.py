@@ -456,6 +456,8 @@ def test_serve_builds_the_application_from_the_address_it_actually_binds (
 	built: dict[str, typing.Any] = {}
 
 	def _capture (*, settings: subroutine.config.Settings) -> object:
+		"""Record the settings the factory was built with, and hand back a stand-in."""
+
 		built["settings"] = settings
 
 		return object()

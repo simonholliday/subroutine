@@ -83,6 +83,8 @@ def call (
 	"""
 
 	async def run () -> httpx.Response:
+		"""Drive the application in process and return its answer."""
+
 		transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
 
 		async with (

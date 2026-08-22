@@ -140,6 +140,8 @@ class TestReadingTheRecord:
 		"""The commonest failure by far, and the one an operator meets on a locked-down box."""
 
 		def refuse (request: httpx.Request) -> httpx.Response:
+			"""Fail every request the way an unreachable host does."""
+
 			raise httpx.ConnectError("no route to host")
 
 		client = httpx.Client(transport=httpx.MockTransport(refuse))
