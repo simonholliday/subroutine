@@ -174,19 +174,43 @@ def _postgres_url () -> str:
 
 
 def _postgres_unavailable_reason () -> str | None:
-	"""Return why PostgreSQL cannot be used, or ``None`` when it can."""
+	"""Return why PostgreSQL cannot be used, or ``None`` when it can.
 
-	engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL)
+	**Building the engine is inside the ``try``, and that is the whole of `#1073`.** A
+	SQLAlchemy dialect imports its DBAPI when the engine is *constructed*, not when it
+	connects — so on a machine with no ``psycopg`` this raised ``ModuleNotFoundError`` out of a
+	function whose contract is to return a reason. Every PostgreSQL fixture then errored
+	rather than skipping: **1,563 errors and four failures**, which is what a contributor's
+	first ``pytest`` looked like, against a ``CONTRIBUTING.md`` promising a skip.
+
+	It survived because this machine and CI both have the driver, so the branch had never been
+	reached here — the same shape as `#532`, a path only somebody else's machine takes.
+
+	**The two obstacles are named apart**, because the remedies are not the same sentence:
+	installing an extra is not starting a server, and *"PostgreSQL is not reachable"* sends
+	somebody to check a server that is running perfectly well.
+	"""
+
+	engine = None
 
 	try:
+		engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL)
+
 		with engine.connect() as connection:
 			connection.execute(sqlalchemy.text("SELECT 1"))
+
+	except ModuleNotFoundError as error:
+		return (
+			f"the driver {POSTGRES_ADMIN_URL} names is not installed ({error}). "
+			f"Install it with: pip install -e '.[dev,postgres]'"
+		)
 
 	except Exception as error:
 		return f"PostgreSQL is not reachable at {POSTGRES_ADMIN_URL}: {error}"
 
 	finally:
-		engine.dispose()
+		if engine is not None:
+			engine.dispose()
 
 	return None
 
