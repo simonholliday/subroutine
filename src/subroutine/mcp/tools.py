@@ -316,12 +316,23 @@ def references (
 			),
 			mime_type="text/markdown",
 			read=lambda: _conventions(client, workspace),
-			# **Wider than the four filters it stands in for, and deliberately.** A client
-			# without resources cannot be handed one URL per governing type without being
-			# handed the type list too, which is the thing this resource exists to derive. One
-			# request that over-returns is honest; four hardcoded ones would be the defect
-			# `#1036` fixed, restored in a signpost.
-			also_at="/v1/documents?status=active",
+			# **Wider than the filters it stands in for, and deliberately.** A client without
+			# resources cannot be handed one URL per governing type without being handed the
+			# type list too, which is the thing this resource exists to derive. One request
+			# that over-returns is honest; four hardcoded ones would be the defect `#1036`
+			# fixed, restored in a signpost.
+			#
+			# **And it carried no status either, which is the same argument one field along**
+			# (`#1075`'s sibling, `#1076`). This said `?status=active`, and a status key is
+			# renameable where its category is not (§5.5) — `_in_force_keys` exists in this
+			# very file because sending that literal turned the whole resource into *there is
+			# no document status called 'active' here*. A signpost naming it was the same
+			# defect on a surface where nothing would refuse it: the URL simply answers about
+			# a status the reader does not have.
+			#
+			# Narrowing honestly would need `?status_category=`, which `GET /v1/documents`
+			# does not offer where `GET /v1/tasks` does — that gap is `#1087`.
+			also_at="/v1/documents",
 		),
 	]
 

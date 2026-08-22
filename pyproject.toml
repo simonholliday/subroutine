@@ -195,7 +195,7 @@ exclude_lines = ["pragma: no cover", "if typing.TYPE_CHECKING:", "raise NotImple
 
 # Ruff is used as a LINTER ONLY. `ruff format` is never run: it would strip the
 # space in `def foo (x)` and re-indent with spaces, both of which the house style
-# requires the other way round. See CLAUDE.md.
+# requires the other way round. CONTRIBUTING.md says so where a reader can see it.
 [tool.ruff]
 line-length = 100
 indent-width = 4

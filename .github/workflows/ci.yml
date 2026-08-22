@@ -218,11 +218,16 @@ jobs:
     # once spent 66 minutes inside `playwright install`, which reaches the network. Fifteen
     # minutes is ten times its worst measured run and still bounds a hang usefully.
     #
-    # **It must stay above the install action's own retry budget** (`#1022`): three bounded
-    # attempts at 150 seconds is 7m30s in the worst case, and the browser download and the
-    # suite come on top of that. Lowering this below about twelve would make the job ceiling
-    # fire *during* a retry, reporting a hang as a timeout on the job rather than as the three
-    # failed attempts it actually was.
+    # **It must stay above the install action's own retry budget** (`#1022`): two bounded
+    # attempts at 180 seconds is 6 minutes in the worst case, and the browser download and the
+    # suite come on top of that. Lowering this below about ten would make the job ceiling fire
+    # *during* a retry, reporting a hang as a timeout on the job rather than as the failed
+    # attempts it actually was.
+    #
+    # The numbers are read off `.github/actions/install-browser/action.yml` rather than
+    # remembered: this said *three attempts at 150 seconds* for as long as that action said two
+    # at 180, which is `#1031`'s own finding — a retry described in a comment was not the retry
+    # that ran — recurring in the comment that budgets for it.
     timeout-minutes: 15
 
     steps:

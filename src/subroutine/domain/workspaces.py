@@ -275,11 +275,18 @@ def update (
 	differences = subroutine.domain.events.changes_between(before, changed)
 
 	if differences:
-		# **Bumped by hand, because `VersionMixin` is a plain column.** There is no
-		# `version_id_col` on the mapper, so nothing increments it for us — every service that
-		# mutates has to, and the one that forgets leaves §8.9's check comparing a number that
-		# never moves. Which means `expected_version` silently *passes* for every stale caller:
-		# the failure mode is a concurrency guard that is present, exercised, and useless.
+		# **Bumped by hand, and that is still true although the reason has changed.**
+		# `db/mixins` puts a `version_id_col` on every versioned mapper now, with its generator
+		# **off** (`#927` H-12): SQLAlchemy owns the `WHERE version = :held` and the services
+		# own the number. So the row is protected against a lost update either way, and a
+		# service that forgets to increment leaves §8.9's check comparing a number that never
+		# moves — `expected_version` then silently *passes* for every stale caller, which is a
+		# concurrency guard that is present, exercised and useless.
+		#
+		# This paragraph said *"there is no `version_id_col` on the mapper"* for five days
+		# after there was one. Only the incrementing half was still true, so it argued from a
+		# false premise to a correct conclusion — the worst kind to leave, because it reads as
+		# considered.
 		workspace.version += 1
 
 		subroutine.domain.events.record(

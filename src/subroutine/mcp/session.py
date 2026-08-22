@@ -132,7 +132,7 @@ def _instructions (
 		f"the conventions these tool descriptions do not. "
 		f"Read subroutine://conventions before your first write: it is everything in force "
 		f"here — decided, specified, designed or closed off — and it binds you. "
-		f"/v1/documents?status=active is the same question for a client without resources. "
+		f"/v1/documents is the same question for a client without resources. "
 		f"There is more than these tools: read subroutine://docs/agent for what this is worth "
 		f"and how it works, subroutine://docs/examples for worked calls, and subroutine://meta "
 		f"for this workspace's own keys — or fetch them with subroutine_call_api at "

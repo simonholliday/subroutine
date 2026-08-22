@@ -4993,6 +4993,47 @@ def test_the_abandoned_half_is_reported_where_nothing_has_been_decided (
 	)
 
 
+def test_no_signpost_names_a_status_a_workspace_may_rename () -> None:
+	"""`SR#1076`. `_in_force_keys` exists in that file *because* this went wrong once.
+
+	A status key is renameable and its category is not (§5.5), and `SR#1036` records what
+	sending the literal cost: an installation that renamed ``active`` did not get an empty
+	index, it got **no index at all**, because both transports refuse an unknown status by
+	name. The lesson reached the query and not the two strings twenty lines away — the
+	resource's own `also_at`, and the sentence every session is handed at `initialize`.
+
+	**On a signpost nothing refuses it**, which is why it survived: the URL is not sent by us,
+	so a reader following it simply gets an answer about a status they do not have — or a 422
+	naming a key they never chose.
+
+	Narrowing honestly would need ``?status_category=``, which `GET /v1/documents` does not
+	offer where `GET /v1/tasks` does. That gap is `SR#1087`; until then the signpost
+	over-returns, which its own comment already argues is the honest way to be wrong.
+
+	Scanned rather than asserted per site, because the next signpost is the one nobody will
+	think of.
+	"""
+
+	keys = {status.key for status in subroutine.db.seed._STATUSES}
+
+	client = unittest.mock.MagicMock(spec=subroutine.clients.base.Client)
+
+	said = [
+		*[tool.description for tool in subroutine.mcp.tools.catalogue(client)],
+		*[
+			f"{one.description} {one.also_at or ''}"
+			for one in subroutine.mcp.tools.references(client)
+		],
+		subroutine.mcp.session._instructions("local"),
+	]
+
+	for text in said:
+		for key in keys:
+			assert f"status={key}" not in text, (
+				f"a signpost names the status key {key!r}, which a workspace may rename: {text}"
+			)
+
+
 def test_the_channel_that_binds_you_names_every_kind_of_thing_that_binds_you (
 	session: sqlalchemy.orm.Session,
 ) -> None:

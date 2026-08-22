@@ -114,7 +114,7 @@ ABSENT: dict[str, Absent] = {
 		# rather than a pointer: the file is what that module is about, so naming it is the
 		# opposite of leaving a dangling reference. That distinction is not derivable, which is
 		# why it is written here rather than pattern-matched.
-		ceiling=23,
+		ceiling=22,
 		why=(
 			"Stays a file and stays out of the repository (#411). It is loaded from a known "
 			"path at session start, which an instance document would not be."

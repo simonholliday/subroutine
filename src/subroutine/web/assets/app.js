@@ -5014,10 +5014,15 @@ export function DocumentFields ({
 		is a conclusion nobody will write.
 
 		**Type is not decoration here.** `#506` made `decision`, `finding` and `dead_end` start
-		*in force* rather than at `draft`, because `subroutine://conventions` publishes
-		`type=decision&status=active` — so a decision written at the wrong status is invisible to
-		the one channel built to deliver it. Both controls read the workspace's own vocabulary
-		and default to what it says, which is what keeps that right without teaching it here.
+		*in force* rather than at `draft`, because `subroutine://conventions` publishes what is
+		in force — so a decision written at the wrong status is invisible to the one channel
+		built to deliver it. Both controls read the workspace's own vocabulary and default to
+		what it says, which is what keeps that right without teaching it here.
+
+		The resource used to ask for `status=active` by name and does not since `#1036`: a
+		status key is renameable where its category is not, so it derives the keys from this
+		workspace's own vocabulary. Said here because this comment named the old spelling for
+		three days after it stopped being true.
 	*/
 	const held = values || {};
 
