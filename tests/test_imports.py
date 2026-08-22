@@ -34,10 +34,8 @@ import collections
 import functools
 import json
 import pathlib
-import re
 import subprocess
 import sys
-import tokenize
 import typing
 
 import pytest
@@ -391,28 +389,43 @@ def _module_level_names (path: pathlib.Path) -> list[tuple[str, int]]:
 
 
 @functools.cache
-def _code_only (path: pathlib.Path) -> str:
-	"""Return one module with its comments and string literals blanked out.
+def _names_read (path: pathlib.Path) -> frozenset[str]:
+	"""Return every name one module reads, ignoring prose and its own declarations.
 
 	**A name mentioned in prose is not a name anybody reads**, and finding that out cost this
 	guard its first falsification: putting a dead constant back left it green, because the
 	docstring above names the very constants it was built for. Two sentences of explanation had
 	made the thing they explain undetectable.
 
-	``tokenize`` rather than a regex, so a name inside a docstring, a comment or any other
-	string is gone and the code around it is untouched. What this deliberately also drops is
-	``getattr(x, "NAME")`` — dynamic reads are not something this tree does, and one would
-	surface as an entry in :data:`DECLARED_AND_UNREAD` with a reason rather than as silence.
+	**The first fix for that blanked every ``STRING`` token, and it made the answer depend on the
+	language version** (`SR#1092`). PEP 701 split an f-string into several tokens in 3.12, so an
+	interpolated name survives there and is swallowed whole with the string on 3.11 — and CI
+	tests four interpreters where the gate runs one, so this guard was green locally and red on
+	one job for every constant read only inside an f-string. Twenty-three of them.
+
+	Reading the tree the way :func:`_module_level_names` already does settles it on every
+	version, because an f-string's interpolation is a ``FormattedValue`` holding real expression
+	nodes while a literal is an ``ast.Constant`` and is never a name at all. Two things fall out:
+	prose is excluded **by construction** rather than by stripping, and a name's own declaration
+	need not be subtracted, because an assignment target is ``Store`` context and is not a read.
+
+	What this deliberately does not see is ``getattr(x, "NAME")``. Dynamic reads are not something
+	this tree does, and one would surface as an entry in :data:`DECLARED_AND_UNREAD` with a reason
+	rather than as silence.
 	"""
 
-	kept = []
+	read: set[str] = set()
 
-	with path.open("rb") as stream:
-		for token in tokenize.tokenize(stream.readline):
-			if token.type not in (tokenize.COMMENT, tokenize.STRING):
-				kept.append(token.string)
+	for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+		if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+			read.add(node.id)
 
-	return "\n".join(kept)
+		# The house style is ``import x`` and fully-qualified names, so most reads of a module
+		# constant arrive as the last segment of a dotted path rather than as a bare name.
+		elif isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+			read.add(node.attr)
+
+	return frozenset(read)
 
 
 def _unread_names (
@@ -426,12 +439,14 @@ def _unread_names (
 	scanner that can be handed a subject is one a test can hand a known defect to.
 	"""
 
-	corpus = {
-		path: _code_only(path)
-		for directory in searched
-		for path in directory.rglob("*.py")
-		if "versions" not in path.parts
-	}
+	# Anywhere — another module, a test, a script, or the declaring module itself. A constant a
+	# module reads back is read; only one nothing anywhere loads is dead.
+	read_anywhere: set[str] = set()
+
+	for directory in searched:
+		for path in directory.rglob("*.py"):
+			if "versions" not in path.parts:
+				read_anywhere |= _names_read(path)
 
 	unread = {}
 
@@ -440,16 +455,7 @@ def _unread_names (
 			continue
 
 		for name, line in _module_level_names(path):
-			pattern = re.compile(rf"\b{re.escape(name)}\b")
-
-			# Its own declaration is one occurrence and does not count as a reader. Anything
-			# else anywhere — another module, a test, a script — does.
-			readers = sum(
-				len(pattern.findall(text)) - (1 if other == path else 0)
-				for other, text in corpus.items()
-			)
-
-			if readers == 0:
+			if name not in read_anywhere:
 				unread[name] = f"{path}:{line}"
 
 	return unread
@@ -507,12 +513,19 @@ def test_the_unread_scan_can_tell_a_dead_name_from_a_live_one (
 
 	source = tmp_path / "src"
 	source.mkdir()
-	(source / "one.py").write_text("LIVE = 1\nDEAD = 2\n", encoding="utf-8")
+	(source / "one.py").write_text(
+		"LIVE = 1\nDEAD = 2\nINTERPOLATED = 3\n", encoding="utf-8"
+	)
 
 	elsewhere = tmp_path / "tests"
 	elsewhere.mkdir()
+
+	# **The third name is the one that made this guard disagree with itself** (`SR#1092`). A
+	# constant read only from inside an f-string was invisible to the token-stripping version on
+	# 3.11 and visible on 3.12, so CI was red on one job of four while the gate was green. It is
+	# an ordinary read and it is the only shape here whose answer ever depended on the language.
 	(elsewhere / "reader.py").write_text(
-		"import one\n\nprint(one.LIVE)\n", encoding="utf-8"
+		'import one\n\nprint(one.LIVE)\nprint(f"{one.INTERPOLATED}")\n', encoding="utf-8"
 	)
 
 	found = _unread_names(source, (source, elsewhere))
