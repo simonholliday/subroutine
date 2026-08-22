@@ -654,14 +654,20 @@ class Task(pydantic.BaseModel):
 		the title deliberately: like the plan and the tags it marks itself with a sigil, so
 		its position is not what identifies it, and putting it there means no column that
 		existed before this moves on any page.
+
+		**Both dates are rendered in the zone they were stored in** (`#773`, `#1090`). A
+		day-scale value is an instant at one end of its own day, so ``.date()`` on the stored
+		UTC value reports the day either side of itself for anybody not on UTC — which this
+		did, on both columns, until `#1090`. Decision `#1088`: a day is a label and never
+		converts.
 		"""
 
 		return (
 			subroutine.domain.refs.format_ref(self.ref),
 			f"[{self.status}]",
 			_priority_cell(self.importance, self.urgency),
-			"—" if self.due_at is None else self.due_at.date().isoformat(),
-			"" if self.starts_at is None else f"→{self.starts_at.date().isoformat()}",
+			"—" if self.due_at is None else _day_cell(self.due_at, self.timezone),
+			"" if self.starts_at is None else f"→{_day_cell(self.starts_at, self.timezone)}",
 			subroutine.domain.text.truncated(self.title),
 			"" if self.assignee is None else f"@{self.assignee}",
 			" ".join(f"#{name}" for name in self.tags),
@@ -3254,6 +3260,18 @@ def workspace_ref (
 		reader_timezone=reader_timezone,
 		prioritised_project=prioritised,
 	)
+
+
+def _day_cell (instant: datetime.datetime, timezone: str | None) -> str:
+	"""Render a stored instant as the calendar day it was written on — `#773`, `#1090`.
+
+	One line, and it exists to be the *only* way this module turns one of the three date
+	columns into a day. ``schedule.day_in`` is the same function the terminal, the calendar
+	feed and an agent's row already go through, so there is one answer to *which day is this*
+	rather than five spellings that agree until one of them is edited.
+	"""
+
+	return subroutine.domain.schedule.day_in(instant, timezone).isoformat()
 
 
 def _parent_field (

@@ -397,6 +397,15 @@ upgrade involves.
 
 ### Fixed
 
+- **`GET /v1/tasks?format=compact` shows a day-scale date on the day it was meant.** The cheap
+  listing format truncated the stored instant with no timezone, so a plan read a day early for
+  anybody east of UTC and a deadline a day late for anybody west of it. Every other surface —
+  the terminal, the browser, an agent's row and the calendar feed — already converted; this
+  column was the last one that did not.
+
+  Nothing has been stored wrongly; only this rendering was affected.
+
+
 - **`subroutine calendar create --type ''` is refused rather than read as every type.** An
   empty type filter has always been turned down — a calendar showing no item types shows
   nothing, and reading that as *no filter* answers it with *everything*. The command dropped

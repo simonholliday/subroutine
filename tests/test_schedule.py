@@ -10,7 +10,9 @@ start it, ``starts_at`` is a date with no time at all, invariant 8 is evaluated 
 the user sees, and the timezone chain resolves the way the specification says.
 """
 
+import ast
 import datetime
+import pathlib
 import typing
 import uuid
 import zoneinfo
@@ -31,6 +33,9 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+
+#: This checkout, so the structural guard at the foot of this file can be handed a tree.
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 LONDON = "Europe/London"
 
@@ -567,3 +572,142 @@ def test_a_word_that_names_a_moment_is_still_an_instant () -> None:
 	)
 
 	assert not offset.is_all_day, "an offset is arithmetic, not a day"
+
+
+# ---- every day-scale date names the zone it was stored in (`SR#1093`) -----------------------
+
+#: The three columns that hold a day rather than a moment (decision `SR#1088` §2). Each is an
+#: instant at one end of its own day, local to whoever set it, so *which day* it is cannot be
+#: read off the stored value without the zone beside it.
+DAY_SCALE = frozenset({"due_at", "starts_at", "snoozed_until"})
+
+#: Where a bare ``.date()`` on one of :data:`DAY_SCALE` would be correct, and why.
+#:
+#: **Empty, and it was written with two entries before it was run.** Both were assumed rather
+#: than measured — ``domain/schedule.py`` and ``domain/agenda.py`` looked like obvious
+#: exceptions and neither truncates a day-scale *attribute* at all: the conversions there read
+#: ``instant.astimezone(zone).date()``, where the thing being truncated is already local. The
+#: stale-entry check below refused both on this guard's first run, which is the only reason
+#: this comment is true rather than plausible.
+CONVERTS_ELSEWHERE: dict[str, str] = {}
+
+
+def _day_scale_truncations (tree: pathlib.Path) -> dict[str, list[str]]:
+	"""Return every ``<expr>.<day-scale field>.date()`` in ``tree``, by file.
+
+	**Read structurally rather than as text**, which `SR#1092` settled the hard way: a scan
+	over source counts a name inside this very docstring as a use, and one over *tokens* gives
+	a different answer on Python 3.11 than on 3.12. An attribute chain is an attribute chain on
+	every version, and a docstring is an ``ast.Constant`` that is never a call.
+
+	**It takes the tree as an argument** (`SR#405`), so a test can hand it one built to contain
+	a known offender — no offenders found and nothing to find are otherwise the same answer.
+
+	**It deliberately under-reports.** A day-scale value assigned to a local first —
+	``when = task.due_at`` and then ``when.date()`` — is invisible here, because following that
+	would mean type inference rather than a shape. All six sites this family has had were the
+	direct chain, and a scan nobody can turn off must not cry wolf.
+	"""
+
+	found: dict[str, list[str]] = {}
+
+	for path in sorted(tree.rglob("*.py")):
+		if "versions" in path.parts:
+			continue
+
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			# `x.due_at.date()` — a call, on the attribute `date`, of an attribute chain whose
+			# own attribute is one of the three. `.date` with no call is a column reference.
+			if not isinstance(node, ast.Call):
+				continue
+
+			if not isinstance(node.func, ast.Attribute) or node.func.attr != "date":
+				continue
+
+			inner = node.func.value
+
+			if isinstance(inner, ast.Attribute) and inner.attr in DAY_SCALE:
+				name = str(path.relative_to(tree.parent))
+				found.setdefault(name, []).append(f"{inner.attr} at line {node.lineno}")
+
+	return found
+
+
+def test_no_day_scale_date_is_truncated_without_its_zone () -> None:
+	"""The Python twin of `SR#773`'s browser guard, which is the half that was missing.
+
+	``tests/test_web.py`` has held this rule on ``app.js`` for weeks and has never been the
+	thing that broke. Nothing held it on Python — so of the six sites this family had, **five
+	were found one at a time by a reviewer reading the code** and the sixth (`SR#1090`) survived
+	a fix that named three of its siblings.
+
+	**A deadline is right by 3,600 seconds and that is why nobody meets this.** A day-scale
+	deadline stores the *end* of its day, so in a zone ahead of UTC it lands at ``22:59:59Z``
+	and a missing conversion still reports the right day. A start or a defer stores the
+	*beginning*, so the same zone puts it at ``23:00:00Z`` the day before. The two boundaries
+	fail in opposite directions and UTC is the only zone where both are right — which is this
+	machine, every CI job, and every test anybody has written here.
+
+	**Measured on the live instance the day this was written**: 47 all-day values, every one
+	rendering correctly, and every one for an accidental reason — 27 London deadlines saved by
+	the end-of-day rule, and the only three all-day starts in existence all authored in UTC.
+	The exposure was nil and loaded.
+	"""
+
+	found = _day_scale_truncations(ROOT / "src" / "subroutine")
+	offenders = {
+		path: where for path, where in found.items() if path not in CONVERTS_ELSEWHERE
+	}
+
+	assert not offenders, (
+		"a day-scale date is truncated with no zone, so it will report the day either side of "
+		f"itself for anybody not on UTC: {offenders} — route it through `schedule.day_in`, or "
+		"record why it is right in CONVERTS_ELSEWHERE"
+	)
+
+
+def test_the_day_scale_scan_finds_a_truncation_and_ignores_a_conversion (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Driven against a tree built to hold one of each, which is the only way to know.
+
+	`SR#405`: a check that cannot be handed its subject can only confirm the arrangement it was
+	written from. The floor beside it is the same lesson — a scan whose glob has come adrift
+	reports a clean tree in exactly the words a clean tree produces.
+
+	**The conversion case is the one that matters.** `schedule.day_in` ends in ``.date()`` too,
+	one call deeper, so a scan that merely looked for the four characters would flag every
+	correct site and be turned off within a week.
+	"""
+
+	source = tmp_path / "subroutine"
+	source.mkdir()
+	(source / "bad.py").write_text(
+		"def render (task):\n\treturn task.starts_at.date().isoformat()\n", encoding="utf-8"
+	)
+	(source / "good.py").write_text(
+		"def render (task):\n"
+		"\treturn schedule.day_in(task.starts_at, task.timezone).isoformat()\n",
+		encoding="utf-8",
+	)
+
+	found = _day_scale_truncations(source)
+
+	assert set(found) == {"subroutine/bad.py"}, found
+
+
+def test_every_excused_file_still_exists_and_still_truncates () -> None:
+	"""An excuse whose reason has expired reads exactly like a considered decision.
+
+	Both directions, because only one of them is the usual mistake: a file that has stopped
+	truncating no longer needs excusing, and one that has gone entirely takes its reason with
+	it. This is the shape `SR#405` went round the repository adding.
+	"""
+
+	found = _day_scale_truncations(ROOT / "src" / "subroutine")
+	stale = sorted(set(CONVERTS_ELSEWHERE) - set(found))
+
+	assert not stale, (
+		f"{stale} are excused from converting a day-scale date and no longer truncate one — "
+		"delete the entry"
+	)

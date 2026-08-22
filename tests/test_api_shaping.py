@@ -104,6 +104,59 @@ def test_compact_is_one_aligned_line_per_item (world: test_api_tasks.World) -> N
 	assert len(set(titles)) == 1, f"the status column does not line up: {lines}"
 
 
+@pytest.mark.parametrize("timezone", ["Pacific/Auckland", "America/Los_Angeles", "UTC"])
+def test_compact_shows_a_day_scale_date_on_the_day_it_was_meant (
+	world: test_api_tasks.World, timezone: str
+) -> None:
+	"""`SR#1090` — the last site of `SR#773`'s family, and the one a fix for three missed.
+
+	A day-scale value is stored as an instant at one end of its own day, local to whoever set
+	it, so ``.date()`` on the stored UTC value reports the day either side of itself. This
+	column did exactly that, on both dates, while the terminal, the calendar feed, an agent's
+	row and the browser had all been converted.
+
+	**Driven on a plan rather than on a deadline, and that is the whole test.** A deadline
+	stores the *end* of its day, so in a zone ahead of UTC it lands at ``22:59:59Z`` and a
+	missing conversion is still right — a case built on one passes either way and asserts
+	nothing. A start stores the *beginning*, so the same zone puts it at ``23:00:00Z`` the day
+	before. Both are checked, because the two boundaries fail in opposite directions and a fix
+	for one is not a fix for the other.
+
+	UTC is kept so a change that drops the conversion entirely fails here rather than passing
+	two cases and looking careful.
+	"""
+
+	meant = "2026-08-03"
+	deadline = "2026-08-07"
+
+	# **Set on the row rather than through an endpoint**, because there is none: `#994` made a
+	# person's zone settable by `subroutine user timezone` and `PATCH /v1/users/{username}`
+	# accepts only `is_active` and `responsible`. The first version of this called
+	# `PATCH /v1/me`, which does not exist — every case then ran in UTC, where the defect
+	# cannot appear, and the mutation reinstating `#1090` survived all six.
+	world.user.timezone = timezone
+	world.session.flush()
+
+	world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Sand the door", "starts": meant, "due": deadline},
+	)
+
+	found = next(
+		line
+		for line in world.call("GET", "/v1/tasks?format=compact").json()["items"]
+		if "Sand the door" in line
+	)
+
+	assert f"→{meant}" in found, (
+		f"{timezone}: a plan set for {meant} was shown as:\n{found}"
+	)
+	assert deadline in found, (
+		f"{timezone}: a deadline set for {deadline} was shown as:\n{found}"
+	)
+
+
 def test_compact_says_when_a_priority_was_not_assessed (world: test_api_tasks.World) -> None:
 	"""Absence is distinct from 1 (§6.3) and has to read as absence.
 
