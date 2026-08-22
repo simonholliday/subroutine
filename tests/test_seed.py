@@ -281,14 +281,12 @@ def test_a_local_rename_survives_reseeding (session: sqlalchemy.orm.Session) -> 
 		)
 	).one()
 	blocked.label = "Stuck"
-	blocked.colour = "#000000"
 	session.flush()
 
 	subroutine.db.seed.seed_workspace(session, workspace)
 	session.expire(blocked)
 
 	assert blocked.label == "Stuck"
-	assert blocked.colour == "#000000"
 
 
 def test_a_deleted_row_is_not_resurrected (session: sqlalchemy.orm.Session) -> None:
@@ -344,7 +342,7 @@ def test_a_later_version_adds_only_its_own_rows (
 		2,
 		subroutine.db.seed.SeedSet(
 			statuses=(
-				subroutine.db.seed.StatusSeed("task", "on_ice", "On ice", "todo", "#0891b2"),
+				subroutine.db.seed.StatusSeed("task", "on_ice", "On ice", "todo"),
 			),
 			link_types=(subroutine.db.seed.LinkTypeSeed("supersedes", "Supersedes", "Superseded by"),),
 		),

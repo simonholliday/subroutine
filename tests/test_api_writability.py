@@ -689,13 +689,11 @@ UNREPORTED: dict[str, str] = {
 	# fixes nothing and finds the rest by itself. Every one was measured by grepping `src/`
 	# rather than inferred from the schema — `#427`'s lesson, whose hand-written exclusion list
 	# manufactured a gap that did not exist.
-	"colour": (
-		"#523 — stored on item_type, status and tag; written only by `db/seed.py` and read "
-		"nowhere in `src/`. Decision `#102` is the argument for dropping it rather than "
-		"reporting it, and `#441` is the reason to decide with the visual language rather "
-		"than before it."
-	),
-	"Tag.description": "#523 — the same item: written by nothing, read by nothing.",
+	#: **`#905`, not `#523`.** Split out on 2026-08-15 because it is a different question:
+	#: the three colours were presentation and are gone, and this is *documentation* — what
+	#: `#2fa` means in this workspace — which `#102` says nothing about. The entry named the
+	#: wrong item for a week, and two separate surveys read it and repeated the mistake.
+	"Tag.description": "#905 — written by nothing and read by nothing; the one of the four kept.",
 	"is_system": (
 		"#524 — written by `db/seed.py` in three places and read nowhere. Unlike the colours "
 		"this one is a candidate for *publishing*: `#445` records that `item_types` has no "

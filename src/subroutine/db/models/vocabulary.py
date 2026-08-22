@@ -49,9 +49,6 @@ class Status(
 	category: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(16), nullable=False
 	)
-	colour: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(16), nullable=True
-	)
 	position: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False
 	)
@@ -89,9 +86,6 @@ class ItemType(
 	)
 	label: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(128), nullable=False
-	)
-	colour: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(16), nullable=True
 	)
 	position: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False
@@ -163,9 +157,6 @@ class Tag(
 	)
 	name_normalized: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(128), nullable=False
-	)
-	colour: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(16), nullable=True
 	)
 	description: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Text, nullable=True

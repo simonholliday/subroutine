@@ -9,7 +9,7 @@ Seeds are data, not schema, so they are applied by this module rather than by a 
 * **Seeding is versioned.** Each release's additions are listed under their own version
   number, and a workspace records how far it has been seeded. An upgrade that adds a
   status therefore adds *only* that status: it does not restore rows an installation
-  deleted on purpose, and it never overwrites one that has been renamed or recoloured.
+  deleted on purpose, and it never overwrites one that has been renamed.
   Local edits win over ours, without exception.
 
 The second point is the reason this is not a migration. A migration runs once per
@@ -50,7 +50,6 @@ class StatusSeed:
 	key: str
 	label: str
 	category: str
-	colour: str | None = None
 	is_default: bool = False
 
 
@@ -61,7 +60,6 @@ class ItemTypeSeed:
 	entity_type: str
 	key: str
 	label: str
-	colour: str | None = None
 	is_default: bool = False
 
 
@@ -176,38 +174,42 @@ _SYSTEM_ROLES = (
 )
 
 #: Task and project statuses map onto the four task categories; documents map onto their
-#: own four, because a superseded specification is not "done" (docs/design.md §5.5). Colours are
-#: seeded so that every client agrees on what "blocked" looks like without each inventing
-#: its own palette; they are ordinary data and an installation may change them.
+#: own four, because a superseded specification is not "done" (docs/design.md §5.5).
+#:
+#: **A seeded colour was here and is gone** (`#523`, decision `#906` §7). It claimed every
+#: client would agree on what "blocked" looks like; no client ever read one, and `#1023`
+#: settled that colour carries the *project* — from a named palette, resolved through the
+#: settings registry — so a per-status hex was both unread and the wrong shape. What tells
+#: two statuses apart is the `category` beside them, which is fixed, published and load-bearing.
 _STATUSES = (
-	StatusSeed("task", "open", "Open", "todo", "#64748b", is_default=True),
-	StatusSeed("task", "in_progress", "In progress", "in_progress", "#2563eb"),
-	StatusSeed("task", "blocked", "Blocked", "todo", "#dc2626"),
-	StatusSeed("task", "needs_input", "Needs input", "todo", "#d97706"),
-	StatusSeed("task", "done", "Done", "done", "#16a34a"),
-	StatusSeed("task", "cancelled", "Cancelled", "cancelled", "#94a3b8"),
-	StatusSeed("project", "active", "Active", "in_progress", "#2563eb", is_default=True),
-	StatusSeed("project", "on_hold", "On hold", "todo", "#d97706"),
-	StatusSeed("project", "completed", "Completed", "done", "#16a34a"),
-	StatusSeed("project", "archived", "Archived", "cancelled", "#94a3b8"),
-	StatusSeed("document", "draft", "Draft", "draft", "#64748b", is_default=True),
-	StatusSeed("document", "active", "Active", "current", "#2563eb"),
-	StatusSeed("document", "superseded", "Superseded", "superseded", "#94a3b8"),
-	StatusSeed("document", "archived", "Archived", "archived", "#94a3b8"),
+	StatusSeed("task", "open", "Open", "todo", is_default=True),
+	StatusSeed("task", "in_progress", "In progress", "in_progress"),
+	StatusSeed("task", "blocked", "Blocked", "todo"),
+	StatusSeed("task", "needs_input", "Needs input", "todo"),
+	StatusSeed("task", "done", "Done", "done"),
+	StatusSeed("task", "cancelled", "Cancelled", "cancelled"),
+	StatusSeed("project", "active", "Active", "in_progress", is_default=True),
+	StatusSeed("project", "on_hold", "On hold", "todo"),
+	StatusSeed("project", "completed", "Completed", "done"),
+	StatusSeed("project", "archived", "Archived", "cancelled"),
+	StatusSeed("document", "draft", "Draft", "draft", is_default=True),
+	StatusSeed("document", "active", "Active", "current"),
+	StatusSeed("document", "superseded", "Superseded", "superseded"),
+	StatusSeed("document", "archived", "Archived", "archived"),
 )
 
 _ITEM_TYPES = (
-	ItemTypeSeed("task", "task", "Task", "#64748b", is_default=True),
-	ItemTypeSeed("task", "bug", "Bug", "#dc2626"),
-	ItemTypeSeed("task", "feature", "Feature", "#16a34a"),
-	ItemTypeSeed("task", "chore", "Chore", "#94a3b8"),
-	ItemTypeSeed("task", "spike", "Spike", "#7c3aed"),
-	ItemTypeSeed("document", "note", "Note", "#64748b", is_default=True),
-	ItemTypeSeed("document", "spec", "Specification", "#2563eb"),
-	ItemTypeSeed("document", "design", "Design", "#7c3aed"),
-	ItemTypeSeed("document", "decision", "Decision", "#d97706"),
-	ItemTypeSeed("document", "finding", "Finding", "#0891b2"),
-	ItemTypeSeed("document", "dead_end", "Dead end", "#94a3b8"),
+	ItemTypeSeed("task", "task", "Task", is_default=True),
+	ItemTypeSeed("task", "bug", "Bug"),
+	ItemTypeSeed("task", "feature", "Feature"),
+	ItemTypeSeed("task", "chore", "Chore"),
+	ItemTypeSeed("task", "spike", "Spike"),
+	ItemTypeSeed("document", "note", "Note", is_default=True),
+	ItemTypeSeed("document", "spec", "Specification"),
+	ItemTypeSeed("document", "design", "Design"),
+	ItemTypeSeed("document", "decision", "Decision"),
+	ItemTypeSeed("document", "finding", "Finding"),
+	ItemTypeSeed("document", "dead_end", "Dead end"),
 )
 
 #: ``derives_from`` is the one that earns its place twice over: it is how the tasks
@@ -254,7 +256,7 @@ def seed_workspace (
 	"""Give a workspace the vocabulary it needs, and record how far it has been seeded.
 
 	Safe to call on a workspace that already has one: anything whose key is already present
-	is left exactly as it is, renaming and recolouring included. The caller owns the
+	is left exactly as it is, a local rename included. The caller owns the
 	transaction — nothing here commits.
 	"""
 
@@ -399,7 +401,6 @@ def _seed_statuses (
 				key=seed.key,
 				label=seed.label,
 				category=seed.category,
-				colour=seed.colour,
 				position=positions[seed.entity_type],
 				is_default=seed.is_default,
 			)
@@ -447,7 +448,6 @@ def _seed_item_types (
 				entity_type=seed.entity_type,
 				key=seed.key,
 				label=seed.label,
-				colour=seed.colour,
 				position=positions[seed.entity_type],
 				is_default=seed.is_default,
 				is_system=True,

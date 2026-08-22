@@ -14,6 +14,20 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `8eb88cb06adc`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
+### Removed
+
+- **A status, an item type and a tag no longer store a colour.** Three columns that the
+  seeder wrote and nothing anywhere read, dropped in one migration. Colour on an item comes
+  from its **project**, from a named palette, and is configured as a project setting — so a
+  per-status hex was both unread and the wrong shape. Nothing you can see changes; if you had
+  edited one by hand in the database, that edit is gone.
+
 ### Added
 
 - **An account says when it last signed in.** `last_login_at` is reported on a user and is
