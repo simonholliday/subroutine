@@ -525,11 +525,15 @@ def _governing (
 	found: list[subroutine.views.Document] = []
 	seen: set[int] = set()
 	bound = meta.limits.max_page_size
+	cut = False
 
 	for status in _in_force_keys(meta):
-		for document in client.documents(
+		listed = client.documents(
 			workspace=workspace, type=kind.key, status=status, limit=bound
-		):
+		)
+		cut = cut or listed.has_more
+
+		for document in listed:
 			if document.ref not in seen:
 				seen.add(document.ref)
 				found.append(document)
@@ -551,12 +555,17 @@ def _governing (
 		*[f"- **#{one.ref}** — {_on_one_line(one.title)}" for one in found],
 	]
 
-	if len(found) >= bound:
-		# **A bound met is not a bound cleared, and the caller cannot tell the difference.**
-		# This is `#1037` — every client listing returns a bare list and discards the server's
-		# own `has_more` — so the honest answer here is to say a full page was returned rather
-		# than to imply the section is complete. Named in a comment and not in the text above:
-		# an item ref belongs to one instance and this string is served by every one.
+	if cut:
+		# **Asked rather than inferred from a count** (`#1075`). This read
+		# `if len(found) >= bound`, on the reasoning that "every client listing returns a bare
+		# list and discards the server's own `has_more`" — which stopped being true in `#1037`,
+		# the commit that gave `Listing` the flag. The inference was wrong in both directions
+		# while it lasted: `found` is merged across every in-force status, so two statuses at
+		# half a page each tripped it with no page full, and one page of exactly `bound` tripped
+		# it with nothing behind it.
+		#
+		# Named in a comment and not in the text below: an item ref belongs to one instance and
+		# this string is served by every one.
 		section += [
 			"",
 			"That is a full page, so there may be more of these than are listed. "
@@ -1552,6 +1561,21 @@ def _listed (
 
 	if not rows:
 		return "Nothing open."
+
+	# **What is held back is said, never simply absent** — docs/design.md §12.2a, and this
+	# branch was the one place here that did not (`#1071`). The agenda ten lines above says
+	# *"N more not shown"*; this returned `ordered[:limit]` and nothing, so an agent asking for
+	# twenty received twenty and had no way to tell whether that was the answer or the cut.
+	#
+	# **Two ways to be short and both count.** The merge itself may have trimmed rows this
+	# already holds, or either kind may have said there were more behind it — `Listing.has_more`
+	# was added for exactly this in `#1037` and was read by nothing on this surface.
+	#
+	# **No number, because there honestly is not one.** `has_more` is a flag; counting would
+	# cost a second full scan per kind, which is the trade §8.4's `include_total` already
+	# declines. Saying *more* without a figure is the same answer the CLI's *…and more* gives.
+	if len(ordered) > limit or tasks.has_more or getattr(documents, "has_more", False):
+		rows.append("More matched than are shown. Raise limit, or narrow with project or filter.")
 
 	return "\n".join(rows)
 

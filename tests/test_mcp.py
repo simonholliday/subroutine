@@ -448,6 +448,10 @@ def test_a_limit_bounds_the_answer_rather_than_each_kind (
 
 	For an agent the limit is the whole cost of the call, so a listing that honours it per
 	kind has ignored it.
+
+	**Rows rather than lines**, which `SR#1071` corrected: the answer now carries a footer when
+	it was cut, so counting every line would make this test refuse the sentence that says the
+	limit was honoured. The claim was always about how many *items* come back.
 	"""
 
 	for index in range(5):
@@ -455,7 +459,7 @@ def test_a_limit_bounds_the_answer_rather_than_each_kind (
 
 	text, _failed = _called(bound, "subroutine_list", limit=3)
 
-	assert len(text.splitlines()) == 3
+	assert len([line for line in text.splitlines() if line.startswith("#")]) == 3
 
 
 def test_an_item_can_be_read_by_ref_with_or_without_the_sigil (
@@ -2182,6 +2186,53 @@ def test_a_day_an_agent_is_told_is_the_day_the_day_was_meant (
 		assert "2027-08-01" in answer, (
 			f"{timezone}: {surface} reported a plan set for 2027-08-01 as:\n{answer}"
 		)
+
+
+def test_a_listing_an_agent_asked_for_says_when_it_was_cut (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""docs/design.md §12.2a on the one branch that did not follow it (`SR#1064`'s neighbour, `SR#1071`).
+
+	The **agenda** branch of this same function appends *"N more not shown"*, ten lines away.
+	The listing branch returned `ordered[:limit]` and nothing, so an agent asking for three got
+	three and could not tell the answer from the cut — which is the difference between *there
+	are three things to do* and *here are three of them*.
+
+	`Listing.has_more` was added in `SR#1037` for exactly this and was read by nothing here.
+	"""
+
+	for index in range(6):
+		_added(bound, f"Something to do number {index}")
+
+	cut, failed = _called(bound, "subroutine_list", limit=3)
+
+	assert not failed
+	assert len([line for line in cut.splitlines() if line.startswith("#")]) == 3
+	assert "More matched than are shown" in cut, (
+		f"three of six were shown and nothing said so:\n{cut}"
+	)
+
+
+def test_a_listing_that_is_everything_says_nothing_extra (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The ordinary day, and the reason a footer is not free.
+
+	Every line here is context the model carries, so a caption paid on every listing to cover
+	the case where there is nothing to say is the trade `SR#1010` refused for the empty capture
+	line. It is also the falsification that matters: a footer appended unconditionally passes
+	the test above and is wrong on most calls.
+	"""
+
+	for index in range(3):
+		_added(bound, f"Something to do number {index}")
+
+	whole, failed = _called(bound, "subroutine_list", limit=20)
+
+	assert not failed
+	assert "More matched" not in whole, (
+		f"a complete listing claimed there was more:\n{whole}"
+	)
 
 
 def test_an_ordinary_capture_carries_no_extra_line (

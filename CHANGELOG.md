@@ -369,6 +369,17 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent is told when its listing was cut.** `subroutine_list` and `subroutine_search`
+  returned exactly the number asked for and nothing else, so twenty results and *the first
+  twenty of many* read identically — while the agenda, in the same tool, has always said "N more
+  not shown". It says so now, and stays silent when the list really is everything.
+
+- **The conventions an agent is told to read no longer guess at their own completeness.** That
+  index worked out whether it might be short by counting rows against the page size, because at
+  the time no client could see the server's own answer. It can since the last change to paging,
+  and the count was wrong in both directions: two statuses of half a page each added up to a
+  claim of truncation, and one page that was exactly full and complete made the same claim.
+
 - **An agent asking too much of the database is told so, not shown the query.** A statement
   this instance stopped waiting for — a timeout, a lock, a deadlock — reached an HTTP caller as
   `request_timed_out` with a remedy, and reached an agent as SQLAlchemy's raw text: the
