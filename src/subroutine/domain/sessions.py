@@ -166,6 +166,12 @@ def redeem (
 		login_link_id=link.id,
 	)
 
+	# **The login moment, and the only one there is** (`#526`). A token is presented on every
+	# call, so "the last time a credential was used" is `api_token.last_used_at` and is a
+	# different question — this is the one an operator means by *when did this person last
+	# sign in*, and a login link redeemed into a session is the only place it happens.
+	user.last_login_at = moment
+
 	session.add(opened)
 	session.flush()
 

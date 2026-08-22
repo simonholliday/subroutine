@@ -69,6 +69,64 @@ def test_a_link_signs_somebody_in (session: sqlalchemy.orm.Session) -> None:
 	assert found.token is None
 
 
+def test_signing_in_is_what_writes_a_last_login (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#526` — the column was mapped since the initial migration and written by nothing.
+
+	**Asserted in both directions on purpose.** *Null* is also what a broken write produces,
+	so the negative half alone would pass against the defect this closes — and it is exactly
+	the shape that made this worth wiring rather than deleting: an operator reading *never*
+	beside somebody who signs in daily cannot tell a quiet account from a dead column.
+
+	A token is deliberately not a login. It is presented on every call, so writing this from
+	authentication would make it mean *the last time anything happened*, which is
+	``api_token.last_used_at`` and is already answered.
+	"""
+
+	user = _make_user(session)
+
+	# **Read into a local before asserting.** Narrowing the attribute itself to ``None`` here
+	# tells mypy it stays ``None``, because a type checker cannot see that ``redeem`` writes
+	# it — and everything after the next assert becomes unreachable rather than checked.
+	before = user.last_login_at
+
+	assert before is None, "nobody has signed in yet"
+
+	_link, secret = subroutine.domain.sessions.mint_link(session, user=user)
+	subroutine.domain.sessions.redeem(session, secret)
+
+	first = user.last_login_at
+
+	assert first is not None, "redeeming a link is signing in"
+
+	# And again, because a value written once at creation would satisfy everything above.
+	_second_link, again = subroutine.domain.sessions.mint_link(session, user=user)
+	subroutine.domain.sessions.redeem(
+		session, again, now=first + datetime.timedelta(minutes=5)
+	)
+
+	second = user.last_login_at
+
+	assert second is not None
+	assert second > first, "each sign-in moves it"
+
+
+def test_a_service_account_never_reports_a_login (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Null on an agent is the answer rather than a gap — `#526`.
+
+	`_refuse_a_service_account` already stops one being given a link, so this asserts the
+	*consequence* an operator sees: a directory listing people and agents together shows a
+	login for one kind and never for the other, and that difference is information.
+	"""
+
+	agent = _make_user(session, is_service_account=True)
+
+	assert subroutine.views.user(agent).last_login_at is None
+
+
 def test_a_link_works_once (session: sqlalchemy.orm.Session) -> None:
 	"""A second redemption is refused, which is the whole of "single use".
 

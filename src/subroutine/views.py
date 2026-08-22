@@ -985,6 +985,21 @@ class User(pydantic.BaseModel):
 
 	created_at: datetime.datetime
 
+	#: When this account last **signed in** — a login link redeemed into a browser session
+	#: (`#526`). Null means never, which on a service account is the ordinary state: an agent
+	#: presents a token and never signs in at all, so this is null for it forever and that is
+	#: the honest answer rather than a gap. *When was this credential last used* is a different
+	#: question and `Token.last_used_at` answers it.
+	#:
+	#: Reported here rather than only to the account itself because the question it answers is
+	#: an operator's — *is anybody still using this account* — which is the same question
+	#: ``is_active`` is beside. It is not an email: §5's rule is that identifiers are public and
+	#: content is not, and a login timestamp is neither content nor a contact route.
+	#:
+	#: Defaulted for `#345`'s reason: added after this model shipped, so an older instance's
+	#: body must still parse.
+	last_login_at: datetime.datetime | None = None
+
 	def address (self) -> str:
 		"""Return what a caller addresses this by — the username."""
 
@@ -2550,6 +2565,7 @@ def user (row: subroutine.db.models.identity.User) -> User:
 		responsible_user_id=row.responsible_user_id,
 		timezone=row.timezone,
 		created_at=row.created_at,
+		last_login_at=row.last_login_at,
 	)
 
 

@@ -136,6 +136,11 @@ DERIVED: dict[str, str] = {
 	#: `path` is a materialised path of **ids** and `views.Project`'s own docstring warns it is
 	#: not an address (`#986` published one by mistake and printed a UUID at a reader).
 	"path": "the materialised path of ancestor ids, rewritten by a move rather than sent.",
+
+	#: **`#526`.** Written by `domain.sessions.redeem` when a login link becomes a browser
+	#: session, which is the only moment anybody signs in. A caller cannot set it and should
+	#: not be able to: an account that could stamp its own last login could claim to be in use.
+	"last_login_at": "when this account last signed in; the sign-in writes it, never a caller.",
 	"depth": "how far down the tree this sits, counted from the path.",
 
 	#: **Written by `workspaces.create` and by nothing a person touches** (`#301`, `#982`).
@@ -700,10 +705,7 @@ UNREPORTED: dict[str, str] = {
 		"#525 — §6.5's chain is explicit → user → workspace → instance and `schedule.zone_for` "
 		"implements exactly that. A project is not a step in it, and nothing writes this."
 	),
-	"User.last_login_at": (
-		"#526 — the string does not appear in `src/` outside `db/models/`, so it is null on "
-		"every account everywhere."
-	),
+
 }
 
 

@@ -12,6 +12,17 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **An account says when it last signed in.** `last_login_at` is reported on a user and is
+  written when a sign-in link becomes a browser session — which is the only moment anybody
+  signs in. It is null on a service account and always will be: an agent presents a token and
+  never signs in, and *when was this credential last used* is a different question that a
+  token already answers. The column has existed since the first release and nothing wrote it,
+  so it read *never* for everybody.
+
 ## 0.7.6 — 2026-08-22
 
 > **This release changes the database schema**, to `c9e4a1b73f52`.
