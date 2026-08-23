@@ -22,6 +22,16 @@ upgrade involves.
 
 ### Added
 
+- **An agent can read the rest of a long item.** `subroutine_show` trims a body that will not
+  fit and now says which character it stopped at; passing that number back as `from` returns the
+  next part, joined exactly where the last one ended. Before this the cut note offered the whole
+  item at a terminal or over HTTP and never the *next part of it*, so for a 129 KB document the
+  two available answers were 64 KB and 129 KB — and the remedy an agent was handed was the
+  request that was already too big.
+
+  A continuation carries the body alone. The links, the record and the tags came with the first
+  page, and sending them again would spend the budget on what the caller already has.
+
 - **An agent reading an item sees its parts.** `subroutine_show` rendered an item's links, its
   backlinks, its comments and its history and not its children — so a parent whose own
   description said *four sub-items below* showed none of them, which reads as though they had

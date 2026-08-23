@@ -1736,6 +1736,79 @@ _BESIDE_A_REF: dict[str, typing.Any] = {
 _NO_SUCH_REF = 999999
 
 
+def test_a_cut_body_says_where_to_carry_on_and_carrying_on_works (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#849`. A cap is only defensible together with a way to read the rest.
+
+	The cut note offered *all of it* — a terminal, or the raw route — and never *the next part
+	of it*. So for a 129 KB document the two available answers were 64 KB and 129 KB, and the
+	remedy an agent was handed was the request that was already too big. `#595` shipped the
+	*before* half of this, so an agent knows how big an item is; this is what it can do about
+	the answer.
+	"""
+
+	body = "".join(f"line {number} of a very long document\n" for number in range(4000))
+
+	assert len(body) > subroutine.mcp.tools.MAX_ANSWER * 1.5, "the fixture is not long enough"
+
+	made, failed = _called(
+		bound, "subroutine_document", title="A long one", body=body, type="note"
+	)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
+	ref = int(numbered.group(1))
+	first, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, first
+	assert len(first) <= subroutine.mcp.tools.MAX_ANSWER, len(first)
+
+	at = re.search(r"cut here at character (\d+)", first)
+
+	assert at is not None, f"the cut does not say where it stopped: {first[-400:]}"
+
+	stopped = int(at.group(1))
+	rest, failed = _called(bound, "subroutine_show", ref=ref, **{"from": stopped})
+
+	assert not failed, rest
+	assert f"continuing at character {stopped}" in rest, rest[:200]
+
+	# **The join is exact**, which is the whole promise: the next page starts where the last
+	# one stopped, so a reader concatenating them gets the body and not an overlap or a gap.
+	assert body[stopped : stopped + 60] in rest, "the continuation does not resume where it cut"
+
+	# **And it does not repeat the item around it.** A continuation is the rest of one field;
+	# sending the links and the record again would spend the budget on what the caller has.
+	assert "A long one" not in rest, rest[:200]
+
+
+def test_a_body_short_enough_to_fit_is_never_cut (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""So the test above is about the cap rather than about every item this tool answers."""
+
+	made, failed = _called(
+		bound, "subroutine_document", title="A short one", body="Two lines.", type="note"
+	)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
+	shown, failed = _called(bound, "subroutine_show", ref=int(numbered.group(1)))
+
+	assert not failed, shown
+	assert "cut here" not in shown, shown
+	assert "Two lines." in shown
+
+
 def test_an_agent_reading_an_item_sees_its_parts (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

@@ -740,6 +740,13 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"properties": {
 					"ref": {"type": A_REF, "description": "The item's number."},
 					"history": {"type": "boolean", "description": "Every change, newest first."},
+					# **`#849`. A cap is only defensible together with a way to read the rest.**
+					# The note this tool prints when it cuts says which character it stopped at,
+					# so continuing is copying a number rather than computing one.
+					"from": {
+						"type": "integer",
+						"description": "Continue a cut body from this character.",
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -2213,11 +2220,17 @@ def _shown (
 			for remark in remarks
 		)
 
-	return _within_budget(parts, body_at=body_at, ref=ref, kind=kind)
+	return _within_budget(
+		parts,
+		body_at=body_at,
+		ref=ref,
+		kind=kind,
+		resume=max(0, int(arguments.get("from") or 0)),
+	)
 
 
 def _within_budget (
-	parts: list[str], *, body_at: int | None, ref: int, kind: str
+	parts: list[str], *, body_at: int | None, ref: int, kind: str, resume: int = 0
 ) -> str:
 	"""Return this item's answer, trimming its body if the whole is more than it is worth.
 
@@ -2237,7 +2250,27 @@ def _within_budget (
 	is no body to trim the answer is left whole: everything else here is bounded by how many
 	links and comments somebody wrote, and cutting those without saying which is worse than
 	being long.
+
+	``resume`` is where in the body to start, which is `#849`: **a cap is only defensible
+	together with a way to read the rest.** Until now the cut note offered *all of it* — a
+	terminal or the raw route — and never *the next part of it*, so for a 129 KB document the
+	two available answers were 64 KB and 129 KB, and the remedy an agent was handed was the
+	request that was already too big.
+
+	**Characters, and the number is the one the note prints**, so continuing is copying a
+	figure rather than computing one. Nothing else is repeated on a continuation: the links,
+	the record and the tags came with the first page and sending them again would spend the
+	budget on what the caller already has.
 	"""
+
+	body = None if body_at is None else parts[body_at]
+
+	if body is not None and resume > 0:
+		# **The body alone from here.** A continuation is the rest of one field, not a second
+		# rendering of the item — everything around it was answered by the first call, and
+		# repeating it is exactly the cost this whole mechanism exists to bound.
+		parts = [f"#{ref}  continuing at character {resume}", "", body[resume:]]
+		body_at = 2
 
 	answer = "\n".join(parts)
 
@@ -2246,13 +2279,23 @@ def _within_budget (
 
 	body = parts[body_at]
 	where = "/v1/tasks" if kind == "task" else "/v1/documents"
-	note = (
-		f"\n\n[… cut here. This item is longer than the {MAX_ANSWER // 1024} KB this tool "
-		f"returns, so the rest of the body is not shown. Read it whole with 'subroutine show "
-		f"{ref}' at a terminal, or GET {where}/{ref} — neither is capped.]"
+	# **Where to carry on from, computed after the allowance is known.** Written into the note
+	# so the caller reads the number rather than working out what the cut cost — and it counts
+	# from the start of the body, not from this page, so a third call is the same arithmetic
+	# as the second.
+	marker = "\n\n[… cut here at character {}. Continue with subroutine_show(ref={}, from={}). "
+	tail = (
+		f"The whole item is at 'subroutine show {ref}' in a terminal, or GET {where}/{ref} — "
+		f"neither is capped.]"
 	)
-	allowance = max(0, len(body) - (len(answer) - MAX_ANSWER) - len(note))
-	parts[body_at] = body[:allowance] + note
+	# **Reserved at the widest the note can be, not at the narrowest.** The number it prints
+	# depends on the allowance and the allowance depends on the note's length, which is
+	# circular — so the room is booked for an offset no larger one can exist, and the few
+	# characters that leaves unused are cheaper than an answer eight bytes over its own cap.
+	widest = len(marker.format(resume + len(body), ref, resume + len(body))) + len(tail)
+	allowance = max(0, len(body) - (len(answer) - MAX_ANSWER) - widest)
+	stopped = resume + allowance
+	parts[body_at] = body[:allowance] + marker.format(stopped, ref, stopped) + tail
 
 	return "\n".join(parts)
 
