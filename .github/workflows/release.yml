@@ -28,13 +28,31 @@ permissions:
   contents: read
 
 jobs:
-  # CI runs on pushes to main, and a tag is not one — so without this a release could publish
-  # code no suite ever saw. One version rather than the full matrix: this is a gate on the
-  # artefact, not the compatibility run that already happened on the commit.
+  # CI runs on pushes to main, and a tag is not one — so without these a release could publish
+  # code no suite ever saw. One Python version rather than the full matrix: this is a gate on
+  # the artefact, not the compatibility run that already happened on the commit.
+  #
+  # **Two jobs, because one was not finishing** (`SR#1111`). This ran the whole gate serially in
+  # a single job while CI fanned the same work out, and on `v0.7.6` it hit `timeout-minutes: 25`
+  # at 87% of a green run — all dots, no failures — so `Build`, `TestPyPI`, `PyPI` and
+  # `GitHub release` each showed 0s and the tag published nothing. The two numbers were never
+  # comparable: CI was green on the same commit in 9m43s, and the ceiling here had been set when
+  # serial and parallel were closer together.
+  #
+  # So the split is not a tidy-up, it is the fix: each job now runs the shape that demonstrably
+  # finishes, and each ceiling bounds something whose runtime is measured rather than guessed.
+  # A release gate that is *slower* than the CI run on the same commit had no reason to be.
+  #
+  # **The coverage is the union of the two**, which is exactly how `ci.yml` and the local gate in
+  # `scripts/check.py` already split it — and `tests/test_check_script.py` reads the union across
+  # the file for that reason. Neither job alone runs the suite; `Build` needs both.
   test:
     name: Tests
     runs-on: ubuntu-latest
 
+    # CI measures this same command at 7-9 minutes per matrix leg, and this is one leg. Kept at
+    # the number CI uses rather than tightened to the measurement: a release runs once, and a
+    # ceiling that fires on an unlucky-but-honest run costs a version number (`SR#1015`).
     timeout-minutes: 25
 
     services:
@@ -66,9 +84,9 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      # **Node and a browser, because without them this job was not the gate it claims to be**
-      # (`SR#927`'s H-17). CI splits these across two jobs to avoid downloading Chromium once
-      # per Python version; there is one version here, so one job runs the lot.
+      # Node, because `tests/test_web.py` renders the browser app's components in it and
+      # *skips* without a runtime. No browser here — that is the job below, and separating them
+      # is what lets this one run in parallel at all.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
         with:
           node-version: "22"
@@ -76,38 +94,75 @@ jobs:
       - name: Install
         run: python -m pip install -e '.[dev,postgres]'
 
-      # The browser, and the fonts `install-deps` adds — bounded and retried, because a stall
-      # here costs a version number (`SR#1022`). It installs no shared libraries on this image;
-      # see `ci.yml` for the measurement and why the step is kept (`SR#1031`).
-      - uses: ./.github/actions/install-browser
-
-      # **Serial, where CI and the local gate run this in parallel** (`SR#936`). This is the one
-      # job that installs a browser *and* runs the whole suite in one command, so `-n` here
-      # would put `tests/test_browser.py` under a distributed scheduler — measured on 8 cores,
-      # that fails: `TimeoutError: Timeout 10000ms exceeded while waiting for event "page"`,
-      # because a worker apiece launches its own Chromium. A release runs once and a flake here
-      # costs a version number, so the twelve minutes are bought deliberately.
+      # **Parallel, which is what the serial arrangement was buying safety against and no longer
+      # needs to** (`SR#936`, `SR#1111`). The measured hazard was real: `-n` over a run that
+      # *includes* `tests/test_browser.py` puts a distributed scheduler in front of Playwright
+      # and a worker apiece launches its own Chromium, which fails. Ignoring that file removes
+      # the hazard rather than working around it, and is the same command CI and the local gate
+      # both run.
       #
-      # Both backends, and an absent PostgreSQL, Node or browser is a failure rather than a
-      # skip — a release verified on part of a test run is not verified.
-      #
-      # **Every release before this one published on a suite that never rendered the browser
-      # app.** This job installed neither runtime and set only the PostgreSQL variable, so 198
-      # tests in `test_web.py` and every one in `test_browser.py` skipped in silence and the
-      # job went green. Adding the variables is half the fix; `tests/test_check_script.py`
-      # derives the full set from the suite and fails when a workflow covers less than all of
-      # it, because a list of what CI must set is a second copy of what the suite offers.
+      # Both backends, and an absent PostgreSQL or Node is a failure rather than a skip — a
+      # release verified on part of a test run is not verified.
       - name: Tests on SQLite and PostgreSQL
         env:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py
+
+  # The other half of the gate, and the reason it is its own job is the same one `ci.yml` gives:
+  # Chromium is ~400MB, and a job that downloads it should not also be the job holding up
+  # everything else.
+  #
+  # **Every release before `SR#927`'s H-17 published on a suite that never rendered the browser
+  # app.** The job that ran the tests installed neither runtime and set only the PostgreSQL
+  # variable, so `tests/test_browser.py` skipped in silence and the run went green. That is what
+  # `SUBROUTINE_TEST_REQUIRE_BROWSER` is for, and it is the whole point of this job existing.
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+
+    # `SR#1015`'s ceiling, and it **must stay above the install action's own retry budget**
+    # (`SR#1022`): two bounded attempts at 180 seconds is 6 minutes in the worst case, with the
+    # browser download and the suite on top. The numbers are read off
+    # `.github/actions/install-browser/action.yml` rather than remembered — `SR#1031` is what
+    # happens when a comment describes a retry that is not the retry that runs.
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: python -m pip install -e '.[dev]'
+
+      # The browser, and the fonts `install-deps` adds — bounded and retried, because a stall
+      # here costs a version number (`SR#1022`). It installs no shared libraries on this image;
+      # see `ci.yml` for the measurement and why the step is kept (`SR#1031`).
+      - uses: ./.github/actions/install-browser
+
+      # Serial and deliberately so: this is the file `-n` cannot schedule, which is the whole
+      # reason it is not in the job above.
+      - name: Tests in a browser
+        env:
           SUBROUTINE_TEST_REQUIRE_BROWSER: "1"
-        run: pytest
+          SUBROUTINE_TEST_REQUIRE_NODE: "1"
+        run: pytest tests/test_browser.py
 
   build:
     name: Build
-    needs: test
+    needs: [test, browser]
     runs-on: ubuntu-latest
 
     timeout-minutes: 15

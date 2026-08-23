@@ -432,7 +432,157 @@ def test_the_suite_is_actually_run_across_workers () -> None:
 	)
 
 
-def test_a_hung_test_is_stopped_before_the_job_that_would_kill_it () -> None:
+def _pytest_commands (runs: typing.Iterable[str]) -> list[list[str]]:
+	"""Return each ``pytest`` invocation in some shell text, as its words."""
+
+	found = []
+
+	for run in runs:
+		for line in run.splitlines():
+			words = line.split()
+
+			if words and words[0] == "pytest":
+				found.append(words)
+
+	return found
+
+
+def _covers (command: list[str]) -> set[pathlib.Path]:
+	"""Return the test files one ``pytest`` invocation runs.
+
+	Two shapes, and they are not the same question. An invocation **with** positional targets
+	runs exactly those and nothing else; one **without** runs the whole suite minus whatever
+	its ``--ignore=`` arguments name. Reading them as one thing is how the first version of
+	this guard passed its own falsification.
+	"""
+
+	# **A path rather than "not a flag"**, because ``-n auto`` and ``--dist worksteal`` put
+	# their values in separate words — so the obvious reading made ``auto`` and ``worksteal``
+	# look like positional targets and reported the whole suite as uncovered. Asking whether
+	# the word names something on disk cannot be fooled by a flag's value.
+	targets = [
+		pathlib.Path(word)
+		for word in command[1:]
+		if not word.startswith("-") and (ROOT / word).exists()
+	]
+	excluded = [
+		pathlib.Path(word.split("=", 1)[1])
+		for word in command
+		if word.startswith("--ignore=")
+	]
+
+	if targets:
+		named = {pathlib.Path(one) for one in targets}
+
+		return {
+			found
+			for found in _test_files()
+			if any(found == one or one in found.parents for one in named)
+		}
+
+	return {
+		found
+		for found in _test_files()
+		if not any(found == one or one in found.parents for one in excluded)
+	}
+
+
+def _test_files () -> set[pathlib.Path]:
+	"""Return every test module in the suite, relative to the repository root.
+
+	Enumerated rather than listed, for `SR#405`'s reason — and it is what makes the check
+	*exact* rather than a comparison of two strings that happen to mention each other.
+	"""
+
+	return {
+		found.relative_to(ROOT) for found in TESTS.rglob("test_*.py")
+	}
+
+
+def _uncovered (commands: list[list[str]]) -> set[pathlib.Path]:
+	"""Return every test file no invocation in a set of them runs.
+
+	The reconciliation `SR#1132` is about. A split gate's coverage is the *union* of its
+	commands, and the union is only the whole suite while what one of them leaves out is
+	picked up by another. Nothing else here asks that question: the skip-refusing guard reads
+	environment variables, and the two ``-n`` guards read flags.
+	"""
+
+	covered: set[pathlib.Path] = set()
+
+	for command in commands:
+		covered |= _covers(command)
+
+	return _test_files() - covered
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda one: one.name)
+def test_what_one_job_leaves_out_another_runs (workflow: pathlib.Path) -> None:
+	"""`SR#1132`. A gate split across jobs still has to cover the whole suite.
+
+	**Found while splitting ``release.yml`` for `SR#1111`.** That file used to run a bare
+	``pytest`` — one command, whole suite, nothing to get wrong — and now runs
+	``--ignore=tests/test_browser.py`` in one job and ``tests/test_browser.py`` in another,
+	which is what ``ci.yml`` and ``scripts/check.py`` have always done. The arrangement is
+	right and it moves the risk: coverage became a property of two commands agreeing rather
+	than of one command being complete, and no guard here was asking about it.
+
+	Widening the exclusion to ``--ignore=tests/`` would have passed every other check in this
+	file, passed the suite, and published a release verified on nothing — **silent in the
+	direction that matters**, because fewer tests running is a shorter green run.
+
+	Read off the workflow rather than compared against a literal list of what may be ignored,
+	for `SR#405`'s reason: a list of the legitimate exclusions is a second copy of the split,
+	and the copy is the one that goes stale.
+
+	**The first version of this passed its own falsification**, and the fix is why it now
+	enumerates the suite. It asked *is each excluded path covered by some target* — so
+	``--ignore=tests/`` beside ``pytest tests/test_browser.py`` looked answered, because the
+	target sits inside the exclusion. The question a split gate actually has is the other way
+	round: *is each test module run by somebody*. Comparing two strings that mention each other
+	is not the same as counting what runs.
+	"""
+
+	loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+	commands = _pytest_commands(
+		str(step.get("run", ""))
+		for job in (loaded.get("jobs") or {}).values()
+		for step in job.get("steps") or []
+	)
+
+	if not commands:
+		pytest.skip("this workflow does not run pytest")
+
+	orphaned = _uncovered(commands)
+
+	assert not orphaned, (
+		f"{workflow.name} runs pytest and {len(orphaned)} test modules are run by none of its "
+		f"invocations, so nothing in this workflow ever runs them: {sorted(map(str, orphaned))[:5]}"
+	)
+
+
+def test_the_local_gate_covers_what_it_excludes () -> None:
+	"""The same question of ``scripts/check.py``, which splits the suite the same way.
+
+	Its two entries are compared against ``ci.yml`` step for step by the test above them, and
+	that comparison holds them *equal to the workflow* rather than *complete*. Both could drift
+	together — which is exactly what a shared edit does.
+	"""
+
+	orphaned = _uncovered(
+		[list(entry.command) for entry in script.CHECKS if entry.command[0] == "pytest"]
+	)
+
+	assert not orphaned, (
+		f"scripts/check.py never runs {len(orphaned)} test modules, so the local gate is "
+		f"green over tests nobody ran: {sorted(map(str, orphaned))[:5]}"
+	)
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda one: one.name)
+def test_a_hung_test_is_stopped_before_the_job_that_would_kill_it (
+	workflow: pathlib.Path,
+) -> None:
 	"""`SR#1048`. Two ceilings, and the inner one is worth nothing if it is not the smaller.
 
 	`Tests (Python 3.11)` hung on 2026-08-20 and was killed by `SR#1015`'s job ceiling while
@@ -450,6 +600,12 @@ def test_a_hung_test_is_stopped_before_the_job_that_would_kill_it () -> None:
 	act, which is the defect this repository finds most often. Below the slowest real test it
 	would fire on a slow runner instead, which the comment in ``pyproject.toml`` records with
 	the measurement — but only one of the two ends is checkable from here, and it is this one.
+
+	**Every workflow, since `SR#1111`, and it said "every job" while reading one file.** It was
+	written against ``ci.yml`` alone, so the release gate's own ceiling — the one that killed a
+	green run at 87% and published nothing — was outside what it could see. A rule stated
+	unqualified and applied to one of two files is the shape this repository keeps finding, met
+	inside the test that states it.
 	"""
 
 	settings = tomllib.loads(
@@ -463,16 +619,17 @@ def test_a_hung_test_is_stopped_before_the_job_that_would_kill_it () -> None:
 		"and `xdist` still has nothing to attribute it to"
 	)
 
-	workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+	loaded = yaml.safe_load(workflow.read_text(encoding="utf-8"))
 	bounded = {}
 
-	for name, job in workflow["jobs"].items():
-		runs = "\n".join(str(step.get("run", "")) for step in job.get("steps", []))
+	for name, job in (loaded.get("jobs") or {}).items():
+		runs = "\n".join(str(step.get("run", "")) for step in job.get("steps") or [])
 
 		if "pytest" in runs:
 			bounded[name] = job.get("timeout-minutes")
 
-	assert bounded, "no job in this workflow runs pytest, so this has stopped reading it"
+	if not bounded:
+		pytest.skip("this workflow does not run pytest")
 
 	assert all(bounded.values()), (
 		f"{sorted(one for one, limit in bounded.items() if not limit)} run pytest with no "
