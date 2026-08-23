@@ -5966,11 +5966,15 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: ``workspace`` commands put the closure 31 lines over, and the remedy was the one this asks
 #: for: the whole ``workspace`` group moved to ``_register_workspace``, which is 135 lines out
 #: for two in. That is the mechanism working — a feature is what makes somebody do the move.
-REGISTER_CEILING = 2_444
+#:
+#: **And a second time, on five lines of help** (`#1136`). That is the more useful data point:
+#: the first payment came from a feature big enough to expect it, and this one came from a
+#: docstring. ``link`` and ``unlink`` moved to ``_register_links``, 109 lines out for two in.
+REGISTER_CEILING = 2_347
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 130
+MODULE_LEVEL_FLOOR = 131
 
 
 def _register_span () -> tuple[int, int]:

@@ -26,6 +26,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.db.seed
 
 #: What may never appear in a published help string, and why each one matters.
 #:
@@ -101,6 +102,115 @@ def test_published_help_is_prose_rather_than_source (
 				f"'{path}' has {description} in {where}, around: "
 				f"{text[max(found.start() - 40, 0):found.end() + 40]!r}"
 			)
+
+
+#: Help that names *some* of a seeded vocabulary by example rather than offering all of it, and
+#: why each is allowed to.
+#:
+#: The entry goes away when the parameter does, or when its wording stops naming two keys.
+BY_EXAMPLE = {
+	("subroutine doc create", "status"): (
+		"A status is the most freely edited vocabulary there is, and this sentence is about "
+		"which one a decision starts in rather than about what may be typed."
+	),
+}
+
+
+def _vocabularies () -> dict[str, frozenset[str]]:
+	"""Every vocabulary a workspace is seeded with, by a name a failure can print.
+
+	Read off the seeds rather than listed, because a list of what the seeds contain is the
+	second copy this guard exists to refuse.
+	"""
+
+	found: dict[str, set[str]] = {
+		"link type": {one.key for one in subroutine.db.seed._LINK_TYPES}
+	}
+
+	for kind in subroutine.db.seed._ITEM_TYPES:
+		found.setdefault(f"{kind.entity_type} type", set()).add(kind.key)
+
+	for status in subroutine.db.seed._STATUSES:
+		found.setdefault(f"{status.entity_type} status", set()).add(status.key)
+
+	return {name: frozenset(keys) for name, keys in found.items()}
+
+
+def _named (text: str, keys: typing.Iterable[str]) -> frozenset[str]:
+	"""Which of these keys the text names, in either spelling.
+
+	Hyphens read better at a command line than the underscores the seeds use, and both are
+	accepted on input, so both count here.
+	"""
+
+	spelled = text.replace("-", "_")
+
+	return frozenset(
+		key
+		for key in keys
+		if re.search(rf"(?<![\w]){re.escape(key)}(?![\w])", spelled) is not None
+	)
+
+
+@pytest.mark.parametrize("path,command", list(_commands()), ids=lambda value: str(value))
+def test_an_argument_that_lists_a_vocabulary_lists_all_of_it (
+	path: str, command: typing.Any
+) -> None:
+	"""An offer of *some* of a vocabulary reads as an offer of all of it.
+
+	`#1136`, measured: ``link``'s ``relation`` named four of five link types and left out
+	``documents`` — the one that says a decision governs a piece of work, and the one the
+	whole *what governs this* feature is built on. The instance held **42 of 1,002** links of
+	that type, which reads as indiscipline and is not: an agent or a person reads the help,
+	sees four, and picks the nearest of the four.
+
+	**Arguments only, not descriptions.** A description is prose and uses these words as
+	words — ``link``'s own says what ``blocks`` and ``documents`` are *for* without offering
+	either. An argument's help is where the offer is made, so it is where completeness is a
+	promise. `#821` fixed the same defect on the MCP tool, where the answer was to name none
+	of them and point at the vocabulary instead; a terminal reader is better served by the
+	five they almost certainly have, and the refusal names the real ones when they are not.
+	"""
+
+	vocabularies = _vocabularies()
+
+	for parameter in command.params:
+		text = getattr(parameter, "help", "") or ""
+		named = {name: _named(text, keys) for name, keys in vocabularies.items()}
+
+		if any(found == vocabularies[name] for name, found in named.items()):
+			continue
+
+		for name, found in named.items():
+			if len(found) < 2 or (path, parameter.name) in BY_EXAMPLE:
+				continue
+
+			raise AssertionError(
+				f"'{path}' offers {sorted(found)} of the {name} vocabulary in the help for "
+				f"{parameter.name}, and leaves out "
+				f"{sorted(vocabularies[name] - found)}"
+			)
+
+
+def test_nothing_is_excused_from_that_which_no_longer_needs_it () -> None:
+	"""An excuse for a parameter that has stopped naming two keys is a decision about nothing."""
+
+	vocabularies = _vocabularies()
+	parameters = {
+		(path, parameter.name): getattr(parameter, "help", "") or ""
+		for path, command in _commands()
+		for parameter in command.params
+	}
+
+	for where, reason in BY_EXAMPLE.items():
+		assert where in parameters, f"{where} is excused and is not a parameter: {reason}"
+
+		text = parameters[where]
+
+		assert any(
+			len(_named(text, keys)) >= 2 and _named(text, keys) != keys
+			for keys in vocabularies.values()
+		), f"{where} no longer names part of a vocabulary, so its excuse can go"
 
 
 def test_no_command_advertises_a_sentinel_as_a_default () -> None:

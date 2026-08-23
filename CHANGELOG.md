@@ -101,6 +101,15 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine link` offers all five relations.** Its help listed `blocks`, `relates-to`,
+  `duplicates` and `derives-from` and left out `documents` — the one that says a decision or a
+  specification governs a piece of work. It has always been accepted; nothing offered it, so
+  almost nobody used it. On this instance it was 34 links of 1,181 while 277 links joining work
+  to a written conclusion were typed `relates-to` instead.
+
+  If you name a relation your workspace does not have, the refusal lists the ones it does — so
+  a renamed or added link type is still discoverable, which the help alone cannot be.
+
 - **Re-sending a field you did not change no longer records a change of meaning.** A client that
   reads a task, edits one field and sends the whole object back names its title in every
   request — and that moved `content_updated_at` even though the title was identical, as long as

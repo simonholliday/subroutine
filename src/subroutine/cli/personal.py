@@ -4469,6 +4469,127 @@ def _workspace_updated (
 			program.say(f"  Dates here are read in {changed.timezone or 'the instance zone'}.")
 
 
+def _register_links (app: typer.Typer, program: Program) -> None:
+	"""Add ``link`` and ``unlink`` to the application.
+
+	**Out of ``register`` rather than in it**, for the reason ``_register_workspace`` gives:
+	`#943`'s ratchet fired on `#1136`, which added five lines to one command's help, and what
+	the ratchet asks for is that a group leaves rather than that the ceiling moves. These two
+	are the natural unit — a link and its undo, sharing every helper they use and reaching
+	nothing in the closure but ``program`` and the application itself.
+	"""
+
+	@app.command("link")
+	def link_items (
+		which: str = typer.Argument("", help="Which item, by its number."),
+		relation: str = typer.Argument(
+			"", help="blocks, relates-to, duplicates, derives-from, documents."
+		),
+		other: str = typer.Argument("", help="The other item, by its number."),
+	) -> None:
+		"""Say how two items are related.
+
+		Examples:
+
+		  subroutine link 42 blocks 43
+
+		  subroutine link 42 relates-to 12
+
+		  subroutine link 7 documents 42
+
+		'blocks' is the one that changes what you see: 'subroutine list --ready' leaves out
+		anything blocked by unfinished work, so this is how that filter learns anything.
+
+		'documents' is the one that says a decision governs a piece of work, so that whoever
+		picks #42 up can be shown what they have to read before starting it.
+
+		Those are the five a new workspace is given. A workspace can rename them or add its
+		own, and naming one this workspace does not have lists the ones it does.
+		"""
+
+		# Hyphens read better than underscores at a command line and the seeded keys use
+		# underscores; accepted either way rather than making somebody guess which.
+		wanted = _asked(relation, "How are they related?").strip().replace("-", "_")
+
+		with program.opened() as world:
+			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
+			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="link")
+			where = world.writing_to()
+
+			made = where.client.link(
+				ref=near.ref,
+				link_type=wanted,
+				target=far.ref,
+				entity_type=near.entity_type,
+				target_type=far.entity_type,
+				workspace=near.workspace,
+			)
+
+			program.say(f"{made.label}: {made.other.title}")
+			_suggest(
+				program.console,
+				f"subroutine show {_typeable(world, near.connection, near.item)}",
+				"see everything it is joined to",
+			)
+
+	@app.command("unlink")
+	def unlink_items (
+		which: str = typer.Argument("", help="Which item, by its number."),
+		other: str = typer.Argument("", help="The item it is joined to, by its number."),
+	) -> None:
+		"""Undo a link between two items.
+
+		Examples:
+
+		  subroutine unlink 42 43
+
+		Worth having beside 'link' rather than later. A link added by mistake blocks work that
+		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
+		one, because it narrows what looks startable and says nothing about doing so.
+		"""
+
+		with program.opened() as world:
+			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
+			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="unlink")
+			where = world.writing_to()
+
+			# **Found by the pair rather than asked for by id.** A link's id is a UUID that
+			# appears in no listing a person reads, so requiring one would make this a command
+			# only a script could run — and `show` prints the two refs, which is what somebody
+			# actually has in front of them.
+			joins = [
+				one
+				for one in where.client.links(
+					ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
+				)
+				if one.other.ref == far.ref
+			]
+
+			if not joins:
+				# **The shortest address that resolves, not the absolute one.** A refusal is
+				# written when something has already gone wrong and is the last output anybody
+				# re-reads for stray vocabulary — printing `personal/#1` at somebody with one
+				# workspace introduces the word in an error message, about a to-do list. Same
+				# §1.4 leak `_in_place` exists for.
+				program.stop(
+					f"{world.address_of_located(near)} is not joined to "
+					f"{world.address_of_located(far)}.",
+					f"Run 'subroutine show {near.ref}' to see what it is joined to.",
+				)
+
+			for one in joins:
+				where.client.unlink(
+					ref=near.ref,
+					link_id=str(one.id),
+					entity_type=near.entity_type,
+					workspace=near.workspace,
+				)
+
+			program.say(f"Unlinked: {joins[0].other.title}")
+			_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
+
+
+
 def _register_workspace (app: typer.Typer, program: Program) -> None:
 	"""Add the ``workspace`` group to the application.
 
@@ -6030,104 +6151,7 @@ def register (
 				"read it back",
 			)
 
-	@app.command("link")
-	def link_items (
-		which: str = typer.Argument("", help="Which item, by its number."),
-		relation: str = typer.Argument("", help="blocks, relates-to, duplicates, derives-from."),
-		other: str = typer.Argument("", help="The other item, by its number."),
-	) -> None:
-		"""Say how two items are related.
-
-		Examples:
-
-		  subroutine link 42 blocks 43
-
-		  subroutine link 42 relates-to 12
-
-		'blocks' is the one that changes what you see: 'subroutine list --ready' leaves out
-		anything blocked by unfinished work, so this is how that filter learns anything.
-		"""
-
-		# Hyphens read better than underscores at a command line and the seeded keys use
-		# underscores; accepted either way rather than making somebody guess which.
-		wanted = _asked(relation, "How are they related?").strip().replace("-", "_")
-
-		with program.opened() as world:
-			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
-			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="link")
-			where = world.writing_to()
-
-			made = where.client.link(
-				ref=near.ref,
-				link_type=wanted,
-				target=far.ref,
-				entity_type=near.entity_type,
-				target_type=far.entity_type,
-				workspace=near.workspace,
-			)
-
-			say(f"{made.label}: {made.other.title}")
-			_suggest(
-				console,
-				f"subroutine show {_typeable(world, near.connection, near.item)}",
-				"see everything it is joined to",
-			)
-
-	@app.command("unlink")
-	def unlink_items (
-		which: str = typer.Argument("", help="Which item, by its number."),
-		other: str = typer.Argument("", help="The item it is joined to, by its number."),
-	) -> None:
-		"""Undo a link between two items.
-
-		Examples:
-
-		  subroutine unlink 42 43
-
-		Worth having beside 'link' rather than later. A link added by mistake blocks work that
-		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
-		one, because it narrows what looks startable and says nothing about doing so.
-		"""
-
-		with program.opened() as world:
-			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
-			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="unlink")
-			where = world.writing_to()
-
-			# **Found by the pair rather than asked for by id.** A link's id is a UUID that
-			# appears in no listing a person reads, so requiring one would make this a command
-			# only a script could run — and `show` prints the two refs, which is what somebody
-			# actually has in front of them.
-			joins = [
-				one
-				for one in where.client.links(
-					ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
-				)
-				if one.other.ref == far.ref
-			]
-
-			if not joins:
-				# **The shortest address that resolves, not the absolute one.** A refusal is
-				# written when something has already gone wrong and is the last output anybody
-				# re-reads for stray vocabulary — printing `personal/#1` at somebody with one
-				# workspace introduces the word in an error message, about a to-do list. Same
-				# §1.4 leak `_in_place` exists for.
-				stop(
-					f"{world.address_of_located(near)} is not joined to "
-					f"{world.address_of_located(far)}.",
-					f"Run 'subroutine show {near.ref}' to see what it is joined to.",
-				)
-
-			for one in joins:
-				where.client.unlink(
-					ref=near.ref,
-					link_id=str(one.id),
-					entity_type=near.entity_type,
-					workspace=near.workspace,
-				)
-
-			say(f"Unlinked: {joins[0].other.title}")
-			_suggest(console, f"subroutine show {_typeable(world, near.connection, near.item)}")
+	_register_links(app, program)
 
 	@app.command("delete")
 	def discard_item (
