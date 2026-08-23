@@ -88,6 +88,20 @@ class Repo(typing.NamedTuple):
 
 		return log.read_text().splitlines() if log.exists() else []
 
+	def looks_like (self, ref: str, kind: str, category: str) -> None:
+		"""Say what ``subroutine show <ref> --json`` answers about one item.
+
+		Two whole lines, indented as the real command indents them, because that is what
+		`hooks/post-commit` matches on and a stub that answered some other shape would be
+		testing my opinion of the output rather than the output.
+		``test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for`` is what ties this to
+		the real thing.
+		"""
+
+		(self.path.parent / f"shape.{ref}").write_text(
+			f'  "entity_type": "{kind}",\n    "status_category": "{category}",\n'
+		)
+
 
 @pytest.fixture
 def repo (tmp_path: pathlib.Path) -> Repo:
@@ -115,7 +129,12 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 				whoami) exit 0 ;;
 				show)
 					grep -qx "$2" "{tmp_path}/known" 2>/dev/null || exit 1
+					cat "{tmp_path}/shape.$2" 2>/dev/null
 					cat "{tmp_path}/comments.$2" 2>/dev/null
+					exit 0
+					;;
+				verify)
+					grep -qx "$2" "{tmp_path}/known" 2>/dev/null || exit 1
 					exit 0
 					;;
 				comment)
@@ -406,6 +425,93 @@ def test_a_commit_with_no_reference_records_nothing (repo: Repo) -> None:
 	repo.commit("Reword a comment")
 
 	assert not [call for call in repo.recorded() if call.startswith("comment ")]
+
+
+@pytest.mark.parametrize(
+	("kind", "category", "expected", "why"),
+	[
+		("task", "in_progress", True, "the work the commit is doing"),
+		("task", "open", True, "claimed but not yet started is still the work"),
+		("task", "done", False, "a run says nothing about work that finished days ago"),
+		("task", "cancelled", False, "nor about work that was abandoned"),
+		("document", "current", False, "a gate does not verify a decision"),
+	],
+)
+def test_a_gate_is_recorded_against_the_work_the_commit_did (
+	repo: Repo,
+	kind: str,
+	category: str,
+	expected: bool,
+	why: str,
+) -> None:
+	"""`SR#1153`, found by driving `SR#1121`'s hook the commit after it shipped.
+
+	A message cites refs in two roles — what it implements, and what it reasons from — and the
+	hook could not tell them apart, so `f4215f1` put its gate on two items that had been finished
+	for days and on a decision document, which refused and was reported as a failure.
+
+	**Commenting on all of them stays right** and is `SR#51`: *this commit mentioned you* is true
+	of a citation, and `uncomment` takes it back. A verification is a claim about **evidence**,
+	it is only true of the work the commit did, and no surface can delete one.
+	"""
+
+	repo.looks_like("42", kind, category)
+
+	repo.write("thing.py", "value = 1\n")
+	repo.commit("Do the thing\n\nSR#42 — the reference\n\nGate: 1 passed, 0 skipped")
+
+	recorded = [call for call in repo.recorded() if call.startswith("verify ")]
+
+	assert bool(recorded) is expected, f"{why}: {repo.recorded()}"
+
+	# The comment is written either way, which is the half this must not change.
+	assert [call for call in repo.recorded() if call.startswith("comment 42 ")], (
+		"a citation is still recorded as one"
+	)
+
+
+def test_citing_something_a_gate_cannot_verify_is_not_reported_as_a_failure (
+	repo: Repo,
+) -> None:
+	"""The noise that surfaced `SR#1153`, and it fired on a correct message.
+
+	`Could not record the gate against SR#84.` on every commit citing a decision — which under
+	this project's own conventions is most of them. Nothing had gone wrong: a gate does not
+	verify a decision, so there was nothing to record and nothing to say.
+	"""
+
+	repo.looks_like("42", "task", "in_progress")
+	repo.looks_like("99", "document", "current")
+
+	repo.write("thing.py", "value = 1\n")
+	result = repo.commit(
+		"Do the thing\n\nSR#42, following the reasoning in SR#99\n\nGate: 1 passed"
+	)
+
+	assert "Could not record the gate" not in result.stderr, result.stderr
+
+	verified = [call for call in repo.recorded() if call.startswith("verify ")]
+
+	assert [call for call in verified if call.startswith("verify 42 ")], "the work was recorded"
+	assert not [call for call in verified if call.startswith("verify 99 ")], (
+		"the citation was not"
+	)
+
+
+def test_a_commit_that_says_no_gate_ran_records_none (repo: Repo) -> None:
+	"""An absent `Gate:` line means no record, which was already the rule and stays it.
+
+	Worth a test of its own now that a second condition sits beside it: two conditions ANDed
+	together are one place where either can be dropped while the other goes on looking like the
+	whole rule.
+	"""
+
+	repo.looks_like("42", "task", "in_progress")
+
+	repo.write("thing.py", "value = 1\n")
+	repo.commit("Do the thing\n\nSR#42 — real work, and nobody ran anything")
+
+	assert not [call for call in repo.recorded() if call.startswith("verify ")]
 
 
 def test_every_tracked_hook_is_installed (tmp_path: pathlib.Path) -> None:

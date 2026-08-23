@@ -57,8 +57,12 @@ case "$(git reflog -1 --format='%gs' 2>/dev/null)" in
 esac
 
 for ref in $refs; do
+	# Read once and asked twice: whether this commit is already written down, and whether a
+	# gate is the kind of evidence this item can carry.
+	record=$(subroutine show "$ref" --json 2>/dev/null || true)
+
 	# Asked before writing, so re-running this by hand cannot say the same thing twice.
-	if subroutine show "$ref" --json 2>/dev/null | grep -q "Committed as $short"; then
+	if printf '%s\n' "$record" | grep -q "Committed as $short"; then
 		continue
 	fi
 
@@ -87,7 +91,36 @@ for ref in $refs; do
 	# **Only where the commit message says a gate ran.** Nothing here can know whether one
 	# did, and inventing a record would be worse than having none: the whole value of this
 	# table is that it is honest about what it is, which is a record and never a proof.
-	if [ -n "$gate" ]; then
+	#
+	# **And only against the work the commit did** — item SR#1153, found by driving this hook the
+	# commit after it shipped. A message cites refs in two roles: what it implements, and what it
+	# reasons from. Commenting on both is right and is SR#51 — *this commit mentioned you* is true
+	# of a citation, and `uncomment` takes it back. Recording a **gate** on both is not: it puts
+	# fresh evidence on finished work the run says nothing about, and a verification cannot be
+	# deleted on any surface, so every one of them is permanent.
+	#
+	# Two conditions, and neither needs a convention anybody has to remember:
+	#
+	# - **A task.** A gate does not verify a decision document, and `subroutine verify` refuses
+	#   one — which used to be reported here as a failure, on an ordinary correct message.
+	# - **Not already finished.** Work a commit is *doing* is open or in progress when this
+	#   fires, because the order is claim, start, gate, commit, then done.
+	#
+	# **What it still cannot tell** is an *open* item cited only for its reasoning. Rarer, and
+	# the honest failure is the same one an absent `Gate:` line already has.
+	#
+	# Whole-line matches, because both keys appear again inside every linked item this output
+	# carries and a loose grep would read a blocker's category as this one's.
+	# `test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for` drives the real command.
+	implements=""
+
+	if printf '%s\n' "$record" | grep -qxE '  "entity_type": "task",?'; then
+		if ! printf '%s\n' "$record" | grep -qxE '    "status_category": "(done|cancelled)",?'; then
+			implements="yes"
+		fi
+	fi
+
+	if [ -n "$gate" ] && [ -n "$implements" ]; then
 		if ! subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$(git rev-parse HEAD)" >/dev/null 2>&1; then
 			printf '%s\n' "Could not record the gate against SR#$ref." >&2
 		fi

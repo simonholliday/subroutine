@@ -806,6 +806,35 @@ def test_a_defer_keeps_the_time_of_day_it_was_given (
 	assert stored["snoozed_is_all_day"] is False
 
 
+def test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1153`: `hooks/post-commit` decides from two whole lines of this output.
+
+	It is shell, so it cannot parse JSON — it matches ``  "entity_type": "task",`` and
+	``    "status_category": "…",`` by *whole line*, indentation included, because both keys
+	appear again more deeply indented inside every linked item this output carries and a loose
+	grep would read a blocker's category as this one's.
+
+	**So the hook is guarding a spelling, and this is what stops that being a silent bet.** The
+	hook's own tests stub `subroutine`, which means they assert my opinion of this output rather
+	than the output; reindent it or move either key and they would all still pass while the hook
+	quietly stopped recording anything. This is the only place the two are tied together.
+	"""
+
+	run("init")
+	run("add", "Call the plumber")
+
+	lines = run("show", "1", "--json").output.splitlines()
+
+	assert '  "entity_type": "task",' in lines, (
+		"hooks/post-commit reads the kind off this line, anchored at two spaces"
+	)
+	assert any(
+		line.startswith('    "status_category": "') for line in lines
+	), "and the item's own category off a line anchored at four"
+
+
 @pytest.mark.parametrize("written", ["2026-12-01", "monday", "today+2w"])
 def test_a_defer_written_in_days_is_still_a_whole_day (
 	run: typing.Callable[..., typer.testing.Result], written: str
