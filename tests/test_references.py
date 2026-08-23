@@ -131,6 +131,13 @@ ABSENT: dict[str, Absent] = {
 				"The same skill. A plugin is self-contained, so the practice ships twice and "
 				"test_the_two_plugins_carry_the_same_skill requires the copies to be identical.",
 			),
+			(
+				"src/subroutine/cli/personal.py",
+				"`setup claude` looks for the reader's own agent file and names both "
+				"candidates as data rather than as a citation — the same distinction "
+				"ILLUSTRATIVE draws for item refs, where only reading tells a demonstration "
+				"from a dead pointer.",
+			),
 		),
 		frozen_in=(
 			(

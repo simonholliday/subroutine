@@ -5415,6 +5415,60 @@ def test_show_says_nothing_about_references_where_there_are_none (
 	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
 
 
+def test_releasing_everything_gives_back_only_what_is_held (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1122`. What a session-end hook runs, because a hook has no list of refs.
+
+	The session that would have collected one has stopped, which is the whole reason a harness
+	hook is a different kind of channel from every other lever here: it fires whether the agent
+	attends or not.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Being worked on")
+	run("add", "Nobody has this")
+	run("claim", "1")
+
+	freed = run("release", "--all").output
+
+	assert "Released 1" in freed, freed
+	assert "Being worked on" in freed
+	assert "Nobody has this" not in freed, "it released something nobody was holding"
+	assert run("list", "--claimed-by", "me").output.count("#") == 0 or (
+		"Being worked on" not in run("list", "--claimed-by", "me").output
+	)
+
+
+def test_releasing_everything_says_nothing_when_there_is_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Which is the ordinary case at the end of a session that finished what it started.
+
+	Finishing hands a claim back by itself (`#1113`), so a hook printing a line every time it
+	does nothing would be a hook people turn off — and the point of it is the sessions where
+	it has something to do.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Nobody has this")
+
+	assert run("release", "--all").output.strip() == ""
+
+
+def test_a_number_and_all_together_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Because one of them narrows nothing, and guessing which was meant is worse than asking."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something")
+
+	refused = run("release", "1", "--all", expect=1)
+
+	assert "Not both" in refused.output
+
+
 def test_the_agenda_opens_with_what_is_waiting_on_you (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -6183,14 +6237,17 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: docstring. ``link`` and ``unlink`` moved to ``_register_links``, 109 lines out for two in.
 #:
 #: **And a third, on one filter** (`#1120`). The ``user`` group moved to ``_register_users`` —
-#: eight commands, 309 lines out for two in, and the largest natural unit that was left. Three
-#: payments and none of them raised: the mechanism is that a feature is what makes somebody do
-#: the move, and the moves have been getting cheaper because the groups are already there.
-REGISTER_CEILING = 2_062
+#: eight commands, 309 lines out for two in, and the largest natural unit that was left.
+#:
+#: **And a fourth, on one flag** (`#1122`). ``project`` moved to ``_register_projects``, and
+#: the new ``setup`` group was written outside the closure to begin with — which is the state
+#: this was pushing towards. Four payments, none of them raised, and each cheaper than the
+#: last: what a feature pays now is the cost of noticing rather than the cost of designing.
+REGISTER_CEILING = 1_880
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 132
+MODULE_LEVEL_FLOOR = 139
 
 
 def _register_span () -> tuple[int, int]:

@@ -22,6 +22,21 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine setup claude` wires this checkout into Claude Code**, so a session that ends
+  gives back anything it is still holding. It writes one hook into `.claude/settings.json`
+  here, leaves everything already in that file alone, and stores no credential — so the file
+  is safe to commit. Running it twice changes nothing.
+
+  It says what it cannot check: whether the harness reads the file and runs the hook is
+  provable by ending a session and by nothing else, so the command does not imply it has.
+
+  One harness, and it says so. What the others need is a separate piece of work.
+
+- **`subroutine release --all` gives back everything you are holding**, wherever it is —
+  every workspace on every connection you can reach. It is what the hook above runs, and it
+  says nothing when there is nothing to give back, which is the ordinary case now that
+  finishing hands a claim back by itself.
+
 - **An agent can park a question for a person, and find the answer next session.** Setting a
   task's status to `needs_input` and writing the question as a comment puts it at the top of
   that person's agenda under *Waiting on you* — on the terminal, in the browser and in an

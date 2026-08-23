@@ -4149,6 +4149,70 @@ def _claimed (program: Program, *, which: str, minutes: int) -> None:
 		_suggest(program.console, "subroutine list --ready", "what is free to start")
 
 
+def _released_everything (program: Program) -> None:
+	"""Give back everything this account is holding, wherever it is.
+
+	`#1122`. What a session-end hook needs, because a hook has no list of refs to give back and
+	the session that would have collected one has stopped. Every reachable place is asked, so
+	an agent working across two connections does not leave half its leases behind.
+
+	**Only what is *held*, which is not the same as what was ever claimed** — an expired claim
+	is treated as absent (§10.7 invariant 10), so this releases what somebody else would
+	otherwise be told is taken, and says nothing about the rest.
+
+	**Silent when there is nothing**, because that is the ordinary case at the end of a session
+	that finished what it started — finishing hands a claim back by itself (`#1113`) — and a
+	hook printing a line every time it does nothing is a hook people turn off.
+	"""
+
+	with program.opened() as world:
+		freed: list[str] = []
+		unanswered: list[str] = []
+
+		# **Per workspace rather than per connection**, like every other listing here: a task
+		# listing refuses an ambiguous workspace (§8.2), and a client that quietly spanned them
+		# would return different rows depending on where the work was.
+		for reached in world.reached:
+			for workspace in reached.identity.workspaces:
+				try:
+					holding = reached.client.tasks(
+						workspace=workspace.slug,
+						claimed_by="me",
+						include_completed=True,
+					)
+
+				except subroutine.errors.SubroutineError as refused:
+					# **A place that cannot answer is skipped and *said*, not swallowed.** It
+					# runs as somebody's session ends, so refusing to give anything back
+					# because one of three places is unreachable would be the worst of both —
+					# and staying silent about it is worse still, because an instance a release
+					# too old to be asked would report success and change nothing. That is the
+					# defect this whole command exists inside.
+					unanswered.append(f"{reached.name}/{workspace.slug}: {refused}")
+
+					continue
+
+				for task in holding:
+					try:
+						reached.client.release(ref=task.ref, workspace=workspace.slug)
+
+					except subroutine.errors.SubroutineError as refused:
+						unanswered.append(f"{reached.name}/#{task.ref}: {refused}")
+
+						continue
+
+					freed.append(f"#{task.ref}  {task.title}")
+
+		if freed:
+			program.say(f"Released {len(freed)}:")
+
+			for line in freed:
+				program.say(f"  {line}")
+
+		for line in unanswered:
+			program.warn(line)
+
+
 def _released (program: Program, *, which: str) -> None:
 	"""Put a task back, whether or not anybody had claimed it."""
 
@@ -4598,6 +4662,418 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 			program.say(f"Unlinked: {joins[0].other.title}")
 			_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
+
+
+#: What a `SessionEnd` hook runs when a session using Subroutine finishes.
+#:
+#: **Guarded on the program being there**, because a hook that fails noisily at the end of
+#: every session is one somebody turns off — and this settings file may outlive the install,
+#: travel to another machine in a repository, or be read by somebody who never had it.
+#:
+#: **Quiet on success and loud on nothing**: `release --all` says nothing when there is nothing
+#: to give back, which is the ordinary case once work has been finished (`#1113`), so the noise
+#: is proportional to what actually happened.
+SESSION_END_COMMAND = (
+	"command -v subroutine >/dev/null 2>&1 && subroutine release --all || true"
+)
+
+#: Which harnesses ``setup`` knows how to wire, and where each keeps its settings.
+#:
+#: **One, and it says so** (`#1122`). A ``setup`` that silently covered one of five would be
+#: `#559`'s shape: a name promising more than it does, where the gap is invisible until
+#: somebody depends on it. Codex and Cursor are the same shape in a different file and are a
+#: separate item once this one has been driven.
+HARNESSES: dict[str, str] = {"claude": ".claude/settings.json"}
+
+
+def _hooked (settings: dict[str, typing.Any]) -> bool:
+	"""Report whether this settings object already runs the release command at session end."""
+
+	for entry in settings.get("hooks", {}).get("SessionEnd", []):
+		for hook in entry.get("hooks", []):
+			if hook.get("command") == SESSION_END_COMMAND:
+				return True
+
+	return False
+
+
+def _with_the_hook (settings: dict[str, typing.Any]) -> dict[str, typing.Any]:
+	"""Return these settings with the session-end hook added, keeping everything else.
+
+	**Merged per key rather than written whole.** This file is the reader's, not ours: it holds
+	their permissions, their model, their other hooks. Replacing it would be a tool taking a
+	shared store for its own — and `#1043`'s recorded shape, where a settings blob carrying
+	another subsystem's live state was rewritten from a partial read.
+	"""
+
+	merged = dict(settings)
+	hooks = dict(merged.get("hooks", {}))
+	at_the_end = list(hooks.get("SessionEnd", []))
+
+	at_the_end.append(
+		{"hooks": [{"type": "command", "command": SESSION_END_COMMAND}]}
+	)
+	hooks["SessionEnd"] = at_the_end
+	merged["hooks"] = hooks
+
+	return merged
+
+
+def _agent_files (root: pathlib.Path) -> list[pathlib.Path]:
+	"""Return the agent instruction files this repository already keeps, if any.
+
+	**Only ones that exist.** Creating an agent file is a decision about how a project is run
+	and is not this command's to take — and a `CLAUDE.md` appearing in somebody's repository
+	because they wired up a task tracker is precisely the kind of thing that gets a tool
+	uninstalled.
+	"""
+
+	return [
+		root / name
+		for name in ("CLAUDE.md", "AGENTS.md")
+		if (root / name).is_file()
+	]
+
+
+def _pointer (marker: subroutine.directory.Marker) -> str:
+	"""Return the one line that tells a future session which project this checkout is."""
+
+	named = marker.project or marker.workspace or ""
+
+	return (
+		"This project's work is tracked in Subroutine"
+		+ (f", under `{named}`" if named else "")
+		+ ". Read `subroutine help`, or the `subroutine` skill if you have it.\n"
+	)
+
+
+def _register_projects (app: typer.Typer, program: Program) -> None:
+	"""Add the ``project`` group to the application.
+
+	The fourth group to leave ``register`` rather than raise `#943`'s ratchet, after
+	``workspace``, ``link``/``unlink`` and ``user``. Six commands, and by now the move is
+	mechanical: the groups were already there, so what a feature pays is the cost of noticing
+	rather than the cost of designing.
+	"""
+
+	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
+	# about never *requiring* a project in order to keep a to-do list, not about hiding the
+	# noun — `subroutine list --project SR` already names it, and until 2026-07-31 there was
+	# no way to make one outside the HTTP API, so on a default install the only project
+	# anybody would ever have was the Inbox (`#134`). A hidden command would have left that
+	# wall standing with the door merely painted over.
+	project_app = typer.Typer(
+		help="Group work into projects.", no_args_is_help=True
+	)
+	app.add_typer(project_app, name="project")
+
+	@project_app.command("create")
+	def project_create (
+		key: str = typer.Argument(..., help="Its permanent short name, like WEB."),
+		title: str = typer.Argument(..., help="What it is called."),
+		description: str = typer.Option("", "--description", help="What it is for."),
+		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
+		private: bool = typer.Option(
+			False, "--private", help="Only its members can see it."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Make a project to file work under.
+
+		Examples:
+
+		  subroutine project create WEB "Website redesign"
+
+		  subroutine project create API "Public API" --parent WEB
+
+		The key is how this project is addressed here — in '+KEY' when you capture a line,
+		and in its web address. A to Z and 0 to 9, starting with a letter, up to sixteen
+		characters.
+
+		It can be changed later with 'subroutine project rename', which says what will stop
+		working before it does it. Nothing already recorded moves: every item keeps its
+		number, because a number belongs to the workspace rather than to the project.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+
+			created = where.client.create_project(
+				key=key,
+				title=title,
+				description=description.strip() or None,
+				parent=parent.strip() or None,
+				visibility="private" if private else "public",
+				workspace=_writing_workspace(world),
+			)
+
+			if json_output:
+				program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			program.say(f"Created {created.key} — {created.title}")
+
+			# **The next command is the one that uses it**, not another one about projects.
+			# A project nobody files anything into is an empty gesture, and `+KEY` is the part
+			# of the capture grammar somebody who has just made one has no reason to know.
+			#
+			_suggest(program.console, f'subroutine add "something to do +{_capture_name(world, created)}"')
+
+	@project_app.command("list")
+	def project_list (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show the projects you can see, with what is inside what.
+
+		Examples:
+
+		  subroutine project list
+		"""
+
+		_projects_listed(program, json_output=json_output)
+
+	@project_app.command("rename")
+	def project_rename (
+		key: str = typer.Argument(..., help="The project, by its current short name."),
+		to: str = typer.Argument(..., help="Its new short name."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Give a project a different short name.
+
+		Examples:
+
+		  subroutine project rename ST SR
+
+		The old name stops working, and nothing is left pointing at it. That is deliberate:
+		a name you retired should be retired. Nothing already recorded moves — every item keeps
+		its number, and what it is filed under does not change.
+
+		What does break is anything that wrote the old name down: a bookmarked address, a
+		'.subroutine' file in a checkout, a '+OLD' in a shell history. This says so before it
+		does it.
+		"""
+
+		_project_renamed(program, key=key, to=to, yes=yes)
+
+	@project_app.command("update")
+	def project_update (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
+		description: str = typer.Option(
+			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
+		),
+		status: str = typer.Option(
+			UNGIVEN,
+			"--status",
+			show_default=False,
+			help="active, on_hold, completed or archived.",
+		),
+		colour: str = typer.Option(
+			UNGIVEN, "--colour", show_default=False, help=COLOUR_HELP
+		),
+		hide_status: list[str] = typer.Option(
+			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
+		),
+		hide_nothing: bool = typer.Option(
+			False, "--hide-nothing", help="Offer every status here, whatever the workspace hides."
+		),
+		private: bool | None = typer.Option(
+			None, "--private/--public", show_default=False, help="Who can see it."
+		),
+	) -> None:
+		"""Change a project's name, what it is for, who can see it, or where it stands.
+
+		Examples:
+
+		  subroutine project update web --title "Website redesign"
+
+		  subroutine project update web --status on_hold
+
+		Putting a project on hold leaves everything in it exactly where it is and still
+		findable. What changes is that its work stops being offered as something to start.
+
+		Its short name is not changed here — that breaks addresses, so it has a command of
+		its own with a warning attached: 'subroutine project rename'.
+		"""
+
+		_project_updated(
+			program,
+			key=key,
+			title=title,
+			description=description,
+			status=status,
+			colour=colour,
+			hide_status=hide_status,
+			hide_nothing=hide_nothing,
+			private=private,
+		)
+
+	_register_workspace(app, program)
+
+	@project_app.command("prioritise")
+	def project_prioritise (
+		key: str = typer.Argument("", help="The project to raise, by name or address."),
+		none: bool = typer.Option(False, "--none", help="Stop prioritising anything here."),
+	) -> None:
+		"""Raise one project's work above the rest, without hiding anybody else's.
+
+		Examples:
+
+		  subroutine project prioritise web
+
+		  subroutine project prioritise --none
+
+		One project per workspace, and choosing another moves it. Its work rises in ranked
+		listings and on your agenda under Next; anything urgent or important in another
+		project still comes first, which is the difference between this and hiding things.
+
+		With no argument it says what is prioritised here.
+		"""
+
+		_project_prioritised(program, key=key, none=none)
+
+	@project_app.command("move")
+	def project_move (
+		key: str = typer.Argument(..., help="The project to move, by its short name."),
+		under: str = typer.Option(
+			"", "--under", help="Put it inside this project, by key."
+		),
+		root: bool = typer.Option(
+			False, "--root", help="Make it a top-level project instead."
+		),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Move a project, and everything underneath it, somewhere else in the tree.
+
+		Examples:
+
+		  subroutine project move WEB --under ACME
+
+		  subroutine project move WEB --root
+
+		Nothing is renumbered and nothing is refiled: every item keeps its number and stays in
+		the project it was in. What moves is where that project sits.
+
+		'--under' and '--root' are the two directions and one of them has to be said. An
+		omitted destination once meant "move to root", which flattened subtrees by accident.
+		"""
+
+		_project_moved(program, key=key, under=under, root=root, yes=yes)
+
+
+
+def _register_setup (app: typer.Typer, program: Program) -> None:
+	"""Add the ``setup`` group to the application — `#1122`.
+
+	**Out of ``register``**, like ``workspace``, ``link`` and ``user`` before it, so that
+	`#943`'s ratchet is not paid for a new command that had somewhere else to go.
+	"""
+
+	setup_app = typer.Typer(
+		help="Wire Subroutine into the tools on this machine.", no_args_is_help=True
+	)
+	app.add_typer(setup_app, name="setup")
+
+	@setup_app.command("claude")
+	def setup_claude (
+		yes: bool = typer.Option(
+			False, "--yes", "-y", help="Do not ask before writing."
+		),
+	) -> None:
+		"""Wire this checkout into Claude Code, so a session hands work back when it ends.
+
+		Examples:
+
+		  subroutine setup claude
+
+		It writes one hook into '.claude/settings.json' here: when a session ends, anything
+		this account is still holding is given back, so nobody has to wait for the lease to
+		run out on work that stopped. Everything already in that file is left alone.
+
+		Run it from the top of the repository you want wired. It writes nothing outside this
+		directory and stores no credential, so the file is safe to commit.
+		"""
+
+		root = pathlib.Path.cwd()
+		where = root / HARNESSES["claude"]
+		existing: dict[str, typing.Any] = {}
+
+		if where.is_file():
+			try:
+				existing = json.loads(where.read_text(encoding="utf-8"))
+
+			except (OSError, json.JSONDecodeError) as unreadable:
+				# **Refused rather than overwritten.** The file is the reader's and holds
+				# their permissions and their other hooks; replacing one this cannot parse
+				# would be taking a shared store for our own on the strength of a syntax error.
+				program.stop(
+					f"{where} is there and cannot be read: {unreadable}",
+					"Fix or move it, then run this again. Nothing has been written.",
+				)
+
+		if _hooked(existing):
+			program.say(f"Already wired: {where}")
+
+			return
+
+		if not yes and not typer.confirm(f"Write a session-end hook into {where}?"):
+			program.say("Nothing written.")
+
+			return
+
+		where.parent.mkdir(parents=True, exist_ok=True)
+		where.write_text(
+			json.dumps(_with_the_hook(existing), indent=2) + "\n", encoding="utf-8"
+		)
+
+		# **Read back rather than assumed** (`#236`). Installing something and its taking
+		# effect are separate moments and only the first one reports — so this checks the file
+		# it just wrote says what it meant, and then says plainly which half it cannot check.
+		try:
+			written = json.loads(where.read_text(encoding="utf-8"))
+
+		except (OSError, json.JSONDecodeError) as unreadable:
+			program.stop(
+				f"{where} was written and cannot be read back: {unreadable}",
+				"Check the file. The hook may not be there.",
+			)
+
+		if not _hooked(written):
+			program.stop(
+				f"{where} was written and does not carry the hook.",
+				"Nothing here can explain that; check the file before relying on it.",
+			)
+
+		program.say(f"Wired: {where}")
+		program.say("  A session ending here now gives back anything it is still holding.")
+
+		marker = subroutine.directory.find(root)
+
+		if marker is None:
+			program.warn(
+				"No .subroutine marker here, so a session has nothing saying which project "
+				"this is. 'subroutine use --here --project <key>' writes one."
+			)
+
+		for file in _agent_files(root):
+			line = _pointer(marker) if marker is not None else ""
+
+			if not line or line.strip() in file.read_text(encoding="utf-8"):
+				continue
+
+			program.say(f"  {file.name} does not name the project. One line worth adding:")
+			program.say(f"    {line.strip()}")
+
+		# **What this cannot check, said out loud** (`#236` again, and the item's own rule).
+		# Whether the harness reads this file, and whether it runs the hook, is only provable
+		# by a session ending — and a command reporting success about somebody else's runtime
+		# is the failure this whole paragraph exists to avoid.
+		program.say("")
+		program.say(
+			"Start a new session for it to be read. Nothing here can confirm the harness "
+			"runs it; ending a session and running 'subroutine list --claimed-by me' can."
+		)
 
 
 def _register_users (app: typer.Typer, program: Program) -> None:
@@ -5755,6 +6231,9 @@ def register (
 	@app.command("release", hidden=not _worth_showing(settings))
 	def release_item (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
+		everything: bool = typer.Option(
+			False, "--all", help="Give back everything you are holding, wherever it is."
+		),
 	) -> None:
 		"""Put something back, so somebody else can pick it up.
 
@@ -5762,10 +6241,27 @@ def register (
 
 		  subroutine release 42
 
+		  subroutine release --all
+
 		Releasing something nobody had claimed is not an error, so this is safe to run when you
 		are not sure. Anybody who can change the task can release it — which is what makes an
 		agent that died mid-task somebody else's problem to solve rather than nobody's.
+
+		'--all' is what a session-end hook runs. It says nothing when there is nothing to give
+		back, which is the ordinary case once work has been finished.
 		"""
+
+		if everything:
+			if which:
+				stop(
+					"Say which one, or say --all. Not both.",
+					"'--all' gives back everything you are holding, so a number narrows "
+					"nothing.",
+				)
+
+			_released_everything(program)
+
+			return
 
 		_released(program, which=which)
 
@@ -6568,211 +7064,9 @@ def register (
 			say(_acted(world, dataclasses.replace(located, item=back), "Restored"))
 			_suggest(console, "subroutine agenda")
 
-	# **Visible, unlike `use` and `connections` below.** Progressive disclosure (§1.4) is
-	# about never *requiring* a project in order to keep a to-do list, not about hiding the
-	# noun — `subroutine list --project SR` already names it, and until 2026-07-31 there was
-	# no way to make one outside the HTTP API, so on a default install the only project
-	# anybody would ever have was the Inbox (`#134`). A hidden command would have left that
-	# wall standing with the door merely painted over.
-	project_app = typer.Typer(
-		help="Group work into projects.", no_args_is_help=True
-	)
-	app.add_typer(project_app, name="project")
+	_register_projects(app, program)
 
-	@project_app.command("create")
-	def project_create (
-		key: str = typer.Argument(..., help="Its permanent short name, like WEB."),
-		title: str = typer.Argument(..., help="What it is called."),
-		description: str = typer.Option("", "--description", help="What it is for."),
-		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
-		private: bool = typer.Option(
-			False, "--private", help="Only its members can see it."
-		),
-		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
-	) -> None:
-		"""Make a project to file work under.
-
-		Examples:
-
-		  subroutine project create WEB "Website redesign"
-
-		  subroutine project create API "Public API" --parent WEB
-
-		The key is how this project is addressed here — in '+KEY' when you capture a line,
-		and in its web address. A to Z and 0 to 9, starting with a letter, up to sixteen
-		characters.
-
-		It can be changed later with 'subroutine project rename', which says what will stop
-		working before it does it. Nothing already recorded moves: every item keeps its
-		number, because a number belongs to the workspace rather than to the project.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-
-			created = where.client.create_project(
-				key=key,
-				title=title,
-				description=description.strip() or None,
-				parent=parent.strip() or None,
-				visibility="private" if private else "public",
-				workspace=_writing_workspace(world),
-			)
-
-			if json_output:
-				say(json.dumps(created.model_dump(mode="json"), indent=2))
-
-				return
-
-			say(f"Created {created.key} — {created.title}")
-
-			# **The next command is the one that uses it**, not another one about projects.
-			# A project nobody files anything into is an empty gesture, and `+KEY` is the part
-			# of the capture grammar somebody who has just made one has no reason to know.
-			#
-			_suggest(console, f'subroutine add "something to do +{_capture_name(world, created)}"')
-
-	@project_app.command("list")
-	def project_list (
-		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
-	) -> None:
-		"""Show the projects you can see, with what is inside what.
-
-		Examples:
-
-		  subroutine project list
-		"""
-
-		_projects_listed(program, json_output=json_output)
-
-	@project_app.command("rename")
-	def project_rename (
-		key: str = typer.Argument(..., help="The project, by its current short name."),
-		to: str = typer.Argument(..., help="Its new short name."),
-		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
-	) -> None:
-		"""Give a project a different short name.
-
-		Examples:
-
-		  subroutine project rename ST SR
-
-		The old name stops working, and nothing is left pointing at it. That is deliberate:
-		a name you retired should be retired. Nothing already recorded moves — every item keeps
-		its number, and what it is filed under does not change.
-
-		What does break is anything that wrote the old name down: a bookmarked address, a
-		'.subroutine' file in a checkout, a '+OLD' in a shell history. This says so before it
-		does it.
-		"""
-
-		_project_renamed(program, key=key, to=to, yes=yes)
-
-	@project_app.command("update")
-	def project_update (
-		key: str = typer.Argument(..., help="The project, by its short name."),
-		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
-		description: str = typer.Option(
-			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
-		),
-		status: str = typer.Option(
-			UNGIVEN,
-			"--status",
-			show_default=False,
-			help="active, on_hold, completed or archived.",
-		),
-		colour: str = typer.Option(
-			UNGIVEN, "--colour", show_default=False, help=COLOUR_HELP
-		),
-		hide_status: list[str] = typer.Option(
-			None, "--hide-status", show_default=False, help=HIDE_STATUS_HELP
-		),
-		hide_nothing: bool = typer.Option(
-			False, "--hide-nothing", help="Offer every status here, whatever the workspace hides."
-		),
-		private: bool | None = typer.Option(
-			None, "--private/--public", show_default=False, help="Who can see it."
-		),
-	) -> None:
-		"""Change a project's name, what it is for, who can see it, or where it stands.
-
-		Examples:
-
-		  subroutine project update web --title "Website redesign"
-
-		  subroutine project update web --status on_hold
-
-		Putting a project on hold leaves everything in it exactly where it is and still
-		findable. What changes is that its work stops being offered as something to start.
-
-		Its short name is not changed here — that breaks addresses, so it has a command of
-		its own with a warning attached: 'subroutine project rename'.
-		"""
-
-		_project_updated(
-			program,
-			key=key,
-			title=title,
-			description=description,
-			status=status,
-			colour=colour,
-			hide_status=hide_status,
-			hide_nothing=hide_nothing,
-			private=private,
-		)
-
-	_register_workspace(app, program)
-
-	@project_app.command("prioritise")
-	def project_prioritise (
-		key: str = typer.Argument("", help="The project to raise, by name or address."),
-		none: bool = typer.Option(False, "--none", help="Stop prioritising anything here."),
-	) -> None:
-		"""Raise one project's work above the rest, without hiding anybody else's.
-
-		Examples:
-
-		  subroutine project prioritise web
-
-		  subroutine project prioritise --none
-
-		One project per workspace, and choosing another moves it. Its work rises in ranked
-		listings and on your agenda under Next; anything urgent or important in another
-		project still comes first, which is the difference between this and hiding things.
-
-		With no argument it says what is prioritised here.
-		"""
-
-		_project_prioritised(program, key=key, none=none)
-
-	@project_app.command("move")
-	def project_move (
-		key: str = typer.Argument(..., help="The project to move, by its short name."),
-		under: str = typer.Option(
-			"", "--under", help="Put it inside this project, by key."
-		),
-		root: bool = typer.Option(
-			False, "--root", help="Make it a top-level project instead."
-		),
-		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
-	) -> None:
-		"""Move a project, and everything underneath it, somewhere else in the tree.
-
-		Examples:
-
-		  subroutine project move WEB --under ACME
-
-		  subroutine project move WEB --root
-
-		Nothing is renumbered and nothing is refiled: every item keeps its number and stays in
-		the project it was in. What moves is where that project sits.
-
-		'--under' and '--root' are the two directions and one of them has to be said. An
-		omitted destination once meant "move to root", which flattened subtrees by accident.
-		"""
-
-		_project_moved(program, key=key, under=under, root=root, yes=yes)
-
+	_register_setup(app, program)
 	_register_users(app, program)
 
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
