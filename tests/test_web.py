@@ -3205,6 +3205,48 @@ def test_the_item_page_says_what_to_read_before_starting (tmp_path: pathlib.Path
 	assert with_links.index("Read first") < with_links.index("Links")
 
 
+def test_what_an_item_is_joined_to_is_read_before_its_description (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1149`, Simon: *"we don't see them without scrolling when the description is long."*
+
+	The rule he settled, and it decides the whole page rather than one section: **what you need
+	before reading the item goes above the description; what accumulated about it stays below.**
+	So *Read first* and *Links* say what binds this and what it is joined to — which is how a
+	reader decides whether to read the description at all — and *Recorded checks* and *Comments*
+	are the record of what happened, looked up deliberately rather than scanned.
+
+	**`SR#1119`'s argument survives rather than being inverted.** It put *Read first* above
+	*Links* because it is what somebody must read before doing anything; that reason applies
+	harder against a long description than the links' does, so both moved and their order held.
+
+	**Asserted as one sequence rather than as four pairs.** Each member checked is not the set
+	checked: four `a < b` assertions all pass on an arrangement no single one of them describes,
+	and the thing being fixed here is the order of the page.
+	"""
+
+	rendered = _rendered(tmp_path, {"Detail": {
+		"item": {"ref": 42, "title": "A task", "status": "open", "kind": "task",
+			"description": "MARKER-DESCRIPTION"},
+		"workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]},
+		"governing": [{"link_type": "documents", "document": {
+			"entity_type": "document", "ref": 4, "title": "What we settled",
+			"type": "decision", "status": "active", "is_complete": False}}],
+		"links": [{"id": "l-1", "link_type": "blocks", "label": "Blocks",
+			"direction": "outgoing", "other": {"entity_type": "task", "ref": 9,
+				"title": "Still going", "is_complete": False}}],
+		"checked": [{"id": "v-1", "passed": True, "summary": "5,610 passed",
+			"tree_hash": "abcdef1234567890abcdef1234567890abcdef12"}],
+		"comments": [{"id": "c-1", "body": "It happened", "created_at": "2026-08-23T09:00:00Z"}],
+	}})["Detail"]
+
+	wanted = ["Read first", "Links", "MARKER-DESCRIPTION", "Recorded checks", "Comments"]
+	found = sorted(wanted, key=rendered.index)
+
+	assert found == wanted, f"the page reads in the order {found}"
+
+
 def test_which_kind_a_ref_names_is_resolved_rather_than_asked (
 	tmp_path: pathlib.Path,
 ) -> None:

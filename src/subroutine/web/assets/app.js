@@ -5902,34 +5902,7 @@ export function Detail ({
 							projects=${projects} busy=${busy} />
 					`}
 
-					${body && html`<${Prose} className="prose" text=${body} where=${where}
-						onOpen=${onOpen} />`}
 				`}
-
-			${checked.length > 0 && html`
-				${/* **What was checked, and it is a record rather than a proof** (`#1121`).
-				     Somebody can post an exit code of zero without having run anything, so the
-				     heading says *recorded* and never *verified* — the value is that it is
-				     kept, attributed and able to go out of date.
-
-				     **§14.1 is why this is here at all**: nothing an agent stores may be
-				     invisible to the person, and a verification the browser could not show
-				     would be an agent-only surface, which §14.15 forbids by name.
-
-				     Said in words rather than in colour alone (`#102`): *passed* and *failed*
-				     are the words, and the tree is printed short beside them because what a
-				     reader wants to know is whether it is the one they are on. */ null}
-				<h3>Recorded checks</h3>
-				<ul class="linked">
-					${checked.map((record) => html`
-						<li key=${record.id}>
-							<span class="label">${record.passed ? "passed" : "failed"}</span>${" "}
-							${record.summary || "(no summary)"}${" "}
-							<span class="muted">${record.tree_hash
-								? `tree ${record.tree_hash.slice(0, 7)}`
-								: "no tree — this cannot go out of date"}</span>
-						</li>`)}
-				</ul>`}
 
 			${governing.length > 0 && html`
 				${/* **What binds whoever picks this up** (`#1119`) — the workspace-wide *what
@@ -6044,6 +6017,53 @@ export function Detail ({
 				${onLink && html`<${Linking} busy=${busy} onLink=${onLink}
 					types=${linkChoices(vocabulary)} />`}
 			`}
+
+			${/* **The prose sits below what the item is joined to** (`#1149`, Simon: *"we don't
+			     see them without scrolling when the description is long"*). The rule that
+			     decides the whole order, and it is his: **what you need before reading the item
+			     goes above; what accumulated about it stays below.**
+
+			     So *Read first* and *Links* are above — they say what binds this and what it is
+			     joined to, which is how a reader decides whether to read the description at all
+			     — and *Recorded checks* and *Comments* are below, because both are the record of
+			     what happened and are looked up deliberately rather than scanned.
+
+			     **`#1119`'s argument survives rather than being inverted.** It put *Read first*
+			     above *Links* because it is what somebody has to read before doing anything;
+			     that reason applies harder against a long description than the links' does.
+
+			     **Outside the editing branch it used to live in**, so that `#757` still holds:
+			     editing replaces the item's own display rather than sitting beside it, and two
+			     copies of a description on one screen with one of them stale is the shape this
+			     project keeps paying for. */ null}
+			${!editing && body && html`<${Prose} className="prose" text=${body} where=${where}
+				onOpen=${onOpen} />`}
+
+			${checked.length > 0 && html`
+				${/* **What was checked, and it is a record rather than a proof** (`#1121`).
+				     Somebody can post an exit code of zero without having run anything, so the
+				     heading says *recorded* and never *verified* — the value is that it is
+				     kept, attributed and able to go out of date.
+
+				     **§14.1 is why this is here at all**: nothing an agent stores may be
+				     invisible to the person, and a verification the browser could not show
+				     would be an agent-only surface, which §14.15 forbids by name.
+
+				     Said in words rather than in colour alone (`#102`): *passed* and *failed*
+				     are the words, and the tree is printed short beside them because what a
+				     reader wants to know is whether it is the one they are on. */ null}
+				<h3>Recorded checks</h3>
+				<ul class="linked">
+					${checked.map((record) => html`
+						<li key=${record.id}>
+							<span class="label">${record.passed ? "passed" : "failed"}</span>${" "}
+							${record.summary || "(no summary)"}${" "}
+							<span class="muted">${record.tree_hash
+								? `tree ${record.tree_hash.slice(0, 7)}`
+								: "no tree — this cannot go out of date"}</span>
+						</li>`)}
+				</ul>`}
+
 
 			${/* **The heading shows even with nothing under it, once there is a box** (`#759`).
 			     An empty thread with no way to start one is a section that reads as absent

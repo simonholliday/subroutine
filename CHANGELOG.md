@@ -210,6 +210,13 @@ upgrade involves.
 
 ### Changed
 
+- **An item page puts what it is joined to above its description.** *Read first* and *Links* now
+  sit between the facts and the prose; *Recorded checks* and *Comments* stay below it.
+
+  The rule is that what you need before reading an item goes above it, and what accumulated
+  about it stays below. On a long description the links were off the bottom of the screen — which
+  is worst on exactly the items that have the most of them.
+
 - **`GET /v1/changes?actor=` takes a username as well as `me`.** `me` still means *this
   credential*; a username means *that account*, through any of its credentials. An account that
   does not exist is now answered `404 not_found` naming the account, where it used to be
