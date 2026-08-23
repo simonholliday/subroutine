@@ -24,6 +24,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.project
@@ -31,6 +32,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.claims
 import subroutine.domain.events
 import subroutine.domain.mentions
 import subroutine.domain.patch
@@ -211,6 +213,7 @@ def create (
 	entity_type: str,
 	entity_id: uuid.UUID,
 	body: str,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.activity.Comment:
 	"""Record what happened, against a task, a project or a document.
@@ -259,6 +262,16 @@ def create (
 		source_id=comment.id,
 		texts=(text,),
 	)
+
+	# **Writing about the work you are holding is working on it** (`#1113`). The other site is
+	# `tasks.update`, and between them they are every ordinary act an agent performs on a task
+	# it has taken — which is what a lease renewed on *activity* has to mean if it is to
+	# replace one renewed by remembering.
+	#
+	# **Only a task**, because only a task can be claimed. `_entity` has already resolved the
+	# subject and checked the permission, so this is a narrowing rather than a second lookup.
+	if isinstance(subject, subroutine.db.models.work.Task):
+		subroutine.domain.claims.renewed(subject, actor=actor, settings=settings)
 
 	subroutine.domain.events.record(
 		session,

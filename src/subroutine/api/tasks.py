@@ -705,6 +705,7 @@ def change (
 	body: Update,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
 	"""Change a task. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
@@ -782,6 +783,11 @@ def change (
 			task,
 			timezone=body.timezone,
 			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
+			# **Carried so an automatic lease renewal uses the lease this instance chose**
+			# (`#1113`). Without it a renewal would silently fall back to the built-in default
+			# while an explicit `claim` honoured the setting — one number meaning two things
+			# depending on which write moved it.
+			settings=settings,
 			actor=actor,
 			**changes,
 		)

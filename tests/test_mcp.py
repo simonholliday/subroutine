@@ -5356,14 +5356,19 @@ def test_finishing_something_nobody_claimed_says_so (
 	assert "not claimed" in answered, answered
 
 
-def test_finishing_something_still_held_says_how_to_hand_it_back (
+def test_finishing_something_still_held_hands_the_claim_back_with_it (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
-	"""**Finishing does not release**, measured rather than assumed.
+	"""**Finishing releases**, and this test used to assert that it did not.
 
-	So an agent that follows half the advice leaves a trail of claims on finished work, and
-	this is the one clause here that is actionable at the moment it is read. The other is
-	about the next item, because a claim cannot be taken retroactively.
+	`#1113` changed the behaviour underneath it, which is what a test written for a *fact*
+	does when the fact moves. It said *still claimed by @you — release it*: true, actionable,
+	and asking for the one thing that reliably does not happen, because an obligation falling
+	at the end of a session is one nobody attends. Thirty tasks on the live instance carried a
+	claim on work that was finished and shipped.
+
+	Re-aimed rather than deleted, because the property underneath survives: whoever finishes
+	something is told what happened to the claim on it.
 	"""
 
 	ref = _added(bound, "Something taken properly")
@@ -5375,7 +5380,8 @@ def test_finishing_something_still_held_says_how_to_hand_it_back (
 	answered, failed = _called(bound, "subroutine_done", ref=ref)
 
 	assert not failed, answered
-	assert "release=true" in answered, answered
+	assert "went back" in answered, answered
+	assert "release=true" not in answered, "it asks for something that has already happened"
 	assert "not claimed" not in answered, "it was claimed, and this says the opposite"
 
 

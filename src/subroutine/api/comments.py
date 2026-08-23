@@ -236,6 +236,7 @@ def _attach (
 		body: Create,
 		actor: subroutine.api.security.PrincipalDep,
 		session: subroutine.api.dependencies.SessionDep,
+		settings: subroutine.api.dependencies.SettingsDep,
 		request: starlette.requests.Request,
 		workspace_id: str | None = fastapi.Query(
 			None, description="Which workspace, by id or slug. Needed when you can reach several."
@@ -258,6 +259,7 @@ def _attach (
 				entity_type=entity_type,
 				entity_id=subject.id,
 				body=body.body,
+				settings=settings,
 				actor=actor,
 			)
 		)

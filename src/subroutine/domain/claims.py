@@ -238,6 +238,90 @@ def release (
 	return task
 
 
+def renewed (
+	task: subroutine.db.models.work.Task,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+	now: datetime.datetime | None = None,
+	settings: subroutine.config.Settings | None = None,
+) -> bool:
+	"""Push out the lease of whoever holds this, because they have just worked on it.
+
+	`#1113`. The lease default is 30 minutes and this backlog is full of tasks estimated at
+	three and four hours, so a claim is expired for most of its life — and `claim` renews only
+	when somebody asks, which nothing ever does, because nothing tells a holder the lease is
+	running out. `#1091` is the worked example: claimed at 18:42, expired at 19:12, finished at
+	19:22, and nothing said so.
+
+	**The fix is not a bigger number.** A longer default trades one wrong answer for another —
+	it is still a guess about how long work takes, and it strands a dead worker's claim for
+	longer, which is the thing a lease exists to prevent. Renewing on activity is deterministic
+	instead: the worker that stopped stops renewing, and the worker that is working never has
+	to think about it.
+
+	**Only the holder, and never a new claim.** Writing to something somebody else is holding
+	is allowed — `release` says why — and it must not quietly take the lease off them. Writing
+	to something nobody holds makes no claim, because taking work is an act and this is a side
+	effect.
+
+	**No event, deliberately.** The write that caused this records one of its own, so the
+	renewal is derivable from the feed already; a second row per write would double the size of
+	the record to say something the row beside it implies. The explicit ``claim`` still records
+	one, because there the renewal *is* the act.
+	"""
+
+	moment = now or subroutine.db.types.utcnow()
+
+	if actor is None or held_by(task, now=moment) != actor.user.id:
+		return False
+
+	task.claim_expires_at = moment + datetime.timedelta(
+		minutes=_lease(None, settings)
+	)
+
+	return True
+
+
+def released_if_finished (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	now: datetime.datetime | None = None,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> bool:
+	"""Give the lease back when the work it was taken for is over.
+
+	`#1113`, and it is `#726`'s own reasoning applied to the arrow that item did not consider.
+	`#726` settled that *releasing* must not set a status, because release has four
+	destinations and cannot tell them apart. **None of its four cases is this one.** Once the
+	status is finished the lease protects nothing: the task is not ``ready`` for anybody, so
+	there is nothing left to collide over, and a name on the row saying somebody is holding it
+	is simply false.
+
+	So finishing releases and releasing still does not touch the status. The asymmetry is the
+	point.
+
+	**Finished rather than done**, which is wider than the item asked for and is the same
+	argument: §10.7 invariant 5 makes ``completed_at`` non-null for a ``done`` *and* a
+	``cancelled`` status, and a cancelled task is exactly as unstartable as a completed one.
+	``skip`` cancels an occurrence, and an agent skipping a repeat should not be left holding
+	it either.
+
+	**Idempotent**, because :func:`release` returns early when nobody holds it — so a second
+	write to a finished task records no second release.
+	"""
+
+	if actor is None or task.completed_at is None:
+		return False
+
+	if held_by(task, now=now) is None:
+		return False
+
+	release(session, task, now=now, actor=actor)
+
+	return True
+
+
 def _lease (minutes: int | None, settings: subroutine.config.Settings | None) -> int:
 	"""Return how many minutes a lease should last, refusing one nobody could mean."""
 

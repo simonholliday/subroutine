@@ -22,6 +22,23 @@ upgrade involves.
 
 ### Added
 
+- **A lease renews itself while you are working, and finishing gives it back.** Two halves of
+  one thing: a claim lasted thirty minutes by default against work measured in hours, and
+  completing a task left the claim behind.
+
+  - **Writing to something you are holding pushes the lease out** — an edit, a status change, a
+    comment. The default is unchanged, deliberately: a longer one is still a guess about how
+    long work takes, and it strands a dead worker's claim for longer, which is what a lease
+    exists to prevent. Only the holder's own lease moves, writing to something nobody holds
+    takes no claim, and an expired one is not brought back.
+  - **Finishing releases it.** Once a task is done or cancelled the lease protects nothing —
+    nobody can start it, so there is nothing left to collide over, and a name on the row saying
+    somebody is holding it is simply false. Releasing still does not touch the status; the
+    asymmetry is deliberate.
+
+  On this instance about thirty tasks were carrying a claim, nearly all of them on work that
+  was finished and shipped.
+
 - **A listing narrows by who is holding an item, and the change feed by who acted.** Three
   things that were stored, reported on every row and reachable by no question:
 

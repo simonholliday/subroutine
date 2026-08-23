@@ -13,6 +13,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.mixins
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -23,6 +24,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
+import subroutine.domain.claims
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.hierarchy
@@ -825,6 +827,7 @@ def update (
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Change a task, recording only what actually changed.
@@ -1219,6 +1222,10 @@ def update (
 	if subroutine.domain.events.touches_content("task", changes):
 		task.content_updated_at = subroutine.db.types.utcnow()
 
+	# **A worker that is writing to what it holds is still working** (`#1113`). Before the
+	# version bump, so one increment covers the write and the renewal rather than two.
+	subroutine.domain.claims.renewed(task, actor=actor, now=instant, settings=settings)
+
 	task.version += 1
 	task.updated_by = None if actor is None else actor.user.id
 	session.flush()
@@ -1242,6 +1249,11 @@ def update (
 		actor=actor,
 	)
 	session.flush()
+
+	# **Finishing gives the lease back** (`#1113`), after the event that says it was finished
+	# so the record reads in the order it happened. A lease over work nobody can start protects
+	# nothing, and a name on the row saying somebody is holding it is simply false.
+	subroutine.domain.claims.released_if_finished(session, task, now=instant, actor=actor)
 
 	# **After the event, so the order reads the way it happened**: this one was finished, then
 	# the next one appeared. The new instance records its own creation, so a change feed shows

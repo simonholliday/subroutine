@@ -2452,6 +2452,17 @@ def _completed (
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
 
+	# **Asked before finishing, because finishing releases** (`#1113`). The task that comes
+	# back carries no claim whether it had one or not, so the answer below could no longer tell
+	# *you did not claim this* — a correction aimed at an agent that skipped a step — from
+	# *and the claim went back*. One read on a tool that already writes is the cheaper half of
+	# that trade; guessing would put the wrong sentence in front of somebody doing it right.
+	# `client.task` answers `None` for a ref that is not there; the write below refuses it by
+	# name a moment later, which is the message worth showing, so this simply has nothing to
+	# say about a task that does not exist.
+	before = client.task(ref=ref, workspace=workspace)
+	held = None if before is None else before.claimed_by
+
 	# **Two verbs, one tool.** Both end this occurrence and both bring the next; what differs
 	# is which fact is recorded about the month, and a series recorded entirely as done cannot
 	# answer *how often do I actually skip this* (`#574`).
@@ -2464,11 +2475,14 @@ def _completed (
 		finished = client.complete(ref=ref, workspace=workspace)
 		said = f"Done: {finished.title}."
 
-	if finished.claimed_by:
-		return (
-			f"{said} Still claimed by @{finished.claimed_by} — "
-			f"subroutine_claim(ref={finished.ref}, release=true) hands it back."
-		)
+	# **The reminder to hand it back is gone, because finishing now does** (`#1113`). This
+	# said *still claimed by @you — release it*, which was true, actionable and asked for the
+	# one thing that reliably does not happen: an obligation falling at the end of a session
+	# is one nobody attends, because the end of a session is compaction or a killed process.
+	#
+	# What is left is the half that is about the *next* item, which a reader can still act on.
+	if held:
+		return f"{said} The claim on it went back with it."
 
 	return (
 		f"{said} It was not claimed — claim one before you start it, so "

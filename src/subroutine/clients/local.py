@@ -2532,6 +2532,7 @@ class Client:
 				entity_type=entity_type,
 				entity_id=subject,
 				body=body,
+				settings=self.settings,
 				actor=actor,
 			)
 
@@ -2819,7 +2820,13 @@ class Client:
 				)
 
 			subroutine.domain.tasks.update(
-				session, row, now=subroutine.db.types.utcnow(), actor=actor, expected_version=expected_version, **changes
+				session,
+				row,
+				now=subroutine.db.types.utcnow(),
+				actor=actor,
+				expected_version=expected_version,
+				settings=self.settings,
+				**changes,
 			)
 
 			return subroutine.views.task(
@@ -2850,7 +2857,12 @@ class Client:
 			row = self._require(session, actor, ref, workspace)
 
 			subroutine.domain.tasks.update(
-				session, row, now=subroutine.db.types.utcnow(), actor=actor, **changes
+				session,
+				row,
+				now=subroutine.db.types.utcnow(),
+				actor=actor,
+				settings=self.settings,
+				**changes,
 			)
 
 			return subroutine.views.task(
