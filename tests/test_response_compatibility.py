@@ -28,6 +28,7 @@ module.
 import ast
 import pathlib
 import subprocess
+import typing
 
 import pydantic
 import pytest
@@ -174,6 +175,71 @@ def fields_at (source: str) -> dict[str, set[str]]:
 	return {name: resolved(name) for name in declared}
 
 
+def annotations_at (source: str) -> dict[str, dict[str, str]]:
+	"""Return every class in ``source`` and the annotation each of its fields carries.
+
+	:func:`fields_at`'s sibling, and the two are separate because they answer different
+	questions: that one asks *which keys does this shape have*, and this asks *what is at each
+	key*. A shape can gain a required key without gaining a key name — by the model at an
+	existing field changing to a different model — which is `#1155`, and is invisible to a
+	comparison that only knows names.
+
+	Inheritance is resolved the same way and for the same reason, with the subclass winning:
+	a field redeclared on a subclass is what that subclass sends.
+	"""
+
+	tree = ast.parse(source)
+	declared: dict[str, dict[str, str]] = {}
+	bases: dict[str, list[str]] = {}
+
+	for node in tree.body:
+		if not isinstance(node, ast.ClassDef):
+			continue
+
+		declared[node.name] = {
+			entry.target.id: ast.unparse(entry.annotation)
+			for entry in node.body
+			if isinstance(entry, ast.AnnAssign) and isinstance(entry.target, ast.Name)
+		}
+		bases[node.name] = [named for named in map(_base_name, node.bases) if named]
+
+	def resolved (name: str, seen: frozenset[str] = frozenset()) -> dict[str, str]:
+		"""Return a class's annotations plus everything it inherits, the subclass winning."""
+
+		if name in seen:
+			return {}
+
+		found: dict[str, str] = {}
+
+		for base in bases.get(name, []):
+			found |= resolved(base, seen | {name})
+
+		return found | declared.get(name, {})
+
+	return {name: resolved(name) for name in declared}
+
+
+def _classes_named (annotation: str, known: typing.Container[str]) -> set[str]:
+	"""Return the model names an annotation mentions.
+
+	``dict[str, list[ItemType]]`` names ``ItemType``; ``str`` names nothing. Parsed rather than
+	pattern-matched, because an annotation is an expression and the interesting ones here are
+	all nested inside subscripts.
+	"""
+
+	try:
+		tree = ast.parse(annotation, mode="eval")
+
+	except SyntaxError:
+		return set()
+
+	return {
+		node.id
+		for node in ast.walk(tree)
+		if isinstance(node, ast.Name) and node.id in known
+	}
+
+
 def response_models () -> dict[str, type[pydantic.BaseModel]]:
 	"""Return the response models this client parses, as they are now."""
 
@@ -210,6 +276,31 @@ def before () -> dict[str, set[str]]:
 		pytest.skip(f"{VIEWS} did not exist at {tag}")
 
 	return fields_at(source)
+
+
+@pytest.fixture(scope="module")
+def annotated_before () -> dict[str, dict[str, str]]:
+	"""Return what each view field was annotated as at the most recent release.
+
+	The same git read as :func:`before`, parsed the other way — see :func:`annotations_at` for
+	why the two questions are not one.
+	"""
+
+	tag = last_release()
+
+	if tag is None:
+		pytest.skip("no tag in this checkout, so there is no released shape to compare against")
+
+	assert _commit(tag) != _commit("HEAD"), (
+		f"{tag} is this commit, so the comparison would diff {VIEWS} against itself"
+	)
+
+	source = _source_at(tag, VIEWS)
+
+	if source is None:
+		pytest.skip(f"{VIEWS} did not exist at {tag}")
+
+	return annotations_at(source)
 
 
 def test_a_generic_base_is_still_a_base () -> None:
@@ -273,6 +364,71 @@ def test_a_field_added_since_the_last_release_carries_a_default (
 		f"instance one release behind sends a body without these, and this client would refuse "
 		f"it outright. Give each a default — `= None` — so an older body still parses (`#345`)."
 	)
+
+
+def test_a_field_that_changed_model_did_not_gain_a_required_key (
+	before: dict[str, set[str]],
+	annotated_before: dict[str, dict[str, str]],
+) -> None:
+	"""`#1155`. The hole the class-by-class diff above leaves, and the fourth time this bit.
+
+	That check exempts a model that did not exist at the last release, on the ground that *no
+	older instance sends this shape at all*. **True of a class name and false of a response
+	position.** ``Vocabulary.item_types`` was a list of ``Named`` and is now a list of
+	``ItemType``: the class is new, the place it sits in the body is not, and an instance one
+	release behind sends exactly that shape. `#1134` made its ``category`` required, the suite
+	stayed green, and the next command against the served instance said
+
+	    hpz2g4 answered, but not as a Subroutine instance:
+	    Meta could not be read from its response (item_types.document.0.category: Field required).
+
+	**The three cases, worked through, and only one is uncovered.** A *new* field that is
+	required is caught by the check above, by the field. A *new* field that is optional is never
+	parsed at all, because an older body omits it. A **pre-existing** field whose annotation
+	changed is this one.
+
+	So the rule: what the new model requires must be something the model it replaced already
+	sent. Anything else is a key an older instance has no way to know about.
+	"""
+
+	now = annotations_at(pathlib.Path(ROOT, VIEWS).read_text(encoding="utf-8"))
+	models = response_models()
+	offenders: list[str] = []
+	compared = 0
+
+	for name, fields in now.items():
+		if name not in annotated_before:
+			continue
+
+		for field, annotation in fields.items():
+			was = annotated_before[name].get(field)
+
+			if was is None or was == annotation:
+				continue
+
+			compared += 1
+			# What the field used to be able to send, which is the whole of what an older
+			# instance can be relied on to put there.
+			sent = set().union(*(before.get(one, set()) for one in _classes_named(was, before)))
+
+			for arrived in _classes_named(annotation, models) - set(annotated_before):
+				offenders.extend(
+					f"{name}.{field} -> {arrived}.{key}"
+					for key, info in models[arrived].model_fields.items()
+					if info.is_required() and key not in sent
+				)
+
+	assert not offenders, (
+		f"a field that already existed now names a model that did not, and that model requires "
+		f"keys the old one never sent: {', '.join(sorted(offenders))}. An instance one release "
+		f"behind sends the old shape, and this client would refuse it outright. Give each a "
+		f"default (`#345`)."
+	)
+
+	# **Not an assertion about the count**, because zero is the ordinary and correct answer: most
+	# releases change no annotation at all. It is printed so a run that compared nothing is
+	# visible to somebody reading the output rather than being indistinguishable from a pass.
+	print(f"annotations compared: {compared}")
 
 
 def test_the_comparison_actually_read_the_old_models (

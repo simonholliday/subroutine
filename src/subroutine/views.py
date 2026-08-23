@@ -3881,7 +3881,13 @@ class ItemType(Named):
 	"""
 
 	#: The key is renameable; the category is not. Branch on this.
-	category: str
+	#:
+	#: **Defaulted, and it must be** (`#345`). This model is new but the *position* it occupies
+	#: is not: ``Vocabulary.item_types`` was a list of :class:`Named` and is now a list of these,
+	#: so an instance one release behind sends exactly this shape without a category. Required,
+	#: it made a newer client refuse an older instance outright — measured against the served
+	#: one, which answered ``item_types.document.0.category: Field required``.
+	category: str = ""
 
 
 class LinkType(pydantic.BaseModel):
