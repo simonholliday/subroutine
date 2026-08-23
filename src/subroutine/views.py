@@ -965,6 +965,52 @@ class Proposal(pydantic.BaseModel):
 		)
 
 
+class Verification(pydantic.BaseModel):
+	"""What was checked against a task, and which tree it was checked on (`#1121`).
+
+	**A record, not a proof.** An agent can post an exit code of zero without having run
+	anything, so what this is worth is being durable, attributable and invalidatable — never
+	*verified work*. `#593` settled that sentence and nothing built on this model may soften it.
+
+	``is_stale`` is deliberately absent: it is derived from the tree the *reader* is standing
+	on, which is not on this row and is not on the instance either. What is published is
+	``tree_hash``, and the comparison belongs to whoever has a checkout.
+	"""
+
+	id: uuid.UUID
+	task_ref: int
+	passed: bool
+	summary: str | None
+	output_excerpt: str | None
+	ran_at: datetime.datetime
+
+	#: Null where the record was made from a machine with no checkout, which §1.4 requires to
+	#: be possible. Such a record cannot expire, and saying nothing is a different answer from
+	#: saying it is current.
+	tree_hash: str | None
+	commit_sha: str | None
+
+	#: Who recorded it, by name. The whole value of the record is that it is attributable, and
+	#: a uuid is attributable to somebody who can make a second request.
+	recorded_by: str | None
+
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by."""
+
+		return str(self.id)
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this record as the cells of one compact line."""
+
+		return (
+			"passed" if self.passed else "failed",
+			moment_day(self.ran_at, reader),
+			subroutine.domain.text.truncated(self.summary or ""),
+		)
+
+
 class Workspace(pydantic.BaseModel):
 	"""A workspace as the API reports it.
 
@@ -2514,6 +2560,25 @@ def links (
 	return [link(one, vocabulary) for one in related]
 
 
+def verification (
+	row: subroutine.db.models.work.Verification, *, ref: int, recorded_by: str | None
+) -> Verification:
+	"""Render one record of what was checked."""
+
+	return Verification(
+		id=row.id,
+		task_ref=ref,
+		passed=row.passed,
+		summary=row.summary,
+		output_excerpt=row.output_excerpt,
+		ran_at=row.ran_at,
+		tree_hash=row.tree_hash,
+		commit_sha=row.commit_sha,
+		recorded_by=recorded_by,
+		created_at=row.created_at,
+	)
+
+
 def governing (
 	session: sqlalchemy.orm.Session,
 	found: typing.Sequence[subroutine.domain.links.Governs],
@@ -3686,6 +3751,16 @@ def _from_a_live_series (
 		return None
 
 	return series.get(field)
+
+
+def username_in (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:
+	"""Return a user's username, for a caller outside this module.
+
+	The published name for :func:`_username`, so a router rendering something this module has
+	no renderer for does not reach for a private one. Same answer, same rule.
+	"""
+
+	return _username(vocabulary, user_id)
 
 
 def _username (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:

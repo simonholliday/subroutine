@@ -267,6 +267,11 @@ NOT_A_CHANGE_TO_THE_ENTITY: dict[str, str] = {
 	"POST /v1/tasks/{id_or_ref}/comments": "writes a comment, which is its own entity",
 	"POST /v1/documents/{id_or_ref}/comments": "writes a comment, which is its own entity",
 	"POST /v1/projects/{id_or_key:path}/comments": "writes a comment, which is its own entity",
+	"POST /v1/tasks/{id_or_ref}/verifications": (
+		"writes a verification, which is its own entity and is append-only (`#1121`) — a "
+		"record of what was checked at a moment is not a thing to edit, so there is no version "
+		"of it to be stale, and the task it is about is unchanged by one being written"
+	),
 	"POST /v1/tasks/{id_or_ref}/links": "writes a link, which is its own entity",
 	"POST /v1/documents/{id_or_ref}/links": "writes a link, which is its own entity",
 	"DELETE /v1/tasks/{id_or_ref}/links/{link_id}": "removes a link, addressed by its own id",

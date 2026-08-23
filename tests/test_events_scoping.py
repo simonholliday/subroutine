@@ -61,6 +61,11 @@ NARROWED_BY: dict[str, str] = {
 	"document": "entity",
 	"comment": "subject",
 	"link": "subject",
+	# **The task it is about, like a comment and a link** (`#1121`). A verification row names
+	# a record and nothing can decide who may see the event from that alone, so the event
+	# carries the task as its subject and `scoping.visible_events` narrows on the pair without
+	# knowing what kind of thing wrote it.
+	"verification": "subject",
 	"workspace": "workspace",
 	"workspace_member": "workspace",
 }
@@ -335,6 +340,14 @@ def _recorded (session: sqlalchemy.orm.Session, world: World, kind: str) -> int:
 		},
 		"link": {
 			"entity_type": "link",
+			"entity_id": uuid.uuid4(),
+			"subject_type": "task",
+			"subject_id": world.task.id,
+		},
+		# Narrowed by its subject, like the two above and for the same reason (`#1121`): the
+		# row names a record and nothing can decide who may see one from that alone.
+		"verification": {
+			"entity_type": "verification",
 			"entity_id": uuid.uuid4(),
 			"subject_type": "task",
 			"subject_id": world.task.id,

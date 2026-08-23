@@ -427,6 +427,96 @@ class Document(
 	)
 
 
+class Verification(
+	subroutine.db.base.Base,
+	subroutine.db.mixins.WorkspaceScopedMixin,
+	subroutine.db.mixins.TimestampMixin,
+	subroutine.db.mixins.AuthorshipMixin,
+):
+	"""What was checked against a task, and which tree it was checked on (docs/design.md §14.5).
+
+	**A record, not a proof, and the distinction is the whole design.** An agent can post an
+	exit code of zero without running anything, so what this is worth is being *durable*,
+	*attributable* and *invalidatable* — never *verified work*. Nothing in the product may say
+	otherwise, and `#593` is where that sentence was settled.
+
+	**Bound to the tree, not to the ticket** (`#1121`, `#1124` Q6). §14.5 measured staleness
+	against ``task.content_updated_at``, and that column does not move when the *code* moves:
+	run the suite at 14:00, edit five files at 14:05, complete at 14:10, and the evidence is
+	fresh by that definition and false in fact. **This project has already paid for the lesson
+	once** — `#749` and `#893` are two releases that published nothing because a gate run
+	beforehand is green on the previous tree, which looks identical in a terminal, and `#894`'s
+	remedy was to gate the commit the script makes.
+
+	**Append-only.** There is no version and no soft delete: a record of what was checked at a
+	moment is not a thing to edit, and a wrong one is answered by a later one rather than by a
+	rewrite. That is `#52`'s reasoning about the event table applied to evidence.
+	"""
+
+	__tablename__ = "verification"
+	__table_args__ = (
+		# What was checked against this task, newest first — the only question anybody asks
+		# of this table, and the same shape §10.6 specified before it existed.
+		sqlalchemy.Index(
+			"ix_verification_workspace_id_task_id_ran_at",
+			"workspace_id",
+			"task_id",
+			"ran_at",
+		),
+	)
+
+	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
+	task_id: sqlalchemy.orm.Mapped[uuid.UUID] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(),
+		sqlalchemy.ForeignKey("task.id", ondelete="CASCADE"),
+		nullable=False,
+	)
+
+	#: Whether the check passed. A failing record is worth keeping and is the more useful half
+	#: of the pair: *this was tried and did not work* is what stops it being tried again.
+	passed: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Boolean, nullable=False
+	)
+
+	#: What was run and how it went, in one line — ``5,610 passed, 41 skipped``. Prose, because
+	#: what counts as a check differs per project and a schema for it would be §14.15's
+	#: mandatory structure for reasoning, which agents omit unless something forces them.
+	summary: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Text, nullable=True
+	)
+
+	#: Enough of the output to judge the summary by. Capped by the service rather than by the
+	#: column, so the refusal can say what the limit is.
+	output_excerpt: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Text, nullable=True
+	)
+	ran_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=False
+	)
+
+	#: The tree this ran against, so the record can expire when the code changes.
+	#:
+	#: **Nullable, and that is a guard rather than a convenience** (Simon, 2026-08-23). ``NOT
+	#: NULL`` is the natural way to write it and would make a record impossible from a machine
+	#: with no checkout — which is most of them, and which §1.4 forbids: no §14 entity may be
+	#: *required* in order to do the ordinary thing.
+	#:
+	#: **A record without one is still a record. It simply cannot expire**, and it says so
+	#: rather than reading as fresh. The same asymmetry `db/backup` takes about a schema head:
+	#: older is handled, equal is handled, absent is a different answer rather than an error.
+	tree_hash: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(64), nullable=True
+	)
+
+	#: The commit this ran against, where there was one. Beside the tree hash rather than
+	#: instead of it: a sha names a commit that may not exist yet — the gate runs *before* the
+	#: commit it is about, which is the one commit nothing else ever runs — where a tree hash
+	#: names the content either way.
+	commit_sha: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(64), nullable=True
+	)
+
+
 class TaskTag(subroutine.db.base.Base):
 	"""Joins a task to a tag."""
 

@@ -67,6 +67,12 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"reason. Nothing is reported back but the key of a project the caller itself named, and "
 	"`_refuse_amplification` has already bounded the caller to its own reach before it runs",
 	"domain/mentions.py": "rewrites refs inside text it was already given",
+	# **The task is handed in, never looked up** (`#1121`). Both functions here take a `Task`
+	# somebody else resolved through `readable_tasks`, and `record` authorizes against its
+	# workspace and project before writing — so the narrowing has happened one caller up, which
+	# is where it happens for `domain/claims.py` and `domain/comments.py` too.
+	"domain/verifications.py": "takes a task the caller already resolved, and authorizes "
+	"against it before writing; it never selects one",
 	"domain/bootstrap.py": "runs before any principal exists, by definition",
 	"domain/tasks.py": "single-row reads by id, each followed by an authorize() call",
 	"domain/projects.py": "key-uniqueness and subtree maintenance, not caller-facing lists",

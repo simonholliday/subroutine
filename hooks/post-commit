@@ -22,6 +22,17 @@ body=$(git log -1 --pretty=%B | grep -v '^#' || true)
 
 refs=$(printf '%s' "$body" | grep -oE 'SR#[1-9][0-9]*' | sed 's/^SR#//' | sort -u || true)
 
+# **Read out of the message rather than guessed at.** `scripts/check.py` writes its counts into
+# the commit message by convention — "Gate: 5,610 passed, 41 skipped" — and this hook has no
+# other way to know a gate ran at all. An absent line means no record, which is the honest
+# answer: a verification nobody ran is worse than none, because the table's whole value is that
+# it says what it is.
+gate=$(printf '%s' "$body" | grep -oE '^Gate: .*' | head -1 | sed 's/^Gate: //' || true)
+
+# The tree the commit names, which is what a record expires against. Empty outside a checkout,
+# and the record is kept without it — it simply cannot expire.
+tree=$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)
+
 if [ -z "$refs" ]; then
 	exit 0
 fi
@@ -61,5 +72,24 @@ for ref in $refs; do
 
 	if ! subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
 		printf '%s\n' "Could not record $short against SR#$ref." >&2
+	fi
+
+	# **What was checked, recorded against the tree it was checked on** — item SR#1121, and it
+	# is here rather than behind a command an agent must remember because of a measurement:
+	# *attach it to work already happening* is the highest-adoption lever on this instance at
+	# 93%, and *enforcement* the lowest at +0.24pp. This hook is the 93%. It costs the writer
+	# nothing and starts at the adoption rate the commit itself has.
+	#
+	# **The tree, not the commit, is what makes it expire.** A gate is run before the commit
+	# it is about — SR#894 — so a sha names something that did not exist when the checks ran,
+	# where a tree names the content either way. Both are sent; only the tree decides staleness.
+	#
+	# **Only where the commit message says a gate ran.** Nothing here can know whether one
+	# did, and inventing a record would be worse than having none: the whole value of this
+	# table is that it is honest about what it is, which is a record and never a proof.
+	if [ -n "$gate" ]; then
+		if ! subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$(git rev-parse HEAD)" >/dev/null 2>&1; then
+			printf '%s\n' "Could not record the gate against SR#$ref." >&2
+		fi
 	fi
 done

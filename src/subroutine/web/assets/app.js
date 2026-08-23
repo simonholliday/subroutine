@@ -949,6 +949,14 @@ export function itemRequests (kind, ref, slug) {
 		{ path: scoped(`/${collection}/${ref}/links`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/governing`, slug), method: "GET" },
+		/* **Tasks only, and asked conditionally rather than always** (`#1121`). Only a task is
+		   checked, and the route refuses a document's ref by name — 404 *"#3 is a document, not
+		   a task"* — so a version that asked anyway would fail the whole read of every document
+		   on the page. Written the other way first and caught by the guard that drives every
+		   request this function builds against a real instance. */
+		...(kind === "document"
+			? []
+			: [{ path: scoped(`/tasks/${ref}/verifications`, slug), method: "GET" }]),
 	];
 }
 
@@ -5807,8 +5815,8 @@ export function Doing ({
 }
 
 export function Detail ({
-	item, links, comments, governing = [], members = [], onOpen, onBack, onComplete, onAssign,
-	busy, where,
+	item, links, comments, governing = [], checked = [], members = [], onOpen, onBack,
+	onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
 	/* Which prose box is being previewed, and how to change it — `#776`. */
@@ -5884,6 +5892,31 @@ export function Detail ({
 					${body && html`<${Prose} className="prose" text=${body} where=${where}
 						onOpen=${onOpen} />`}
 				`}
+
+			${checked.length > 0 && html`
+				${/* **What was checked, and it is a record rather than a proof** (`#1121`).
+				     Somebody can post an exit code of zero without having run anything, so the
+				     heading says *recorded* and never *verified* — the value is that it is
+				     kept, attributed and able to go out of date.
+
+				     **§14.1 is why this is here at all**: nothing an agent stores may be
+				     invisible to the person, and a verification the browser could not show
+				     would be an agent-only surface, which §14.15 forbids by name.
+
+				     Said in words rather than in colour alone (`#102`): *passed* and *failed*
+				     are the words, and the tree is printed short beside them because what a
+				     reader wants to know is whether it is the one they are on. */ null}
+				<h3>Recorded checks</h3>
+				<ul class="linked">
+					${checked.map((record) => html`
+						<li key=${record.id}>
+							<span class="label">${record.passed ? "passed" : "failed"}</span>${" "}
+							${record.summary || "(no summary)"}${" "}
+							<span class="muted">${record.tree_hash
+								? `tree ${record.tree_hash.slice(0, 7)}`
+								: "no tree — this cannot go out of date"}</span>
+						</li>`)}
+				</ul>`}
 
 			${governing.length > 0 && html`
 				${/* **What binds whoever picks this up** (`#1119`) — the workspace-wide *what
@@ -6735,12 +6768,15 @@ export function App () {
 
 		for (const trying of order) {
 			try {
-				const [item, links, comments, governing] = await Promise.all(
+				const [item, links, comments, governing, checked] = await Promise.all(
 					itemRequests(trying, ref, slug).map(sent),
 				);
 
 				return { item: { ...item, kind: trying }, links: links.items,
-					comments: comments.items, governing: governing.items };
+					comments: comments.items, governing: governing.items,
+					/* Absent for a document, which asks for no such thing — so this is the
+					   empty list rather than a read of `undefined`. */
+					checked: checked ? checked.items : [] };
 			} catch (failure) {
 				if (failure.status !== 404 || trying === order[order.length - 1]) throw failure;
 			}

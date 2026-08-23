@@ -4149,6 +4149,98 @@ def _claimed (program: Program, *, which: str, minutes: int) -> None:
 		_suggest(program.console, "subroutine list --ready", "what is free to start")
 
 
+def _git (*arguments: str) -> str | None:
+	"""Ask git one thing, or answer ``None`` where there is nothing to ask.
+
+	**Absent rather than an error**, and every way of not being in a repository takes the same
+	branch: no git on the machine, not a checkout, a repository with no commits. §1.4's rule is
+	that no §14 entity may be *required* to do the ordinary thing, and most machines have no
+	checkout — so a record made without a tree is the ordinary case rather than a degraded one.
+	"""
+
+	try:
+		answered = subprocess.run(
+			["git", *arguments],
+			capture_output=True,
+			text=True,
+			timeout=10,
+			check=False,
+		)
+
+	except (OSError, subprocess.SubprocessError):
+		return None
+
+	written = answered.stdout.strip()
+
+	return written if answered.returncode == 0 and written else None
+
+
+def _tree_here () -> str:
+	"""Return the tree object this checkout's `HEAD` names, or nothing.
+
+	**The tree rather than the commit**, which is `#1121`'s whole correction: a commit sha
+	names a commit that may not exist yet — the gate runs *before* the commit it is about,
+	which is the one commit nothing else ever runs (`#894`) — where a tree names the content
+	either way. Two commits with the same content share a tree, which is the right answer:
+	rebasing does not invalidate what was checked.
+	"""
+
+	return _git("rev-parse", "HEAD^{tree}") or ""
+
+
+def _commit_here () -> str:
+	"""Return the commit this checkout is on, or nothing. Beside the tree, never instead."""
+
+	return _git("rev-parse", "HEAD") or ""
+
+
+def _verified (
+	program: Program,
+	*,
+	which: str,
+	summary: str,
+	passed: bool,
+	tree: str,
+	commit: str,
+) -> None:
+	"""Record what was checked against one task."""
+
+	with program.opened() as world:
+		located, task = _a_task(
+			program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="verify",
+		)
+		client = _require_connection(program, world, located.connection)
+
+		try:
+			written = client.verify(
+				ref=task.ref,
+				passed=passed,
+				summary=summary or None,
+				tree_hash=tree or None,
+				commit_sha=commit or None,
+				workspace=located.workspace,
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			program.fail(error)
+
+		program.say(
+			f"Recorded: {'passed' if written.passed else 'failed'} on "
+			f"{world.address_of_located(located)}"
+			+ (f" against tree {written.tree_hash[:7]}" if written.tree_hash else "")
+		)
+
+		if written.tree_hash is None:
+			# **Said rather than left to be discovered.** A record with no tree cannot go out
+			# of date, and somebody who thinks it can will trust it after the code has moved.
+			program.warn(
+				"No tree was recorded, so this cannot go out of date when the code changes."
+			)
+
+
 def _released_everything (program: Program) -> None:
 	"""Give back everything this account is holding, wherever it is.
 
@@ -4541,6 +4633,225 @@ def _workspace_updated (
 		# confirmation names the zone in force rather than reporting that something changed.
 		if "timezone" in changes:
 			program.say(f"  Dates here are read in {changed.timezone or 'the instance zone'}.")
+
+
+def _register_documents (app: typer.Typer, program: Program) -> None:
+	"""Add the ``doc`` group to the application.
+
+	The fifth group to leave ``register`` rather than raise `#943`'s ratchet. Two commands and
+	the longest pair left in the closure; by now the move costs a paragraph, which is the
+	ratchet doing what it was built for — making a feature notice.
+	"""
+
+	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
+	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
+	# documents and `show <ref>` already reads either. A second listing would be a second
+	# answer to a question already answered, and the *first* listing is what taught somebody
+	# that a number names an item.
+	document_app = typer.Typer(
+		help="Write down what you concluded.", no_args_is_help=True
+	)
+	app.add_typer(document_app, name="doc")
+
+	@document_app.command("create")
+	def document_create (
+		title: str = typer.Argument(..., help="What it concludes, in one line."),
+		body: str = typer.Option("", "--body", help="The reasoning. Or pipe it in."),
+		kind: str = typer.Option(
+			"", "--type", help="note, spec, design, decision, finding or dead_end."
+		),
+		status: str = typer.Option(
+			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
+		),
+		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		tag: list[str] | None = typer.Option(
+			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Write a document — a decision, a finding, a design, a dead end.
+
+		A decision, a finding and a dead end are in force the moment you write them, so they
+		start as 'active'; a specification or a design starts as 'draft'. Pass '--status draft'
+		for a decision you are still thinking about.
+
+		Examples:
+
+		  subroutine doc create "Why we dropped the queue" --type decision
+
+		  cat notes.md | subroutine doc create "Review findings" --type finding
+
+		A comment is what happened; a document is what you concluded. If the next person to
+		look would need to read it, it is a document.
+		"""
+
+		# **Piped input is the ordinary way to write more than a sentence at a terminal**, and
+		# it is the path an agent takes too. Read only when something is actually piped:
+		# `isatty` false with no pipe would block forever waiting for a keystroke nobody knows
+		# to give, which is the worst possible way for a first attempt to go.
+		written = body.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
+
+		with program.opened() as world:
+			where = world.writing_to()
+
+			created = where.client.create_document(
+				title=title,
+				body=written or None,
+				type=kind.strip() or None,
+				status=status.strip() or None,
+				project=project.strip() or None,
+				tags=tag or None,
+				workspace=_writing_workspace(world),
+			)
+
+			if json_output:
+				program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			# **A slug, not the id** (`#289`). `Located.workspace` is what `refs.format_address`
+			# composes `connection/workspace/ref` from, so the id rendered an address nobody
+			# could type: `local/019fad98-4313-7e36-b972-f7decf66f8ae/#288`. Every other caller
+			# of `_acted` passes a slug, and `add` gets it from this same function.
+			program.say(
+				_acted(
+					world,
+					Located(
+						connection=where.name,
+						workspace=_writing_workspace(world),
+						item=created,
+					),
+					"Wrote",
+				)
+			)
+			_suggest(
+				program.console,
+				f"subroutine show {_typeable(world, where.name, created)}",
+				"read it back",
+			)
+
+	@document_app.command("edit")
+	def document_edit (
+		which: str = typer.Argument("", help="Which document, by its number."),
+		body: str = typer.Option("", "--body", help="Replace the text. Or pipe it in."),
+		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
+		kind: str = typer.Option(
+			"", "--type", help="note, spec, design, decision, finding or dead_end."
+		),
+		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
+		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		tag: list[str] | None = typer.Option(
+			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Revise a document you have already written.
+
+		Examples:
+
+		  subroutine doc edit 42
+
+		  subroutine doc edit 42 --title "What we settled, and why"
+
+		  cat revised.md | subroutine doc edit 42
+
+		With nothing to change, this opens the document in your editor.
+
+		A conclusion that cannot be revised is a record of what you concluded once — so this
+		is what keeps the instance the place the *current* answer lives.
+		"""
+
+		asked = _asked(which, "Which document?")
+
+		# **Read before any of the three sources are consulted**, because the editor needs the
+		# current text to open and the refusal for a bad ref should arrive before somebody has
+		# spent five minutes typing into vim.
+		with program.opened() as world:
+			located, document = _a_document(program, world, asked, verb="edit")
+
+			# **Standard input is consulted only when nothing else was said at all** (`#299`).
+			# There is no way to tell an empty pipe from no pipe without blocking, so the
+			# question has to be settled before reading rather than by reading: a caller who
+			# named a field has told us what they wanted, and reading on top of that would
+			# hang wherever there is no terminal — every script, CI job and agent shelling
+			# out — as well as replacing a body nobody asked to replace.
+			#
+			# So `doc edit 42 --title "…"` changes the title and leaves the text alone, which
+			# is also what somebody typing it expects.
+			named = any((title.strip(), kind.strip(), status.strip(), project.strip()))
+			said = body.strip()
+			revised: str = subroutine.clients.base.UNSET
+
+			if said:
+				revised = said
+
+			elif not named:
+				# Nothing was said, so the text comes from somewhere else: the editor when
+				# there is a person, and otherwise whatever was piped.
+				if sys.stdin.isatty():
+					revised = _in_an_editor(program, document.body or "")
+
+				else:
+					revised = sys.stdin.read()
+
+					# **An empty pipe is not an instruction to empty the document.**
+					# `subroutine doc edit 42 < /dev/null` would otherwise silently replace a
+					# conclusion with nothing, which is the one outcome nobody types that to get.
+					if not revised.strip():
+						program.fail(
+							subroutine.errors.ValidationError(
+								"Nothing was piped in, so there is nothing to change.",
+								hint="Pipe the new text in, or pass --body, --title, --type, "
+								"--status or --project.",
+							)
+						)
+
+			where = world.connection(located.connection)
+
+			if where is None:
+				program.fail(
+					subroutine.errors.ServiceUnavailable(
+						f"{located.connection} could not be reached, so nothing can be changed "
+						"there."
+					)
+				)
+
+			changed = where.client.update_document(
+				ref=document.ref,
+				workspace=located.workspace,
+				title=title.strip() or subroutine.clients.base.UNSET,
+				body=revised,
+				type=kind.strip() or subroutine.clients.base.UNSET,
+				status=status.strip() or subroutine.clients.base.UNSET,
+				project=project.strip() or subroutine.clients.base.UNSET,
+				# **`--tag` given no value clears them**, which is §8.3's null and the only way
+				# to take a mistyped tag off. Typer gives an empty list when the flag is absent,
+				# so "not asked" and "asked for none" are told apart by `None`.
+				tags=subroutine.clients.base.UNSET if tag is None else tag,
+			)
+
+			if json_output:
+				program.say(json.dumps(changed.model_dump(mode="json"), indent=2))
+
+				return
+
+			program.say(
+				_acted(
+					world,
+					Located(
+						connection=located.connection,
+						workspace=located.workspace,
+						item=changed,
+					),
+					"Revised",
+				)
+			)
+			_suggest(
+				program.console,
+				f"subroutine show {_typeable(world, located.connection, changed)}",
+				"read it back",
+			)
+
 
 
 def _register_links (app: typer.Typer, program: Program) -> None:
@@ -6265,6 +6576,44 @@ def register (
 
 		_released(program, which=which)
 
+	@app.command("verify", hidden=not _worth_showing(settings))
+	def verify_item (
+		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
+		summary: str = typer.Option("", "--summary", help="What was run, in one line."),
+		failed: bool = typer.Option(
+			False, "--failed", help="Record a check that did not pass."
+		),
+		tree: str = typer.Option(
+			"", "--tree", help="The tree it ran against. Read from git here when omitted."
+		),
+		commit: str = typer.Option("", "--commit", help="The commit it ran against."),
+	) -> None:
+		"""Record what you checked against something, so the next person can see it.
+
+		Examples:
+
+		  subroutine verify 42 --summary "5,610 passed, 41 skipped"
+
+		  subroutine verify 42 --failed --summary "3 failed in test_agenda"
+
+		This is a record, not a proof — anybody can say a check passed without running one.
+		What it is worth is being kept, attributed, and able to go out of date: it carries the
+		state of the code it ran against, so somebody reading it later can tell whether the
+		code has moved since.
+
+		In a git checkout the tree is read from git unless you name one. Outside one there is
+		nothing to read, and the record is kept without it — it simply cannot go out of date.
+		"""
+
+		_verified(
+			program,
+			which=which,
+			summary=summary,
+			passed=not failed,
+			tree=tree or _tree_here(),
+			commit=commit or _commit_here(),
+		)
+
 	@app.command("start")
 	def start_item (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
@@ -6790,214 +7139,7 @@ def register (
 
 		_withdrawn(program, which=which, words=words)
 
-	# **`doc create` and no `doc list` or `doc show`**, which is §12.2's shape rather than an
-	# omission: one counter per workspace serves both kinds (§6.2), so `list` already holds
-	# documents and `show <ref>` already reads either. A second listing would be a second
-	# answer to a question already answered, and the *first* listing is what taught somebody
-	# that a number names an item.
-	document_app = typer.Typer(
-		help="Write down what you concluded.", no_args_is_help=True
-	)
-	app.add_typer(document_app, name="doc")
-
-	@document_app.command("create")
-	def document_create (
-		title: str = typer.Argument(..., help="What it concludes, in one line."),
-		body: str = typer.Option("", "--body", help="The reasoning. Or pipe it in."),
-		kind: str = typer.Option(
-			"", "--type", help="note, spec, design, decision, finding or dead_end."
-		),
-		status: str = typer.Option(
-			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
-		),
-		project: str = typer.Option("", "--project", help="File it under this project, by key."),
-		tag: list[str] | None = typer.Option(
-			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
-		),
-		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
-	) -> None:
-		"""Write a document — a decision, a finding, a design, a dead end.
-
-		A decision, a finding and a dead end are in force the moment you write them, so they
-		start as 'active'; a specification or a design starts as 'draft'. Pass '--status draft'
-		for a decision you are still thinking about.
-
-		Examples:
-
-		  subroutine doc create "Why we dropped the queue" --type decision
-
-		  cat notes.md | subroutine doc create "Review findings" --type finding
-
-		A comment is what happened; a document is what you concluded. If the next person to
-		look would need to read it, it is a document.
-		"""
-
-		# **Piped input is the ordinary way to write more than a sentence at a terminal**, and
-		# it is the path an agent takes too. Read only when something is actually piped:
-		# `isatty` false with no pipe would block forever waiting for a keystroke nobody knows
-		# to give, which is the worst possible way for a first attempt to go.
-		written = body.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
-
-		with program.opened() as world:
-			where = world.writing_to()
-
-			created = where.client.create_document(
-				title=title,
-				body=written or None,
-				type=kind.strip() or None,
-				status=status.strip() or None,
-				project=project.strip() or None,
-				tags=tag or None,
-				workspace=_writing_workspace(world),
-			)
-
-			if json_output:
-				say(json.dumps(created.model_dump(mode="json"), indent=2))
-
-				return
-
-			# **A slug, not the id** (`#289`). `Located.workspace` is what `refs.format_address`
-			# composes `connection/workspace/ref` from, so the id rendered an address nobody
-			# could type: `local/019fad98-4313-7e36-b972-f7decf66f8ae/#288`. Every other caller
-			# of `_acted` passes a slug, and `add` gets it from this same function.
-			say(
-				_acted(
-					world,
-					Located(
-						connection=where.name,
-						workspace=_writing_workspace(world),
-						item=created,
-					),
-					"Wrote",
-				)
-			)
-			_suggest(
-				console,
-				f"subroutine show {_typeable(world, where.name, created)}",
-				"read it back",
-			)
-
-	@document_app.command("edit")
-	def document_edit (
-		which: str = typer.Argument("", help="Which document, by its number."),
-		body: str = typer.Option("", "--body", help="Replace the text. Or pipe it in."),
-		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
-		kind: str = typer.Option(
-			"", "--type", help="note, spec, design, decision, finding or dead_end."
-		),
-		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
-		project: str = typer.Option("", "--project", help="File it under this project, by key."),
-		tag: list[str] | None = typer.Option(
-			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
-		),
-		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
-	) -> None:
-		"""Revise a document you have already written.
-
-		Examples:
-
-		  subroutine doc edit 42
-
-		  subroutine doc edit 42 --title "What we settled, and why"
-
-		  cat revised.md | subroutine doc edit 42
-
-		With nothing to change, this opens the document in your editor.
-
-		A conclusion that cannot be revised is a record of what you concluded once — so this
-		is what keeps the instance the place the *current* answer lives.
-		"""
-
-		asked = _asked(which, "Which document?")
-
-		# **Read before any of the three sources are consulted**, because the editor needs the
-		# current text to open and the refusal for a bad ref should arrive before somebody has
-		# spent five minutes typing into vim.
-		with program.opened() as world:
-			located, document = _a_document(program, world, asked, verb="edit")
-
-			# **Standard input is consulted only when nothing else was said at all** (`#299`).
-			# There is no way to tell an empty pipe from no pipe without blocking, so the
-			# question has to be settled before reading rather than by reading: a caller who
-			# named a field has told us what they wanted, and reading on top of that would
-			# hang wherever there is no terminal — every script, CI job and agent shelling
-			# out — as well as replacing a body nobody asked to replace.
-			#
-			# So `doc edit 42 --title "…"` changes the title and leaves the text alone, which
-			# is also what somebody typing it expects.
-			named = any((title.strip(), kind.strip(), status.strip(), project.strip()))
-			said = body.strip()
-			revised: str = subroutine.clients.base.UNSET
-
-			if said:
-				revised = said
-
-			elif not named:
-				# Nothing was said, so the text comes from somewhere else: the editor when
-				# there is a person, and otherwise whatever was piped.
-				if sys.stdin.isatty():
-					revised = _in_an_editor(program, document.body or "")
-
-				else:
-					revised = sys.stdin.read()
-
-					# **An empty pipe is not an instruction to empty the document.**
-					# `subroutine doc edit 42 < /dev/null` would otherwise silently replace a
-					# conclusion with nothing, which is the one outcome nobody types that to get.
-					if not revised.strip():
-						fail(
-							subroutine.errors.ValidationError(
-								"Nothing was piped in, so there is nothing to change.",
-								hint="Pipe the new text in, or pass --body, --title, --type, "
-								"--status or --project.",
-							)
-						)
-
-			where = world.connection(located.connection)
-
-			if where is None:
-				fail(
-					subroutine.errors.ServiceUnavailable(
-						f"{located.connection} could not be reached, so nothing can be changed "
-						"there."
-					)
-				)
-
-			changed = where.client.update_document(
-				ref=document.ref,
-				workspace=located.workspace,
-				title=title.strip() or subroutine.clients.base.UNSET,
-				body=revised,
-				type=kind.strip() or subroutine.clients.base.UNSET,
-				status=status.strip() or subroutine.clients.base.UNSET,
-				project=project.strip() or subroutine.clients.base.UNSET,
-				# **`--tag` given no value clears them**, which is §8.3's null and the only way
-				# to take a mistyped tag off. Typer gives an empty list when the flag is absent,
-				# so "not asked" and "asked for none" are told apart by `None`.
-				tags=subroutine.clients.base.UNSET if tag is None else tag,
-			)
-
-			if json_output:
-				say(json.dumps(changed.model_dump(mode="json"), indent=2))
-
-				return
-
-			say(
-				_acted(
-					world,
-					Located(
-						connection=located.connection,
-						workspace=located.workspace,
-						item=changed,
-					),
-					"Revised",
-				)
-			)
-			_suggest(
-				console,
-				f"subroutine show {_typeable(world, located.connection, changed)}",
-				"read it back",
-			)
+	_register_documents(app, program)
 
 	_register_links(app, program)
 
@@ -8029,6 +8171,7 @@ class Sections:
 	referring: typing.Sequence[subroutine.views.Backlink]
 	proposed: typing.Sequence[subroutine.views.Proposal]
 	governing: typing.Sequence[subroutine.views.Governing]
+	checked: typing.Sequence[subroutine.views.Verification]
 	children: typing.Sequence[subroutine.views.Task]
 	events: typing.Sequence[subroutine.views.Event]
 
@@ -8097,6 +8240,17 @@ def _sections (
 		governing=_if_the_instance_can_answer(
 			lambda: client.governing(ref=located.ref, **where)
 		),
+		# **Only a task**, because only a task is checked. A document reaching this would be
+		# asking a question the route does not answer for its kind.
+		checked=(
+			_if_the_instance_can_answer(
+				lambda: client.verifications(
+					ref=located.ref, workspace=located.workspace
+				)
+			)
+			if located.entity_type == "task"
+			else []
+		),
 		# **Completed children included**, unlike every listing here. A parent showing two of
 		# its four children because the other two are finished would misreport the thing
 		# somebody opened it to see. `#84` says report the rollup and leave completion an act;
@@ -8150,6 +8304,7 @@ def _render_item (
 	referring = gathered.referring
 	proposed = gathered.proposed
 	governing = gathered.governing
+	checked = gathered.checked
 	children = gathered.children
 	events = gathered.events
 
@@ -8329,6 +8484,35 @@ def _render_item (
 			f"{proposed[0].link_type.replace('_', '-')} {located.ref}",
 			"confirm one",
 		)
+
+	if checked:
+		# **What was checked, and it is a record rather than a proof** (`#1121`). Somebody can
+		# post an exit code of zero without having run anything, so the heading says *recorded*
+		# and never *verified* — `#593` settled that sentence and this is where a person meets
+		# it. What the record is worth is being durable, attributable and invalidatable.
+		#
+		# **The tree, not the clock.** A record naming no tree cannot expire and says so, which
+		# is a different answer from being current — and §1.4 requires it to be possible,
+		# because most machines have no checkout.
+		console.print("")
+		console.print(rich.text.Text(f"Recorded checks ({len(checked)})", style=HEADING))
+
+		for record in checked:
+			line = rich.text.Text()
+			line.append(
+				f"  {'passed' if record.passed else 'failed':<7}  ",
+				style="" if record.passed else LATE,
+			)
+			line.append(
+				f"{subroutine.views.moment_day(record.ran_at, zone):<11}  ",
+				style=DETAIL,
+			)
+			line.append(record.summary or "")
+			line.append(
+				f"  ({'tree ' + record.tree_hash[:7] if record.tree_hash else 'no tree'})",
+				style=DETAIL,
+			)
+			console.print(line)
 
 	if remarks:
 		# **The count is always shown; the bodies are bounded** (`#37`, Simon's request). Every
@@ -8830,6 +9014,7 @@ def _shown_as_json (
 		# single thing this feature must never do.
 		"proposed_links": [one.model_dump(mode="json") for one in proposed],
 		"governing": [one.model_dump(mode="json") for one in governing],
+		"verifications": [one.model_dump(mode="json") for one in gathered.checked],
 		"children": [child.model_dump(mode="json") for child in children],
 		# **Always present, and `null` when it was not asked for** (`#349`). The key is
 		# unconditional for the reason it always was: one that appears only with `--history`

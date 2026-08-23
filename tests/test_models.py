@@ -45,6 +45,7 @@ EXPECTED_TABLES = {
 	"task",
 	"task_tag",
 	"user",
+	"verification",
 	"web_session",
 	"workspace",
 	"workspace_member",

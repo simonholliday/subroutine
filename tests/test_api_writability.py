@@ -593,6 +593,13 @@ INTERNAL: dict[str, str] = {
 		"and its opposite in this."
 	),
 	"path": "The materialised path (§6.9). An implementation of the hierarchy, not a field of it.",
+	"task_id": (
+		"**Reported as `task_ref`, which is the form a caller addresses by** (§6.2, `#1121`). "
+		"A ref is what a number means here and a uuid is what nothing means; publishing both "
+		"would be the same fact twice, in the form neither reader wants — `prioritised_project_id` "
+		"above is the same shape one entity along. The route already names the task, so a record "
+		"read from it needs the ref only to be quotable on its own."
+	),
 	"prioritised_project_id": (
 		"Decision `#982`'s single pointer, and **its content is reported — as an address rather "
 		"than an id**. `views.WorkspaceRef.prioritised_project` and "

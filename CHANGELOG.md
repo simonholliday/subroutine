@@ -14,13 +14,31 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `653e220f5129`.
+> **This release changes the database schema**, to `a01dcd83a946`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **A record of what was checked, against the tree it was checked on.**
+  `subroutine verify 42 --summary "5,610 passed, 41 skipped"` keeps what a check found, who
+  recorded it, and the state of the code it ran against — shown on the item at a terminal, in
+  the browser and to an agent reading it. `GET` and `POST /v1/tasks/{ref}/verifications`.
+
+  **It is a record, not a proof**, and nothing in the product says otherwise: anybody can say a
+  check passed without having run one. What it is worth is being kept, attributed, and able to
+  go out of date.
+
+  **The tree, not the clock.** A check is about code, and a timestamp on the ticket does not
+  move when the code does — run the suite at two, edit five files at five past, and a
+  time-based record is fresh and wrong. The tree it ran against is read from git where there is
+  one, so a record expires exactly when the thing it was about changes.
+
+  Outside a git checkout the record is kept without a tree and says so: it cannot go out of
+  date, which is a different thing from being current. And the post-commit hook records one
+  automatically when a commit message carries a `Gate:` line, so nothing has to be remembered.
 
 - **An agent can read the rest of a long item.** `subroutine_show` trims a body that will not
   fit and now says which character it stopped at; passing that number back as `from` returns the

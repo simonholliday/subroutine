@@ -586,6 +586,51 @@ class Client:
 
 		return self._collected(subroutine.views.Governing, body, endpoint="governing")
 
+	def verifications (
+		self, *, ref: int, workspace: str | None = None
+	) -> list[subroutine.views.Verification]:
+		"""Return what has been checked against one task, newest first."""
+
+		body = self._json(
+			"GET",
+			f"/v1/tasks/{ref}/verifications",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(
+			subroutine.views.Verification, body, endpoint="verifications"
+		)
+
+	def verify (
+		self,
+		*,
+		ref: int,
+		passed: bool,
+		summary: str | None = None,
+		output_excerpt: str | None = None,
+		tree_hash: str | None = None,
+		commit_sha: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Verification:
+		"""Record what was checked against one task."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/tasks/{ref}/verifications",
+			params=_given(workspace_id=workspace),
+			json=_given(
+				passed=passed,
+				summary=summary,
+				output_excerpt=output_excerpt,
+				tree_hash=tree_hash,
+				commit_sha=commit_sha,
+			),
+		)
+
+		return self._parsed(subroutine.views.Verification, body)
+
 	def proposed_links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Proposal]:

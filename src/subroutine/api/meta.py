@@ -795,7 +795,6 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 UNBUILT: tuple[tuple[str, str], ...] = (
 	("session handoffs", "/sessions"),
 	("decisions as a first-class entity", "/decisions"),
-	("verification evidence on a completion", "/verifications"),
 )
 
 #: Every ``EXAMPLES`` entry is executed by ``tests/test_api_examples.py`` against a real

@@ -2111,6 +2111,30 @@ def _shown (
 			for child in children
 		)
 
+	# **What has been checked against this, and it is a record rather than a proof** (`#1121`).
+	# Somebody can post an exit code of zero without having run anything, so what it is worth
+	# is being durable, attributable and invalidatable — never *verified work*.
+	#
+	# **The tree, not the clock.** A record naming no tree cannot go out of date and says so,
+	# which is a different answer from being current: §1.4 requires a record to be possible
+	# from a machine with no checkout, which is most of them.
+	#
+	# **Only a task**, because only a task is checked.
+	recorded = (
+		client.verifications(ref=ref, workspace=workspace) if kind == "task" else []
+	)
+
+	if recorded:
+		parts.append("")
+		parts.append(f"Recorded checks ({len(recorded)})")
+		parts.extend(
+			f"{'passed' if one.passed else 'failed'}  "
+			f"{subroutine.views.moment_day(one.ran_at, reading)}  "
+			f"{one.summary or ''}"
+			+ (f"  (tree {one.tree_hash[:7]})" if one.tree_hash else "  (no tree)")
+			for one in recorded
+		)
+
 	# **What binds whoever picks this up** (`#1119`) — `subroutine://conventions` narrowed to
 	# one item. Placed **first among the sections** rather than last, because it is the one an
 	# agent has to read before doing anything and everything below it is what it reads after.

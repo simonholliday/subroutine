@@ -130,6 +130,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/tasks/{id_or_ref}"): "discard",
 	("DELETE", "/v1/documents/{id_or_ref}"): "discard",
 	("POST", "/v1/tasks/{id_or_ref}/claim"): "claim",
+	("POST", "/v1/tasks/{id_or_ref}/verifications"): "verify",
 	("POST", "/v1/tasks/{id_or_ref}/release"): "release",
 	("POST", "/v1/tasks/{id_or_ref}/restore"): "undiscard",
 	("POST", "/v1/documents/{id_or_ref}/restore"): "undiscard",
@@ -156,6 +157,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/tasks/{id_or_ref}/backlinks"): "backlinks",
 	("GET", "/v1/tasks/{id_or_ref}/proposed-links"): "proposed_links",
 	("GET", "/v1/tasks/{id_or_ref}/governing"): "governing",
+	("GET", "/v1/tasks/{id_or_ref}/verifications"): "verifications",
 	("GET", "/v1/documents"): "documents",
 	("GET", "/v1/documents/{id_or_ref}"): "document",
 	("GET", "/v1/documents/{id_or_ref}/comments"): "comments",
@@ -731,6 +733,18 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"budget",
 		"The undo of `add_member` (`#174`), and it would be odd to spend §13.3's bytes on the "
 		"undo of something this surface cannot do.",
+	),
+	"verify": (
+		"budget",
+		"**A side effect rather than something to remember** (`#1121`, Correction 2). The "
+		"measured levers on this instance put *attach it to work already happening* first at "
+		"93% and *enforcement* last at +0.24pp — and the 93% is `#51`'s post-commit hook, "
+		"which writes as a side effect of a commit somebody was making anyway. So the producer "
+		"is that hook, at zero marginal cost and starting from an adoption rate a tool would "
+		"take months to reach. The tool count is also its own cap (`#541`), and this is the "
+		"first capability weighed against it since the byte figure went. `subroutine_call_api` "
+		"reaches the route for anything the hook cannot cover. **Deleting this entry is what a "
+		"fifteenth tool would mean.**",
 	),
 }
 

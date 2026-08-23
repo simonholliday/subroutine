@@ -1426,6 +1426,31 @@ def test_both_say_the_same_thing_governs (pair: Pair) -> None:
 	assert local.governing(ref=work.ref) == remote.governing(ref=work.ref) == []
 
 
+def test_both_record_and_read_the_same_check (pair: Pair) -> None:
+	"""`#1121`. A record is worth having only if every surface agrees what it says.
+
+	Worth an equivalence test because the value is assembled — the row, the ref it is reported
+	against, and the name of whoever recorded it — and an assembled answer is the shape that
+	comes to differ between transports without anybody editing either.
+	"""
+
+	local, remote = pair.both()
+	work = make(pair, "Ship the release")
+	written = local.verify(
+		ref=work.ref, passed=True, summary="5,610 passed", tree_hash="a" * 40
+	)
+
+	assert written.tree_hash == "a" * 40
+	assert local.verifications(ref=work.ref) == remote.verifications(ref=work.ref)
+	assert [one.id for one in remote.verifications(ref=work.ref)] == [written.id]
+
+	# **And a failing one, through the other transport.** Both halves of the pair are worth
+	# keeping, and a client that could only record success would be one nobody could learn from.
+	remote.verify(ref=work.ref, passed=False, summary="3 failed")
+
+	assert [one.passed for one in local.verifications(ref=work.ref)] == [False, True]
+
+
 def test_both_narrow_to_what_one_account_is_holding (pair: Pair) -> None:
 	"""`#1120`. Two clauses — the holder, and the lease still running — on two transports.
 

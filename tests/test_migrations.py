@@ -793,6 +793,17 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 				"target_id": document,
 			},
 		),
+		(
+			"verification",
+			{
+				"workspace_id": workspace,
+				"task_id": task,
+				"passed": True,
+				"summary": "5,610 passed",
+				"ran_at": subroutine.db.types.utcnow(),
+				"created_by": user,
+			},
+		),
 	)
 
 	with engine.begin() as connection:
@@ -828,6 +839,7 @@ SEEDED = frozenset(
 		"link_type",
 		"link",
 		"mention",
+		"verification",
 	}
 )
 

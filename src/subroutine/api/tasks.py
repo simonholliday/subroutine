@@ -49,6 +49,7 @@ import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.tasks
+import subroutine.domain.verifications
 import subroutine.errors
 import subroutine.views
 
@@ -929,6 +930,123 @@ def occurrences (
 		occurrences=found[:limit],
 		has_more=len(found) > limit,
 	)
+
+
+class RecordVerification(subroutine.api.schemas.RequestModel):
+	"""What ``POST /v1/tasks/{id_or_ref}/verifications`` accepts.
+
+	**No ``ran_at``, deliberately.** The service stamps it, and a field the route accepted and
+	no client passed would be `#303`'s inert control — declared, documented and read by
+	nothing. What a caller would use it for is backdating a check that ran before the record
+	was posted, which is seconds in the one producer there is: a post-commit hook runs
+	immediately after the gate it is recording. When something needs longer, that is a
+	decision to take with the case in hand.
+	"""
+
+	passed: bool
+	summary: str | None = None
+	output_excerpt: str | None = None
+	tree_hash: str | None = None
+	commit_sha: str | None = None
+
+
+def _recorded (
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[subroutine.db.models.work.Verification],
+	*,
+	ref: int,
+) -> list[subroutine.views.Verification]:
+	"""Render records with one name lookup across all of them."""
+
+	vocabulary = subroutine.views.Vocabulary(
+		session, user_ids=[row.created_by for row in rows if row.created_by is not None]
+	)
+
+	return [
+		subroutine.views.verification(
+			row, ref=ref, recorded_by=subroutine.views.username_in(vocabulary, row.created_by)
+		)
+		for row in rows
+	]
+
+
+@router.get(
+	"/{id_or_ref}/verifications",
+	summary="What has been checked against this task",
+	name="task_verifications",
+)
+def verifications (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+) -> subroutine.views.Collection[subroutine.views.Verification]:
+	"""Return what has been checked against this task, newest first.
+
+	**Self-reported evidence is a record, not a proof. An agent can post exit code 0 without
+	running anything.** What this is worth is being a durable, attributable, invalidatable
+	record of what was checked — never "verified work", and nothing reading it should say so.
+
+	Each record carries the tree it ran against, where there was one. Whether a record has
+	expired is a comparison against the tree *you* are standing on, and this instance cannot
+	make it: it has no checkout. A record with no tree hash cannot expire at all, which is a
+	different answer from being current.
+
+	Newest first, unlike a comment thread: a record is not read as a story, and what a caller
+	wants is the most recent thing that was checked.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	found = list(session.scalars(subroutine.domain.verifications.against(task)))
+
+	return subroutine.views.Collection(
+		items=_recorded(session, found, ref=task.ref),
+		page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+	)
+
+
+@router.post(
+	"/{id_or_ref}/verifications",
+	status_code=201,
+	summary="Record what was checked against this task",
+	name="task_verification_create",
+)
+def verify (
+	id_or_ref: subroutine.api.schemas.ItemAddress,
+	body: RecordVerification,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+) -> subroutine.views.Verification:
+	"""Record what was checked against this task.
+
+	**Self-reported evidence is a record, not a proof. An agent can post exit code 0 without
+	running anything.** What this is worth is being a durable, attributable, invalidatable
+	record of what was checked — never "verified work".
+
+	`tree_hash` is what makes it invalidatable, and `git rev-parse HEAD^{tree}` prints one. Send
+	it where there is one and leave it out where there is not: a record without one is still a
+	record, it simply cannot expire.
+
+	A failing record is worth keeping and is the more useful half of the pair. This was tried
+	and did not work is what stops it being tried again.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	task = _resolve(session, actor, workspace, id_or_ref)
+	written = subroutine.domain.verifications.record(
+		session,
+		task,
+		passed=body.passed,
+		summary=body.summary,
+		output_excerpt=body.output_excerpt,
+		tree_hash=body.tree_hash,
+		commit_sha=body.commit_sha,
+		actor=actor,
+	)
+
+	return _recorded(session, [written], ref=task.ref)[0]
 
 
 @router.post("/{id_or_ref}/claim", summary="Take a task, so nobody else does")

@@ -5469,6 +5469,78 @@ def test_a_number_and_all_together_is_refused (
 	assert "Not both" in refused.output
 
 
+def test_show_says_what_has_been_checked_and_against_what (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1121`, and §14.1: nothing an agent stores may be invisible to the person.
+
+	**A record, not a proof.** Somebody can say a check passed without having run one, so the
+	heading says *recorded* and never *verified* — the value is that it is kept, attributed
+	and able to go out of date.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the release")
+	run("verify", "1", "--summary", "5,610 passed, 41 skipped", "--tree", "a" * 40)
+
+	shown = run("show", "1").output
+
+	assert "Recorded checks (1)" in shown, shown
+	assert "5,610 passed" in shown
+	assert "passed" in shown
+	assert "aaaaaaa" in shown, f"the tree it ran against is not shown: {shown}"
+
+
+def test_a_failing_check_is_recorded_and_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The more useful half of the pair, and it must not read as a success."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the release")
+	run("verify", "1", "--failed", "--summary", "3 failed in test_agenda")
+
+	shown = run("show", "1").output
+
+	assert "failed" in shown, shown
+	assert "3 failed in test_agenda" in shown
+
+
+def test_recording_outside_a_checkout_says_the_record_cannot_expire (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""§1.4: most machines have no checkout, and a record is still worth keeping there.
+
+	**Said rather than left to be discovered.** A record with no tree cannot go out of date,
+	and somebody who believes it can will trust it after the code has moved — which is the
+	failure the tree exists to prevent, arriving through the door left open for the machines
+	that have none.
+	"""
+
+	monkeypatch.chdir(home)
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the release")
+	recorded = run("verify", "1", "--summary", "Checked by hand")
+
+	assert "cannot go out of date" in recorded.output, recorded.output
+	assert "no tree" in run("show", "1").output
+
+
+def test_a_document_is_not_asked_what_has_been_checked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Only a task is checked, so a document's page has no such section and makes no request."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "What we settled", "--type", "decision", "--body", "Because.")
+
+	shown = run("show", "1").output
+
+	assert "What we settled" in shown, "the probe showed nothing, so it proves nothing"
+	assert "Recorded checks" not in shown, shown
+
+
 def test_a_link_in_a_history_reads_as_a_link (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -6276,13 +6348,17 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #:
 #: **And a fourth, on one flag** (`#1122`). ``project`` moved to ``_register_projects``, and
 #: the new ``setup`` group was written outside the closure to begin with — which is the state
-#: this was pushing towards. Four payments, none of them raised, and each cheaper than the
-#: last: what a feature pays now is the cost of noticing rather than the cost of designing.
-REGISTER_CEILING = 1_880
+#: this was pushing towards.
+#:
+#: **And a fifth, on one command** (`#1121`). ``doc`` moved to ``_register_documents``. Five
+#: payments, none of them raised, and each cheaper than the last: what a feature pays now is
+#: the cost of noticing rather than the cost of designing, and the closure has gone from 4,769
+#: lines to under 1,800 without a single stage being planned as one.
+REGISTER_CEILING = 1_711
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 139
+MODULE_LEVEL_FLOOR = 144
 
 
 def _register_span () -> tuple[int, int]:

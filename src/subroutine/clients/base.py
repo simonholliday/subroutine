@@ -479,6 +479,34 @@ class Client(typing.Protocol):
 		document governs something.
 		"""
 
+	def verifications (
+		self, *, ref: int, workspace: str | None = None
+	) -> list[subroutine.views.Verification]:
+		"""Return what has been checked against one task, newest first — `#1121`.
+
+		**A record, not a proof.** An agent can post an exit code of zero without having run
+		anything, so what this is worth is being durable, attributable and invalidatable —
+		never *verified work*.
+		"""
+
+	def verify (
+		self,
+		*,
+		ref: int,
+		passed: bool,
+		summary: str | None = None,
+		output_excerpt: str | None = None,
+		tree_hash: str | None = None,
+		commit_sha: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Verification:
+		"""Record what was checked against one task.
+
+		``tree_hash`` is what makes the record invalidatable, and ``git rev-parse HEAD^{tree}``
+		prints one. Absent is a legitimate answer from a machine with no checkout: such a
+		record cannot expire, which is different from being current.
+		"""
+
 	def proposed_links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Proposal]:

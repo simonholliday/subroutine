@@ -70,6 +70,7 @@ import subroutine.domain.sessions
 import subroutine.domain.tasks
 import subroutine.domain.tokens
 import subroutine.domain.users
+import subroutine.domain.verifications
 import subroutine.domain.versions
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
@@ -1262,6 +1263,66 @@ class Client:
 					entity_type=entity_type,
 					identifier=subject,
 				),
+			)
+
+	def verifications (
+		self, *, ref: int, workspace: str | None = None
+	) -> list[subroutine.views.Verification]:
+		"""Return what has been checked against one task, newest first."""
+
+		with self._opened() as (session, actor):
+			task = self._require(session, actor, ref, workspace)
+			found = list(
+				session.scalars(subroutine.domain.verifications.against(task))
+			)
+			vocabulary = subroutine.views.Vocabulary(
+				session,
+				user_ids=[row.created_by for row in found if row.created_by is not None],
+			)
+
+			return [
+				subroutine.views.verification(
+					row,
+					ref=task.ref,
+					recorded_by=subroutine.views.username_in(vocabulary, row.created_by),
+				)
+				for row in found
+			]
+
+	def verify (
+		self,
+		*,
+		ref: int,
+		passed: bool,
+		summary: str | None = None,
+		output_excerpt: str | None = None,
+		tree_hash: str | None = None,
+		commit_sha: str | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Verification:
+		"""Record what was checked against one task."""
+
+		with self._writing() as (session, actor):
+			task = self._require(session, actor, ref, workspace)
+			written = subroutine.domain.verifications.record(
+				session,
+				task,
+				passed=passed,
+				summary=summary,
+				output_excerpt=output_excerpt,
+				tree_hash=tree_hash,
+				commit_sha=commit_sha,
+				actor=actor,
+			)
+			vocabulary = subroutine.views.Vocabulary(
+				session,
+				user_ids=[] if written.created_by is None else [written.created_by],
+			)
+
+			return subroutine.views.verification(
+				written,
+				ref=task.ref,
+				recorded_by=subroutine.views.username_in(vocabulary, written.created_by),
 			)
 
 	def proposed_links (

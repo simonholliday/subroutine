@@ -3125,6 +3125,41 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 	assert "Links" not in mute
 
 
+def test_the_item_page_says_what_has_been_checked (tmp_path: pathlib.Path) -> None:
+	"""`SR#1121`, and §14.1 is why it is here rather than only on the agent's surface.
+
+	Nothing an agent stores may be invisible to the person, so a verification the browser
+	could not show would be an agent-only surface — which §14.15 forbids by name.
+
+	**A record, not a proof**: the heading says *recorded* and never *verified*, and the words
+	*passed* and *failed* carry it rather than a colour (`SR#102`).
+	"""
+
+	shared = {"item": {"ref": 42, "title": "A task", "status": "open", "kind": "task"},
+		"links": [], "comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	checked = [
+		{"id": "v-1", "passed": True, "summary": "5,610 passed, 41 skipped",
+			"tree_hash": "abcdef1234567890abcdef1234567890abcdef12"},
+		{"id": "v-2", "passed": False, "summary": "3 failed", "tree_hash": None},
+	]
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "checked": checked}})["Detail"]
+
+	assert "Recorded checks" in shown
+	assert "verified" not in shown.lower(), "a record is reported as a proof"
+	assert "5,610 passed, 41 skipped" in shown
+	assert "passed" in shown and "failed" in shown
+	assert "tree abcdef1" in shown, "the tree it ran against is not shown"
+
+	# **A record with no tree says what that means**, rather than looking like every other one.
+	# It cannot go out of date, which is a different answer from being current.
+	assert "cannot go out of date" in shown, shown
+
+	# Silent where nothing has been checked, like every other section on this page.
+	assert "Recorded checks" not in _rendered(tmp_path, {"Detail": shared})["Detail"]
+
+
 def test_the_item_page_says_what_to_read_before_starting (tmp_path: pathlib.Path) -> None:
 	"""`SR#1119`. The workspace's *what is in force here*, narrowed to one item.
 
