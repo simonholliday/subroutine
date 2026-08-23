@@ -1118,6 +1118,24 @@ class Client:
 
 		return subroutine.views.Workspace.model_validate(body)
 
+	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Move a workspace to the trash, over the wire."""
+
+		self._refuse_if_read_only()
+
+		body = self._json("DELETE", f"/v1/workspaces/{workspace}")
+
+		return subroutine.views.Workspace.model_validate(body)
+
+	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Take a workspace back out of the trash, over the wire."""
+
+		self._refuse_if_read_only()
+
+		body = self._json("POST", f"/v1/workspaces/{workspace}/restore")
+
+		return subroutine.views.Workspace.model_validate(body)
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

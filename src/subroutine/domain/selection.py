@@ -44,6 +44,10 @@ def workspace (
 	``requested`` accepts an id or a slug. The parameter is named ``workspace_id`` in the
 	API because §8.2 names it that, and it takes a slug as well because a person typing one
 	by hand has the slug in front of them and the id nowhere.
+
+	**Never the trash.** A deleted workspace is addressable only through
+	``workspaces.for_restore``, which is what restoring it uses (`#704`) — a slug can name a
+	deleted workspace *and* a live one, so a resolver that returned either would have to guess.
 	"""
 
 	reachable = subroutine.domain.workspaces.readable(session, principal)

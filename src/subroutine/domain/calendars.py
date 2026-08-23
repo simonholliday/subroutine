@@ -321,6 +321,19 @@ def resolve (
 	if owner is None or owner.deleted_at is not None or not owner.is_active:
 		raise _unknown()
 
+	# **And the workspace's standing, for exactly the same reason** (`#704`). A feed is the
+	# one credential that reaches tasks without going through ``workspaces.readable``, which
+	# is where every other surface stops at the trash — it holds a ``workspace_id`` and asks
+	# ``readable_tasks`` directly. So until a workspace could be deleted this could not be
+	# wrong, and the moment one can it is the single URL that goes on serving a tenancy
+	# nobody can otherwise see. Measured rather than reasoned about: the first version of
+	# `#704` shipped the delete and left this poll answering with the deleted workspace's
+	# whole calendar.
+	workspace = session.get(subroutine.db.models.identity.Workspace, feed.workspace_id)
+
+	if workspace is None or workspace.deleted_at is not None:
+		raise _unknown()
+
 	if record_poll:
 		feed.last_polled_at = moment
 

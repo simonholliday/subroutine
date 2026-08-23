@@ -53,8 +53,29 @@ upgrade involves.
   token already answers. The column has existed since the first release and nothing wrote it,
   so it read *never* for everybody.
 
-### Removed
+- **A workspace can be deleted, and brought back.** `DELETE /v1/workspaces/{slug}` and
+  `POST /v1/workspaces/{slug}/restore`, with `subroutine workspace delete` and
+  `subroutine workspace restore` at the terminal. Until now a workspace could only ever be
+  created — so a name typed wrongly, or one made to try something out, was there permanently.
 
+  Nothing is destroyed. Everything filed in it — projects, tasks, documents, comments, its
+  vocabulary and its history — goes out of sight together and comes back exactly as it was,
+  with every item keeping its number.
+
+  Three things worth knowing:
+
+  - **The short name is freed**, so something else can use it. If it has been taken by the
+    time you restore, you are told which one holds it and asked to rename that one first.
+  - **The last workspace cannot be deleted.** An installation with none cannot file a task,
+    and would report itself as interrupted part-way through setup.
+  - **It needs `workspace:delete`**, which is the one permission the `owner` and `admin` roles
+    differ by. Until now nothing checked it, so the two roles published a difference they did
+    not have. An `admin` cannot delete a workspace; an `owner` can.
+
+  A calendar feed for a deleted workspace stops answering, the same way one stops when its
+  owner leaves.
+
+### Removed
 - **A status, an item type and a tag no longer store a colour.** Three columns that the
   seeder wrote and nothing anywhere read, dropped in one migration. Colour on an item comes
   from its **project**, from a named palette, and is configured as a project setting — so a

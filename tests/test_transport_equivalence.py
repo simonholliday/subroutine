@@ -1823,6 +1823,10 @@ def test_a_read_only_connection_refuses_every_write_before_it_leaves (
 			),
 			lambda: client.create_link_type(key="x", title="X", inverse_title="Y"),
 			lambda: client.create_tag(name="x"),
+			# **Deleting a workspace is the largest write there is** (`SR#704`), so a
+			# connection that refuses `add` and permits this would be refusing the cheap half.
+			lambda: client.delete_workspace("anything"),
+			lambda: client.restore_workspace("anything"),
 		):
 			with pytest.raises(subroutine.errors.Forbidden) as raised:
 				attempt()
@@ -2853,6 +2857,57 @@ def test_a_workspace_cannot_be_renamed_to_something_creation_would_refuse (pair:
 	same = pair.workspace.slug
 
 	assert local.rename_workspace(same, slug=same).slug == same
+
+
+def test_both_delete_and_restore_a_workspace_the_same_way (pair: Pair) -> None:
+	"""``SR#704``. Soft, reversible, and the contents go and return with it.
+
+	The two transports reach it by different routes — the local client resolves through
+	``workspaces.for_restore`` and the HTTP one through the endpoint that calls it — so the
+	interesting assertion is that the *other* transport agrees about what is visible
+	afterwards, rather than that each call returns something.
+	"""
+
+	local, remote = pair.both()
+
+	local.capture(text="Something filed before any of this")
+	before = local.tasks(workspace=pair.workspace.slug)
+
+	assert before, "the fixture is meant to hold work, or this proves nothing"
+
+	spare = local.create_workspace(slug="spare", title="Somewhere else")
+	removed = local.delete_workspace(pair.workspace.slug)
+
+	assert removed.deleted_at is not None
+	assert [row.slug for row in local.identity().workspaces] == [spare.slug]
+	assert [row.slug for row in remote.identity().workspaces] == [spare.slug]
+
+	back = remote.restore_workspace(pair.workspace.slug)
+
+	assert back.deleted_at is None
+
+	# Named, because there are two workspaces now and an unnamed listing is ambiguous — which
+	# is `selection.workspace`'s refusal doing its job rather than anything to route around.
+	here = pair.workspace.slug
+
+	assert local.tasks(workspace=here) == before
+	assert remote.tasks(workspace=here) == before
+
+
+def test_neither_transport_deletes_the_last_workspace (pair: Pair) -> None:
+	"""An installation with none reports itself as interrupted part-way through setup.
+
+	Checked on both because the refusal lives in the service, which is the whole reason a
+	rule stated once cannot drift between a terminal and a server.
+	"""
+
+	local, remote = pair.both()
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError) as raised:
+			client.delete_workspace(pair.workspace.slug)
+
+		assert "only workspace" in raised.value.detail
 
 
 def test_both_move_a_document_to_another_project (pair: Pair) -> None:

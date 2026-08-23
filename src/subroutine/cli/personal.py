@@ -3810,6 +3810,48 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 			_suggest(program.console, f"subroutine use {renamed.slug}")
 
 
+def _workspace_deleted (program: Program, *, slug: str, yes: bool) -> None:
+	"""Put a workspace in the trash, having said what goes with it and what comes back."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		# **Counted before anything changes**, for `workspace rename`'s reason and more so:
+		# a rename keeps everything reachable and this does not. "This deletes a workspace"
+		# is abstract where "this hides 249 items and two people lose sight of them" is
+		# something a person can weigh.
+		held = where.client.count_tasks(workspace=slug)
+		people = where.client.members(workspace=slug)
+
+		if not yes:
+			program.say(f"Deleting {slug}.")
+			program.say(f"  {_kept(held)}, out of sight until it is restored.")
+
+			if len(people) > 1:
+				program.say(f"  {len(people)} people reach it, and it disappears for all of them.")
+
+			program.say(f"  '{slug}' becomes free, so something else can take the name.")
+			program.say(f"  Undo it with 'subroutine workspace restore {slug}'.")
+
+			if not typer.confirm("Go on?"):
+				program.stop("Nothing was deleted.")
+
+		removed = where.client.delete_workspace(slug)
+
+		program.say(f"Deleted {removed.slug} — {removed.title}")
+		_suggest(program.console, f"subroutine workspace restore {removed.slug}")
+
+
+def _workspace_restored (program: Program, *, slug: str) -> None:
+	"""Take a workspace back out of the trash, and everything in it with it."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		back = where.client.restore_workspace(slug)
+
+		program.say(f"Restored {back.slug} — {back.title}")
+
+
 #: What ``--colour`` offers, composed once. **At module level because `#943`'s ratchet counts
 #: lines inside ``register``**, and a help string assembled in the closure is three lines of
 #: sentence per command for a value that is the same on both.
@@ -4425,6 +4467,153 @@ def _workspace_updated (
 		# confirmation names the zone in force rather than reporting that something changed.
 		if "timezone" in changes:
 			program.say(f"  Dates here are read in {changed.timezone or 'the instance zone'}.")
+
+
+def _register_workspace (app: typer.Typer, program: Program) -> None:
+	"""Add the ``workspace`` group to the application.
+
+	**Out of ``register`` rather than in it**, which is `#943`'s ratchet doing what it was
+	built for: `#704` added two commands here, the closure went over its ceiling, and the
+	remedy the ratchet asks for is to move a group out rather than to make room. This one
+	was the natural unit — five commands that touch nothing in the closure but ``program``
+	and the application itself.
+	"""
+
+	workspace_app = typer.Typer(
+		help="Look after the spaces work is kept in.", no_args_is_help=True
+	)
+	app.add_typer(workspace_app, name="workspace")
+
+	@workspace_app.command("create")
+	def workspace_create (
+		slug: str = typer.Argument(..., help="Its short name, used in addresses."),
+		title: str = typer.Argument(..., help="What to call it."),
+		timezone: str = typer.Option(
+			"", "--timezone", help="Its zone, e.g. 'Europe/London'. Unset follows the instance."
+		),
+	) -> None:
+		"""Make another workspace, for work that should be kept apart.
+
+		Examples:
+
+		  subroutine workspace create personal Personal
+
+		  subroutine workspace create acme "Acme Ltd" --timezone Europe/London
+
+		Numbers start again at 1 in a new workspace, so the two do not have to share a
+		sequence — and nothing in one is visible from the other unless you are in both.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+			created = where.client.create_workspace(
+				slug=slug, title=title, timezone=timezone.strip() or None
+			)
+
+			program.say(f"Created {created.slug} — {created.title}")
+
+			# **Said because it is the surprising part.** Everything reachable is still listed,
+			# but a *write* goes to one place (§13.7), so a new workspace is not where the next
+			# `add` lands until somebody says so.
+			_suggest(program.console, f"subroutine use {created.slug}", "work in it")
+
+	@workspace_app.command("rename")
+	def workspace_rename (
+		slug: str = typer.Argument(..., help="The workspace to rename, by its short name."),
+		to: str = typer.Argument(..., help="The new short name."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Give a workspace a different short name.
+
+		Examples:
+
+		  subroutine workspace rename si projects
+
+		Nothing inside moves — every item keeps its number and everything stays joined to what
+		it was joined to. What stops working is anything that wrote the old name down.
+		"""
+
+		_workspace_renamed(program, slug=slug, to=to, yes=yes)
+
+	@workspace_app.command("update")
+	def workspace_update (
+		slug: str = typer.Argument(..., help="The workspace, by its short name."),
+		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
+		description: str = typer.Option(
+			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
+		),
+		timezone: str = typer.Option(
+			UNGIVEN,
+			"--timezone",
+			show_default=False,
+			help="Its zone, e.g. 'Europe/London'. Pass '' to follow the instance.",
+		),
+		colour: str = typer.Option(
+			UNGIVEN, "--colour", show_default=False, help=WORKSPACE_COLOUR_HELP
+		),
+		hide_status: list[str] = typer.Option(
+			None, "--hide-status", show_default=False, help=WORKSPACE_HIDE_STATUS_HELP
+		),
+	) -> None:
+		"""Change what a workspace is called, what it is for, or which zone its dates are in.
+
+		Examples:
+
+		  subroutine workspace update projects --title Projects
+
+		  subroutine workspace update acme --timezone Europe/London
+
+		The zone is the one that matters: every date in the workspace is read in it, so a
+		workspace set up in the wrong one shows every deadline at the wrong time. Clearing it
+		follows the instance instead.
+
+		Its short name is not changed here — that breaks addresses, so it has a command of
+		its own with a warning attached: 'subroutine workspace rename'.
+		"""
+
+		_workspace_updated(
+			program,
+			slug=slug,
+			title=title,
+			description=description,
+			timezone=timezone,
+			colour=colour,
+			hide_status=hide_status,
+		)
+
+	@workspace_app.command("delete")
+	def workspace_delete (
+		slug: str = typer.Argument(..., help="The workspace to delete, by its short name."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Put a workspace in the trash, with everything filed in it.
+
+		Examples:
+
+		  subroutine workspace delete acme
+
+		Nothing is destroyed: its items keep their numbers and come back exactly as they were
+		with 'subroutine workspace restore'. Its short name is freed, so if something else
+		takes the name in the meantime the restore will ask you to rename that one first.
+
+		The only workspace here cannot be deleted — make the one that replaces it first.
+		"""
+
+		_workspace_deleted(program, slug=slug, yes=yes)
+
+	@workspace_app.command("restore")
+	def workspace_restore (
+		slug: str = typer.Argument(..., help="The workspace to bring back, by its short name."),
+	) -> None:
+		"""Take a workspace back out of the trash, and everything in it with it.
+
+		Examples:
+
+		  subroutine workspace restore acme
+		"""
+
+		_workspace_restored(program, slug=slug)
+
 
 
 def register (
@@ -6156,107 +6345,7 @@ def register (
 			private=private,
 		)
 
-	workspace_app = typer.Typer(
-		help="Look after the spaces work is kept in.", no_args_is_help=True
-	)
-	app.add_typer(workspace_app, name="workspace")
-
-	@workspace_app.command("create")
-	def workspace_create (
-		slug: str = typer.Argument(..., help="Its short name, used in addresses."),
-		title: str = typer.Argument(..., help="What to call it."),
-		timezone: str = typer.Option(
-			"", "--timezone", help="Its zone, e.g. 'Europe/London'. Unset follows the instance."
-		),
-	) -> None:
-		"""Make another workspace, for work that should be kept apart.
-
-		Examples:
-
-		  subroutine workspace create personal Personal
-
-		  subroutine workspace create acme "Acme Ltd" --timezone Europe/London
-
-		Numbers start again at 1 in a new workspace, so the two do not have to share a
-		sequence — and nothing in one is visible from the other unless you are in both.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-			created = where.client.create_workspace(
-				slug=slug, title=title, timezone=timezone.strip() or None
-			)
-
-			say(f"Created {created.slug} — {created.title}")
-
-			# **Said because it is the surprising part.** Everything reachable is still listed,
-			# but a *write* goes to one place (§13.7), so a new workspace is not where the next
-			# `add` lands until somebody says so.
-			_suggest(console, f"subroutine use {created.slug}", "work in it")
-
-	@workspace_app.command("rename")
-	def workspace_rename (
-		slug: str = typer.Argument(..., help="The workspace to rename, by its short name."),
-		to: str = typer.Argument(..., help="The new short name."),
-		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
-	) -> None:
-		"""Give a workspace a different short name.
-
-		Examples:
-
-		  subroutine workspace rename si projects
-
-		Nothing inside moves — every item keeps its number and everything stays joined to what
-		it was joined to. What stops working is anything that wrote the old name down.
-		"""
-
-		_workspace_renamed(program, slug=slug, to=to, yes=yes)
-
-	@workspace_app.command("update")
-	def workspace_update (
-		slug: str = typer.Argument(..., help="The workspace, by its short name."),
-		title: str = typer.Option(UNGIVEN, "--title", show_default=False, help="What to call it."),
-		description: str = typer.Option(
-			UNGIVEN, "--description", show_default=False, help="What it is for. Pass '' to clear."
-		),
-		timezone: str = typer.Option(
-			UNGIVEN,
-			"--timezone",
-			show_default=False,
-			help="Its zone, e.g. 'Europe/London'. Pass '' to follow the instance.",
-		),
-		colour: str = typer.Option(
-			UNGIVEN, "--colour", show_default=False, help=WORKSPACE_COLOUR_HELP
-		),
-		hide_status: list[str] = typer.Option(
-			None, "--hide-status", show_default=False, help=WORKSPACE_HIDE_STATUS_HELP
-		),
-	) -> None:
-		"""Change what a workspace is called, what it is for, or which zone its dates are in.
-
-		Examples:
-
-		  subroutine workspace update projects --title Projects
-
-		  subroutine workspace update acme --timezone Europe/London
-
-		The zone is the one that matters: every date in the workspace is read in it, so a
-		workspace set up in the wrong one shows every deadline at the wrong time. Clearing it
-		follows the instance instead.
-
-		Its short name is not changed here — that breaks addresses, so it has a command of
-		its own with a warning attached: 'subroutine workspace rename'.
-		"""
-
-		_workspace_updated(
-			program,
-			slug=slug,
-			title=title,
-			description=description,
-			timezone=timezone,
-			colour=colour,
-			hide_status=hide_status,
-		)
+	_register_workspace(app, program)
 
 	@project_app.command("prioritise")
 	def project_prioritise (

@@ -5,6 +5,7 @@ one and never mentions it again (docs/design.md §1.4). It matters here because 
 hangs off it: the vocabulary, the roles, and the rule that every query is scoped by it.
 """
 
+import datetime
 import typing
 import uuid
 
@@ -15,6 +16,7 @@ import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.seed
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
@@ -304,6 +306,241 @@ def update (
 	return workspace
 
 
+def delete (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	now: datetime.datetime | None = None,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.identity.Workspace:
+	"""Move a workspace to the trash, where it stays recoverable (`#704`).
+
+	Soft, and idempotent, exactly as ``projects.delete`` is: when something was thrown away
+	is a fact worth not overwriting. **Nothing cascades and nothing needs to.** Every listing
+	derives the workspaces it may read from :func:`readable`, which excludes the trash, so a
+	deleted workspace takes its projects, items, vocabulary and members out of sight in one
+	write — and brings them back the same way. The ref counter is untouched, so a restored
+	workspace goes on numbering where it left off.
+
+	**The short name is released**, because the unique index on ``slug`` is partial. That is
+	deliberate and is the same rule every other identifier here follows: a plain UNIQUE would
+	retire a name permanently, so deleting a typo would cost you the name you meant to type.
+	:func:`restore` is where the consequence lands.
+
+	**The last one standing is refused**, and that is the one rule this has that projects do
+	not have an exact twin for — ``projects.delete`` refuses the Inbox for the same reason.
+	An instance with no live workspace cannot answer the question every personal command asks
+	first: ``local.current`` raises *does not belong to any workspace* and tells the reader to
+	run ``init``, which is advice that cannot help, and ``bootstrap`` reports the database as
+	interrupted part-way through setup. Deleting the only workspace would therefore report
+	success and leave an installation whose diagnosis is wrong about itself.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_DELETE,
+			workspace_id=workspace.id,
+		)
+
+	subroutine.domain.versions.require(workspace, expected_version, noun="This workspace")
+
+	if workspace.deleted_at is not None:
+		return workspace
+
+	_refuse_removing_the_last_workspace(session, workspace)
+
+	workspace.deleted_at = now if now is not None else subroutine.db.types.utcnow()
+	workspace.version += 1
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=workspace.id,
+		entity_type="workspace",
+		entity_id=workspace.id,
+		action=subroutine.domain.events.EventAction.DELETED,
+		actor=actor,
+	)
+	session.flush()
+
+	return workspace
+
+
+def restore (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	expected_version: int | None = None,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.identity.Workspace:
+	"""Take a workspace back out of the trash, and everything in it with it (`#704`).
+
+	The same permission as deleting, and the same symmetry: restoring twice is not an error,
+	and neither call moves a timestamp that is already where it belongs.
+
+	**The short name it had may not be free any more**, which is the direct cost of the index
+	being partial. `#308` met this on project keys and it is worth stating rather than
+	discovering: delete a workspace, create another with the same short name, and restoring the
+	first would violate the constraint at flush time — an ``IntegrityError`` surfacing as a 500
+	and a bare traceback, for an ordinary sequence of three commands. Refused by name here, with
+	the way out, because renaming a workspace is something `#295` made possible.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.WORKSPACE_DELETE,
+			workspace_id=workspace.id,
+		)
+
+	subroutine.domain.versions.require(workspace, expected_version, noun="This workspace")
+
+	if workspace.deleted_at is None:
+		return workspace
+
+	if _slug_taken(session, workspace.slug, except_id=workspace.id):
+		raise subroutine.errors.Conflict(
+			f"{workspace.slug!r} is another workspace's short name now.",
+			code="duplicate_key",
+			errors=[
+				subroutine.errors.FieldError(
+					field="slug",
+					code="duplicate_key",
+					message=f"A live workspace already answers to {workspace.slug!r}.",
+				)
+			],
+			hint=f"Rename that one with 'subroutine workspace rename {workspace.slug} "
+			f"<new-name>', then restore this.",
+		)
+
+	workspace.deleted_at = None
+	workspace.version += 1
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=workspace.id,
+		entity_type="workspace",
+		entity_id=workspace.id,
+		action=subroutine.domain.events.EventAction.RESTORED,
+		actor=actor,
+	)
+	session.flush()
+
+	return workspace
+
+
+def for_restore (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	id_or_slug: str,
+) -> subroutine.db.models.identity.Workspace:
+	"""Find the workspace a restore is about, preferring the trash (`#704`).
+
+	**A separate function rather than a flag on the ordinary resolver, because a slug in the
+	trash is not unique.** The index on ``slug`` is partial, so deleting one frees the name —
+	which means a slug can name a deleted workspace *and* a live one at the same time, and can
+	name two deleted ones. Both are reachable in four ordinary commands, and both were measured
+	rather than imagined: a resolver taking the first match reported *Restored acme* about a
+	workspace that had never been deleted, and left the deleted one where it was.
+
+	So the trash is searched first, and a live workspace answers only when nothing in the trash
+	does — which is what keeps restoring something already restored a no-op rather than a
+	refusal, the way a project's restore behaves.
+
+	Two deleted workspaces sharing a name are refused rather than guessed between, the way
+	``selection._by_name`` refuses two projects sharing a key: *there is no such workspace* is
+	acted on by checking the spelling, and *there are two* by saying which. An id resolves
+	either of them.
+	"""
+
+	wanted = id_or_slug.strip()
+	reachable = readable(session, principal, include_deleted=True)
+	deleted = [found for found in reachable if found.deleted_at is not None]
+
+	for found in deleted:
+		if str(found.id) == wanted:
+			return found
+
+	named = [found for found in deleted if found.slug == wanted]
+
+	if len(named) == 1:
+		return named[0]
+
+	if len(named) > 1:
+		listed = ", ".join(
+			f"{found.title!r} ({found.id})"
+			for found in sorted(named, key=lambda row: row.created_at)
+		)
+
+		raise subroutine.errors.ValidationError(
+			f"More than one deleted workspace answers to {wanted!r}: {listed}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="id_or_slug",
+					code="invalid_field_value",
+					message=f"{wanted!r} names each of: {listed}.",
+					hint="Say which, by its id.",
+				)
+			],
+		)
+
+	# Nothing in the trash answers to this, so a live one may — and restoring it is a no-op
+	# that reports the row, rather than a 404 about something the caller can plainly see.
+	for found in reachable:
+		if found.deleted_at is None and (found.slug == wanted or str(found.id) == wanted):
+			return found
+
+	raise subroutine.errors.NotFound(
+		f"There is no workspace {wanted!r} that you can reach.",
+		hint="Only somebody who was already a member of it can restore one.",
+	)
+
+
+def _refuse_removing_the_last_workspace (
+	session: sqlalchemy.orm.Session, workspace: subroutine.db.models.identity.Workspace
+) -> None:
+	"""Refuse when this is the only workspace the installation has left.
+
+	**Counted across the instance rather than across what the caller can read**, because the
+	damage is instance-wide: it is ``bootstrap`` and ``local.current`` that break, and neither
+	of them is looking through anybody's credential. A caller narrowed to one workspace would
+	otherwise be told the deletion succeeded while the installation stopped working.
+
+	The disclosure that costs is small and is the same one ``_refuse_removing_the_last_
+	administrator`` accepts: the refusal only ever fires when the workspace in front of the
+	caller is the only live one, which tells them a count of a thing they can already see.
+	"""
+
+	model = subroutine.db.models.identity.Workspace
+
+	survivors = session.scalars(
+		sqlalchemy.select(model.id).where(
+			model.deleted_at.is_(None), model.id != workspace.id
+		)
+	).first()
+
+	if survivors is not None:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{workspace.slug!r} is the only workspace here, so it cannot be deleted.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="workspace",
+				code="invalid_field_value",
+				message="An installation with no workspace cannot file a task, and reports "
+				"itself as interrupted part-way through setup.",
+			)
+		],
+		hint="Create the workspace that replaces this one first, then delete this.",
+	)
+
+
 def record_seeding (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
@@ -543,6 +780,8 @@ def _refuse_removing_the_last_administrator (
 def readable (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
+	*,
+	include_deleted: bool = False,
 ) -> list[subroutine.db.models.identity.Workspace]:
 	"""Return every workspace this principal may read, oldest first.
 
@@ -550,6 +789,13 @@ def readable (
 	A token pinned to one workspace narrows the result to that one — which is the whole
 	point of pinning, and doing it here means every caller inherits it rather than each
 	remembering to (docs/design.md §7.3).
+
+	**This is where a deleted workspace stops existing**, and that is the whole of `#704`'s
+	exclusion rather than a step in it. Every listing in the application derives the ids it
+	scopes by from here, so one ``WHERE`` takes a workspace's projects, items, comments,
+	vocabulary and history out of sight together — including the features nobody has written
+	yet. ``include_deleted`` is for :func:`restore` and its route, which have to name a row in
+	the trash in order to bring it back.
 	"""
 
 	member = subroutine.db.models.identity.WorkspaceMember
@@ -558,9 +804,12 @@ def readable (
 	statement = (
 		sqlalchemy.select(workspace)
 		.join(member, member.workspace_id == workspace.id)
-		.where(member.user_id == principal.user.id, workspace.deleted_at.is_(None))
+		.where(member.user_id == principal.user.id)
 		.order_by(workspace.created_at)
 	)
+
+	if not include_deleted:
+		statement = statement.where(workspace.deleted_at.is_(None))
 
 	if principal.pinned_workspace_id is not None:
 		statement = statement.where(workspace.id == principal.pinned_workspace_id)

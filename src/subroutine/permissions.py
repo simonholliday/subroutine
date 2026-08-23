@@ -265,17 +265,17 @@ NOT_ENFORCED: dict[str, str] = {
 	# and their deletion is what closed it. All three said the same thing in three ways: the
 	# vocabulary was written by `db.seed` and by nothing else, so an operator removing one from
 	# a role would have found it changed nothing. `domain/vocabulary.py` checks all three now.
+	#
+	# **`workspace:delete` went the same way on 2026-08-23** (`#704`). It was the *only*
+	# difference between the `owner` and `admin` roles, so the two were indistinguishable in
+	# every observable way while it stayed unbuilt — a distinction the product published,
+	# seeded and could not honour. `domain/workspaces.delete` and `.restore` check it now, and
+	# the roles mean what their descriptions say.
 	TOKEN_ADMIN: (
 		"`api/tokens.py` contains no authorisation call at all: issuing is bounded by "
 		"`_refuse_amplification`, which compares a request against the presenter's own reach, "
 		"and issuing *for somebody else* needs `instance:user_create`. Delete this when "
 		"administering another person's credentials is a capability distinct from issuing "
 		"your own."
-	),
-	WORKSPACE_DELETE: (
-		"No route deletes a workspace, nothing writes `workspace.deleted_at`, and this is the "
-		"*only* difference between the `owner` and `admin` roles — so the two are "
-		"indistinguishable in every observable way while it stays unbuilt. Whether that is "
-		"groundwork or an oversight is Simon's, and is Open Question 1 of `#927`."
 	),
 }

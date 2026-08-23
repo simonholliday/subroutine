@@ -1038,6 +1038,33 @@ class Client(typing.Protocol):
 		per-project flag, which is the mental model decision ``#982`` refuses.
 		"""
 
+	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Move a workspace to the trash, with everything in it — item `#704`.
+
+		Soft, and reversible by :meth:`restore_workspace`. Nothing cascades: every listing
+		derives the workspaces it may read from one query, so a deleted workspace takes its
+		projects, items, vocabulary and history out of sight together and brings them back
+		the same way. The ref counter is untouched.
+
+		**The short name is released**, because the unique index ignores deleted rows — so
+		the name can be used again, and restoring may then need a rename first.
+
+		Needs ``workspace:delete``, which is the one verb separating the `owner` and `admin`
+		roles. Until this existed the two published a difference the product could not honour.
+
+		The last live workspace is refused: an installation with none cannot file a task and
+		reports itself as interrupted part-way through setup.
+		"""
+
+	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Take a workspace back out of the trash — item `#704`.
+
+		Named by the short name it had, which is still addressable while it is deleted. If a
+		live workspace has taken that name in the meantime the restore is refused by name,
+		with the rename that clears it — the alternative is a constraint violation surfacing
+		as a 500 for an ordinary sequence of three commands.
+		"""
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

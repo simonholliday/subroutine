@@ -416,3 +416,247 @@ def test_a_workspace_made_over_http_can_be_filed_into (
 	assert filed.status_code == 201, filed.text
 	assert filed.json()["project_key"] == "inbox"
 	assert filed.json()["ref"] == 1
+
+
+# --------------------------------------------------------------------------------------
+# Deleting one, and bringing it back — item `#704`
+# --------------------------------------------------------------------------------------
+
+
+def test_a_workspace_can_be_deleted_and_restored (world: test_api_tasks.World) -> None:
+	"""The whole of `#704`: a soft delete with a restore, matching a project's (`#308`).
+
+	Both return the workspace rather than a 204, so a caller can read ``deleted_at`` back and
+	knows the address to hand the restore.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	removed = world.call("DELETE", "/v1/workspaces/acme")
+
+	assert removed.status_code == 200, removed.text
+	assert removed.json()["deleted_at"] is not None
+
+	assert world.call("GET", "/v1/workspaces/acme").status_code == 404
+
+	listed = world.call("GET", "/v1/workspaces").json()["items"]
+
+	assert [row["slug"] for row in listed] == [world.workspace.slug]
+
+	back = world.call("POST", "/v1/workspaces/acme/restore")
+
+	assert back.status_code == 200, back.text
+	assert back.json()["deleted_at"] is None
+	assert world.call("GET", "/v1/workspaces/acme").status_code == 200
+
+
+def test_what_is_in_a_deleted_workspace_leaves_and_returns_with_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""The claim ``delete``'s docstring makes, driven rather than asserted in prose.
+
+	Nothing cascades, so the way to know the exclusion works is to look for the contents
+	through a listing that never mentions a workspace — which is every listing, since they all
+	take their ids from ``workspaces.readable``.
+	"""
+
+	made = world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"}).json()
+	filed = world.call(
+		"POST", "/v1/tasks", json={"title": "Acme deliverable", "workspace_id": "acme"}
+	)
+
+	assert filed.status_code == 201, filed.text
+
+	def titles () -> list[str]:
+		"""Every task this caller can see, across every workspace they can reach."""
+
+		found: list[str] = []
+
+		for row in world.call("GET", "/v1/workspaces").json()["items"]:
+			listing = world.call("GET", "/v1/tasks", params={"workspace_id": row["slug"]})
+			found.extend(task["title"] for task in listing.json()["items"])
+
+		return found
+
+	assert "Acme deliverable" in titles()
+
+	world.call("DELETE", "/v1/workspaces/acme")
+
+	assert "Acme deliverable" not in titles()
+
+	# And it is not reachable by naming the workspace either, which is the half a listing
+	# scoped to the caller's own reach cannot show.
+	assert (
+		world.call("GET", "/v1/tasks", params={"workspace_id": "acme"}).status_code == 404
+	)
+	assert world.call("GET", "/v1/tasks", params={"workspace_id": made["id"]}).status_code == 404
+
+	world.call("POST", "/v1/workspaces/acme/restore")
+
+	assert "Acme deliverable" in titles()
+
+
+def test_the_last_workspace_cannot_be_deleted (world: test_api_tasks.World) -> None:
+	"""An installation with none reports itself as interrupted part-way through setup.
+
+	``bootstrap._describe`` raises *this database has an instance identity but no workspace*
+	and ``local.current`` tells the reader to run ``init`` — advice that cannot help. So the
+	refusal is here rather than in a diagnosis nobody can act on.
+	"""
+
+	here = f"/v1/workspaces/{world.workspace.slug}"
+	only = world.call("DELETE", here)
+
+	assert only.status_code == 422, only.text
+	assert "only workspace" in only.text
+
+	# It becomes deletable the moment there is somewhere else to stand.
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	assert world.call("DELETE", here).status_code == 200
+
+
+def test_deleting_frees_the_short_name_and_restoring_says_when_it_is_gone (
+	world: test_api_tasks.World,
+) -> None:
+	"""The direct cost of the unique index being partial, refused by name rather than by 500.
+
+	`#308` met this on project keys. Without the check the restore violates the constraint at
+	flush time, which surfaces as an ``IntegrityError`` — a 500 and a bare traceback for an
+	ordinary sequence of three requests.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+	world.call("DELETE", "/v1/workspaces/acme")
+
+	# The name is free, which is the point of the index being partial.
+	again = world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Another Acme"})
+
+	assert again.status_code == 201, again.text
+
+	blocked = world.call("POST", "/v1/workspaces/acme/restore")
+
+	assert blocked.status_code == 409, blocked.text
+	assert blocked.json()["code"] == "duplicate_key"
+	assert "rename" in blocked.text
+
+
+def test_restoring_names_the_deleted_one_rather_than_guessing (
+	world: test_api_tasks.World,
+) -> None:
+	"""A slug can name a deleted workspace *and* a live one, and this was measured wrong first.
+
+	Because the index is partial, the sequence *create, rename away, create again, delete,
+	rename back* leaves one slug on two rows — the live one older than the deleted one. A
+	resolver taking the first match reported **Restored acme** about the workspace that had
+	never been deleted, and left the deleted one exactly where it was. ``workspaces.for_restore``
+	is why that is not a flag on the ordinary resolver.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "First"})
+	world.call("PATCH", "/v1/workspaces/acme", json={"slug": "elsewhere"})
+	second = world.call(
+		"POST", "/v1/workspaces", json={"slug": "acme", "title": "Second"}
+	).json()
+	world.call("DELETE", "/v1/workspaces/acme")
+	world.call("PATCH", "/v1/workspaces/elsewhere", json={"slug": "acme"})
+
+	# `acme` now names a live workspace and a deleted one, and the live one is older.
+	blocked = world.call("POST", "/v1/workspaces/acme/restore")
+
+	assert blocked.status_code == 409, blocked.text
+	assert blocked.json()["code"] == "duplicate_key"
+
+	# The deleted one is still deleted, which is the assertion that fails against the guess.
+	assert world.call("GET", "/v1/workspaces/acme").json()["title"] == "First"
+
+	world.call("PATCH", "/v1/workspaces/acme", json={"slug": "elsewhere"})
+	back = world.call("POST", f"/v1/workspaces/{second['id']}/restore")
+
+	assert back.status_code == 200, back.text
+	assert back.json()["title"] == "Second"
+
+
+def test_two_deleted_workspaces_sharing_a_name_are_refused_rather_than_guessed (
+	world: test_api_tasks.World,
+) -> None:
+	"""Reachable in four ordinary requests, and an id is the way through.
+
+	``selection._by_name`` refuses two projects sharing a key for the same reason: *there is
+	no such workspace* is acted on by checking the spelling, and *there are two* by saying
+	which.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "First"})
+	world.call("DELETE", "/v1/workspaces/acme")
+	second = world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Second"}).json()
+	world.call("DELETE", "/v1/workspaces/acme")
+
+	ambiguous = world.call("POST", "/v1/workspaces/acme/restore")
+
+	assert ambiguous.status_code == 422, ambiguous.text
+	assert "More than one deleted workspace" in ambiguous.text
+
+	by_id = world.call("POST", f"/v1/workspaces/{second['id']}/restore")
+
+	assert by_id.status_code == 200, by_id.text
+	assert by_id.json()["title"] == "Second"
+
+
+def test_deleting_a_workspace_needs_the_permission_the_two_roles_differ_by (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#704`'s point: ``workspace:delete`` is the whole of `owner` against `admin`.
+
+	While nothing checked it the two roles were the same role with two descriptions — a
+	distinction the product published, seeded, and could not honour.
+
+	Aimed at the narrowed caller's *own* workspace, which it owns and can read, so the refusal
+	can only be about the verb. The last-workspace rule would refuse this too and is checked
+	after the permission, which is the order that makes this test mean what it says.
+	"""
+
+	narrowed = test_api_tasks._world(session, scopes=["workspace:read"])
+	refused = narrowed.call("DELETE", f"/v1/workspaces/{narrowed.workspace.slug}")
+
+	assert refused.status_code == 403, refused.text
+
+	# The same request with an unnarrowed credential reaches the *next* check rather than
+	# this one — which is what shows the 403 was the scope and not the row.
+	full = test_api_tasks._world(session)
+
+	assert full.call("DELETE", f"/v1/workspaces/{full.workspace.slug}").status_code == 422
+
+
+def test_deleting_and_restoring_are_both_idempotent (world: test_api_tasks.World) -> None:
+	"""When something was thrown away is a fact worth not overwriting."""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	assert world.call("DELETE", "/v1/workspaces/acme").status_code == 200
+
+	# **Over HTTP the second one is a 404, matching a project's**: the route resolves among
+	# the live workspaces, so from a caller's side the row is simply gone. The idempotence is
+	# a property of the service, which the local client and every internal caller reach
+	# directly, and it is asserted below rather than inferred from the status code.
+	assert world.call("DELETE", "/v1/workspaces/acme").status_code == 404
+
+	row = subroutine.domain.workspaces.readable(
+		world.session,
+		subroutine.domain.authentication.Principal(user=world.user),
+		include_deleted=True,
+	)
+	acme = next(found for found in row if found.slug == "acme")
+	held = acme.deleted_at
+	version = acme.version
+
+	subroutine.domain.workspaces.delete(world.session, acme)
+
+	assert acme.deleted_at == held
+	assert acme.version == version
+
+	restored = world.call("POST", "/v1/workspaces/acme/restore").json()
+
+	assert world.call("POST", "/v1/workspaces/acme/restore").json()["version"] == (
+		restored["version"]
+	)

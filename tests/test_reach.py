@@ -113,6 +113,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("DELETE", "/v1/comments/{comment_id}"): "uncomment",
 	("POST", "/v1/workspaces"): "create_workspace",
 	("PATCH", "/v1/workspaces/{id_or_slug}"): "rename_workspace",
+	("DELETE", "/v1/workspaces/{id_or_slug}"): "delete_workspace",
+	("POST", "/v1/workspaces/{id_or_slug}/restore"): "restore_workspace",
 	("PATCH", "/v1/documents/{id_or_ref}"): "update_document",
 	("POST", "/v1/projects"): "create_project",
 	("POST", "/v1/tokens"): "issue_token",
@@ -562,6 +564,22 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"be creating a place its own tools then could not see into, since a session reaches "
 		"one connection and one workspace at a time (`#276`). §1.4's argument runs the other "
 		"way here as it does for `move_project`: harder to reach is the feature.",
+	),
+	"delete_workspace": (
+		"disclosure",
+		"`#704`. Takes a whole tenancy out of sight — every item, project, comment and "
+		"credential in it — for everybody who can reach it, and it is the only verb the "
+		"`owner` and `admin` roles differ by. §1.4's argument runs the other way here as it "
+		"does for `rename_workspace`: this should be harder to reach, not easier. The CLI "
+		"half counts what goes with it and names the members before asking, which is not a "
+		"shape a tool call has. `subroutine_call_api` reaches it for the agent that genuinely "
+		"means to (`#484`).",
+	),
+	"restore_workspace": (
+		"disclosure",
+		"`#704`. The other half of the pair above, and it goes with it: a tool that could "
+		"undo the deletion without one that could make it is a schema in every session for "
+		"a state no agent can reach.",
 	),
 	"rename_workspace": (
 		"disclosure",

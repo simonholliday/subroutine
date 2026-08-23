@@ -2131,6 +2131,33 @@ class Client:
 
 			return self._rendered_workspace(session, actor, changed)
 
+	def delete_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Move a workspace to the trash, in process."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			removed = subroutine.domain.workspaces.delete(session, chosen, actor=actor)
+
+			return self._rendered_workspace(session, actor, removed)
+
+	def restore_workspace (self, workspace: str) -> subroutine.views.Workspace:
+		"""Take a workspace back out of the trash, in process."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			# **The one caller that reaches into the trash**, through the helper named for
+			# it. Everything else resolves among the live ones, so naming a deleted workspace
+			# anywhere else is "no such workspace" rather than a surprise.
+			chosen = subroutine.domain.workspaces.for_restore(session, actor, workspace)
+			back = subroutine.domain.workspaces.restore(session, chosen, actor=actor)
+
+			return self._rendered_workspace(session, actor, back)
+
 	def move_project (
 		self, project: str, *, parent: str | None, workspace: str | None = None
 	) -> subroutine.views.Project:

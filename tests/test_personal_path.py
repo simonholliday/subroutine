@@ -5130,6 +5130,69 @@ def test_renaming_a_workspace_says_what_stops_working_before_it_does_it (
 	assert "Call the dentist" in run("-w", "personal", "list").output
 
 
+def test_a_workspace_can_be_deleted_and_restored_from_a_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#704`. Its items go out of sight and come back with their numbers intact.
+
+	The claim worth driving is the one the confirmation makes — *out of sight until it is
+	restored* — rather than that two commands return zero.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "add", "Draft the proposal")
+
+	run("workspace", "delete", "acme", "--yes")
+
+	assert "Draft the proposal" not in run("-w", "personal", "list").output
+	assert "acme" in run("workspace", "delete", "acme", input="n\n", expect=1).output
+
+	run("workspace", "restore", "acme")
+
+	assert "Draft the proposal" in run("-w", "acme", "list").output
+	assert "Draft the proposal" in run("-w", "acme", "show", "1").output
+
+
+def test_deleting_a_workspace_says_what_goes_with_it_before_it_does_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#176`'s argument again, and it has more to say here than a rename does.
+
+	A rename keeps everything reachable; this does not. So the confirmation names the count,
+	says the short name becomes free, and prints the command that undoes it — because the
+	moment somebody is deciding whether to do something like this is the worst possible place
+	to make them go and look up how to reverse it.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "add", "Draft the proposal")
+
+	refused = run("workspace", "delete", "acme", input="n\n", expect=1)
+
+	assert "1 item keeps its number, out of sight" in refused.output, refused.output
+	assert "'acme' becomes free" in refused.output
+	assert "subroutine workspace restore acme" in refused.output
+	assert "Nothing was deleted." in refused.output
+
+	# And it meant it.
+	assert "Draft the proposal" in run("-w", "acme", "list").output
+
+
+def test_the_only_workspace_cannot_be_deleted_from_a_terminal (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The refusal a person meets first, since one workspace is what ``init`` leaves."""
+
+	run("init", "--workspace", "Personal")
+
+	refused = run("workspace", "delete", "personal", "--yes", expect=1)
+
+	assert "only workspace" in refused.output, refused.output
+	assert "Create the workspace that replaces this one first" in refused.output
+
+
 def test_a_document_can_be_filed_under_a_different_project (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -5898,11 +5961,16 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Lower it when a stage lands. Never raise it.** A new command is a function somewhere else
 #: that ``register`` calls, which is the shape this is pushing towards — so needing more room
 #: here is the signal, not the exception.
-REGISTER_CEILING = 2_546
+#:
+#: **It has now fired on a real change and been paid rather than raised** (`#704`). Two new
+#: ``workspace`` commands put the closure 31 lines over, and the remedy was the one this asks
+#: for: the whole ``workspace`` group moved to ``_register_workspace``, which is 135 lines out
+#: for two in. That is the mechanism working — a feature is what makes somebody do the move.
+REGISTER_CEILING = 2_444
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 93
+MODULE_LEVEL_FLOOR = 130
 
 
 def _register_span () -> tuple[int, int]:

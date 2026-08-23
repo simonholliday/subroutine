@@ -225,6 +225,36 @@ def test_a_feed_stops_working_when_its_owner_does (
 		subroutine.domain.calendars.resolve(session, secret, now=NOW)
 
 
+def test_a_feed_stops_working_when_its_workspace_is_deleted (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The mirror of the test above, for the container rather than the person — `SR#704`.
+
+	**A feed is the one credential that reaches tasks without going through
+	``workspaces.readable``**, which is where every other surface stops at the trash. It holds
+	a ``workspace_id`` and hands it to ``readable_tasks``, so the exclusion that covers the
+	whole application by construction does not cover this.
+
+	It could not be wrong until a workspace could be deleted, and it was wrong the moment one
+	could: the first working version of `SR#704` shipped the delete and left this poll
+	answering with the deleted workspace's whole calendar, over a URL nobody has to log in to.
+	"""
+
+	workspace, owner = _world(session)
+	_row, minted = _feed(session, workspace, owner)
+	secret = minted.value.get_secret_value()
+
+	assert subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+	# A second one, because the last live workspace cannot be deleted — and going through the
+	# real service rather than setting the column is what joins the two halves of this.
+	_world(session)
+	subroutine.domain.workspaces.delete(session, workspace)
+
+	with pytest.raises(subroutine.errors.NotFound):
+		subroutine.domain.calendars.resolve(session, secret, now=NOW)
+
+
 def test_a_bounded_credential_cannot_mint_a_feed (
 	session: sqlalchemy.orm.Session,
 ) -> None:

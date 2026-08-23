@@ -167,6 +167,10 @@ def resolve (
 	Searched among the ones they can *read*, so a workspace they are not a member of is
 	reported as absent rather than forbidden — saying "forbidden" would confirm it exists
 	(§7.3a). A token pinned to one workspace therefore cannot see past its pin here either.
+
+	**Never the trash**, which :func:`unremove` reaches through ``workspaces.for_restore``
+	instead. A slug frees when a workspace is deleted, so it can name a deleted workspace and
+	a live one at once and this function would have to guess between them.
 	"""
 
 	wanted = id_or_slug.strip()
@@ -376,6 +380,64 @@ def change (
 		)
 
 	return one(session, actor, updated)
+
+
+@router.post("/{id_or_slug}/restore", summary="Take a workspace out of the trash")
+def unremove (
+	request: starlette.requests.Request,
+	id_or_slug: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.Workspace:
+	"""Restore a soft-deleted workspace, and everything in it with it.
+
+	``POST`` rather than ``DELETE ?restore=``, matching a project's restore, because it is not
+	a deletion of anything. The short name may have been taken while this was in the trash —
+	the unique index ignores deleted rows — and that is refused by name with the rename that
+	clears it, rather than surfacing as a constraint violation.
+	"""
+
+	found = subroutine.domain.workspaces.for_restore(session, actor, id_or_slug)
+
+	with subroutine.api.concurrency.reporting(lambda: one(session, actor, found)):
+		back = subroutine.domain.workspaces.restore(
+			session,
+			found,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return one(session, actor, back)
+
+
+@router.delete("/{id_or_slug}", summary="Move a workspace to the trash")
+def remove (
+	request: starlette.requests.Request,
+	id_or_slug: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.Workspace:
+	"""Soft-delete a workspace. Everything in it leaves the visible world, and returns with it.
+
+	Needs ``workspace:delete``, which is the *only* verb separating the `owner` and `admin`
+	roles — so until this route existed the two were the same role with two descriptions.
+
+	The workspace itself is returned rather than a 204, so a caller can see ``deleted_at`` and
+	knows what to hand back to the restore. The last live workspace is refused: an installation
+	with none cannot file a task and reports itself as interrupted part-way through setup.
+	"""
+
+	found = resolve(session, actor, id_or_slug)
+
+	with subroutine.api.concurrency.reporting(lambda: one(session, actor, found)):
+		removed = subroutine.domain.workspaces.delete(
+			session,
+			found,
+			expected_version=subroutine.api.concurrency.expected(request),
+			actor=actor,
+		)
+
+	return one(session, actor, removed)
 
 
 # --------------------------------------------------------------------------------------
