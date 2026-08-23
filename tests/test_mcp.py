@@ -1736,6 +1736,95 @@ _BESIDE_A_REF: dict[str, typing.Any] = {
 _NO_SUCH_REF = 999999
 
 
+def test_an_agent_reading_an_item_sees_its_parts (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1117`. A person's `subroutine show` has rendered these since `#84`; this did not.
+
+	That model is how a plan is expressed here — a milestone **is** an item whose blockers are
+	its contents, a feature **is** just a parent item — so an agent reading a parent saw the
+	prose saying *four sub-items below* and nothing under it, which reads as *the parts were
+	deleted*.
+
+	**With `#999` the two halves compound**: an agent could file a sub-task and then be unable
+	to see that it had worked.
+	"""
+
+	parent = _added(bound, "Ship the release")
+	first, failed = _called(bound, "subroutine_add", text="Write the changelog", parent=parent)
+
+	assert not failed, first
+
+	second, failed = _called(bound, "subroutine_add", text="Cut the tag", parent=parent)
+
+	assert not failed, second
+
+	shown, failed = _called(bound, "subroutine_show", ref=parent)
+
+	assert not failed, shown
+	assert "Parts (0 of 2 done)" in shown, shown
+	assert "Write the changelog" in shown and "Cut the tag" in shown
+
+
+def test_a_finished_part_is_still_shown_and_says_it_is_over (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""A parent showing two of four parts misreports the thing somebody opened it to see.
+
+	`#84` says report the rollup and leave completion an act, which is the terminal's own rule
+	here — the count is the question being put to a person, and hiding the answered half of it
+	would make the count unreadable.
+
+	**`over` rather than `done`**, for the reason the links rollup beside it gives:
+	`completed_at` is non-null for a `done` *and* a `cancelled` status, so the obvious word
+	asserts something about half of them that nobody did.
+	"""
+
+	parent = _added(bound, "Ship the release")
+	made, failed = _called(bound, "subroutine_add", text="Write the changelog", parent=parent)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
+	finished, failed = _called(bound, "subroutine_done", ref=int(numbered.group(1)))
+
+	assert not failed, finished
+
+	shown, failed = _called(bound, "subroutine_show", ref=parent)
+
+	assert not failed, shown
+	assert "Parts (1 of 1 done)" in shown, shown
+	assert "Write the changelog" in shown, "a finished part vanished from its parent"
+	assert "(over)" in shown, shown
+
+
+def test_a_document_is_not_asked_for_parts (bound: subroutine.mcp.protocol.Server) -> None:
+	"""Only a task has children, so a document reaches this with nothing to ask.
+
+	Worth driving rather than reading: the request is not made at all, and a version that
+	asked and got an empty answer would look identical from the output and cost a call on
+	every document an agent opened.
+	"""
+
+	made, failed = _called(
+		bound, "subroutine_document", title="What we settled", body="Because.", type="decision"
+	)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
+	shown, failed = _called(bound, "subroutine_show", ref=int(numbered.group(1)))
+
+	assert not failed, shown
+	assert "Parts" not in shown, shown
+
+
 def test_an_agent_can_file_a_task_under_another_one (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

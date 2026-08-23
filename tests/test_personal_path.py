@@ -5469,6 +5469,41 @@ def test_a_number_and_all_together_is_refused (
 	assert "Not both" in refused.output
 
 
+def test_a_link_in_a_history_reads_as_a_link (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1115`. Every link said *commented*, on both surfaces, in agreement.
+
+	Since `#52` a comment's event names the comment and carries the commented-on item as its
+	subject — so `subject_type is not None` looks like a comment marker and is not: links set
+	it too, deliberately, so a link event can name the far end and be scoped by it.
+
+	**Both copies of the rule agreed**, which is why nothing caught it. The signature defect
+	here is two copies that disagree; these were byte-identical and both wrong, so every
+	cross-surface comparison passed over a history claiming a conversation had taken place.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "The first")
+	run("add", "The second")
+	run("link", "1", "relates-to", "2")
+
+	shown = run("show", "1", "--history").output
+
+	assert "commented" not in shown, f"a link is reported as a conversation: {shown}"
+	assert "linked" in shown, shown
+
+	run("unlink", "1", "2")
+
+	assert "unlinked" in run("show", "1", "--history").output
+
+	# **And a real comment still reads as one**, which is what says the fix narrowed the rule
+	# rather than turning it off. An absence two behaviours produce is not evidence for either.
+	run("comment", "1", "something that actually happened")
+
+	assert "commented" in run("show", "1", "--history").output
+
+
 def test_the_agenda_opens_with_what_is_waiting_on_you (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

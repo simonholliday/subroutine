@@ -8388,23 +8388,13 @@ def _render_item (
 def _event_line (event: subroutine.views.Event) -> str:
 	"""Return one event as a sentence somebody can read.
 
-	**The subject, not the entity, decides how it reads.** Since `#52` a comment's event names
-	the comment and carries the commented-on item as its subject, so "created comment" is the
-	shape a history sees — and "commented" is what a person means by it.
+	**In `views.happened` rather than here** (`#1115`). It was written out here and again in
+	`mcp/tools.py`, identically — and identically wrong, reading `subject_type is not None` as
+	*this is a comment* where it means *this is about something other than the item*. Links set
+	it too, so an item's history called every link a conversation, on both surfaces, agreeing.
 	"""
 
-	if event.subject_type is not None:
-		return {"created": "commented", "updated": "edited a comment"}.get(
-			event.action, f"{event.action} a comment"
-		)
-
-	if event.action != "updated" or not event.changes:
-		return event.action
-
-	# **The field names, not the values.** A history is a list of what moved; the values are in
-	# the item itself, one line above, and a `from`/`to` pair per field would make the commonest
-	# entry the longest one.
-	return "changed " + ", ".join(sorted(event.changes))
+	return subroutine.views.happened(event)
 
 
 def _facts (located: Located) -> list[str]:

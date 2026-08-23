@@ -2629,6 +2629,54 @@ def project (
 	)
 
 
+#: How each kind of event reads, by the **entity** it is about (`#1115`).
+#:
+#: **The entity decides, not the subject**, and reading it the other way was a defect on every
+#: surface at once. Since `#52` a comment's event names the comment and carries the
+#: commented-on item as its ``subject`` — so ``subject_type is not None`` looks like a comment
+#: marker and is not: ``domain.links`` sets it too, deliberately, so a link event can name the
+#: far end and be scoped by it. The predicate means *this event is about something other than
+#: the item*, and both readers had it as *this event is a comment*.
+#:
+#: **Both copies agreed, which is why nothing caught it.** This codebase's signature defect is
+#: two copies that disagree; here they were byte-identical and both wrong, so every
+#: cross-surface comparison passed. Consistency mistaken for correctness is the one shape a
+#: transport-equivalence suite structurally cannot see — hence one function rather than two
+#: corrected copies.
+_HAPPENED: dict[tuple[str, str], str] = {
+	("comment", "created"): "commented",
+	("comment", "updated"): "edited a comment",
+	("comment", "deleted"): "deleted a comment",
+	("link", "created"): "linked it to something",
+	("link", "deleted"): "unlinked it from something",
+}
+
+
+def happened (event: Event) -> str:
+	"""Return one event as a phrase somebody can read, in one place for every surface.
+
+	**The field names, not the values**, for an ordinary edit. A history is a list of what
+	moved; the values are in the item itself, and a ``from``/``to`` pair per field would make
+	the commonest entry the longest one.
+	"""
+
+	said = _HAPPENED.get((event.entity_type, event.action))
+
+	if said is not None:
+		return said
+
+	# A kind this does not name yet, about something other than the item itself. Said as what
+	# it is rather than guessed at: an unnamed pair reading as *commented* is the defect this
+	# function exists to remove, and reading as the bare action at least cannot mislead.
+	if event.subject_type is not None and event.entity_type != event.subject_type:
+		return f"{event.action} a {event.entity_type}"
+
+	if event.action != "updated" or not event.changes:
+		return event.action
+
+	return "changed " + ", ".join(sorted(event.changes))
+
+
 def agenda (
 	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
 ) -> Agenda:

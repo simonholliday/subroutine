@@ -22,6 +22,12 @@ upgrade involves.
 
 ### Added
 
+- **An agent reading an item sees its parts.** `subroutine_show` rendered an item's links, its
+  backlinks, its comments and its history and not its children — so a parent whose own
+  description said *four sub-items below* showed none of them, which reads as though they had
+  been deleted. Finished ones are listed and marked, with the same *N of M* count the terminal
+  gives.
+
 - **An agent can file a task under another one, and ask what has been handed to it.**
   `subroutine_add` takes a `parent`, and `subroutine_list` takes an `assignee`. The write half
   of delegating work was on the agent surface and the read half was not: an agent could assign
@@ -214,6 +220,11 @@ upgrade involves.
 
   If you name a relation your workspace does not have, the refusal lists the ones it does — so
   a renamed or added link type is still discoverable, which the help alone cannot be.
+
+- **A link in an item's history reads as a link.** Every one of them said *commented*, on the
+  terminal and in an agent's history alike — so an item joined to thirteen documents reported
+  thirteen conversations that never happened. A history is where somebody goes to find out what
+  happened, which is the worst place for it.
 
 - **Re-sending a field you did not change no longer records a change of meaning.** A client that
   reads a task, edits one field and sends the whole object back names its title in every

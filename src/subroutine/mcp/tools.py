@@ -1908,17 +1908,13 @@ def _happened (event: subroutine.views.Event) -> str:
 	Behind an argument rather than always: a history is unbounded where a comment list is
 	bounded by what somebody typed, and most items have one event saying they were created.
 	Spending that on every ``show`` is the cost §14 exists to weigh.
+
+	**The words are `views.happened`'s** (`#1115`). They were written out here and again in the
+	CLI, identically and identically wrong, so every cross-surface comparison passed over a
+	history that called thirteen links a conversation.
 	"""
 
-	if event.subject_type is not None:
-		return {"created": "commented", "updated": "edited a comment"}.get(
-			event.action, f"{event.action} a comment"
-		)
-
-	if event.action != "updated" or not event.changes:
-		return event.action
-
-	return "changed " + ", ".join(sorted(event.changes))
+	return subroutine.views.happened(event)
 
 
 def _item (
@@ -2026,6 +2022,12 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	return facts
 
 
+#: How many children ``subroutine_show`` lists. The terminal's own ceiling, and here for the
+#: same reason: a depth limit exists and nothing bounds breadth, so an item with four hundred
+#: parts should print a number rather than four hundred lines.
+MAX_CHILDREN = 50
+
+
 def _shown (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -2067,6 +2069,40 @@ def _shown (
 	if item_tags := list(found.tags):
 		parts.append("")
 		parts.append("  ".join(f"#{tag}" for tag in item_tags))
+
+	# **Its parts, which this surface omitted entirely** (`#1117`). A person's `subroutine show`
+	# has rendered them since `#84` gave a milestone its model — an item whose blockers are its
+	# contents, a feature that is just a parent item — and an agent reading the same item saw
+	# nothing at all. On `#57`, whose own body says *"Four sub-items below"*, that reads as
+	# *the parts were deleted* rather than as *this surface does not draw them*.
+	#
+	# **Finished ones included and marked**, like the terminal's: a parent showing two of four
+	# children because the other two are done misreports the thing somebody opened it to see.
+	#
+	# **Only a task**, because only a task has children; a document reaches this with nothing
+	# to ask and the request is not made.
+	children = (
+		client.tasks(
+			parent=ref,
+			workspace=workspace,
+			limit=MAX_CHILDREN,
+			include_completed=True,
+			order="ref",
+		)
+		if kind == "task"
+		else []
+	)
+
+	if children:
+		done = sum(1 for child in children if child.completed_at is not None)
+
+		parts.append("")
+		parts.append(f"Parts ({done} of {len(children)} done)")
+		parts.extend(
+			f"#{child.ref}  {child.title}"
+			+ ("  (over)" if child.completed_at is not None else "")
+			for child in children
+		)
 
 	# **What binds whoever picks this up** (`#1119`) — `subroutine://conventions` narrowed to
 	# one item. Placed **first among the sections** rather than last, because it is the one an
