@@ -252,14 +252,14 @@ subroutine_list(filter={"touched_at.gte": "yesterday"})
 subroutine_list(filter={"touched_at.gte": "start_of_week", "touched_by.eq": "si"})
 ```
 
-**Take the task before you touch anything, say when you start, and give it back at the end.**
-Three calls around the work, in this order, every time:
+**Take the task before you touch anything, and say when you start.** Two calls around the
+work, in this order, every time:
 
 ```
 subroutine_claim(ref=42)                      first, before any other change
 subroutine_update(ref=42, status="in_progress")   when you actually begin
                                               … the work …
-subroutine_claim(ref=42, release=true)        last, whether you finished or not
+subroutine_done(ref=42)                       which hands the claim back with it
 ```
 
 **This used to say "if anybody else works from this list", and that condition is why nobody
@@ -274,14 +274,32 @@ reason the mechanism exists.
 the same thing: you may claim an item in order to read it and decide it is not for you, and
 then nothing was in progress at all. Nobody derives either from the other.
 
-**It expires by itself**, so say it again if you are still going, and nothing is stranded if
-your context ends first — which it will. A claim you find on somebody else's item may already
-have run out; you are told who holds it and until when, which is the answer to what you do
-next.
+**It expires by itself, and working on it keeps it alive.** Every write to something you are
+holding — an edit, a status change, a comment — pushes the lease out, so an agent that is
+working never has to think about it and an agent that stopped stops renewing. Nothing is
+stranded if your context ends first, which it will. A claim you find on somebody else's item
+may already have run out; you are told who holds it and until when, which is the answer to what
+you do next.
 
-**Finishing does not release it. Measured, not assumed** — `subroutine_done` leaves the claim
-and its expiry exactly as they were. So release is a separate act at the end, and it is the one
-most easily forgotten because the work feels over.
+**Finishing hands it back**, so there is no separate act at the end. That used to be a third
+call and it is gone deliberately: an obligation falling at the end of a session is one nobody
+attends, because the end of a session is compaction or a killed process rather than a moment
+anybody is present for. `subroutine_claim(ref=42, release=true)` is still there for work you are
+putting down without finishing.
+
+**When you need an answer from a person, park the question rather than asking in the
+conversation.** A conversation ends and takes the question with it; an item does not.
+
+```
+subroutine_update(ref=42, status="needs_input")
+subroutine_comment(ref=42, body="Which way round should the flag read? Both work; the second
+                                 matches the CLI.")
+```
+
+It goes to the top of that person's agenda under *Waiting on you*, and the answer is on the
+item when you — or a different agent, days later — come back to it. Then move the status on and
+carry on with something else in the meantime; a question you are waiting on is not a reason to
+stop.
 
 **Look before you file.** Searching costs one call and a duplicate costs somebody an afternoon
 of wondering which of two items is the real one:

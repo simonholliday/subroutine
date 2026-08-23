@@ -5415,6 +5415,48 @@ def test_show_says_nothing_about_references_where_there_are_none (
 	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
 
 
+def test_the_agenda_opens_with_what_is_waiting_on_you (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1116`. The half that had to come first: a person seeing the question at all.
+
+	The status has been seeded since M1 and used zero times in 925 tasks. Teaching an agent to
+	set it before anybody could see one would have built the loop from the end that does not
+	close.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ordinary work")
+	run("add", "Which way round should the flag read?")
+	run("update", "2", "--status", "needs_input")
+
+	shown = run("agenda").output
+
+	assert "Waiting on you" in shown, shown
+	assert "Which way round" in shown
+	assert shown.index("Waiting on you") < shown.index("Next"), (
+		f"the question is below the work it is holding up: {shown}"
+	)
+
+
+def test_the_agenda_says_nothing_about_waiting_where_nothing_is (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""An empty bucket is dropped, like every other section here.
+
+	A day with nobody waiting on you should not print the words — the absence is the good
+	news, and a heading over nothing makes a reader look for what is missing.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ordinary work")
+
+	shown = run("agenda").output
+
+	assert "Ordinary work" in shown, "the probe showed nothing, so it proves nothing"
+	assert "Waiting" not in shown, shown
+
+
 def test_the_list_narrows_to_what_somebody_is_holding (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -417,6 +417,10 @@ Row = tuple[str, Item]
 #: A bucket the agenda carries and this does not name raises at import, which is the intended
 #: failure: a heading nobody chose is worse than a build that stops.
 _HEADINGS: dict[str, tuple[str, bool]] = {
+	# **First, and marked late for the same reason `overdue` is** (`#1116`). Somebody has been
+	# waiting on an answer, which is a commitment you have not kept in exactly the way a passed
+	# deadline is — and unlike everything below it, nothing here can move until you act.
+	"waiting": ("Waiting on you", True),
 	"overdue": ("Overdue", True),
 	"today": ("Today", False),
 	# **Between the day and the rest** (`#853`). Work somebody is in the middle of is

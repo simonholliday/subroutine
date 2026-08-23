@@ -4021,6 +4021,10 @@ export function columns (items) {
 	both. Add a section there and this fails until it is here.
 */
 const BUCKETS = [
+	/* **First, and it is the only bucket that is not work the reader could do** (`#1116`).
+	   Somebody is waiting on an answer, so nothing under it can move until this is dealt with —
+	   which is why it sits above a passed deadline rather than beside one. */
+	{ key: "waiting", label: "Waiting on you" },
 	{ key: "overdue", label: "Overdue" },
 	{ key: "today", label: "Today" },
 	{ key: "in_progress", label: "In progress" },

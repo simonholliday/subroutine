@@ -1,4 +1,4 @@
-"""Tests for the four agenda buckets, on both backends.
+"""Tests for the agenda's buckets, on both backends.
 
 Two of these are S2-04's done-criteria and they were once in contradiction: a task with no
 dates at all must appear in ``unscheduled``, **and** a task due in four days must appear in
@@ -766,3 +766,120 @@ def test_a_date_left_alone_does_not_take_the_zone_with_it (
 
 	assert task.timezone == "Etc/UTC"
 	assert task.due_at == before
+
+
+def _waiting (world: World, task: subroutine.db.models.work.Task) -> None:
+	"""Park a question on a task, the way an agent would."""
+
+	subroutine.domain.tasks.update(
+		world.session,
+		task,
+		status_key=subroutine.domain.agenda.WAITING_STATUS,
+		now=NOW,
+		actor=world.principal,
+	)
+
+
+def test_something_waiting_on_a_person_is_the_first_thing_they_see (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1116`. A status seeded since M1, reachable at every layer, and used zero times.
+
+	It was published in `/v1/meta`, settable through every client, filterable and rendered by
+	the board — and nothing had ever set it, because nothing put it in front of the person who
+	could answer. The mechanism was never the missing part.
+	"""
+
+	world = World(session)
+	world.task("Ordinary work")
+	asked = world.task("Which way round should the flag read?")
+	_waiting(world, asked)
+
+	built = world.agenda()
+
+	assert _titles(built.waiting) == ["Which way round should the flag read?"]
+	assert "Which way round should the flag read?" not in _titles(built.unscheduled)
+
+
+def test_a_question_outranks_the_deadline_it_is_holding_up (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The one decision inside this: `waiting` sits above `overdue`.
+
+	*You owe an answer* is more actionable than *this is late*, because the lateness is a
+	consequence of the question — nobody can move the task until it is answered. Every other
+	bucket is work the reader could pick up; this one is work they are holding up.
+	"""
+
+	world = World(session)
+	late = world.task("Late and stuck", due="2026-07-01")
+	_waiting(world, late)
+
+	built = world.agenda()
+
+	assert _titles(built.waiting) == ["Late and stuck"]
+	assert _titles(built.overdue) == [], "the buckets are not disjoint"
+
+
+def test_a_question_that_has_been_answered_leaves_the_bucket (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Which is the whole loop, and the half that decides whether it closes.
+
+	Answering is moving the status back — there is no second act to remember, which is what
+	`#1113` measured as the thing that reliably does not happen.
+	"""
+
+	world = World(session)
+	asked = world.task("Which way round?")
+	_waiting(world, asked)
+
+	assert _titles(world.agenda().waiting) == ["Which way round?"]
+
+	subroutine.domain.tasks.update(
+		session, asked, status_key="open", now=NOW, actor=world.principal
+	)
+
+	assert world.agenda().waiting == ()
+	assert _titles(world.agenda().unscheduled) == ["Which way round?"]
+
+
+def test_a_finished_question_is_not_still_waiting (session: sqlalchemy.orm.Session) -> None:
+	"""The exclusions every bucket shares apply here too, and this is the one that could slip.
+
+	`waiting` reads a *key* where every other bucket reads dates or a category, so it does not
+	inherit the finished-work exclusion from the shape of its own clause — it inherits it from
+	`_visible`, and that is worth an assertion rather than a reading.
+	"""
+
+	world = World(session)
+	asked = world.task("Answered by giving up on it")
+	_waiting(world, asked)
+	subroutine.domain.tasks.update(
+		session,
+		asked,
+		status_key=subroutine.domain.tasks.finished_status_key(session, world.workspace.id),
+		now=NOW,
+		actor=world.principal,
+	)
+
+	assert world.agenda().waiting == ()
+
+
+def test_an_empty_agenda_is_still_empty_with_the_new_bucket (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`is_empty` has to know about every bucket, and it is the one place that lists them all.
+
+	A bucket missing from it makes an agenda holding only that bucket report itself as having
+	nothing in it — and the CLI prints its *nothing to do* line off exactly this.
+	"""
+
+	world = World(session)
+
+	assert world.agenda().is_empty
+
+	asked = world.task("Which way round?")
+	_waiting(world, asked)
+
+	assert not world.agenda().is_empty

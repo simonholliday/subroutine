@@ -54,6 +54,19 @@ DEFAULT_HORIZON_DAYS = 7
 #: lands where the next page does not start.
 TIEBREAK = "created_at"
 
+#: The status key that says a piece of work is waiting on a person (`#1116`).
+#:
+#: **A key rather than a category, which is the one place this file reads one.** `#96` refused
+#: a fifth status category on the grounds that the distinction that matters is *who ends the
+#: wait* — a `blocks` link resolves itself, where this needs somebody to answer — so there is no
+#: category to ask for and the seeded key is what there is. A workspace that renames it has
+#: renamed the thing this bucket is about, and the bucket is then empty rather than wrong.
+#:
+#: It has been seeded since M1, published in `/v1/meta`, settable through every client,
+#: filterable and rendered by the board, and **used zero times in 925 tasks** — because nothing
+#: ever put it in front of the person who could answer.
+WAITING_STATUS = "needs_input"
+
 #: How each bucket is ordered, in ``?order=``'s own grammar.
 #:
 #: **Declared rather than written out in SQL, because a second reader re-sorts these in
@@ -67,6 +80,11 @@ TIEBREAK = "created_at"
 #: chosen by the server and discarded one level up, where **the output looks entirely
 #: reasonable**. One declaration is what makes that impossible rather than unlikely.
 ORDERS: dict[str, tuple[str, ...]] = {
+	# **Oldest first**, which is what the tiebreak already does and is the right key here for
+	# once: a question that has been waiting three days is more overdue than one asked this
+	# morning, and there is nothing else about it to rank by — it is not the asker's to
+	# prioritise, and whoever has to answer wants the one they have kept waiting longest.
+	"waiting": (),
 	# Soonest first, because that is the order the days arrive in.
 	"overdue": ("due_at",),
 	"today": ("due_at",),
@@ -104,6 +122,12 @@ class Agenda:
 	date: datetime.date
 	timezone: str
 
+	#: What is waiting on a person — status ``needs_input`` (`#1116`). **First**, because it is
+	#: the only bucket that is not work the reader could do: it is work somebody else cannot do
+	#: until they answer, so leaving it below the day's own list buries the one thing that
+	#: unblocks anybody else.
+	waiting: tuple[subroutine.db.models.work.Task, ...]
+
 	overdue: tuple[subroutine.db.models.work.Task, ...]
 	today: tuple[subroutine.db.models.work.Task, ...]
 	upcoming: tuple[subroutine.db.models.work.Task, ...]
@@ -132,7 +156,8 @@ class Agenda:
 		"""Report whether there is nothing at all to show."""
 
 		return not (
-			self.overdue
+			self.waiting
+			or self.overdue
 			or self.today
 			or self.in_progress
 			or self.upcoming
@@ -202,14 +227,34 @@ def build (
 	# cost. If it ever comes to that, `#888` already fixed the shape: a cap must *say* it is
 	# one, count what is hidden and offer a way to see it all, which is exactly what
 	# `unscheduled_total` is below. Do not add a bare `.limit()`.
+	# **Before `overdue`, and that is the whole of the decision** (`#1116`). A task that is both
+	# overdue and waiting on an answer belongs here: *you owe an answer* is the more actionable
+	# truth than *this is late*, because the lateness is a consequence of the question and
+	# nobody can act on the task until it is answered. Every other bucket is work the reader
+	# could pick up; this one is work they are holding up.
+	#
+	# **Read by key, which nothing else here does.** `WAITING_STATUS` carries why: `#96`
+	# refused a fifth status category, so there is none to ask for.
+	waiting = _run(
+		session,
+		base.join(
+			subroutine.db.models.vocabulary.Status,
+			subroutine.db.models.vocabulary.Status.id == model.status_id,
+		).where(subroutine.db.models.vocabulary.Status.key == WAITING_STATUS),
+		"waiting",
+		sortable,
+	)
+
+	seen = {task.id for task in waiting}
+
 	overdue = _run(
 		session,
 		base.where(model.due_at.is_not(None), model.due_at < day_start),
 		"overdue",
 		sortable,
 	)
-
-	seen = {task.id for task in overdue}
+	overdue = tuple(task for task in overdue if task.id not in seen)
+	seen.update(task.id for task in overdue)
 
 	today = _run(
 		session,
@@ -375,6 +420,7 @@ def build (
 	return Agenda(
 		date=day,
 		timezone=timezone,
+		waiting=waiting,
 		overdue=overdue,
 		today=today,
 		in_progress=started,

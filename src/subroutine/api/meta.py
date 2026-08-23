@@ -353,9 +353,13 @@ def guide_text () -> str:
 		"| Somebody edits the same item while you are thinking | `expected_version` on every "
 		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
 		"edit |",
-		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim`, "
-		"then `/release` at the end | It leaves their ready listing while you hold it — a "
-		"lease, so nothing is stranded if you stop first. Finishing does **not** release it |",
+		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim` | It "
+		"leaves their ready listing while you hold it — a lease, so nothing is stranded if you "
+		"stop first. Writing to it renews the lease, and finishing hands it back |",
+		"| You need an answer from a person and the conversation is about to end | Set the "
+		"status to `needs_input` and write the question as a comment | It is the first thing "
+		"on their agenda, and the answer is on the item when you or another agent comes back "
+		"— rather than in a conversation that ended with you |",
 		"| Nobody can see that you are working | `status_category` `in_progress`, set when "
 		"you begin | A person watching sees the work move, rather than items appearing "
 		"finished with nothing in between |",

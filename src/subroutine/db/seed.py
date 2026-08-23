@@ -185,6 +185,10 @@ _STATUSES = (
 	StatusSeed("task", "open", "Open", "todo", is_default=True),
 	StatusSeed("task", "in_progress", "In progress", "in_progress"),
 	StatusSeed("task", "blocked", "Blocked", "todo"),
+	# **The one seeded key a query reads by name**, because there is no category for it and
+	# `#96` refused a fifth: the distinction that matters is *who ends the wait*, and a `blocks`
+	# link resolves itself where this needs a person. `#1116` is the agenda bucket it feeds, and
+	# a workspace that renames this key has renamed the thing that bucket is about.
 	StatusSeed("task", "needs_input", "Needs input", "todo"),
 	StatusSeed("task", "done", "Done", "done"),
 	StatusSeed("task", "cancelled", "Cancelled", "cancelled"),

@@ -22,6 +22,19 @@ upgrade involves.
 
 ### Added
 
+- **An agent can park a question for a person, and find the answer next session.** Setting a
+  task's status to `needs_input` and writing the question as a comment puts it at the top of
+  that person's agenda under *Waiting on you* — on the terminal, in the browser and in an
+  agent's own agenda — and the answer is on the item when whoever picks it up next comes back.
+
+  The status has been there since the first release and nothing had ever set it, because
+  nothing put it in front of the person who could answer. What is new is the bucket, and both
+  agent-facing guides now say how to use it.
+
+  *Waiting on you* sits above *Overdue*: it is the only section that is not work you could pick
+  up, it is work somebody else cannot do until you act, and the lateness of a task waiting on an
+  answer is a consequence of the question rather than a separate fact.
+
 - **A lease renews itself while you are working, and finishing gives it back.** Two halves of
   one thing: a claim lasted thirty minutes by default against work measured in hours, and
   completing a task left the claim behind.
@@ -37,7 +50,9 @@ upgrade involves.
     asymmetry is deliberate.
 
   On this instance about thirty tasks were carrying a claim, nearly all of them on work that
-  was finished and shipped.
+  was finished and shipped. **The agent guides no longer ask for a release at the end** — an
+  obligation that falls at the end of a session is one nobody attends, which is what the
+  measurement says. `release` is still there for work you are putting down unfinished.
 
 - **A listing narrows by who is holding an item, and the change feed by who acted.** Three
   things that were stored, reported on every row and reachable by no question:

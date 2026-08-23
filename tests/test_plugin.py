@@ -1036,9 +1036,46 @@ def test_the_skill_says_a_claim_and_a_status_are_different_facts () -> None:
 		"questions, which is an invitation to treat one as redundant"
 	)
 
-	assert "Finishing does not release it" in skill, (
-		"an agent told only to claim leaves one on every finished item until the lease runs "
-		"out — measured: `done` changes neither the holder nor the expiry"
+	# **Re-aimed by `#1113`, which changed the behaviour underneath it.** It asserted
+	# *Finishing does not release it* — true when written, and asking for the one act that
+	# reliably does not happen, because the end of a session is compaction or a killed process
+	# rather than a moment anybody attends. Finishing hands the claim back now, so what the
+	# skill has to say is what happens to it rather than what the reader must remember.
+	assert "Finishing hands it back" in skill, (
+		"the skill does not say what becomes of the claim when the work is finished, which is "
+		"the question an agent asks at exactly the moment it stops paying attention"
+	)
+
+
+def test_both_channels_say_how_to_park_a_question_for_a_person () -> None:
+	"""`#1116`, and it is a delivery problem rather than a mechanism one.
+
+	`needs_input` has been seeded since M1, published in `/v1/meta`, settable through every
+	client, filterable and rendered by the board — and **used zero times in 925 tasks**,
+	because it appeared in no channel an agent reads. Nine mentions in the specification and
+	none anywhere an agent would meet one.
+
+	It is the single thing the field does not serve: MCP's Tasks extension does mid-flight
+	input scoped to one call, and nothing parks a question for three days and returns the
+	answer to a different agent. Everything else routes a question into a conversation, and a
+	conversation that ends takes the question with it.
+
+	**Both channels, because `#499`'s rule cuts both ways here**: the guaranteed one has to
+	name it, and the skill is where the reasoning goes.
+	"""
+
+	skill = SKILL.read_text(encoding="utf-8")
+	guide = subroutine.api.meta.guide_text()
+
+	for channel, text in (("the skill", skill), ("the guide", guide)):
+		assert "needs_input" in text, (
+			f"{channel} never names the status, so an agent needing an answer asks in a "
+			f"conversation that is about to end"
+		)
+
+	assert "comment" in skill.lower(), (
+		"the skill says to set the status and not to write the question anywhere a person "
+		"can read it"
 	)
 
 
@@ -1054,7 +1091,11 @@ def test_the_guaranteed_channel_names_the_practice_and_not_only_the_endpoint () 
 
 	guide = subroutine.api.meta.guide_text()
 
-	assert "/release" in guide, "the guide names claiming and never says to give it back"
+	# **`/release` is no longer the answer and the question is unchanged** (`#1113`): what an
+	# agent reading only this must learn is that a lease comes back, by whichever route.
+	assert "hands it back" in guide, (
+		"the guide names claiming and never says what becomes of the lease"
+	)
 
 	assert "in_progress" in guide, (
 		"the guide never tells an agent to say it has started, so a person watching sees items "

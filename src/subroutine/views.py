@@ -1759,6 +1759,13 @@ class Agenda(pydantic.BaseModel):
 	upcoming: list[Task]
 	unscheduled: list[Task]
 
+	#: What is waiting on a person — status ``needs_input`` (`#1116`). First in
+	#: :data:`AGENDA_BUCKETS`, because it is the only one that is not work the reader could do.
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`), for
+	#: the reason ``in_progress`` below gives.
+	waiting: list[Task] = pydantic.Field(default_factory=list)
+
 	#: What is already started — status category ``in_progress`` (`#853`). An agent could not
 	#: see its own half-finished work from a listing at all (`#841`), and a person reading an
 	#: agenda could not tell what they had picked up from what they had not.
@@ -1795,6 +1802,7 @@ class Agenda(pydantic.BaseModel):
 #: is handed the bare key because it is parsing rather than reading — and collapsing that into
 #: one string would make a rendering decision on behalf of surfaces that have already made it.
 AGENDA_BUCKETS: tuple[str, ...] = (
+	"waiting",
 	"overdue",
 	"today",
 	"in_progress",
@@ -2631,6 +2639,7 @@ def agenda (
 	"""
 
 	everything = [
+		*built.waiting,
 		*built.overdue,
 		*built.today,
 		*built.in_progress,
@@ -2642,6 +2651,7 @@ def agenda (
 	return Agenda(
 		date=built.date,
 		timezone=built.timezone,
+		waiting=[task(row, vocabulary) for row in built.waiting],
 		overdue=[task(row, vocabulary) for row in built.overdue],
 		today=[task(row, vocabulary) for row in built.today],
 		upcoming=[task(row, vocabulary) for row in built.upcoming],
