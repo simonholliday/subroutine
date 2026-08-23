@@ -2443,6 +2443,47 @@ def test_both_find_a_finished_item_by_its_number (pair: Pair) -> None:
 	assert found == sorted(task.ref for task in remote.tasks(q=str(subject.ref), limit=50))
 
 
+def test_both_order_finished_work_by_when_it_finished (pair: Pair) -> None:
+	"""`#1150`, Simon: *"importance and urgency are no longer factors, when an item is done."*
+
+	**The two orders have to disagree or this proves nothing**, so the task filed first is the
+	one finished last: `-created_at` answers *[second, first]* and `-completed_at` answers the
+	reverse. A probe where both rules give the same sequence passes against the defect, which is
+	how the defect survived — `subroutine list --status done` came back in descending ref and
+	looked like an order somebody had chosen.
+
+	**Here rather than only in the endpoint's tests**, because `tasks.default_order` is called
+	from two places and the rule already existed in a third: the browser's *done* view carried
+	`-completed_at` as a literal of its own while both of these had `-created_at`. One surface
+	of three, with the rule in a place the other two could not inherit, is what this file is for.
+	"""
+
+	first = make(pair, "Filed first, finished last")
+	second = make(pair, "Filed second, finished first")
+
+	at = datetime.datetime(2026, 8, 1, 9, 0, tzinfo=datetime.UTC)
+
+	for subject, when in ((second, at), (first, at + datetime.timedelta(hours=1))):
+		row = pair.session.get(subroutine.db.models.work.Task, subject.id)
+
+		assert row is not None
+
+		subroutine.domain.tasks.complete(pair.session, row, now=when, actor=None)
+
+	pair.session.flush()
+
+	local, remote = pair.both()
+	wanted = [first.ref, second.ref]
+
+	# Refs are allocated in order and never reused (§6.2), so this *is* the creation order — and
+	# it is the reverse of the order they were finished in, which is what makes the two rules
+	# give different answers and the probe worth running.
+	assert first.ref < second.ref, "the probe did not file them in the order it thinks"
+
+	assert [task.ref for task in local.tasks(status="done", limit=50)] == wanted
+	assert [task.ref for task in remote.tasks(status="done", limit=50)] == wanted
+
+
 def test_both_find_finished_work_by_the_status_key (pair: Pair) -> None:
 	"""`#1032` on both transports, and the local one had to move code to get there.
 

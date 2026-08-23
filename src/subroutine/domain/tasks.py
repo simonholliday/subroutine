@@ -30,6 +30,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.mentions
+import subroutine.domain.ordering
 import subroutine.domain.patch
 import subroutine.domain.recurrence
 import subroutine.domain.refs
@@ -2077,6 +2078,58 @@ def status_for (
 			)
 		],
 	)
+
+
+def default_order (
+	*,
+	status: subroutine.db.models.vocabulary.Status | None = None,
+	category: str | None = None,
+) -> tuple[str, ...]:
+	"""Return what a task listing is ordered by when the caller named no order.
+
+	**A listing that holds only finished work is ordered by when it finished** (`#1150`, Simon:
+	*"completed items should always be ordered by their completed date. Importance and urgency
+	are no longer factors for ordering, when an item is done"*). Everything else keeps
+	newest-first, which is what *what have I got* means for a to-do list.
+
+	**Both ways of narrowing count, and taking them together is why this is a function.**
+	``status_category=done`` says it outright; ``status=done`` names one status and that status
+	has a category. A caller that checked only the first would leave `subroutine list --status
+	done` — the spelling the terminal actually offers, since ``--status`` takes a *key* — reading
+	as unnarrowed.
+
+	:data:`FINISHED_CATEGORIES` is read rather than the key, so a workspace that renames ``done``
+	to ``shipped`` is covered — and both categories in it carry a ``completed_at`` by §10.7
+	invariant 5, so there is nothing null to sort around.
+
+	**Here rather than at the two call sites**, because a default the endpoint applies and the
+	terminal does not is the divergence :mod:`subroutine.domain.ordering` exists to prevent —
+	and it was already real: the browser's *done* view asked for ``-completed_at`` as a literal
+	of its own while `subroutine list --status done` and every board's finished column got
+	``-created_at``. One surface of three had the rule, and had it in a place the other two
+	could not inherit.
+
+	:func:`completion_wanted` is its neighbour and takes the same two inputs to answer a
+	*different* question — whether a listing should **reach** finished work at all, which
+	``include_completed=true`` makes true of a listing that is mostly unfinished. Reaching is
+	not the same as holding nothing else, and only the second decides an order.
+
+	**Only where the whole listing is finished.** A *mixed* listing — a board, or
+	``?include_completed=true&order=-priority_score`` — is the stronger reading of *always*, and
+	it wants a fourth band in §6.3a's three. That rule exists twice by necessity and a
+	disagreement between the halves is a page boundary that skips rows, so it is `#1152` and a
+	decision rather than a continuation of this.
+	"""
+
+	# A set rather than a precedence, because there is no right answer when a caller says both
+	# contradictory things — `status=done&status_category=todo` is an empty listing whichever
+	# order this picks, so the question is not worth a rule.
+	narrowed_to = {category, status.category if status is not None else None}
+
+	if narrowed_to & FINISHED_CATEGORIES:
+		return tuple(subroutine.domain.ordering.FINISHED_TASK_ORDER)
+
+	return tuple(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
 
 
 def statuses_in_category (

@@ -2547,6 +2547,17 @@ export function permits (name, value) {
    address and the test that drives it — and a second spelling is what drifts. */
 export const EVERYTHING = { include_completed: "true" };
 
+/* **The order is now what the server would default to anyway** — `domain.tasks.default_order`,
+   item `#1150` — and it is written out here rather than dropped, for a reason that is about
+   this page and not about the rule.
+
+   `chips` decides that *done* shows a **list** rather than keeping whichever arrangement was
+   showing, and its argument is that this selection carries an order while an order means
+   nothing on a board. Taking the order out of the address would make that sentence false about
+   its own code while leaving the behaviour right, which is worse than a copy that agrees.
+
+   So: a copy, deliberately, and this comment is what stops it becoming a silent one. If the
+   default changes, change it here too — or take the address change and rewrite `chips`. */
 export const ONLY_FINISHED = { status_category: "done", order: "-completed_at" };
 
 export function viewOf (search) {

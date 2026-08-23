@@ -666,7 +666,17 @@ def listing (
 		# below the fold of an agent's default page — so "a number finds the item" was true and
 		# not yet worth anything. An explicit `?order=` still wins, and a listing that is not a
 		# search is untouched.
-		default=None if ranked is None else (f"-{subroutine.domain.ordering.RELEVANCE}",),
+		#
+		# **A relevance ranking beats the finished default, and does not replace it** (`#1150`):
+		# somebody who typed words wants the best match first whatever the listing holds, and
+		# somebody who typed none and asked only for finished work wants the newest finish.
+		default=(
+			(f"-{subroutine.domain.ordering.RELEVANCE}",)
+			if ranked is not None
+			else subroutine.domain.tasks.default_order(
+				status=named, category=status_category
+			)
+		),
 	)
 
 

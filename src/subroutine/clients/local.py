@@ -476,7 +476,15 @@ class Client:
 					now=now,
 				)
 			)
-			fallback: tuple[str, ...] = tuple(subroutine.domain.ordering.DEFAULT_TASK_ORDER)
+			# **Asked rather than decided here** (`#1150`). A listing narrowed to finished work
+			# is ordered by when it finished, and the rule lives in the domain for the same
+			# reason `sortable` is built there: a default the endpoint applies and the terminal
+			# does not is exactly the divergence `ordering.py` exists to prevent — and this one
+			# was already real, with the browser's *done* view carrying `-completed_at` as a
+			# literal of its own while this path and every board's finished column did not.
+			fallback: tuple[str, ...] = subroutine.domain.tasks.default_order(
+				status=named, category=status_category
+			)
 
 			# **Built in steps rather than one chained expression, and `is not None` rather
 			# than `or`.** A SQLAlchemy element raises on truth-testing, so `predicate or

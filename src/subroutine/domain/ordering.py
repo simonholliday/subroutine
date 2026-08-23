@@ -572,6 +572,23 @@ TASK_FIELDS: dict[str, Sortable] = {
 #: Newest first, which is what "what have I got" means for a to-do list.
 DEFAULT_TASK_ORDER = ("-created_at",)
 
+#: Most recently finished first, for a listing that holds nothing else (`#1150`, Simon:
+#: *"importance and urgency are no longer factors for ordering, when an item is done"*).
+#:
+#: The same sentence as :data:`DEFAULT_TASK_ORDER`'s, asked of a different list: newest-first is
+#: what *what have I got* means, and for finished work newest means most recently **finished**.
+#: ``-created_at`` there answers a question nobody asked — it had ``--status done`` coming back
+#: in strictly descending ref, which is the order the items were *written*.
+#:
+#: Safe to sort on unconditionally, because §10.7 invariant 5 makes ``completed_at`` non-null
+#: exactly when the status is finished — so a listing narrowed to those has no NULL to order
+#: around, and no backend disagreement about where one would go.
+#:
+#: :func:`subroutine.domain.tasks.default_order` is what chooses between the two, and both
+#: clients ask it rather than deciding: a default the endpoint applies and the terminal does not
+#: is the divergence this module exists to prevent.
+FINISHED_TASK_ORDER = ("-completed_at",)
+
 #: What ``?order=`` accepts on a document listing. Shorter than a task's because most of that
 #: vocabulary is about scheduling and §6.14 says a document is not scheduled — there is no
 #: deadline to sort by and no priority to rank.

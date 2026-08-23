@@ -210,6 +210,14 @@ upgrade involves.
 
 ### Changed
 
+- **A listing of finished work is ordered by when it finished.** `?status_category=done` and
+  `?status=done` now come back most-recently-finished first, where they used to be newest-*filed*
+  first — so `subroutine list --status done` was answering in the order the items were written.
+
+  Importance and urgency stop deciding anything once work is done, and a completion date is what
+  somebody scanning finished work is actually reading. An explicit `?order=` still wins, and a
+  listing that holds unfinished work as well is unchanged.
+
 - **An item page puts what it is joined to above its description.** *Read first* and *Links* now
   sit between the facts and the prose; *Recorded checks* and *Comments* stay below it.
 

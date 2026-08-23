@@ -2956,6 +2956,67 @@ def test_naming_the_finished_status_by_its_key_finds_finished_work (world: World
 	assert open_one["ref"] not in refs, "it reached finished work and stopped narrowing"
 
 
+@pytest.mark.parametrize(
+	("narrowing", "why"),
+	[
+		("status_category=done", "the category, which is what a board and the browser send"),
+		("status=done", "the status key, which is what --status offers"),
+	],
+)
+def test_a_listing_of_finished_work_is_ordered_by_when_it_finished (
+	world: World, narrowing: str, why: str
+) -> None:
+	"""`#1150`, Simon: *"importance and urgency are no longer factors, when an item is done."*
+
+	**Parametrised over the two spellings because they reach the rule by different routes** —
+	one arrives as a category and the other as a status whose category has to be read off the
+	row. `#1032` is the recorded precedent for exactly that pair coming apart, one filter along,
+	and `#818`'s sentence is the reason: *a rule written down in one vocabulary does not reach
+	the next one.*
+
+	The task filed first is finished last, so `-created_at` and `-completed_at` disagree. A probe
+	where they agree passes against the defect, which is how it survived: descending ref looks
+	like an order somebody chose.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Filed first, finished last"}).json()
+	second = world.call("POST", "/v1/tasks", json={"title": "Filed second, finished first"}).json()
+
+	world.call("POST", f"/v1/tasks/{second['ref']}/complete")
+	world.call("POST", f"/v1/tasks/{first['ref']}/complete")
+
+	found = world.call("GET", f"/v1/tasks?{narrowing}&limit=50").json()
+
+	assert [row["ref"] for row in found["items"]] == [first["ref"], second["ref"]], why
+
+
+def test_an_order_the_caller_named_still_wins_over_the_finished_default (
+	world: World,
+) -> None:
+	"""A default is what happens when nobody said, and `#1150` does not change that.
+
+	Worth its own test rather than trusting the layering: the finished default was added beside
+	a search's relevance default, and two defaults ANDed into one expression is a place where
+	either can start overriding what the caller asked for.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Filed first, finished last"}).json()
+	second = world.call("POST", "/v1/tasks", json={"title": "Filed second, finished first"}).json()
+
+	world.call("POST", f"/v1/tasks/{second['ref']}/complete")
+	world.call("POST", f"/v1/tasks/{first['ref']}/complete")
+
+	# **`-created_at`, not `created_at`.** The first version asked for ascending creation, which
+	# on this probe is the *same* sequence `-completed_at` produces — so it passed whether the
+	# default was honoured or ignored. The order named here has to disagree with both the old
+	# default and the new one, or the test cannot fail.
+	found = world.call("GET", "/v1/tasks?status_category=done&order=-created_at&limit=50").json()
+
+	assert [row["ref"] for row in found["items"]] == [second["ref"], first["ref"]], (
+		"newest-created first is what was asked for, and is neither default"
+	)
+
+
 def test_naming_an_unfinished_status_is_not_a_request_for_finished_work (
 	world: World,
 ) -> None:
