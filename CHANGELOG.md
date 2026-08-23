@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `8eb88cb06adc`.
+> **This release changes the database schema**, to `653e220f5129`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -60,6 +60,15 @@ upgrade involves.
   from its **project**, from a named palette, and is configured as a project setting — so a
   per-status hex was both unread and the wrong shape. Nothing you can see changes; if you had
   edited one by hand in the database, that edit is gone.
+
+- **A project no longer stores a start date, a deadline or a timezone.** Three columns that
+  have been in the schema since the first release, that no request could set, that no response
+  reported and that nothing in the program ever wrote. Nothing you can see changes and no data
+  is lost — there was never a way to put a value in one.
+
+  If you want a body of work with a start and a deadline, that is a **milestone**: an item
+  whose blockers are its contents, so it is a task and carries a task's dates. A project stays
+  a place to file things.
 
 ## 0.7.6 — 2026-08-22
 

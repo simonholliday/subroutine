@@ -133,15 +133,14 @@ class Project(
 	position: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, default=0, nullable=False
 	)
-	start_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.UtcDateTime(), nullable=True
-	)
-	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.UtcDateTime(), nullable=True
-	)
-	timezone: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
-		sqlalchemy.String(64), nullable=True
-	)
+	# **A project carries no dates of its own** (`#917`, `#525`), and this is where the three
+	# it used to declare were. Deleted on 2026-08-23 rather than wired: they were mapped in the
+	# initial commit, assigned by nothing in the whole history, accepted by no request model
+	# and reported by no view. `#84` already answers the case for them — a milestone is an item
+	# whose blockers are its contents, so a dated thing is a task rather than a project — and
+	# `timezone` went with them because its only defensible meaning was the zone those dates
+	# were authored in. §6.5's chain is explicit -> user -> workspace -> instance and has no
+	# project step. Decision `#1131` carries the argument and the amendment to frozen §10.6.
 
 	archived_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True

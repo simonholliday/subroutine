@@ -699,33 +699,21 @@ UNBUILT: dict[str, str] = {
 #: :data:`UNSETTABLE`: every entry names the item tracking it, and deleting the entry is what
 #: closes that item.
 UNREPORTED: dict[str, str] = {
-	# **Found by `#854` renaming the *task*'s date columns**, which left this one carrying a
-	# name that now means something else next door. Qualified rather than bare, because
-	# `start_at` no longer exists on `Task` at all and an unqualified entry would read as
-	# covering both.
-	"Project.start_at": (
-		"#917 — a project's own start and deadline are mapped, accepted by no request model, "
-		"reported by no view and referenced nowhere in `src/`. The item carries the "
-		"measurement and the argument for deleting rather than wiring."
-	),
-	"Project.due_at": "#917 — the same pair; see above.",
 	"spent_minutes": (
 		"#55 — §6.4 names it beside estimate_minutes and nothing reads or writes it."
 	),
 	# **The four `#443` found on its first widened run**, which is what that item was for: it
 	# fixes nothing and finds the rest by itself. Every one was measured by grepping `src/`
 	# rather than inferred from the schema — `#427`'s lesson, whose hand-written exclusion list
-	# manufactured a gap that did not exist.
+	# manufactured a gap that did not exist. **Three of the four are gone rather than excused**:
+	# `#523` deleted the colours, and `#917`/`#525` deleted `Project.start_at`,
+	# `Project.due_at` and `Project.timezone` on 2026-08-23, which is what an entry naming its
+	# item is supposed to end as.
 	#: **`#905`, not `#523`.** Split out on 2026-08-15 because it is a different question:
 	#: the three colours were presentation and are gone, and this is *documentation* — what
 	#: `#2fa` means in this workspace — which `#102` says nothing about. The entry named the
 	#: wrong item for a week, and two separate surveys read it and repeated the mistake.
 	"Tag.description": "#905 — written by nothing and read by nothing; the one of the four kept.",
-	"Project.timezone": (
-		"#525 — §6.5's chain is explicit → user → workspace → instance and `schedule.zone_for` "
-		"implements exactly that. A project is not a step in it, and nothing writes this."
-	),
-
 }
 
 
@@ -831,10 +819,23 @@ def _excused (model: type[typing.Any], column: str, register: dict[str, str]) ->
 
 	**Two spellings, and the qualified one is why widening this file was not a one-line
 	change.** A bare column name excuses that name on *every* model, which was harmless while
-	two models were walked and is not now: ``timezone`` is unread on `Project` (`#525`) and
-	reported on three other models, so excusing it by name alone would blind the guard to the
-	three that work in order to describe the one that does not. ``Project.timezone`` says the
-	one. Bare names are kept for the columns that genuinely mean the same thing everywhere.
+	two models were walked and is not now. Bare names are kept for the columns that genuinely
+	mean the same thing everywhere — ``path``, ``depth``, ``workspace_id`` — and a qualified
+	one is written wherever the reason belongs to a single model.
+
+	Two distinct reasons to qualify, and only the second still has live entries:
+
+	- **The column is unreported here and reported elsewhere.** ``Project.timezone`` was the
+	  case that forced this: unread on `Project` and reported on `Instance`, `Task`, `User`
+	  and `Workspace`, so a bare ``timezone`` would have blinded the guard to four columns
+	  that work in order to describe one that did not. `#917`/`#525` deleted the column on
+	  2026-08-23, so nothing is excused this way today — the mechanism stays because the next
+	  such column will arrive the same way.
+	- **The column also exists on models this register never walks.** ``is_system`` is on
+	  `Role` as well as the two vocabulary tables, and ``token_hash`` on the three credential
+	  tables in :data:`NOT_VIEWED`. A bare name would read as a considered excuse for rows
+	  nothing ever asked about, which is `#820`'s shape — an excuse that was never true rather
+	  than one that went stale.
 	"""
 
 	return column in register or f"{model.__name__}.{column}" in register
@@ -937,9 +938,14 @@ def test_every_column_excused_here_is_still_a_column () -> None:
 	A stale exemption reads as a considered decision about a column that no longer exists,
 	and silently excuses whatever later takes the name.
 
-	**Both spellings are checked**, and the qualified one is the stricter: ``Project.timezone``
-	is stale the moment either the model or the column goes, where a bare ``timezone`` survives
+	**Both spellings are checked**, and the qualified one is the stricter: ``ItemType.is_system``
+	is stale the moment either the model or the column goes, where a bare ``is_system`` survives
 	as long as anything anywhere has one.
+
+	**This has now fired for real rather than in theory.** `#917` and `#525` dropped
+	``Project.start_at``, ``Project.due_at`` and ``Project.timezone``, and the three excuses
+	naming them failed here in the same run — which is the whole design: an entry names the item
+	tracking it, and deleting the entry is what closes that item.
 	"""
 
 	mapped = _mapped()
