@@ -118,6 +118,11 @@ class LinkEnd(pydantic.BaseModel):
 	#: another project or a decision document in this one, which is most of what a reader
 	#: scanning a blocker list is asking.
 	type: str = ""
+
+	#: What kind of thing that type is, for a client that does not recognise the key (`#1134`).
+	#: Here for the reason every field on this model is: ``marks`` reads it, and a link line
+	#: renders through the same function as a row.
+	type_category: str = ""
 	project_path: str = ""
 
 	#: What state it is in. ``status_is_default`` is what stops every open item carrying a
@@ -475,6 +480,12 @@ class Task(pydantic.BaseModel):
 	#: status somebody set was stored and then invisible everywhere.
 	status_is_default: bool = False
 	type: str
+
+	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
+	#: `#1133`, and ``status_category``'s counterpart one vocabulary along. A workspace may call
+	#: a type anything; this says whether the thing is work, a defect, a question, a decision, a
+	#: reference or a record.
+	type_category: str = ""
 	type_id: uuid.UUID
 
 	assignee_id: uuid.UUID | None
@@ -1725,6 +1736,12 @@ class Document(pydantic.BaseModel):
 	#: Whether this is the status it starts in — see :class:`Task`, same reason (`#168`).
 	status_is_default: bool = False
 	type: str
+
+	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
+	#: `#1133`, and ``status_category``'s counterpart one vocabulary along. A workspace may call
+	#: a type anything; this says whether the thing is work, a defect, a question, a decision, a
+	#: reference or a record.
+	type_category: str = ""
 	type_id: uuid.UUID
 
 	owner_id: uuid.UUID | None
@@ -2033,7 +2050,10 @@ class Vocabulary:
 			("key", "category", "is_default"),
 		)
 		self.types = _by_id(
-			session, subroutine.db.models.vocabulary.ItemType, type_ids, ("key",)
+			session,
+			subroutine.db.models.vocabulary.ItemType,
+			type_ids,
+			("key", "category"),
 		)
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
@@ -2275,6 +2295,7 @@ def task (
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
+		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
 		assignee=_username(vocabulary, row.assignee_id),
@@ -2385,6 +2406,7 @@ def document (
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
+		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
 		type_id=row.type_id,
 		owner_id=row.owner_id,
 		tags=vocabulary.tags.get(row.id, []),
@@ -3845,6 +3867,23 @@ class Status(Named):
 	category: str
 
 
+class ItemType(Named):
+	"""An item type, with the fixed category a client may branch on (`#1134`).
+
+	**A sibling of :class:`Status` rather than a field on :class:`Named`**, and for its reason:
+	a link type is a ``Named`` too and has no category, so putting one on the base would publish
+	a field that is empty for one of the three vocabularies — §12.2a's column that says nothing,
+	one layer up.
+
+	The category exists for exactly one branch, decision `#1133`: a client draws by key when it
+	recognises the key and by category when it does not. It is not a second way of asking what a
+	document binds or when it was true.
+	"""
+
+	#: The key is renameable; the category is not. Branch on this.
+	category: str
+
+
 class LinkType(pydantic.BaseModel):
 	"""A link type, and how it reads from each end.
 
@@ -3891,6 +3930,18 @@ def status (row: typing.Any) -> Status:
 	"""Render one status row."""
 
 	return Status(
+		id=row.id,
+		key=row.key,
+		label=row.label,
+		category=row.category,
+		is_default=row.is_default,
+	)
+
+
+def item_type (row: typing.Any) -> ItemType:
+	"""Render one item type row."""
+
+	return ItemType(
 		id=row.id,
 		key=row.key,
 		label=row.label,
@@ -4023,7 +4074,7 @@ class Meta(pydantic.BaseModel):
 	workspaces: list[WorkspaceRef]
 
 	statuses: dict[str, list[Status]]
-	item_types: dict[str, list[Named]]
+	item_types: dict[str, list[ItemType]]
 	link_types: list[LinkType]
 	linkable_types: list[str]
 	tags: Tags

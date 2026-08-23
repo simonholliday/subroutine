@@ -14,13 +14,23 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `a01dcd83a946`.
+> **This release changes the database schema**, to `491e1a09de04`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **An item type says what kind of thing it is.** Every type now carries a fixed `category` —
+  `work`, `defect` or `question` for a task; `decision`, `reference` or `record` for a document —
+  published on the type in `/v1/meta` and as `type_category` on every item.
+
+  A key is renameable and a category is not, which is what makes this worth having: it is the
+  same promise `status_category` already makes one vocabulary along. The browser draws by key
+  when it knows the key and by category when it does not, so a workspace that invents a type
+  gets a mark that means something instead of the one for *unknown*. Every existing glyph is
+  unchanged.
 
 - **A record of what was checked, against the tree it was checked on.**
   `subroutine verify 42 --summary "5,610 passed, 41 skipped"` keeps what a check found, who

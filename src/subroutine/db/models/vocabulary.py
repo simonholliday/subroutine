@@ -67,6 +67,12 @@ class ItemType(
 	One table serves both, discriminated by ``entity_type`` — the same trick statuses
 	use. Tasks are typed task, bug, feature, chore or spike; documents are typed spec,
 	design, note, decision, finding or dead end.
+
+	``category`` is what a client branches on when it does not recognise the key (decision
+	`#1133`), exactly as :class:`Status`'s is: an installation may call a type anything, and a
+	workspace that invents ``epic`` should get a picture that means something rather than the
+	glyph for *unknown* for ever. It answers that one question and no other — see
+	:data:`subroutine.db.mixins.ITEM_TYPE_CATEGORIES` for the two it deliberately does not.
 	"""
 
 	__tablename__ = "item_type"
@@ -75,6 +81,7 @@ class ItemType(
 			"workspace_id", "entity_type", "key", name="uq_item_type_workspace_id_entity_type_key"
 		),
 		subroutine.db.mixins.enum_check("entity_type", subroutine.db.mixins.ITEM_ENTITY_TYPES),
+		subroutine.db.mixins.enum_check("category", subroutine.db.mixins.ITEM_TYPE_CATEGORIES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -86,6 +93,9 @@ class ItemType(
 	)
 	label: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(128), nullable=False
+	)
+	category: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=False
 	)
 	position: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=False

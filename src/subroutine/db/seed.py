@@ -60,6 +60,7 @@ class ItemTypeSeed:
 	entity_type: str
 	key: str
 	label: str
+	category: str
 	is_default: bool = False
 
 
@@ -202,18 +203,24 @@ _STATUSES = (
 	StatusSeed("document", "archived", "Archived", "archived"),
 )
 
+#: The category on each is decision `#1133`'s table, and it is what a client draws by when it
+#: does not recognise the key. Task-side it is Simon's own naming rule of 2026-07-31 with the
+#: types collected under each clause: `work` says what will be true when it is done, `defect`
+#: says what is wrong, `question` says the question. Document-side: `decision` is something
+#: settled including a route closed off, `reference` is how a thing is meant to be, `record` is
+#: what was observed.
 _ITEM_TYPES = (
-	ItemTypeSeed("task", "task", "Task", is_default=True),
-	ItemTypeSeed("task", "bug", "Bug"),
-	ItemTypeSeed("task", "feature", "Feature"),
-	ItemTypeSeed("task", "chore", "Chore"),
-	ItemTypeSeed("task", "spike", "Spike"),
-	ItemTypeSeed("document", "note", "Note", is_default=True),
-	ItemTypeSeed("document", "spec", "Specification"),
-	ItemTypeSeed("document", "design", "Design"),
-	ItemTypeSeed("document", "decision", "Decision"),
-	ItemTypeSeed("document", "finding", "Finding"),
-	ItemTypeSeed("document", "dead_end", "Dead end"),
+	ItemTypeSeed("task", "task", "Task", "work", is_default=True),
+	ItemTypeSeed("task", "bug", "Bug", "defect"),
+	ItemTypeSeed("task", "feature", "Feature", "work"),
+	ItemTypeSeed("task", "chore", "Chore", "work"),
+	ItemTypeSeed("task", "spike", "Spike", "question"),
+	ItemTypeSeed("document", "note", "Note", "record", is_default=True),
+	ItemTypeSeed("document", "spec", "Specification", "reference"),
+	ItemTypeSeed("document", "design", "Design", "reference"),
+	ItemTypeSeed("document", "decision", "Decision", "decision"),
+	ItemTypeSeed("document", "finding", "Finding", "record"),
+	ItemTypeSeed("document", "dead_end", "Dead end", "decision"),
 )
 
 #: ``derives_from`` is the one that earns its place twice over: it is how the tasks
@@ -452,6 +459,7 @@ def _seed_item_types (
 				entity_type=seed.entity_type,
 				key=seed.key,
 				label=seed.label,
+				category=seed.category,
 				position=positions[seed.entity_type],
 				is_default=seed.is_default,
 				is_system=True,

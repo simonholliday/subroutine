@@ -119,6 +119,7 @@ def _make_task (
 		entity_type="task",
 		key=f"task-{uuid.uuid4().hex[:6]}",
 		label="Task",
+		category="work",
 		position=1,
 	)
 	session.add_all([status, item_type])
@@ -296,7 +297,12 @@ def test_documents_use_the_same_ref_counter_as_tasks (session: sqlalchemy.orm.Se
 		position=1,
 	)
 	item_type = subroutine.db.models.vocabulary.ItemType(
-		workspace_id=workspace.id, entity_type="document", key="spec", label="Spec", position=1
+		workspace_id=workspace.id,
+		entity_type="document",
+		key="spec",
+		label="Spec",
+		category="reference",
+		position=1,
 	)
 	session.add_all([status, item_type])
 	session.flush()

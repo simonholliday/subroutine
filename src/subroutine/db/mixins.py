@@ -20,6 +20,30 @@ TASK_STATUS_CATEGORIES = ("todo", "in_progress", "done", "cancelled")
 DOCUMENT_STATUS_CATEGORIES = ("draft", "current", "superseded", "archived")
 STATUS_CATEGORIES = TASK_STATUS_CATEGORIES + DOCUMENT_STATUS_CATEGORIES
 
+#: What a *type* means regardless of the label an installation gives it — decision `#1133`, and
+#: the same argument one column along: a client should be able to draw a type it has never seen.
+#:
+#: **The task side is a rule Simon already took**, on 2026-07-31, reading the backlog as a
+#: stranger would: *a `bug` title says what is wrong; a `feature`, `task` or `chore` title says
+#: what will be true when it is done; a `spike` says the question*. These are that sentence with
+#: the types collected under each clause — arrived at independently, for a different reason,
+#: which is the strongest evidence a set is right.
+#:
+#: **Three rather than four, deliberately.** :data:`TASK_STATUS_CATEGORIES` has four because
+#: there are four states; nothing makes four right here, and padding to it means inventing a
+#: category to fill it. A fourth splitting `chore` out of `work` was considered and rejected as a
+#: category chosen for a *picture* rather than for a meaning — which is what `#523` took `colour`
+#: off this table for.
+#:
+#: **It answers one question and says so.** Not whether a document binds the reader
+#: (``links.GOVERNING_LINKS``) and not whether one is true the moment it is written
+#: (``documents.IN_FORCE_WHEN_WRITTEN``). Those are different partitions of the same six
+#: document types, overlapping in two members and differing in two, and a field serving all
+#: three would serve none.
+TASK_TYPE_CATEGORIES = ("work", "defect", "question")
+DOCUMENT_TYPE_CATEGORIES = ("decision", "reference", "record")
+ITEM_TYPE_CATEGORIES = TASK_TYPE_CATEGORIES + DOCUMENT_TYPE_CATEGORIES
+
 #: Entities that can carry a status, a type, a comment or a link.
 STATUS_ENTITY_TYPES = ("task", "project", "document")
 ITEM_ENTITY_TYPES = ("task", "document")

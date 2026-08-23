@@ -16,11 +16,14 @@ import alembic.runtime.migration
 import pytest
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.orm
 
 import conftest
 import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models
+import subroutine.db.models.identity
+import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
 
@@ -307,6 +310,10 @@ def test_a_comment_event_written_before_subjects_gains_one (migrated_url: str) -
 #: The revision before ``start_at`` split into an appointment and a defer.
 _BEFORE_THE_DATE_SPLIT = "a3f9c21d7e40"
 
+#: The revision before an item type carried a category (`SR#1134`), which is the one whose
+#: upgrade backfills it.
+_BEFORE_THE_TYPE_CATEGORY = "a01dcd83a946"
+
 
 #: The task table as it stood at :data:`_BEFORE_THE_DATE_SPLIT`, carrying its real types.
 #:
@@ -414,6 +421,60 @@ def _a_workspace_with_one_task (
 	connection.execute(sqlalchemy.insert(table).values(**values, **task))
 
 	return identifier
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_the_backfilled_type_category_is_the_one_the_seeder_would_have_written (
+	migrated_url: str,
+) -> None:
+	"""`SR#1134`: two copies of decision `SR#1133`'s table, and this is what holds them together.
+
+	The migration carries a ``key -> category`` map because a backfill cannot call the seeder —
+	it runs against a schema the models may have moved past. So the same eleven pairs are written
+	down twice, in ``491e1a09de04`` and in ``seed._ITEM_TYPES``, and **two copies that agree are
+	invisible**: every other test here passes whether they agree or not, because both produce a
+	value and the column is NOT NULL either way.
+
+	**Driven rather than compared.** Reading the migration's dict and diffing it against the
+	seeder would check my transcription and not the backfill — an UPDATE with a typo'd column, a
+	``WHERE`` that matches nothing, or a fallback swallowing the lot would all pass. So a real
+	workspace is seeded at head, the column is dropped by going back one revision, and the
+	migration puts it back: what is compared is what the database ends up holding.
+
+	The fallback is asserted *by* this rather than beside it — if the ``WHERE key = …`` half
+	stopped matching, every task type would come back ``work`` and every document ``record``,
+	which is what these expectations would then fail on.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_THE_TYPE_CATEGORY)
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		table = subroutine.db.base.Base.metadata.tables["item_type"]
+
+		with engine.begin() as connection:
+			backfilled: dict[str, str] = dict(
+				connection.execute(
+					sqlalchemy.select(table.c.key, table.c.category)
+				).tuples().all()
+			)
+
+		wanted = {one.key: one.category for one in subroutine.db.seed._ITEM_TYPES}
+
+		assert len(wanted) >= 11, f"only {sorted(wanted)} are seeded, so this checks little"
+		assert backfilled == wanted
+
+	finally:
+		engine.dispose()
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
@@ -619,7 +680,8 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 		("user", {"id": user, "username": "someone"}),
 		(
 			"item_type",
-			{"id": item_type, "workspace_id": workspace, "key": "task", "label": "Task"},
+			{"id": item_type, "workspace_id": workspace, "key": "task", "label": "Task",
+				"category": "work"},
 		),
 		("status", {"id": status, "workspace_id": workspace, "key": "open", "label": "Open"}),
 		("role", {"id": role, "workspace_id": workspace, "key": "member", "title": "Member"}),
@@ -873,7 +935,7 @@ def test_the_seeded_data_covers_every_referencing_table () -> None:
 
 #: Columns whose CHECK constraint a generic filler value would violate.
 VOCABULARY: dict[str, dict[str, typing.Any]] = {
-	"item_type": {"entity_type": "task"},
+	"item_type": {"entity_type": "task", "category": "work"},
 	"status": {"entity_type": "task", "category": "todo"},
 }
 
@@ -886,9 +948,21 @@ def _insert (
 	Through the table's own ``insert()`` rather than a ``text()`` statement, so every value
 	passes through its column's type. Raw SQL has no type information to bind against, and
 	pysqlite refuses a ``uuid.UUID`` outright — which is what the first version of this did.
+
+	**Narrowed to the columns the database actually has** (`SR#1134`). Callers use this at an
+	*older* revision — that is the whole point of ``test_an_absorbed_planned_day_…``, which
+	downgrades, writes a row and upgrades — while the table here is the model's, which is
+	today's. So every column added to a table this seeds broke that test, with a message about
+	SQLite rather than about the fixture, and the breakage arrived one migration late.
+
+	The model's table is still what builds the statement, because the types are the point; only
+	the *set* of columns comes from the database.
 	"""
 
 	table = subroutine.db.base.Base.metadata.tables[table_name]
+	present = {
+		column["name"] for column in sqlalchemy.inspect(connection).get_columns(table_name)
+	}
 	row = dict(values)
 
 	for column in table.columns:
@@ -901,7 +975,11 @@ def _insert (
 		vocabulary = VOCABULARY.get(table_name, {})
 		row[column.name] = vocabulary.get(column.name, _filler(column))
 
-	connection.execute(sqlalchemy.insert(table).values(**row))
+	connection.execute(
+		sqlalchemy.insert(table).values(
+			**{name: value for name, value in row.items() if name in present}
+		)
+	)
 
 
 def _filler (column: sqlalchemy.Column[typing.Any]) -> typing.Any:

@@ -43,6 +43,7 @@ import subroutine.api.tasks
 import subroutine.api.web
 import subroutine.cli.personal
 import subroutine.cli.topics
+import subroutine.db.mixins
 import subroutine.db.seed
 import subroutine.domain.agenda
 import subroutine.domain.authentication
@@ -10562,6 +10563,136 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	)
 
 
+#: What each seeded type draws today, pinned rather than derived — `SR#1134`, whose own words are
+#: that a guard for this is worth more than the feature. Decision `SR#1133` adds a *fallback* and
+#: changes nothing a reader already recognises, so the way this goes wrong is a glyph quietly
+#: moving while every other test stays green: the map is still complete, every name is still
+#: vendored, and the picture on somebody's board has changed.
+TODAYS_GLYPHS = {
+	"task": "check-square",
+	"bug": "bug",
+	"feature": "sparkle",
+	"chore": "broom",
+	"spike": "flask",
+	"note": "note",
+	"spec": "file-text",
+	"design": "compass-tool",
+	"decision": "gavel",
+	"finding": "magnifying-glass",
+	"dead_end": "prohibit",
+}
+
+
+def _unknown_icon () -> str:
+	"""Return what this client draws for a type it cannot place, read out of the source.
+
+	Written down here it would be a second copy of a value one line of `app.js` owns, and the
+	copy that agrees is the one nothing catches.
+	"""
+
+	found = re.search(
+		r'export const UNKNOWN_ICON = "([a-z-]+)"',
+		(ASSETS / "app.js").read_text(encoding="utf-8"),
+	)
+
+	assert found is not None, "`UNKNOWN_ICON` has moved, so this is reading nothing"
+
+	return found.group(1)
+
+
+UNKNOWN = _unknown_icon()
+
+
+@pytest.mark.parametrize(
+	("type_key", "category", "expected", "why"),
+	[
+		("bug", "defect", "bug", "a key this client knows wins, and nothing about it moved"),
+		("epic", "work", "check-square", "a type it has never seen draws by what kind it is"),
+		("epic", "", UNKNOWN, "a type with no category has nothing left to fall through to"),
+		("epic", "saga", UNKNOWN, "nor has one whose category this client does not know"),
+	],
+)
+def test_a_type_this_client_has_never_seen_is_drawn_by_what_kind_of_thing_it_is (
+	tmp_path: pathlib.Path, type_key: str, category: str, expected: str, why: str
+) -> None:
+	"""`SR#1134` driven rather than read, which is the half the source scans cannot do.
+
+	The two guards above check that the *maps* are complete and that every name in them was
+	vendored. Neither can say the chain is wired: `TYPE_ICONS[…] || CATEGORY_ICONS[…] || …`
+	could have its middle term dropped, or read a field the row does not carry, and both would
+	stay green.
+
+	**The first case is what stops this being satisfied by always falling through.** `bug` has to
+	keep drawing `bug` — decision `SR#1133` adds a fallback and changes nothing a reader already
+	recognises — and the last two are what stop it being satisfied by never falling through.
+	"""
+
+	drawn = _addressing(tmp_path, [
+		("marks", {
+			"item": {"ref": 1, "kind": "task", "title": "Something", "type": type_key,
+				"type_category": category, "status": "open", "status_is_default": True},
+			"showKind": True, "ordering": None, "place": None, "linkable": False,
+		}),
+	])[0]
+
+	identity = [one for one in drawn if one["family"] == "identity"]
+
+	assert identity, f"no type mark was drawn at all, so this checks nothing: {drawn}"
+	assert identity[0]["icon"] == expected, why
+
+
+def test_the_glyph_each_seeded_type_draws_has_not_changed () -> None:
+	"""A snapshot, deliberately, and the only one in this file.
+
+	Derived checks are better than pinned ones almost everywhere, and here they are the thing
+	that cannot work: a glyph's *correctness* is somebody's judgement about a picture, so there
+	is nothing to derive it from. What can be checked is that it has not moved without anybody
+	saying so — and `SR#1134` adds a whole second lookup beside this map, which is exactly the
+	kind of change that reshuffles a table by accident.
+
+	**Deleting an entry here is how a deliberate change passes**, which is the point: it costs
+	one line and a moment's thought, and the alternative costs a reader their landmarks.
+	"""
+
+	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	mapping = re.search(r"export const TYPE_ICONS = \{(.*?)\n\};", source, re.DOTALL)
+
+	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
+
+	drawn = dict(re.findall(r'^\t([a-z_]+):\s*"([a-z-]+)"', mapping.group(1), re.M))
+
+	assert len(drawn) >= 11, f"only {sorted(drawn)} were read, so this checks almost nothing"
+	assert {key: drawn[key] for key in TODAYS_GLYPHS if key in drawn} == TODAYS_GLYPHS
+
+
+def test_every_category_a_workspace_can_seed_has_a_glyph_to_fall_back_to () -> None:
+	"""`SR#1134`. The fallback is only worth having if it answers for every category.
+
+	**Read from the model's vocabulary rather than listed here**, so a seventh category added to
+	``db.mixins.ITEM_TYPE_CATEGORIES`` fails this rather than silently drawing the mark for
+	*unknown* — which would be the fallback needing a fallback, and no louder than the gap it
+	was built to close.
+
+	The sibling above asks the same of the *type* map. Both are the same question one level
+	apart, and this one is the level that survives a workspace inventing a type.
+	"""
+
+	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	mapping = re.search(r"export const CATEGORY_ICONS = \{(.*?)\n\};", source, re.DOTALL)
+
+	assert mapping is not None, "`CATEGORY_ICONS` has moved, so this is scanning nothing"
+
+	drawn = set(re.findall(r"^\t([a-z_]+):", mapping.group(1), re.M))
+	known = set(subroutine.db.mixins.ITEM_TYPE_CATEGORIES)
+
+	assert len(known) >= 6, f"only {sorted(known)} exist, so this checks almost nothing"
+
+	assert known <= drawn, (
+		f"{sorted(known - drawn)} are categories with no glyph, so a type this client does not "
+		f"recognise falls all the way through to the mark for unknown"
+	)
+
+
 def test_every_glyph_this_client_names_is_one_that_was_vendored () -> None:
 	"""`SR#925`. **A name with no path data draws nothing, and says nothing about it.**
 
@@ -10588,7 +10719,7 @@ def test_every_glyph_this_client_names_is_one_that_was_vendored () -> None:
 
 	named = set()
 
-	for constant in ("TYPE_ICONS", "MARK_ICONS"):
+	for constant in ("TYPE_ICONS", "MARK_ICONS", "CATEGORY_ICONS"):
 		mapping = re.search(rf"export const {constant} = \{{(.*?)\}};", source, re.DOTALL)
 
 		assert mapping is not None, f"`{constant}` has moved, so this is scanning nothing"

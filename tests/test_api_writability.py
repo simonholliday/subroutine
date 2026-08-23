@@ -233,6 +233,7 @@ DERIVED: dict[str, str] = {
 		"thing a lease must not allow."
 	),
 	"status_category": "The fixed category of the status (§5.5); an installation names statuses, not categories.",
+	"type_category": "The fixed category of the type (`#1133`); the same rule one vocabulary along, and what a client draws by when it does not know the key.",
 	"status_id": "The id of the status named by `status`.",
 	"status_is_default": (
 		"Whether `status` is the one items start in — a property of the workspace's "
@@ -692,8 +693,10 @@ UNBUILT: dict[str, str] = {
 	# of it is *what is this* — a workspace that renames `bug` to `defect` publishes
 	# `is_system: true` and a client still cannot tell which type it holds. `#906` reversed
 	# `#524`'s own publish recommendation for exactly that reason and named the successor: a
-	# classifier on `ItemType` modelled on `Status.category`, which needs the set of categories
-	# decided. Both belong to `#826`.
+	# classifier on `ItemType` modelled on `Status.category`, which needed the set of categories
+	# decided. **That successor shipped** — decision `#1133` settled the six, `#1134` built the
+	# column, and `views.ItemType` publishes it. So the question this column was standing in for
+	# is answered elsewhere and `is_system` is left saying only what it says.
 	#
 	# Qualified, because the bare spelling reads as covering three columns and covers two —
 	# `Role.is_system` is written by the seeder too and `Role` is in `NOT_VIEWED`, so this
@@ -734,7 +737,6 @@ def _columns (model: type[typing.Any]) -> frozenset[str]:
 
 #: Models whose view is not named after them, so the pairing cannot be derived from the name.
 VIEWED_AS: dict[str, str] = {
-	"ItemType": "Named",
 	"ApiToken": "Token",
 	"ProjectMember": "Member",
 	"WorkspaceMember": "Member",

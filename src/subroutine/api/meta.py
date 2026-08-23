@@ -574,22 +574,18 @@ def _statuses (
 
 def _item_types (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID
-) -> dict[str, list[subroutine.views.Named]]:
+) -> dict[str, list[subroutine.views.ItemType]]:
 	"""Return every item type this workspace has, grouped by what it applies to."""
 
 	model = subroutine.db.models.vocabulary.ItemType
-	grouped: dict[str, list[subroutine.views.Named]] = {}
+	grouped: dict[str, list[subroutine.views.ItemType]] = {}
 
 	for row in session.scalars(
 		sqlalchemy.select(model)
 		.where(model.workspace_id == workspace_id)
 		.order_by(model.entity_type, model.position)
 	):
-		grouped.setdefault(row.entity_type, []).append(
-			subroutine.views.Named(
-				id=row.id, key=row.key, label=row.label, is_default=row.is_default
-			)
-		)
+		grouped.setdefault(row.entity_type, []).append(subroutine.views.item_type(row))
 
 	return grouped
 

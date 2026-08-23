@@ -106,6 +106,11 @@ const TASK_FIELDS = [
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
 	   clicking*. Both kinds carry one, so both lists ask. */
 	"type",
+	/* **What to draw when the key above is one this client has never seen** (`#1134`, decision
+	   `#1133`). Not rendered as a word — `marks` prints the type itself — but the glyph falls
+	   through it, so a workspace that invents a type gets a picture that means something rather
+	   than the mark for *unknown*. Both kinds carry one, for the reason above. */
+	"type_category",
 	/* **Which timezone a day-scale date was stored in** (`#773`). §6.5 stores an all-day
 	   deadline at the last instant of its day *in the task's own zone*, so rendering it in the
 	   reader's shows the next day to anybody east of it — measured, and live: the terminal said
@@ -167,6 +172,11 @@ const DOCUMENT_FIELDS = [
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
 	   clicking*. Both kinds carry one, so both lists ask. */
 	"type",
+	/* **What to draw when the key above is one this client has never seen** (`#1134`, decision
+	   `#1133`). Not rendered as a word — `marks` prints the type itself — but the glyph falls
+	   through it, so a workspace that invents a type gets a picture that means something rather
+	   than the mark for *unknown*. Both kinds carry one, for the reason above. */
+	"type_category",
 	/* Not rendered either — it is what the board groups on (`#653`). A document's categories
 	   are its own vocabulary, so it gets its own columns rather than being mapped onto a
 	   task's: `current` is not *in progress*, and saying so would be inventing a claim. */
@@ -3431,6 +3441,11 @@ export function orderedAs (selection) {
 	`bug` to `defect` would publish `is_system: true` and this would still not know which icon to
 	draw. `#906` records the whole argument and `#826` inherits it — the field that would work is
 	a classifier on `ItemType`, modelled on `Status.category`.
+
+	**That field exists now**, and `CATEGORY_ICONS` below is what it buys: decision `#1133`, built
+	as `#1134`. The paragraph above stands as written — this map is still one client's opinion,
+	and the keys it names are still renameable — but the silent-wrongness it warns about is what
+	the category answers. A type this has never heard of now draws by what *kind* of thing it is.
 */
 export const TYPE_ICONS = {
 	task: "check-square",
@@ -3444,6 +3459,31 @@ export const TYPE_ICONS = {
 	decision: "gavel",
 	finding: "magnifying-glass",
 	dead_end: "prohibit",
+};
+
+/*
+	**What to draw for a type this client has never heard of** — decision `#1133`'s six
+	categories, `#1134`'s column, and the middle step of the chain in `marks`.
+
+	**Every one of these is an existing glyph, and that is the design rather than a shortcut.**
+	A category's picture is the picture of the type that represents it: a workspace that invents
+	`epic` under `work` gets `check-square`, the same mark `task` carries. It reads as *this is
+	work, and I do not know more*, which is exactly true — and `#102` is what makes it safe,
+	because nothing here is information only in a glyph: the word beside it says `epic`.
+
+	Six new glyphs was the other option and is worse on every axis. It would vendor bytes for
+	pictures nobody has seen, invent a visual vocabulary for categories that Simon has not
+	chosen, and give an unknown `work` type a *different* mark from `task` — which says the two
+	are different kinds of thing when the whole claim of the category is that they are the same
+	kind.
+*/
+export const CATEGORY_ICONS = {
+	work: "check-square",
+	defect: "bug",
+	question: "flask",
+	decision: "gavel",
+	reference: "file-text",
+	record: "note",
 };
 
 /* The two ends of a `blocks` link (`#913`, Simon's suggestion on `#911`). A lock for work
@@ -3529,7 +3569,13 @@ export function marks (
 		found.push({
 			text: item.type,
 			family: "identity",
-			icon: TYPE_ICONS[item.type] || UNKNOWN_ICON,
+			/* **Key, then category, then unknown** — decision `#1133`'s chain, `#1134`'s
+			   column. The first step keeps today's eleven glyphs exactly as they were; the
+			   second is what a type this client has never heard of gets, and the third is
+			   what a *category* it has never heard of gets, since the server may grow one. */
+			icon: TYPE_ICONS[item.type]
+				|| CATEGORY_ICONS[item.type_category]
+				|| UNKNOWN_ICON,
 		});
 	} else if (showKind) {
 		found.push({
