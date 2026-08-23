@@ -3109,12 +3109,64 @@ def _refuse_words (program: Program, words: list[str] | None, looking_for: str) 
 	)
 
 
-def _moved_to (program: Program, which: str, status: str, *, verb: str, said: str) -> None:
-	"""Move a task to a named status, in the shape `done` uses.
+def _status_in (
+	client: subroutine.clients.base.Client,
+	*,
+	workspace: str | None,
+	category: str,
+	verb: str,
+) -> str:
+	"""Return the key of this workspace's status in a category, whatever it calls it.
+
+	**A status key is data an installation renames** (§5.5), so a command may not send one it
+	made up. `done` has never had to: it goes through a verb route and the server resolves the
+	category with `domain.tasks.status_key_in`. `start` and `stop` send a `PATCH`, so the
+	resolution has to happen on this side — and `/v1/meta` publishes it, one key per status
+	with the fixed category beside it, in the same `position` order that function reads.
+
+	`#1036` met this a layer over and chose the same remedy: the mapping is published, so ask
+	for it rather than restating it. The cost is one round trip on two commands that were
+	already making one.
+
+	**This is the CLI's only call to `meta`, and it must stay the only kind.** `test_reach`
+	carried the argument until this landed and its register cannot hold it now, so it lives
+	here: §1.4 requires a person keeping a to-do list never to read a vocabulary listing before
+	setting a status, so a wrong key is refused by name with the alternatives beside it,
+	`explain` carries the grammars (`#154`), and the words somebody can use are the ones the
+	program prints back at them. **There is deliberately no `subroutine meta` command**, and
+	calling it *in order to answer a question the reader never asked* is the opposite of
+	offering it as one. An agent is the asymmetric case — holding a path and a body, with no
+	point of use to be corrected at — which is why the same thing is an MCP resource (`#486`).
+	"""
+
+	meta = client.meta(workspace=workspace)
+
+	for status in meta.statuses.get("task", []):
+		if status.category == category:
+			return status.key
+
+	# **Reachable, and the refusal has to say what to do.** A workspace whose vocabulary is
+	# editable (`#826`) can delete every status in a category, and then this command has no
+	# honest target. Naming the category rather than a key it might have had is the point: the
+	# reader chose the names, so a made-up one would tell them nothing.
+	raise subroutine.errors.ValidationError(
+		f"There is nothing to {verb} to in this workspace.",
+		hint=(
+			f"'{verb}' moves work into the '{category}' part of the workflow and this "
+			f"workspace has no status there."
+		),
+	)
+
+
+def _moved_to (program: Program, which: str, category: str, *, verb: str, said: str) -> None:
+	"""Move a task into a category of the workflow, in the shape `done` uses.
 
 	One body for both, because they differ in two words. **Neither says "status"** — §13.5b
 	forbids the vocabulary and does not need it: `done`, `plan` and `defer` are all actions
 	that happen to set a field, and "Started: <title>" is the same shape as "Done: <title>".
+
+	**A category, never a key** (`#1128`). These two used to send `"in_progress"` and `"open"`
+	as literals, twenty lines from `done`, which resolves. See :func:`_status_in`.
 	"""
 
 	with program.opened() as world:
@@ -3133,6 +3185,9 @@ def _moved_to (program: Program, which: str, status: str, *, verb: str, said: st
 			return
 
 		client = _require_connection(program, world, located.connection)
+		status = _status_in(
+			client, workspace=located.workspace, category=category, verb=verb
+		)
 		moved = client.update(ref=task.ref, status=status, workspace=located.workspace)
 
 		program.say(_acted(world, dataclasses.replace(located, item=moved), said))
@@ -5085,7 +5140,7 @@ def register (
 		putting it down is ordinary; having to finish it to stop showing as busy is not.
 		"""
 
-		_moved_to(program, which, "open", verb="stop", said="Stopped")
+		_moved_to(program, which, "todo", verb="stop", said="Stopped")
 
 	@app.command()
 	def done (

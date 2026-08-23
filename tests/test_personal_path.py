@@ -3896,6 +3896,115 @@ def test_you_can_say_you_have_started_something_and_put_it_down_again (
 	assert "Stopped: Write the report" in run("stop", "1").output
 
 
+def test_starting_and_stopping_survive_a_renamed_status (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1128`. Both sent a status key as a literal, twenty lines from `done`, which resolves.
+
+	**Reaching past the CLI to rename, because nothing can rename a status on any surface yet**
+	— that is `#826`, and it is the reason this defect is latent rather than live. It stops
+	being latent the day `#826` lands, which is why it is worth a guard before then.
+
+	A status key is data an installation owns (§5.5); the *category* beside it is fixed and is
+	what a caller branches on. `done` has never had to care, because it goes through a verb
+	route and the server resolves the category.
+	"""
+
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.vocabulary
+	import subroutine.db.session
+
+	run("init")
+	run("add", "Write the report")
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			model = subroutine.db.models.vocabulary.Status
+			renamed = {"open": "todo_now", "in_progress": "doing"}
+
+			for was, now in renamed.items():
+				session.execute(
+					sqlalchemy.update(model)
+					.where(model.entity_type == "task", model.key == was)
+					.values(key=now)
+				)
+
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	# Red before the fix: `stop` refused with "There is no task status called 'open' here."
+	assert "Started: Write the report" in run("start", "1").output
+	assert "Stopped: Write the report" in run("stop", "1").output
+
+	# **And the positive half**, because "did not refuse" is also what a command that silently
+	# did nothing produces. The item has to land in a status of the right *category*, under
+	# whatever name this workspace now uses for it — `stop` in `todo`, `start` in `in_progress`.
+	assert '"status": "todo_now"' in run("show", "1", "--json").output
+
+	run("start", "1")
+
+	assert '"status": "doing"' in run("show", "1", "--json").output
+
+
+def test_a_workflow_with_nowhere_to_start_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The refusal `#1128` added, driven — because a refusal nothing exercises is the family.
+
+	Reachable the day `#826` lets a workspace delete a status. The message names the *part of
+	the workflow* rather than a key, because the reader chose the names and a key this command
+	invented would tell them nothing.
+	"""
+
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.vocabulary
+	import subroutine.db.session
+
+	run("init")
+	run("add", "Write the report")
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			model = subroutine.db.models.vocabulary.Status
+
+			# Safe to remove: nothing is in it, which is why this is the one category a
+			# workspace could empty without breaking a foreign key.
+			session.execute(
+				sqlalchemy.delete(model).where(
+					model.entity_type == "task", model.category == "in_progress"
+				)
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	refused = run("start", "1", expect=1)
+
+	assert "nothing to start" in refused.output
+	assert "in_progress" in refused.output, "the hint names the part of the workflow"
+
+	# Stopping still works, because its category is untouched — so the refusal is about this
+	# workspace's vocabulary rather than about the command being broken.
+	assert "Stopped" in run("stop", "1").output
+
+
 def test_starting_something_is_visible_in_the_list (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
