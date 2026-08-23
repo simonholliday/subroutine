@@ -7688,6 +7688,7 @@ class Sections:
 	links: typing.Sequence[subroutine.views.Link]
 	remarks: typing.Sequence[subroutine.views.Comment]
 	referring: typing.Sequence[subroutine.views.Backlink]
+	proposed: typing.Sequence[subroutine.views.Proposal]
 	children: typing.Sequence[subroutine.views.Task]
 	events: typing.Sequence[subroutine.views.Event]
 
@@ -7697,35 +7698,36 @@ class Sections:
 	asked_for_history: bool
 
 
-def _referring (
-	client: subroutine.clients.base.Client, located: Located
-) -> typing.Sequence[subroutine.views.Backlink]:
-	"""Return what refers to this item, or nothing where the instance cannot answer — `#144`.
+#: What a section returns when this instance is too old to have the route behind it.
+_Section = typing.TypeVar("_Section")
 
-	**The mention index has been written by every reference in anybody's prose since M1 and
-	read by nothing**, so *what refers to this?* — the question the table exists for — was
-	answerable on no surface until this.
+
+def _if_the_instance_can_answer (
+	ask: typing.Callable[[], typing.Sequence[_Section]],
+) -> typing.Sequence[_Section]:
+	"""Return a section, or nothing where this instance is too old to have its route.
 
 	**A missing route is not a missing item, and this is `#250`'s skew shape** (found within a
-	minute of building it, against an instance one commit behind). The program and the instance
-	upgrade separately, and upgrading the program first is the ordinary order — so a `show`
-	that failed outright because one of its five sections is newer than the server would break
-	the commonest command over the newest one. The item was resolved before this is called, so
-	a ``not_found`` here can only be the route.
+	minute of building the first of these, against an instance one commit behind). The program
+	and the instance upgrade separately, and upgrading the program first is the ordinary order
+	— so a ``show`` that failed outright because one of its sections is newer than the server
+	would break the commonest command over the newest one. The item is resolved before any of
+	these is called, so a ``not_found`` here can only be the route.
 
 	**Silent rather than noted**, which is the trade and is worth saying out loud: a reader on
 	an older instance sees no section rather than a line explaining why. That is a plausible,
 	complete, wrong answer — and it is accepted because the program already reports the
 	mismatch that causes it, in ``whoami``'s closing line (`#381`), and a second notice on
 	every ``show`` would be noise for a state nobody stays in.
+
+	**Written once for two sections rather than twice** (`#1137`). The first version of this
+	lived inside the backlinks section, so the second new section would have been a second
+	copy of a rule about version skew — and the whole failure it guards against is two things
+	that were meant to agree not agreeing.
 	"""
 
 	try:
-		return client.backlinks(
-			ref=located.ref,
-			entity_type=located.entity_type,
-			workspace=located.workspace,
-		)
+		return ask()
 
 	except subroutine.errors.NotFound:
 		return []
@@ -7746,7 +7748,12 @@ def _sections (
 	return Sections(
 		links=client.links(ref=located.ref, **where),
 		remarks=client.comments(ref=located.ref, **where),
-		referring=_referring(client, located),
+		referring=_if_the_instance_can_answer(
+			lambda: client.backlinks(ref=located.ref, **where)
+		),
+		proposed=_if_the_instance_can_answer(
+			lambda: client.proposed_links(ref=located.ref, **where)
+		),
 		# **Completed children included**, unlike every listing here. A parent showing two of
 		# its four children because the other two are finished would misreport the thing
 		# somebody opened it to see. `#84` says report the rollup and leave completion an act;
@@ -7798,6 +7805,7 @@ def _render_item (
 	links = gathered.links
 	remarks = gathered.remarks
 	referring = gathered.referring
+	proposed = gathered.proposed
 	children = gathered.children
 	events = gathered.events
 
@@ -7922,6 +7930,39 @@ def _render_item (
 			line.append(f"{'in a comment' if one.via else '':<13}", style=DETAIL)
 			line.append(one.title)
 			console.print(line)
+
+	if proposed:
+		# **What the writing suggests, and nobody has said so** (`#1137`). Separate from the
+		# links above and phrased as a suggestion, because that is the whole of respecting the
+		# decision underneath it: *what governs this* answers from links somebody made, and a
+		# citation is evidence that one belongs rather than the thing itself. A sentence citing
+		# a decision can as easily mean *this contradicts it*.
+		#
+		# **Silent when there are none**, like every other section here, so a personal to-do
+		# list never grows a heading about governance.
+		console.print("")
+		console.print(
+			rich.text.Text(
+				f"Not linked, but its writing suggests ({len(proposed)})", style=HEADING
+			)
+		)
+
+		for suggestion in proposed:
+			line = rich.text.Text()
+			line.append(
+				f"  {subroutine.domain.refs.format_ref(suggestion.other.ref):>6}  ",
+				style=POSITION,
+			)
+			line.append(suggestion.other.title)
+			line.append(f"  ({suggestion.because})", style=DETAIL)
+			console.print(line)
+
+		_suggest(
+			console,
+			f"subroutine link {proposed[0].other.ref} "
+			f"{proposed[0].link_type.replace('_', '-')} {located.ref}",
+			"confirm one",
+		)
 
 	if remarks:
 		# **The count is always shown; the bodies are bounded** (`#37`, Simon's request). Every
@@ -8411,6 +8452,7 @@ def _shown_as_json (
 	links = gathered.links
 	remarks = gathered.remarks
 	referring = gathered.referring
+	proposed = gathered.proposed
 	children = gathered.children
 	events = gathered.events
 
@@ -8426,6 +8468,10 @@ def _shown_as_json (
 		# a section the rendered path shows and this one omits is `#583`'s two-renderings
 		# defect arriving on a new field.
 		"backlinks": [one.model_dump(mode="json") for one in referring],
+		# **Its own key rather than merged into `links`** (`#1137`). A scripted reader that
+		# could not tell a suggestion from a link would report one as the other, which is the
+		# single thing this feature must never do.
+		"proposed_links": [one.model_dump(mode="json") for one in proposed],
 		"children": [child.model_dump(mode="json") for child in children],
 		# **Always present, and `null` when it was not asked for** (`#349`). The key is
 		# unconditional for the reason it always was: one that appears only with `--history`

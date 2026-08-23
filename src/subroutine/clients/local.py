@@ -1230,6 +1230,26 @@ class Client:
 				),
 			)
 
+	def proposed_links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Proposal]:
+		"""Return the documents this item's writing suggests govern it."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return subroutine.views.proposals(
+				session,
+				subroutine.domain.links.proposals(
+					session,
+					actor,
+					workspace_id=chosen.id,
+					entity_type=entity_type,
+					identifier=subject,
+				),
+			)
+
 	def backlinks (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Backlink]:

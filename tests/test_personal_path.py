@@ -5415,6 +5415,64 @@ def test_show_says_nothing_about_references_where_there_are_none (
 	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
 
 
+def test_show_offers_the_link_the_writing_suggests_and_says_it_is_not_one (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1137`. The evidence, where the decision is made, with one command to act on it.
+
+	**Phrased as a suggestion and printed below the links**, which is the whole of respecting
+	the decision underneath: *what governs this* answers from links somebody made, and a
+	citation is a reason to think one belongs rather than the thing itself.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("add", "Rewrite the parser", "--description", "Follows #1.")
+
+	shown = run("show", "2").output
+
+	assert "Not linked, but its writing suggests (1)" in shown, shown
+	assert "How dates are written" in shown
+	assert "this names it" in shown
+	assert "subroutine link 1 documents 2" in shown, f"nothing says how to confirm it: {shown}"
+
+
+def test_confirming_the_suggestion_makes_it_a_link_and_the_offer_stops (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Driven end to end, because the tip is a promise about a command that has to work."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("add", "Rewrite the parser", "--description", "Follows #1.")
+	run("link", "1", "documents", "2")
+
+	shown = run("show", "2").output
+
+	assert "Documented by" in shown, f"the link was not made: {shown}"
+	assert "Not linked, but its writing suggests" not in shown, shown
+
+
+def test_a_personal_list_never_meets_a_suggestion_about_governance (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§1.4, and this is the section most likely to break it.
+
+	Somebody keeping a to-do list writes no decisions, so there is nothing to propose — but a
+	heading that appeared empty, or on an ordinary citation of another task, would put the
+	word *governs* in front of a reader whose list says *buy milk*.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Buy milk")
+	run("add", "Buy bread", "--description", "Same trip as #1.")
+
+	shown = run("show", "2").output
+
+	assert "Buy bread" in shown, "the probe showed nothing, so it proves nothing"
+	assert "suggests" not in shown, f"a suggestion about a task, which cannot govern: {shown}"
+
+
 def test_the_scripted_item_carries_what_refers_to_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

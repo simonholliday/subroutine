@@ -468,6 +468,18 @@ class Client(typing.Protocol):
 		A comment resolves to the item it is on and says so, because a comment has no ref.
 		"""
 
+	def proposed_links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Proposal]:
+		"""Return the documents this item's writing suggests govern it — `#1137`.
+
+		A proposal is evidence, not an answer: somebody cited a decision in their own words,
+		and that is a strong reason to think it binds this work. Confirming one is
+		:meth:`link` with the ``link_type`` and the other end it names, which is why there is
+		no separate verb — a confirmed proposal is an ordinary link and must be indistinguishable
+		from one made by hand.
+		"""
+
 	def link (
 		self,
 		*,

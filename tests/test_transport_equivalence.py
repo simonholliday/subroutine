@@ -1386,6 +1386,41 @@ def test_both_withdraw_a_link_the_same_way (pair: Pair) -> None:
 	assert local.links(ref=first.ref) == remote.links(ref=first.ref) == []
 
 
+def test_both_propose_the_same_link_from_the_same_citation (pair: Pair) -> None:
+	"""`#1137`. Two paths that read the mention index, and they must read it the same.
+
+	Worth an equivalence test rather than an API one alone because the answer is assembled
+	rather than fetched — a governance rule, a link exclusion and a visibility narrowing — and
+	an assembled answer is the shape that comes to differ between transports without anybody
+	editing either. `#39`'s divergence and S3-07's were both this.
+	"""
+
+	local, remote = pair.both()
+	decision = local.create_document(
+		title="How dates are written", body="Because.", type="decision"
+	)
+	work = make(pair, f"Rewrite the parser, following #{decision.ref}")
+
+	here = local.proposed_links(ref=work.ref)
+	there = remote.proposed_links(ref=work.ref)
+
+	assert here == there
+	assert [one.other.ref for one in here] == [decision.ref]
+	assert here[0].because == "this names it"
+
+	# **And they agree about it going away**, which is the half a read-only comparison misses:
+	# a proposal is defined by the absence of a link, so the two have to agree about that too.
+	remote.link(
+		ref=decision.ref,
+		link_type=here[0].link_type,
+		target=work.ref,
+		entity_type="document",
+		target_type="task",
+	)
+
+	assert local.proposed_links(ref=work.ref) == remote.proposed_links(ref=work.ref) == []
+
+
 def test_both_refuse_a_link_type_nobody_seeded (pair: Pair) -> None:
 	"""And name the ones that exist, because a vocabulary is only usable if it is listed."""
 

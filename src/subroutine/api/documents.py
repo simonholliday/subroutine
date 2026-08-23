@@ -823,6 +823,52 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 	return listing
 
 
+def _proposed_links_for (entity_type: str) -> typing.Any:
+	"""Build the proposed-link listing for one entity type — `#1137`."""
+
+	def listing (
+		id_or_ref: subroutine.api.schemas.ItemAddress,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> subroutine.views.Collection[subroutine.views.Proposal]:
+		"""Return the documents this item's writing suggests govern it, and nobody has said do.
+
+		A proposal is **not** a link and is never counted as one. What governs an item is
+		answered from typed links alone, because *written about near this* and *binds this* are
+		different claims and answering the second under the first's name is how a feature loses
+		the trust it exists to earn. This is the evidence for a link that is not there yet:
+		somebody cited a decision in their own words, deliberately, and that is worth offering.
+
+		Confirming one is an ordinary `POST` to this item's links, with the `link_type` and the
+		other end this names. Nothing here writes anything.
+
+		Only a document that governs — a decision, a specification, a design or a dead end — and
+		only where no link of any kind already joins the pair, because a pair somebody has
+		already related is one somebody has already thought about.
+		"""
+
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		found = subroutine.views.proposals(
+			session,
+			subroutine.domain.links.proposals(
+				session,
+				actor,
+				workspace_id=workspace.id,
+				entity_type=entity_type,
+				identifier=near.id,
+			),
+		)
+
+		return subroutine.views.Collection(
+			items=found,
+			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+		)
+
+	return listing
+
+
 def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 	"""Mount the link endpoints for one entity type."""
 
@@ -851,6 +897,13 @@ def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 		status_code=204,
 		name=f"{noun}_link_delete",
 		summary="Withdraw a link",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/proposed-links",
+		_proposed_links_for(entity_type),
+		methods=["GET"],
+		name=f"{noun}_proposed_links",
+		summary=f"List the links a {noun}'s writing suggests",
 	)
 	target.add_api_route(
 		"/{id_or_ref}/backlinks",

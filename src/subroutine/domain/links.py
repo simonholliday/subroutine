@@ -24,12 +24,14 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.refs
 import subroutine.domain.scoping
@@ -39,6 +41,11 @@ import subroutine.permissions
 #: The entity types a link may join. ``verification`` is in the schema so a bug can derive
 #: from a failing test (§14), and is not creatable through this module until those exist.
 LINKABLE = ("task", "document")
+
+#: The link type that says a document binds a piece of work (§5.7). Named here because
+#: :func:`proposals` builds edges of exactly this type and nothing else, and a key spelled at
+#: the site that uses it is the copy that comes to disagree with the seed.
+GOVERNING_TYPE = "documents"
 
 #: The one link type that says which of a pair comes first, and so the one where a ring of
 #: them means work nobody can start. Named here rather than spelled at the two places that
@@ -556,6 +563,274 @@ def edges (
 		)
 
 	return found
+
+
+@dataclasses.dataclass(frozen=True)
+class Proposed:
+	"""A link the writing already implies and nobody has confirmed (`#1137`).
+
+	**It is not a :class:`Related` and must never be rendered as one.** A citation in prose
+	is evidence that a link belongs, not the link — *this contradicts `#1131`* is written the
+	same way as *this follows `#1131`*, and a graph that filled itself from that would answer
+	*what governs this* with edges nobody agreed to. So this carries no id, because there is
+	no row: it is a suggestion, and confirming it is an ordinary ``create``.
+	"""
+
+	link_type: str
+	label: str
+	direction: str
+	other: End
+
+	#: What the citation was, in a reader's words — *this names it*, *a comment here names it*.
+	#: Carried because a proposal a person cannot check is one they can only accept or ignore.
+	because: str
+
+
+#: How a citation is described, by where it was written and which way round it runs.
+_BECAUSE = {
+	("outgoing", False): "this names it",
+	("outgoing", True): "a comment here names it",
+	("incoming", False): "it names this",
+	("incoming", True): "a comment there names this",
+}
+
+
+def _citations (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	identifier: uuid.UUID,
+) -> dict[tuple[str, uuid.UUID], tuple[str, bool]]:
+	"""Return everything this item's prose names or is named by, and how.
+
+	Keyed by the other end, valued by the direction of the citation and whether it was
+	written in a comment rather than in the item itself. **The nearest evidence wins**: an
+	item's own words are a stronger statement than a comment on it, and both directions are
+	stronger than nothing, so a pair cited more than one way is described by the first rule
+	that matched rather than by however the rows happened to sort.
+
+	A comment is resolved to the item it is on, exactly as :func:`mentions.backlinks` does —
+	a comment has no ref for a reader to open, so a proposal naming one would be unactionable.
+	"""
+
+	mention = subroutine.db.models.work.Mention
+	comment = subroutine.db.models.activity.Comment
+	mine = sqlalchemy.select(comment.id).where(
+		comment.entity_type == entity_type,
+		comment.entity_id == identifier,
+		comment.deleted_at.is_(None),
+	)
+	found: dict[tuple[str, uuid.UUID], tuple[str, bool]] = {}
+
+	# Ordered so that the strongest description of a pair is written last and wins. The
+	# dictionary is keyed by the pair, so a later row for one already seen replaces it.
+	for direction, in_a_comment, clause, other in (
+		(
+			"incoming",
+			True,
+			sqlalchemy.and_(
+				mention.target_type == entity_type,
+				mention.target_id == identifier,
+				mention.source_type == "comment",
+			),
+			None,
+		),
+		(
+			"outgoing",
+			True,
+			sqlalchemy.and_(mention.source_type == "comment", mention.source_id.in_(mine)),
+			"target",
+		),
+		(
+			"incoming",
+			False,
+			sqlalchemy.and_(
+				mention.target_type == entity_type,
+				mention.target_id == identifier,
+				mention.source_type != "comment",
+			),
+			"source",
+		),
+		(
+			"outgoing",
+			False,
+			sqlalchemy.and_(
+				mention.source_type == entity_type, mention.source_id == identifier
+			),
+			"target",
+		),
+	):
+		rows = session.scalars(
+			sqlalchemy.select(mention).where(mention.workspace_id == workspace_id, clause)
+		).all()
+
+		for row in rows:
+			if other is None:
+				# A comment naming this item: the citing item is whatever the comment is on,
+				# which needs the comment row rather than the mention.
+				on = session.get(comment, row.source_id)
+
+				if on is None or on.deleted_at is not None:
+					continue
+
+				key = (on.entity_type, on.entity_id)
+			elif other == "source":
+				key = (row.source_type, row.source_id)
+			else:
+				key = (row.target_type, row.target_id)
+
+			if key == (entity_type, identifier):
+				continue
+
+			found[key] = (direction, in_a_comment)
+
+	return found
+
+
+def proposals (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	identifier: uuid.UUID,
+) -> list[Proposed]:
+	"""Return the governing links this item's citations suggest and nobody has made.
+
+	`#1137`. *What governs this* answers from typed links only (`#1124` Q2), because *near* is
+	not *governs* and answering the second under the first's name spends the trust the feature
+	exists to earn. The cost of that decision is a cold start: on a fresh install nothing is
+	typed, so the answer is empty for ever unless somebody knows to reach for a link type.
+
+	**The mention index is evidence that already exists.** If a task's description cites a
+	decision, somebody wrote that deliberately. So a citation *proposes* the link, a person or
+	an agent confirms it, and the answer stays typed-links-only exactly as decided.
+
+	Three narrowings, and each is the difference between a proposal and noise:
+
+	* **Only a governing document at the other end.** ``documents.GOVERNS`` — a decision, a
+	  specification, a design or a dead end. A finding describes and does not bind, and
+	  proposing that one governs anything would be the classifier saying something it does not.
+	* **Only a pair nothing already joins.** Any link at all, of any type: if two items are
+	  already related, somebody has looked at this pair, and proposing an edge over the top of
+	  their answer is arguing with them.
+	* **Only ends this caller may see**, through the same ``_ends`` every other link read
+	  uses. §6.15's rule is that a citation from somewhere invisible is omitted rather than
+	  reported as hidden — *something you cannot see mentioned this* discloses that activity
+	  exists and explains nothing.
+	"""
+
+	cited = _citations(
+		session, workspace_id=workspace_id, entity_type=entity_type, identifier=identifier
+	)
+
+	if not cited:
+		return []
+
+	joined = {
+		(link.target_type, link.target_id)
+		if link.source_type == entity_type and link.source_id == identifier
+		else (link.source_type, link.source_id)
+		for link, _kind in _touching(
+			session,
+			workspace_id=workspace_id,
+			entity_type=entity_type,
+			identifiers=[identifier],
+		)
+	}
+	documents = _governing(
+		session,
+		{key[1] for key in cited if key[0] == "document"} | {identifier},
+	)
+
+	# **Which end governs is decided by type and never by which one wrote the citation.** A
+	# decision naming the work it settles and a task naming the decision it follows are the
+	# same fact written from two ends, and reading direction off the prose would make them
+	# opposite answers.
+	if entity_type == "document" and identifier in documents:
+		outgoing = True
+		wanted = {
+			key for key in cited if key not in joined and key[1] not in documents
+		}
+	else:
+		outgoing = False
+		wanted = {
+			key
+			for key in cited
+			if key not in joined and key[0] == "document" and key[1] in documents
+		}
+
+	if not wanted:
+		return []
+
+	kind = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
+			subroutine.db.models.vocabulary.LinkType.workspace_id == workspace_id,
+			subroutine.db.models.vocabulary.LinkType.key == GOVERNING_TYPE,
+		)
+	).first()
+
+	if kind is None:
+		# **A workspace may delete a link type** (`#826`), and one that has deleted this has
+		# said it does not use the relation. Proposing links of a type it cannot make would be
+		# offering work that refuses.
+		return []
+
+	visible = {
+		(end.entity_type, end.id): end
+		for entity in {key[0] for key in wanted}
+		for end in _ends(
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type=entity,
+			identifiers={key[1] for key in wanted if key[0] == entity},
+		)
+	}
+	found = [
+		Proposed(
+			link_type=kind.key,
+			# Read from the near item's point of view, like every other label here: something
+			# documents *this* when the document is at the far end, and *this* documents
+			# something when the caller is standing on the document.
+			label=kind.title if outgoing else kind.inverse_title,
+			direction="outgoing" if outgoing else "incoming",
+			other=visible[key],
+			because=_BECAUSE[cited[key]],
+		)
+		for key in wanted
+		if key in visible
+	]
+
+	return sorted(found, key=lambda one: one.other.ref)
+
+
+def _governing (
+	session: sqlalchemy.orm.Session, identifiers: typing.Collection[uuid.UUID]
+) -> set[uuid.UUID]:
+	"""Return which of these documents are of a type that binds rather than describes.
+
+	``documents.GOVERNS`` — a decision, a specification, a design or a dead end. A finding
+	states what was learnt and a note states something worth keeping; neither is a rule, and
+	proposing that one governs anything would have the classifier saying something it does not.
+	"""
+
+	if not identifiers:
+		return set()
+
+	item_type = subroutine.db.models.vocabulary.ItemType
+
+	return set(
+		session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Document.id)
+			.join(item_type, item_type.id == subroutine.db.models.work.Document.type_id)
+			.where(
+				subroutine.db.models.work.Document.id.in_(set(identifiers)),
+				item_type.key.in_(subroutine.domain.documents.GOVERNS),
+			)
+		).all()
+	)
 
 
 def _touching (

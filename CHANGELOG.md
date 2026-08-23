@@ -22,6 +22,19 @@ upgrade involves.
 
 ### Added
 
+- **An item offers the links its own writing suggests.** If a task's description or a comment on
+  it cites a decision, a specification, a design or a dead end, `subroutine show` now says so
+  under *Not linked, but its writing suggests* and gives the one command that confirms it. An
+  agent reading the item over MCP is told the same thing, and `GET /v1/tasks/{ref}/proposed-links`
+  answers it directly.
+
+  **A proposal is never counted as a link.** A sentence citing a decision can as easily mean
+  *this contradicts it* as *this follows it*, so nothing is created until somebody says so, and a
+  confirmed proposal is an ordinary link indistinguishable from one made by hand. Only a document
+  that governs is offered — a finding states what was learnt and does not bind anything — and only
+  where no link of any kind already joins the pair, because a pair somebody has already related is
+  a pair somebody has already thought about.
+
 - **A workspace can change the words it uses.** Statuses, link types and tags can be added,
   renamed and removed over the API and from either client — `GET/POST /v1/statuses`,
   `/v1/link-types` and `/v1/tags`, with `PATCH` and `DELETE` on each. Until now every one of

@@ -571,6 +571,19 @@ class Client:
 
 		return self._collected(subroutine.views.Backlink, body, endpoint="backlinks")
 
+	def proposed_links (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Proposal]:
+		"""Return the documents this item's writing suggests govern it."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/proposed-links",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(subroutine.views.Proposal, body, endpoint="proposed-links")
+
 	def link (
 		self,
 		*,

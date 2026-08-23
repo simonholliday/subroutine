@@ -2094,6 +2094,27 @@ def _shown (
 			for one in referring
 		)
 
+	# **What the writing suggests governs this, and nobody has confirmed** (`#1137`). Offered
+	# rather than answered: a citation is written the same way whether it means *this follows
+	# that decision* or *this contradicts it*, so this says what the evidence is and leaves the
+	# judgement to whoever is reading. Confirming one is `subroutine_link`.
+	#
+	# **Below the links rather than among them**, because the whole value of the answer to
+	# *what governs this* is that everything in it was agreed to by somebody.
+	proposed = client.proposed_links(ref=ref, entity_type=kind, workspace=workspace)
+
+	if proposed:
+		parts.append("")
+		parts.append(f"Not linked, but its writing suggests ({len(proposed)})")
+		parts.extend(
+			f"{one.label}  #{one.other.ref}  {one.other.title}  ({one.because})"
+			for one in proposed
+		)
+		parts.append(
+			f"Confirm one with subroutine_link(ref={proposed[0].other.ref}, "
+			f"type='{proposed[0].link_type}', other={ref})"
+		)
+
 	if arguments.get("history"):
 		parts.append("")
 		parts.extend(

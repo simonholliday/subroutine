@@ -898,6 +898,40 @@ class Link(pydantic.BaseModel):
 		)
 
 
+class Proposal(pydantic.BaseModel):
+	"""A link the writing already implies and nobody has confirmed (`#1137`).
+
+	**Deliberately not a :class:`Link`.** It carries no ``id`` because there is no row, and a
+	client that could not tell the two apart would report a suggestion as a fact. What it is
+	instead is an *offer*: everything needed to make the link, plus the evidence, so that a
+	person or an agent can judge it rather than accept it.
+
+	``because`` is the half that makes it judgeable. A citation in prose is written the same
+	way whether it means *this follows that decision* or *this contradicts it*, so a proposal
+	that could only be accepted or ignored would be asking for a rubber stamp.
+	"""
+
+	link_type: str
+	label: str
+	direction: str
+	other: LinkEnd
+	because: str
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by. There is nothing to address until it exists."""
+
+		return subroutine.domain.refs.format_ref(self.other.ref)
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this proposal as the cells of one compact line."""
+
+		return (
+			subroutine.domain.refs.format_ref(self.other.ref),
+			subroutine.domain.text.truncated(self.other.title),
+			self.because,
+		)
+
+
 class Workspace(pydantic.BaseModel):
 	"""A workspace as the API reports it.
 
@@ -2437,6 +2471,31 @@ def links (
 	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in related])
 
 	return [link(one, vocabulary) for one in related]
+
+
+def proposal (
+	proposed: subroutine.domain.links.Proposed, vocabulary: Vocabulary
+) -> Proposal:
+	"""Render one proposed link, from the point of view of the item it was asked about."""
+
+	return Proposal(
+		link_type=proposed.link_type,
+		label=proposed.label,
+		direction=proposed.direction,
+		other=_end(proposed.other, vocabulary),
+		because=proposed.because,
+	)
+
+
+def proposals (
+	session: sqlalchemy.orm.Session,
+	found: typing.Sequence[subroutine.domain.links.Proposed],
+) -> list[Proposal]:
+	"""Render one item's proposed links, with a single vocabulary across every end."""
+
+	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in found])
+
+	return [proposal(one, vocabulary) for one in found]
 
 
 def edges (
