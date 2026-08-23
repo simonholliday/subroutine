@@ -5142,6 +5142,15 @@ NOT_SHOWN_TO_AN_AGENT: dict[str, str] = {
 	# `views.status_is_news` does, for all three renderers. The entry went because the guard
 	# below refused it, which is the "what makes this entry go away?" question working rather
 	# than an entry nobody dared delete.
+	"type_is_default": (
+		"An agent is told the *type*, on every line, unconditionally — so this surface never "
+		"asks whether the type is news and there is nothing here for the answer to decide. "
+		"It gets more than the terminal does rather than less: `subroutine show` prints the "
+		"type only when somebody chose it (`#1135`), and `_line` prints it always.\n\n"
+		"This entry goes the day that line starts suppressing anything — at which point both "
+		"surfaces are asking one question and it belongs in `views` beside `status_is_news`, "
+		"which is exactly how `status_is_default`'s own excuse here came to be deleted."
+	),
 	"estimate_minutes": (
 		"Reported as `estimate_human`, which is §6.4's grammar — the spelling an agent would "
 		"send back, and what `_line` has always carried."

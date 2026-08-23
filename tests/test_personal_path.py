@@ -806,6 +806,72 @@ def test_a_defer_keeps_the_time_of_day_it_was_given (
 	assert stored["snoozed_is_all_day"] is False
 
 
+def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1135`. The rule is *say nothing about a type nobody chose*, and it was hardcoded.
+
+	``_facts`` asked ``item.type not in ("task", "note")`` — the right question answered by
+	naming the two keys this installation's seeder happens to use. ``ItemType.is_default`` has
+	always held the answer; the item view simply did not carry it.
+
+	**So the test renames which type is the default**, which is the only thing that tells the two
+	apart: under the old rule ``story`` prints on every line because it is not one of the two
+	names, and under the new one it is silent because it is what everything starts as. That state
+	is unreachable from the CLI today — `SR#1129` is the command — and it is a supported one, not
+	a contrived one: §5.5 says the vocabulary is a workspace's own.
+
+	Both directions, because either alone is weak: the old rule agrees with the new one about
+	`bug`, so an assertion that a chosen type still prints would pass against the defect.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.vocabulary
+	import subroutine.db.session
+
+	run("init")
+	run("add", "Something ordinary")
+	run("add", "Something wrong")
+
+	assert "task" not in run("show", "1").output, "the seeded default was already announced"
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			model = subroutine.db.models.vocabulary.ItemType
+			types = {
+				one.key: one
+				for one in session.scalars(
+					sqlalchemy.select(model).where(model.entity_type == "task")
+				)
+			}
+
+			# `bug` renamed to `story` and made the default, so the two keys the old rule knows
+			# about are both wrong: `story` is the default and `task` is not.
+			types["task"].is_default = False
+			types["bug"].key = "story"
+			types["bug"].is_default = True
+
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	run("update", "2", "--type", "story")
+
+	assert "story" not in run("show", "2").output, (
+		"the workspace's own default type was announced on every item that has it"
+	)
+	assert "task" in run("show", "1").output, (
+		"a type somebody would now have had to choose was not reported"
+	)
+
+
 def test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

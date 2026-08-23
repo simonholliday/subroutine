@@ -8593,7 +8593,21 @@ def _facts (located: Located) -> list[str]:
 	facts: list[str] = []
 	item = located.item
 
-	if item.type not in ("task", "note"):
+	# **Asked rather than hardcoded** (`#1135`). This read `item.type not in ("task", "note")`,
+	# which is the right *question* — is this the type nobody chose — answered by naming the two
+	# keys this installation's seeder happens to use. `ItemType.is_default` has always held the
+	# answer; the item view simply did not carry it, so the two keys were the only thing to
+	# reach for.
+	#
+	# **Latent rather than live, until `#1129`.** Nothing can rename a type today, so the keys
+	# are correct now — and a workspace whose default task type is `story` would print `story` on
+	# every line of every listing, which is precisely the rule this exists to keep.
+	#
+	# **Against an instance too old to send it, every item says its type.** The field defaults to
+	# `False` exactly as `status_is_default` does, so an older body reads as *nothing here is the
+	# default*. Noise rather than loss, which is the right way round to degrade: the alternative
+	# default hides a `bug` label, and `whoami` already reports the mismatch.
+	if not item.type_is_default:
 		facts.append(item.type)
 
 	# **A status somebody chose, and silence about the one everything starts in** (`#168`,

@@ -22,6 +22,13 @@ upgrade involves.
 
 ### Added
 
+- **An item says whether its type is the one everything starts as**, as `type_is_default` on
+  every item — the counterpart of `status_is_default`, one vocabulary along.
+
+  It is what lets a surface stay quiet about a type nobody chose. The terminal was deciding that
+  by hardcoding the two keys this project's own seeder uses, which is right until a workspace
+  renames one.
+
 - **An item type says what kind of thing it is.** Every type now carries a fixed `category` —
   `work`, `defect` or `question` for a task; `decision`, `reference` or `record` for a document —
   published on the type in `/v1/meta` and as `type_category` on every item.

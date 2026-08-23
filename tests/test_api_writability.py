@@ -241,6 +241,12 @@ DERIVED: dict[str, str] = {
 		"chose from the absence of a choice (`#168`), which is what let `subroutine show` "
 		"print `blocked` while staying quiet about `open`."
 	),
+	"type_is_default": (
+		"Whether `type` is the one items of this kind start as — a property of the "
+		"workspace's vocabulary, not of this item, and `status_is_default`'s counterpart "
+		"one vocabulary along (`#1135`). Reported so a surface can say nothing about a type "
+		"nobody chose, which the terminal had been deciding by hardcoding two keys."
+	),
 	"type_id": "The id of the type named by `type`.",
 	"priority_score": "importance x urgency (§6.3). Derived, and null unless both are set.",
 	"blocked": (

@@ -486,6 +486,16 @@ class Task(pydantic.BaseModel):
 	#: a type anything; this says whether the thing is work, a defect, a question, a decision, a
 	#: reference or a record.
 	type_category: str = ""
+
+	#: Whether this is the type every item of its kind starts as (`#1135`), so a surface can say
+	#: nothing about a type nobody chose — §12.2a's rule that a column saying the same thing on
+	#: every row says nothing, applied to a fact rather than a column.
+	#:
+	#: ``status_is_default``'s counterpart, and it was the missing half: the terminal decided by
+	#: hardcoding ``("task", "note")``, which are the keys *this installation's seeder* happens
+	#: to use. That is latent until `#1129` lets a workspace rename ``task``, at which point a
+	#: workspace whose default is ``story`` prints `story` on every line.
+	type_is_default: bool = False
 	type_id: uuid.UUID
 
 	assignee_id: uuid.UUID | None
@@ -1742,6 +1752,16 @@ class Document(pydantic.BaseModel):
 	#: a type anything; this says whether the thing is work, a defect, a question, a decision, a
 	#: reference or a record.
 	type_category: str = ""
+
+	#: Whether this is the type every item of its kind starts as (`#1135`), so a surface can say
+	#: nothing about a type nobody chose — §12.2a's rule that a column saying the same thing on
+	#: every row says nothing, applied to a fact rather than a column.
+	#:
+	#: ``status_is_default``'s counterpart, and it was the missing half: the terminal decided by
+	#: hardcoding ``("task", "note")``, which are the keys *this installation's seeder* happens
+	#: to use. That is latent until `#1129` lets a workspace rename ``task``, at which point a
+	#: workspace whose default is ``story`` prints `story` on every line.
+	type_is_default: bool = False
 	type_id: uuid.UUID
 
 	owner_id: uuid.UUID | None
@@ -2053,7 +2073,7 @@ class Vocabulary:
 			session,
 			subroutine.db.models.vocabulary.ItemType,
 			type_ids,
-			("key", "category"),
+			("key", "category", "is_default"),
 		)
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
@@ -2296,6 +2316,7 @@ def task (
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
+		type_is_default=bool(vocabulary.types.get(row.type_id, {}).get("is_default", False)),
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
 		assignee=_username(vocabulary, row.assignee_id),
@@ -2407,6 +2428,7 @@ def document (
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
 		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
+		type_is_default=bool(vocabulary.types.get(row.type_id, {}).get("is_default", False)),
 		type_id=row.type_id,
 		owner_id=row.owner_id,
 		tags=vocabulary.tags.get(row.id, []),
