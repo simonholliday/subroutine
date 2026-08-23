@@ -75,6 +75,38 @@ upgrade involves.
   A calendar feed for a deleted workspace stops answering, the same way one stops when its
   owner leaves.
 
+### Changed
+
+- **`content_updated_at` now answers one question, and the fields that move it have changed.**
+  It says whether the *substance* of an item changed — what it is and what it asks of you — as
+  opposed to where it sits, when it is planned, who is holding it and how it is ranked. It was
+  being asked two different questions and the answers disagreed, and the code implemented a
+  third list that matched neither.
+
+  What moves for you:
+
+  - **A deadline now counts.** Setting or changing `due` — or its all-day flag — moves the
+    stamp. It did not, on any release so far, although it has been documented as doing so since
+    the first one. A planned day and a snooze still do not: a deadline is a commitment to
+    somebody else, a plan is your own intention and yours to change freely.
+  - **Tags no longer count.** Re-tagging a task used to record a change of meaning. Filing it
+    under a different project never did, and a project is the stronger classification of the
+    two, so counting only the weaker one was incoherent.
+  - **A document's status and type now count**, as they already did on a task. A decision moving
+    to `superseded` stops being in force, which is a larger change to what it means than most
+    edits to its words.
+
+  If you filter on `content_updated_at`, expect deadline changes to appear and tag changes to
+  stop appearing. `updated_at` is unchanged and still moves on every write.
+
+### Fixed
+
+- **Re-sending a field you did not change no longer records a change of meaning.** A client that
+  reads a task, edits one field and sends the whole object back names its title in every
+  request — and that moved `content_updated_at` even though the title was identical, as long as
+  something else in the same request did change. It now reads what actually changed. Documents
+  were never affected.
+
 ### Removed
 - **A status, an item type and a tag no longer store a colour.** Three columns that the
   seeder wrote and nothing anywhere read, dropped in one migration. Colour on an item comes

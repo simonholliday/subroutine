@@ -164,6 +164,40 @@ GOVERNS = frozenset(one.key for one in GOVERNING)
 DESCRIBES = frozenset({"note", "finding"})
 
 
+#: Every field :func:`update` compares, and so every field an ``updated`` event on a document
+#: can name.
+#:
+#: **Declared rather than derived, unlike a task's**, and that asymmetry is the honest part: a
+#: task's set is `tasks._snapshot`'s keys, read off a function whose whole job is to be complete,
+#: while a document builds its changes as it goes. So this is a second statement of something
+#: and can fall behind — which `tests/test_content_changes.py` closes in the direction that can
+#: be closed, by driving every name here and insisting an event carries it. A field added to the
+#: assignment pass and not to this list is caught by nothing, and is the reason to write the two
+#: in the same edit.
+#:
+#: It exists at all so that `#1112`'s classification can be asked whether it is *complete*. A
+#: rule with no list of what it has to cover cannot be incomplete, which is exactly how a
+#: deadline stayed uncounted for the life of the column.
+COMPARED: frozenset[str] = frozenset(
+	{
+		"title",
+		"body",
+		"owner_id",
+		"status_id",
+		"type_id",
+		"supersedes_id",
+		"tags",
+		"project_id",
+		# **Not a column.** `_retire` names the successor beside the status it is moving, so
+		# that "why did this become superseded" is answerable from the event alone. It is here
+		# because this list is about what an `updated` event can *say*, not about what a row
+		# holds — and a classification that could not see it would be incomplete about the one
+		# path that does not go through `update`.
+		"superseded_by",
+	}
+)
+
+
 def create (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -500,7 +534,11 @@ def update (
 	document.version += 1
 	document.updated_by = None if actor is None else actor.user.id
 
-	if "title" in changes or "body" in changes:
+	# **The same rule a task uses, from the same list** (`#1112`). This was written out here as
+	# `"title" in changes or "body" in changes`, and `tasks.update` had a longer version of it
+	# spelled a different way — so a document's status and type did not count while a task's
+	# did, and neither disagreement was visible from inside either module.
+	if subroutine.domain.events.touches_content("document", changes):
 		document.content_updated_at = subroutine.db.types.utcnow()
 
 	session.flush()
@@ -993,6 +1031,19 @@ def _retire (
 	previous = superseded.status_id
 	superseded.status_id = replacement.id
 	superseded.version += 1
+
+	# **The one path that changes a document's status without going through `update`**, so it
+	# is the one place the content rule has to be applied a second time (`#1112`). A decision
+	# that has stopped being in force means something different to anybody reading it, and
+	# this is where it stops.
+	changes = {
+		"status_id": {"from": previous, "to": replacement.id},
+		"superseded_by": {"from": None, "to": by.ref},
+	}
+
+	if subroutine.domain.events.touches_content("document", changes):
+		superseded.content_updated_at = subroutine.db.types.utcnow()
+
 	session.flush()
 
 	subroutine.domain.events.record(
@@ -1001,10 +1052,7 @@ def _retire (
 		entity_type="document",
 		entity_id=superseded.id,
 		action=subroutine.domain.events.EventAction.UPDATED,
-		changes={
-			"status_id": {"from": previous, "to": replacement.id},
-			"superseded_by": {"from": None, "to": by.ref},
-		},
+		changes=changes,
 		actor=actor,
 	)
 

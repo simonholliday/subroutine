@@ -1535,10 +1535,14 @@ def test_attribution_cannot_be_supplied_by_the_caller (world: World) -> None:
 def test_a_task_reports_when_its_meaning_last_changed (world: World) -> None:
 	"""§6.1's distinction, which a document reported and a task did not.
 
-	`updated_at` moves on any write and `content_updated_at` only when the *meaning* did —
-	which is what lets a verification know whether it is stale, and stops a repositioning
-	from invalidating evidence. Reporting it on one of the two entities and not the other
-	was an inconsistency rather than an absence, and those are harder to notice.
+	This is about the field being **reported**, on both entities and from creation onwards.
+	Reporting it on one of the two and not the other was an inconsistency rather than an
+	absence, and those are harder to notice.
+
+	**Which changes move it is `tests/test_content_changes.py`**, field by field from one named
+	list. This test used to answer that as well, with one field from each side of the line —
+	and was green for the life of the column while a deadline change was silently bookkeeping
+	(`#1112`). A sample cannot say a rule holds; it can only say the rule exists.
 	"""
 
 	created = world.call("POST", "/v1/tasks", json={"title": "Meaningful"}).json()
@@ -1547,19 +1551,9 @@ def test_a_task_reports_when_its_meaning_last_changed (world: World) -> None:
 	# microseconds, which is a fact about how a row is written rather than about the rule.
 	assert created["content_updated_at"] is not None
 
-	moved = world.call(
-		"PATCH", f"/v1/tasks/{created['ref']}", json={"starts": "tomorrow"}
-	).json()
+	made = world.call("POST", "/v1/documents", json={"title": "Concluded"}).json()
 
-	assert moved["content_updated_at"] == created["content_updated_at"], (
-		"planning a task is not a change to what it means"
-	)
-
-	edited = world.call(
-		"PATCH", f"/v1/tasks/{created['ref']}", json={"title": "Reworded"}
-	).json()
-
-	assert edited["content_updated_at"] > created["content_updated_at"]
+	assert made["content_updated_at"] is not None
 
 
 def _tree (world: World) -> tuple[int, int, int]:

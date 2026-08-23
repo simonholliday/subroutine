@@ -297,9 +297,13 @@ class Task(
 		"metadata", subroutine.db.types.json_column(), default=dict, nullable=False
 	)
 
-	# Bumped only by changes that invalidate prior work — title, description, acceptance
-	# criteria, deadline, status. Claiming a task or renewing a lease bumps `updated_at`
-	# but not this, so an agent's own bookkeeping does not void its own evidence.
+	# When what this task *means* last changed, as opposed to when its row last moved.
+	# Claiming it, renewing a lease, re-ranking it or planning it bumps `updated_at` and not
+	# this, so a reader can tell a rewrite from a reshuffle.
+	#
+	# **Which changes count is `domain.events.CONTENT_FIELDS`, and is deliberately not
+	# restated here** — this comment named a set the code did not implement for as long as the
+	# column has existed (`#1112`), which is the two-copies defect in its cheapest form.
 	content_updated_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), default=subroutine.db.types.utcnow, nullable=False
 	)
@@ -417,6 +421,7 @@ class Document(
 	meta: sqlalchemy.orm.Mapped[dict[str, typing.Any]] = sqlalchemy.orm.mapped_column(
 		"metadata", subroutine.db.types.json_column(), default=dict, nullable=False
 	)
+	# The twin of the task column above, and answering the same question from the same list.
 	content_updated_at: sqlalchemy.orm.Mapped[datetime.datetime] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), default=subroutine.db.types.utcnow, nullable=False
 	)

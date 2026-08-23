@@ -1023,23 +1023,18 @@ def update (
 	)
 
 	before = _snapshot(session, task)
-	touches_content = False
 
 	if cleaned_title is not subroutine.domain.patch.UNSET:
 		task.title = cleaned_title
-		touches_content = True
 
 	if description is not subroutine.domain.patch.UNSET:
 		task.description = description
-		touches_content = True
 
 	if item_type is not subroutine.domain.patch.UNSET:
 		task.type_id = item_type.id
-		touches_content = True
 
 	if status is not subroutine.domain.patch.UNSET:
 		task.status_id = status.id
-		touches_content = True
 
 		# docs/design.md §10.7 invariant 5: `completed_at` is non-null exactly when the status
 		# category is `done` or `cancelled`. Set here rather than by a database trigger,
@@ -1128,7 +1123,6 @@ def update (
 		# rather than merged, and a `tags` that merged would be the only one a caller could
 		# not use to remove anything — which is how a mistyped tag became permanent.
 		subroutine.domain.tags.set_on(session, task, wanted_tags)
-		touches_content = True
 
 	if assignee_id is not subroutine.domain.patch.UNSET:
 		# **Only when it actually changes.** Re-sending the same assignee is not a fresh act of
@@ -1212,9 +1206,17 @@ def update (
 		return task
 
 	# `updated_at` moves on any write; `content_updated_at` moves only when the *meaning*
-	# changed. That distinction is what lets a verification know whether it is stale, and
-	# stops a repositioning from invalidating evidence (docs/design.md §6.1).
-	if touches_content:
+	# changed, so that re-planning something does not read as rewriting it.
+	#
+	# **Asked of what changed rather than of what was sent** (`#1140`). This was six
+	# `touches_content = True` assignments beside the assignment pass above, each guarded by
+	# "was this field named in the request" — so a client that reads a task, edits its
+	# importance and sends the whole object back re-sent an unchanged title and had its
+	# bookkeeping recorded as a change of meaning. Which is most clients.
+	#
+	# **And the list is `events.CONTENT_FIELDS` rather than written out here**, because
+	# `documents.update` needs the same rule and had a second, shorter copy of it (`#1112`).
+	if subroutine.domain.events.touches_content("task", changes):
 		task.content_updated_at = subroutine.db.types.utcnow()
 
 	task.version += 1

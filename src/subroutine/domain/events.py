@@ -103,6 +103,128 @@ def record (
 	return event
 
 
+#: Which changed fields mean an item's **content** changed rather than its bookkeeping.
+#:
+#: **The question this answers, and it is one question**: did the substance of this item change
+#: — what it is and what it asks of you — as opposed to where it sits, when it is planned, who
+#: is holding it, and how it is ranked? That is what ``content_updated_at`` reports and what a
+#: reader deciding whether to re-read an item wants. `#1112` is the item, and decision `#1141`
+#: carries the argument for every line of both sets.
+#:
+#: **Two other questions used to be asked of the same column and neither is asked here.** The
+#: evidence gate binds a verification to the *tree it ran against* rather than to a timestamp on
+#: the ticket, because a task's row does not move when the code does. And interrupt
+#: classification needs facts that are not on this row at all — a decision superseded elsewhere,
+#: a dependency regressing — so it reads the event, of which this is one part.
+#:
+#: **Every field the comparison can produce appears in exactly one of the two sets**, which is
+#: what makes adding a column a decision rather than a default: ``tests/test_content_changes.py``
+#: fails on a field in neither, and on an entry naming a field that no longer exists. A deadline
+#: was lost that way — specified as content in two places, absent from the code, and invisible
+#: because the guard that existed sampled one field from each side of the line.
+CONTENT_FIELDS: dict[str, frozenset[str]] = {
+	"task": frozenset(
+		{
+			"title",
+			"description",
+			# **The type is a promise about what the title says** — a `bug` retyped as a
+			# `spike` has had the sentence its title makes change under a reader. Absent from
+			# §6.1's list, which is an omission there rather than a mistake here.
+			"type_id",
+			"status_id",
+			# **A deadline is a commitment; a planned day is an intention.** That is the line
+			# §6.1 draws by naming `due_at` as content and `plan`/`defer` as bookkeeping, and
+			# it is the half the code had lost. The flag is content for the same reason: *by
+			# Friday* and *at Friday 00:00* are different promises about the same instant.
+			"due_at",
+			"due_is_all_day",
+		}
+	),
+	"document": frozenset(
+		{
+			"title",
+			"body",
+			# **A document's status is what decides whether it binds.** `subroutine://conventions`
+			# is `type=decision&status=active`, so a decision moving to `superseded` stops being
+			# in force — which is a larger change to what it means than most edits to its body.
+			# Neither this nor the type counted until `#1112`; both do on a task, and one rule
+			# reading two ways for two entities is what that item was filed about.
+			"status_id",
+			"type_id",
+		}
+	),
+}
+
+#: Which changed fields are **bookkeeping** — real changes that do not alter what an item means.
+#:
+#: Declared rather than inferred as *whatever is left*, so that adding a column and forgetting
+#: this file fails the build instead of quietly defaulting to bookkeeping. Every entry needs a
+#: reason, and the reason is what makes it re-askable.
+BOOKKEEPING_FIELDS: dict[str, frozenset[str]] = {
+	"task": frozenset(
+		{
+			# Who, not what. Handing work over does not change the work.
+			"assignee_id",
+			# Ranking. §6.3's two axes say where this sits in a queue.
+			"importance",
+			"urgency",
+			# How much, not what. An estimate is a claim about effort.
+			"estimate_minutes",
+			# §6.1 names `plan` and `defer` as bookkeeping by name. A start date and a snooze
+			# are when somebody intends to get to it, which is theirs to change freely.
+			"starts_at",
+			"starts_is_all_day",
+			"snoozed_until",
+			"snoozed_is_all_day",
+			# §6.1 names repositioning. **This is why tags are here too**: a project is a
+			# stronger classification than a tag, so a rule counting the weaker one and not the
+			# stronger one would be incoherent. Tags counted until `#1112` and neither §6.1 nor
+			# §15.4 ever listed them.
+			"project_id",
+			"tags",
+			# The zone the dates were authored in (`#1014`). It re-renders a deadline without
+			# moving the instant it names, and the instant is the promise.
+			"timezone",
+			# Derived from the status beside it and never moves alone (§10.7 invariant 5), so
+			# this entry decides nothing — it is here because the comparison can produce it and
+			# every field it can produce is classified.
+			"completed_at",
+		}
+	),
+	"document": frozenset(
+		{
+			# Who maintains it. The document is unchanged.
+			"owner_id",
+			"project_id",
+			"tags",
+			# **A relationship rather than content**, and the fact that binds is carried by the
+			# status: superseding a document moves *its* status, which is content on the
+			# document that stopped being current.
+			"supersedes_id",
+			# The other half of that, written on the document being retired. It travels beside
+			# the `status_id` that does the work, so counting it as well would decide nothing.
+			"superseded_by",
+		}
+	),
+}
+
+
+def touches_content (entity_type: str, changes: typing.Mapping[str, typing.Any]) -> bool:
+	"""Say whether a set of changes altered what an item means, rather than its bookkeeping.
+
+	Takes what actually **changed** rather than what was sent. Those are different questions
+	and answering the second was `#1140`: a client that reads an item, edits one field and
+	sends the whole object back names its title in every request, so asking "was a title
+	given" recorded a change of meaning on every bookkeeping write such a client made.
+
+	An entity with no content fields declared answers ``False`` rather than raising. Nothing
+	yet asks this of a project or a comment, and a classifier that refused by name would have
+	to be edited before an unrelated caller could ask an honest question.
+	"""
+
+	return bool(CONTENT_FIELDS.get(entity_type, frozenset()) & changes.keys())
+
+
 def changes_between (
 	before: dict[str, typing.Any], after: dict[str, typing.Any]
 ) -> dict[str, typing.Any]:
