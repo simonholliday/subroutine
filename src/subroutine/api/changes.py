@@ -51,7 +51,6 @@ import subroutine.domain.paging
 import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.workspaces
-import subroutine.errors
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -60,9 +59,15 @@ router = fastapi.APIRouter(
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Event)
 
-#: The only value ``?actor=`` takes. **This credential, not this user** (`#158`): an agent
-#: holding a service-account token wants what *it* did, not what the person who issued the
-#: token did from a laptop an hour ago.
+#: What ``?actor=`` means when the caller means themselves. **This credential, not this user**
+#: (`#158`): an agent holding a service-account token wants what *it* did, not what the person
+#: who issued the token did from a laptop an hour ago.
+#:
+#: **Any other value is a username, and that is the same question one grain coarser** (`#1120`)
+#: — *what did that account do*, through whatever credential. Not a second question in one
+#: parameter: the coarse grain is the only one that is useful about somebody else, because
+#: nobody knows another credential's id, and the fine one is the only one that is useful about
+#: yourself, because your account may hold several.
 ACTOR_ME = "me"
 
 
@@ -87,7 +92,8 @@ def listing (
 	actor_filter: str | None = fastapi.Query(
 		None,
 		alias="actor",
-		description="'me' for what this credential itself did. Omit for everything you can see.",
+		description="'me' for what this credential itself did, or a username for everything "
+		"that account did through any of its credentials. Omit for everything you can see.",
 	),
 	newest: bool = fastapi.Query(
 		False,
@@ -122,18 +128,15 @@ def listing (
 
 	workspace_ids = [workspace.id for workspace in workspaces]
 
-	if actor_filter is not None and actor_filter != ACTOR_ME:
-		raise subroutine.errors.ValidationError(
-			f"'actor' takes {ACTOR_ME!r} or nothing.",
-			code="invalid_field_value",
-			errors=[
-				subroutine.errors.FieldError(
-					field="actor",
-					code="invalid_field_value",
-					message=f"Send actor={ACTOR_ME} for what this credential did, or omit it.",
-				)
-			],
-		)
+	# **A username is resolved through the same selector every other "who" here uses**
+	# (`#1120`), so an account that does not exist is refused by name and with the members
+	# listed — which is what the enumerated refusal this replaces could not do for anybody but
+	# itself.
+	by = (
+		None
+		if actor_filter is None or actor_filter == ACTOR_ME
+		else subroutine.domain.selection.user(session, actor_filter, caller=actor.user).id
+	)
 
 	# Both cursor refusals, in the domain so that this transport and `clients.local` cannot
 	# answer differently — which is what they were doing for `since=0` (`#309`).
@@ -148,6 +151,7 @@ def listing (
 		workspace_ids=workspace_ids,
 		since=since,
 		mine=actor_filter == ACTOR_ME,
+		by=by,
 		newest=newest,
 		limit=limit,
 		shape=subroutine.api.shaping.wanted(
@@ -168,6 +172,7 @@ def _page (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	since: int | None,
 	mine: bool,
+	by: uuid.UUID | None,
 	newest: bool,
 	limit: int | None,
 	shape: typing.Any,
@@ -182,6 +187,7 @@ def _page (
 		size=size,
 		since=since,
 		mine=mine,
+		by=by,
 		newest=newest,
 	)
 	described = subroutine.domain.events.descriptions(session, shown)

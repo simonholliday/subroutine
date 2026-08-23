@@ -316,6 +316,11 @@ TASK_FILTERS: dict[str, Filterable] = {
 		# instants are equal to the microsecond and almost never to the caller.
 		starts_at=subroutine.db.models.work.Task.starts_at,
 		content_updated_at=subroutine.db.models.work.Task.content_updated_at,
+		# **When somebody took it, which is not when they will finish** (`#1120`). Reported on
+		# every row since the lease was built and reachable by no question, so *what has been
+		# held since before lunch* — the one a person asks when an agent has gone quiet — had
+		# no query. Null unless it is claimed, and NULLS LAST does the rest.
+		claimed_at=subroutine.db.models.work.Task.claimed_at,
 	),
 	# `#319`. **No index, and here anyway on the same measured grounds as `completed_at` and
 	# `snoozed_until` above**: the question it was filed for — *what is short and not blocked* —

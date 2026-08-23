@@ -322,6 +322,11 @@ def listing (
 		"signed in as — which is not the same as ?actor=me on the change feed, where it means "
 		"this credential.",
 	),
+	claimed_by: str | None = fastapi.Query(
+		None,
+		description="Restrict to what one account is holding, by username or id. 'me' is the "
+		"account you are signed in as. Expired claims are not held, so they are left out.",
+	),
 	type: str | None = fastapi.Query(None, description="Restrict to one item type key."),
 	parent: str | None = fastapi.Query(
 		None,
@@ -561,6 +566,22 @@ def listing (
 			== subroutine.domain.selection.user(
 				session, assignee, caller=actor.user
 			).id
+		)
+
+	# **Who is holding it, which is a different question from who it is assigned to** (`#1120`).
+	# An assignee is somebody's to do; a claim is somebody doing it *now*, so *what is my agent
+	# sitting on* and *what did I give it* have different answers and the second was the only
+	# one anybody could ask.
+	#
+	# **An expired claim is not held**, which is §10.7 invariant 10 — an expired claim is
+	# treated as absent rather than cleaned up eagerly — so this asks the same question
+	# `readiness` does rather than a second version of it. Without that, *what am I holding*
+	# would answer with work the lease has already released to somebody else.
+	if claimed_by is not None:
+		statement = statement.where(
+			model.claimed_by_id
+			== subroutine.domain.selection.user(session, claimed_by, caller=actor.user).id,
+			model.claim_expires_at > now,
 		)
 
 	if q:

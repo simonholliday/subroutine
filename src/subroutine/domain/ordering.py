@@ -557,6 +557,14 @@ TASK_FIELDS: dict[str, Sortable] = {
 	"priority_score": Derived(
 		expression=RANKING, read=carried, carried_on=subroutine.db.models.work.Task.rank
 	),
+	# **What "taken longest ago" means** (`#1120`). A lease expires, so a claim taken hours ago
+	# on work nobody finished is the row a person is looking for when they ask what an agent is
+	# sitting on — and until this the column was reported on every row and reachable by no sort.
+	#
+	# `NULLS LAST` for `estimate_minutes`' reason and not by analogy: ascending is *held
+	# longest* and an unclaimed task has not been held at all; descending is *taken most
+	# recently* and it was not taken. Last is the honest place in both directions.
+	"claimed_at": subroutine.db.models.work.Task.claimed_at,
 	"ref": subroutine.db.models.work.Task.ref,
 	"title": subroutine.db.models.work.Task.title,
 }
@@ -642,6 +650,9 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	# `#319`. Read rather than derived from `estimate_human`, which is the same number said
 	# for a person and would have to be parsed back to compare two of them.
 	"estimate_minutes": lambda item: getattr(item, "estimate_minutes", None),
+	# `#1120`. `getattr` with a default for the reason every entry here has one: a document
+	# shares the merged listing and has no claim, and an older instance may not send the field.
+	"claimed_at": lambda item: getattr(item, "claimed_at", None),
 	"importance": lambda item: getattr(item, "importance", None),
 	"urgency": lambda item: getattr(item, "urgency", None),
 	"priority_score": lambda item: getattr(item, "rank", None),

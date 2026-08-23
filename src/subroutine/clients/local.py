@@ -370,6 +370,7 @@ class Client:
 		ready: bool = False,
 		deleted: bool = False,
 		assignee: str | None = None,
+		claimed_by: str | None = None,
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
@@ -615,6 +616,19 @@ class Client:
 					== subroutine.domain.selection.user(
 						session, assignee, caller=actor.user
 					).id
+				)
+
+			# **Held now, which is not the same as assigned** (`#1120`), and an expired claim is
+			# not held — §10.7 invariant 10, the same reading `readiness` takes. The endpoint's
+			# clause is the same two conditions, because a narrowing that differed between
+			# transports is what this module keeps being about.
+			if claimed_by is not None:
+				statement = statement.where(
+					model.claimed_by_id
+					== subroutine.domain.selection.user(
+						session, claimed_by, caller=actor.user
+					).id,
+					model.claim_expires_at > now,
 				)
 
 			if due_before is not None:
@@ -1467,6 +1481,7 @@ class Client:
 		*,
 		since: int | None = None,
 		mine: bool = False,
+		by: str | None = None,
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
@@ -1511,6 +1526,14 @@ class Client:
 				size=size,
 				since=since,
 				mine=mine,
+				# Resolved here rather than passed as a name, for the reason every other "who"
+				# in this file is: a username that names nobody is refused with the members
+				# listed, and the refusal is the domain's rather than one written twice.
+				by=(
+					None
+					if by is None
+					else subroutine.domain.selection.user(session, by, caller=actor.user).id
+				),
 				newest=newest,
 			)
 			described = subroutine.domain.events.descriptions(session, rows)

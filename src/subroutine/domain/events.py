@@ -356,6 +356,7 @@ def feed (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	since: int | None = None,
 	mine: bool = False,
+	by: uuid.UUID | None = None,
 	newest: bool = False,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
 	"""Return the change feed's statement — ordered, watermarked and narrowed (§5.11a).
@@ -370,6 +371,12 @@ def feed (
 	everything: a session-authenticated principal has no ``actor_token_id`` on anything it
 	wrote, so matching on a null token would quietly widen the filter to every system-written
 	row — and the belief being tested is precisely "these are the things I did".
+
+	``by`` is the same question at the other grain (`#1120`): *what did that account do*,
+	through whatever credential. **It is not a second question, it is a coarser one** — and the
+	coarse grain is the only one useful about somebody else, because nobody knows another
+	credential's id. On this instance the person writes 2.2% of the events, so *what has it
+	been doing* is the commonest thing a human asks about the record and had no query at all.
 	"""
 
 	model = subroutine.db.models.activity.Event
@@ -388,6 +395,9 @@ def feed (
 	if mine and token_id is None:
 		statement = statement.where(sqlalchemy.false())
 
+	if by is not None:
+		statement = statement.where(model.actor_user_id == by)
+
 	# **`newest` reads the tail, and :func:`page` turns it the right way up again.** A feed is
 	# defined forwards and stays that way in every answer; this is only about which end of a
 	# long history the *first* call lands on. Without it somebody meeting an instance with
@@ -404,6 +414,7 @@ def page (
 	size: int,
 	since: int | None = None,
 	mine: bool = False,
+	by: uuid.UUID | None = None,
 	newest: bool = False,
 ) -> tuple[list[subroutine.db.models.activity.Event], bool]:
 	"""Return one page of the feed, **always oldest first**, and whether more follow.
@@ -428,7 +439,7 @@ def page (
 	newest = newest and since is None
 
 	statement = feed(
-		principal, workspace_ids=workspace_ids, since=since, mine=mine, newest=newest
+		principal, workspace_ids=workspace_ids, since=since, mine=mine, by=by, newest=newest
 	)
 	rows = list(session.scalars(statement.limit(size + 1)))
 	has_more = len(rows) > size

@@ -22,6 +22,18 @@ upgrade involves.
 
 ### Added
 
+- **A listing narrows by who is holding an item, and the change feed by who acted.** Three
+  things that were stored, reported on every row and reachable by no question:
+
+  - `subroutine list --claimed-by me` — what you are holding right now, which is what the
+    claim discipline asks you to keep track of and nothing could answer. `?claimed_by=` over
+    HTTP, taking a username or `me`. An expired claim is not being held, so it is left out.
+  - `--order claimed_at` and `--filter claimed_at.gte=…` — *what has been held longest*, which
+    is the question you ask when an agent has gone quiet.
+  - `subroutine changes --by <username>` — what one account has been doing, through whatever
+    credential. `--mine` has always answered about this machine's own credential, which is the
+    acts you already know about; this is the other direction.
+
 - **An item says what to read before starting it.** `subroutine show` opens with a *Read first*
   section naming the decisions, specifications, designs and dead ends that govern this
   particular piece of work; so does the item page in the browser, and so does an agent reading
@@ -108,6 +120,12 @@ upgrade involves.
   owner leaves.
 
 ### Changed
+
+- **`GET /v1/changes?actor=` takes a username as well as `me`.** `me` still means *this
+  credential*; a username means *that account*, through any of its credentials. An account that
+  does not exist is now answered `404 not_found` naming the account, where it used to be
+  `422` saying the parameter took `me` or nothing — which has stopped being true. It is the same
+  refusal `?assignee=` has always given.
 
 - **`content_updated_at` now answers one question, and the fields that move it have changed.**
   It says whether the *substance* of an item changed — what it is and what it asks of you — as

@@ -1426,6 +1426,27 @@ def test_both_say_the_same_thing_governs (pair: Pair) -> None:
 	assert local.governing(ref=work.ref) == remote.governing(ref=work.ref) == []
 
 
+def test_both_narrow_to_what_one_account_is_holding (pair: Pair) -> None:
+	"""`#1120`. Two clauses — the holder, and the lease still running — on two transports.
+
+	`#501`'s shape exactly: a filter the endpoint declared and no client passed is a filter
+	nobody could use, and one passed by one client only is a listing that returns different
+	rows depending on which way you asked.
+	"""
+
+	local, remote = pair.both()
+	held = make(pair, "Being worked on")
+	make(pair, "Nobody has this")
+	local.claim(ref=held.ref)
+
+	assert [task.ref for task in local.tasks(claimed_by="me")] == [held.ref]
+	assert [task.ref for task in remote.tasks(claimed_by="me")] == [held.ref]
+
+	local.release(ref=held.ref)
+
+	assert local.tasks(claimed_by="me") == remote.tasks(claimed_by="me") == []
+
+
 def test_both_propose_the_same_link_from_the_same_citation (pair: Pair) -> None:
 	"""`#1137`. Two paths that read the mention index, and they must read it the same.
 

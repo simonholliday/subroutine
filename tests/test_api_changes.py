@@ -206,12 +206,32 @@ def test_the_feed_refuses_a_parameter_it_does_not_declare (
 def test_the_feed_refuses_an_actor_it_does_not_understand (
 	world: test_api_tasks.World,
 ) -> None:
-	"""``me`` or nothing. A username here would read as working and filter nothing."""
+	"""A value that reads as working and filters nothing must never be accepted.
 
-	answered = world.call("GET", "/v1/changes", params={"actor": "simon"})
+	**Re-aimed rather than deleted** (`#1120`). It used to assert *``me`` or nothing*, which
+	was true and has stopped being: a username is now the same question one grain coarser.
+	What has not changed is the property the test is really about — a name nobody has is a
+	typo, and answering it with a silently empty feed is how somebody concludes an agent has
+	done nothing.
 
-	assert answered.status_code == 422
-	assert answered.json()["errors"][0]["field"] == "actor"
+	**The refusal is the selector's**, so `?actor=` and `?assignee=` turn down an unknown
+	account identically, with the same code and the same hint.
+	"""
+
+	answered = world.call("GET", "/v1/changes", params={"actor": "nobody-called-this"})
+
+	assert answered.status_code == 404
+	assert "nobody-called-this" in answered.text
+
+	# **And a real name is accepted**, which is what says the refusal above was about the name
+	# rather than about the parameter still being closed. An absence two behaviours produce is
+	# not evidence for either.
+	assert (
+		world.call(
+			"GET", "/v1/changes", params={"actor": world.user.username}
+		).status_code
+		== 200
+	)
 
 
 def test_a_private_project_stays_out_of_the_feed (session: sqlalchemy.orm.Session) -> None:

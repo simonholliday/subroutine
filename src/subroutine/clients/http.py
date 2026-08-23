@@ -235,6 +235,7 @@ class Client:
 		ready: bool = False,
 		deleted: bool = False,
 		assignee: str | None = None,
+		claimed_by: str | None = None,
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
@@ -261,6 +262,7 @@ class Client:
 				# here would be a second copy of the rule and a second refusal to keep in step
 				# with the local client's.
 				assignee=assignee,
+				claimed_by=claimed_by,
 				status=status,
 				status_category=status_category,
 				type=type,
@@ -704,6 +706,7 @@ class Client:
 		*,
 		since: int | None = None,
 		mine: bool = False,
+		by: str | None = None,
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
@@ -712,9 +715,10 @@ class Client:
 
 		asking = _given(
 			since=since,
-			# The endpoint takes a word rather than a flag, so a later `?actor=<username>`
-			# needs no second parameter and no deprecation.
-			actor="me" if mine else None,
+			# **One parameter, two grains** (`#1120`). `me` is this credential and a username
+			# is that account, which is why the endpoint took a word rather than a flag: the
+			# widening needed no second parameter and no deprecation.
+			actor="me" if mine else by,
 			newest=True if newest else None,
 			workspace_id=workspace,
 			limit=limit,

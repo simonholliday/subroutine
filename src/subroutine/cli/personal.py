@@ -2093,6 +2093,7 @@ def _listing (
 	ready: bool = False,
 	trash: bool = False,
 	assignee: str | None = None,
+	claimed_by: str | None = None,
 	status: str | None = None,
 	type: str | None = None,
 	filters: dict[str, str] | None = None,
@@ -2169,6 +2170,7 @@ def _listing (
 					ready=ready,
 					deleted=trash,
 					assignee=assignee,
+					claimed_by=claimed_by,
 					status=status,
 					type=type,
 					filters=filters,
@@ -2259,17 +2261,19 @@ def _listing (
 						deferred="only",
 						q=q,
 						assignee=assignee,
+						claimed_by=claimed_by,
 						status=status,
 						type=type,
 						filters=filters,
 					)
 				)
-			# **A document has no assignee, so a list narrowed to one is a list of tasks**
-			# (§6.14 — a document has an owner rather than a worker). The same argument
-			# `ready` makes above: including them would answer a question nobody asked,
-			# and "everything Simon is working on" ending in every specification in the
-			# workspace is worse than useless.
-			if assignee is not None:
+			# **A document has no assignee and cannot be claimed, so a list narrowed to
+			# either is a list of tasks** (§6.14 — a document has an owner rather than a
+			# worker, and nobody works on one). The same argument `ready` makes above:
+			# including them would answer a question nobody asked, and "everything Simon is
+			# working on" ending in every specification in the workspace is worse than
+			# useless.
+			if assignee is not None or claimed_by is not None:
 				continue
 
 			# **A date field a document has not got means *no* documents, never all of
@@ -2856,6 +2860,7 @@ def _listed (
 	ready: bool = False,
 	trash: bool = False,
 	assignee: str | None = None,
+	claimed_by: str | None = None,
 	status: str | None = None,
 	type: str | None = None,
 	filters: dict[str, str] | None = None,
@@ -2902,6 +2907,7 @@ def _listed (
 			ready=ready,
 			trash=trash,
 			assignee=assignee,
+			claimed_by=claimed_by,
 			status=status,
 			type=type,
 			filters=filters,
@@ -4590,6 +4596,326 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 
 
+def _register_users (app: typer.Typer, program: Program) -> None:
+	"""Add the ``user`` group to the application.
+
+	**Out of ``register`` rather than in it**, the third time `#943`'s ratchet has been paid
+	rather than raised — after ``workspace`` (`#704`) and ``link``/``unlink`` (`#1136`). Eight
+	commands and 283 lines, and the largest natural unit left in the closure: every one of them
+	is about membership, and none reaches anything in it but ``program`` and the application.
+	"""
+
+	# **Membership lives under `user`, and there is deliberately no `workspace` group**
+	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
+	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a
+	# word anybody can read and ignore. The workspace is still where a membership *lives*;
+	# it is named by `--workspace` when there is more than one, and inferred otherwise.
+	user_app = typer.Typer(
+		help="Add the people and agents this instance is for.", no_args_is_help=True
+	)
+	app.add_typer(user_app, name="user")
+
+	@user_app.command("create")
+	def user_create (
+		username: str = typer.Argument(..., help="What they will be called here."),
+		display_name: str = typer.Option("", "--name", help="Their full name."),
+		email: str = typer.Option("", "--email", help="Their email address."),
+		agent: bool = typer.Option(
+			False, "--agent", help="A machine identity rather than a person."
+		),
+		superuser: bool = typer.Option(
+			False,
+			"--superuser",
+			help="Let them administer this installation: create accounts and workspaces.",
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Add somebody to this instance.
+
+		Examples:
+
+		  subroutine user create thomas --name "Thomas Anderson"
+
+		  subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
+
+		  subroutine user create sam --superuser
+
+		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
+		way to grant that — no role carries it. Until '#701' there was exactly one, made by
+		'init', and no way to a second, which left an instance with nobody to hand over to.
+
+		A new account belongs to no workspace yet, and until it does there is nothing it can
+		see. 'subroutine user add' is the second half, and this command says so when it is
+		done rather than leaving somebody with an account that appears not to work.
+
+		There is no password. Subroutine authenticates with tokens, so what a new person needs
+		next is one of those.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+
+			# Read *before* creating, because the question is how many accounts there were —
+			# see `_keep_the_operators_own_list` for why that is the one that matters.
+			before = where.client.users() if where.client.connection.is_local else []
+
+			created = where.client.create_user(
+				username=username,
+				display_name=display_name.strip() or None,
+				email=email.strip() or None,
+				is_service_account=agent,
+				is_superuser=superuser,
+			)
+
+			settled = _keep_the_operators_own_list(world, before)
+
+			if json_output:
+				program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+				return
+
+			program.say(f"Created {created.username}")
+
+			if settled is not None:
+				program.say(f"Local commands will go on acting as {settled}.")
+
+			# **The next command is the one that makes the account useful.** An account with
+			# no membership can see nothing at all, so stopping at "Created" would leave
+			# somebody with a person who appears to be broken.
+			_suggest(program.console, f"subroutine user add {created.username} --role member")
+
+	@user_app.command("list")
+	def user_list (
+		workspace: str = typer.Option(
+			"", "--workspace", help="Show who belongs to this workspace, and their roles."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show who is on this instance.
+
+		Examples:
+
+		  subroutine user list
+
+		  subroutine user list --workspace acme
+
+		Without --workspace this is every account, oldest first — the first one is whoever ran
+		'subroutine init'. With it, only that workspace's members, and what each may do there.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+			# Neither of these rows carries a moment, so nothing here reads it; it is passed
+			# because `columns` takes it everywhere rather than only where it is used, which
+			# is what stops the next cell rendering a day in the server's zone (`#1091`).
+			reading = world.account_zone(where.name, None)
+
+			if workspace.strip():
+				members = where.client.members(workspace=workspace.strip())
+				rows = [member.columns(reading) for member in members]
+				payload = [member.model_dump(mode="json") for member in members]
+
+			else:
+				accounts = where.client.users()
+				rows = [account.columns(reading) for account in accounts]
+				payload = [account.model_dump(mode="json") for account in accounts]
+
+			if json_output:
+				program.say(json.dumps(payload, indent=2))
+
+				return
+
+			if not rows:
+				program.say("Nobody here yet.")
+				_suggest(program.console, "subroutine user create thomas")
+
+				return
+
+			for line in _tabulated(rows):
+				program.say(line)
+
+	@user_app.command("add")
+	def user_add (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		role: str = typer.Option(
+			"", "--role", help="What they may do there — 'member', 'admin', 'viewer'."
+		),
+		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+	) -> None:
+		"""Let somebody work in a workspace.
+
+		Examples:
+
+		  subroutine user add thomas --role member
+
+		  subroutine user add thomas --role admin --workspace acme
+
+		The role is named rather than assumed. What somebody may do is the decision being
+		taken here, and a default would be this command taking it quietly on your behalf.
+		"""
+
+		# Through `fail` rather than raised: every other refusal in this module goes that way,
+		# and a bare raise here leaves the command's own guard — `opened()` — behind, so the
+		# message arrives as an exception rather than as a sentence.
+		if not role.strip():
+			program.fail(
+				subroutine.errors.ValidationError(
+					"Say what they may do there, with --role.",
+					hint=(
+						"'member' to work in it, 'admin' to also manage it, 'viewer' to only "
+						"read. A role belongs to a workspace, so these are that workspace's."
+					),
+				)
+			)
+
+		with program.opened() as world:
+			where = world.writing_to()
+			joined = where.client.add_member(
+				username=username,
+				role=role.strip(),
+				workspace=workspace.strip() or _writing_workspace(world),
+			)
+
+			program.say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
+
+	@user_app.command("deactivate")
+	def user_deactivate (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
+	) -> None:
+		"""Mark somebody as having left, stopping the agents that answer to them.
+
+		Examples:
+
+		  subroutine user deactivate thomas
+
+		Their account stays and so does everything they wrote, still attributed to them. What
+		stops is their credentials and every agent answerable to them — because somebody gave
+		those agents permission to work, and that permission was this person's to give.
+
+		The last person who can administer this instance cannot leave: an instance nobody can
+		administer cannot be repaired from inside, and it would stop every agent at once.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+			stopping = subroutine.views.answering_to(where.client.users(), username)
+
+			# **Named before it happens, not counted** — `project rename`'s rule. A deactivation
+			# that silently stops a shared agent is how somebody learns to stop deactivating
+			# leavers, which costs more than the thing it was protecting.
+			if stopping and not yes:
+				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
+
+				if not typer.confirm(f"Mark {username} as having left?"):
+					program.say("Left as they were.")
+
+					return
+
+			where.client.set_active(username=username, active=False)
+
+			program.say(f"{username} is marked as having left")
+
+			for name in stopping:
+				program.say(f"  {name} has stopped")
+
+	@user_app.command("reactivate")
+	def user_reactivate (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+	) -> None:
+		"""Bring somebody back, and with them the agents that answer to them.
+
+		Examples:
+
+		  subroutine user reactivate thomas
+
+		The same operation as 'deactivate' in reverse, deliberately: two commands with their own
+		rules would be two places for those rules to disagree.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+
+			where.client.set_active(username=username, active=True)
+
+			program.say(f"{username} is active again")
+
+	@user_app.command("timezone")
+	def user_timezone (
+		zone: str = typer.Argument(
+			"", help="Your zone, e.g. 'Europe/London'. Say nothing to see it."
+		),
+		clear: bool = typer.Option(
+			False, "--clear", help="Follow the workspace's zone again."
+		),
+	) -> None:
+		"""Say which timezone you are in, so your days are counted where you are.
+
+		Examples:
+
+		  subroutine user timezone Europe/London
+
+		  subroutine user timezone
+
+		Your own account and nobody else's — you know which zone you are in better than
+		anybody else does, so there is no permission that lets somebody set it for you.
+
+		It decides which day a deadline counts as on every surface. It does not change how a
+		date is written down: a day belongs to the item that has it, so 'due Fri 14 Aug' says
+		Friday wherever it is read.
+		"""
+
+		_user_timezone(program, zone=zone, clear=clear)
+
+	@user_app.command("transfer")
+	def user_transfer (
+		username: str = typer.Argument(..., help="Which agent, by the name 'user list' shows."),
+		to: str = typer.Option(..., "--to", help="Who becomes answerable for it."),
+	) -> None:
+		"""Hand an agent to somebody else, who becomes answerable for what it does.
+
+		Examples:
+
+		  subroutine user transfer deploy-bot --to jo
+
+		Agents stop when the person answerable for them leaves, so this is how one is kept when
+		somebody goes. Only a person can take an agent on — being accountable is something
+		somebody agrees to, and an agent cannot agree on anybody's behalf.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+
+			where.client.transfer_agent(username=username, to=to)
+
+			program.say(f"{to} now answers for {username}")
+
+	@user_app.command("remove")
+	def user_remove (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+	) -> None:
+		"""Take somebody out of a workspace.
+
+		Examples:
+
+		  subroutine user remove thomas
+
+		This removes their membership, not their account: what they wrote stays, and stays
+		attributed to them. The last person able to administer a workspace cannot be removed
+		from it, because a workspace nobody can administer cannot be repaired from inside.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+			chosen = workspace.strip() or _writing_workspace(world)
+
+			where.client.remove_member(username=username, workspace=chosen)
+
+			program.say(f"{username} is no longer a member of {chosen}")
+
+
+
 def _register_workspace (app: typer.Typer, program: Program) -> None:
 	"""Add the ``workspace`` group to the application.
 
@@ -5057,6 +5383,9 @@ def register (
 		assignee: str = typer.Option(
 			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
 		),
+		claimed_by: str = typer.Option(
+			"", "--claimed-by", help="Only what somebody is holding now. A username, or 'me'."
+		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
 		dated: list[str] | None = typer.Option(
@@ -5085,6 +5414,8 @@ def register (
 
 		  subroutine list --assignee si --status blocked
 
+		  subroutine list --claimed-by claude --order claimed_at
+
 		  subroutine list --filter created_at.gte=yesterday
 
 		  subroutine list --filter completed_at.gte=2026-08-02 --filter completed_at.lt=today
@@ -5104,6 +5435,7 @@ def register (
 			ready=ready,
 			trash=trash,
 			assignee=assignee or None,
+			claimed_by=claimed_by or None,
 			status=status or None,
 			# **`kind` locally, `--type` to the user, `type=` to the client.** `type` is a
 			# builtin and shadowing it inside a function that also annotates with `str | None`
@@ -5174,6 +5506,9 @@ def register (
 		mine: bool = typer.Option(
 			False, "--mine", help="Only what this machine's own credential did."
 		),
+		by: str = typer.Option(
+			"", "--by", help="Only what one account did, by name. Try it with an agent's name."
+		),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the events as JSON."),
 		strict: bool = typer.Option(
@@ -5185,6 +5520,9 @@ def register (
 		'subroutine list' says what is open now. This says what *moved*, which is the thing
 		you cannot work out by looking at the current state.
 
+		'--by' is how you find out what somebody else has been doing, which is usually an
+		agent you handed work to. '--mine' is the same question about this machine.
+
 		Examples:
 
 		  subroutine changes
@@ -5192,6 +5530,8 @@ def register (
 		  subroutine changes --since 412
 
 		  subroutine changes --mine
+
+		  subroutine changes --by claude
 		"""
 
 		with program.opened(strict=strict) as world:
@@ -5214,7 +5554,11 @@ def register (
 				# time against a long history wants this morning, not the instance's first
 				# afternoon — and `--since` is what says they have a place already.
 				return client.changes(
-					since=since, mine=mine, newest=since is None, limit=limit
+					since=since,
+					mine=mine,
+					by=by or None,
+					newest=since is None,
+					limit=limit,
 				)
 
 			gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -5265,6 +5609,9 @@ def register (
 		assignee: str = typer.Option(
 			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
 		),
+		claimed_by: str = typer.Option(
+			"", "--claimed-by", help="Only what somebody is holding now. A username, or 'me'."
+		),
 		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
 		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
 		dated: list[str] | None = typer.Option(
@@ -5300,6 +5647,7 @@ def register (
 			ready=ready,
 			trash=trash,
 			assignee=assignee or None,
+			claimed_by=claimed_by or None,
 			status=status or None,
 			type=kind or None,
 			filters=_filters(program, dated),
@@ -6421,314 +6769,7 @@ def register (
 
 		_project_moved(program, key=key, under=under, root=root, yes=yes)
 
-	# **Membership lives under `user`, and there is deliberately no `workspace` group**
-	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
-	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a
-	# word anybody can read and ignore. The workspace is still where a membership *lives*;
-	# it is named by `--workspace` when there is more than one, and inferred otherwise.
-	user_app = typer.Typer(
-		help="Add the people and agents this instance is for.", no_args_is_help=True
-	)
-	app.add_typer(user_app, name="user")
-
-	@user_app.command("create")
-	def user_create (
-		username: str = typer.Argument(..., help="What they will be called here."),
-		display_name: str = typer.Option("", "--name", help="Their full name."),
-		email: str = typer.Option("", "--email", help="Their email address."),
-		agent: bool = typer.Option(
-			False, "--agent", help="A machine identity rather than a person."
-		),
-		superuser: bool = typer.Option(
-			False,
-			"--superuser",
-			help="Let them administer this installation: create accounts and workspaces.",
-		),
-		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
-	) -> None:
-		"""Add somebody to this instance.
-
-		Examples:
-
-		  subroutine user create thomas --name "Thomas Anderson"
-
-		  subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
-
-		  subroutine user create sam --superuser
-
-		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
-		way to grant that — no role carries it. Until '#701' there was exactly one, made by
-		'init', and no way to a second, which left an instance with nobody to hand over to.
-
-		A new account belongs to no workspace yet, and until it does there is nothing it can
-		see. 'subroutine user add' is the second half, and this command says so when it is
-		done rather than leaving somebody with an account that appears not to work.
-
-		There is no password. Subroutine authenticates with tokens, so what a new person needs
-		next is one of those.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-
-			# Read *before* creating, because the question is how many accounts there were —
-			# see `_keep_the_operators_own_list` for why that is the one that matters.
-			before = where.client.users() if where.client.connection.is_local else []
-
-			created = where.client.create_user(
-				username=username,
-				display_name=display_name.strip() or None,
-				email=email.strip() or None,
-				is_service_account=agent,
-				is_superuser=superuser,
-			)
-
-			settled = _keep_the_operators_own_list(world, before)
-
-			if json_output:
-				say(json.dumps(created.model_dump(mode="json"), indent=2))
-
-				return
-
-			say(f"Created {created.username}")
-
-			if settled is not None:
-				say(f"Local commands will go on acting as {settled}.")
-
-			# **The next command is the one that makes the account useful.** An account with
-			# no membership can see nothing at all, so stopping at "Created" would leave
-			# somebody with a person who appears to be broken.
-			_suggest(console, f"subroutine user add {created.username} --role member")
-
-	@user_app.command("list")
-	def user_list (
-		workspace: str = typer.Option(
-			"", "--workspace", help="Show who belongs to this workspace, and their roles."
-		),
-		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
-	) -> None:
-		"""Show who is on this instance.
-
-		Examples:
-
-		  subroutine user list
-
-		  subroutine user list --workspace acme
-
-		Without --workspace this is every account, oldest first — the first one is whoever ran
-		'subroutine init'. With it, only that workspace's members, and what each may do there.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-			# Neither of these rows carries a moment, so nothing here reads it; it is passed
-			# because `columns` takes it everywhere rather than only where it is used, which
-			# is what stops the next cell rendering a day in the server's zone (`#1091`).
-			reading = world.account_zone(where.name, None)
-
-			if workspace.strip():
-				members = where.client.members(workspace=workspace.strip())
-				rows = [member.columns(reading) for member in members]
-				payload = [member.model_dump(mode="json") for member in members]
-
-			else:
-				accounts = where.client.users()
-				rows = [account.columns(reading) for account in accounts]
-				payload = [account.model_dump(mode="json") for account in accounts]
-
-			if json_output:
-				say(json.dumps(payload, indent=2))
-
-				return
-
-			if not rows:
-				say("Nobody here yet.")
-				_suggest(console, "subroutine user create thomas")
-
-				return
-
-			for line in _tabulated(rows):
-				say(line)
-
-	@user_app.command("add")
-	def user_add (
-		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
-		role: str = typer.Option(
-			"", "--role", help="What they may do there — 'member', 'admin', 'viewer'."
-		),
-		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
-	) -> None:
-		"""Let somebody work in a workspace.
-
-		Examples:
-
-		  subroutine user add thomas --role member
-
-		  subroutine user add thomas --role admin --workspace acme
-
-		The role is named rather than assumed. What somebody may do is the decision being
-		taken here, and a default would be this command taking it quietly on your behalf.
-		"""
-
-		# Through `fail` rather than raised: every other refusal in this module goes that way,
-		# and a bare raise here leaves the command's own guard — `opened()` — behind, so the
-		# message arrives as an exception rather than as a sentence.
-		if not role.strip():
-			fail(
-				subroutine.errors.ValidationError(
-					"Say what they may do there, with --role.",
-					hint=(
-						"'member' to work in it, 'admin' to also manage it, 'viewer' to only "
-						"read. A role belongs to a workspace, so these are that workspace's."
-					),
-				)
-			)
-
-		with program.opened() as world:
-			where = world.writing_to()
-			joined = where.client.add_member(
-				username=username,
-				role=role.strip(),
-				workspace=workspace.strip() or _writing_workspace(world),
-			)
-
-			say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
-
-	@user_app.command("deactivate")
-	def user_deactivate (
-		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
-		yes: bool = typer.Option(False, "--yes", help="Do not ask."),
-	) -> None:
-		"""Mark somebody as having left, stopping the agents that answer to them.
-
-		Examples:
-
-		  subroutine user deactivate thomas
-
-		Their account stays and so does everything they wrote, still attributed to them. What
-		stops is their credentials and every agent answerable to them — because somebody gave
-		those agents permission to work, and that permission was this person's to give.
-
-		The last person who can administer this instance cannot leave: an instance nobody can
-		administer cannot be repaired from inside, and it would stop every agent at once.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-			stopping = subroutine.views.answering_to(where.client.users(), username)
-
-			# **Named before it happens, not counted** — `project rename`'s rule. A deactivation
-			# that silently stops a shared agent is how somebody learns to stop deactivating
-			# leavers, which costs more than the thing it was protecting.
-			if stopping and not yes:
-				say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
-
-				if not typer.confirm(f"Mark {username} as having left?"):
-					say("Left as they were.")
-
-					return
-
-			where.client.set_active(username=username, active=False)
-
-			say(f"{username} is marked as having left")
-
-			for name in stopping:
-				say(f"  {name} has stopped")
-
-	@user_app.command("reactivate")
-	def user_reactivate (
-		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
-	) -> None:
-		"""Bring somebody back, and with them the agents that answer to them.
-
-		Examples:
-
-		  subroutine user reactivate thomas
-
-		The same operation as 'deactivate' in reverse, deliberately: two commands with their own
-		rules would be two places for those rules to disagree.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-
-			where.client.set_active(username=username, active=True)
-
-			say(f"{username} is active again")
-
-	@user_app.command("timezone")
-	def user_timezone (
-		zone: str = typer.Argument(
-			"", help="Your zone, e.g. 'Europe/London'. Say nothing to see it."
-		),
-		clear: bool = typer.Option(
-			False, "--clear", help="Follow the workspace's zone again."
-		),
-	) -> None:
-		"""Say which timezone you are in, so your days are counted where you are.
-
-		Examples:
-
-		  subroutine user timezone Europe/London
-
-		  subroutine user timezone
-
-		Your own account and nobody else's — you know which zone you are in better than
-		anybody else does, so there is no permission that lets somebody set it for you.
-
-		It decides which day a deadline counts as on every surface. It does not change how a
-		date is written down: a day belongs to the item that has it, so 'due Fri 14 Aug' says
-		Friday wherever it is read.
-		"""
-
-		_user_timezone(program, zone=zone, clear=clear)
-
-	@user_app.command("transfer")
-	def user_transfer (
-		username: str = typer.Argument(..., help="Which agent, by the name 'user list' shows."),
-		to: str = typer.Option(..., "--to", help="Who becomes answerable for it."),
-	) -> None:
-		"""Hand an agent to somebody else, who becomes answerable for what it does.
-
-		Examples:
-
-		  subroutine user transfer deploy-bot --to jo
-
-		Agents stop when the person answerable for them leaves, so this is how one is kept when
-		somebody goes. Only a person can take an agent on — being accountable is something
-		somebody agrees to, and an agent cannot agree on anybody's behalf.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-
-			where.client.transfer_agent(username=username, to=to)
-
-			say(f"{to} now answers for {username}")
-
-	@user_app.command("remove")
-	def user_remove (
-		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
-		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
-	) -> None:
-		"""Take somebody out of a workspace.
-
-		Examples:
-
-		  subroutine user remove thomas
-
-		This removes their membership, not their account: what they wrote stays, and stays
-		attributed to them. The last person able to administer a workspace cannot be removed
-		from it, because a workspace nobody can administer cannot be repaired from inside.
-		"""
-
-		with program.opened() as world:
-			where = world.writing_to()
-			chosen = workspace.strip() or _writing_workspace(world)
-
-			where.client.remove_member(username=username, workspace=chosen)
-
-			say(f"{username} is no longer a member of {chosen}")
+	_register_users(app, program)
 
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
 	# are the full model's vocabulary — a workspace, an instance — and somebody with one

@@ -5415,6 +5415,55 @@ def test_show_says_nothing_about_references_where_there_are_none (
 	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
 
 
+def test_the_list_narrows_to_what_somebody_is_holding (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1120`. The claim discipline, made visible to whoever is following it.
+
+	Four commands are asked for around every piece of work — claim, start, stop, release — and
+	until this the person doing it could not ask the program what they were holding.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Being worked on")
+	run("add", "Nobody has this")
+	run("claim", "1")
+
+	held = run("list", "--claimed-by", "me").output
+
+	assert "Being worked on" in held
+	assert "Nobody has this" not in held, f"the filter did not narrow anything: {held}"
+
+	run("release", "1")
+
+	assert "Being worked on" not in run("list", "--claimed-by", "me").output
+
+
+def test_the_changes_feed_narrows_to_what_one_account_did (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""*What has it been doing* — the question a person asks about an agent they handed work to.
+
+	`--mine` answers about this machine's own credential, which is the acts you already know
+	about. This is the other direction, and it had no command at all.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something happened")
+
+	assert "no such account" not in run("changes", "--by", "si").output.lower()
+
+	# **Reported rather than fatal**, which is `fanout`'s rule and not this command's choice: a
+	# connection that cannot answer says so and the others still do, and `--strict` is what
+	# makes it stop. The name is in the message, so a typo is visible rather than silent.
+	missing = run("changes", "--by", "nobody-here")
+
+	assert "nobody-here" in missing.output, missing.output
+	stopped = run("changes", "--by", "nobody-here", "--strict", expect=1)
+
+	assert "nobody-here" in stopped.output
+
+
 def test_show_says_what_to_read_before_starting (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -6090,11 +6139,16 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **And a second time, on five lines of help** (`#1136`). That is the more useful data point:
 #: the first payment came from a feature big enough to expect it, and this one came from a
 #: docstring. ``link`` and ``unlink`` moved to ``_register_links``, 109 lines out for two in.
-REGISTER_CEILING = 2_347
+#:
+#: **And a third, on one filter** (`#1120`). The ``user`` group moved to ``_register_users`` —
+#: eight commands, 309 lines out for two in, and the largest natural unit that was left. Three
+#: payments and none of them raised: the mechanism is that a feature is what makes somebody do
+#: the move, and the moves have been getting cheaper because the groups are already there.
+REGISTER_CEILING = 2_062
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 131
+MODULE_LEVEL_FLOOR = 132
 
 
 def _register_span () -> tuple[int, int]:
