@@ -491,6 +491,98 @@ class Client(typing.Protocol):
 		by being refused.
 		"""
 
+	def statuses (
+		self, *, workspace: str | None = None, entity_type: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.Status]:
+		"""List this workspace's statuses, in the order a client should show them — `#826`.
+
+		Separate from :meth:`meta`, which reports the whole vocabulary at once: this is the
+		listing you page through while curating one part of it, and it carries the id the
+		other three methods take.
+		"""
+
+	def create_status (
+		self,
+		*,
+		entity_type: str,
+		key: str,
+		label: str,
+		category: str,
+		is_default: bool = False,
+		position: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Status:
+		"""Add a status to this workspace's vocabulary.
+
+		``category`` is the fixed meaning and cannot be changed afterwards; ``key`` is what a
+		caller sends and may be renamed whenever.
+		"""
+
+	def update_status (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		label: str | None = None,
+		is_default: bool | None = None,
+		position: int | None = None,
+	) -> subroutine.views.Status:
+		"""Rename or reposition a status, without changing what it means."""
+
+	def delete_status (self, *, which: str) -> None:
+		"""Remove a status nothing is in, and that is not the default."""
+
+	def link_types (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.LinkType]:
+		"""List the ways two items can relate here."""
+
+	def create_link_type (
+		self,
+		*,
+		key: str,
+		title: str,
+		inverse_title: str,
+		is_symmetric: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Add a way two items can relate."""
+
+	def update_link_type (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		title: str | None = None,
+		inverse_title: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Rename a link type, or reword either end of it."""
+
+	def delete_link_type (self, *, which: str) -> None:
+		"""Remove a link type nothing is joined by."""
+
+	def tags (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+		"""List this workspace's tags as things to curate — id, name and what each means.
+
+		**Usage counts are :meth:`meta`'s**, where they are narrowed to what this caller can
+		see. A tag used only in a private project they are not a member of does not appear
+		there, and recomputing that here would either duplicate the narrowing or lose it.
+		"""
+
+	def create_tag (
+		self, *, name: str, description: str | None = None, workspace: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Declare a tag before anybody uses it, and say what it means here.
+
+		A tag is still made by being *used* (§5.8); this is the other door.
+		"""
+
+	def update_tag (
+		self, *, which: str, name: str | None = None, description: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Rename a tag, or write down what it means in this workspace."""
+
+	def delete_tag (self, *, which: str) -> None:
+		"""Remove a tag, and with it every application of it."""
+
 	def unlink (
 		self, *, ref: int, link_id: str, entity_type: str = "task", workspace: str | None = None
 	) -> None:

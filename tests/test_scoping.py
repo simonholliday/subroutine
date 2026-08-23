@@ -45,6 +45,18 @@ SOURCE = pathlib.Path(subroutine.__file__).parent
 #: helper is for.
 REACHES_DIRECTLY: dict[str, str] = {
 	"domain/scoping.py": "the helper itself",
+	# **Counting, and it must not be narrowed** (`SR#826`). Removing a status asks how many
+	# tasks, documents and projects are in it, and the count decides whether the removal is
+	# refused. Narrowed by visibility, somebody who cannot see a private project could delete a
+	# status still used there — and the foreign key would then refuse with an `IntegrityError`,
+	# which reaches them as a 500 naming a constraint. The number is never reported *per row*;
+	# the refusal says "3 tasks", which discloses a count of things that already exist rather
+	# than which they are. `_rewrite_hidden` walks every project in the workspace for the same
+	# reason: a renamed status key has to move in every setting that names it, including in
+	# projects the renamer cannot see, or the rename silently stops hiding there.
+	"domain/vocabulary.py": "counts rows in a status to refuse removing one, deliberately "
+	"unnarrowed — a visibility-narrowed count would let somebody remove a status still in use "
+	"where they cannot see, and the constraint would refuse it as a 500.",
 	"domain/authorization.py": "defines the visibility predicate the helper applies",
 	"domain/authentication.py": "reads a project's `path` while issuing a credential, to place "
 	"the write set inside the reach (`#413`). **Deliberately not narrowed by visibility**, and "

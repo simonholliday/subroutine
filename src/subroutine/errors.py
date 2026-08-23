@@ -133,6 +133,15 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"username, a tag name.",
 		),
 		_define(
+			"in_use",
+			409,
+			"Still in use",
+			"The thing being removed is still referenced — a status some tasks are in, a "
+			"link type some links use. The message says how many, so the caller can move "
+			"them rather than guess. Removing a *tag* is deliberately not this: taking a "
+			"label off the things it is on is what deleting a label means.",
+		),
+		_define(
 			"cycle_detected",
 			409,
 			"Cycle detected",
@@ -392,6 +401,18 @@ class Conflict(SubroutineError):
 	"""The request collides with the current state."""
 
 	CODE = "duplicate_key"
+
+
+class InUse(SubroutineError):
+	"""Something still points at what the caller asked to remove.
+
+	**The database already refuses this** — the foreign keys into the vocabulary are
+	``ondelete="RESTRICT"`` — so this is not the safety. It is the difference between a
+	sentence naming what is in the way and an ``IntegrityError`` reaching a caller as a 500
+	naming a constraint, which is `#46`'s shape.
+	"""
+
+	CODE = "in_use"
 
 
 class SchemaMismatch(SubroutineError):

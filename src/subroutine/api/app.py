@@ -40,6 +40,7 @@ import subroutine.api.sessions
 import subroutine.api.tasks
 import subroutine.api.tokens
 import subroutine.api.users
+import subroutine.api.vocabulary
 import subroutine.api.web
 import subroutine.api.workspaces
 import subroutine.config
@@ -86,6 +87,11 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.sessions.user_sessions),
 	("", subroutine.api.tokens.router),
 	("", subroutine.api.meta.router),
+	# Curating the vocabulary — `#826`. `/v1/statuses`, `/v1/link-types` and `/v1/tags` are
+	# literals under `/v1` sharing a prefix with nothing, and their `/{which}` forms are longer
+	# than anything that could shadow them; `routing.check` is what says so rather than this
+	# comment.
+	("", subroutine.api.vocabulary.router),
 	("", subroutine.api.agenda.router),
 	("", subroutine.api.recurrence.router),
 	("", subroutine.api.tasks.router),

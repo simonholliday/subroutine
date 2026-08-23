@@ -1815,6 +1815,14 @@ def test_a_read_only_connection_refuses_every_write_before_it_leaves (
 			lambda: client.capture(text="This should not be written"),
 			lambda: client.complete(ref=1),
 			lambda: client.schedule(ref=1, starts=datetime.date(2026, 8, 3)),
+			# **Curating the vocabulary is a write too** (`SR#826`), and the three verbs are
+			# three separate checks in three services — so one of them here would leave the
+			# other two open, which is what this loop exists to say.
+			lambda: client.create_status(
+				entity_type="task", key="x", label="X", category="todo"
+			),
+			lambda: client.create_link_type(key="x", title="X", inverse_title="Y"),
+			lambda: client.create_tag(name="x"),
 		):
 			with pytest.raises(subroutine.errors.Forbidden) as raised:
 				attempt()
@@ -2402,6 +2410,77 @@ def test_both_refuse_a_parent_that_names_nothing (pair: Pair) -> None:
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.NotFound):
 			client.tasks(parent=9999, limit=50)
+
+
+def test_both_curate_a_workspace_vocabulary_the_same_way (pair: Pair) -> None:
+	"""`#826`. Twelve methods on two transports, and the halves are written separately.
+
+	**The listing is the half that would drift**, because each side assembles the envelope
+	itself — so this asserts the *shape* as well as the rows: `#5.7`'s rule is that a bare
+	array cannot be told complete from truncated, and a client that got one from one transport
+	and an envelope from the other would be worse than either.
+	"""
+
+	made = pair.local.create_status(
+		entity_type="task", key="in_review", label="In review", category="in_progress"
+	)
+
+	assert made.id is not None, "the id is what the other three methods take"
+
+	for client in pair.both():
+		listed = client.statuses(entity_type="task")
+		keys = [row.key for row in listed.items]
+
+		assert "in_review" in keys, type(client).__module__
+		assert listed.page.has_more is False
+		assert listed.page.total == len(listed.items)
+
+	renamed = pair.remote.update_status(which=str(made.id), key="reviewing")
+
+	assert renamed.key == "reviewing"
+	assert renamed.category == "in_progress", "renaming does not change the meaning"
+
+	# Removed through the transport that did not make it, which is the direction a
+	# divergence would show in: one side resolving an id the other cannot.
+	pair.local.delete_status(which=str(made.id))
+
+	for client in pair.both():
+		assert "reviewing" not in [row.key for row in client.statuses(entity_type="task").items]
+
+
+def test_both_refuse_removing_a_status_something_is_in (pair: Pair) -> None:
+	"""§5.5's *fails if in use*, and the same refusal from either side.
+
+	The database refuses it whatever happens — the foreign keys are ``ondelete="RESTRICT"`` —
+	so what is being asserted is that both transports turn that into the same *legible*
+	answer rather than one of them leaking an `IntegrityError`.
+	"""
+
+	made = pair.local.create_status(
+		entity_type="task", key="parked", label="Parked", category="todo"
+	)
+	filed = pair.local.capture(text="Something")
+
+	pair.local.update(ref=filed.task.ref, status="parked")
+
+	# **Assert the precondition before asserting the refusal.** Both clients share this test's
+	# transaction, so the update is still pending against it until something flushes — and a
+	# refusal that failed to appear because nothing was in the status yet would look exactly
+	# like a refusal that is not implemented. Reading the count is also what forces the flush.
+	held = pair.session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).where(
+			subroutine.db.models.work.Task.status_id == made.id
+		)
+	)
+
+	assert held == 1, "nothing is in the status, so the refusal below would prove nothing"
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.SubroutineError) as raised:
+			client.delete_status(which=str(made.id))
+
+		assert raised.value.code == "in_use", type(client).__module__
+		assert "1 tasks" in str(raised.value)
 
 
 def test_both_read_past_the_first_page_of_the_feed (pair: Pair) -> None:

@@ -346,6 +346,191 @@ class Client:
 			wanted=limit,
 		)
 
+	def statuses (
+		self, *, workspace: str | None = None, entity_type: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.Status]:
+		"""List this workspace's statuses, in the order a client should show them."""
+
+		return self._parsed(
+			subroutine.views.Collection[subroutine.views.Status],
+			self._json(
+				"GET",
+				"/v1/statuses",
+				params=_given(workspace_id=workspace, entity_type=entity_type),
+			),
+		)
+
+	def create_status (
+		self,
+		*,
+		entity_type: str,
+		key: str,
+		label: str,
+		category: str,
+		is_default: bool = False,
+		position: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Status:
+		"""Add a status to this workspace's vocabulary."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.Status,
+			self._json(
+				"POST",
+				"/v1/statuses",
+				params=_given(workspace_id=workspace),
+				json=_given(
+					entity_type=entity_type,
+					key=key,
+					label=label,
+					category=category,
+					is_default=is_default,
+					position=position,
+				),
+			),
+		)
+
+	def update_status (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		label: str | None = None,
+		is_default: bool | None = None,
+		position: int | None = None,
+	) -> subroutine.views.Status:
+		"""Rename or reposition a status."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.Status,
+			self._json(
+				"PATCH",
+				f"/v1/statuses/{which}",
+				json=_given(
+					key=key, label=label, is_default=is_default, position=position
+				),
+			),
+		)
+
+	def delete_status (self, *, which: str) -> None:
+		"""Remove a status nothing is in."""
+
+		self._refuse_if_read_only()
+
+		self._json("DELETE", f"/v1/statuses/{which}")
+
+	def link_types (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.LinkType]:
+		"""List the ways two items can relate here."""
+
+		return self._parsed(
+			subroutine.views.Collection[subroutine.views.LinkType],
+			self._json("GET", "/v1/link-types", params=_given(workspace_id=workspace)),
+		)
+
+	def create_link_type (
+		self,
+		*,
+		key: str,
+		title: str,
+		inverse_title: str,
+		is_symmetric: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Add a way two items can relate."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.LinkType,
+			self._json(
+				"POST",
+				"/v1/link-types",
+				params=_given(workspace_id=workspace),
+				json=_given(
+					key=key,
+					title=title,
+					inverse_title=inverse_title,
+					is_symmetric=is_symmetric,
+				),
+			),
+		)
+
+	def update_link_type (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		title: str | None = None,
+		inverse_title: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Rename a link type, or reword either end of it."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.LinkType,
+			self._json(
+				"PATCH",
+				f"/v1/link-types/{which}",
+				json=_given(key=key, title=title, inverse_title=inverse_title),
+			),
+		)
+
+	def delete_link_type (self, *, which: str) -> None:
+		"""Remove a link type nothing is joined by."""
+
+		self._refuse_if_read_only()
+
+		self._json("DELETE", f"/v1/link-types/{which}")
+
+	def tags (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+		"""List this workspace's tags as things to curate."""
+
+		return self._parsed(
+			subroutine.views.Collection[subroutine.views.TagEntry],
+			self._json("GET", "/v1/tags", params=_given(workspace_id=workspace)),
+		)
+
+	def create_tag (
+		self, *, name: str, description: str | None = None, workspace: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Declare a tag before anybody uses it."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.TagEntry,
+			self._json(
+				"POST",
+				"/v1/tags",
+				params=_given(workspace_id=workspace),
+				json=_given(name=name, description=description),
+			),
+		)
+
+	def update_tag (
+		self, *, which: str, name: str | None = None, description: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Rename a tag, or write down what it means."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.TagEntry,
+			self._json("PATCH", f"/v1/tags/{which}", json=_given(name=name, description=description)),
+		)
+
+	def delete_tag (self, *, which: str) -> None:
+		"""Remove a tag, and with it every application of it."""
+
+		self._refuse_if_read_only()
+
+		self._json("DELETE", f"/v1/tags/{which}")
+
 	def document (
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Document | None:

@@ -676,6 +676,9 @@ _SEGMENTS = {
 	# address of a feed somebody revoked.
 	"prefix": "0" * 8,
 	"secret": "nothing",
+	# A vocabulary row (`SR#826`). A uuid naming nothing, which is what this table wants: the
+	# route answers 404 for it, exactly as it does for a status somebody has removed.
+	"which": "00000000-0000-0000-0000-000000000000",
 }
 
 

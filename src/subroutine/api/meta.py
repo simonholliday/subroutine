@@ -563,11 +563,7 @@ def _statuses (
 		.where(model.workspace_id == workspace_id)
 		.order_by(model.entity_type, model.position)
 	):
-		grouped.setdefault(row.entity_type, []).append(
-			subroutine.views.Status(
-				key=row.key, label=row.label, category=row.category, is_default=row.is_default
-			)
-		)
+		grouped.setdefault(row.entity_type, []).append(subroutine.views.status(row))
 
 	return grouped
 
@@ -586,7 +582,9 @@ def _item_types (
 		.order_by(model.entity_type, model.position)
 	):
 		grouped.setdefault(row.entity_type, []).append(
-			subroutine.views.Named(key=row.key, label=row.label, is_default=row.is_default)
+			subroutine.views.Named(
+				id=row.id, key=row.key, label=row.label, is_default=row.is_default
+			)
 		)
 
 	return grouped
@@ -600,12 +598,7 @@ def _link_types (
 	model = subroutine.db.models.vocabulary.LinkType
 
 	return [
-		subroutine.views.LinkType(
-			key=row.key,
-			title=row.title,
-			inverse_title=row.inverse_title,
-			is_symmetric=row.is_symmetric,
-		)
+		subroutine.views.link_type(row)
 		for row in session.scalars(
 			sqlalchemy.select(model).where(model.workspace_id == workspace_id).order_by(model.key)
 		)

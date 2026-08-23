@@ -252,7 +252,8 @@ def described (names: typing.Iterable[str]) -> list[str]:
 #: **A permission that gates nothing is a claim about what a credential cannot do**, made to
 #: every caller of ``/v1/me`` and to every operator reading ``--scope``. The cold review of
 #: 2026-08-16 (`#927` H-3) found eight of twenty in that state; three were defects and are now
-#: checked, and these five are honest gaps in features nobody has built.
+#: checked, three more went with `#826`, and these two are honest gaps in features nobody has
+#: built.
 #:
 #: **Each entry names the thing that deletes it**, which is what makes this a record rather
 #: than a place to park an awkward verb. ``tests/test_authorization.py`` fails the build both
@@ -260,19 +261,10 @@ def described (names: typing.Iterable[str]) -> list[str]:
 #: since gained a check. The second half is the one every allow-list in this repository has
 #: and the reason `#405` went round adding them.
 NOT_ENFORCED: dict[str, str] = {
-	TAG_WRITE: (
-		"No surface creates a tag deliberately — `#826`. A tag is made as a side effect of "
-		"writing one onto an item, which needs `task:write`. Delete this when a workspace can "
-		"curate its own vocabulary."
-	),
-	STATUS_WRITE: (
-		"`Status` rows are written by `db.seed` and by nothing else — `#826` — so no "
-		"installation can add, rename or remove one. Delete this when it can."
-	),
-	LINK_TYPE_WRITE: (
-		"`LinkType` rows are written by `db.seed` and by nothing else — `#826`. Delete this "
-		"when a workspace can define a link type of its own."
-	),
+	# **`tag:write`, `status:write` and `link_type:write` were here and are gone** — `#826`,
+	# and their deletion is what closed it. All three said the same thing in three ways: the
+	# vocabulary was written by `db.seed` and by nothing else, so an operator removing one from
+	# a role would have found it changed nothing. `domain/vocabulary.py` checks all three now.
 	TOKEN_ADMIN: (
 		"`api/tokens.py` contains no authorisation call at all: issuing is bounded by "
 		"`_refuse_amplification`, which compares a request against the presenter's own reach, "

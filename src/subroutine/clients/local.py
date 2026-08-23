@@ -38,6 +38,7 @@ import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.session
 import subroutine.db.types
@@ -70,9 +71,21 @@ import subroutine.domain.tasks
 import subroutine.domain.tokens
 import subroutine.domain.users
 import subroutine.domain.versions
+import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
+
+
+def _asked (**values: typing.Any) -> dict[str, typing.Any]:
+	"""Drop what the caller did not name, so an omitted field is left alone.
+
+	The local mirror of ``clients/http._given``, and with the same caveat: ``None`` means *not
+	asked for* here, never *clear it*. Over HTTP that distinction is ``model_fields_set``; on
+	this side a caller wanting to clear a field calls the service directly.
+	"""
+
+	return {name: value for name, value in values.items() if value is not None}
 
 
 class Client:
@@ -680,6 +693,265 @@ class Client:
 
 			return subroutine.views.task(
 				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+			)
+
+	def _vocabulary_row (
+		self, session: typing.Any, actor: typing.Any, model: typing.Any, which: str, what: str
+	) -> typing.Any:
+		"""Return one vocabulary row this credential can reach, or refuse by name.
+
+		**A 404 rather than a 403 for a row in another workspace**, which is the same choice
+		§7.3a makes about a private project: saying "forbidden" would confirm the id names
+		something.
+		"""
+
+		found = session.get(model, uuid.UUID(which))
+		reachable = {row.id for row in subroutine.domain.workspaces.readable(session, actor)}
+
+		if found is None or found.workspace_id not in reachable:
+			raise subroutine.errors.NotFound(f"There is no {what} with that id.")
+
+		return found
+
+	def statuses (
+		self, *, workspace: str | None = None, entity_type: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.Status]:
+		"""List this workspace's statuses, in the order a client should show them."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			rows = subroutine.domain.vocabulary.statuses(
+				session, workspace_id=chosen.id, entity_type=entity_type
+			)
+
+			return subroutine.views.Collection[subroutine.views.Status](
+				items=[subroutine.views.status(row) for row in rows],
+				page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+			)
+
+	def create_status (
+		self,
+		*,
+		entity_type: str,
+		key: str,
+		label: str,
+		category: str,
+		is_default: bool = False,
+		position: int | None = None,
+		workspace: str | None = None,
+	) -> subroutine.views.Status:
+		"""Add a status to this workspace's vocabulary."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return subroutine.views.status(
+				subroutine.domain.vocabulary.create_status(
+					session,
+					workspace_id=chosen.id,
+					entity_type=entity_type,
+					key=key,
+					label=label,
+					category=category,
+					is_default=is_default,
+					position=position,
+					actor=actor,
+				)
+			)
+
+	def update_status (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		label: str | None = None,
+		is_default: bool | None = None,
+		position: int | None = None,
+	) -> subroutine.views.Status:
+		"""Rename or reposition a status."""
+
+		self._refuse_if_read_only()
+
+		changes = _asked(key=key, label=label, is_default=is_default, position=position)
+
+		with self._writing() as (session, actor):
+			row = self._vocabulary_row(
+				session, actor, subroutine.db.models.vocabulary.Status, which, "status"
+			)
+
+			return subroutine.views.status(
+				subroutine.domain.vocabulary.update_status(session, row, actor=actor, **changes)
+			)
+
+	def delete_status (self, *, which: str) -> None:
+		"""Remove a status nothing is in."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			subroutine.domain.vocabulary.delete_status(
+				session,
+				self._vocabulary_row(
+					session, actor, subroutine.db.models.vocabulary.Status, which, "status"
+				),
+				actor=actor,
+			)
+
+	def link_types (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.LinkType]:
+		"""List the ways two items can relate here."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			rows = subroutine.domain.vocabulary.link_types(session, workspace_id=chosen.id)
+
+			return subroutine.views.Collection[subroutine.views.LinkType](
+				items=[subroutine.views.link_type(row) for row in rows],
+				page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+			)
+
+	def create_link_type (
+		self,
+		*,
+		key: str,
+		title: str,
+		inverse_title: str,
+		is_symmetric: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Add a way two items can relate."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return subroutine.views.link_type(
+				subroutine.domain.vocabulary.create_link_type(
+					session,
+					workspace_id=chosen.id,
+					key=key,
+					title=title,
+					inverse_title=inverse_title,
+					is_symmetric=is_symmetric,
+					actor=actor,
+				)
+			)
+
+	def update_link_type (
+		self,
+		*,
+		which: str,
+		key: str | None = None,
+		title: str | None = None,
+		inverse_title: str | None = None,
+	) -> subroutine.views.LinkType:
+		"""Rename a link type, or reword either end of it."""
+
+		self._refuse_if_read_only()
+
+		changes = _asked(key=key, title=title, inverse_title=inverse_title)
+
+		with self._writing() as (session, actor):
+			row = self._vocabulary_row(
+				session, actor, subroutine.db.models.vocabulary.LinkType, which, "link type"
+			)
+
+			return subroutine.views.link_type(
+				subroutine.domain.vocabulary.update_link_type(
+					session, row, actor=actor, **changes
+				)
+			)
+
+	def delete_link_type (self, *, which: str) -> None:
+		"""Remove a link type nothing is joined by."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			subroutine.domain.vocabulary.delete_link_type(
+				session,
+				self._vocabulary_row(
+					session, actor, subroutine.db.models.vocabulary.LinkType, which, "link type"
+				),
+				actor=actor,
+			)
+
+	def tags (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+		"""List this workspace's tags as things to curate."""
+
+		model = subroutine.db.models.vocabulary.Tag
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			rows = list(
+				session.scalars(
+					sqlalchemy.select(model)
+					.where(model.workspace_id == chosen.id)
+					.order_by(model.name_normalized)
+				)
+			)
+
+			return subroutine.views.Collection[subroutine.views.TagEntry](
+				items=[subroutine.views.tag_entry(row) for row in rows],
+				page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+			)
+
+	def create_tag (
+		self, *, name: str, description: str | None = None, workspace: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Declare a tag before anybody uses it."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return subroutine.views.tag_entry(
+				subroutine.domain.vocabulary.create_tag(
+					session,
+					workspace_id=chosen.id,
+					name=name,
+					description=description,
+					actor=actor,
+				)
+			)
+
+	def update_tag (
+		self, *, which: str, name: str | None = None, description: str | None = None
+	) -> subroutine.views.TagEntry:
+		"""Rename a tag, or write down what it means."""
+
+		self._refuse_if_read_only()
+
+		changes = _asked(name=name, description=description)
+
+		with self._writing() as (session, actor):
+			row = self._vocabulary_row(
+				session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
+			)
+
+			return subroutine.views.tag_entry(
+				subroutine.domain.vocabulary.update_tag(session, row, actor=actor, **changes)
+			)
+
+	def delete_tag (self, *, which: str) -> None:
+		"""Remove a tag, and with it every application of it."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			subroutine.domain.vocabulary.delete_tag(
+				session,
+				self._vocabulary_row(
+					session, actor, subroutine.db.models.vocabulary.Tag, which, "tag"
+				),
+				actor=actor,
 			)
 
 	def documents (

@@ -15,6 +15,7 @@ following one lands on the section describing it.
 | `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy or a chain of blocking links. |
 | `duplicate_key` | 409 | Already exists | Something with that identifying value is already here — a project key, a username, a tag name. |
 | `forbidden` | 403 | Not permitted | The credential is valid but does not permit this. Where the refusal turns on a permission the caller lacks, that permission is named so they can ask for a token carrying it — but several do not: a token pinned to another workspace, a caller who is not a member, and a project scope narrower than the project reached are each about reach rather than about a verb. |
+| `in_use` | 409 | Still in use | The thing being removed is still referenced — a status some tasks are in, a link type some links use. The message says how many, so the caller can move them rather than guess. Removing a *tag* is deliberately not this: taking a label off the things it is on is what deleting a label means. |
 | `internal_error` | 500 | Internal error | Something failed that should not have. The detail is deliberately vague; the request id is what ties the response to the log entry that explains it. |
 | `invalid_field_value` | 422 | Invalid field value | The request was well-formed but a field's value cannot be used. The field is named and, where the valid values are a known set, they are listed. |
 | `invalid_status` | 422 | Invalid status | The status asked for cannot be used here. Usually no status with that key exists for this entity type in this workspace, and then the valid keys are listed — an installation may rename them freely, so they are read from the workspace rather than assumed. It also reports a workspace with no default status at all, where there are no keys to list and the answer is to seed it. |
@@ -55,6 +56,12 @@ Something with that identifying value is already here — a project key, a usern
 **Not permitted** — HTTP 403.
 
 The credential is valid but does not permit this. Where the refusal turns on a permission the caller lacks, that permission is named so they can ask for a token carrying it — but several do not: a token pinned to another workspace, a caller who is not a member, and a project scope narrower than the project reached are each about reach rather than about a verb.
+
+## in_use
+
+**Still in use** — HTTP 409.
+
+The thing being removed is still referenced — a status some tasks are in, a link type some links use. The message says how many, so the caller can move them rather than guess. Removing a *tag* is deliberately not this: taking a label off the things it is on is what deleting a label means.
 
 ## internal_error
 

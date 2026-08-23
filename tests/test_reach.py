@@ -89,6 +89,16 @@ Excuse = tuple[str, str]
 #: Mutating routes, and the :class:`~subroutine.clients.base.Client` method that reaches each.
 REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/tasks"): "capture",
+	# Curating the vocabulary — `SR#826`.
+	("POST", "/v1/statuses"): "create_status",
+	("PATCH", "/v1/statuses/{which}"): "update_status",
+	("DELETE", "/v1/statuses/{which}"): "delete_status",
+	("POST", "/v1/link-types"): "create_link_type",
+	("PATCH", "/v1/link-types/{which}"): "update_link_type",
+	("DELETE", "/v1/link-types/{which}"): "delete_link_type",
+	("POST", "/v1/tags"): "create_tag",
+	("PATCH", "/v1/tags/{which}"): "update_tag",
+	("DELETE", "/v1/tags/{which}"): "delete_tag",
 	("PATCH", "/v1/tasks/{id_or_ref}"): "update",
 	("POST", "/v1/tasks/{id_or_ref}/complete"): "complete",
 	("POST", "/v1/tasks/{id_or_ref}/skip"): "skip",
@@ -131,6 +141,10 @@ REACHED_BY: dict[tuple[str, str], str] = {
 
 #: Reading routes, and the method that reaches each.
 READ_BY: dict[tuple[str, str], str] = {
+	# Curating the vocabulary — `SR#826`.
+	("GET", "/v1/statuses"): "statuses",
+	("GET", "/v1/link-types"): "link_types",
+	("GET", "/v1/tags"): "tags",
 	("GET", "/v1/agenda"): "agenda",
 	("GET", "/v1/tasks"): "tasks",
 	("GET", "/v1/tasks/{id_or_ref}"): "task",
@@ -294,6 +308,54 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"statuses": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"create_status": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"update_status": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"delete_status": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"link_types": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"create_link_type": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"update_link_type": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"delete_link_type": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"tags": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"create_tag": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"update_tag": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
+	"delete_tag": (
+		"protocol",
+		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
+	),
 	"occurrences": (
 		"disclosure",
 		"`SR#94`, §6.7. This exists for a **calendar**, and a terminal is not one: `show` "
@@ -341,6 +403,54 @@ NOT_IN_CLI: dict[str, Excuse] = {
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
 NOT_IN_MCP: dict[str, Excuse] = {
+	"statuses": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"create_status": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"update_status": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"delete_status": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"link_types": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"create_link_type": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"update_link_type": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"delete_link_type": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"tags": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"create_tag": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"update_tag": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
+	"delete_tag": (
+		"budget",
+		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+	),
 	"occurrences": (
 		"budget",
 		"`SR#94`, §6.7, and `SR#484`'s test rather than *is there room*: what would an agent get "

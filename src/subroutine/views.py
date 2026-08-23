@@ -3589,6 +3589,15 @@ class Named(pydantic.BaseModel):
 	label: str
 	is_default: bool = False
 
+	#: **What a caller addresses this by to change it** (`#826`). The key is what you *send*
+	#: when filing an item; this is what `PATCH /v1/statuses/{id}` takes, and it is here
+	#: because without it the curation routes are unreachable — the shape three other
+	#: capabilities in this codebase have arrived in.
+	#:
+	#: Defaulted for `#345`'s reason: added after this model shipped, so an older instance's
+	#: body must still parse.
+	id: uuid.UUID | None = None
+
 
 class Status(Named):
 	"""A status, with the fixed category a client may branch on."""
@@ -3612,12 +3621,61 @@ class LinkType(pydantic.BaseModel):
 	inverse_title: str
 	is_symmetric: bool
 
+	#: What a caller addresses this by to change it — see :class:`Named`. Defaulted (`#345`).
+	id: uuid.UUID | None = None
+
 
 class Tag(pydantic.BaseModel):
 	"""A tag, and how much it is used."""
 
 	name: str
 	usage: int
+
+
+class TagEntry(pydantic.BaseModel):
+	"""A tag as something to *curate*, rather than as something being used — `#826`.
+
+	**A second view of one row, deliberately.** :class:`Tag` answers *what labels are in use
+	and how much*, and its usage count is narrowed to the tasks the caller can see, because a
+	tag list is a small disclosure. This answers *what labels does this workspace have and what
+	do they mean*, which needs an id to change one and a description to read one (`#905`), and
+	needs no count at all. Folding the two together would either put a scoped aggregate on
+	every write response or a meaningless zero.
+	"""
+
+	id: uuid.UUID
+	name: str
+	description: str | None = None
+
+
+def status (row: typing.Any) -> Status:
+	"""Render one status row."""
+
+	return Status(
+		id=row.id,
+		key=row.key,
+		label=row.label,
+		category=row.category,
+		is_default=row.is_default,
+	)
+
+
+def link_type (row: typing.Any) -> LinkType:
+	"""Render one link type row."""
+
+	return LinkType(
+		id=row.id,
+		key=row.key,
+		title=row.title,
+		inverse_title=row.inverse_title,
+		is_symmetric=row.is_symmetric,
+	)
+
+
+def tag_entry (row: typing.Any) -> TagEntry:
+	"""Render one tag as a thing to curate."""
+
+	return TagEntry(id=row.id, name=row.name, description=row.description)
 
 
 class Tags(pydantic.BaseModel):

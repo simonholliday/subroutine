@@ -20,15 +20,31 @@ upgrade involves.
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
-### Removed
-
-- **A status, an item type and a tag no longer store a colour.** Three columns that the
-  seeder wrote and nothing anywhere read, dropped in one migration. Colour on an item comes
-  from its **project**, from a named palette, and is configured as a project setting — so a
-  per-status hex was both unread and the wrong shape. Nothing you can see changes; if you had
-  edited one by hand in the database, that edit is gone.
-
 ### Added
+
+- **A workspace can change the words it uses.** Statuses, link types and tags can be added,
+  renamed and removed over the API and from either client — `GET/POST /v1/statuses`,
+  `/v1/link-types` and `/v1/tags`, with `PATCH` and `DELETE` on each. Until now every one of
+  those rows was written when the workspace was created and could never be touched again, which
+  is why `status:write`, `tag:write` and `link_type:write` existed and gated nothing.
+
+  Four rules are worth knowing before you use it:
+
+  - **A key can be renamed; a category cannot be changed.** The category is the fixed meaning
+    every client branches on, so moving a status between categories would change what every item
+    already in it means rather than what it is called.
+  - **Exactly one status is the default**, and setting a new one clears the old. Two would have
+    made a new task land in whichever the database returned first.
+  - **A status something is in cannot be removed**, and the refusal says how many are in the
+    way. A **tag** can be, and that removes the label from everything it was on — which is what
+    deleting a label means.
+  - **Renaming a status moves it in the settings that name it**, so a workspace's hidden-status
+    list does not quietly stop matching.
+
+  Item types are deliberately not included yet: they need a fixed classifier of their own
+  first, and until there is one an added type would be something no client can branch on.
+
+  There is no terminal command for this yet — it is the API and the clients.
 
 - **An account says when it last signed in.** `last_login_at` is reported on a user and is
   written when a sign-in link becomes a browser session — which is the only moment anybody
@@ -36,6 +52,14 @@ upgrade involves.
   never signs in, and *when was this credential last used* is a different question that a
   token already answers. The column has existed since the first release and nothing wrote it,
   so it read *never* for everybody.
+
+### Removed
+
+- **A status, an item type and a tag no longer store a colour.** Three columns that the
+  seeder wrote and nothing anywhere read, dropped in one migration. Colour on an item comes
+  from its **project**, from a named palette, and is configured as a project setting — so a
+  per-status hex was both unread and the wrong shape. Nothing you can see changes; if you had
+  edited one by hand in the database, that edit is gone.
 
 ## 0.7.6 — 2026-08-22
 
