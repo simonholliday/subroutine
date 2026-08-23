@@ -1230,6 +1230,26 @@ class Client:
 				),
 			)
 
+	def governing (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Governing]:
+		"""Return the documents in force that govern one item."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return subroutine.views.governing(
+				session,
+				subroutine.domain.links.governing(
+					session,
+					actor,
+					workspace_id=chosen.id,
+					entity_type=entity_type,
+					identifier=subject,
+				),
+			)
+
 	def proposed_links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Proposal]:

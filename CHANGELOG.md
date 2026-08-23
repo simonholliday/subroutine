@@ -22,6 +22,25 @@ upgrade involves.
 
 ### Added
 
+- **An item says what to read before starting it.** `subroutine show` opens with a *Read first*
+  section naming the decisions, specifications, designs and dead ends that govern this
+  particular piece of work; so does the item page in the browser, and so does an agent reading
+  it over MCP. `GET /v1/tasks/{ref}/governing` answers it directly.
+
+  It is the workspace-wide *what is in force here* narrowed to one item — the question *which
+  part of everything written down do I need for this task* — and it answers from **typed links
+  only**. A `documents` or `derives_from` link is somebody saying that a decision settles this
+  work; being filed nearby or mentioned in passing is a different claim, and answering the
+  second under the first's name is how a reader learns not to trust the answer.
+
+  **In force, not merely of the right type.** A superseded decision is not a rule and a draft
+  one is not yet, so neither is listed. Titles and refs, never bodies: a document's title states
+  its conclusion, so the list is readable on its own and only the one that matters has to be
+  opened.
+
+  It is empty until somebody says a document governs something. What an item's own writing
+  suggests — usually more — is the proposed links below.
+
 - **An item offers the links its own writing suggests.** If a task's description or a comment on
   it cites a decision, a specification, a design or a dead end, `subroutine show` now says so
   under *Not linked, but its writing suggests* and gives the one command that confirms it. An

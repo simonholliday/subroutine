@@ -712,6 +712,10 @@ def proposals (
 	* **Only a governing document at the other end.** ``documents.GOVERNS`` — a decision, a
 	  specification, a design or a dead end. A finding describes and does not bind, and
 	  proposing that one governs anything would be the classifier saying something it does not.
+	  **The status is deliberately not asked**, unlike :func:`governing`: that answers *what is
+	  in force over this*, and this answers *what the link should be*. A draft decision is one
+	  somebody is about to agree, and a superseded one is a true statement about how this work
+	  came to be what it is.
 	* **Only a pair nothing already joins.** Any link at all, of any type: if two items are
 	  already related, somebody has looked at this pair, and proposing an edge over the top of
 	  their answer is arguing with them.
@@ -828,6 +832,142 @@ def _governing (
 			.where(
 				subroutine.db.models.work.Document.id.in_(set(identifiers)),
 				item_type.key.in_(subroutine.domain.documents.GOVERNS),
+			)
+		).all()
+	)
+
+
+@dataclasses.dataclass(frozen=True)
+class Governs:
+	"""A document in force that a typed link says binds one item (`#1119`).
+
+	``link_type`` is kept because the two ways of saying it are different sentences: a
+	``documents`` link is *this decision settles that work*, and a ``derives_from`` link is
+	*this work comes out of that specification*. A reader deciding what to read first is
+	served by knowing which they are looking at.
+	"""
+
+	link_type: str
+	document: End
+
+
+#: The link types that say a document **binds** a piece of work, rather than sits near it.
+#:
+#: `#1124` Q2, Simon's: project ancestry and the mention index answer *what is near this*,
+#: which is a different claim, and a feature answering the second under the first's name
+#: teaches a reader to distrust it. So this is the whole of the evidence, and it is why the
+#: answer is empty until somebody has said something — which `#1137` is what makes likely.
+GOVERNING_LINKS = frozenset({GOVERNING_TYPE, "derives_from"})
+
+
+def governing (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	identifier: uuid.UUID,
+) -> list[Governs]:
+	"""Return the documents in force that a typed link says govern one item.
+
+	``subroutine://conventions`` narrowed to a single item, and the framing is worth keeping:
+	that resource answers *what binds anybody working in this workspace*, and this answers
+	*what binds whoever picks this up*. The second is the question `#1035` §4.2 said would
+	change how somebody works — **which 5% of the corpus do I need for this task, and what
+	tells me** — and today the only thing that answers it is a file on one machine.
+
+	Three rules, each taken from the resource this narrows rather than invented here:
+
+	* **In force, not merely of the right type** (`#1036`). A superseded decision is not a
+	  rule, and a draft one is not yet. The status *category* decides it, so a workspace that
+	  has renamed ``active`` still gets an answer.
+	* **A governing type**, from ``documents.GOVERNS``. A finding states what was learnt and a
+	  note states something worth keeping; neither binds, and a ``derives_from`` link to one is
+	  a real relationship that is not this question.
+	* **Titles and refs, never bodies.** §6.14 makes a document's title state its conclusion,
+	  so the list is readable on its own and a reader fetches only the one they need. A reading
+	  list that inlined its reading would be the cost it exists to remove.
+
+	Newest first, by ref. A ref is allocated in creation order within a workspace (§6.2), so
+	that is the same ordering as newest-first and stays deterministic where ``created_at``
+	would not — two documents written in one transaction share an instant.
+	"""
+
+	rows = [
+		(link, kind)
+		for link, kind in _touching(
+			session,
+			workspace_id=workspace_id,
+			entity_type=entity_type,
+			identifiers=[identifier],
+		)
+		if kind.key in GOVERNING_LINKS
+	]
+
+	if not rows:
+		return []
+
+	far: dict[uuid.UUID, str] = {}
+
+	for link, kind in rows:
+		outgoing = link.source_type == entity_type and link.source_id == identifier
+		other_type = link.target_type if outgoing else link.source_type
+		other_id = link.target_id if outgoing else link.source_id
+
+		if other_type == "document" and other_id != identifier:
+			far.setdefault(other_id, kind.key)
+
+	binding = _in_force(session, workspace_id=workspace_id, identifiers=set(far))
+
+	if not binding:
+		return []
+
+	found = [
+		Governs(link_type=far[end.id], document=end)
+		for end in _ends(
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type="document",
+			identifiers=binding,
+		)
+	]
+
+	return sorted(found, key=lambda one: one.document.ref, reverse=True)
+
+
+def _in_force (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	identifiers: typing.Collection[uuid.UUID],
+) -> set[uuid.UUID]:
+	"""Return which of these documents both bind and are still current.
+
+	**Two questions and neither answers the other** (`#1036`). The *type* says whether this
+	kind of document binds anybody; the *status category* says whether this one still does.
+	Asking only the first lists superseded decisions as rules; asking only the second lists
+	every current note.
+	"""
+
+	if not identifiers:
+		return set()
+
+	document = subroutine.db.models.work.Document
+	item_type = subroutine.db.models.vocabulary.ItemType
+	status = subroutine.db.models.vocabulary.Status
+
+	return set(
+		session.scalars(
+			sqlalchemy.select(document.id)
+			.join(item_type, item_type.id == document.type_id)
+			.join(status, status.id == document.status_id)
+			.where(
+				document.workspace_id == workspace_id,
+				document.deleted_at.is_(None),
+				document.id.in_(set(identifiers)),
+				item_type.key.in_(subroutine.domain.documents.GOVERNS),
+				status.category == subroutine.domain.documents.CURRENT_CATEGORY,
 			)
 		).all()
 	)

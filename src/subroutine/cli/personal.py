@@ -7689,6 +7689,7 @@ class Sections:
 	remarks: typing.Sequence[subroutine.views.Comment]
 	referring: typing.Sequence[subroutine.views.Backlink]
 	proposed: typing.Sequence[subroutine.views.Proposal]
+	governing: typing.Sequence[subroutine.views.Governing]
 	children: typing.Sequence[subroutine.views.Task]
 	events: typing.Sequence[subroutine.views.Event]
 
@@ -7754,6 +7755,9 @@ def _sections (
 		proposed=_if_the_instance_can_answer(
 			lambda: client.proposed_links(ref=located.ref, **where)
 		),
+		governing=_if_the_instance_can_answer(
+			lambda: client.governing(ref=located.ref, **where)
+		),
 		# **Completed children included**, unlike every listing here. A parent showing two of
 		# its four children because the other two are finished would misreport the thing
 		# somebody opened it to see. `#84` says report the rollup and leave completion an act;
@@ -7806,6 +7810,7 @@ def _render_item (
 	remarks = gathered.remarks
 	referring = gathered.referring
 	proposed = gathered.proposed
+	governing = gathered.governing
 	children = gathered.children
 	events = gathered.events
 
@@ -7871,6 +7876,28 @@ def _render_item (
 			# already carries the count, and what this line is for is seeing what the parts
 			# *are*.
 			row.append(child.title, style=DETAIL if child.completed_at else "")
+			console.print(row)
+
+	if governing:
+		# **What binds whoever picks this up** (`#1119`), and it is the workspace-wide *what
+		# is in force here* narrowed to one item. Printed **above** the links rather than among
+		# them, because it is the one section somebody has to read before doing anything and
+		# the links are what they read afterwards.
+		#
+		# **From typed links only** (`#1124` Q2, Simon's). Filed nearby and mentioned in
+		# passing mean *near this*, which is a different claim — and answering it under this
+		# heading is how a reader learns not to trust the heading.
+		console.print("")
+		console.print(rich.text.Text("Read first", style=HEADING))
+
+		for binds in governing:
+			row = rich.text.Text()
+			row.append(
+				f"  {subroutine.domain.refs.format_ref(binds.document.ref):>6}  ",
+				style=POSITION,
+			)
+			row.append(f"{binds.document.type or '':<9}  ", style=DETAIL)
+			row.append(binds.document.title)
 			console.print(row)
 
 	if links:
@@ -8453,6 +8480,7 @@ def _shown_as_json (
 	remarks = gathered.remarks
 	referring = gathered.referring
 	proposed = gathered.proposed
+	governing = gathered.governing
 	children = gathered.children
 	events = gathered.events
 
@@ -8472,6 +8500,7 @@ def _shown_as_json (
 		# could not tell a suggestion from a link would report one as the other, which is the
 		# single thing this feature must never do.
 		"proposed_links": [one.model_dump(mode="json") for one in proposed],
+		"governing": [one.model_dump(mode="json") for one in governing],
 		"children": [child.model_dump(mode="json") for child in children],
 		# **Always present, and `null` when it was not asked for** (`#349`). The key is
 		# unconditional for the reason it always was: one that appears only with `--history`

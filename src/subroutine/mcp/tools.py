@@ -2047,6 +2047,22 @@ def _shown (
 		parts.append("")
 		parts.append("  ".join(f"#{tag}" for tag in item_tags))
 
+	# **What binds whoever picks this up** (`#1119`) — `subroutine://conventions` narrowed to
+	# one item. Placed **first among the sections** rather than last, because it is the one an
+	# agent has to read before doing anything and everything below it is what it reads after.
+	#
+	# **Typed links only** (`#1124` Q2). Filed nearby and mentioned in passing mean *near
+	# this*; answering that under this heading is how an agent learns not to trust it.
+	binding = client.governing(ref=ref, entity_type=kind, workspace=workspace)
+
+	if binding:
+		parts.append("")
+		parts.append(f"Read first ({len(binding)})")
+		parts.extend(
+			f"#{one.document.ref}  {one.document.type or ''}  {one.document.title}"
+			for one in binding
+		)
+
 	links = client.links(ref=ref, entity_type=kind, workspace=workspace)
 
 	if links:

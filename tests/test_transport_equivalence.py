@@ -1386,6 +1386,46 @@ def test_both_withdraw_a_link_the_same_way (pair: Pair) -> None:
 	assert local.links(ref=first.ref) == remote.links(ref=first.ref) == []
 
 
+def test_both_say_the_same_thing_governs (pair: Pair) -> None:
+	"""`#1119`. Two paths assembling one reading list, from a rule with three parts.
+
+	A typed link, a governing type and a status still in force — three conditions, and an
+	assembled answer is the shape that comes to differ between transports without anybody
+	editing either.
+	"""
+
+	local, remote = pair.both()
+	decision = local.create_document(
+		title="How dates are written", body="Because.", type="decision"
+	)
+	work = make(pair, "Rewrite the parser")
+
+	assert local.governing(ref=work.ref) == remote.governing(ref=work.ref) == []
+
+	remote.link(
+		ref=decision.ref,
+		link_type="documents",
+		target=work.ref,
+		entity_type="document",
+		target_type="task",
+	)
+	here = local.governing(ref=work.ref)
+
+	assert here == remote.governing(ref=work.ref)
+	assert [one.document.ref for one in here] == [decision.ref]
+
+	# **And they agree about it stopping**, which a read-only comparison cannot see: the third
+	# condition is a status, and a rule that has been retired is the case that matters.
+	#
+	# **Retired by setting the status rather than by superseding**, which is `#1144`: neither
+	# client can send `supersedes`, so the only way to do this from here is the half that moves
+	# the status and leaves the chain empty. That is exactly what a person can do today, which
+	# makes it the right thing for this test to drive.
+	remote.update_document(ref=decision.ref, status="superseded")
+
+	assert local.governing(ref=work.ref) == remote.governing(ref=work.ref) == []
+
+
 def test_both_propose_the_same_link_from_the_same_citation (pair: Pair) -> None:
 	"""`#1137`. Two paths that read the mention index, and they must read it the same.
 

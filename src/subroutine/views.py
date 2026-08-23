@@ -898,6 +898,39 @@ class Link(pydantic.BaseModel):
 		)
 
 
+class Governing(pydantic.BaseModel):
+	"""A document in force that a typed link says binds this item (`#1119`).
+
+	``subroutine://conventions`` narrowed to one item: that resource says what binds anybody
+	working in this workspace, and this says what binds whoever picks *this* up.
+
+	**Titles and refs, never bodies**, which is what makes it affordable. §6.14 makes a
+	document's title state its conclusion, so the list is readable on its own and a reader
+	fetches only the one they need — a reading list that inlined its reading would be the cost
+	it exists to remove.
+	"""
+
+	#: How it was said — ``documents`` is *this decision settles that work*, ``derives_from``
+	#: is *this work comes out of that specification*. Two different sentences, and a reader
+	#: deciding what to read first is served by knowing which one they have.
+	link_type: str
+	document: LinkEnd
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by."""
+
+		return subroutine.domain.refs.format_ref(self.document.ref)
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this as the cells of one compact line."""
+
+		return (
+			subroutine.domain.refs.format_ref(self.document.ref),
+			self.document.type or "",
+			subroutine.domain.text.truncated(self.document.title),
+		)
+
+
 class Proposal(pydantic.BaseModel):
 	"""A link the writing already implies and nobody has confirmed (`#1137`).
 
@@ -2471,6 +2504,20 @@ def links (
 	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in related])
 
 	return [link(one, vocabulary) for one in related]
+
+
+def governing (
+	session: sqlalchemy.orm.Session,
+	found: typing.Sequence[subroutine.domain.links.Governs],
+) -> list[Governing]:
+	"""Render what governs one item, with a single vocabulary across every document."""
+
+	vocabulary = Vocabulary.for_link_ends(session, [one.document for one in found])
+
+	return [
+		Governing(link_type=one.link_type, document=_end(one.document, vocabulary))
+		for one in found
+	]
 
 
 def proposal (

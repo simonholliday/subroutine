@@ -468,6 +468,16 @@ class Client(typing.Protocol):
 		A comment resolves to the item it is on and says so, because a comment has no ref.
 		"""
 
+	def governing (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Governing]:
+		"""Return the documents in force that govern one item — `#1119`.
+
+		What to read before starting this. The workspace-wide *what binds you* narrowed to a
+		single item, answered from typed links alone, and empty until somebody has said that a
+		document governs something.
+		"""
+
 	def proposed_links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Proposal]:

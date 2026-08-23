@@ -3125,6 +3125,51 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 	assert "Links" not in mute
 
 
+def test_the_item_page_says_what_to_read_before_starting (tmp_path: pathlib.Path) -> None:
+	"""`SR#1119`. The workspace's *what is in force here*, narrowed to one item.
+
+	**It lands here in the same commit as the agent's** because the whole claim for the feature
+	is that it serves both participants: a person writes the decisions and an agent reads them
+	at the moment it needs them, and a version only one of them can see is half a feature.
+
+	**Above the links**, because it is the section somebody reads before doing anything and the
+	links are what they read afterwards.
+	"""
+
+	shared = {"item": {"ref": 42, "title": "A task", "status": "open", "kind": "task"},
+		"links": [], "comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	governing = [
+		{"link_type": "documents", "document": {
+			"entity_type": "document", "ref": 4, "title": "What we settled",
+			"type": "decision", "status": "active", "is_complete": False}},
+	]
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "governing": governing}})["Detail"]
+
+	assert "Read first" in shown
+	assert "What we settled" in shown
+	assert "#4" in shown, "the number is how a reader opens it"
+	assert "decision" in shown, "the reading list does not say what kind of thing each one is"
+
+	# **Silent when nothing governs**, which is the §1.4 rule this section is most at risk
+	# from: a personal to-do list writes no decisions, and a heading that appeared empty would
+	# put the word *govern* in front of somebody whose list says *buy milk*. Unlike Links,
+	# there is no form here to keep an empty section honest.
+	assert "Read first" not in _rendered(tmp_path, {"Detail": shared})["Detail"]
+
+	# **Above the links.** Asserted by position rather than by eye, because the whole reason it
+	# is a separate section is the order somebody reads them in.
+	with_links = _rendered(tmp_path, {"Detail": {
+		**shared, "governing": governing,
+		"links": [{"id": "l-1", "link_type": "blocks", "label": "Blocks",
+			"direction": "outgoing", "other": {"entity_type": "task", "ref": 9,
+				"title": "Still going", "is_complete": False}}],
+	}})["Detail"]
+
+	assert with_links.index("Read first") < with_links.index("Links")
+
+
 def test_which_kind_a_ref_names_is_resolved_rather_than_asked (
 	tmp_path: pathlib.Path,
 ) -> None:

@@ -934,13 +934,21 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 }
 
 export function itemRequests (kind, ref, slug) {
-	/* One item in full: the thing, what it links to, and what was said about it. */
+	/*
+		One item in full: the thing, what governs it, what it links to, and what was said.
+
+		**`governing` is a request rather than a filter over `links`** (`#1119`). Everything it
+		answers could be derived here — the link types are in the response and so is each end's
+		type — and deriving it would put a second copy of *what binds this* in the browser, to
+		disagree with the server's the first time either changes. The rule has one home.
+	*/
 	const collection = kind === "document" ? "documents" : "tasks";
 
 	return [
 		{ path: scoped(`/${collection}/${ref}`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/links`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}`, slug), method: "GET" },
+		{ path: scoped(`/${collection}/${ref}/governing`, slug), method: "GET" },
 	];
 }
 
@@ -5795,7 +5803,8 @@ export function Doing ({
 }
 
 export function Detail ({
-	item, links, comments, members = [], onOpen, onBack, onComplete, onAssign, busy, where,
+	item, links, comments, governing = [], members = [], onOpen, onBack, onComplete, onAssign,
+	busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
 	/* Which prose box is being previewed, and how to change it — `#776`. */
@@ -5871,6 +5880,44 @@ export function Detail ({
 					${body && html`<${Prose} className="prose" text=${body} where=${where}
 						onOpen=${onOpen} />`}
 				`}
+
+			${governing.length > 0 && html`
+				${/* **What binds whoever picks this up** (`#1119`) — the workspace-wide *what
+				     is in force here*, narrowed to one item. Above the links because it is the
+				     section somebody has to read before doing anything, where the links are
+				     what they read afterwards.
+
+				     **Typed links only** (`#1124` Q2, Simon's). Filed nearby and mentioned in
+				     passing mean *near this*, which is a different claim — and answering it
+				     under this heading is how a reader learns not to trust the heading.
+
+				     Titles and refs, never bodies: a document's title states its conclusion,
+				     so this is readable without opening anything. */ null}
+				<h3>Read first</h3>
+				<ul class="linked">
+					${governing.map((binds) => {
+						const going = { ref: binds.document.ref, kind: "document" };
+						const to = workspace ? addressOf(going, workspace) : null;
+						const follow = (event) =>
+							followed(event, () => onOpen && onOpen(going));
+
+						/* **The type is the label and nothing else is drawn.** Every row here
+						   is a document, in force, of a governing type — so a status chip
+						   would say `active` on every line, which is §12.2a's column that says
+						   the same thing on every row and therefore says nothing. What differs
+						   between these rows is which *kind* of obligation each is, and that
+						   is the word `subroutine://conventions` groups by. */
+						return html`
+							<li key=${binds.document.ref}>
+								<span class="label">${binds.document.type}</span>${" "}
+								${to
+									? html`<a href=${to} onClick=${follow}>
+										#${binds.document.ref} ${binds.document.title}</a>`
+									: html`<button class="inline" onClick=${follow}>
+										#${binds.document.ref} ${binds.document.title}</button>`}
+							</li>`;
+					})}
+				</ul>`}
 
 			${(links.length > 0 || onLink) && html`
 				${/* **The count `#84` specified, on the surface Simon reads** (`#970`). A
@@ -6684,12 +6731,12 @@ export function App () {
 
 		for (const trying of order) {
 			try {
-				const [item, links, comments] = await Promise.all(
+				const [item, links, comments, governing] = await Promise.all(
 					itemRequests(trying, ref, slug).map(sent),
 				);
 
 				return { item: { ...item, kind: trying }, links: links.items,
-					comments: comments.items };
+					comments: comments.items, governing: governing.items };
 			} catch (failure) {
 				if (failure.status !== 404 || trying === order[order.length - 1]) throw failure;
 			}

@@ -571,6 +571,19 @@ class Client:
 
 		return self._collected(subroutine.views.Backlink, body, endpoint="backlinks")
 
+	def governing (
+		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
+	) -> list[subroutine.views.Governing]:
+		"""Return the documents in force that govern one item."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/governing",
+			params=_given(workspace_id=workspace),
+		)
+
+		return self._collected(subroutine.views.Governing, body, endpoint="governing")
+
 	def proposed_links (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Proposal]:

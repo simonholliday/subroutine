@@ -1,4 +1,4 @@
-"""What an item's writing suggests, and what it deliberately does not — `#1137`.
+"""What governs an item, and what its writing merely suggests — `#1119` and `#1137`.
 
 *What governs this* answers from typed links alone: **near** is not **binds**, and answering
 the second under the first's name spends the trust the feature exists to earn. The cost of
@@ -370,3 +370,261 @@ def test_a_workspace_that_has_removed_the_link_type_is_proposed_nothing (
 
 	assert removed.status_code == 204, removed.text
 	assert _proposed(world, work["ref"]) == []
+
+
+def _governing (
+	world: test_api_tasks.World, ref: int, *, kind: str = "tasks"
+) -> list[dict[str, typing.Any]]:
+	"""Read what is in force over this item."""
+
+	response = world.call("GET", f"/v1/{kind}/{ref}/governing")
+
+	assert response.status_code == 200, response.text
+
+	return typing.cast(list[dict[str, typing.Any]], response.json()["items"])
+
+
+def test_a_documents_link_is_what_makes_a_decision_govern (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1119`. The whole feature, and the whole of what it is allowed to answer from."""
+
+	decision = _document(world, title="How dates are written")
+	work = _task(world)
+
+	assert _governing(world, work["ref"]) == [], "nothing binds it until somebody says so"
+
+	world.call(
+		"POST",
+		f"/v1/documents/{decision['ref']}/links",
+		json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+	)
+	found = _governing(world, work["ref"])
+
+	assert [one["document"]["ref"] for one in found] == [decision["ref"]]
+	assert found[0]["link_type"] == "documents"
+	assert found[0]["document"]["title"] == "How dates are written"
+	assert "body" not in found[0]["document"], "titles and refs, never bodies"
+
+
+def test_deriving_from_a_specification_is_the_other_way_to_say_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""§5.7's own example: write a specification, then the tasks that implement it.
+
+	**The specification has to be agreed first**, which is `#506`'s rule and is not an
+	accident of this fixture: a `decision`, a `finding` and a `dead_end` start in force
+	because writing one *is* the act, and a `spec` starts as a draft because a specification
+	nobody has agreed to is a proposal. So a draft specification governs nothing, and this
+	activates it deliberately rather than working around it.
+	"""
+
+	spec = _document(world, kind="spec", title="What the parser accepts")
+	world.call("PATCH", f"/v1/documents/{spec['ref']}", json={"status": "active"})
+	work = _task(world)
+	world.call(
+		"POST",
+		f"/v1/tasks/{work['ref']}/links",
+		json={
+			"target": spec["ref"],
+			"target_type": "document",
+			"link_type": "derives_from",
+		},
+	)
+	found = _governing(world, work["ref"])
+
+	assert [one["link_type"] for one in found] == ["derives_from"]
+
+
+@pytest.mark.parametrize("relation", ["relates_to", "blocks", "duplicates"])
+def test_being_merely_related_to_a_decision_is_not_being_governed_by_it (
+	world: test_api_tasks.World, relation: str
+) -> None:
+	"""`#1124` Q2, and this is the test that holds it.
+
+	*Near this* and *binds this* are different claims, and a feature answering the second
+	while showing the first teaches a reader to distrust it. Every other seeded relation is
+	driven, so a new one is not quietly admitted.
+	"""
+
+	decision = _document(world)
+	work = _task(world)
+	made = world.call(
+		"POST",
+		f"/v1/tasks/{work['ref']}/links",
+		json={
+			"target": decision["ref"],
+			"target_type": "document",
+			"link_type": relation,
+		},
+	)
+
+	assert made.status_code == 201, made.text
+	assert _governing(world, work["ref"]) == []
+
+
+def test_a_superseded_decision_stops_governing (world: test_api_tasks.World) -> None:
+	"""`#1036`'s rule: it asks whether a document is in force, not what type it is.
+
+	A rule that has been replaced is not a rule, and a reading list that still names it sends
+	somebody to do the thing the newer decision reversed. This is the single most damaging
+	way for the answer to be wrong, because it is confidently wrong.
+	"""
+
+	decision = _document(world, title="The old rule")
+	work = _task(world)
+	world.call(
+		"POST",
+		f"/v1/documents/{decision['ref']}/links",
+		json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+	)
+
+	assert _governing(world, work["ref"]) != []
+
+	replacement = _document(world, title="The new rule")
+	retired = world.call(
+		"PATCH",
+		f"/v1/documents/{replacement['ref']}",
+		json={"supersedes": decision["ref"]},
+	)
+
+	assert retired.status_code == 200, retired.text
+	assert _governing(world, work["ref"]) == [], "a superseded decision is not in force"
+
+
+def test_a_draft_decision_does_not_govern_yet (world: test_api_tasks.World) -> None:
+	"""The other end of the same rule, and the one a reader is most likely to disagree with.
+
+	A decision written and not yet agreed is a proposal. Listing it under *read first* would
+	have somebody follow a rule nobody has taken.
+	"""
+
+	decision = _document(world, title="The proposed rule")
+	work = _task(world)
+	world.call(
+		"POST",
+		f"/v1/documents/{decision['ref']}/links",
+		json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+	)
+
+	assert _governing(world, work["ref"]) != []
+	assert (
+		world.call(
+			"PATCH", f"/v1/documents/{decision['ref']}", json={"status": "draft"}
+		).status_code
+		== 200
+	)
+	assert _governing(world, work["ref"]) == []
+
+
+@pytest.mark.parametrize("kind", sorted(subroutine.domain.documents.DESCRIBES))
+def test_a_document_that_describes_does_not_govern_even_when_linked (
+	world: test_api_tasks.World, kind: str
+) -> None:
+	"""A `derives_from` link to a finding is a real relationship and a different question.
+
+	§5.7's own second example is a bug deriving from the failing check that found it — which
+	is exactly this shape, and is emphatically not a rule the bug has to follow.
+	"""
+
+	described = _document(world, kind=kind, title="What we found")
+	work = _task(world)
+	world.call(
+		"POST",
+		f"/v1/tasks/{work['ref']}/links",
+		json={
+			"target": described["ref"],
+			"target_type": "document",
+			"link_type": "derives_from",
+		},
+	)
+
+	assert world.call("GET", f"/v1/tasks/{work['ref']}/links").json()["items"], (
+		"the link was not made, so this proves nothing"
+	)
+	assert _governing(world, work["ref"]) == []
+
+
+def test_a_governing_document_the_reader_cannot_see_is_not_named (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#856`'s third finding: inheriting anything through a graph is a disclosure.
+
+	A reading list is the worst place to leak one, because it does not merely say a document
+	exists — it says a document the reader cannot open is a rule they are being held to.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "secret", "title": "Secret", "visibility": "private"},
+	)
+	hidden = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "The private rule", "type": "decision", "project": "secret"},
+	).json()
+	work = _task(world)
+	world.call(
+		"POST",
+		f"/v1/documents/{hidden['ref']}/links",
+		json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+	)
+
+	assert _governing(world, work["ref"]) != [], "the owner sees it, so the link was made"
+
+	outsider = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, outsider, role_key="member"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=outsider, title="outsider"
+	)
+	session.flush()
+	nosy = world._replace(secret=issued.value.get_secret_value())
+
+	assert _governing(nosy, work["ref"]) == []
+
+
+def test_a_document_says_what_governs_it_too (world: test_api_tasks.World) -> None:
+	"""A design is bound by the decision that settled it, exactly as work is."""
+
+	decision = _document(world, title="The rule")
+	design = _document(world, kind="design", title="How it was built")
+	world.call(
+		"POST",
+		f"/v1/documents/{decision['ref']}/links",
+		json={
+			"target": design["ref"],
+			"target_type": "document",
+			"link_type": "documents",
+		},
+	)
+	found = _governing(world, design["ref"], kind="documents")
+
+	assert [one["document"]["ref"] for one in found] == [decision["ref"]]
+
+
+def test_the_reading_list_is_newest_first (world: test_api_tasks.World) -> None:
+	"""Ref descending, which is creation order within a workspace and is deterministic.
+
+	`created_at` is not: two documents written in one transaction share an instant, and a
+	reading list whose order changed between reads would look like the answer changing.
+	"""
+
+	work = _task(world)
+	refs = []
+
+	for name in ("First", "Second", "Third"):
+		made = _document(world, title=name)
+		refs.append(made["ref"])
+		world.call(
+			"POST",
+			f"/v1/documents/{made['ref']}/links",
+			json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+		)
+
+	assert [one["document"]["ref"] for one in _governing(world, work["ref"])] == sorted(
+		refs, reverse=True
+	)

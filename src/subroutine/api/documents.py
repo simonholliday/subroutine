@@ -823,6 +823,55 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 	return listing
 
 
+def _governing_for (entity_type: str) -> typing.Any:
+	"""Build the governance listing for one entity type — `#1119`."""
+
+	def listing (
+		id_or_ref: subroutine.api.schemas.ItemAddress,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+	) -> subroutine.views.Collection[subroutine.views.Governing]:
+		"""Return the documents in force that govern this item — what to read before starting.
+
+		The workspace-wide *what binds you* narrowed to a single item. It answers from typed
+		links alone: a `documents` or `derives_from` link is somebody saying that a decision
+		settles this work, where being filed nearby or being mentioned in passing is a
+		different claim. Answering the second under the first's name is how a reader learns
+		not to trust the answer.
+
+		**In force, not merely of the right type.** A superseded decision is not a rule and a
+		draft one is not yet, and the status category decides it — so a workspace that has
+		renamed its statuses still gets an answer.
+
+		**Titles and refs, never bodies.** A document's title states its conclusion, so this
+		is readable on its own and only the one that matters has to be fetched.
+
+		Empty until somebody says a document governs something. What an item's own writing
+		suggests, which is usually more, is its proposed links.
+		"""
+
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+		found = subroutine.views.governing(
+			session,
+			subroutine.domain.links.governing(
+				session,
+				actor,
+				workspace_id=workspace.id,
+				entity_type=entity_type,
+				identifier=near.id,
+			),
+		)
+
+		return subroutine.views.Collection(
+			items=found,
+			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+		)
+
+	return listing
+
+
 def _proposed_links_for (entity_type: str) -> typing.Any:
 	"""Build the proposed-link listing for one entity type — `#1137`."""
 
@@ -897,6 +946,13 @@ def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 		status_code=204,
 		name=f"{noun}_link_delete",
 		summary="Withdraw a link",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/governing",
+		_governing_for(entity_type),
+		methods=["GET"],
+		name=f"{noun}_governing",
+		summary=f"List what governs a {noun}",
 	)
 	target.add_api_route(
 		"/{id_or_ref}/proposed-links",

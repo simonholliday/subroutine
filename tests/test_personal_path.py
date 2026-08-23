@@ -5415,6 +5415,68 @@ def test_show_says_nothing_about_references_where_there_are_none (
 	assert "Referred to by" not in shown, f"an empty section was printed anyway: {shown}"
 
 
+def test_show_says_what_to_read_before_starting (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1119`. The workspace's *what is in force here*, narrowed to one item.
+
+	**Above the links**, because it is the section somebody has to read before doing anything
+	and the links are what they read afterwards.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("add", "Rewrite the parser")
+	run("link", "1", "documents", "2")
+
+	shown = run("show", "2").output
+
+	assert "Read first" in shown, shown
+	assert "How dates are written" in shown
+	assert shown.index("Read first") < shown.index("Links"), (
+		f"the reading list is below the links it is meant to be read before: {shown}"
+	)
+
+
+def test_show_says_nothing_about_governance_where_nothing_governs (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2c's rule that a field nobody set is not printed, applied to a whole heading.
+
+	This is the section §1.4 is most at risk from: a personal to-do list writes no decisions,
+	so a heading that appeared empty would put the word *govern* in front of somebody whose
+	list says *buy milk*.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Buy milk")
+
+	shown = run("show", "1").output
+
+	assert "Buy milk" in shown, "the probe showed nothing, so it proves nothing"
+	assert "Read first" not in shown, f"an empty section was printed anyway: {shown}"
+
+
+def test_a_related_decision_is_not_something_to_read_first (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1124` Q2 driven at the terminal, because this is where somebody would notice it.
+
+	*Relates to* means near, and near is not binds. If this section listed it, the heading
+	would be a claim the product cannot support, and every later reader would discount it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("add", "Rewrite the parser")
+	run("link", "2", "relates-to", "1")
+
+	shown = run("show", "2").output
+
+	assert "Relates to" in shown, f"the link was not made: {shown}"
+	assert "Read first" not in shown, shown
+
+
 def test_show_offers_the_link_the_writing_suggests_and_says_it_is_not_one (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
