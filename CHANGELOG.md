@@ -240,6 +240,15 @@ upgrade involves.
 
 ### Fixed
 
+- **An item left open in the browser notices its blockers being finished.** The page polls, but
+  it re-read only when something changed *that item* — so completing a blocker updated the
+  blocker's page and left the parent's saying whatever it said when you loaded it, counts and
+  strikethroughs included.
+
+  It is worst exactly where the page is most useful: a milestone's contents are other items, so
+  everything on it is derived from rows whose changes name somebody else. The page now watches
+  the far end of every link it is showing, which costs no extra request — it already has them.
+
 - **`subroutine link` offers all five relations.** Its help listed `blocks`, `relates-to`,
   `duplicates` and `derives-from` and left out `documents` — the one that says a decision or a
   specification governs a piece of work. It has always been accepted; nothing offered it, so

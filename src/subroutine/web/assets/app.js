@@ -725,7 +725,7 @@ export function freshly (items, since) {
 	return items.filter((one) => one.seq > since);
 }
 
-export function touching (events, open, page = null) {
+export function touching (events, open, page = null, links = []) {
 	/*
 		Whether anything in this batch changed the item somebody has open — `#657`.
 
@@ -743,13 +743,26 @@ export function touching (events, open, page = null) {
 		**A batch that had to stop means the answer is unknown**, so it is treated as yes. The
 		cost of being wrong that way is one request; the other way it is the thing this exists
 		to fix.
+
+		**And the far end of a link this item already has counts too** (`#1147`). An item's own
+		ref is not the only thing a reader is looking at: a milestone's contents *are* other
+		items (`#84`), so `Links (14 of 14 blockers done)`, every strikethrough and every
+		readiness mark on that page is computed from rows whose events name somebody else. The
+		page was correct about itself and stale about everything it was showing.
+
+		So the set watched is this item **plus every ref its links reach**, which the page is
+		already holding and which costs no request to know. Compared against the same workspace,
+		because a link's two ends are resolved inside one (`domain/links.py`) — so a far end is
+		never elsewhere, and the ref alone would still be ambiguous across the agenda's poll.
 	*/
 	if (!open) return false;
 
 	if (page && page.has_more) return true;
 
+	const watched = new Set([open.ref, ...links.map((one) => one.other.ref)]);
+
 	return events.some((one) => one.entity_type === "link"
-		|| (one.item_ref === open.ref && one.workspace_id === open.workspace_id));
+		|| (watched.has(one.item_ref) && one.workspace_id === open.workspace_id));
 }
 
 export function rosterRequest (slug) {
@@ -6994,7 +7007,8 @@ export function App () {
 				/* **The open item first, because it is what the reader is looking at** (`#657`).
 				   `held` rather than `open` for the reason `since` is a ref: this callback is
 				   left behind by a render that almost certainly had nothing open. */
-				if (touching(fresh, held.current && held.current.item, seen.page)) await refresh();
+				if (touching(fresh, held.current && held.current.item, seen.page,
+					held.current ? held.current.links : [])) await refresh();
 
 				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
 			} catch (failure) {

@@ -7257,7 +7257,7 @@ def _views (
 			: name === "people" ? app.people(argument.roster)
 			: name === "freshly" ? app.freshly(argument.items, argument.since)
 			: name === "touching"
-				? app.touching(argument.events, argument.open, argument.page)
+				? app.touching(argument.events, argument.open, argument.page, argument.links)
 			: name === "orderedAs" ? app.orderedAs(argument.selection)
 			: name === "statusFor"
 				? app.statusFor(argument.vocabulary, argument.kind, argument.category)
@@ -8754,6 +8754,48 @@ def test_what_counts_as_touching_the_open_item (
 			"events": [_event(seq, ref, kind) for seq, ref, kind in events],
 			"open": {"ref": 42, "workspace_id": "w1"},
 			"page": {"has_more": more},
+		}),
+	])[0]
+
+	assert answer is expected, why
+
+
+@pytest.mark.parametrize(
+	("ref", "expected", "why"),
+	[
+		(7, True, "a blocker of the open item was finished"),
+		(9, True, "the other end of any link counts, not only a blocker"),
+		(99, False, "an item this one is not joined to is still somebody else's business"),
+	],
+)
+def test_the_far_end_of_a_link_counts_as_touching_the_open_item (
+	tmp_path: pathlib.Path,
+	ref: int,
+	expected: bool,
+	why: str,
+) -> None:
+	"""`SR#1147`: an item's own ref is not the only thing a reader on its page is looking at.
+
+	Simon, driving it: *"I loaded /projects/subroutine/1123 expecting to see the blockers crossed
+	off as work progressed, but in fact I had to reload the page to see a change."* Finishing
+	`#1112` writes an event whose ``item_ref`` is 1112, and the page open is 1123 — so under the
+	old rule nothing in the batch named the open item and nothing re-read, while
+	``Links (14 of 14 blockers done)`` went on saying whatever it said when the page loaded.
+
+	**The third case is what stops this being satisfied by re-reading on everything.** A set that
+	had quietly become "any ref at all" would pass the first two and reintroduce `SR#781`, which
+	was filed to stop exactly that.
+	"""
+
+	answer = _views(tmp_path, [
+		("touching", {
+			"events": [_event(8, ref, "task")],
+			"open": {"ref": 42, "workspace_id": "w1"},
+			"page": {"has_more": False},
+			"links": [
+				{"other": {"ref": 7}},
+				{"other": {"ref": 9}},
+			],
 		}),
 	])[0]
 
