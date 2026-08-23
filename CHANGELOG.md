@@ -22,6 +22,14 @@ upgrade involves.
 
 ### Added
 
+- **An agent can file a task under another one, and ask what has been handed to it.**
+  `subroutine_add` takes a `parent`, and `subroutine_list` takes an `assignee`. The write half
+  of delegating work was on the agent surface and the read half was not: an agent could assign
+  something to somebody and could not ask what had been assigned to it.
+
+  A parent is the one thing a captured line cannot say — `+web` files something, and nothing
+  says what it is *part of*.
+
 - **`subroutine setup claude` wires this checkout into Claude Code**, so a session that ends
   gives back anything it is still holding. It writes one hook into `.claude/settings.json`
   here, leaves everything already in that file alone, and stores no credential — so the file

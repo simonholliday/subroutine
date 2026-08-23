@@ -1315,6 +1315,24 @@ def test_the_whole_tool_surface_stays_small (
 	  and the ``order`` examples are the grammar. So this raise buys the whole 51 rather than
 	  most of it having been there, which is the honest report and the opposite of `#819`'s.
 
+	**The byte cap is retired, and the count is not** — Simon's decision of 2026-08-23,
+	answering `#1124` Q3 and closing the spike `#541`. Everything below it is the record of how
+	it was spent and is left standing, because the reasoning in it is about *what earns a
+	place on this surface*, which is the question that survives.
+
+	**What falsified it was a measurement of the client, not an argument.** A session was found
+	loading tool **names** eagerly and deferring every schema until one was fetched — so the
+	ceiling rationed a cost that client does not charge at session start. §21.2 stated the
+	premise as a law where it is a worst case, and clients without tool search do exist; what
+	it was doing in practice was blocking `#999` by 85 bytes and `#1114` by 91.
+
+	**The risk that survives is discoverability, and a count measures it where bytes do not.**
+	A schema never fetched is a tool never called, so a fat surface hides its own tools — and
+	fourteen names in a list is the thing an agent actually reads before choosing. The cap
+	stays at fourteen and raising it is still meant to be an act.
+
+	The spending record follows.
+
 	* **`#94`, to 11,000** — ``repeat`` on ``subroutine_update``, and ``repeats`` named in
 	  ``subroutine_add``'s list of what the line carries.
 
@@ -1370,10 +1388,6 @@ def test_the_whole_tool_surface_stays_small (
 
 	assert len(tools) <= 14, "the surface has grown; is each new tool worth every session?"
 
-	size = len(json.dumps(tools))
-
-	assert size < 11000, f"the tool schemas are {size} bytes of every session's context"
-
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
 	# — "638 bytes across 11 tools as of 2026-08-03" — and it was 696 across 12 two commits
@@ -1385,6 +1399,11 @@ def test_the_whole_tool_surface_stays_small (
 		for tool in tools
 		if "workspace" in tool["inputSchema"].get("properties", {})
 	)
+
+	# **Still measured against the whole, now that nothing else is.** The claim is a *share*
+	# rather than a figure, so retiring the ceiling above leaves this one exactly as it was —
+	# what it needs is the total, not a limit on it.
+	size = len(json.dumps(tools))
 
 	assert repeated < size // 8, (
 		f"the repeated workspace description is {repeated} of {size} bytes — past a share "
@@ -1704,12 +1723,103 @@ _BESIDE_A_REF: dict[str, typing.Any] = {
 	"body": "Recorded.",
 	"type": "relates_to",
 	"title": "Renamed",
+	# **Added by `#999`, which is this guard working as designed.** Declaring `parent` as a
+	# ref on `subroutine_add` enrolled that tool here automatically, without anybody listing
+	# it — and it stopped on the missing `text` rather than on the argument under test, which
+	# is exactly what this register is for.
+	"text": "Something to file",
 }
 
 #: A ref nothing answers to. Well-formed, so a tool that reads it gets as far as a lookup and
 #: refuses *by that number* — which is the observation this test is built on, because a tool
 #: that refused the spelling instead never sees the number at all.
 _NO_SUCH_REF = 999999
+
+
+def test_an_agent_can_file_a_task_under_another_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#999`. The one part of a captured line that has no sigil and cannot be said in it.
+
+	`+web` says where something is filed and nothing says what it is *part of*, which is the
+	asymmetry that earns the bytes where a `project` argument would not. Breaking work up and
+	handing the parts over is `#503`'s loop, and an agent is half that audience.
+	"""
+
+	parent = _added(bound, "Ship the release")
+	answered, failed = _called(
+		bound, "subroutine_add", text="Write the changelog", parent=parent
+	)
+
+	assert not failed, answered
+
+	# **Read back through the hatch rather than through `subroutine_show`**, which does not
+	# list children: the fact under test is the column, and asserting on a rendering that does
+	# not carry it would be a test passing for a reason unrelated to what it names.
+	children, failed = _called(
+		bound,
+		"subroutine_call_api",
+		method="GET",
+		path="/v1/tasks",
+		query={"parent": str(parent), "fields": "ref,title"},
+	)
+
+	assert not failed, children
+	assert "Write the changelog" in children, children
+
+
+def test_the_parent_is_read_the_way_this_program_prints_a_ref (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#42` and `42` alike, which is what publishing it as a ref promises.
+
+	Covered by the sweep below as well; this is the positive case, because that one drives a
+	number nothing answers to and an argument refused for its *spelling* never reaches a
+	lookup at all.
+	"""
+
+	parent = _added(bound, "Ship the release")
+	answered, failed = _called(
+		bound, "subroutine_add", text="Write the changelog", parent=f"#{parent}"
+	)
+
+	assert not failed, answered
+
+
+def test_an_agent_can_ask_what_has_been_assigned_to_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1114`. The write half of delegation was on this surface and the read half was not.
+
+	`subroutine_update` has taken an assignee since `#392`, so an agent could hand work to
+	somebody and could not ask what had been handed to it — a gap that `#501` closed at every
+	layer beneath this one and that moved *up* rather than closing.
+	"""
+
+	# **The account's own generated name**, because the fixture mints one per test and the
+	# *body* of an update takes a username where a listing also takes `me` — an asymmetry
+	# `#1114` is not about and that a test hard-coding `si` would trip over.
+	whoami, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed, whoami
+
+	who = re.search(r"\bsi-[0-9a-f]{8}\b", whoami)
+
+	assert who is not None, whoami
+
+	mine = _added(bound, "For me")
+	_added(bound, "For nobody")
+	assigned, failed = _called(
+		bound, "subroutine_update", ref=mine, assignee=who.group(0)
+	)
+
+	assert not failed, assigned
+
+	listed, failed = _called(bound, "subroutine_list", assignee="me")
+
+	assert not failed, listed
+	assert "For me" in listed, listed
+	assert "For nobody" not in listed, f"the filter narrowed nothing: {listed}"
 
 
 def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_one (

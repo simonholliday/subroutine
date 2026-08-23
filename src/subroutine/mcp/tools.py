@@ -701,6 +701,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						),
 					},
 					"filter": DATE_FILTER,
+					"assignee": {
+						"type": "string",
+						"description": "Only what is assigned to somebody. 'me' is you.",
+					},
 					"workspace": WORKSPACE,
 				},
 			},
@@ -771,6 +775,15 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"description": {
 						"type": "string",
 						"description": "Why it matters, in full. The title stays one line.",
+					},
+					# **A parent has no sigil and cannot be said in the line at all**, which is
+					# the asymmetry that earns this where `project` does not: `+web` already
+					# says where something is filed, and nothing says what it is part of
+					# (`#999`). Breaking work up and handing the parts over is the loop `#503`
+					# is about, and an agent is half that audience.
+					"parent": {
+						"type": A_REF,
+						"description": "The item this is part of, by its number.",
 					},
 					"workspace": WORKSPACE,
 				},
@@ -1526,6 +1539,13 @@ def _listed (
 	# place that holds the registry.
 	filters = _filters(arguments)
 
+	# **The read half of delegation** (`#1114`). This surface could hand work to somebody and
+	# not ask what had been handed to it: `subroutine_update` takes an assignee and nothing
+	# here took one, so an agent could delegate and could not be delegated to. Every layer
+	# beneath it has answered this since `#501`; the gap moved up to the one surface nobody
+	# re-measured.
+	assignee = _text(arguments, "assignee")
+
 	tasks = client.tasks(
 		workspace=workspace,
 		project=project,
@@ -1533,6 +1553,7 @@ def _listed (
 		order=_text(arguments, "order"),
 		ready=ready,
 		q=query,
+		assignee=assignee,
 		filters=filters,
 	)
 
@@ -2260,6 +2281,10 @@ def _added (
 		# will systematically skip an optional second write, and the moment you have the most
 		# context about an item is when you file it".
 		description=_text(arguments, "description"),
+		# **Absent checked first, because `_ref` raises rather than answering `None`** — it is
+		# written for an argument that has to be there, and asking it about one that need not
+		# be would refuse every capture that did not name a parent.
+		parent=None if arguments.get("parent") is None else _ref(arguments, field="parent"),
 	)
 	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
