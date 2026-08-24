@@ -146,6 +146,10 @@ class Ground(typing.NamedTuple):
 	other_user: uuid.UUID
 	spare_task: int
 	spare_document: int
+	#: A comment on :attr:`task`, so ``PATCH /v1/comments/{id}`` has something to change
+	#: (`#1060`). Its id rather than a ref: a comment has no ref, which is why the register
+	#: below had to grow a second shape of read-back rather than a second path.
+	comment: str
 
 
 @pytest.fixture
@@ -248,6 +252,17 @@ def ground (session: sqlalchemy.orm.Session) -> Ground:
 		base_url=api_support.BASE_URL,
 	)
 
+	# **The workspace goes in the query here and in the body everywhere else**, because a
+	# comment's `Create` declares only `body` — which is the second shape of request `#1060`
+	# named as the reason this surface was not driven.
+	remark = world.call(
+		"POST",
+		f"/v1/tasks/{task.json()['ref']}/comments?workspace_id={world.workspace.slug}",
+		json={"body": "First."},
+	)
+
+	assert remark.status_code == 201, remark.text
+
 	return Ground(
 		world=world,
 		local=local,
@@ -260,6 +275,7 @@ def ground (session: sqlalchemy.orm.Session) -> Ground:
 		other_user=somebody.id,
 		spare_task=spare_task.json()["ref"],
 		spare_document=spare.json()["ref"],
+		comment=remark.json()["id"],
 	)
 
 
@@ -319,7 +335,7 @@ def _cases () -> list[tuple[str, str, str]]:
 #: completeness check below is what stops it being a list of the ones somebody thought of: a
 #: surface is driven, or it is here with a reason, and a new surface is neither until somebody
 #: decides which.
-DELIVERS: frozenset[str] = frozenset({"task", "document"})
+DELIVERS: frozenset[str] = frozenset({"task", "document", "comment"})
 
 #: A surface `test_api_writability` guards that this file does not drive, with the reason.
 NOT_DELIVERED: dict[str, str] = {
@@ -327,9 +343,6 @@ NOT_DELIVERED: dict[str, str] = {
 	"to read it back, and `POST /v1/projects` requires a key this file does not yet supply.",
 	"workspace": "`#1060`, and the same create-request problem: a slug is required.",
 	"user": "`#1060` — five fields, and a create needs a username and an email.",
-	"comment": "`#1060`. Only `body` is settable, so this is the cheapest of the six — but a "
-	"comment is created at a sub-resource path rather than at a collection, which is a second "
-	"shape of request this file does not build.",
 	"token": "`#1060` — seven fields, and a credential is answered once and never read back "
 	"in full, so *what does it read back as* needs answering before any case can be written.",
 	"calendar": "`#1060`, and the same once-only answer as a token.",
@@ -424,6 +437,37 @@ def _changed (
 	# every request leave it out, which is `#1040`'s lesson about *one of a thing* arriving in a
 	# fixture rather than in the product.
 	here = f"?workspace_id={ground.world.workspace.slug}"
+
+	# **A comment is changed at its own path and read back from its item's listing** (`#1060`).
+	# It has no ref and no single-entity GET, so *read the whole entity back* means finding it
+	# again among the item's comments — which is a better read-back than the PATCH's own answer,
+	# because it is the one a second caller would get.
+	if kind == "comment":
+		# **No workspace on this one**: a comment id is unique on its own, and the endpoint
+		# refuses a query parameter it does not declare rather than ignoring it — which is how
+		# this line was found to be wrong the first time it ran.
+		answer = ground.world.call(
+			"PATCH", f"/v1/comments/{ground.comment}", json={field: value}
+		)
+
+		assert answer.status_code == 200, (
+			f"PATCH /v1/comments with {{{field!r}: {value!r}}} answered {answer.status_code}: "
+			f"{answer.text}. A refusal here is this file having chosen a value the endpoint "
+			f"cannot take, not the endpoint being wrong."
+		)
+
+		listed = ground.world.call("GET", f"/v1/tasks/{ground.task}/comments{here}")
+
+		assert listed.status_code == 200, listed.text
+
+		found = [
+			one for one in listed.json()["items"] if one["id"] == str(ground.comment)
+		]
+
+		assert found, "the comment vanished from its item's listing"
+
+		return typing.cast(dict[str, typing.Any], found[0])
+
 	where = f"/v1/{kind}s/{ground.task if kind == 'task' else ground.document}"
 	path = f"{where}/move{here}" if model == "Move" else f"{where}{here}"
 	method = "POST" if model == "Move" else "PATCH"
@@ -455,6 +499,21 @@ def _made (
 	# **No title where the captured line is the subject**, because §6.13's line *is* the title
 	# and an explicit one beside it wins — so both readings would be the title this file wrote
 	# and the line would be proved by nothing.
+	if kind == "comment":
+		# The only field its `Create` declares, so there is nothing to send beside it — and the
+		# workspace goes in the query, which is what made this a second shape of request.
+		here = f"?workspace_id={ground.world.workspace.slug}"
+		answer = ground.world.call(
+			"POST", f"/v1/tasks/{ground.task}/comments{here}", json={field: value}
+		)
+
+		assert answer.status_code == 201, (
+			f"POST a comment with {{{field!r}: {value!r}}} answered {answer.status_code}: "
+			f"{answer.text}."
+		)
+
+		return typing.cast(dict[str, typing.Any], answer.json())
+
 	body: dict[str, typing.Any] = {} if field == "text" else {"title": f"Made with {field}"}
 
 	if kind == "document":
