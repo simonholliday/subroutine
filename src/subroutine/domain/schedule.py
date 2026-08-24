@@ -222,7 +222,7 @@ def interpret_day (
 #: thing named rather than absent.
 WRITTEN_DAY_HINT = (
 	"Try a weekday like 'friday' or 'next friday', 'today', 'tomorrow', a date like "
-	"2026-08-01, or an offset like '+2w' or 'today+2w'."
+	"1 September or 2026-08-01, or an offset like '+2w' or 'today+2w'."
 )
 
 

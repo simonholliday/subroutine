@@ -1038,3 +1038,62 @@ def test_a_one_to_one_is_not_one_minute_past_one () -> None:
 		assert captured.title == text
 		assert captured.snooze is None
 		assert captured.unparsed == ()
+
+
+@pytest.mark.parametrize(
+	("line", "title", "field", "expected"),
+	[
+		("Pay the rent by 1 september", "Pay the rent", "due", datetime.date(2026, 9, 1)),
+		("Renew the domain due Sept 1", "Renew the domain", "due", datetime.date(2026, 9, 1)),
+		# **`on` sets a start, exactly as `on friday` does.** A birthday is a thing that
+		# happens rather than a deadline, and the calendar prefixes differ — the wrong one
+		# writes "Due: Anna's birthday" into somebody's calendar.
+		("Anna's birthday on 14 March", "Anna's birthday", "starts_at",
+			datetime.date(2027, 3, 14)),
+	],
+)
+def test_a_written_calendar_date_is_read_from_a_captured_line (
+	line: str, title: str, field: str, expected: datetime.date
+) -> None:
+	"""`SR#1210`. Neither natural spelling for a date months away was read at all.
+
+	`subroutine add "Pay the rent by 1 september"` left the whole phrase in the title and set
+	nothing — with or without a repeat beside it, so this was the date grammar rather than an
+	interaction with `SR#1208`.
+	"""
+
+	read = _parse(line)
+
+	assert read.title == title, f"the phrase was left in the title: {read.title!r}"
+	assert getattr(read, field) == expected, (
+		f"{line!r} set {field}={getattr(read, field)!r}"
+	)
+
+
+def test_a_month_name_in_ordinary_prose_is_left_alone () -> None:
+	"""The pattern most likely to eat something it should not — `SR#1210`.
+
+	A month name is a word that appears in ordinary writing, unlike a sigil and unlike an ISO
+	date. What keeps it out is that the date phrase is only ever reached through a preposition,
+	and that a day number is required beside the month — so *"the September release"* is prose
+	and *"by 1 September"* is a date.
+
+	**§6.13 rule 1 is the standard being met**: a word may only vanish if a field was set, and
+	the title may not contain a word the input did not. The generated-input invariants above
+	enforce both across the whole grammar; this is the case they were least likely to reach,
+	because their alphabet cannot produce a digit.
+	"""
+
+	for line in (
+		"Ship the September release",
+		"Ask about the March numbers",
+		"Read the May report",
+		"Book a table for August",
+	):
+		read = _parse(line)
+
+		assert read.title == line, f"prose lost a word: {line!r} became {read.title!r}"
+		assert read.due is None and read.starts_at is None, (
+			f"{line!r} set a date nobody asked for"
+		)
+

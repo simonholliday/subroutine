@@ -58,6 +58,19 @@ def _dates_body () -> str:
 
 	weekdays = ", ".join(longest[number] for number in sorted(longest))
 
+	# **The full month names, in calendar order** (`#1210`), on the same argument the weekdays
+	# are trimmed by: an inventory of every accepted spelling is a parser's list rather than an
+	# explanation, and the abbreviations get their own line.
+	named: dict[int, str] = {}
+
+	for name, number in subroutine.domain.dates.MONTHS.items():
+		if len(name) > len(named.get(number, "")):
+			named[number] = name
+
+	months = _wrapped(
+		tuple(named[number].title() for number in sorted(named)), indent=17
+	)
+
 	keywords = _wrapped(subroutine.domain.dates.KEYWORDS, indent=17)
 
 	return f"""Three date fields, kept apart on purpose.
@@ -82,6 +95,12 @@ grammars.relative_dates.
                  — or mon, tue, wed, thu, fri, sat, sun
                  — the soonest such day, counting today
   next <weekday> the one in the following week
+  a written date 1 September, 1 Sep, Sept 1, 14 March
+                 {months}
+                 — either way round, with or without the 'st'
+                 — the soonest such date, counting today, so one written
+                   in October means next year's
+                 — no year: write 2027-03-14 when the year matters
   today, tomorrow                                              (api)
   a date         2026-08-01                                    (api)
   a time         2026-08-01T17:00:00Z                          (api)

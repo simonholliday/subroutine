@@ -23,6 +23,13 @@ upgrade involves.
   `?view=list` and `?view=board` are unchanged, the switcher offers all three, and an address
   carrying a filter still gets a list, since an agenda cannot honour one.
 
+- **A date can be written the way people write one.** `by 1 September`, `due Sept 1`,
+  `on 14 March` — either way round, with or without the `st`. A weekday covers this week and a
+  keyword covers this month; a bill due in September or a birthday in March is exactly where
+  the grammar stopped and where an ISO date is least natural to type. It means the soonest such
+  date counting today, so one written in October means next year's. Prose is left alone: a day
+  number is required beside the month, so "the September release" is still a title.
+
 - **A repeat that names its own day reaches the calendar.** `subroutine add "Pay the council
   tax every month on the 1st"` built the right rule and then left the task with no date at all,
   so it was invisible to every calendar feed — which is most of the point of a repeating bill.

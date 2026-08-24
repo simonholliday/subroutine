@@ -81,6 +81,54 @@ WEEKDAYS: dict[str, int] = {
 	"sunday": 6, "sun": 6,
 }
 
+#: Month names and their abbreviations, mapped to month numbers — `#1210`.
+#:
+#: **Here beside :data:`WEEKDAYS` and deliberately not part of `resolve`**, for that table's
+#: reason exactly: this is the vocabulary of somebody *typing*, and a program has a calendar and
+#: should send an ISO date. Both are published by `subroutine explain dates`, which states the
+#: split rather than leaving it to be discovered.
+#:
+#: **``sept`` is in here and is the one abbreviation that is not three letters.** People write
+#: it, and a table that took every other month's short form and refused this one would be wrong
+#: in the way nobody thinks to test.
+MONTHS: dict[str, int] = {
+	"january": 1, "jan": 1,
+	"february": 2, "feb": 2,
+	"march": 3, "mar": 3,
+	"april": 4, "apr": 4,
+	"may": 5,
+	"june": 6, "jun": 6,
+	"july": 7, "jul": 7,
+	"august": 8, "aug": 8,
+	"september": 9, "sep": 9, "sept": 9,
+	"october": 10, "oct": 10,
+	"november": 11, "nov": 11,
+	"december": 12, "dec": 12,
+}
+
+#: A written calendar date, either way round: ``1 september``, ``1 Sep``, ``Sept 1``, ``14
+#: March``. An optional ordinal suffix, because ``1st september`` is what a person types.
+#:
+#: **No year, deliberately.** A year makes it an ISO date's job — `2027-03-14` is unambiguous and
+#: is what somebody writes when the year matters. What this spelling is *for* is the case a year
+#: makes worse: a bill in September, a birthday in March, where the reader means the next one.
+_WRITTEN_DATE = re.compile(
+	r"^(?:"
+	r"(?P<day_first>\d{1,2})(?:st|nd|rd|th)?\s+(?P<month_after>[a-z]+)"
+	r"|"
+	r"(?P<month_first>[a-z]+)\s+(?P<day_after>\d{1,2})(?:st|nd|rd|th)?"
+	r")$"
+)
+
+
+#: How many years ahead :func:`written_date` looks for the day somebody named — *inclusive*, so
+#: the year at the far end is tried. One is enough for every date but the 29th of February;
+#: eight is the widest gap between two of those, which a century that is not a leap year
+#: produces. Written exclusive first, which put the search one year short of the only case it
+#: was widened for — measured from 2096, where the answer is 2104.
+_LEAP_SEARCH = 8
+
+
 _TERM = re.compile(r"([+-])(\d+)([a-zA-Z]+)")
 
 #: The keywords that name a **day** rather than a moment. Everything else in
@@ -121,10 +169,64 @@ def day_named (written: str, *, today: datetime.date) -> datetime.date | None:
 
 		return _next_week(name, today=today)
 
-	if lowered not in WEEKDAYS:
+	if lowered in WEEKDAYS:
+		return _soonest(lowered, today=today)
+
+	return written_date(lowered, today=today)
+
+
+def written_date (written: str, *, today: datetime.date) -> datetime.date | None:
+	"""Return the day a written calendar date means, or ``None`` if it is not one — `#1210`.
+
+	``1 september``, ``1 Sep``, ``Sept 1``, ``14 March``, ``1st September``. Both orders,
+	because both are ordinary English and a grammar that took one would be right for whichever
+	half of its readers happened to match it.
+
+	**The soonest such date counting today, exactly as a weekday is.** "By 1 September" said in
+	October means next year's, and the alternative — a date in the past, silently — is the
+	answer nobody wants: a deadline that has already gone renders as overdue the moment it is
+	set, which reads as a defect rather than as a year having been assumed.
+
+	**Counting today, so "by 1 September" said on 1 September is today**, for the reason
+	:func:`day_named` gives about Friday: the other reading makes a task due today impossible to
+	say in this grammar.
+
+	**A day the month does not have is not a date**, and it comes back as ``None`` rather than
+	being rounded to the 28th or rolled into March. The caller's refusal then names the whole
+	grammar, which is more use than a confident wrong answer — and ``31 february`` is a typo
+	rather than a request.
+	"""
+
+	found = _WRITTEN_DATE.match(written.strip().lower())
+
+	if found is None:
 		return None
 
-	return _soonest(lowered, today=today)
+	name = found.group("month_after") or found.group("month_first")
+	number = found.group("day_first") or found.group("day_after")
+
+	if name not in MONTHS:
+		return None
+
+	month = MONTHS[name]
+	day = int(number)
+
+	# **Eight years, and the number is the leap day rather than caution.** Every other date is
+	# found in this year or the next; the 29th of February is a real date in a leap year and not
+	# otherwise, so it needs the search to keep going — and *eight* rather than four because a
+	# century that is not a leap year puts the gap at eight (2096 to 2104). Written the short way
+	# first, with a comment claiming it meant 2028, and it returned nothing at all.
+	for year in range(today.year, today.year + _LEAP_SEARCH + 1):
+		try:
+			candidate = datetime.date(year, month, day)
+
+		except ValueError:
+			continue
+
+		if candidate >= today:
+			return candidate
+
+	return None
 
 
 def _soonest (name: str, *, today: datetime.date) -> datetime.date:

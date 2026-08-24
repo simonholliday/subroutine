@@ -93,6 +93,12 @@ _WEEKDAY_ALTERNATION = "|".join(
 _KEYWORD_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.KEYWORDS, key=len, reverse=True)
 )
+#: Month names, longest first for the same reason the others are — `#1210`. ``september`` has to
+#: be offered before ``sep``, or the alternation takes the short branch and leaves ``tember``
+#: behind in the title.
+_MONTH_ALTERNATION = "|".join(
+	sorted(subroutine.domain.dates.MONTHS, key=len, reverse=True)
+)
 
 #: One date phrase. Ordered longest-form-first, because Python's alternation takes the
 #: first branch that matches rather than the longest.
@@ -101,6 +107,17 @@ _PHRASE = (
 	rf"next\s+(?:{_WEEKDAY_ALTERNATION})"
 	rf"|(?:{_KEYWORD_ALTERNATION})(?:[+-]\d+[a-zA-Z]+)*"
 	r"|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?"
+	#: **A written calendar date, both ways round** (`#1210`) — ``by 1 september``,
+	#: ``due Sept 1``. Above the bare weekday because neither can match the other, and below
+	#: the ISO form because that is the unambiguous one.
+	#:
+	#: **A day number is required on both sides, which is what keeps a bare month out.** ``by
+	#: september`` names no day, and reading it as the first would be inventing one — where
+	#: this whole grammar's rule is that an unreadable phrase stays in the title and says so.
+	#: It is also what stops *"the September release"* being eaten: there is no preposition in
+	#: front of it, and `_PHRASE` is only ever reached through one.
+	rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION})"
+	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?"
 	rf"|(?:{_WEEKDAY_ALTERNATION})"
 	r")"
 )

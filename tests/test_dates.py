@@ -328,3 +328,73 @@ def test_one_instant_resolves_the_whole_request () -> None:
 
 	assert start < end
 	assert (end - start) < datetime.timedelta(days=1)
+
+
+@pytest.mark.parametrize(
+	("written", "expected"),
+	[
+		("1 september", datetime.date(2026, 9, 1)),
+		("1 Sep", datetime.date(2026, 9, 1)),
+		("Sept 1", datetime.date(2026, 9, 1)),
+		("1st September", datetime.date(2026, 9, 1)),
+		("14 March", datetime.date(2027, 3, 14)),
+		("Mar 14", datetime.date(2027, 3, 14)),
+		("25 december", datetime.date(2026, 12, 25)),
+		# **Counting today**, exactly as a weekday does: "by 24 August" said on the 24th means
+		# today, and the other reading makes a date today impossible to say in this grammar.
+		("24 august", datetime.date(2026, 8, 24)),
+		# **Yesterday's date means next year's**, because a deadline already in the past reads
+		# as overdue the moment it is set — which looks like a defect rather than like a year
+		# having been assumed.
+		("23 august", datetime.date(2027, 8, 23)),
+		# The leap day, which is the only reason the search runs past next year at all.
+		("29 february", datetime.date(2028, 2, 29)),
+		# Not dates, and each comes back as nothing rather than as a guess.
+		("31 february", None),
+		("32 september", None),
+		("september", None),
+		("14", None),
+		("the september release", None),
+		("smarch 4", None),
+	],
+)
+def test_a_written_calendar_date_is_read_both_ways_round (
+	written: str, expected: datetime.date | None
+) -> None:
+	"""`SR#1210`. The spelling somebody reaches for when the date is months away.
+
+	A weekday works for this week and a keyword works for this month; a bill due in September or
+	a birthday in March is exactly where the grammar stopped and where an ISO date is least
+	natural to type. It surfaced through `SR#1208`: a repeat needs a date beside it, and both
+	natural ways to give one failed — so the only working spelling for a monthly bill was
+	`by 2026-09-01 every month on the 1st`, which nobody would write.
+
+	**A day number is required on both sides.** `by september` names no day and reading it as the
+	first would be inventing one, where this grammar's rule is that an unreadable phrase stays in
+	the title and says so.
+
+	**A day the month does not have is not a date.** `31 february` comes back as nothing rather
+	than rounded to the 28th or rolled into March, so the caller's refusal names the whole
+	grammar instead of giving a confident wrong answer.
+	"""
+
+	assert subroutine.domain.dates.day_named(
+		written, today=datetime.date(2026, 8, 24)
+	) == expected
+
+
+def test_the_leap_day_is_found_across_a_century_that_is_not_a_leap_year () -> None:
+	"""The one case that needs the search to run more than a year ahead — `SR#1210`.
+
+	1900 and 2100 are not leap years, so between 2096 and 2104 there is an eight-year gap with
+	no 29th of February in it. **Written the short way first**, looking one year ahead with a
+	comment claiming it meant 2028, and it returned nothing at all; then written to look eight
+	years ahead *exclusive*, which is one short of the only case it was widened for.
+
+	Both were found by driving it at the boundary rather than by reading it.
+	"""
+
+	assert subroutine.domain.dates.day_named(
+		"29 february", today=datetime.date(2096, 3, 1)
+	) == datetime.date(2104, 2, 29)
+
