@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.8.1 — 2026-08-24
 
 > **This release changes the database schema**, to `4240ca248de1`.
 >
