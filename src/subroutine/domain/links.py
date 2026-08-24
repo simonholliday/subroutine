@@ -33,6 +33,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.errors
@@ -42,16 +43,35 @@ import subroutine.permissions
 #: from a failing test (§14), and is not creatable through this module until those exist.
 LINKABLE = ("task", "document")
 
-#: The link type that says a document binds a piece of work (§5.7). Named here because
-#: :func:`proposals` builds edges of exactly this type and nothing else, and a key spelled at
-#: the site that uses it is the copy that comes to disagree with the seed.
-GOVERNING_TYPE = "documents"
+#: The category a workspace's own *precedes* would carry: it says which of a pair comes first
+#: and holds nothing up. Seeded on nothing (`#1151` is whether it should be), and named here
+#: because :data:`SEQUENCING` is the only thing that reads it.
+ORDERING = "ordering"
 
-#: The one link type that says which of a pair comes first, and so the one where a ring of
-#: them means work nobody can start. Named here rather than spelled at the two places that
-#: read it, because ``domain.readiness`` is the other and the two have to agree about which
-#: edges sequence work.
-_SEQUENCING = "blocks"
+#: The relation :func:`proposals` builds an edge of, by key rather than by category — the one
+#: place a key is still read on purpose, and the reason is at the call site: a proposal
+#: *constructs* a link where every other rule *interprets* one, and the two governing relations
+#: run opposite ways round.
+PROPOSED_TYPE = "documents"
+
+#: What a relation has to *be* for a document at one end of it to bind the other (§5.7,
+#: decision `#1157`). A category rather than the key ``documents``, which is what this said
+#: until `#1156` measured what that costs: a workspace renaming the key kept the words and
+#: lost the behaviour, so *Read first* went empty while the link still read *Documents*.
+GOVERNING = "governing"
+
+#: The categories whose rings are a contradiction — anything that asserts which of a pair comes
+#: first (decision `#1157`).
+#:
+#: **Two rather than one, and they nest.** ``gating`` says the source must finish before the
+#: target can start; ``ordering`` says only that it comes first. A ring of the second holds no
+#: work up and is still a statement that cannot be true — *A before B before A* — which is what
+#: `#1154` was: a workspace's own *precedes* could contradict itself and nothing said so.
+#:
+#: Read by ``domain.readiness`` for the narrower question, which takes ``gating`` alone — and
+#: **built from that module's own name for it**, so the nesting is structural rather than two
+#: literals that happen to agree. `#1156` is the record of what two agreeing literals cost.
+SEQUENCING = frozenset({subroutine.domain.readiness.GATING, ORDERING})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -98,6 +118,10 @@ class Related:
 
 	id: uuid.UUID
 	link_type: str
+
+	#: What the type *is* — decision `#1157`. Carried beside the key because every rule about a
+	#: relation reads this and none may read the key, which a workspace renames freely.
+	link_category: str
 	label: str
 	direction: str
 	other: End
@@ -294,7 +318,7 @@ def _refuse_a_loop (
 	no state that could finish.
 	"""
 
-	if link_type.key != _SEQUENCING:
+	if link_type.category not in SEQUENCING:
 		return
 
 	if source.entity_type != "task" or target.entity_type != "task":
@@ -495,6 +519,7 @@ def around (
 			Related(
 				id=link.id,
 				link_type=kind.key,
+				link_category=kind.category,
 				# A symmetric type reads the same from both ends, so it keeps its own title
 				# rather than being given an inverse it does not have.
 				label=kind.title if outgoing or kind.is_symmetric else kind.inverse_title,
@@ -768,10 +793,22 @@ def proposals (
 	if not wanted:
 		return []
 
+	# **The one site that names a key on purpose, and it is the exception that proves `#1157`'s
+	# rule.** Every other rule about a relation *interprets* an existing link and reads the
+	# category; this one **constructs** a proposed one, and a category cannot say which end a
+	# document goes at.
+	#
+	# Both governing relations run opposite ways round — a decision `documents` a task, and a
+	# task `derives_from` a specification — and the direction here is computed from which end
+	# did the citing. So picking whichever governing type came back first would produce a
+	# proposal that is correctly labelled and points the wrong way.
+	#
+	# The cost of staying keyed is bounded and is the right way for a *suggestion* to fail: a
+	# workspace that has renamed this offers no proposals, rather than offering wrong ones.
 	kind = session.scalars(
 		sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
 			subroutine.db.models.vocabulary.LinkType.workspace_id == workspace_id,
-			subroutine.db.models.vocabulary.LinkType.key == GOVERNING_TYPE,
+			subroutine.db.models.vocabulary.LinkType.key == PROPOSED_TYPE,
 		)
 	).first()
 
@@ -851,13 +888,15 @@ class Governs:
 	document: End
 
 
-#: The link types that say a document **binds** a piece of work, rather than sits near it.
+#: **Was a set of keys and is now a category** (decision `#1157`). The two seeded relations it
+#: used to name — ``documents`` and ``derives_from`` — are exactly the two the migration files
+#: under :data:`GOVERNING`, so nothing about which links bind has changed; what changed is that
+#: the rule survives a workspace renaming either of them, which `#1156` measured that it did not.
 #:
 #: `#1124` Q2, Simon's: project ancestry and the mention index answer *what is near this*,
 #: which is a different claim, and a feature answering the second under the first's name
-#: teaches a reader to distrust it. So this is the whole of the evidence, and it is why the
-#: answer is empty until somebody has said something — which `#1137` is what makes likely.
-GOVERNING_LINKS = frozenset({GOVERNING_TYPE, "derives_from"})
+#: teaches a reader to distrust it. So a typed link is the whole of the evidence, and it is why
+#: the answer is empty until somebody has said something — which `#1137` is what makes likely.
 
 
 def governing (
@@ -901,7 +940,7 @@ def governing (
 			entity_type=entity_type,
 			identifiers=[identifier],
 		)
-		if kind.key in GOVERNING_LINKS
+		if kind.category == GOVERNING
 	]
 
 	if not rows:

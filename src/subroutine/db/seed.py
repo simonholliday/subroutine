@@ -71,6 +71,7 @@ class LinkTypeSeed:
 	key: str
 	title: str
 	inverse_title: str
+	category: str
 	is_symmetric: bool = False
 
 
@@ -226,12 +227,16 @@ _ITEM_TYPES = (
 #: ``derives_from`` is the one that earns its place twice over: it is how the tasks
 #: implementing a specification point back at it, and how a bug points back at the failing
 #: check that found it (docs/design.md §5.7).
+#: The category on each is decision `#1157`'s table, and it is what every rule about a relation
+#: reads — never the key, which a workspace may rename. **Nothing is seeded `ordering`**: that is
+#: what a workspace's own *precedes* would be, asserting a sequence that holds nothing up, and
+#: whether every workspace should be given one is `#1151`.
 _LINK_TYPES = (
-	LinkTypeSeed("blocks", "Blocks", "Blocked by"),
-	LinkTypeSeed("relates_to", "Relates to", "Relates to", is_symmetric=True),
-	LinkTypeSeed("duplicates", "Duplicates", "Duplicated by"),
-	LinkTypeSeed("derives_from", "Derives from", "Derived into"),
-	LinkTypeSeed("documents", "Documents", "Documented by"),
+	LinkTypeSeed("blocks", "Blocks", "Blocked by", "gating"),
+	LinkTypeSeed("relates_to", "Relates to", "Relates to", "describing", is_symmetric=True),
+	LinkTypeSeed("duplicates", "Duplicates", "Duplicated by", "describing"),
+	LinkTypeSeed("derives_from", "Derives from", "Derived into", "governing"),
+	LinkTypeSeed("documents", "Documents", "Documented by", "governing"),
 )
 
 #: Keyed by the release that introduced them. To add a status in a later version, add a
@@ -498,6 +503,7 @@ def _seed_link_types (
 				key=seed.key,
 				title=seed.title,
 				inverse_title=seed.inverse_title,
+				category=seed.category,
 				is_symmetric=seed.is_symmetric,
 				is_system=True,
 			)

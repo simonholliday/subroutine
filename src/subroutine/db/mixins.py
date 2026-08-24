@@ -36,13 +36,27 @@ STATUS_CATEGORIES = TASK_STATUS_CATEGORIES + DOCUMENT_STATUS_CATEGORIES
 #: off this table for.
 #:
 #: **It answers one question and says so.** Not whether a document binds the reader
-#: (``links.GOVERNING_LINKS``) and not whether one is true the moment it is written
+#: (``links.GOVERNING``, a category on the *link*) and not whether one is true when written
 #: (``documents.IN_FORCE_WHEN_WRITTEN``). Those are different partitions of the same six
 #: document types, overlapping in two members and differing in two, and a field serving all
 #: three would serve none.
 TASK_TYPE_CATEGORIES = ("work", "defect", "question")
 DOCUMENT_TYPE_CATEGORIES = ("decision", "reference", "record")
 ITEM_TYPE_CATEGORIES = TASK_TYPE_CATEGORIES + DOCUMENT_TYPE_CATEGORIES
+
+#: What a *link* type means regardless of what an installation calls it — decision `#1157`, and
+#: the third instance of the argument above. `#826` made a key renameable and six rules were
+#: written in terms of one: renaming `blocks` broke `--ready` while the item page went on saying
+#: *Blocked by*, which is `#1156`.
+#:
+#: **Nested rather than parallel, which is what lets one value answer three questions.** Anything
+#: that gates also orders; nothing that governs or describes does either. Each rule declares the
+#: set it reads — `readiness` takes ``{gating}``, the ring refusal ``{gating, ordering}``, and
+#: *Read first* ``{governing}`` — so the sets stay visible instead of being inferred.
+#:
+#: ``ordering`` is seeded on nothing, deliberately: it is what a workspace's own *precedes*
+#: would be, and whether every workspace gets one is a separate question (`#1151`).
+LINK_TYPE_CATEGORIES = ("gating", "ordering", "governing", "describing")
 
 #: Entities that can carry a status, a type, a comment or a link.
 STATUS_ENTITY_TYPES = ("task", "project", "document")

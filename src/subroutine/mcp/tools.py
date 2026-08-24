@@ -40,6 +40,7 @@ import subroutine.domain.dates
 import subroutine.domain.documents
 import subroutine.domain.filtering
 import subroutine.domain.ordering
+import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -2166,7 +2167,11 @@ def _shown (
 		# invariant 5 makes true for done *and* cancelled — so the obvious word asserts
 		# something about half of them that nobody did.
 		blockers = [
-			link for link in links if link.link_type == "blocks" and link.direction == "incoming"
+			# **The category, never the key** — what a relation *is*, never what it is called (decision `#1157`). Comparing `link_type` to the literal `blocks` kept working while `#1156` broke: a workspace that renames the key keeps every label and loses every count.
+			link
+			for link in links
+			if link.link_category == subroutine.domain.readiness.GATING
+			and link.direction == "incoming"
 		]
 		finished = sum(1 for link in blockers if link.other.is_complete)
 

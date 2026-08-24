@@ -348,7 +348,11 @@ def test_a_link_cannot_point_at_itself (session: sqlalchemy.orm.Session) -> None
 
 	workspace = _make_workspace(session)
 	link_type = subroutine.db.models.vocabulary.LinkType(
-		workspace_id=workspace.id, key="blocks", title="blocks", inverse_title="is blocked by"
+		workspace_id=workspace.id,
+		key="blocks",
+		title="blocks",
+		inverse_title="is blocked by",
+		category="gating",
 	)
 	session.add(link_type)
 	session.flush()

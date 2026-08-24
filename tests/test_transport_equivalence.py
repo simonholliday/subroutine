@@ -1942,7 +1942,9 @@ def test_a_read_only_connection_refuses_every_write_before_it_leaves (
 			lambda: client.create_status(
 				entity_type="task", key="x", label="X", category="todo"
 			),
-			lambda: client.create_link_type(key="x", title="X", inverse_title="Y"),
+			lambda: client.create_link_type(
+				key="x", title="X", inverse_title="Y", category="describing"
+			),
 			lambda: client.create_tag(name="x"),
 			# **Deleting a workspace is the largest write there is** (`SR#704`), so a
 			# connection that refuses `add` and permits this would be refusing the cheap half.

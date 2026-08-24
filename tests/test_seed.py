@@ -344,7 +344,9 @@ def test_a_later_version_adds_only_its_own_rows (
 			statuses=(
 				subroutine.db.seed.StatusSeed("task", "on_ice", "On ice", "todo"),
 			),
-			link_types=(subroutine.db.seed.LinkTypeSeed("supersedes", "Supersedes", "Superseded by"),),
+			link_types=(subroutine.db.seed.LinkTypeSeed(
+				"supersedes", "Supersedes", "Superseded by", "governing"
+			),),
 		),
 	)
 	monkeypatch.setattr(subroutine.db.seed, "SEED_VERSION", 2)

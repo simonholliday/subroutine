@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `491e1a09de04`.
+> **This release changes the database schema**, to `da7628199bff`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -28,6 +28,23 @@ upgrade involves.
   It is what lets a surface stay quiet about a type nobody chose. The terminal was deciding that
   by hardcoding the two keys this project's own seeder uses, which is right until a workspace
   renames one.
+
+- **A link type says what it does**, as a fixed `category` beside its renameable key —
+  `gating` holds work up, `ordering` says which comes first without holding anything up,
+  `governing` says one item binds the other, `describing` says only that they are connected.
+  Published on the type in `/v1/meta` and as `link_category` on every link.
+
+  **This fixes a defect worth knowing about if you have renamed a link type.** Renaming `blocks`
+  used to keep every label and lose every behaviour: the item page went on saying *Blocked by*
+  while the blocked task reappeared as startable, and the blocker counts stopped counting.
+  Nothing errored. Rules read the category now, so renaming a relation changes only its wording.
+
+  Your existing types are mapped by the migration. **A relation you added yourself becomes
+  `describing`** — the claim that asserts least — because nothing can know what it meant. Set it
+  with `PATCH /v1/link-types/{id}`; `POST` requires it.
+
+  A ring is also refused for `ordering` now, not just `blocks`: *A before B before A* holds
+  nothing up and is still a statement that cannot be true.
 
 - **An item type says what kind of thing it is.** Every type now carries a fixed `category` —
   `work`, `defect` or `question` for a task; `decision`, `reference` or `record` for a document —

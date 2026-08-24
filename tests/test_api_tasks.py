@@ -1831,12 +1831,76 @@ def test_a_ring_of_blocking_links_is_refused_and_the_chain_is_named (world: Worl
 	assert len(world.call("GET", f"/v1/tasks/{first}/links").json()["items"]) == 1
 
 
+def test_a_ring_of_an_ordering_relation_is_refused_even_though_it_holds_nothing_up (
+	world: World,
+) -> None:
+	"""`SR#1154`, and the reason the refusal reads two categories rather than one.
+
+	Simon's distinction, which is what ``ordering`` exists for: *a code review precedes a
+	first-contact pass* is an opinion about sequence and not a dependency, so it must not take
+	work off anybody's list. `SR#1157` gives it a category of its own, and this is the half of
+	that which is not about readiness — **a ring of it is still a statement that cannot be
+	true.** *A before B before A* holds nothing up and is nonsense either way.
+
+	Driven before the fix, on the served instance: both links were accepted, and the item then
+	rendered ``Precedes #11`` and ``Follows #11`` on consecutive lines.
+
+	**Not written with the key ``precedes``**, deliberately — the relation is named ``after``
+	here precisely to prove nothing reads the name.
+	"""
+
+	kind = world.call(
+		"POST",
+		"/v1/link-types",
+		json={
+			"key": "after",
+			"title": "Comes before",
+			"inverse_title": "Comes after",
+			"category": "ordering",
+		},
+	)
+
+	assert kind.status_code == 201, kind.text
+
+	first = world.call("POST", "/v1/tasks", json={"title": "First"}).json()["ref"]
+	second = world.call("POST", "/v1/tasks", json={"title": "Second"}).json()["ref"]
+
+	made = world.call(
+		"POST",
+		f"/v1/tasks/{first}/links",
+		json={"target": second, "target_type": "task", "link_type": "after"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	# **And it holds nothing up**, which is the half that separates `ordering` from `gating`.
+	# Without this the test would pass against a fix that made `precedes` block work.
+	startable = world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+
+	assert {second, first} <= {row["ref"] for row in startable}, (
+		"an ordering relation took work off the startable list, which is what it must not do"
+	)
+
+	closing = world.call(
+		"POST",
+		f"/v1/tasks/{second}/links",
+		json={"target": first, "target_type": "task", "link_type": "after"},
+	)
+
+	assert closing.status_code == 409, closing.text
+	assert closing.json()["code"] == "cycle_detected"
+
+
 def test_a_ring_of_a_type_that_does_not_sequence_work_is_allowed (world: World) -> None:
 	"""``relates_to`` says a pair is connected, not which comes first, so a ring holds nothing up.
 
-	The refusal is aimed at the one type ``readiness`` reads. Aiming it at every type would be
-	refusing an arrangement that costs nobody anything — two items that mention each other —
-	which is a rule a person has to learn in order to tell it from a bug.
+	The refusal is aimed at the categories that assert a sequence — ``links.SEQUENCING``. Aiming
+	it at every relation would be refusing an arrangement that costs nobody anything, two items
+	that mention each other, which is a rule a person has to learn to tell from a bug.
+
+	**It was aimed at the one *key* ``readiness`` reads until `SR#1157`**, which is a narrower
+	set and the wrong axis: `SR#1154` is the case that showed it, where a workspace's own
+	ordering relation could contradict itself and nothing said so.
 	"""
 
 	first = world.call("POST", "/v1/tasks", json={"title": "First"}).json()["ref"]

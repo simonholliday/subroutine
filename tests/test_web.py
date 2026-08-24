@@ -3072,10 +3072,10 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 		"comments": [], "workspace": "projects", "members": [],
 		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
 	links = [
-		{"id": "l-1", "link_type": "blocks", "label": "Blocks", "direction": "outgoing",
+		{"id": "l-1", "link_type": "blocks", "link_category": "gating", "label": "Blocks", "direction": "outgoing",
 			"other": {"entity_type": "task", "ref": 9, "title": "Still going",
 				"is_complete": False}},
-		{"id": "l-2", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+		{"id": "l-2", "link_type": "blocks", "link_category": "gating", "label": "Blocked by", "direction": "incoming",
 			# **The title deliberately does not contain the type.** It read *The decision* and
 			# carried `type: decision`, so `"decision" in shown` was satisfied by the title
 			# and survived deleting the marks outright — a test that could not fail, found by
@@ -3083,7 +3083,7 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 			"other": {"entity_type": "document", "ref": 4, "title": "What we settled",
 				"type": "decision", "status": "superseded", "project_path": "subroutine/spec",
 				"is_complete": True}},
-		{"id": "l-3", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+		{"id": "l-3", "link_type": "blocks", "link_category": "gating", "label": "Blocked by", "direction": "incoming",
 			"other": {"entity_type": "task", "ref": 7, "title": "Not started",
 				"type": "bug", "status": "open", "status_is_default": True,
 				"is_complete": False}},
@@ -3198,7 +3198,7 @@ def test_the_item_page_says_what_to_read_before_starting (tmp_path: pathlib.Path
 	# is a separate section is the order somebody reads them in.
 	with_links = _rendered(tmp_path, {"Detail": {
 		**shared, "governing": governing,
-		"links": [{"id": "l-1", "link_type": "blocks", "label": "Blocks",
+		"links": [{"id": "l-1", "link_type": "blocks", "link_category": "gating", "label": "Blocks",
 			"direction": "outgoing", "other": {"entity_type": "task", "ref": 9,
 				"title": "Still going", "is_complete": False}}],
 	}})["Detail"]
@@ -3234,7 +3234,7 @@ def test_what_an_item_is_joined_to_is_read_before_its_description (
 		"governing": [{"link_type": "documents", "document": {
 			"entity_type": "document", "ref": 4, "title": "What we settled",
 			"type": "decision", "status": "active", "is_complete": False}}],
-		"links": [{"id": "l-1", "link_type": "blocks", "label": "Blocks",
+		"links": [{"id": "l-1", "link_type": "blocks", "link_category": "gating", "label": "Blocks",
 			"direction": "outgoing", "other": {"entity_type": "task", "ref": 9,
 				"title": "Still going", "is_complete": False}}],
 		"checked": [{"id": "v-1", "passed": True, "summary": "5,610 passed",

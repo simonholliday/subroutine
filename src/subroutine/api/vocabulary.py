@@ -88,6 +88,12 @@ class CreateLinkType(subroutine.api.schemas.RequestModel):
 	title: str
 	inverse_title: str
 
+	#: What every rule about this relation reads — decision `#1157`. Required, because a workspace
+	#: adding a relation is saying what it *means*, and a default would pick that for them: the
+	#: migration's fallback is `describing` and choosing it silently for a new `precedes` is the
+	#: one thing `#1154` is about.
+	category: str
+
 	#: Whether it reads the same from both ends. Set once, for the reason a status category is:
 	#: it decides how every edge already stored reads, not how it is worded.
 	is_symmetric: bool = False
@@ -99,6 +105,12 @@ class UpdateLinkType(subroutine.api.schemas.RequestModel):
 	key: str | None = None
 	title: str | None = None
 	inverse_title: str | None = None
+
+	#: Changeable, unlike a status category, and the asymmetry is deliberate. A status category
+	#: decides how every row already stored reads; a link category decides what the *program*
+	#: concludes from an edge, and getting that wrong is exactly the state `#1157`'s migration
+	#: leaves a workspace's own relation in — `describing`, until somebody says otherwise.
+	category: str | None = None
 
 
 class CreateTag(subroutine.api.schemas.RequestModel):
@@ -346,6 +358,7 @@ def create_link_type (
 			key=body.key,
 			title=body.title,
 			inverse_title=body.inverse_title,
+			category=body.category,
 			is_symmetric=body.is_symmetric,
 			actor=actor,
 		)
@@ -361,7 +374,7 @@ def update_link_type (
 ) -> subroutine.views.LinkType:
 	"""Rename a link type, or reword either end of it."""
 
-	changes = _asked(body, ("key", "title", "inverse_title"))
+	changes = _asked(body, ("key", "title", "inverse_title", "category"))
 
 	return subroutine.views.link_type(
 		subroutine.domain.vocabulary.update_link_type(

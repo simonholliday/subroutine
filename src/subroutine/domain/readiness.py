@@ -34,6 +34,13 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.errors
 
+#: The link-type category that holds work up — decision `#1157`, and the narrowest of the three
+#: questions a category answers. Owned here rather than in :mod:`subroutine.domain.links` because
+#: this is the rule that decides what ``--ready`` hides, and `#1156` is what happens when it and
+#: the ring refusal are two literals that merely happen to agree: ``links.SEQUENCING`` is built
+#: from this name, so the two cannot part company.
+GATING = "gating"
+
 
 def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items nothing unfinished is blocking.
@@ -117,7 +124,17 @@ def _live_blocks_edge (
 
 	return (
 		link.deleted_at.is_(None),
-		kind.key == "blocks",
+		# **What the relation *is*, never what it is called** (decision `#1157`). This compared
+		# `kind.key` to the literal `blocks` until `#1156`, which measured what that costs: a
+		# workspace renaming the key kept every label — the item page still said *Blocked by* —
+		# and lost the filter, so a blocked task appeared in `--ready` at the same moment its own
+		# page said it could not start.
+		#
+		# **`gating` alone, and that is narrower than the ring refusal.** `links.SEQUENCING` also
+		# takes `ordering`, which asserts a sequence and holds nothing up — Simon's distinction on
+		# `#1154`, that a code review preceding a first-contact pass is an opinion rather than a
+		# dependency. A relation like that must not take work off anybody's list.
+		kind.category == GATING,
 		# Finished work is neither held up nor holding anything up. Without this a shipped
 		# release would go on marking everything that ever blocked it.
 		other.completed_at.is_(None),

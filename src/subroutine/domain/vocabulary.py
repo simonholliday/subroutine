@@ -477,6 +477,38 @@ def link_types (
 	)
 
 
+def _refuse_a_category_that_is_not_one (category: str) -> str:
+	"""Refuse a link-type category outside the vocabulary, naming the ones there are.
+
+	**In the service rather than left to the CHECK constraint** — a CHECK is not input
+	validation. It would arrive as a driver error naming no field on PostgreSQL, and on SQLite
+	it might not fire at all, where this names the field and lists the alternatives.
+
+	Its sibling for statuses is inline in :func:`create_status`, because that one picks between
+	two vocabularies by entity type. A link type has one.
+	"""
+
+	if category in subroutine.db.mixins.LINK_TYPE_CATEGORIES:
+		return category
+
+	raise subroutine.errors.ValidationError(
+		f"{category!r} is not a link category.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="category",
+				code="invalid_field_value",
+				message=f"One of: {', '.join(subroutine.db.mixins.LINK_TYPE_CATEGORIES)}.",
+				hint=(
+					"The category is what the program concludes from the relation; the key is "
+					"yours to name. 'gating' holds work up, 'ordering' says which comes first "
+					"without holding anything up, 'governing' says one binds the other, and "
+					"'describing' says only that they are connected."
+				),
+			)
+		],
+	)
+
+
 def create_link_type (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -484,6 +516,7 @@ def create_link_type (
 	key: str,
 	title: str,
 	inverse_title: str,
+	category: str,
 	is_symmetric: bool = False,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.vocabulary.LinkType:
@@ -510,6 +543,7 @@ def create_link_type (
 		key=cleaned,
 		title=_refuse_a_label_that_is_not_one(title, field="title"),
 		inverse_title=_refuse_a_label_that_is_not_one(inverse_title, field="inverse_title"),
+		category=_refuse_a_category_that_is_not_one(category),
 		is_symmetric=is_symmetric,
 	)
 
@@ -526,9 +560,10 @@ def update_link_type (
 	key: str = subroutine.domain.patch.UNSET,
 	title: str = subroutine.domain.patch.UNSET,
 	inverse_title: str = subroutine.domain.patch.UNSET,
+	category: str = subroutine.domain.patch.UNSET,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.vocabulary.LinkType:
-	"""Rename a link type, or reword either end of it."""
+	"""Rename a link type, reword either end of it, or say what it does."""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
@@ -556,6 +591,13 @@ def update_link_type (
 		kind.inverse_title = _refuse_a_label_that_is_not_one(
 			inverse_title, field="inverse_title"
 		)
+
+	# **Changeable, where a status category is not**, and the asymmetry is the point. A status
+	# category decides how every row already stored reads; this decides what the program
+	# concludes from an edge, and a workspace whose own relation came out of `#1157`'s migration
+	# as `describing` has to be able to say what it actually is.
+	if category is not subroutine.domain.patch.UNSET:
+		kind.category = _refuse_a_category_that_is_not_one(category)
 
 	session.flush()
 

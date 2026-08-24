@@ -314,6 +314,9 @@ _BEFORE_THE_DATE_SPLIT = "a3f9c21d7e40"
 #: upgrade backfills it.
 _BEFORE_THE_TYPE_CATEGORY = "a01dcd83a946"
 
+#: The same, one vocabulary along: before a *link* type carried one (`SR#1157`).
+_BEFORE_THE_LINK_CATEGORY = "491e1a09de04"
+
 
 #: The task table as it stood at :data:`_BEFORE_THE_DATE_SPLIT`, carrying its real types.
 #:
@@ -421,6 +424,56 @@ def _a_workspace_with_one_task (
 	connection.execute(sqlalchemy.insert(table).values(**values, **task))
 
 	return identifier
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_the_backfilled_link_category_is_the_one_the_seeder_would_have_written (
+	migrated_url: str,
+) -> None:
+	"""`SR#1157`, and the same guard as its sibling below, one vocabulary along.
+
+	The migration carries a ``key -> category`` map because a backfill cannot call the seeder, so
+	the decision's table is written down twice. **Two copies that agree are invisible**: every
+	other test here passes whether they agree or not, because both produce a value and the column
+	is NOT NULL either way.
+
+	Driven rather than diffed, for the reason spelled out below — reading the migration's dict
+	and comparing it to the seeder checks my transcription and not the backfill.
+
+	**The fallback is asserted by this rather than beside it.** If the ``WHERE key = …`` half
+	stopped matching, every relation would come back ``describing`` and `blocks` is what would
+	fail — which is also the one that matters, since it is the only category that hides work.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_THE_LINK_CATEGORY)
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		table = subroutine.db.base.Base.metadata.tables["link_type"]
+
+		with engine.begin() as connection:
+			backfilled: dict[str, str] = dict(
+				connection.execute(
+					sqlalchemy.select(table.c.key, table.c.category)
+				).tuples().all()
+			)
+
+		wanted = {one.key: one.category for one in subroutine.db.seed._LINK_TYPES}
+
+		assert len(wanted) >= 5, f"only {sorted(wanted)} are seeded, so this checks little"
+		assert backfilled == wanted
+
+	finally:
+		engine.dispose()
 
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
@@ -936,6 +989,7 @@ def test_the_seeded_data_covers_every_referencing_table () -> None:
 #: Columns whose CHECK constraint a generic filler value would violate.
 VOCABULARY: dict[str, dict[str, typing.Any]] = {
 	"item_type": {"entity_type": "task", "category": "work"},
+	"link_type": {"category": "describing"},
 	"status": {"entity_type": "task", "category": "todo"},
 }
 

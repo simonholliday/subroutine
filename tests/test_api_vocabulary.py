@@ -265,6 +265,96 @@ def test_removing_a_status_drops_it_from_the_settings_that_name_it (
 	assert world.workspace.settings[held] == []
 
 
+def test_renaming_a_link_type_leaves_readiness_and_the_labels_agreeing (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1156`, and the reason `SR#1157` exists. Driven, because reading found none of it.
+
+	Measured on the served instance before the fix, with `#12 blocks #13`::
+
+	    subroutine list --ready                      #12 only, marked `blocker`
+	    PATCH /v1/link-types/{id} {"key":"holds_up"} 200
+	    subroutine list --ready                      #12 AND #13
+	    subroutine show scratch/#13                  Links / Blocked by #12
+
+	**The item page said blocked and the ready list said startable, about one link.** The label
+	survived because ``inverse_title`` is a column on the row; the behaviour did not, because six
+	rules were written in terms of the literal string ``blocks``.
+
+	**Both halves are asserted, and the second is the one that would have caught it.** A test
+	that only checked the label passes against the defect — the labels were never the problem.
+	"""
+
+	blocker = world.call("POST", "/v1/tasks", json={"title": "Do this first"}).json()
+	blocked = world.call("POST", "/v1/tasks", json={"title": "Then this"}).json()
+
+	joined = world.call(
+		"POST",
+		f"/v1/tasks/{blocker['ref']}/links",
+		json={"link_type": "blocks", "target": blocked["ref"]},
+	)
+
+	assert joined.status_code == 201, joined.text
+
+	def startable () -> set[int]:
+		"""Return the refs `?ready=true` offers, which is the half that used to break."""
+
+		found = world.call("GET", "/v1/tasks?ready=true&limit=50")
+
+		assert found.status_code == 200, found.text
+
+		return {row["ref"] for row in found.json()["items"]}
+
+	assert startable() == {blocker["ref"]}, "the probe never held anything up"
+
+	kinds = world.call("GET", "/v1/link-types").json()["items"]
+	which = next(one["id"] for one in kinds if one["key"] == "blocks")
+
+	renamed = world.call("PATCH", f"/v1/link-types/{which}", json={"key": "holds_up"})
+
+	assert renamed.status_code == 200, renamed.text
+
+	assert startable() == {blocker["ref"]}, (
+		"renaming the key put blocked work back on the startable list, which is `SR#1156`"
+	)
+
+	links = world.call("GET", f"/v1/tasks/{blocked['ref']}/links").json()["items"]
+
+	assert [one["label"] for one in links] == ["Blocked by"], "the wording is not the key"
+	assert [one["link_category"] for one in links] == ["gating"], (
+		"what the relation is has to survive being renamed, since that is the whole fix"
+	)
+
+
+def test_a_link_category_outside_the_vocabulary_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""A CHECK constraint is not input validation (`SR#1157`, and this project's own rule).
+
+	Left to the database it arrives as a driver error naming no field on PostgreSQL, and on
+	SQLite it might not fire at all. The refusal has to name the field and list the alternatives,
+	because the caller is somebody deciding what their own relation *means*.
+	"""
+
+	refused = world.call(
+		"POST",
+		"/v1/link-types",
+		json={
+			"key": "supersedes",
+			"title": "Supersedes",
+			"inverse_title": "Superseded by",
+			"category": "sequencing",
+		},
+	)
+
+	assert refused.status_code == 422, refused.text
+
+	problem = refused.json()
+
+	assert [one["field"] for one in problem["errors"]] == ["category"]
+	assert "gating" in problem["errors"][0]["message"], problem
+
+
 def test_a_link_type_can_be_added_and_is_not_removable_while_it_joins_something (
 	world: test_api_tasks.World,
 ) -> None:
@@ -278,7 +368,12 @@ def test_a_link_type_can_be_added_and_is_not_removable_while_it_joins_something 
 	made = world.call(
 		"POST",
 		"/v1/link-types",
-		json={"key": "supersedes", "title": "Supersedes", "inverse_title": "Superseded by"},
+		json={
+			"key": "supersedes",
+			"title": "Supersedes",
+			"inverse_title": "Superseded by",
+			"category": "governing",
+		},
 	)
 
 	assert made.status_code == 201, made.text
@@ -370,7 +465,11 @@ def test_a_name_cannot_be_cleared_where_a_description_can (world: test_api_tasks
 	[
 		("POST", "/v1/statuses",
 			{"entity_type": "task", "key": "x", "label": "X", "category": "todo"}),
-		("POST", "/v1/link-types", {"key": "x", "title": "X", "inverse_title": "Y"}),
+		(
+			"POST",
+			"/v1/link-types",
+			{"key": "x", "title": "X", "inverse_title": "Y", "category": "describing"},
+		),
 		("POST", "/v1/tags", {"name": "x"}),
 	],
 )

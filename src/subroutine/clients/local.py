@@ -842,6 +842,7 @@ class Client:
 		key: str,
 		title: str,
 		inverse_title: str,
+		category: str,
 		is_symmetric: bool = False,
 		workspace: str | None = None,
 	) -> subroutine.views.LinkType:
@@ -859,6 +860,7 @@ class Client:
 					key=key,
 					title=title,
 					inverse_title=inverse_title,
+					category=category,
 					is_symmetric=is_symmetric,
 					actor=actor,
 				)
@@ -871,12 +873,15 @@ class Client:
 		key: str | None = None,
 		title: str | None = None,
 		inverse_title: str | None = None,
+		category: str | None = None,
 	) -> subroutine.views.LinkType:
-		"""Rename a link type, or reword either end of it."""
+		"""Rename a link type, reword either end of it, or say what it does."""
 
 		self._refuse_if_read_only()
 
-		changes = _asked(key=key, title=title, inverse_title=inverse_title)
+		changes = _asked(
+			key=key, title=title, inverse_title=inverse_title, category=category
+		)
 
 		with self._writing() as (session, actor):
 			row = self._vocabulary_row(

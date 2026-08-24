@@ -59,6 +59,7 @@ import subroutine.domain.filtering
 import subroutine.domain.ordering
 import subroutine.domain.palette
 import subroutine.domain.projects
+import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -8405,7 +8406,9 @@ def _render_item (
 		blockers = [
 			link
 			for link in links
-			if link.link_type == "blocks" and link.direction == "incoming"
+			# **The category, never the key** — what a relation *is*, never what it is called (decision `#1157`). Comparing `link_type` to the literal `blocks` kept working while `#1156` broke: a workspace that renames the key keeps every label and loses every count.
+			if link.link_category == subroutine.domain.readiness.GATING
+			and link.direction == "incoming"
 		]
 		done = sum(1 for link in blockers if link.other.is_complete)
 		rollup = f"  ({done} of {len(blockers)} blockers done)" if blockers else ""

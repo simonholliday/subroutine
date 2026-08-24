@@ -439,6 +439,7 @@ class Client:
 		key: str,
 		title: str,
 		inverse_title: str,
+		category: str,
 		is_symmetric: bool = False,
 		workspace: str | None = None,
 	) -> subroutine.views.LinkType:
@@ -456,6 +457,7 @@ class Client:
 					key=key,
 					title=title,
 					inverse_title=inverse_title,
+					category=category,
 					is_symmetric=is_symmetric,
 				),
 			),
@@ -468,8 +470,9 @@ class Client:
 		key: str | None = None,
 		title: str | None = None,
 		inverse_title: str | None = None,
+		category: str | None = None,
 	) -> subroutine.views.LinkType:
-		"""Rename a link type, or reword either end of it."""
+		"""Rename a link type, reword either end of it, or say what it does."""
 
 		self._refuse_if_read_only()
 
@@ -478,7 +481,9 @@ class Client:
 			self._json(
 				"PATCH",
 				f"/v1/link-types/{which}",
-				json=_given(key=key, title=title, inverse_title=inverse_title),
+				json=_given(
+					key=key, title=title, inverse_title=inverse_title, category=category
+				),
 			),
 		)
 

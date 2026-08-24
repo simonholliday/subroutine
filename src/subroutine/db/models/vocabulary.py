@@ -118,11 +118,17 @@ class LinkType(
 	The inverse title lets one stored edge be displayed correctly from both ends —
 	"blocks" from the source, "is blocked by" from the target — without storing it twice
 	and risking the two halves disagreeing.
+
+	``category`` is what every rule about this relation reads (decision `#1157`). A key is
+	renameable and six rules were written in terms of one, so renaming ``blocks`` broke
+	``--ready`` while the item page went on saying *Blocked by* — `#1156`. The key names the
+	relation; the category is what the program is allowed to conclude from it.
 	"""
 
 	__tablename__ = "link_type"
 	__table_args__ = (
 		sqlalchemy.UniqueConstraint("workspace_id", "key", name="uq_link_type_workspace_id_key"),
+		subroutine.db.mixins.enum_check("category", subroutine.db.mixins.LINK_TYPE_CATEGORIES),
 	)
 
 	id: sqlalchemy.orm.Mapped[uuid.UUID] = subroutine.db.mixins.uuid_primary_key()
@@ -134,6 +140,9 @@ class LinkType(
 	)
 	inverse_title: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(128), nullable=False
+	)
+	category: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=False
 	)
 	is_symmetric: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False

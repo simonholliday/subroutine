@@ -4216,7 +4216,11 @@ export function blockersDone (links) {
 		and inventing one would be `#303`'s shape.
 	*/
 	const held = (links || []).filter(
-		(link) => link.link_type === "blocks" && link.direction === "incoming"
+		/* **The category, never the key** (`#1157`). This compared `link_type` to the literal
+		   `blocks`, which kept working while the behaviour behind it broke: a workspace that
+		   renames the key keeps every label on this page and loses the count beside them
+		   (`#1156`). `gating` is what the server calls a relation that holds work up. */
+		(link) => link.link_category === "gating" && link.direction === "incoming"
 	);
 
 	if (held.length === 0) return "";

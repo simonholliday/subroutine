@@ -900,6 +900,15 @@ class Link(pydantic.BaseModel):
 	id: uuid.UUID
 	link_type: str
 
+	#: What that type *is*, so a reader can decide what the link means without knowing what this
+	#: workspace calls it — decision `#1157`. Three surfaces counted blockers by comparing
+	#: ``link_type`` to the literal ``blocks``, and `#1156` measured what that costs.
+	#:
+	#: **Defaulted, because this model is not new** (`#345`, and `#1155` is the last time that
+	#: was learned the expensive way): an instance one release behind sends a link without it,
+	#: and a required field would make a newer client refuse the whole instance.
+	link_category: str = ""
+
 	label: str
 	direction: str
 	other: LinkEnd
@@ -2581,6 +2590,7 @@ def link (related: subroutine.domain.links.Related, vocabulary: Vocabulary) -> L
 	return Link(
 		id=related.id,
 		link_type=related.link_type,
+		link_category=related.link_category,
 		label=related.label,
 		direction=related.direction,
 		other=_end(related.other, vocabulary),
@@ -3925,6 +3935,15 @@ class LinkType(pydantic.BaseModel):
 	key: str
 	title: str
 	inverse_title: str
+
+	#: What every rule about this relation reads — decision `#1157`. Published so a client can
+	#: tell a relation that holds work up from one that only says which came first, without
+	#: knowing what this workspace calls either.
+	#:
+	#: **Defaulted for `#345`'s reason** — added after this model shipped, so an older instance's
+	#: body must still parse. `#1155` is the last time that was learned by a client refusing an
+	#: instance outright.
+	category: str = ""
 	is_symmetric: bool
 
 	#: What a caller addresses this by to change it — see :class:`Named`. Defaulted (`#345`).
@@ -3986,6 +4005,7 @@ def link_type (row: typing.Any) -> LinkType:
 		key=row.key,
 		title=row.title,
 		inverse_title=row.inverse_title,
+		category=row.category,
 		is_symmetric=row.is_symmetric,
 	)
 
