@@ -805,9 +805,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			title="Record what happened",
 			description=(
 				"Add to an item's record of what happened — what you did, what you found, "
-				"what failed. A '#42' in the body becomes a link on item 42. For a "
-				"conclusion the next session needs, write a document instead. Pass "
-				"remove=true with words from a comment to take it back out."
+				"what failed. A '#42' in the body is a reference, not a link — "
+				"subroutine_show offers the link where one fits. For a conclusion the next "
+				"session needs, write a document instead. Pass remove=true with words from a "
+				"comment to take it back out."
 			),
 			schema={
 				"type": "object",
@@ -828,8 +829,9 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"Record a conclusion the next session needs — a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
-				"concluded. A '#42' in the body becomes a link on item 42. Pass ref to "
-				"revise one rather than writing a second."
+				"concluded. A '#42' in the body is a reference, not a link — "
+				"subroutine_show offers the link where one fits. Pass ref to revise one "
+				"rather than writing a second."
 			),
 			schema={
 				"type": "object",
@@ -1221,11 +1223,17 @@ def _claimed (
 		return f"Released #{freed.ref}  {freed.title}"
 
 	held = client.claim(ref=ref, workspace=workspace)
-	until = (
-		""
-		if held.claim_expires_at is None
-		else f", until {held.claim_expires_at.isoformat(timespec='minutes')}"
-	)
+
+	# **The account's zone, and the same clock the feed reads** (`#1185`, `#1091`). This was a
+	# bare ``.isoformat()``, so a lease printed in UTC beside a feed printed in the account's:
+	# on an instance an hour off, a claim taken at 12:11 read as having expired *before* the
+	# events that renewed it. An expiry is the one moment on this surface an agent is asked to
+	# reason about, so it is the one that could least afford its own clock.
+	until = ""
+
+	if held.claim_expires_at is not None:
+		zone = subroutine.domain.dates.zone(_account_zone(client, workspace))
+		until = f", until {held.claim_expires_at.astimezone(zone):%d %b %H:%M}"
 
 	return f"Claimed #{held.ref}  {held.title}{until}"
 

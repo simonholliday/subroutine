@@ -36,6 +36,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.links
 import subroutine.domain.mentions
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -901,6 +902,59 @@ def test_a_mention_appears_and_disappears_with_the_sentence (
 			workspace_id=workspace.id, target_type="task", target_id=target.id
 		)
 		== []
+	)
+
+
+def test_a_mention_is_not_a_link_and_nothing_should_say_it_is (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""What makes the corrected sentence true — `SR#1184`.
+
+	Four surfaces said *"a '#42' in the body becomes a link on item 42"*: both MCP tool
+	descriptions, the ``explain`` prose a person reads, and the skill. It does not. It becomes
+	an indexed **mention**, and where the cited item governs, a *proposal* somebody confirms —
+	which is a better feature than the one being promised, and was going unused because an agent
+	reading the description believed the link already existed (`SR#1183`).
+
+	**The prose is not what this guards.** A scan for a sentence is a spelling check, and the
+	next person will write the claim differently. This pins the behaviour the sentence describes,
+	so anybody who makes a citation auto-link has to come past it — and the failure names the
+	four places that would then be right for the first time.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+
+	target = subroutine.domain.tasks.create(session, project=project, title="The decision")
+	cited = subroutine.domain.refs.format_ref(target.ref)
+	citing = subroutine.domain.tasks.create(
+		session, project=project, title="Implements it", description=f"As decided in {cited}."
+	)
+
+	# **Both halves, because the absence alone is what a broken write also looks like.** A
+	# citation that recorded nothing at all would satisfy "no link was made" perfectly.
+	mentions = subroutine.domain.mentions.backlinks(
+		session,
+		principal=_reader(session, workspace),
+		workspace_id=workspace.id, target_type="task", target_id=target.id
+	)
+
+	assert [one.ref for one in mentions] == [citing.ref], (
+		"the citation was not indexed at all, so this test proves nothing about links"
+	)
+
+	joined = subroutine.domain.links.around(
+		session,
+		_reader(session, workspace),
+		workspace_id=workspace.id,
+		entity_type="task",
+		identifier=citing.id,
+	)
+
+	assert joined == [], (
+		"citing an item created a typed link. That is a better product than the one this "
+		"tests for — but four surfaces describe a mention, and they are now wrong: "
+		"mcp/tools.py (twice), cli/topics.py, and the skill in both plugins."
 	)
 
 

@@ -735,7 +735,7 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 			vocabulary=[
 				"#tag",
 				"@assignee",
-				"!importance (1-5), or !importance/urgency for both of §6.3's axes",
+				"!importance (1-5), or !importance/urgency for both axes",
 				"~estimate",
 				"+project",
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.PLANNED_WORDS)),
@@ -891,7 +891,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		{"starts": "2026-08-17T14:00:00Z"},
 	),
 	(
-		"Clear a date: send it as null. Omitting it would leave it alone (§8.3).",
+		"Clear a date: send it as null. Omitting it would leave it alone.",
 		"PATCH",
 		"/v1/tasks/1",
 		{"due": None},

@@ -5846,3 +5846,60 @@ def test_an_agent_can_change_how_something_repeats_and_stop_it (
 
 	assert "Water the plants" in after
 	assert "every other week" not in after, after
+
+
+@pytest.mark.parametrize(
+	"timezone",
+	# Zones whose offset from UTC is never zero, so a rendering that skipped the conversion
+	# cannot pass by coincidence. `Pacific/Kiritimati` is +14 and `Pacific/Midway` is -11, which
+	# between them put the expiry on a different **day** as well as a different hour.
+	["Europe/London", "Pacific/Kiritimati", "Pacific/Midway"],
+)
+def test_a_claim_expiry_is_shown_on_the_same_clock_as_everything_else_an_agent_reads (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+	timezone: str,
+) -> None:
+	"""`SR#1185`, and the site `SR#1091` did not reach.
+
+	The change feed converts through the account's zone with `SR#1091`'s whole argument behind
+	it; this printed ``claim_expires_at.isoformat()``, which is UTC. First contact measured the
+	two an hour apart on one instance (`SR#1183`), so a lease taken at 12:11 read as having
+	expired *before* the events that had just renewed it.
+
+	**Asserted against the stored instant rather than against a fixed string**, because the
+	lease duration is not this test's subject and pinning it would fail whoever changes it.
+	"""
+
+	who = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	assert len(who) == 1, "the fixture's one account is what carries the zone"
+
+	who[0].timezone = timezone
+	session.flush()
+
+	ref = _added(bound, "Renew the certificate")
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+
+	expires = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task.claim_expires_at).where(
+			subroutine.db.models.work.Task.ref == ref
+		)
+	).one()
+
+	assert expires is not None, "a claim with no expiry cannot exercise the rendering"
+
+	here = expires.astimezone(zoneinfo.ZoneInfo(timezone))
+	elsewhere = expires.astimezone(datetime.UTC)
+
+	assert f"{here:%d %b %H:%M}" in taken, (
+		f"{timezone}: a lease expiring at {expires.isoformat()} was shown as:\n{taken}"
+	)
+
+	# **The control, and it is what makes the assertion above mean anything.** A format wide
+	# enough to contain both renderings would satisfy the first check while still printing the
+	# server's clock, which is the defect.
+	assert f"{elsewhere:%d %b %H:%M}" not in taken, (
+		f"{timezone}: the lease is still being shown in UTC:\n{taken}"
+	)

@@ -397,7 +397,11 @@ after it has been looked at, so reclassifying is normal rather than an admission
 subroutine_comment(ref=42, body="Reproduced on 3.11 only. The fix in #38 does not apply here.")
 ```
 
-A `#38` in the body becomes a link on item 38, so the two find each other later.
+A `#38` in the body is a *reference*, not a link: it shows on item 38 under *Referred to
+by*, so the two find each other later. Where the item cited is one that governs — a
+decision, a specification, a design, a dead end — `subroutine_show` goes further and
+offers the typed link for you to confirm, with the call that makes it. Confirm it: an
+unconfirmed suggestion is not what `ready=true` reads.
 
 If you wrote one you should not have, `subroutine_comment(ref=42, body="…", remove=true)` takes
 it back out — named by some of its words, because a comment has no number of its own. Matching

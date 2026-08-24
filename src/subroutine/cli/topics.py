@@ -260,9 +260,9 @@ Any list this tool prints shows it:
   subroutine done 7
 
 The # is how a ref is written down — in a note, a commit message, or a
-task's own description, where #7 becomes a link to that task. You do
-not have to type it, and mostly you should not: a shell treats # as the
-start of a comment, so
+task's own description, where #7 shows up as a reference back on task
+7. You do not have to type it, and mostly you should not: a shell
+treats # as the start of a comment, so
 
   subroutine done #7
 

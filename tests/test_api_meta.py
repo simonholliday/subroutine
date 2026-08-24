@@ -585,3 +585,77 @@ def test_every_word_that_sets_a_date_reaches_both_a_person_and_an_agent (
 		f"reader will never write — and will never be corrected about, because they have no "
 		f"reason to try it."
 	)
+
+
+#: A specification section as it is written anywhere — ``§6.3``, ``§8``, ``§7.3a``.
+_SECTION = re.compile(r"§\s*\d+(\.\d+[a-z]?)*")
+
+#: Everything this installation publishes as prose a caller reads, by the path it is served at.
+#:
+#: **Driven rather than listed** (`#1189`). The population that matters is *what a caller
+#: receives*, and only asking for it can answer that — a list of module constants falls behind
+#: the first grammar entry or worked example somebody adds, which is how the one this found
+#: survived: `/v1/meta` published the capture grammar with ``§6.3`` in it, and every guard over
+#: the source read it as an ordinary comment.
+_PUBLISHED_PROSE = ("/v1/meta", "/v1/docs/agent", "/v1/docs/examples")
+
+
+def test_nothing_published_to_a_caller_cites_the_specification (
+	world: test_api_tasks.World,
+) -> None:
+	"""A reader of these has a base URL and a token, and no repository to look a section up in.
+
+	`#944` settled that a tracked file may not point at something a reader of the source cannot
+	reach, and did the item refs and the specification's own path. **This is the same rule one layer
+	out**: a served instance is read by people who will never see the checkout, so ``§6.3`` on
+	the wire names nothing at all. First contact reported it as "cites a section the reader
+	cannot follow" (`#1183`).
+
+	**No form of it, rather than a register of allowed ones.** ``docs/design.md §8.3`` is at
+	least a findable artefact where a bare ``§8.3`` is not — but neither is worth spending a
+	caller's attention on, because §13.1's rule already forces these documents to *state* what
+	they mean rather than point at it. The one that was here said "for both of §6.3's axes"
+	about two numbers it had already named.
+	"""
+
+	served = {path: world.call("GET", path).text for path in _PUBLISHED_PROSE}
+
+	# **A floor, because a scan that read nothing satisfies every assertion below it.** Each of
+	# these is a document of some size, and an empty or refused body would otherwise pass as
+	# clean — which is the shape a guard fails in silently.
+	for path, body in served.items():
+		assert len(body) > 500, f"{path} answered with nothing to scan"
+
+	offenders = [
+		# **The match and what surrounds it, never the line.** ``/v1/meta`` is a single line of
+		# JSON, so a line-oriented message truncates to the opening brace and shows the reader
+		# everything except the thing that failed.
+		(path, body[max(0, found.start() - 60) : found.end() + 60])
+		for path, body in served.items()
+		for found in [_SECTION.search(body)]
+		if found is not None
+	]
+
+	assert not offenders, (
+		"a document this instance serves cites a specification section, and its reader has no "
+		"repository to resolve one in. State the rule instead of pointing at it.\n"
+		+ "\n".join(f"  {path}: …{context}…" for path, context in offenders)
+	)
+
+
+def test_the_specification_scan_can_see_a_citation_that_got_through (
+	world: test_api_tasks.World,
+) -> None:
+	"""Feed the guard a defect through its own entry point, rather than re-stating its rule.
+
+	The pattern is the half that can rot — a scan matching nothing passes for the same reason a
+	clean instance does, and this codebase has shipped a guard checking one command out of
+	forty-eight for exactly that reason.
+	"""
+
+	assert _SECTION.search("for both of §6.3's axes")
+	assert _SECTION.search("recovery property (§12.4)")
+	assert _SECTION.search("the endpoint §8 reserved")
+
+	# Not a section: a currency, and a bare marker with no number behind it.
+	assert not _SECTION.search("costs §nothing")

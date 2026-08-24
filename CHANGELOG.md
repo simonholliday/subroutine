@@ -327,6 +327,30 @@ upgrade involves.
 
 ### Fixed
 
+- **A claim's expiry is shown on the same clock as everything else an agent reads.** It was
+  printed in UTC while the change feed, an item's comments and its history all render in the
+  account's timezone — so on an instance an hour off, a lease taken at 12:11 read as having
+  expired *before* the events that had just renewed it.
+
+  A claim is the one moment on that surface an agent is asked to reason about, because it has to
+  decide whether to say the claim again while it is still working.
+
+- **A reference written in a body is described as what it is.** Both agent tools, the
+  `subroutine explain refs` topic and the skill all said that a `#42` in a body *becomes a link*
+  on item 42. It does not, and never did: it becomes an indexed reference, which shows on item 42
+  under *Referred to by*.
+
+  The real behaviour is better than the promise was, which is what made this worth fixing rather
+  than quietly correcting. Where the item cited is one that governs — a decision, a specification,
+  a design, a dead end — `subroutine show` goes further and offers the typed link for you to
+  confirm, with the call that makes it. An agent reading the old description believed the link
+  already existed, so it never confirmed one.
+
+- **Nothing an instance serves cites a specification section any more.** `/v1/meta` published the
+  capture grammar as *"!importance/urgency for both of §6.3's axes"*, and the worked examples
+  pointed at `§8.3`. A caller of those has a base URL and a token, and no copy of the
+  specification to resolve a section number in.
+
 - **A blocker count is right against an instance one release behind.** 0.7.6 sends a link without
   the `link_category` this release added, and the three surfaces that count blockers compare that
   field to `gating` — so every link read as *not holding anything up*. The *N of M blockers done*
