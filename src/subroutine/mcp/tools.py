@@ -2421,6 +2421,15 @@ def _added (
 	)
 	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
+	# **A parent is an argument rather than a token, which is how it slipped past the rule
+	# written for the grammar** (`#1191`). This function's whole argument is that a caller who
+	# cannot see the parse cannot tell a deadline that was read from one that stayed in the
+	# title — and a caller equally cannot tell a parent that was accepted from one that was
+	# not. It took; nothing said so, on the one surface whose `(read …)` line is otherwise
+	# scrupulous.
+	if captured.task.parent_ref is not None:
+		answer += f"\n  part of #{captured.task.parent_ref}"
+
 	# Said out loud for the same reason the CLI says it: nobody typed it, and an agent that
 	# cannot see where its work went cannot tell a person either. That argument applies just
 	# as much when the marker was *not* used — more so, because the agent is then holding a
@@ -2826,7 +2835,15 @@ def _linked (
 			workspace=workspace,
 		)
 
-		return f"{made.label} #{made.other.ref}  {made.other.title}"
+		# **Both ends, because a reversed call answers just as plausibly as a correct one**
+		# (`#1190`). Direction is the most confusable thing here — the skill spends a paragraph
+		# on *`ref` is the blocker* — and a one-ended echo cannot disconfirm the mistake it is
+		# most likely to be read after: it names the item you did not mean to gate, in exactly
+		# the words a correct call would use. The withdraw branch below already named both.
+		#
+		# `made.label` is the relation as seen from `ref`, so an inverse link reads
+		# `#4 Blocked by #3` and stays true rather than needing the forward name.
+		return f"#{ref} {made.label} #{made.other.ref}  {made.other.title}"
 
 	joins = [
 		one
@@ -3039,4 +3056,33 @@ def _updated (
 			f"subroutine_search to look for it by words in its title."
 		)
 
-	return "Changed " + _line(changed, now=subroutine.db.types.utcnow())
+	# **What moved, beside what it now is** (`#1186`'s sibling, `#1196`). The row alone was
+	# the whole item *minus* the field just written — a defer to `now+3M` answered with an
+	# unchanged-looking line and cost a `subroutine_show` to learn it had landed in November.
+	#
+	# **A relative date is the case that earns this.** `now+3M` and `friday` cannot be checked
+	# by inspection, so the resolved day is the only confirmation there is; the scalars are
+	# carried too because a caller that sent four fields should not have to diff a row to see
+	# that all four took. This is `subroutine_add`'s `(read …)` parenthetical, which is the
+	# thing on this surface agents report relying on, applied to the write next door.
+	settled = [f"{name} {value}" for name, value in sorted(changes.items()) if value is not None]
+	settled += [f"{name} cleared" for name, value in sorted(changes.items()) if value is None]
+	# **`plan` is a day and `defer` is a moment**, which is `#858`'s distinction and the reason
+	# these cannot share one renderer: a day is a label that never converts, and a moment has no
+	# day until somebody names a zone — which :func:`_day_of` reads off the item.
+	for field in ("plan", "defer"):
+		if field not in days:
+			continue
+
+		when = days[field]
+
+		if when is None:
+			settled.append(f"{field} cleared")
+		elif isinstance(when, datetime.datetime):
+			settled.append(f"{field} {_day_of(when, changed)}")
+		else:
+			settled.append(f"{field} {when.isoformat()}")
+
+	said = f"  (set {', '.join(settled)})" if settled else ""
+
+	return "Changed " + _line(changed, now=subroutine.db.types.utcnow()) + said

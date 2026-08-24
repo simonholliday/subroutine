@@ -1291,66 +1291,6 @@ class Located:
 #: forbids both words on this path, and ``subroutine init`` writes one of each.
 _AN_EVENT_ABOUT = {"workspace": "this list", "workspace_member": "your account"}
 
-#: What a changed column is called by the person whose task it is. A change line lists the
-#: *names* of what moved, and the names are the database's — so a defer read
-#: ``(snoozed_is_all_day, snoozed_until)``, and a status change would have printed one of the
-#: seven words §13.5b says this path never uses.
-#:
-#: Several columns collapse to one phrase deliberately: a date and its all-day flag are one
-#: fact to a reader and always move together, so listing both says the same thing twice.
-_A_CHANGE_TO = {
-	"assignee_id": "who has it",
-	"assigned_by_id": "who has it",
-	"claimed_by_id": "who is holding it",
-	"claim_expires_at": "who is holding it",
-	"claimed_at": "who is holding it",
-	"completed_at": "whether it is done",
-	"due_at": "the deadline",
-	"due_is_all_day": "the deadline",
-	"estimate_minutes": "how long it takes",
-	"importance": "how it is ranked",
-	"urgency": "how it is ranked",
-	"parent_task_id": "what it is part of",
-	"project_id": "where it is filed",
-	"recurrence_anchor": "how it repeats",
-	"recurrence_rule": "how it repeats",
-	"recurrence_text": "how it repeats",
-	"recurrence_trigger": "how it repeats",
-	"snoozed_until": "when it comes back",
-	"snoozed_is_all_day": "when it comes back",
-	"spent_minutes": "time spent",
-	"starts_at": "when it starts",
-	"starts_is_all_day": "when it starts",
-	"status_id": "how it is going",
-	"type_id": "what kind it is",
-	"owner_id": "whose it is",
-	"supersedes_id": "what it replaces",
-	"timezone": "its timezone",
-	# Never moves on an item — §5.4 refuses a cross-workspace move outright — and it is here
-	# because the guard beside this asks every column rather than the ones that have moved so
-	# far. A phrase for something that cannot happen costs a line; a leak costs the rule.
-	"workspace_id": "which list it is in",
-}
-
-
-def _field_in_words (name: str) -> str:
-	"""Return what a person calls the thing that changed.
-
-	The internal suffixes come off anything unmapped — ``_id`` names a row nobody can see and
-	``_at`` says nothing a reader needs — so a column added tomorrow reads as words rather than
-	as a schema. ``title`` and ``description`` are already what they are called, which is why
-	most of this file's own fields are not in the table.
-	"""
-
-	if name in _A_CHANGE_TO:
-		return _A_CHANGE_TO[name]
-
-	for suffix in ("_is_all_day", "_id", "_at"):
-		name = name.removesuffix(suffix)
-
-	return name.replace("_", " ")
-
-
 # --- Helpers that need nothing from the command closure -------------------------------
 #
 # **These were nested inside `register` and closed over nothing at all** (`#943`, cold
@@ -2064,7 +2004,7 @@ def _change_line (event: subroutine.views.Event) -> str:
 	if event.entity_type == "comment":
 		verb = f"{verb} a comment on"
 
-	fields = sorted({_field_in_words(name) for name in (event.changes or {})})
+	fields = sorted({subroutine.views.field_in_words(name) for name in (event.changes or {})})
 	listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
 	return f"{verb:<12}  {named}{listed}"

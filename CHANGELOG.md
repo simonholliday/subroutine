@@ -12,6 +12,39 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **A change an agent reads is named in your words, not the database's.** The change feed and an
+  item's history said `changed status_id` and `changed assignee_id` — column names that appear
+  nowhere else on that surface. They now read `changed how it is going` and `changed who has it`.
+
+  The terminal's own changes feed has said it that way since it was written. It was the only
+  surface that did, because it built the mapping to satisfy a rule about which words a personal
+  list may use — so the readable column names were a side effect, and nothing suggested the other
+  three renderings wanted the same thing. There is one mapping now.
+
+  A date and its all-day flag also collapse to one phrase, so a defer no longer reports two
+  fields for one fact.
+
+- **A link in the change feed says what it joined.** Every one of them read `linked it to
+  something`, losing both ends and the relation — on the one kind of entry that can change what
+  another worker is allowed to start. It now reads `linked #42 documents #7`.
+
+- **Making a link says which item gates which.** It answered `Blocks #7`, naming only the far
+  end, so getting the two arguments the wrong way round produced an equally plausible answer
+  about the item you did not mean to gate. It now answers `#3 Blocks #7`. Withdrawing one has
+  always named both.
+
+- **Filing a subtask says what it was filed under.** `subroutine_add` accepted a parent and never
+  mentioned it, on the one surface whose capture echo otherwise states exactly what it understood.
+
+- **Changing a task says what changed, not only what the item now is.** The answer was the whole
+  row minus the field just written, so setting a deferral to `now+3M` looked unchanged and cost a
+  second call to find out it had landed in November. It now ends with `(set defer 2026-11-24)` —
+  the resolved day, which is the only confirmation a relative date can have.
+
 ## 0.8.0 — 2026-08-24
 
 > **This release changes the database schema**, to `da7628199bff`.

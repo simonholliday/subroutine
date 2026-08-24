@@ -960,13 +960,15 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 	plain, failed = _called(bound, "subroutine_show", ref=ref)
 
 	assert not failed, plain
-	assert "changed importance" not in plain
+	assert "changed how it is ranked" not in plain
 
 	shown, failed = _called(bound, "subroutine_show", ref=ref, history=True)
 
 	assert not failed, shown
 	assert "created" in shown
-	assert "changed importance" in shown
+	# The reader's word, not the column (`SR#1187`) — ``importance`` is a database name and
+	# this surface mentions one nowhere else.
+	assert "changed how it is ranked" in shown
 	assert "commented" in shown
 
 
@@ -5902,4 +5904,241 @@ def test_a_claim_expiry_is_shown_on_the_same_clock_as_everything_else_an_agent_r
 	# server's clock, which is the defect.
 	assert f"{elsewhere:%d %b %H:%M}" not in taken, (
 		f"{timezone}: the lease is still being shown in UTC:\n{taken}"
+	)
+
+
+def test_a_link_in_the_feed_names_both_ends_and_the_relation (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1186`. It read ``linked it to something``, which is the option `SR#302` rejected.
+
+	Weighing how to fix a visibility leak, `SR#302` listed *omit the far end* and said of it:
+	"it makes an item's own history less useful — 'linked to something' is a worse record than
+	'blocks #42'." The renderer had arrived at that wording independently, while the far end sat
+	in the event's own ``changes`` because `SR#252` put it there so the feed could be scoped.
+
+	**Both ends rather than the far one**, because the two readers disagree about what is
+	already on the page: the feed prints the subject beside the phrase and an item's history
+	does not.
+	"""
+
+	first = _added(bound, "Lay the foundations")
+	second = _added(bound, "Put the walls up")
+
+	joined, failed = _called(bound, "subroutine_link", ref=first, type="blocks", other=second)
+	assert not failed, joined
+
+	# **The feed withholds events under a second old** — a ``seq`` becomes visible at commit
+	# rather than at insert. Without this the empty branch answers and the assertion below
+	# is made about nothing, which the test beside `SR#253` records as its own trap.
+	time.sleep(subroutine.domain.events.WATERMARK.total_seconds() + 0.2)
+
+	feed, failed = _called(bound, "subroutine_changes")
+	assert not failed, feed
+
+	assert f"linked #{first} blocks #{second}" in feed, (
+		f"a link event should name both ends and the relation:\n{feed}"
+	)
+	assert "linked it to something" not in feed, "the wording SR#302 rejected is still here"
+
+
+def test_a_link_event_missing_its_ends_says_the_honest_thing_instead () -> None:
+	"""The degradation `SR#302` may force, driven rather than assumed.
+
+	That item weighs omitting the far end from ``changes`` so a reader who cannot see it is told
+	nothing about it. If that lands, this phrasing has no refs to name — and the fallback must be
+	the old wording rather than a broken string, which is the only reason the old wording is kept.
+	"""
+
+	def event (changes: dict[str, typing.Any] | None) -> subroutine.views.Event:
+		"""Return a link event carrying whatever payload this case is about."""
+
+		return subroutine.views.Event(
+			seq=1,
+			id=uuid.uuid4(),
+			entity_type="link",
+			entity_id=uuid.uuid4(),
+			workspace_id=uuid.uuid4(),
+			subject_type="task",
+			subject_id=uuid.uuid4(),
+			action="created",
+			changes=changes,
+			actor_user_id=None,
+			actor_token_id=None,
+			created_at=subroutine.db.types.utcnow(),
+		)
+
+	whole = {
+		"link_type": {"from": None, "to": "blocks"},
+		"source": {"from": None, "to": 7},
+		"target": {"from": None, "to": 9},
+	}
+
+	assert subroutine.views.happened(event(whole)) == "linked #7 blocks #9"
+
+	# Each end removed in turn, because a fallback that only fires when *everything* is gone
+	# would still break on the shape SR#302 actually proposes.
+	for missing in ("source", "target", "link_type"):
+		partial = {k: v for k, v in whole.items() if k != missing}
+
+		assert subroutine.views.happened(event(partial)) == "linked it to something", (
+			f"with {missing} withheld the phrase must fall back, not half-render"
+		)
+
+	assert subroutine.views.happened(event(None)) == "linked it to something"
+
+
+def test_a_change_an_agent_reads_is_named_in_the_readers_words (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1187`. The feed said ``changed status_id``, naming a column nothing else mentions.
+
+	**The map already existed in the terminal** and had since it was written — built to satisfy
+	§13.5b's forbidden vocabulary, so readable column names were a side effect rather than the
+	goal. That is why nobody looking at this surface suspected a solution one module away.
+	"""
+
+	ref = _added(bound, "Renew the lease")
+
+	moved, failed = _called(bound, "subroutine_update", ref=ref, status="in_progress")
+	assert not failed, moved
+
+	# **The feed withholds events under a second old** — a ``seq`` becomes visible at commit
+	# rather than at insert. Without this the empty branch answers and the assertion below
+	# is made about nothing, which the test beside `SR#253` records as its own trap.
+	time.sleep(subroutine.domain.events.WATERMARK.total_seconds() + 0.2)
+
+	feed, failed = _called(bound, "subroutine_changes")
+	assert not failed, feed
+
+	assert "how it is going" in feed, f"a status change should read as words:\n{feed}"
+
+	for column in ("status_id", "assignee_id", "claimed_by_id", "snoozed_is_all_day"):
+		assert column not in feed, f"{column} is a database name and reached an agent"
+
+
+def test_the_two_surfaces_name_a_changed_field_identically () -> None:
+	"""One map, so the terminal and an agent cannot drift — which is how this arose.
+
+	The CLI's changes feed translated and its *history* did not, because they went through two
+	different functions. Both now go through :func:`subroutine.views.field_in_words`, and this
+	asserts the map is reachable and non-trivial rather than that the two agree — two copies
+	agreeing is exactly what hid the original defect.
+	"""
+
+	assert subroutine.views.field_in_words("status_id") == "how it is going"
+	assert subroutine.views.field_in_words("assignee_id") == "who has it"
+
+	# A column nobody has mapped still loses its internal suffix rather than reaching a reader.
+	assert subroutine.views.field_in_words("some_new_column_id") == "some new column"
+	assert subroutine.views.field_in_words("title") == "title"
+
+
+def test_a_link_echo_names_which_item_gates_which (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1190`. It answered `Blocks #4 <title>` — the far end alone.
+
+	**A one-ended echo cannot disconfirm a reversed call.** Getting the arguments backwards
+	produces an equally plausible answer naming the item you did not mean to gate, which is why
+	this is worth four characters: direction is the single most confusable thing about the
+	feature, and the skill spends a paragraph on *`ref` is the blocker*.
+
+	The withdraw branch has always named both, so this was an inconsistency inside one tool.
+	"""
+
+	first = _added(bound, "Pour the slab")
+	second = _added(bound, "Frame the roof")
+
+	made, failed = _called(bound, "subroutine_link", ref=first, type="blocks", other=second)
+
+	assert not failed, made
+	assert made.startswith(f"#{first} "), f"the echo does not say which end is the blocker:\n{made}"
+	assert f"#{second}" in made, made
+
+	# **The reversed call must read differently**, which is the whole point — under the old
+	# wording the two answers differed only by which title came back.
+	#
+	# A fresh pair, because reversing *this* one is a ring and is refused by name. That
+	# refusal is the other half of the same protection and is already covered elsewhere; what
+	# is untested is whether an agent that gets the arguments backwards on two *unrelated*
+	# items can tell from the answer.
+	third = _added(bound, "Glaze the windows")
+	fourth = _added(bound, "Hang the doors")
+
+	back, failed = _called(bound, "subroutine_link", ref=fourth, type="blocks", other=third)
+
+	assert not failed, back
+	assert back.startswith(f"#{fourth} "), back
+	assert f"#{third}" in back, back
+
+
+def test_filing_a_subtask_says_what_it_was_filed_under (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1191`. `parent` was accepted and never echoed.
+
+	`_added`'s own docstring is the argument against that: *a caller that cannot see the parse
+	cannot tell a deadline that was read from one that stayed in the title*. The rule was
+	written for the grammar and `parent` is an argument, so it slipped past a principle that
+	plainly covers it — the caller equally cannot tell an accepted parent from a dropped one.
+	"""
+
+	whole = _added(bound, "Rewire the kitchen")
+
+	answer, failed = _called(
+		bound, "subroutine_add", text="Chase the sockets", parent=whole
+	)
+
+	assert not failed, answer
+	assert f"part of #{whole}" in answer, f"the parent it was filed under is not said:\n{answer}"
+
+	# The parent really took — otherwise this asserts a sentence rather than a filing.
+	shown, failed = _called(bound, "subroutine_show", ref=whole)
+	assert not failed, shown
+	assert "Parts" in shown, f"the parent has no parts, so the echo was a lie:\n{shown}"
+
+	# And an ordinary capture says nothing, because nobody named a parent — §1.4's rule that a
+	# default nobody chose is not a fact worth a line.
+	plain, failed = _called(bound, "subroutine_add", text="Buy cable")
+
+	assert not failed, plain
+	assert "part of" not in plain, plain
+
+
+def test_changing_a_task_says_what_changed_not_only_what_it_now_is (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1196`. The echo returned the whole row, minus the one field just written.
+
+	**A relative date is where this earns its keep.** `now+3M` cannot be checked by inspection,
+	so the resolved day is the only confirmation there is — and first contact spent a
+	`subroutine_show` to learn where one had landed (`SR#1183`).
+	"""
+
+	ref = _added(bound, "Service the boiler")
+
+	answer, failed = _called(bound, "subroutine_update", ref=ref, defer="now+3M", importance=2)
+
+	assert not failed, answer
+	assert "(set " in answer, f"the echo does not say what it set:\n{answer}"
+	assert "importance 2" in answer, answer
+
+	# The resolved day, not the words the caller typed — which is the whole point.
+	assert "now+3M" not in answer, "the echo repeated the input instead of resolving it"
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+	assert not failed, shown
+
+	deferred = next(
+		(part for part in answer.split("(set ")[1].rstrip(")").split(", ") if part.startswith("defer ")),
+		None,
+	)
+
+	assert deferred is not None, f"no defer in the echo:\n{answer}"
+
+	day = deferred.removeprefix("defer ").strip()
+
+	assert day in shown, (
+		f"the echo said {day!r} and the item does not agree:\n{shown}"
 	)

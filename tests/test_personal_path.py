@@ -1111,7 +1111,9 @@ def test_show_can_print_what_has_happened_to_an_item (
 
 	assert "History" in shown
 	assert "created" in shown
-	assert "changed importance" in shown
+	# The reader's word rather than the column (`SR#1187`). The changes feed has said it this
+	# way since it was written; the history said ``importance`` until both were given one map.
+	assert "changed how it is ranked" in shown
 	assert "commented" in shown, "a comment must reach the history — that is what #52 built"
 
 
@@ -6475,7 +6477,14 @@ REGISTER_CEILING = 1_711
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
-MODULE_LEVEL_FLOOR = 144
+#:
+#: **145 → 144 on 2026-08-24, and lowering it was the right move rather than a defeat**
+#: (`#1187`). ``_field_in_words`` left this module entirely — it moved to
+#: :func:`subroutine.views.field_in_words`, because three surfaces render an event and only this
+#: one was translating column names. A floor counts functions *here*; a function that leaves for
+#: somewhere more than one caller can reach has not gone back into the closure, which is the only
+#: thing this number exists to catch.
+MODULE_LEVEL_FLOOR = 143
 
 
 def _register_span () -> tuple[int, int]:
@@ -7387,7 +7396,7 @@ def test_every_column_an_event_can_name_reads_as_words (
 	unreadable = []
 
 	for name in sorted(columns):
-		words = subroutine.cli.personal._field_in_words(name)
+		words = subroutine.views.field_in_words(name)
 
 		if any(word in words.lower() for word in FORBIDDEN) or words.endswith(("_id", " id")):
 			unreadable.append(f"{name} → {words!r}")

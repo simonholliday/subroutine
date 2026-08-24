@@ -2808,13 +2808,117 @@ _HAPPENED: dict[tuple[str, str], str] = {
 }
 
 
+#: What a changed column is called by the person whose task it is (`#1187`).
+#:
+#: **Moved here from `cli/personal` on 2026-08-24, where it had served one surface since it was
+#: written.** The terminal built it to satisfy §13.5b — a status change would otherwise have
+#: printed one of the seven words that path never uses — so readable column names were a *side
+#: effect* rather than the goal, and nobody reading the agent surface had any reason to think a
+#: solution already existed one module away. An agent was told ``changed status_id``, which names
+#: a column nothing else on that surface mentions, while the terminal said *how it is going*.
+#:
+#: Several columns collapse to one phrase deliberately: a date and its all-day flag are one fact
+#: to a reader and always move together, so listing both says the same thing twice.
+_A_CHANGE_TO = {
+	"assignee_id": "who has it",
+	"assigned_by_id": "who has it",
+	"claimed_by_id": "who is holding it",
+	"claim_expires_at": "who is holding it",
+	"claimed_at": "who is holding it",
+	"completed_at": "whether it is done",
+	"due_at": "the deadline",
+	"due_is_all_day": "the deadline",
+	"estimate_minutes": "how long it takes",
+	"importance": "how it is ranked",
+	"urgency": "how it is ranked",
+	"parent_task_id": "what it is part of",
+	"project_id": "where it is filed",
+	"recurrence_anchor": "how it repeats",
+	"recurrence_rule": "how it repeats",
+	"recurrence_text": "how it repeats",
+	"recurrence_trigger": "how it repeats",
+	"snoozed_until": "when it comes back",
+	"snoozed_is_all_day": "when it comes back",
+	"spent_minutes": "time spent",
+	"starts_at": "when it starts",
+	"starts_is_all_day": "when it starts",
+	"status_id": "how it is going",
+	"type_id": "what kind it is",
+	"owner_id": "whose it is",
+	"supersedes_id": "what it replaces",
+	"timezone": "its timezone",
+	# Never moves on an item — §5.4 refuses a cross-workspace move outright — and it is here
+	# because the guard beside this asks every column rather than the ones that have moved so
+	# far. A phrase for something that cannot happen costs a line; a leak costs the rule.
+	"workspace_id": "which list it is in",
+}
+
+
+def field_in_words (name: str) -> str:
+	"""Return what a person calls the thing that changed.
+
+	The internal suffixes come off anything unmapped — ``_id`` names a row nobody can see and
+	``_at`` says nothing a reader needs — so a column added tomorrow reads as words rather than
+	as a schema. ``title`` and ``description`` are already what they are called, which is why
+	most fields are not in the table above.
+
+	Public because three surfaces render an event and none of them may answer this its own way.
+	"""
+
+	if name in _A_CHANGE_TO:
+		return _A_CHANGE_TO[name]
+
+	for suffix in ("_is_all_day", "_id", "_at"):
+		name = name.removesuffix(suffix)
+
+	return name.replace("_", " ")
+
+
+def _a_link (event: Event) -> str | None:
+	"""Return a link event as the relation and both of its ends — ``#15 documents #7``.
+
+	**Both ends rather than the far one**, because the two readers of this disagree about what
+	is already on the page: the change feed prints the subject beside this phrase and an item's
+	history does not, so naming only the other end says nothing at all in a history. Naming both
+	also removes the direction question without needing the inverse label, which the event does
+	not carry.
+
+	**It degrades rather than assuming its own payload** (`#302`). The refs come out of
+	``changes``, which is exactly what that item may take away — it weighs omitting the far end
+	so a reader who cannot see it is told nothing about it. If either end goes, this falls back
+	to the wording it replaced, which is then the honest answer rather than a broken one.
+
+	The relation is named by the **key the event stored**, not by today's vocabulary: a workspace
+	that renames a relation has not changed what somebody did last week.
+	"""
+
+	changes = event.changes or {}
+	relation = (changes.get("link_type") or {}).get("to")
+	source = (changes.get("source") or {}).get("to")
+	target = (changes.get("target") or {}).get("to")
+
+	if relation is None or source is None or target is None:
+		return None
+
+	verb = "linked" if event.action == "created" else "unlinked"
+
+	return f"{verb} #{source} {relation} #{target}"
+
+
 def happened (event: Event) -> str:
 	"""Return one event as a phrase somebody can read, in one place for every surface.
 
 	**The field names, not the values**, for an ordinary edit. A history is a list of what
 	moved; the values are in the item itself, and a ``from``/``to`` pair per field would make
-	the commonest entry the longest one.
+	the commonest entry the longest one. **The names are the reader's, not the database's** —
+	see :func:`field_in_words`.
 	"""
+
+	if event.entity_type == "link":
+		joined = _a_link(event)
+
+		if joined is not None:
+			return joined
 
 	said = _HAPPENED.get((event.entity_type, event.action))
 
@@ -2830,7 +2934,9 @@ def happened (event: Event) -> str:
 	if event.action != "updated" or not event.changes:
 		return event.action
 
-	return "changed " + ", ".join(sorted(event.changes))
+	# **A set, because the map collapses pairs.** A defer moves `snoozed_until` and
+	# `snoozed_is_all_day` together and they are one fact to a reader.
+	return "changed " + ", ".join(sorted({field_in_words(name) for name in event.changes}))
 
 
 def agenda (
