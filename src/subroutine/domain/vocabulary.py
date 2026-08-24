@@ -6,10 +6,19 @@ remove one — and ``tag:write``, ``status:write`` and ``link_type:write`` were 
 permissions that gated nothing. An operator removing ``status:write`` from a role would have
 found it changed nothing at all.
 
-**Item types are deliberately not here.** `#906` handed `#826` a question nobody has answered —
-*what are the fixed categories of an item type* — and until there is one, adding a type would
-mean adding something no client can branch on. ``Status`` publishes a fixed ``category`` beside
-its renameable key for exactly that reason, and ``ItemType`` has no equivalent yet.
+**Item types are not here yet, and the reason has changed** (`#1170`). This used to say the
+blocking question was *what are the fixed categories of an item type* — `#906`'s question to
+`#826` — and that until somebody answered it, adding a type would mean adding something no
+client can branch on. **`#1134` answered it** four commits later in the same range: ``ItemType``
+publishes a ``category`` of its own now, NOT NULL and held to six values, exactly as ``Status``
+does one vocabulary along.
+
+So what is left is the work rather than the design, and it is `#1129`. **One thing has to move
+with it**: :data:`subroutine.domain.documents.GOVERNS` still decides which end of a link may
+govern from item-type *keys* — ``decision``, ``spec``, ``design``, ``dead_end`` — which is
+exactly ``category in {decision, reference}``. It is harmless while nothing can rename a type
+and becomes `#1156` the day something can, so the conversion belongs in the same edit rather
+than after it (`#1171`).
 
 ## Three rules this module exists to hold
 
@@ -634,6 +643,24 @@ def delete_link_type (
 	session.flush()
 
 
+def _tag_called (
+	session: sqlalchemy.orm.Session, *, workspace_id: uuid.UUID, normalized: str
+) -> subroutine.db.models.vocabulary.Tag | None:
+	"""Return the tag this workspace already calls that, or ``None``.
+
+	Shared by both doors on purpose, and the *sentence* is not: creating a duplicate should be
+	pointed at ``PATCH`` and renaming onto one should be told that merging is a different act.
+	What they share is the question, which is the half that can drift.
+	"""
+
+	return session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.Tag).where(
+			subroutine.db.models.vocabulary.Tag.workspace_id == workspace_id,
+			subroutine.db.models.vocabulary.Tag.name_normalized == normalized,
+		)
+	).first()
+
+
 def create_tag (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -648,11 +675,39 @@ def create_tag (
 	actor, deliberately, because applying a label is part of a write the caller was already
 	permitted. This is the other door: declaring one in advance, with a description, which is
 	the only place a workspace can write down what its own label means (`#905`).
+
+	**Declaring one that exists is refused, like both its siblings** (`#1169`, Simon's call).
+	It used to delegate straight to ``ensure``, which returns the row it found, and then assign
+	the description over it — so ``POST {"name": "OPS", "description": "B"}`` against an
+	existing ``ops`` answered **201 Created** for something not created, echoed a name the
+	caller had not sent, and silently replaced whatever somebody else had written about it.
+	``create_status`` and ``create_link_type`` both refuse, and nothing said why a tag differed.
 	"""
 
 	if actor is not None:
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.TAG_WRITE, workspace_id=workspace_id
+		)
+
+	# Normalised the way `ensure` will normalise it, so `OPS` finds `ops`. Reaching for
+	# `tags.normalize` rather than comparing the raw name is the whole of that.
+	existing = _tag_called(
+		session,
+		workspace_id=workspace_id,
+		normalized=subroutine.domain.tags.normalize(name),
+	)
+
+	if existing is not None:
+		raise subroutine.errors.Conflict(
+			f"This workspace already has a tag called {existing.name!r}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="name",
+					code="duplicate_key",
+					message="Change what it means with PATCH; creating it again would replace "
+					"what somebody else wrote.",
+				)
+			],
 		)
 
 	tag = subroutine.domain.tags.ensure(session, workspace_id=workspace_id, names=[name])[0]
@@ -689,16 +744,26 @@ def update_tag (
 		)
 		normalized = subroutine.domain.tags.normalize(cleaned)
 
-		# **Through `ensure`'s own rule rather than a second copy of it** — a name that is
-		# entirely digits is a reference and not a tag (§6.15), and that rule lives in one
-		# function every tag passes through whatever created it.
+		# **`ensure`'s own rule rather than a second copy of it** — a name that is entirely
+		# digits is a reference and not a tag (§6.15).
+		#
+		# **The comment here used to say that rule lived in one function every tag passes
+		# through, and then did not call it** (`#1167`). `ensure` is the one function every
+		# tag passes through when it is *created*; renaming is a second door, and it was open:
+		# `POST /v1/tags {"name": "123"}` was a 422 and `PATCH` the same body was a 200. A
+		# comment asserting a guard that is not there is worse than no comment, because it
+		# stops the next reader looking.
+		#
+		# It is called rather than repeated for the same reason it was supposed to be: the
+		# rule is one sentence in `tags`, and the harm is on items that already carry the tag —
+		# the terminal renders one as `#name`, so renaming `ops` to `123` makes every task
+		# tagged `ops` print the string this product uses everywhere to mean task 123.
+		subroutine.domain.tags.refuse_a_reference(normalized)
+
 		if normalized != tag.name_normalized:
-			existing = session.scalars(
-				sqlalchemy.select(subroutine.db.models.vocabulary.Tag).where(
-					subroutine.db.models.vocabulary.Tag.workspace_id == tag.workspace_id,
-					subroutine.db.models.vocabulary.Tag.name_normalized == normalized,
-				)
-			).first()
+			existing = _tag_called(
+				session, workspace_id=tag.workspace_id, normalized=normalized
+			)
 
 			if existing is not None:
 				raise subroutine.errors.Conflict(

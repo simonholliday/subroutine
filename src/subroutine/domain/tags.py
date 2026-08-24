@@ -36,7 +36,7 @@ def normalize (name: str) -> str:
 	return _WHITESPACE.sub(" ", name).strip().lower()
 
 
-def _refuse_a_reference (name: str) -> None:
+def refuse_a_reference (name: str) -> None:
 	"""Refuse a tag whose name is entirely digits.
 
 	``#`` means both things: a tag in quick capture (§6.13) and a reference to an item in
@@ -44,10 +44,13 @@ def _refuse_a_reference (name: str) -> None:
 	so a tag named "42" could never be written with its own sigil, and ``#42`` in anybody's
 	description would go on pointing at task 42 instead.
 
-	Enforced here rather than only in the two parsers because this is the one function every
-	tag passes through, whatever created it. The capture grammar already declines to read
-	``#42`` as a tag, so nothing reaches this today — but the API will grow a ``tags`` field,
-	and a rule that lives only in a regex is a rule the next entry point does not have.
+	Enforced here rather than only in the two parsers because a rule that lives in a regex is
+	a rule the next entry point does not have.
+
+	**Public, and it was not** (`#1167`). This was private on the belief that :func:`ensure`
+	is the one function every tag passes through — which is true of every tag that is
+	*created* and false of one that is *renamed*. ``vocabulary.update_tag`` is the second
+	door; it went round this for as long as it existed, and its own comment said it did not.
 	"""
 
 	if not name.isdigit():
@@ -93,7 +96,7 @@ def ensure (
 		)
 		key = normalize(cleaned)
 
-		_refuse_a_reference(key)
+		refuse_a_reference(key)
 		wanted.setdefault(key, cleaned)
 
 	if not wanted:

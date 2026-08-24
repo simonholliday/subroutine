@@ -423,6 +423,78 @@ def test_a_tag_says_what_it_means_here (world: test_api_tasks.World) -> None:
 	assert cleared.json()["description"] is None, "a workspace can take back what it wrote"
 
 
+def test_declaring_a_tag_that_exists_does_not_replace_what_somebody_wrote (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1169`. A ``201 Created`` for something not created, and a description overwritten.
+
+	``create_tag`` delegated to ``tags.ensure``, which returns the row it *found* when the
+	normalised name already exists, and then assigned the description over it. So a caller who
+	thought they were declaring a new tag silently replaced what a colleague had written about
+	an existing one, was told **201 Created**, and got back a name they had not sent.
+
+	Both siblings on the same router refuse this and nothing documented why a tag differed.
+	"""
+
+	first = world.call(
+		"POST", "/v1/tags", json={"name": "ops", "description": "Anything that pages somebody."}
+	)
+
+	assert first.status_code == 201, first.text
+
+	# **A different spelling of the same tag**, which is what made this hard to see: the caller
+	# is not obviously declaring something that exists.
+	again = world.call("POST", "/v1/tags", json={"name": "OPS", "description": "Ours now."})
+
+	assert again.status_code == 409, again.text
+	assert "already has a tag called 'ops'" in again.text
+	assert "PATCH" in again.text, "the refusal has to say where to go instead"
+
+	listed = world.call("GET", "/v1/tags").json()["items"]
+
+	assert [row["name"] for row in listed] == ["ops"]
+	assert listed[0]["description"] == "Anything that pages somebody.", (
+		"and what the first caller wrote is still there"
+	)
+
+
+def test_a_tag_cannot_become_a_number_by_either_door (world: test_api_tasks.World) -> None:
+	"""`#1167`. §6.15 keeps a tag and a reference apart by insisting one is all digits.
+
+	**Both doors, because only one of them was shut.** Creating a tag went through
+	``tags.ensure`` and was refused; renaming one went through ``update_tag``, which called
+	``text.require``, ``text.fit`` and ``tags.normalize`` directly and never the rule — so a
+	``422`` on ``POST`` and a ``200`` on ``PATCH`` for the same name.
+
+	The harm is on items that already carry it: the terminal renders a tag as ``#name``, so
+	renaming ``ops`` to ``123`` makes every task tagged ``ops`` print ``#123`` — which is how
+	this product spells *task 123* everywhere else.
+	"""
+
+	refused = world.call("POST", "/v1/tags", json={"name": "123"})
+
+	assert refused.status_code == 422, refused.text
+	assert "cannot be used as a tag" in refused.text
+
+	made = world.call("POST", "/v1/tags", json={"name": "ops"})
+
+	assert made.status_code == 201, made.text
+
+	renamed = world.call("PATCH", f"/v1/tags/{made.json()['id']}", json={"name": "123"})
+
+	assert renamed.status_code == 422, renamed.text
+	assert "cannot be used as a tag" in renamed.text
+
+	# And the tag it was is untouched — a refused rename must not half-apply.
+	assert [row["name"] for row in world.call("GET", "/v1/tags").json()["items"]] == ["ops"]
+
+	# A name that merely *contains* digits is fine, which is the line §6.15 actually draws.
+	fine = world.call("PATCH", f"/v1/tags/{made.json()['id']}", json={"name": "2fa"})
+
+	assert fine.status_code == 200, fine.text
+	assert fine.json()["name"] == "2fa"
+
+
 def test_removing_a_tag_takes_it_off_what_it_was_on (world: test_api_tasks.World) -> None:
 	"""**Deliberately not an in-use refusal**, unlike a status — §5.5's table says so.
 
