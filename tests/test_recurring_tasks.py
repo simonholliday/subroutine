@@ -105,6 +105,78 @@ def test_a_repeat_makes_a_template_and_hands_back_the_instance (
 	assert instance.ref != template.ref, "each is its own item with its own number"
 
 
+def test_a_repeat_that_names_its_own_day_is_given_that_day (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1208`. The rule said which day it fell on and nothing wrote that day down.
+
+	`SR#94` lets a self-anchoring rule be filed without a date rather than refusing it for not
+	saying when — which it does say. What it did not do is give the row one, so the template
+	carried a rule and no date at all and every surface that draws a date had nothing to draw.
+
+	**A whole day, not the minute it was typed.** Anchoring on the filing instant gave each slot
+	that instant's time of day, so a client drew a one-minute appointment at whatever o'clock
+	somebody was at their desk.
+	"""
+
+	instance = _repeating(session, recurrence="every month on the 1st", due=None)
+	template = _template(session, instance)
+
+	assert template.due_at is not None, (
+		"a rule that names its own days still leaves the series with no date, so nothing that "
+		"draws a date can draw it"
+	)
+	assert template.due_is_all_day, (
+		"the series is a timed appointment rather than a day, and its rule names no time"
+	)
+	assert template.due_at.astimezone(datetime.UTC).day == 1, template.due_at
+
+	# **The occurrence inherits it by the ordinary shift**, which is what makes this a fix at the
+	# root rather than a patch on the instance: nothing in `materialise` is special-cased for it.
+	assert instance.due_at is not None and instance.due_is_all_day
+	assert instance.occurrence_at == instance.due_at, (
+		"`_is_on_its_grid` compares these two, so a series whose occurrence parts company with "
+		"its own slot looks rescheduled from the day it is filed"
+	)
+
+
+def test_a_series_filed_before_it_was_dated_still_mints_dated_occurrences (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The compatibility half of `SR#1208`, and it needs its own test to exist at all.
+
+	Creation gives such a template a date now, so the fallback in ``materialise`` is unreachable
+	through the ordinary path — which is exactly the shape of a control that is specified,
+	documented and inert. **Falsified: with only the creation half in place, the calendar test
+	for this passes and this one does not.**
+
+	The state is built the way the old code left it, by clearing the dates the fix now writes.
+	That is a template somebody already has on a running instance, and it goes on minting
+	occurrences every time one is completed.
+	"""
+
+	instance = _repeating(session, recurrence="every month on the 1st", due=None)
+	template = _template(session, instance)
+
+	template.due_at = None
+	template.due_is_all_day = False
+	session.flush()
+
+	minted = subroutine.domain.tasks.materialise(
+		session, template, after=instance.occurrence_at, now=NOW
+	)
+
+	assert minted is not None, "a series filed before the fix stopped minting anything"
+	assert minted.due_at is not None, (
+		"an occurrence from an undated series still has no date, so it reaches no calendar — "
+		"which is the defect, for every repeat anybody filed before the fix"
+	)
+	assert minted.due_is_all_day
+	assert minted.occurrence_at == minted.due_at, (
+		"the slot and the date parted company, so this reads as an occurrence somebody moved"
+	)
+
+
 def test_a_template_is_in_no_listing_and_its_instance_is (
 	session: sqlalchemy.orm.Session,
 ) -> None:

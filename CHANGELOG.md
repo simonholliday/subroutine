@@ -23,6 +23,13 @@ upgrade involves.
   `?view=list` and `?view=board` are unchanged, the switcher offers all three, and an address
   carrying a filter still gets a list, since an agenda cannot honour one.
 
+- **A repeat that names its own day reaches the calendar.** `subroutine add "Pay the council
+  tax every month on the 1st"` built the right rule and then left the task with no date at all,
+  so it was invisible to every calendar feed — which is most of the point of a repeating bill.
+  Such a series is now given the first day its own rule falls on, as a whole day rather than
+  the minute it happened to be typed. Repeats filed before this keep working: the occurrences
+  they mint get the same treatment.
+
 - **Every page in the browser says which item or place it is showing.** Tabs all read
   `Subroutine`, whatever was open — nothing had ever written a title. An item's tab now leads
   with its number, so two tabs are told apart at the width a real tab gives them, and a place

@@ -453,6 +453,72 @@ def test_a_repeating_series_is_one_event_on_the_calendar (
 	)
 
 
+def test_a_repeat_that_names_its_own_day_reaches_the_calendar (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1208`. The rule was right, the slot was computed, and the item had no date at all.
+
+	**Measured on a fresh 0.8.1 instance** before filing: *"Pay the council tax every month on
+	the 1st"* stored a template with `FREQ=MONTHLY;BYMONTHDAY=1` and an occurrence whose
+	``occurrence_at`` was the first of next month and whose ``due_at`` and ``starts_at`` were
+	both null. `SR#94` lets such a rule anchor itself on the moment it was filed rather than
+	refusing it for not saying when — which it does say — and nothing then wrote that day onto
+	the occurrence, so `_occasions_of` gated both its branches on a column that was never set.
+
+	**The code already assumed this state was unreachable**: `_is_on_its_grid` compares
+	``occurrence_at`` against ``due_at or starts_at``, which cannot hold while one side is null.
+
+	**A whole day, not the minute it was typed.** Anchoring on the filing instant gave the slot
+	that instant's time of day, so a client would have drawn a one-minute appointment at
+	whatever o'clock somebody happened to be at their desk.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Pay the council tax",
+		recurrence="every month on the 1st",
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	bills = [
+		one
+		for one in subroutine.domain.calendars.occasions(session, feed, now=NOW)
+		if one.task.title == "Pay the council tax"
+	]
+
+	assert bills, (
+		"a repeating deadline nobody gave a second date to reaches no calendar at all, which "
+		"is every repeat written the way somebody would actually type one"
+	)
+
+	# **One, not two.** The rule and its first occurrence are the same day, and the whole of
+	# `SR#1067` is that a calendar showing both is showing one thing twice — which is only
+	# decidable once the occurrence *has* a date to compare.
+	assert len(bills) == 1, (
+		f"one monthly series produced {len(bills)} events: "
+		f"{[(one.field, getattr(one.task, one.field), one.rule) for one in bills]}"
+	)
+
+	[shown] = bills
+
+	assert shown.field == "due_at", (
+		f"a bill is a deadline and this is on {shown.field!r} — the calendar prefixes differ, "
+		f"so the wrong one writes 'Due:' onto things that are not due"
+	)
+	assert shown.task.due_is_all_day, (
+		"the occurrence is a timed appointment rather than a day, so a client draws a "
+		"one-minute event at whatever o'clock it was filed"
+	)
+	assert shown.rule, "the event kept is the standalone occurrence rather than the series"
+
+
 def test_an_occurrence_somebody_moved_is_still_on_the_calendar (
 	session: sqlalchemy.orm.Session,
 ) -> None:

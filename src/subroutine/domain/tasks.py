@@ -277,6 +277,49 @@ def _repeat (
 
 
 
+def first_whole_day (
+	rule: str, *, timezone: str, now: datetime.datetime
+) -> subroutine.domain.schedule.Moment:
+	"""Return the first day a rule that names its own days falls on, as a whole-day deadline.
+
+	**"Every month on the 1st" says when, and until `#1208` nothing wrote that down.** `#94`
+	lets such a rule anchor itself on the moment it was filed rather than refusing it for not
+	saying when — which it does say — and the row was left carrying a rule and no date. Every
+	surface that draws a date then had nothing to draw: measured on a fresh 0.8.1 instance, the
+	series was invisible to the calendar feed entirely, and the occurrence it minted was too.
+
+	**A whole day, because these rules name days and never times.** The grammar has no
+	``BYHOUR``, so anchoring on the filing instant gave each slot that instant's time of day —
+	18:27 on the first of the month, because that is when somebody was at their desk. Snapped
+	like every other typed deadline, so a client draws a date rather than a one-minute
+	appointment.
+
+	**A deadline rather than a start**, which is the same judgement :func:`series_start` already
+	makes for a series that *has* dates: "the 30th of every month" is overwhelmingly a thing
+	that is due then. What a *birthday* wants is the opposite and is `#1209`, gated on `#576` —
+	answering *is this a deadline or a thing that happens* in two places is how the two come to
+	disagree.
+
+	**One function because two callers need the answer**: creation, so the series itself carries
+	a date and can be drawn as a repeat, and :func:`materialise`, which is what carries a series
+	filed before this existed.
+	"""
+
+	found = subroutine.domain.recurrence.occurrences(rule, start=now, timezone=timezone, limit=1)
+
+	if not found:
+		return subroutine.domain.schedule.Moment(instant=None, is_all_day=False)
+
+	return subroutine.domain.schedule.interpret(
+		found[0],
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=timezone,
+		now=now,
+		all_day=True,
+		field="due_at",
+	)
+
+
 def series_start (
 	template: subroutine.db.models.work.Task,
 ) -> datetime.datetime:
@@ -392,6 +435,54 @@ def materialise (
 
 	shift = occurrence - anchor
 
+	# **A series that was never given a date takes the one its own rule computes** (`#1208`).
+	#
+	# "Pay the council tax every month on the 1st" is a rule that says which day it falls on, so
+	# `series_start` anchors it on the moment it was filed rather than refusing it — and every
+	# occurrence then arrived with `occurrence_at` set and `due_at` and `starts_at` both null.
+	# **Measured on a fresh 0.8.1 instance**: the rule was right, the first slot was computed
+	# correctly, and the item was invisible to every calendar feed, because `calendars`
+	# gates both of its branches on one of those two columns being set.
+	#
+	# **The code already assumed this could not happen.** `_is_on_its_grid` compares
+	# `occurrence_at == (due_at or starts_at)`, which cannot hold while one side is null — so
+	# the deduplication that stops a rule and its occurrence appearing twice in a calendar was
+	# reasoning about a state the writer had not considered.
+	#
+	# **A deadline, and a whole day.** The rule names days and never times — the grammar has no
+	# `BYHOUR` — so anchoring on the filing instant gave the slot a time of day nobody chose:
+	# 18:27 on the 1st, because that is when somebody happened to type it. Snapped to the whole
+	# day it falls in, which is what `interpret` does for every other typed deadline, so the end
+	# of the day is the deadline and the calendar draws a date rather than an appointment.
+	#
+	# **`due_at` rather than `starts_at`, and only for this case.** A council tax bill is due; a
+	# birthday is not, and the calendar prefixes differ, so getting it wrong writes *"Due: Anna's
+	# birthday"* into somebody's calendar. Which of the two a dateless series wants is `#576`'s
+	# question and `#1209` is where it is answered — answering it twice is how the two come to
+	# disagree.
+	#
+	# **`occurrence_at` moves with it**, because the invariant above is what the grid is read
+	# through and the cursor for the *next* slot is this column. Snapping one and not the other
+	# would leave every occurrence looking rescheduled.
+	dateless = template.due_at is None and template.starts_at is None
+	whole_day = (
+		subroutine.domain.schedule.interpret(
+			occurrence,
+			boundary=subroutine.domain.schedule.Boundary.END,
+			timezone=zone,
+			now=now,
+			all_day=True,
+			field="due_at",
+		).instant
+		if dateless
+		else None
+	)
+	# **Reachable only for a series filed before `#1208`**, because creation now gives such a
+	# template its own date — and left in deliberately rather than migrated, so a repeat somebody
+	# already has starts producing dated occurrences without anybody running anything. What makes
+	# it removable is a migration that dates the templates; until then, deleting this puts those
+	# series back to minting rows no surface can draw.
+
 	instance = subroutine.db.models.work.Task(
 		id=subroutine.db.types.new_uuid(),
 		workspace_id=template.workspace_id,
@@ -407,8 +498,12 @@ def materialise (
 		importance=template.importance,
 		urgency=template.urgency,
 		estimate_minutes=template.estimate_minutes,
-		due_at=None if template.due_at is None else template.due_at + shift,
-		due_is_all_day=template.due_is_all_day,
+		due_at=(
+			whole_day
+			if dateless
+			else None if template.due_at is None else template.due_at + shift
+		),
+		due_is_all_day=True if dateless else template.due_is_all_day,
 		starts_at=None if template.starts_at is None else template.starts_at + shift,
 		starts_is_all_day=template.starts_is_all_day,
 		# **Deliberately not carried.** A snooze is somebody saying "not yet" about one
@@ -418,7 +513,7 @@ def materialise (
 		snoozed_is_all_day=False,
 		timezone=template.timezone,
 		recurrence_template_id=template.id,
-		occurrence_at=occurrence,
+		occurrence_at=whole_day if dateless else occurrence,
 		is_template=False,
 		path="",
 		depth=0,
@@ -548,6 +643,18 @@ def create (
 		all_day=starts_is_all_day,
 		field="starts_at",
 	)
+
+	# **A repeat that names its own days is given the first of them** (`#1208`). Without this the
+	# row carries a rule and no date, so nothing that draws a date can draw it — including the
+	# calendar, which is where a repeating bill is most of the point. `first_whole_day` holds the
+	# reasoning and is the same function `materialise` falls back to.
+	if (
+		repeat is not None
+		and deadline.instant is None
+		and beginning.instant is None
+		and subroutine.domain.recurrence.names_its_own_day(repeat.rule)
+	):
+		deadline = first_whole_day(repeat.rule, timezone=zone, now=instant)
 
 	# **The defer only** — `schedule._ORDERED_BEFORE_DUE` carries why `starts_at` is exempt.
 	subroutine.domain.schedule.check_order(
