@@ -3308,7 +3308,7 @@ def _default (
 		help="Print the installed version and the schema it expects.",
 	),
 ) -> None:
-	"""Agent-native task management for your life, your projects and your team.
+	"""Agent-native task management for complex projects, where the decisions live beside the work.
 
 	Examples:
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "subroutine",
-  "description": "Agent-native task management for your life, your projects and your team.",
+  "description": "Agent-native task management for complex projects, where the decisions live beside the work.",
   "owner": {
     "name": "Simon Holliday",
     "email": "simon.holliday@protonmail.com"

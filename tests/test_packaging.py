@@ -378,7 +378,15 @@ def test_one_sentence_describes_this_product_on_every_surface_that_carries_one (
 #: **`CHANGELOG.md` is excluded and must be**: a changelog's job is to quote what changed, so
 #: the entry announcing this replacement necessarily contains the old line. Excluding it is the
 #: one place where "still says the old thing" is correct rather than stale.
-RETIRED_DESCRIPTIONS = ("Project management for people and agents, in equal measure.",)
+RETIRED_DESCRIPTIONS = (
+	"Project management for people and agents, in equal measure.",
+	# `#1161`, 2026-08-24. Simon's own choice on 2026-08-10 and replaced on stated new
+	# evidence rather than on taste: the audience narrowed to developers who work with coding
+	# agents, `#733`'s objection to naming projects — *"it promises a browser we do not
+	# have"* — expired when one shipped, and the agent arc gave us a claim we could not make
+	# in August.
+	"Agent-native task management for your life, your projects and your team.",
+)
 
 
 def test_no_surface_still_carries_a_description_we_have_replaced () -> None:

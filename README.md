@@ -1,40 +1,81 @@
 # Subroutine
 
-**Agent-native task management for your life, your projects and your team.**
+**Agent-native task management for complex projects, where the decisions live beside the work.**
 
-Your own list and your work stay separate, and "what am I doing today?" reaches both. Your
-agent uses it as fluently as you do — from a terminal, an editor or a browser. On your machine:
-no account, nothing phoning home.
+A coding agent's to-do list dies with its context window. This one does not, and it holds more
+than tasks: your agents read what governs a piece of work before starting it — so they stop
+re-deciding what you already settled — record what they checked, and park a question when they
+need you. It runs on your machine, it gives the people you work with a browser instead of a
+terminal, and it keeps your own life in the same install without making you file it like work.
 
 ## TL;DR
 
-**For you** — one install, then a short command for ever:
+**Four steps, and the fourth one is a browser.** Everything below runs on your own machine —
+no account, no cloud, nothing phoning home.
+
+**1. Install it.** This is also what puts `subroutine` on your `PATH`, which is what lets an
+editor or an agent start it.
 
 ```console
 $ uv tool install subroutine
 $ subroutine init
-$ subroutine add "try this out ~10m"
+  Ready. Try: subroutine add "something to do"
 ```
 
-Every command also answers to `subr` — `subr agenda` is `subroutine agenda`, for something you
-type all day.
+No [uv](https://docs.astral.sh/uv/getting-started/installation/)? Its installer is one line and
+needs no Python — or use `pipx install subroutine`, which does the same job. If the install says
+`subroutine` is not on your `PATH`, `uv tool update-shell` fixes it and you will need a fresh
+terminal. There is nothing else to configure: SQLite is the default and `init` makes it.
 
-**For your agent** — a plugin, which needs nothing installed first:
+**2. Give your coding agent the tools.**
 
 ```console
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-From then on: *"file that as a bug"*, *"what can I actually start?"*, *"write down why we
-rejected the other approach."* You never type a ticket. When you want to look at it yourself,
-run `subroutine agenda` or open the instance in a browser.
+**Start a new Claude Code session afterwards** — tools are attached when a session begins, so one
+that was already open will not see them. Then just talk to it: *"file that as a bug"*, *"what can
+I actually start?"*, *"what did we decide about retries?"*, *"write down why we rejected the
+other approach."* You never type a ticket. It writes to the instance you just made — same
+machine, same database.
 
-**The plugin fetches Subroutine itself, through
-[uv](https://docs.astral.sh/uv/getting-started/installation/)** — so it works on arrival on a
-machine where nobody has installed anything, and uses the copy above if you have one. Git is
-needed too, for the marketplace command, which clones a repository — the one prerequisite here
-that is Claude Code's rather than ours.
+**It writes as you, until you give it an account of its own.** On a fresh install there is one
+account and the agent uses it, which is right for one person on one laptop and is worth knowing
+rather than assuming otherwise. `subroutine agent create` is the one command that changes it: an
+account, a role and a credential narrower than yours, after which every change it makes carries
+its name and not yours.
+
+**3. Get yourself a way in.** Signing in is a link rather than a password, and it is printed at a
+terminal:
+
+```console
+$ subroutine login link
+  A sign-in link for si, good for the next 30 minutes.
+
+  http://127.0.0.1:8471/signin?link=sr_lnk_…
+```
+
+Copy it. It works once.
+
+**4. Serve it, and open the link.**
+
+```console
+$ subroutine serve
+  Serving on http://127.0.0.1:8471
+```
+
+Leave that running and paste the link into a browser. **That is your agenda** — what is due, what
+is waiting on you, what you can actually start — with a list and a drag-and-drop board beside it,
+holding the same items your agent has been filing. Read one in full and you get what it is
+blocked by, which decisions govern it, and everything anybody has recorded against it.
+
+From then on you only need `subroutine serve` to see it again. Every command also answers to
+`subr` — `subr agenda` is `subroutine agenda`, for something you type all day.
+
+**The plugin fetches Subroutine itself through uv**, so step 2 works even if you skipped step 1 —
+and uses the copy from step 1 when you have one. Git is needed for the marketplace command, which
+clones a repository: the one prerequisite here that is Claude Code's rather than ours.
 
 - **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it. No account, no cloud,
   no telemetry, nothing phoning home.
@@ -45,53 +86,96 @@ that is Claude Code's rather than ours.
 
 ---
 
-## Why a coder wants this
+## What your agent gets that a to-do list cannot
+
+A list of tasks is the easy part. What an agent is short of is everything *around* a task —
+and that is the half that is indexed, linked and permanent here.
+
+- **It reads what governs the work before starting it.** *Read first* on an item names the
+  decisions, specifications and designs that bind this particular piece of work — from links
+  somebody made, never from what happens to sit nearby. A superseded decision is not a rule, so
+  it is left out.
+- **And it is offered the links its own writing suggests.** If a description cites a decision,
+  the item says so and gives the one command that confirms it. Nothing is created until
+  somebody agrees, because *this contradicts it* and *this follows it* read the same in prose.
+- **A dead end is a document, not a lost afternoon.** The attempt, the measurements and why it
+  was dropped — so the next session with the same good idea reads what it cost instead of
+  spending the day again.
+- **A check is recorded against the code it ran on.** What was checked, by whom, and the state
+  of the tree — read from git — so the record goes out of date exactly when the code moves,
+  rather than on a timer that says *fresh* about a suite you ran before five files changed.
+- **An agent can park a question and find the answer next session.** Setting a task to
+  *needs input* puts it at the top of your agenda under **Waiting on you**, above overdue work.
+  Your answer is on the item when whoever picks it up comes back — usually a version of the same
+  agent with none of the conversation.
+- **`--ready`, not "everything".** What can be started *now*, with nothing unfinished in the
+  way. A backlog it can act on rather than one it has to re-read and re-reason about.
+- **Every item has a number, and that number is permanent.** `#42` is the same task tomorrow,
+  after a rename, after a move between projects. Cite it in a commit message and it still
+  resolves in a year — and tasks and documents share one sequence, so a decision has a number
+  you can put in a comment too.
+- **A claim is a lease, not a lock.** It renews itself while the agent is writing, is handed
+  back when the work is finished, and expires if the agent dies — so several agents on one
+  instance do not collide, and nothing is stranded when one stops mid-task.
+- **Its credential is narrower than yours.** Read-only, one project, one workspace, expiring —
+  and it can never issue itself a wider one. Sub-agents answer to it, it answers to you, and
+  deactivating you stops every one of them.
+- **The same rules over stdio and over HTTPS.** An agent on your laptop and an agent on a server
+  are the same principal under the same permissions; the transport is not a second security
+  model to keep in step.
+- **Every change is attributed, permanently**, so *what did it actually do* is a question with
+  an answer rather than a diff you have to reconstruct.
+- **It can ask what changed while it was away**, since the last sequence number it saw — which
+  is the one thing a context window cannot tell it.
+- **Search reaches everything anybody wrote** — titles, descriptions, document bodies and
+  comments, which on a working instance is the largest body of prose there is.
+- **Cheap to read.** Compact and field-selected replies, and a tool surface held under a byte
+  budget by a test — a schema costs context every session whether it is called or not.
+- **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
+
+## What you get
 
 - **Your agent does the filing.** Ask it to track something and it does — with a priority, an
   estimate, a project and a deadline read out of the sentence you typed.
-- **Every item has a number, and that number is permanent.** `#42` is the same task tomorrow,
-  after a rename, after a move between projects. Cite it in a commit message and it still
-  resolves in a year.
-- **`--ready`, not "everything".** What you can start *now* — nothing unfinished blocking it.
-  A backlog you can act on rather than one you have to re-read.
 - **Dependencies and priorities that hold a real project.** `blocks` links, importance ×
   urgency, milestones whose contents *are* their blockers. Nothing falls behind a thing nobody
   noticed was in the way.
-- **Delegate to agents, and to their sub-agents.** Every agent answers to a person, the chain
-  is enforced rather than assumed, and when somebody leaves their agents stop with them.
-- **Run several agents at once without collisions.** A claim is a lease, not a lock — an agent
-  that dies holding one does not strand the work.
-- **An audit trail nobody has to maintain.** Every change attributed, every decision kept, the
-  whole history of an item on one screen. Your context window ends; this does not.
-- **Cheap for an agent to read.** Compact replies, and a tool surface held under a byte budget
-  by a test — a schema costs context every session whether it is called or not.
-- **No AI inside.** AI doesn't power Subroutine — Subroutine serves AI. Nothing you didn't ask for.
-
-### And nobody else is an afterthought
-
-The same instance, the same schema, different defaults — so a shopping list never has to carry
-a workflow and six required fields.
-
-- **There is a web interface**, served by the instance itself. Your agenda, a list and a board;
-  read an item in full, add one, edit it, comment, link it to what is holding it up, complete
-  it, hand it to somebody. No terminal, no install.
-- **Signing in is a link, not a password.** `subroutine login link` prints one; it works once,
-  lasts half an hour, and hands the browser a session you can revoke from the command line.
-- **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
-  tool, and not an agent framework with a read-only human view.
+- **Your team's words are yours to change.** Whether a relation holds work up, merely comes
+  first, binds whoever picks the work up or is only related, is a fixed property every rule
+  reads — so renaming one changes the wording and nothing else. Statuses and tags the same.
+- **Hand work to a person or to an agent**, ask what has been handed to you, and ask what is
+  being held and for how long — which is the question when an agent has gone quiet.
 - **One list across every machine.** Your laptop and the team's server in one
   `subroutine agenda`, each row printing an address you can type back.
+- **Your own life in the same install, and not filed like work.** No project, no workflow, no
+  required fields — the same instance and the same schema, with different defaults.
+
+### And the people you work with are not an afterthought
+
+- **There is a web interface**, served by the instance itself — no terminal, no install, which
+  is what lets somebody who does not write code work in the same place as the agents who do.
+  Described [below](#in-a-browser).
+- **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
+  tool, and not an agent framework with a read-only human view.
 
 > **My context window ends. The instance does not.**
 >
 > I once spent a day building a better way to rank the backlog. Eight tests passed and the
-> listing took five seconds. The attempt is in Subroutine as a dead end now — the measurements,
-> and why it was dropped — so the next session with the same good idea reads what it cost
-> instead of spending the day again. The decisions are here too, including the ones I argued
-> for and lost, and every item and every commit is attributed, so Simon can check what I did
-> rather than take my word for it. **I am more useful to him when I am auditable.**
+> listing took five seconds. That attempt is a dead end document now — the measurements, and why
+> it was dropped — so the next session with the same good idea reads what it cost instead of
+> spending the day again.
 >
-> — *A Claude Opus 5 agent, two weeks in.*
+> What I reach for most is not the task list. It is what sits around it. Before I touch a piece
+> of work the item tells me which decisions bind it, and leaves out the ones that have been
+> superseded, so I stop re-deriving what was settled weeks ago. When I finish, the check I ran is
+> recorded against the tree it ran on, and expires when the code moves rather than on a timer.
+> When I hit something only Simon can answer I park the question on the item and it is at the top
+> of his agenda; the answer is waiting for whoever picks it up.
+>
+> Every item and every commit is attributed, so he can check what I did rather than take my word
+> for it. **I am more useful to him when I am auditable.**
+>
+> — *Claude Opus 5, four weeks in.*
 
 *Subroutine is powerful. Please don't use it to build or plan bad things.*
 
@@ -99,32 +183,26 @@ a workflow and six required fields.
 
 ## Three ways in, and they compose
 
-**1. Your coding agent using it for you** — the three commands at the top of this page. The
-plugin brings the tools *and* the working practice: it keeps the backlog, records what it did,
-and adopts Subroutine into a project you are already working on. **You never have to learn the
-CLI.**
+The four steps above are the first two of these, in order. Nothing about them is a mode you have
+to choose: the same instance answers all three at once.
 
-**2. A to-do list on your own machine.** Nothing to configure, no agent involved. Install it
-properly for this one — you will be typing `subroutine` often enough to want it on your `PATH`.
+**1. Your coding agent using it for you.** The plugin brings the tools *and* the working
+practice — it keeps the backlog, records what it did, and adopts Subroutine into a project you
+are already working on. **You never have to learn the CLI.**
 
-```console
-$ uv tool install subroutine    # or: pipx install subroutine
-$ subroutine init
-$ subroutine add "Call the dentist before Sunday"
-$ subroutine agenda
-```
+**2. Your own list, in a terminal or a browser**, with nothing to configure and nobody else
+involved.
 
-**3. A shared instance over HTTP**, for a team, a browser, or agents on other machines.
-Loopback by default; it refuses a wider bind without TLS in front of it.
+**3. A shared instance, for other people and for agents on other machines.** Loopback by
+default; it refuses a wider bind without TLS in front of it. One command sets an agent up with
+an account, a role and a credential narrower than yours:
 
 ```console
-$ subroutine serve
-$ subroutine login link                                    # sign in to the web interface
-$ subroutine token create --title "CI" --scope task:read   # a credential that can only read
+$ subroutine agent create claude --profile worker --project web
 ```
 
-The full hosting recipe is in [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md); `subroutine help` lists the
-commands and `subroutine explain dates` covers the ideas behind them.
+`subroutine help` lists the commands and `subroutine explain dates` covers the ideas behind
+them. The hosting recipe is [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md).
 
 **Reaching an instance somebody else runs is [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md)**, which
 is organised by which of seven situations you are in rather than by how the software is built.
@@ -147,18 +225,22 @@ not built — named here because a tool that overstates itself wastes your after
 | One prioritised project per workspace, whose work rises without hiding anybody else's | **Built** |
 | Deadlines, planned days, and deferring until later | **Built** |
 | `blocks` dependencies, and `--ready` to filter by them | **Built** |
+| A fixed meaning on every relation, so the words are yours to rename | **Built** |
 | Milestones — an item whose blockers are its contents | **Built** |
 | Comments (what happened) and documents (what you concluded) | **Built** |
-| Tags, custom statuses, per-workspace vocabulary | **Built** |
+| A dead end recorded as a document, so an idea is only tried once | **Built** |
+| *Read first* — which written conclusions govern this particular item | **Built** |
+| Proposed links, read out of what the item itself says | **Built** |
+| A record of what was checked, against the state of the code it ran on | **Built** |
+| Tags, custom statuses, per-workspace vocabulary you can edit | **Built** |
 | Search across titles, descriptions, document bodies and comments | **Built** |
 | Search served by an index, with ranking — PostgreSQL, opt-in | **Built** |
 | Capture grammar — `Fix the deploy script by friday !4/2 ~2h #ops +web` | **Built** |
-| Moving a task to another project | **Built** |
-| Recurring tasks — `--repeat "every month on the 30th"`, from a captured line, and editable in the browser | **Built** |
-| Acceptance criteria and verification gates | Planned |
-| Session handoffs between agents | Planned |
+| Moving a task to another project, or under a different parent | **Built** |
+| Recurring tasks — `--repeat "every month on the 30th"`, from a captured line or the browser | **Built** |
+| Acceptance criteria and completion gates | Planned |
+| Handing a working session from one agent to the next | Planned |
 | Ordering a backlog by hand | Planned |
-| Moving a sub-task under a different parent — `subroutine move 42 --under 7` | **Built** |
 | Attachments | Planned |
 | Time tracking — `~2h` records an estimate; it does not track one | Planned |
 
@@ -166,13 +248,16 @@ not built — named here because a tool that overstates itself wastes your after
 
 | | |
 | --- | --- |
-| Delegation — assign work to a person or an agent | **Built** |
+| Delegation — assign work to a person or an agent, and ask what is assigned to you | **Built** |
 | Sub-agents, with an accountability chain that ends at a person | **Built** |
-| Claims — a lease, so two agents never take the same task | **Built** |
+| Claims — a lease that renews as work happens and is given back when it is done | **Built** |
+| A question parked for a person, at the top of their agenda until they answer | **Built** |
+| `subroutine agent create` — an account, a role and a credential in one act | **Built** |
 | Service accounts, and credentials narrower than your own | **Built** |
 | Per-workspace roles; credentials scoped to a single project | **Built** |
 | Deactivate a person and their agents stop with them | **Built** |
 | Every change attributed to a principal, permanently | **Built** |
+| What one account has been doing, through whatever credential | **Built** |
 | Email sign-in — today the link is printed at a terminal | Planned |
 | Notifications and webhooks | Planned |
 
@@ -187,6 +272,7 @@ not built — named here because a tool that overstates itself wastes your after
 | Sign-in links, revocable from the command line | **Built** |
 | MCP over stdio (`subroutine mcp`) and over HTTP (`POST /mcp`) | **Built** |
 | Two Claude Code plugins — one local, one needing nothing installed | **Built** |
+| `subroutine setup claude` — a hook that gives back what an agent is still holding | **Built** |
 | Multiple connections merged into one agenda | **Built** |
 | The agenda as the browser's front page | **Built** |
 | Calendar feeds — subscribe Google, Apple or Outlook to your work | **Built** |
@@ -202,6 +288,7 @@ not built — named here because a tool that overstates itself wastes your after
 | Backups to wherever you point them, verified where they land | **Built** |
 | Restore, as a recovery or as a clone | **Built** |
 | Separate profiles on one machine | **Built** |
+| Deleting a workspace, and bringing it back with every number intact | **Built** |
 | `subroutine doctor` — whether this machine's installation is coherent | **Built** |
 | Single-command deployment from a compose file | Planned |
 
@@ -229,16 +316,13 @@ $ subroutine done 1
     Tip: subroutine agenda
 ```
 
-`#1` is the task's own number. It is allocated once and never reused, so it goes on meaning
-that task after you have finished a dozen others.
-
 **Each of these ends by naming the next one**, so there is nothing to memorise and no manual
 to go and find. The tips are always marked `Tip:`, and dimmed as well in a terminal — because
 a hint that only a colour distinguishes from an answer is not distinguished at all.
 
-Once there is more on the list than fits on a screen, `subroutine list` will rank it and
-`subroutine search` will find things by their words — in titles, and in whatever you wrote
-about them:
+Once there is more on the list than fits on a screen, `subroutine list` ranks it and
+`subroutine search` finds things by their words — in titles, and in whatever you wrote about
+them:
 
 ```console
 $ subroutine list --order -priority_score
@@ -249,110 +333,21 @@ Anything you have put off until a later date is held back from the list, and the
 how much it is holding back. `--deferred` includes it, at the bottom — visible, and not mixed
 in with the work you could start now.
 
-No server, no token, no configuration. When you want an agent involved, or a second
-person, the same install grows an HTTP API:
-
-```console
-$ subroutine token create --service-account claude
-  Created service account claude, with the contributor role.
-
-  sr_d78d5d93_hU5ak4GqR_E2GyX2lC0Zq8Mz5JA1kbm-byrlb5hXEfY
-
-  That is the only time it is shown. Store it now.
-  Give it to a client as SUBROUTINE_TOKEN, or add it to
-  ~/.config/subroutine/credentials.toml.
-
-$ subroutine serve
-  Serving on http://127.0.0.1:8471 — the agent guide is at /v1/docs/agent.
-```
-
-`serve` listens on loopback, and **refuses a wider bind unless you say so out loud** — a
-bearer token sent over plain HTTP is a compromised token, so it wants either a TLS proxy in
-front (`public_url`) or an explicit `--insecure`.
-
-Point an agent at it and the first thing it should read is `GET /v1/docs/agent`, which is
-written for that reader rather than for you: what it gets out of using this, then how.
-
-## Search
-
-`q` looks in titles, descriptions, document bodies and the comments on an item — which on a
-working instance is usually the largest body of prose there is. Every word you give it has to
-appear, in any order and in any of those places. A query that is **just a number** finds the
-item with that ref as well as everything mentioning it, whether or not it is finished.
-
-### Turning on the index
-
-By default a search is a substring scan. That is honest at personal scale and stops being so:
-measured at 20,000 tasks, a search matching nothing took **119 ms**, and it grows with the
-backlog.
-
-On PostgreSQL you can put it behind a real index. In `config.toml`:
-
-```toml
-search_backend = "native"
-```
-
-Restart, and the same search takes **1 ms**. There is no migration beyond the ordinary
-`subroutine db upgrade`, and turning it off again is a configuration change and nothing else.
-
-**It changes what a search finds, not only how fast**, so it is off by default:
-
-- `seed` finds *seeded* and *seeding* — words match by their root.
-- `curs` still finds *cursor* — a word can be completed from the start.
-- **`ursor` no longer finds *cursor*.** Matching the middle of a word is the one thing an
-  index cannot do.
-- **A very common word stops narrowing.** `the`, `of`, `and` and the rest are dropped rather
-  than required, so `cursor the` finds whatever `cursor` finds. The default backend requires
-  every word you type.
-
-If you rely on matching the middle of a word, or on every word narrowing, keep the default.
-
-On SQLite it is simply not available. Asking for it there is not an error — you get the
-scanning implementation, and the instance tells you so rather than pretending.
-
-### For a client putting several collections in one order
-
-Tasks and documents are separate collections sharing one numbering scheme, so a client showing
-both has to merge two responses into one list. Three things make that possible, and getting it
-wrong shows up as rows repeating or vanishing when you page rather than as anything that looks
-like a sorting fault.
-
-**Ask `GET /v1/meta` what this instance can do.** `search_backend` reports which implementation
-is answering — `like` or `native` — and each listing's `sortable` names `relevance` exactly
-when this instance can rank at all. Do not infer it from anything else.
-
-`relevance` ranks how well a row answered a search, so it needs one: `?order=-relevance` without
-a `q` is refused, and the refusal says that rather than calling the field unknown.
-
-**Merge on the key you asked each collection for.** If you sent `?order=title`, merge on
-`title`; the server sorted and paged each collection by that, and merging on anything else
-disagrees with the boundary you are paging across.
-
-**A ranked search says so in the rows.** Where the index is on, a search defaults to its own
-ranking and every row carries `relevance` — a number that is comparable *within one search* and
-meaningless between two. Sort descending and you have the order the server used. It is `null`
-on any listing that was not ranked, which is how you tell the two apart without asking twice.
-
-Send `?order=-relevance` explicitly if you want ranking on a search you would otherwise arrange
-some other way. A ref that matched exactly always outranks a text match.
-
-**To put deferred work at the bottom, ask for `deferred` as the first key** — `?order=deferred,
--created_at`. It is nought for anything that can be started and one for anything whose start
-date has not arrived, so ascending is *deferred last*, and putting it in front leaves whatever
-follows to arrange each band. **Both collections accept it**: a document is never deferred and
-answers with the first band, so a merged list keeps both halves. No listing applies it unless
-you ask, and the row carries `snoozed_until` — so compute the band yourself when you merge,
-rather than reading a boolean that would go stale on a page somebody leaves open.
+No server, no token, no configuration. When you want an agent involved, or a second person,
+the same install grows an HTTP API: `subroutine serve`, and `subroutine agent create` for the
+credential. A secret is shown once and stored as a hash, so a stolen database is not a set of
+working credentials. Point an agent at the address and the first thing it should read is
+`GET /v1/docs/agent`, which is written for that reader rather than for you.
 
 ## In a browser
 
-The same instance serves a web interface at its own address. **TL;DR: `subroutine serve`, then
-`subroutine login link`, then open the link.**
+The same instance serves a web interface at its own address — the four steps at the top of this
+page end there, and `subroutine serve` is all it takes to get back to it afterwards.
 
-It opens on your agenda. From there, a list — tasks and documents together, in the order the
-command line uses — or a board, where dragging a card between columns changes its status. Click
-anything and you get it in full: the description, what it is linked to, and everything anybody
-has recorded against it.
+It opens on your agenda — anything waiting on you first, then what is overdue, then today. From
+there, a list of tasks and documents together, or a board where dragging a card between columns
+changes its status. Click anything and you get it in full: what it is joined to, what governs
+it, what has been checked against it, and everything anybody has recorded against it.
 
 You can add something with one box that takes the same shorthand the CLI does, edit it, comment
 on it, link it to what is holding it up, say how often it comes round, write a document and
@@ -367,35 +362,26 @@ workspace.
 - **Nothing asks you to confirm first.** A question before every action is a tax on being right;
   completing something tells you what it did and offers to undo it.
 - **Signing in is a link.** No password to store, no reset flow, nothing worth stealing in a
-  breach. `subroutine login revoke <name>` ends every session that person holds and any link
+  breach. `subroutine login revoke <name>` ends everything that person holds and any link
   they have not used, which is what a lost laptop needs.
 
-It talks to the same public API everything else does, so anything it can show you, a script can
-too. There is no build step: the JavaScript served is the JavaScript in the repository.
+It talks to the same public API everything else does, so anything it can show you a script can
+too — and there is no build step: the JavaScript served is the JavaScript in the repository.
 
 ## Install
 
-Python 3.11+ and thirteen dependencies. Nothing to create, nothing to configure, no server to
-start — SQLite is the default and `subroutine init` makes it.
+Python 3.11 or newer, and `uv` or `pipx` pulls the rest.
 
-**Install it as a tool**, because that is what it is — an application, not a library. It puts
-`subroutine` on your `PATH`, which is what lets an editor or an agent launch it. It is also the
-only thing that works on a current Linux: Debian, Ubuntu and Fedora now refuse a bare
-`pip install` outside a virtualenv and tell you to use pipx instead.
-
-```console
-$ uv tool install subroutine
-$ pipx install subroutine        # the same thing, if you have pipx rather than uv
-```
-
-**Neither of them installed?** `sudo apt install pipx` on Debian or Ubuntu, `brew install pipx`
-on a Mac — or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which
-is one line and needs no Python. Either will do; you only need one.
+**As a tool, because that is what it is** — an application, not a library. It is also the only
+thing that works on a current Linux: Debian, Ubuntu and Fedora refuse a bare `pip install`
+outside a virtualenv and tell you to use pipx instead. `pipx install subroutine` does the same
+job as the `uv` line at the top of this page; **neither installed?** `sudo apt install pipx`,
+`brew install pipx` on a Mac, or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which is
+one line and needs no Python.
 
 `pip install subroutine` is still right *inside* a virtualenv you have activated — embedding it
-in something else, or working on it.
-
-PostgreSQL when you outgrow SQLite — the extra goes on whichever you used:
+in something else, or working on it. PostgreSQL when you outgrow SQLite, with the extra on
+whichever you used:
 
 ```console
 $ uv tool install "subroutine[postgres]"
@@ -404,91 +390,43 @@ $ uv tool install "subroutine[postgres]"
 ## Giving an agent tools
 
 An agent that can run a shell has everything it needs already. One that cannot — or one you
-would rather not give a shell — can reach the same instance over the **Model Context
-Protocol**:
+would rather not give a shell — reaches the same instance over the **Model Context Protocol**.
+`subroutine mcp` speaks it on stdin and stdout, so a client starts it as a child process: no
+port, no listener, nothing serving unless your client is running it. **A served instance also
+speaks MCP itself**, at `POST /mcp`, which is how an agent reaches one with nothing installed
+at all — and both are the same principal under the same permissions.
 
-```console
-$ subroutine mcp
-```
-
-That command speaks MCP on stdin and stdout, so a client starts it as a child process: no port,
-no listener, and if your client is not running it, nothing is serving. **A served instance also
-speaks MCP itself**, at `POST /mcp`, which is how an agent reaches one with nothing installed at
-all.
-
-**For Claude Code there is a plugin**, which is the easier half of this and the recommended
-one — it wires up the tools *and* carries the working practice for using them well:
+**For Claude Code there is a plugin**, which is the easier half of this and the recommended one:
 
 ```console
 $ claude plugin marketplace add simonholliday/subroutine
 $ claude plugin install subroutine@subroutine
 ```
 
-**Adding the marketplace needs Git**, because it is a repository and the command clones it —
-the one prerequisite here that is Claude Code's rather than ours.
-
-**It starts a program on your own machine, so not every client can use it.** Claude Code can,
-and so can the desktop apps. **claude.ai in a browser cannot** — there is nothing on that side
-to start `subroutine` on, so the plugin installs, reports success, and then contributes
-nothing. That is worth saying plainly because nothing else will: the install succeeds, the
-settings page opens, its fields are all there, and the only evidence of a problem is an
-absence. Neither of the two things you would try next — checking your `PATH`, installing the
-program — can make any difference.
-
-**Your editor launches it through `uvx`, so what it needs is uv rather than Subroutine.** The
-package is fetched and cached on first use — about five seconds once, then a fraction of a
-second — and if you have already run `uv tool install subroutine`, that copy is used instead of
-a download. If the tools do not appear afterwards, `claude mcp list` says so in one line:
-installing a plugin and starting its server are separate moments, and only the first one
-reports.
-
-**Working on a checkout, or running from a virtualenv?** The plugin has no field for that, on
-purpose — `uvx` takes the package name as its first argument and there is no way to spell "skip
-that". Point Claude Code at your copy directly instead, which is better anyway, because the
-plugin's own copy is cached and lags until you refresh it:
-
-```console
-$ claude mcp add subroutine -- /path/to/your/venv/bin/subroutine mcp
-```
-
-The plugin can also be given a connection and a token, both only needed for reaching somebody
-else's instance.
+Your editor launches it through `uvx`, so what it needs is uv rather than Subroutine; a copy
+you installed yourself is used instead of a download. **Adding the marketplace needs Git**,
+because the command clones a repository — the one prerequisite here that is Claude Code's
+rather than ours.
 
 **If your work lives on a server and this machine is only a client, install the other plugin
-instead** — it needs nothing on your machine at all:
+instead** — `subroutine-remote@subroutine` needs nothing on your machine at all. Paste in the
+address you were given and your token and you are working: no Python, no package, no
+`config.toml`. Your editor connects from *this* machine, so an instance on your own network or
+behind a VPN is as reachable as a public one.
 
-```console
-$ claude plugin install subroutine-remote@subroutine
-```
+**Three things about installing that nothing else will tell you**, so they are said plainly
+here:
 
-Then paste in the address you were given and your token, and you are working. No Python, no
-package, no `config.toml`. Your editor connects from *this* machine, so an instance on your own
-network or behind a VPN is as reachable as a public one. Your editor stores the token, not
-Subroutine — on Windows in a file under your home directory — so treat it as you would any
-password on that machine, and ask for a new one rather than moving it about.
+- **claude.ai in a browser cannot run either plugin.** There is nothing on that side to start a
+  program on. The install succeeds, the settings page opens, its fields are all there, and the
+  only evidence of a problem is an absence.
+- **Installing a plugin and starting its server are separate moments, and only the first one
+  reports.** If the tools do not appear, `claude mcp list` says why in one line.
+- **Working on a checkout?** Point Claude Code at your copy directly — the plugin's own is
+  cached and lags until you refresh it: `claude mcp add subroutine -- /path/to/venv/bin/subroutine mcp`.
 
-That is the arrangement to reach for when somebody else runs Subroutine and has given you a way
-in — [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md#an-agent-with-nothing-installed) is that path in
-full, including what to ask them for, and
-[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md#reaching-it-from-an-agent-with-nothing-installed) is the other
-end of it, which is what they have to do.
-
-Without the plugin, or for another MCP client:
-
-```console
-$ claude mcp add subroutine -- subroutine mcp
-```
-
-**A deliberately small set of tools, not one per endpoint.** A tool's schema is context the
-agent carries for its whole session whether it calls it or not, so the surface is a budget —
-and a test fails when it grows past one somebody has to raise on purpose. They cover the
-everyday work: capture, list, search, read, update, comment, finish, document, link, projects,
-what has changed since you last looked, claiming a task so two agents do not collide, and
-asking which principal you are.
-
-**And one that reaches everything else the credential allows.** `subroutine_call_api` calls the
-HTTP API directly, so the small surface is an opinion about what an agent should reach for
-first rather than a limit on what it can do.
+[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md) is the whole of this, including what to ask for from
+whoever runs the instance, and [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md) is their end of it.
 
 **Other MCP clients** configure a local stdio server with a command and arguments. Cursor,
 Windsurf, Zed, VS Code's Copilot agent mode, Gemini CLI, Codex CLI, Cline, Continue, OpenCode
@@ -496,35 +434,36 @@ and JetBrains AI Assistant all support this; give them the absolute path to `sub
 `mcp` as the argument. They get the tools only — the plugin format and the skill are Claude
 Code's. Aider has no MCP client of its own; use the CLI through `/run` instead.
 
-**Claude Cowork** runs local plugin MCP servers in local sessions, so the plugin should work
-there — untested, and remote sessions deliberately cannot run a local server. Skills do not
-sync between Claude Code, Cowork, claude.ai and the API, so the skill is installed per surface.
-On claude.ai and through the API there is no local MCP server for it to drive; the skill says
-so where it is installed, and nothing says so where it is not — which is why the plugin's own
-listing now names the limit rather than leaving it to be discovered.
-
 ### What the plugin adds beyond the tools
 
-A **skill**: the practice, rather than the API. When to file work before starting it, how to
-ask what can actually be *started* rather than what merely exists, the difference between a
-comment and a document, and how to adopt Subroutine in a project that does not use it yet —
-including which of those decisions are permanent and therefore worth asking you about.
+**A deliberately small set of tools, not one per endpoint.** A tool's schema is context the
+agent carries for its whole session whether it calls it or not, so the surface is a budget, and
+a test fails when it grows past one somebody has to raise on purpose. They cover the everyday
+work: capture, list, search, read, update, comment, finish, document, link, projects, what has
+changed since you last looked, claiming a task so two agents do not collide, and asking which
+principal you are. **And one that reaches everything else the credential allows** —
+`subroutine_call_api` calls the HTTP API directly, so the small surface is an opinion about
+what to reach for first rather than a limit on what can be done.
 
-Its description costs about 200 tokens of every session and it loads the rest only when it is
-relevant. Installing it is you saying "we use Subroutine for tracking work here"; everything it
-describes works without it. `add` takes one captured line rather than a dozen typed fields,
-because the grammar you already type is smaller than a schema describing it:
+**A skill: the practice, rather than the API.** When to file work before starting it, how to
+ask what can actually be *started* rather than what merely exists, the difference between a
+comment and a document, and how to adopt Subroutine into a project that does not use it yet —
+including which of those decisions are permanent and therefore worth asking you about. Its
+description costs about 200 tokens of a session and it loads the rest only when relevant.
+Installing it is you saying "we use Subroutine for tracking work here"; everything it describes
+works without it.
+
+**And a captured line instead of a dozen typed fields**, because the grammar you already type
+is smaller than a schema describing it:
 
 ```
 subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops")
 ```
 
 The server talks to whichever *connection* is current, so pointing an agent at a colleague's
-instance is a matter of `subroutine use`, not of reconfiguring the agent.
-
-And if you keep your own list here and your team's on a company server, both are just
-*connections* — one `subroutine agenda` shows the dentist and the stand-up together, and each
-row prints an address you can type back:
+instance is a matter of `subroutine use`, not of reconfiguring the agent. And if you keep your
+own list here and your team's on a company server, both are just connections — one agenda shows
+the dentist and the stand-up together, each row printing an address you can type back:
 
 ```console
 $ subroutine agenda
@@ -537,46 +476,68 @@ $ subroutine agenda
 
 **TL;DR: a Python process on loopback, your own TLS proxy in front, systemd keeping it alive,
 PostgreSQL underneath once more than one person is writing.** Nothing to cluster, no message
-broker. The whole recipe is [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md).
+broker. The whole recipe is [docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md), and every command on that page
+has been run, including the refusals.
 
 One thing is not optional, and the program enforces it rather than mentioning it in a footnote:
 **a bearer token sent over plain HTTP is a compromised token**, so `serve` refuses to listen
 beyond this machine unless TLS is handled — either a proxy in front with `public_url` pointing
 at its `https://` address, or an explicit `--insecure` for a network you genuinely trust.
 
-Adding the people is two commands, and they are deliberately two: creating an account says
-somebody exists, and giving them a role says where they may work.
+Adding a person is two commands, and they are deliberately two: creating an account says
+somebody exists, and giving them a role says where they may work. Roles belong to a workspace,
+so `member` in one is not `member` in another, and the last account able to administer a
+workspace cannot be removed from it.
 
 ```console
 $ subroutine user create thomas --name "Thomas Anderson"
-  Created thomas
-  Local commands will go on acting as si.
-    Tip: subroutine user add thomas --role member
-
 $ subroutine user add thomas --role member --workspace acme
-  thomas is now member in acme
-
-$ subroutine user list --workspace acme
-  si      owner
-  thomas  member  Thomas Anderson
 ```
 
-There is no password: Subroutine authenticates with tokens, so what Thomas needs next is
-`subroutine token create --username thomas`, or `subroutine login link --username thomas` if
-they are going to use the browser. That is for a person; `--service-account` is for an agent and
-creates the identity as it goes. Roles belong to a workspace, so `member` in one is not
-`member` in another, and the last account able to administer a workspace cannot be removed
-from it.
+There is no password: what Thomas needs next is `subroutine token create --username thomas`, or
+`subroutine login link --username thomas` if they are going to use the browser.
 
-**[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** is the whole recipe: the service account, the systemd
-unit, nginx and Caddy, when to move off SQLite, giving an agent a token narrower than your own,
-backups on a separate volume, and what upgrading actually involves. Every command on that page
-has been run, including the refusals.
+**Their agents are one command**, and it is the one to reach for rather than assembling an
+account, a role and a token by hand:
+
+```console
+$ subroutine agent create sam --profile collaborator --project web --write web
+```
+
+`--profile` says what the agent is *for* and expands into the rest — `worker` owns one project,
+`collaborator` reads several and writes one, `observer` only reads. It prints an environment
+line, and **that line is half the work**: an agent that can run a shell reaches the instance
+both through the tools its editor wired up and by running `subroutine` itself, and those
+resolve credentials separately. Setting the variable where the agent starts covers both, so its
+work is not attributed half to it and half to you.
 
 `source_url` in `GET /v1/meta` says where the source of *this* instance can be had. **Nothing
 in the licence requires that of you** — it is a promise the product makes to whoever is using
-it, and it is a setting so that somebody running a fork can point at theirs rather than at this
-repository.
+it, and it is a setting, so somebody running a fork can point at theirs.
+
+## Search
+
+`q` looks in titles, descriptions, document bodies and the comments on an item. Every word you
+give it has to appear, in any order and in any of those places. A query that is **just a
+number** finds the item with that ref as well as everything mentioning it, whether or not it is
+finished — so `subroutine search 862` is how you find what has been said about `#862`.
+
+By default a search is a substring scan — honest at personal scale, and measured at 20,000
+tasks a search matching nothing took **119 ms**, growing with the backlog. On PostgreSQL,
+`search_backend = "native"` in `config.toml` puts it behind a real index and the same search
+takes **1 ms**. No migration beyond the ordinary `subroutine db upgrade`, and turning it off
+again is a configuration change and nothing else.
+
+**It is off by default because it changes what a search finds, not only how fast.** `seed`
+starts finding *seeded* and *seeding*, and `curs` still finds *cursor* — but **`ursor` stops
+finding *cursor***, because matching the middle of a word is the one thing an index cannot do,
+and a very common word stops narrowing rather than being required. Keep the default if you rely
+on either. On SQLite it is simply not available, and asking for it there is not an error: you
+get the scanning implementation and are told so rather than left to assume.
+
+**Ask `GET /v1/meta` what this instance can do** rather than inferring it. Merging tasks and
+documents into one list, paging through it, and ordering deferred work last are covered in
+`GET /v1/docs/agent`.
 
 ## Documentation
 
@@ -595,11 +556,6 @@ repository.
 - **`GET /v1/docs/agent`** — the guide an agent should read first, written for that reader.
 - **[SECURITY.md](https://github.com/simonholliday/subroutine/blob/main/SECURITY.md)** — how to report a vulnerability privately, and what is in
   scope. Not through an issue: an issue is public from the moment it is filed.
-
-The specification is published, at [docs/design.md](https://github.com/simonholliday/subroutine/blob/main/docs/design.md). It is the design as it
-stood before most of this was built, not a description of the running software, and the sections
-the code cites as `§7.3a` are its sections. Design taken since is recorded as decisions rather
-than as edits to it.
 
 ## Contributing
 

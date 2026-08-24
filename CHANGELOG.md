@@ -249,6 +249,16 @@ upgrade involves.
 
 ### Changed
 
+- **Subroutine describes itself differently.** The one sentence every surface carries — the PyPI
+  summary, `subroutine --help`, the API's own description, both plugin manifests and the README
+  — is now *"Agent-native task management for complex projects, where the decisions live beside
+  the work."*
+
+  It replaces *"…for your life, your projects and your team."* Nothing about the product
+  narrowed: a workspace still holds a shopping list beside a migration, and the personal half is
+  described a paragraph further down. What changed is which half the first sentence spends
+  itself on, now that an item can say which decisions govern it and what was checked against it.
+
 - **A connection you marked read-only now refuses every write, including eleven it used to
   allow.** `read_only = true` is a posture — pointing an agent at a colleague's or an employer's
   instance for context while forbidding it to write there — and it was enforced by a check
