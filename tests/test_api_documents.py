@@ -43,7 +43,10 @@ def test_a_document_is_written_and_read_back (world: test_api_tasks.World) -> No
 
 	assert body["title"] == "How deploys work"
 	assert body["type"] == "note"
-	assert body["status_category"] == "draft"
+
+	# **In force, not a draft, since `SR#537`.** A note records what was observed, so the
+	# writing is the act; `--status draft` is how somebody says otherwise.
+	assert body["status_category"] == "current"
 	assert body["owner_id"] == str(world.user.id)
 
 	assert world.call("GET", f"/v1/documents/{body['ref']}").json()["body"] == "Step one…"

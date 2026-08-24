@@ -264,12 +264,24 @@ def test_the_instance_really_serves_what_the_resource_asks_for (name: str) -> No
 def test_a_decision_is_in_force_the_moment_it_is_written (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`#506`. §6.14's lifecycle fits a specification and was applied to six types.
+	"""`#506`, widened to every seeded type by `#537`. The writing is the act.
 
-	A spec is drafted, agreed, replaced — so ``draft`` is honest for it. A decision that has
-	been taken is already in force, and calling it a draft is wrong the second the conversation
-	ends. **Measured before this changed**: all 72 open documents on this project's own instance
-	sat in ``draft``, including 26 decisions that plainly govern.
+	`#506` exempted ``spec``, ``design`` and ``note`` on the grounds that §6.14's lifecycle —
+	drafted, agreed, replaced — fits a specification exactly. That is true of the *lifecycle* and
+	wrong about where it starts. **Measured on the only instance with real documents on it: 76 of
+	78 were in force and 47 of those were labelled ``draft``.**
+
+	**The reversal turns on which way the default fails.** A genuine draft marked in force is
+	*visible* — it appears under a reader's *Read first* and somebody corrects it. A finished
+	specification left as a draft is **silent**: ``links.governing`` requires the current
+	category, so it sits plainly in an item's Links and is absent from the one section that tells
+	the next reader to read it. `#537` measured that on a fresh instance.
+
+	**The custom type at the end is what keeps this test able to fail.** With all six seeded
+	types in force, a bug that put *everything* in force would pass every assertion above it —
+	so the discriminating case is a type an installation added for itself, which must fall
+	through to the workspace's own default. That is also what keeps ``draft``'s seeded
+	``is_default`` from becoming a control nothing reaches.
 	"""
 
 	setup = subroutine.domain.bootstrap.initialise(
@@ -298,11 +310,34 @@ def test_a_decision_is_in_force_the_moment_it_is_written (
 
 		return found.category
 
-	for kind in ("decision", "finding", "dead_end"):
+	for kind in ("decision", "finding", "dead_end", "spec", "design", "note"):
 		assert category(kind) == "current", f"a {kind} is true when it is written"
 
-	for kind in ("spec", "design", "note"):
-		assert category(kind) == "draft", f"a {kind} is drafted before it is agreed"
+	# **A type this installation did not seed, which is the half that can still fail.** We can
+	# say what our own six mean; we cannot say what somebody's `proposal` means, so it takes the
+	# vocabulary its author curated rather than an assumption of ours.
+	invented = subroutine.db.models.vocabulary.ItemType(
+		workspace_id=setup.workspace.id,
+		entity_type="document",
+		key="proposal",
+		label="Proposal",
+		category="reference",
+		position=99,
+	)
+	session.add(invented)
+	session.flush()
+
+	theirs = subroutine.domain.documents.create(
+		session, project=inbox, title="A proposal", type_key="proposal", actor=None
+	)
+	session.flush()
+
+	mine = session.get(subroutine.db.models.vocabulary.Status, theirs.status_id)
+
+	assert mine is not None and mine.category == "draft", (
+		"a type the installation added itself must take the workspace's own default, or "
+		"`draft`'s is_default is a control nothing reaches"
+	)
 
 
 def test_a_status_somebody_asked_for_still_wins (session: sqlalchemy.orm.Session) -> None:
@@ -504,7 +539,7 @@ def test_every_document_type_either_binds_the_reader_or_describes_something () -
 	"""
 
 	seeded = {
-		one.key for one in subroutine.db.seed._ITEM_TYPES if one.entity_type == "document"
+		one.key for one in subroutine.db.seed.ITEM_TYPES if one.entity_type == "document"
 	}
 	classified = subroutine.domain.documents.GOVERNS | subroutine.domain.documents.DESCRIBES
 
@@ -528,18 +563,23 @@ def test_what_binds_you_and_what_is_true_when_written_are_different_questions ()
 	names it. They overlap in two members and differ in two, which is exactly the shape
 	somebody tidies into one constant — and doing so would reintroduce `#1036`.
 
-	The two differences are the whole argument:
+	**They used to overlap in two and differ in two, and `#537` made the difference one-way.**
+	Every seeded document type is now in force when written, so ``when_written`` is a superset:
+	``note`` and ``finding`` are true the moment somebody writes them and bind nobody.
 
-	- ``finding`` is true the moment it is written and does **not** bind. 37 of the 39 in force
-	  on this project's instance are code reviews, whose actionable half became items.
-	- ``spec`` binds and is **not** true the moment it is written: §6.14's lifecycle fits a
-	  specification exactly, so it is drafted, agreed, and later replaced.
+	This docstring argued the opposite until 2026-08-24 and the argument is worth keeping,
+	because it is nearly right: *"`#445` carries eight open questions and is correctly a draft;
+	`#1023` records five decisions taken and is incorrectly one. One type, both states, so no
+	default on that axis can separate them."*
 
-	The other obvious tidy-up is the mirror of that — giving ``spec`` and ``design`` an
-	in-force default so the type filter works again. `#506`'s own reasoning refuses it: a
-	design is not true the moment it is written. `#445` carries eight open questions and is
-	correctly a draft; `#1023` records five decisions taken and is incorrectly one. One type,
-	both states, so no default on that axis can separate them.
+	**No default can separate them — which argues for the one that is right more often, not for
+	keeping the one that is right less often.** `#445` is one document; the 47 mislabelled ones
+	`#537` counted are the other side. And the two failures are not symmetric: a draft marked in
+	force shows up under *Read first* where somebody sees it, while a specification left as a
+	draft is missing from *Read first* and looks like nothing at all.
+
+	What has not changed is that these are two questions. Merging them would still reintroduce
+	`#1036`, and the assertions below are now the evidence in the other direction.
 	"""
 
 	governs = subroutine.domain.documents.GOVERNS
@@ -553,8 +593,13 @@ def test_what_binds_you_and_what_is_true_when_written_are_different_questions ()
 	assert "finding" in when_written - governs, (
 		"a finding is true when written and describes rather than binds"
 	)
-	assert "spec" in governs - when_written, (
-		"a specification binds, and §6.14's draft-then-agreed lifecycle is what it is for"
+	assert "note" in when_written - governs, (
+		"a note is true when written and binds nobody; it is the sibling `#537` stopped "
+		"treating differently from a finding"
+	)
+	assert governs < when_written, (
+		"everything that binds is also true when written, and the sets are not equal — if "
+		"they ever become equal, one of them has stopped answering its own question"
 	)
 
 

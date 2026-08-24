@@ -210,7 +210,13 @@ _STATUSES = (
 #: says what is wrong, `question` says the question. Document-side: `decision` is something
 #: settled including a route closed off, `reference` is how a thing is meant to be, `record` is
 #: what was observed.
-_ITEM_TYPES = (
+#:
+#: **Every document type here starts *in force* rather than as a draft**, because
+#: :data:`subroutine.domain.documents.IN_FORCE_WHEN_WRITTEN` is derived from this tuple. Adding
+#: a seventh document type therefore decides that for it — say so there if it should start as a
+#: draft instead. A type an installation adds for itself is not covered and falls through to the
+#: workspace's own default, which is what keeps ``draft``'s ``is_default`` below meaningful.
+ITEM_TYPES = (
 	ItemTypeSeed("task", "task", "Task", "work", is_default=True),
 	ItemTypeSeed("task", "bug", "Bug", "defect"),
 	ItemTypeSeed("task", "feature", "Feature", "work"),
@@ -249,7 +255,7 @@ SEED_SETS: dict[int, SeedSet] = {
 	1: SeedSet(
 		roles=_SYSTEM_ROLES,
 		statuses=_STATUSES,
-		item_types=_ITEM_TYPES,
+		item_types=ITEM_TYPES,
 		link_types=LINK_TYPES,
 	),
 }

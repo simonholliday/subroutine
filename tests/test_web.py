@@ -10553,7 +10553,7 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
 
 	drawn = set(re.findall(r"^\t([a-z_]+):", mapping.group(1), re.M))
-	seeded = {one.key for one in subroutine.db.seed._ITEM_TYPES}
+	seeded = {one.key for one in subroutine.db.seed.ITEM_TYPES}
 
 	assert len(seeded) >= 10, f"only {seeded} seeded, so this checks almost nothing"
 

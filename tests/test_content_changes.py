@@ -65,7 +65,11 @@ TASK_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] = {
 DOCUMENT_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] = {
 	"title": ({}, {"title": "A different title"}),
 	"body": ({}, {"body": "Some words that were not there"}),
-	"status_id": ({}, {"status": "active"}),
+	# **Draft first, because every seeded document type is written *in force* since `SR#537`.**
+	# This was `({}, {"status": "active"})` and became a no-op the day that landed — the patch
+	# was refused by nothing, changed nothing, and the stamp correctly did not move, so the
+	# failure read as *status is not content* rather than as *the setup stopped setting up*.
+	"status_id": ({"status": "draft"}, {"status": "active"}),
 	"type_id": ({}, {"type": "decision"}),
 	"owner_id": ({}, {"owner_id": None}),
 	"tags": ({}, {"tags": ["ops"]}),

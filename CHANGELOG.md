@@ -34,6 +34,15 @@ upgrade involves.
 
 ### Changed
 
+- **A specification, a design or a note is in force the moment you write it.** Only a decision,
+  a finding and a dead end were before; the other three started as drafts and stayed there,
+  because nothing ever revisits that field. A draft does not govern — so a specification linked
+  to the work it describes sat plainly in that item's links and was **missing from the section
+  telling the next reader to read it first**.
+
+  If you are still drafting, say so: `subroutine doc create --status draft`. A type you added
+  yourself is unaffected and still starts at your workspace's own default.
+
 - **`/v1/meta` names each listing's lists after the parameter that takes them.** `sortable` is
   now `order` and `selectable` is now `fields`, matching `?order=` and `?fields=`. The old names
   were what the lists *contain*, so reading one and reaching for `?select=` earned a refusal —

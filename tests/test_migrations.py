@@ -484,7 +484,7 @@ def test_the_backfilled_type_category_is_the_one_the_seeder_would_have_written (
 
 	The migration carries a ``key -> category`` map because a backfill cannot call the seeder —
 	it runs against a schema the models may have moved past. So the same eleven pairs are written
-	down twice, in ``491e1a09de04`` and in ``seed._ITEM_TYPES``, and **two copies that agree are
+	down twice, in ``491e1a09de04`` and in ``seed.ITEM_TYPES``, and **two copies that agree are
 	invisible**: every other test here passes whether they agree or not, because both produce a
 	value and the column is NOT NULL either way.
 
@@ -521,7 +521,7 @@ def test_the_backfilled_type_category_is_the_one_the_seeder_would_have_written (
 				).tuples().all()
 			)
 
-		wanted = {one.key: one.category for one in subroutine.db.seed._ITEM_TYPES}
+		wanted = {one.key: one.category for one in subroutine.db.seed.ITEM_TYPES}
 
 		assert len(wanted) >= 11, f"only {sorted(wanted)} are seeded, so this checks little"
 		assert backfilled == wanted

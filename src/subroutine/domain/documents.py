@@ -27,6 +27,7 @@ import subroutine.db.mixins
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.db.seed
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -54,13 +55,26 @@ SUPERSEDED_CATEGORY = "superseded"
 CURRENT_CATEGORY = "current"
 
 #: The types that are true the moment they are written, and so start *active* rather than
-#: *draft* (`#506`, Simon 2026-08-05).
+#: *draft* (`#506`, Simon 2026-08-05; widened to every seeded type by `#537`, Simon
+#: 2026-08-24).
 #:
-#: **§6.14's lifecycle fits a specification and not a conclusion.** A spec is drafted, agreed
-#: and later replaced, so ``draft`` is the honest first state for it. A decision that has been
-#: taken is already in force; a finding is already true; a dead end already records that a
-#: route does not work. Calling any of those a draft is wrong the second the conversation
-#: ends, and one lifecycle was applied to six types without anybody asking which it suited.
+#: **The writing is the act, so a document is in force unless its author says otherwise.** A
+#: decision that has been taken is already in force; a finding is already true; a dead end
+#: already records that a route does not work; a note is already noted; and a specification is
+#: *the* specification until something supersedes it. ``draft`` is a claim only the writer can
+#: make, and ``status_key`` is how they make it.
+#:
+#: **This originally excluded ``spec``, ``design`` and ``note``, and the argument for that was
+#: about the lifecycle rather than about the first state.** §6.14's lifecycle does fit a
+#: specification — drafted, agreed, replaced — and that is all true; what it got wrong is where
+#: the lifecycle starts. **Measured on the only instance with real documents on it: 76 of 78
+#: were in force and 47 of those were labelled ``draft``.** A default that is wrong three times
+#: in five is not a lifecycle, it is a trap, and its cost is not cosmetic — ``links.governing``
+#: requires the *current* category, so a specification linked to the work it governs was absent
+#: from the next reader's *Read first* while sitting plainly in its Links.
+#:
+#: **It also ends an asymmetry inside one category.** ``note`` and ``finding`` are both
+#: ``record`` — what was observed — and only ``finding`` started in force.
 #:
 #: **Measured before it was changed**: all 72 open documents on this project's own instance
 #: sat in ``draft``, including 26 decisions that plainly govern. A vocabulary that is
@@ -82,7 +96,26 @@ CURRENT_CATEGORY = "current"
 #: reach this, and applying it here made the product unable to say the one thing a decision
 #: document exists to say. A caller who *is* still drafting says so with ``status_key``, which
 #: is why that had to become reachable from a client in the same change.
-IN_FORCE_WHEN_WRITTEN = frozenset({"decision", "finding", "dead_end"})
+#:
+#: **Derived from the seed rather than written out, and that is not the same as "always".** It
+#: now covers every document type this program ships, so a hand-written copy would be a second
+#: statement of the seed — the tell `#1157` recorded, where the guard saying the two agreed was
+#: the evidence a copy had just been made. What it still discriminates is a type somebody
+#: **added themselves** (`#826`), which falls through to the workspace's own default: we can say
+#: what our six types mean and we cannot say what a ``proposal`` means, so deferring to the
+#: vocabulary its author curated is more correct than assuming. That is also what keeps the
+#: seeded ``is_default`` on ``draft`` from becoming a control nothing reaches.
+#:
+#: **A seventh seeded document type therefore starts in force by default**, and whoever adds one
+#: should say here if it should not. ``db/seed.py`` carries a pointer back to this beside the
+#: document types, so that decision is met rather than discovered.
+#:
+#: It reads *keys*, like ``documents.GOVERNS`` beside it, so a renamed type falls out of it —
+#: which is `#1171`, tracked for the day `#1129` makes item types renameable and unchanged by
+#: this widening.
+IN_FORCE_WHEN_WRITTEN = frozenset(
+	one.key for one in subroutine.db.seed.ITEM_TYPES if one.entity_type == "document"
+)
 
 
 class Governing (typing.NamedTuple):
