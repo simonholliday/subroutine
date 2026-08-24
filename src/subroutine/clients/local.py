@@ -1455,7 +1455,15 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			# **The whole end rather than its id, because the event needs to say who acted**
+			# (`#816`). This resolved only an id and then let `links.remove` fall back to the
+			# link's *source* — so withdrawing an incoming link while reading its target
+			# recorded the work against an item nobody opened. The endpoint has passed
+			# `acted_on` since `#816`; this transport never did, and the equivalence suite
+			# could not see it because both sides agree about the outcome and the disagreement
+			# was in the event.
+			near = self._end(session, actor, chosen, entity_type, ref)
 
 			model = subroutine.db.models.work.Link
 			found = session.scalars(
@@ -1468,10 +1476,10 @@ class Client:
 					# withdraw a link between two things it never mentioned.
 					sqlalchemy.or_(
 						sqlalchemy.and_(
-							model.source_type == entity_type, model.source_id == subject
+							model.source_type == entity_type, model.source_id == near.id
 						),
 						sqlalchemy.and_(
-							model.target_type == entity_type, model.target_id == subject
+							model.target_type == entity_type, model.target_id == near.id
 						),
 					),
 				)
@@ -1483,7 +1491,7 @@ class Client:
 					hint="Run 'subroutine show <ref>' to see what it is joined to.",
 				)
 
-			subroutine.domain.links.remove(session, found, actor=actor)
+			subroutine.domain.links.remove(session, found, acted_on=near, actor=actor)
 
 	def _end (
 		self,

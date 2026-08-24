@@ -1388,6 +1388,59 @@ def test_both_withdraw_a_link_the_same_way (pair: Pair) -> None:
 	assert local.links(ref=first.ref) == remote.links(ref=first.ref) == []
 
 
+def test_both_record_the_unlink_against_the_item_the_reader_was_on (pair: Pair) -> None:
+	"""`SR#1205`. `SR#816` was fixed on one transport and the other kept the defect.
+
+	**Simon's rule**: *the action occurs on the item which is edited to add the link*. A link
+	is withdrawn from either end, so a reader standing on the **target** of an incoming one is
+	the case that separates the two — and the local client resolved only an id, leaving
+	``links.remove`` to fall back to the link's source.
+
+	**The suite above could not see it**, which is the part worth keeping. It drives ``unlink``
+	on both transports and asks whether the link went away; both answer yes. The transports
+	agreed about the outcome and disagreed about the *event*, and nothing compared the event —
+	so a fix landed on one surface and its twin went on being wrong for a release.
+	"""
+
+	near = make(pair, "The one I am reading")
+	far = make(pair, "The one that blocks it")
+
+	model = subroutine.db.models.activity.Event
+
+	def withdrawals () -> dict[int, uuid.UUID | None]:
+		"""Every unlink event so far, by ``seq``, and the item it names.
+
+		Keyed by ``seq`` rather than collected as a set of items: both transports withdraw
+		from the same task here, so a set of subjects is identical before and after the second
+		one and the new row would look like no row at all.
+		"""
+
+		return {
+			row.seq: row.subject_id
+			for row in pair.session.execute(
+				sqlalchemy.select(model.seq, model.subject_id).where(
+					model.entity_type == "link", model.action == "deleted"
+				)
+			)
+		}
+
+	for client in pair.both():
+		# Stored `far blocks near`, which is how a row carries an *incoming* link — so
+		# withdrawing it from `near` is withdrawing it from the target.
+		made = client.link(ref=far.ref, link_type="blocks", target=near.ref)
+		before = withdrawals()
+
+		client.unlink(ref=near.ref, link_id=str(made.id))
+		pair.session.flush()
+
+		(new_seq,) = set(withdrawals()) - set(before)
+
+		assert withdrawals()[new_seq] == near.id, (
+			f"{type(client).__module__} recorded the unlink against the source, and the "
+			f"reader was on #{near.ref}, the target"
+		)
+
+
 def test_both_say_the_same_thing_governs (pair: Pair) -> None:
 	"""`#1119`. Two paths assembling one reading list, from a rule with three parts.
 

@@ -46,6 +46,11 @@ upgrade involves.
 
 ### Fixed
 
+- **Unlinking from a terminal no longer credits the item you were not looking at.** A link is
+  withdrawn from either end, and withdrawing one from the far end recorded the work against the
+  other — so *what did I work on today* listed something nobody had opened. The API had this
+  right already; only the command line was wrong.
+
 - **A link between a visible item and one you cannot see no longer reaches you.** The change
   feed scoped a link event by *one* of its two ends, so somebody entitled to see one end was
   told that a particular item they are not entitled to see exists and is joined to it. What
