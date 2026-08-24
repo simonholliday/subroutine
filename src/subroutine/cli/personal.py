@@ -479,6 +479,7 @@ def agenda_asked (
 	workspace: str | None,
 	date: datetime.date | str | None = None,
 	horizon_days: int | None = None,
+	project: str | None = None,
 ) -> dict[str, typing.Any]:
 	"""Return what the agenda asks every connection for.
 
@@ -533,6 +534,12 @@ def agenda_asked (
 		# (§13.7) — the dentist and the stand-up belong in the same place. Naming a
 		# workspace is how you ask for half of it.
 		"workspace": workspace,
+		# **One area of work, and everything under it** (`#1215`, `#320`). The browser gained
+		# an agenda it can point at a project, and a capability on one surface and not another
+		# is what §14.1 forbids and what this project keeps paying for — so both ask the same
+		# function the same question. It needs a workspace beside it and the client refuses it
+		# without one, because a project key is per workspace (§5.4).
+		"project": project,
 	}
 
 
@@ -6047,6 +6054,9 @@ def register (
 			min=1,
 			help="How far ahead the look-ahead section reaches.",
 		),
+		project: str = typer.Option(
+			"", "--project", help="One project and everything under it. Needs -w."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print the agenda as JSON."),
 		strict: bool = typer.Option(
 			False, "--strict", help="Stop if any connection cannot be reached."
@@ -6064,15 +6074,11 @@ def register (
 
 		  subroutine -w work agenda
 
+		  subroutine -w work agenda --project acme
+
 		A named day is shown as it stands now, so anything already late appears under
 		Overdue whether or not it was late on that day.
 		"""
-
-		# **`-w` precedes the command**, because it is an application-wide option: it changes
-		# what every command means, not what this one does. `subroutine agenda -w work` is
-		# therefore refused by Typer as an unknown option, which is correct and is also the
-		# order most people will try first — so the example above is written the working way
-		# round rather than the natural-reading way.
 
 		_agenda(
 			program,
@@ -6081,6 +6087,7 @@ def register (
 			workspace=selected.workspace,
 			when=when,
 			days=days,
+			project=project,
 		)
 
 	@app.command("today", hidden=True)
@@ -7549,10 +7556,32 @@ def register (
 	def show_today () -> None:
 		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
 
-		agenda(when="", days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
-			json_output=False, strict=False)
+		_show_today(program, workspace=selected.workspace)
 
 	return show_today, selected
+
+
+def _show_today (program: Program, *, workspace: str | None) -> None:
+	"""Print today's agenda, as a bare ``subroutine`` invocation does (§12.2a).
+
+	**It reaches :func:`_agenda` rather than the Typer command**, and that is a fix rather than
+	a tidy-up (`#1215`). Calling a decorated command as a Python function hands every option its
+	``typer.Option(...)`` *descriptor* instead of its default — an object that is truthy, so
+	``--project``'s empty string arrived as an ``OptionInfo`` and the bare invocation refused
+	itself with *'project' names a project inside one workspace*. Every option had to be named
+	at the call site for the wrapper to be correct, which made adding one a silent trap.
+
+	The bare invocation carries no day, no look-ahead override and no flags by construction:
+	somebody who has typed nothing has asked for the default of everything.
+	"""
+
+	_agenda(
+		program,
+		json_output=False,
+		strict=False,
+		workspace=workspace,
+		days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+	)
 
 
 def _matching (
@@ -7755,6 +7784,7 @@ def _agenda (
 	workspace: str | None,
 	when: str = "",
 	days: int | None = None,
+	project: str | None = None,
 ) -> None:
 	"""Show what somebody is doing today, merged across every connection they can reach.
 
@@ -7772,6 +7802,16 @@ def _agenda (
 	``subroutine upgrade`` and ``db upgrade`` swapped meanings, so a surviving alias would have
 	answered to a name that used to mean the opposite. ``today`` goes on meaning exactly what
 	it meant.
+
+	**`-w` precedes the command**, because it is an application-wide option: it changes what
+	every command means, not what this one does. ``subroutine agenda -w work`` is therefore
+	refused by Typer as an unknown option, which is correct and is also the order most people
+	will try first — so the example in the command's help is written the working way round
+	rather than the natural-reading way.
+
+	**``project`` arrives as Typer wrote it and is emptied here** rather than at the call site.
+	A string option has no ``None``, so "not asked for" is ``""`` — and asking each connection
+	for a project named nothing is a 422 rather than the whole agenda.
 	"""
 
 	with program.opened(strict=strict) as world:
@@ -7779,7 +7819,9 @@ def _agenda (
 		# `_a_readable_day` for why this stopped resolving the word here (`#1083`).
 		day = _a_readable_day(when) if when else None
 
-		asked = agenda_asked(workspace=workspace, date=day, horizon_days=days)
+		asked = agenda_asked(
+			workspace=workspace, date=day, horizon_days=days, project=project or None
+		)
 
 		gathered = subroutine.fanout.gather(
 			world.clients, lambda client: client.agenda(**asked), strict=strict

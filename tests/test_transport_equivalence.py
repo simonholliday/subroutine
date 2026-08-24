@@ -777,6 +777,29 @@ def test_both_return_the_same_agenda (pair: Pair) -> None:
 		with pytest.raises(subroutine.errors.NotFound):
 			client.agenda(date=day, workspace="no-such-workspace")
 
+	# **Narrowing to a project, and refusing one with nowhere to look** (`SR#1215`). The refusal
+	# is the half that has to be written twice — the endpoint refuses `project` without a
+	# workspace, and the local client never sends a request at all, so a version that refused
+	# only over HTTP would answer two different things to one call. That is exactly the
+	# divergence S3-07 removed, in the parameter added since.
+	filed = local.create_project(key="area", title="An area of work")
+
+	local.capture(text="Inside the area +area")
+
+	both = [
+		client.agenda(date=day, workspace=pair.workspace.slug, project=filed.key)
+		for client in (local, remote)
+	]
+
+	assert both[0] == both[1]
+	assert [task.title for task in both[0].unscheduled] == ["Inside the area"], (
+		"narrowing to a project returned something other than that project's work"
+	)
+
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.ValidationError):
+			client.agenda(date=day, project=filed.key)
+
 
 def test_both_capture_the_same_line_the_same_way (pair: Pair) -> None:
 	"""Including what the grammar declined to read, which each works out differently."""

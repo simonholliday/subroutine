@@ -6473,7 +6473,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: payments, none of them raised, and each cheaper than the last: what a feature pays now is
 #: the cost of noticing rather than the cost of designing, and the closure has gone from 4,769
 #: lines to under 1,800 without a single stage being planned as one.
-REGISTER_CEILING = 1_711
+REGISTER_CEILING = 1_710
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -6484,7 +6484,12 @@ REGISTER_CEILING = 1_711
 #: one was translating column names. A floor counts functions *here*; a function that leaves for
 #: somewhere more than one caller can reach has not gone back into the closure, which is the only
 #: thing this number exists to catch.
-MODULE_LEVEL_FLOOR = 143
+#: **144 on 2026-08-24, with the ceiling to 1,710** (`#1215`). ``agenda`` gained an option and
+#: the closure still shrank: the note about why ``-w`` precedes the command moved into
+#: ``_agenda``'s docstring, and ``show_today``'s body left as :func:`_show_today` — which was a
+#: correctness fix as well as payment, since calling a Typer command as a plain function hands
+#: every unnamed option its ``OptionInfo`` descriptor rather than its default.
+MODULE_LEVEL_FLOOR = 144
 
 
 def _register_span () -> tuple[int, int]:

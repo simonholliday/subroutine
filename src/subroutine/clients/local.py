@@ -277,30 +277,55 @@ class Client:
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
 		workspace: str | None = None,
+		project: str | None = None,
 	) -> subroutine.views.Agenda:
 		"""Return the four buckets, across every workspace this credential reaches."""
 
 		with self._opened() as (session, actor):
+			# **Refused here rather than resolved against a guess** (`#1215`). The endpoint
+			# refuses the same pair for the same reason, and both have to: a project key is per
+			# workspace, so `project="web"` with no workspace is a question with more than one
+			# answer on any instance holding two.
+			if project is not None and workspace is None:
+				raise subroutine.errors.ValidationError(
+					"'project' names a project inside one workspace, so it needs a workspace.",
+					errors=[
+						subroutine.errors.FieldError(
+							field="project",
+							code="invalid_field_value",
+							message="'project' has no meaning without a workspace.",
+							hint="Pass workspace as well, or drop project.",
+						)
+					],
+				)
+
 			zone = subroutine.domain.schedule.zone_for(
 				user=actor.user,
 				instance=subroutine.domain.instances.get(session),
 				explicit=timezone,
 			)
 
+			chosen = (
+				None
+				if workspace is None
+				else subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			)
+
 			built = subroutine.domain.agenda.build(
 				session,
 				principal=actor,
 				workspace_ids=(
-					[
-						subroutine.domain.selection.workspace(
-							session, actor, requested=workspace
-						).id
-					]
-					if workspace is not None
+					[chosen.id]
+					if chosen is not None
 					else [
 						found.id
 						for found in subroutine.domain.workspaces.readable(session, actor)
 					]
+				),
+				project=(
+					None
+					if project is None or chosen is None
+					else subroutine.domain.selection.project(session, actor, chosen, project)
 				),
 				now=subroutine.db.types.utcnow(),
 				timezone=zone,

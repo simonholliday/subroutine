@@ -30,6 +30,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
@@ -175,8 +176,13 @@ def build (
 	date: datetime.date | None = None,
 	horizon_days: int | None = None,
 	unscheduled_limit: int = DEFAULT_UNSCHEDULED_LIMIT,
+	project: subroutine.db.models.project.Project | None = None,
 ) -> Agenda:
 	"""Return the agenda for one day, in the caller's timezone.
+
+	``project`` narrows to one area of work — that project **and everything under it**, which
+	is what a named project means everywhere else here (`#320`). It belongs to exactly one
+	workspace, so a caller passing it has already narrowed ``workspace_ids`` to that one.
 
 	``horizon_days`` of ``None`` omits the ``upcoming`` bucket entirely, which is the API's
 	default; the CLI passes :data:`DEFAULT_HORIZON_DAYS`.
@@ -207,7 +213,9 @@ def build (
 		),
 	)
 
-	base = _visible(session, principal, workspace_ids, until=day_end, sortable=sortable)
+	base = _visible(
+		session, principal, workspace_ids, until=day_end, sortable=sortable, project=project
+	)
 
 	# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927` M-18,
 	# Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and said in
@@ -438,6 +446,7 @@ def _visible (
 	*,
 	until: datetime.datetime,
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
+	project: subroutine.db.models.project.Project | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
@@ -475,10 +484,25 @@ def _visible (
 
 	model = subroutine.db.models.work.Task
 
+	# **The project narrowing goes here, beside the workspace one, rather than per bucket**
+	# (`#1215`). Every bucket narrows this select, so one clause covers all seven and a bucket
+	# added later is scoped without anybody remembering — which is the property that made
+	# `readable_tasks` the one copy of the visibility rules in the first place.
+	#
+	# **`within_project` rather than an id comparison**, so a named project means that area of
+	# work and not that one node (`#320`). An agenda for a parent project that excluded its own
+	# sub-projects would answer *nothing due today* about a tree full of deadlines.
+	narrowed = (
+		[]
+		if project is None
+		else [subroutine.domain.scoping.within_project(project)]
+	)
+
 	return (
 		subroutine.domain.scoping.readable_tasks(
 			principal, workspace_ids=workspace_ids, include_completed=False
 		)
+		.where(*narrowed)
 		.where(subroutine.domain.readiness.undeferred(model, now=until))
 		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**
 		# (`#853`). Two of the buckets are ranked, and `subroutine agenda` asks one connection

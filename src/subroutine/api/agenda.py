@@ -10,6 +10,7 @@ doing today" is a question about a person's day rather than about a workspace �
 appointment and the deployment are both in it (docs/design.md §13.7).
 """
 
+import typing
 import uuid
 
 import fastapi
@@ -18,6 +19,7 @@ import sqlalchemy.orm
 import subroutine.api.dependencies
 import subroutine.api.routing
 import subroutine.api.security
+import subroutine.db.models.project
 import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
@@ -25,6 +27,7 @@ import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.selection
 import subroutine.domain.workspaces
+import subroutine.errors
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -63,10 +66,18 @@ def read (
 		None,
 		description="Narrow to one workspace, by id or short name. Defaults to all of them.",
 	),
+	project: str | None = fastapi.Query(
+		None,
+		description=(
+			"Narrow to one project and everything under it, by key or id. Needs a workspace, "
+			"since a project belongs to one."
+		),
+	),
 ) -> subroutine.views.Agenda:
 	"""Return today's work, in four disjoint buckets."""
 
 	now = subroutine.db.types.utcnow()
+	narrowing = _within(session, actor, workspace_id, project)
 	zone = subroutine.domain.schedule.zone_for(
 		user=actor.user,
 		instance=subroutine.domain.instances.get(session),
@@ -96,9 +107,62 @@ def read (
 		),
 		horizon_days=horizon_days,
 		unscheduled_limit=unscheduled_limit,
+		project=narrowing,
 	)
 
 	return subroutine.views.agenda(session, built)
+
+
+def _within (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace_id: str | None,
+	wanted: str | None,
+) -> subroutine.db.models.project.Project | None:
+	"""Return the project this agenda is narrowed to, refusing one with nowhere to look.
+
+	**A project needs a workspace and this says so by name** (`#1215`). Refs, keys and the
+	vocabularies around them are per workspace (§5.4, §6.2), so ``?project=web`` on a request
+	spanning every workspace a credential reaches is a question with more than one answer —
+	and picking one would file the reader's whole agenda under whichever workspace happened to
+	sort first.
+
+	The refusal is shaped like ``/v1/tasks``'s for ``subtree`` without ``parent``: it says what
+	the parameter means, why the other is needed, and both ways out.
+
+	Resolved through :func:`subroutine.domain.selection.project` like every other listing, so a
+	key works, case is not significant, and a project the caller cannot read reads as absent
+	rather than forbidden (§7.3a).
+	"""
+
+	if wanted is None:
+		return None
+
+	if workspace_id is None:
+		raise subroutine.errors.ValidationError(
+			"'project' names a project inside one workspace, so it needs a workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="project",
+					code="invalid_field_value",
+					message="'project' has no meaning without 'workspace_id'.",
+					hint="Pass workspace_id=<slug> as well, or drop project.",
+				)
+			],
+		)
+
+	# **Cast, because `selection.project` is annotated `Any`** — it defaults to the Inbox and
+	# predates the model being importable here. The annotation on this function is what the
+	# domain is handed, so it is the one that has to be true.
+	return typing.cast(
+		subroutine.db.models.project.Project,
+		subroutine.domain.selection.project(
+			session,
+			actor,
+			subroutine.domain.selection.workspace(session, actor, requested=workspace_id),
+			wanted,
+		),
+	)
 
 
 def _scope (

@@ -88,6 +88,62 @@ class World:
 		)
 
 
+def test_an_agenda_can_be_narrowed_to_a_project_and_everything_under_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1218`'s sibling: `#1215`, and the half `GET /v1/agenda` could not answer at all.
+
+	The endpoint took a workspace and nothing narrower, so the browser could point an agenda at
+	a workspace and never at a project — which is the scope a person actually works in.
+
+	**The sub-project is what makes this falsifiable.** A named project means that area of work
+	and not that one node (`#320`), so comparing ``project_id`` to a single id would pass every
+	assertion here except the one about the child — and a parent whose agenda excluded its own
+	sub-projects would answer *nothing due today* about a tree full of deadlines.
+	"""
+
+	world = World(session)
+	under = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key=f"C{uuid.uuid4().hex[:10].upper()}",
+		title="A sub-project",
+		parent=world.project,
+	)
+	elsewhere = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key=f"E{uuid.uuid4().hex[:10].upper()}",
+		title="Another area of work",
+	)
+
+	world.task("In the project")
+	world.task("In the sub-project", project=under)
+	world.task("Somewhere else entirely", project=elsewhere)
+
+	assert sorted(_titles(world.agenda().unscheduled)) == [
+		"In the project", "In the sub-project", "Somewhere else entirely"
+	], "the unnarrowed agenda no longer spans the workspace"
+
+	narrowed = world.agenda(project=world.project)
+
+	assert sorted(_titles(narrowed.unscheduled)) == ["In the project", "In the sub-project"], (
+		"an agenda narrowed to a project either misses its sub-projects or leaks another "
+		"project's work"
+	)
+
+	# **The total follows the narrowing.** It is counted off the same select, so a version that
+	# filtered the rows and not the count would report *and 1 more* about work that is not in
+	# this project at all — the shape a cap gets wrong when it is bolted on afterwards.
+	assert narrowed.unscheduled_total == 2, (
+		f"the total counts rows the narrowing excluded: {narrowed.unscheduled_total}"
+	)
+
+	assert _titles(world.agenda(project=elsewhere).unscheduled) == [
+		"Somewhere else entirely"
+	], "narrowing to a leaf project does not narrow"
+
+
 def _titles (tasks: tuple[subroutine.db.models.work.Task, ...]) -> list[str]:
 	"""Return the titles in a bucket, for readable assertions."""
 

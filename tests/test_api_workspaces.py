@@ -139,6 +139,59 @@ def test_the_agenda_can_now_narrow_to_one_of_two_workspaces (
 	assert narrowed["unscheduled_total"] == 1
 
 
+def test_the_agenda_narrows_to_a_project_and_refuses_one_with_nowhere_to_look (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1215`. The endpoint took a workspace and nothing narrower.
+
+	So the browser could point an agenda at a workspace and never at a project, which is the
+	scope a person actually works in — `/projects/subroutine` was a list because an agenda for
+	it did not exist on the API at all.
+
+	**The refusal is the second half and is not a detail.** A project key is per workspace
+	(§5.4), so ``?project=web`` on a request that spans every workspace a credential reaches is
+	a question with more than one answer. Answering it by picking one would file a reader's
+	whole agenda under whichever workspace sorted first — silently, and differently on two
+	instances holding the same keys.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+	world.call(
+		"POST", "/v1/projects", json={"key": "web", "title": "Web", "workspace_id": "acme"}
+	)
+	world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "ops", "title": "Ops", "workspace_id": "acme"},
+	)
+	world.call(
+		"POST",
+		"/v1/tasks",
+		json={"text": "Ship the release", "project": "web", "workspace_id": "acme"},
+	)
+	world.call(
+		"POST", "/v1/tasks", json={"text": "Rotate the keys", "project": "ops",
+			"workspace_id": "acme"},
+	)
+
+	narrowed = world.call("GET", "/v1/agenda?workspace_id=acme&project=web").json()
+
+	assert {task["title"] for task in narrowed["unscheduled"]} == {"Ship the release"}
+	assert narrowed["unscheduled_total"] == 1
+
+	# **Refused, and by name.** Shaped like `/v1/tasks`'s refusal of `subtree` without `parent`:
+	# it says what the parameter means, why the other is needed, and both ways out.
+	refused = world.call("GET", "/v1/agenda?project=web")
+
+	assert refused.status_code == 422, refused.text
+
+	said = refused.json()
+
+	assert "project" in said["detail"], said
+	assert "workspace" in said["detail"], said
+	assert any(one["field"] == "project" for one in said.get("errors", [])), said
+
+
 def test_the_title_the_timezone_and_the_slug_can_all_change (
 	world: test_api_tasks.World,
 ) -> None:

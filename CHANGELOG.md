@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Added
 
+- **The agenda can be asked about one project.** `GET /v1/agenda` took a workspace and nothing
+  narrower, so there was no way to ask *what is on for this project today* — the question a
+  person actually works in. `?project=` narrows to a project and everything under it, and
+  `subroutine agenda --project` asks the same thing at a terminal. It needs a workspace beside
+  it and says so if it does not have one, because a project key belongs to one workspace and
+  the same key can name two projects on one instance.
+
 - **An item's page in the browser lists what it is made of.** It could say *this is part of
   `#7`* and could not say *these four are part of this*, so a milestone's contents were
   whatever prose somebody had typed into its description — a capability the terminal, MCP and

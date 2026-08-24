@@ -266,8 +266,14 @@ class Client(typing.Protocol):
 		horizon_days: int | None = None,
 		unscheduled_limit: int | None = None,
 		workspace: str | None = None,
+		project: str | None = None,
 	) -> subroutine.views.Agenda:
 		"""Return the four buckets, across every workspace this credential reaches.
+
+		``project`` narrows further, to one project **and everything under it** (`#320`). It
+		needs ``workspace`` beside it and is refused without one: a project key is per workspace
+		(§5.4), so the same key can name two projects on one instance and picking one would file
+		a whole agenda under whichever sorted first.
 
 		``workspace`` narrows to one, by id or short name. Spanning everything stays the
 		default, because "what am I doing today" is a question about a person's day — but one
