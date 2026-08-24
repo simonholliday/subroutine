@@ -1,6 +1,6 @@
 {
   "name": "subroutine-remote",
-  "version": "0.7.9",
+  "version": "0.8.0",
   "description": "Agent-native task management for complex projects, where the decisions live beside the work. Connects this session to a Subroutine instance somebody else runs — an address and a token, and nothing to install. It is a Claude Code plugin, so it runs wherever those run — but the two fields it needs are filled in with '/plugin', which the VS Code extension does not offer, so setting it up wants a terminal once even if you never use one again. A hosted surface that adds servers as connectors instead — claude.ai, and the apps that offer an 'Add custom connector' dialog — cannot use it: a connector authenticates with OAuth, which Subroutine does not offer yet, so there is nowhere to put the token you were given. Use 'subroutine' instead if your work lives on this machine.",
   "author": {
     "name": "Simon Holliday",
