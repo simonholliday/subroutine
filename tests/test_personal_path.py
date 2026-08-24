@@ -900,6 +900,28 @@ def test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for (
 		line.startswith('    "status_category": "') for line in lines
 	), "and the item's own category off a line anchored at four"
 
+	# **An item with a *finished* blocker, which is the case the anchors exist for** — pointed
+	# out by the cold review of 2026-08-24, which read the hook, agreed the depths discriminate,
+	# and said plainly that the fixture above proves the spelling and not the discrimination.
+	# An item with no links cannot tell a correct anchor from a loose one.
+	run("add", "Order the part")
+	run("done", "2")
+	run("link", "2", "blocks", "1")
+
+	lines = run("show", "1", "--json").output.splitlines()
+	own = [line for line in lines if line.startswith('    "status_category": "')]
+
+	assert own == ['    "status_category": "todo",'], (
+		"the four-space anchor must match the item's own category and nothing else; it found "
+		f"{own}"
+	)
+
+	# And the blocker's *is* in the output, more deeply indented — so the anchor is doing work
+	# rather than being the only line there was.
+	assert any(
+		line.startswith('        "status_category": "done"') for line in lines
+	), "the finished blocker's category is carried too, which is what a loose grep would read"
+
 
 @pytest.mark.parametrize("written", ["2026-12-01", "monday", "today+2w"])
 def test_a_defer_written_in_days_is_still_a_whole_day (

@@ -249,6 +249,29 @@ upgrade involves.
 
 ### Changed
 
+- **A connection you marked read-only now refuses every write, including eleven it used to
+  allow.** `read_only = true` is a posture — pointing an agent at a colleague's or an employer's
+  instance for context while forbidding it to write there — and it was enforced by a check
+  written on each write method by hand, so the methods added since simply did not have one.
+
+  **What was getting through**, on one transport or both: recording a verification, claiming and
+  releasing a task, setting an account's timezone, issuing and revoking a credential, minting a
+  sign-in link, signing an account out everywhere, and creating, resetting or revoking a calendar
+  feed. Signing somebody out of every browser session they hold is the one that decided this: a
+  destructive write is a strange thing for a connection that permits none to allow.
+
+  **If a script of yours relies on any of those against a read-only connection it will now be
+  refused**, which is the point, but it is a change you can meet without having done anything.
+  Take `read_only` off that connection, or issue a credential scoped the way you want instead —
+  a token can be narrower than you are, and a server enforces that where this setting cannot.
+
+- **`POST /v1/tags` on a tag that already exists is refused rather than silently overwriting it.**
+  It used to answer `201 Created` for something it had not created, echo back a name you had not
+  sent — `OPS` came back as `ops` — and replace whatever description somebody else had written.
+  It is now `409` naming the tag it found and pointing at `PATCH`, which is what `POST /v1/statuses`
+  and `POST /v1/link-types` have always done.
+
+
 - **A listing of finished work is ordered by when it finished.** `?status_category=done` and
   `?status=done` now come back most-recently-finished first, where they used to be newest-*filed*
   first — so `subroutine list --status done` was answering in the order the items were written.
@@ -293,6 +316,38 @@ upgrade involves.
   stop appearing. `updated_at` is unchanged and still moves on every write.
 
 ### Fixed
+
+- **A blocker count is right against an instance one release behind.** 0.7.6 sends a link without
+  the `link_category` this release added, and the three surfaces that count blockers compare that
+  field to `gating` — so every link read as *not holding anything up*. The *N of M blockers done*
+  rollup vanished from `subroutine show`, from an agent's `subroutine_show` and from the browser,
+  on exactly the item a milestone is read off, and nothing said why.
+
+  It affected the command line and the stdio agent surface against any remote connection. A
+  client now fills the category from the relation's key when the server did not state one, which
+  is the same answer that older instance computes for itself.
+
+- **A relation you have re-categorised is no longer proposed as one that governs.** Saying a link
+  type no longer binds is a supported change, and *Not linked, but its writing suggests* went on
+  offering it — so confirming a proposal the product had made produced a link that *Read first*
+  then ignored. Two surfaces disagreeing about one row, which is the defect the category work was
+  for.
+
+- **Renaming a tag cannot turn it into a number.** `POST /v1/tags {"name": "123"}` was refused
+  and `PATCH` of the same name was accepted — so a tag could be given a name made only of digits,
+  which is how this product spells a reference to an item. Every task carrying that tag would
+  then print it behind a hash, reading as a pointer to something else entirely.
+
+- **`subroutine whoami` names every workspace whose clock differs from this machine's.** One
+  workspace agreeing silenced the line about all the others, so somebody in London with a London
+  workspace and a New York one was told nothing about New York. A zone that agrees is left out of
+  the answer rather than listed.
+
+- **Asking an agent to continue reading past the end of an item says so.** `subroutine_show(ref,
+  from=N)` past the end of a body answered with a header claiming to resume and nothing under it,
+  which reads exactly like *the rest was empty*; `from=` on an item with no description at all was
+  ignored in silence. Both now say where the body ends and what to ask for instead.
+
 
 - **An item left open in the browser notices its blockers being finished.** The page polls, but
   it re-read only when something changed *that item* — so completing a blocker updated the

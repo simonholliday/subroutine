@@ -46,6 +46,15 @@ jobs:
   # **The coverage is the union of the two**, which is exactly how `ci.yml` and the local gate in
   # `scripts/check.py` already split it — and `tests/test_check_script.py` reads the union across
   # the file for that reason. Neither job alone runs the suite; `Build` needs both.
+  #
+  # **And that union is smaller than what it replaced, deliberately** (`SR#1176`). The single
+  # serial job ran `test_browser.py` with `SUBROUTINE_TEST_REQUIRE_POSTGRES=1`; the `browser`
+  # job below installs `.[dev]` with no PostgreSQL service, so those tests now run on SQLite
+  # alone and this was the only place they ever ran on the other backend — `ci.yml` never had
+  # that leg either. Accepted rather than overlooked: a computed colour and a rendered date are
+  # not backend-specific, which is the same argument that makes `browser` one job instead of one
+  # per Python version. What it costs is the backend-sensitive half of anything a browser test
+  # reaches through the API, and the ordinary suite covers that on both.
   test:
     name: Tests
     runs-on: ubuntu-latest

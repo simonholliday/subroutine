@@ -2294,6 +2294,23 @@ def _within_budget (
 
 	body = None if body_at is None else parts[body_at]
 
+	if resume > 0 and (body is None or resume >= len(body)):
+		# **An offset past the end is answered, not ignored** (`#1177`). A header saying
+		# *continuing at character N* above nothing at all is well-formed and unreadable: an
+		# agent that copied the offset from a note, then called again after the body was
+		# shortened, cannot tell that from *the rest was empty*. Saying how long the body
+		# actually is turns a puzzle into an arithmetic mistake the caller can see.
+		length = 0 if body is None else len(body)
+
+		if length == 0:
+			return f"#{ref}  has no description, so there is nothing to continue from."
+
+		return (
+			f"#{ref}  ends at character {length}, and you asked to continue at {resume}. "
+			f"Nothing follows. Ask again with from={length} or less, or read the whole item "
+			f"with subroutine_show(ref={ref})."
+		)
+
 	if body is not None and resume > 0:
 		# **The body alone from here.** A continuation is the rest of one field, not a second
 		# rendering of the item — everything around it was answered by the first call, and

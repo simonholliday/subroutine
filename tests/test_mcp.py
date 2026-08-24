@@ -1787,6 +1787,60 @@ def test_a_cut_body_says_where_to_carry_on_and_carrying_on_works (
 	assert "A long one" not in rest, rest[:200]
 
 
+def test_continuing_past_the_end_of_a_body_says_so (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1177`. A well-formed answer with nothing in it is the worst of both.
+
+	The continuation was built as a header saying *continuing at character N* and then
+	``body[N:]``, so an offset past the end gave an empty third part under a header claiming to
+	resume. An agent that copied the number from a note and called again after the body had
+	been shortened could not tell that from *the rest was empty* — and ``from=`` on an item with
+	no body at all was ignored the same silent way.
+
+	**Both cases, because they read identically from the outside and are different mistakes**:
+	one is an offset that has gone stale, the other is a field that was never there.
+	"""
+
+	made, failed = _called(
+		bound, "subroutine_document", title="A short one", body="Two lines.", type="note"
+	)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
+	ref = int(numbered.group(1))
+	past, failed = _called(bound, "subroutine_show", ref=ref, **{"from": 5000})
+
+	assert not failed, past
+	assert "continuing at character" not in past, "it must not claim to resume"
+	assert "ends at character 10" in past, past
+	assert "5000" in past, "the offset that was asked for is named back"
+	assert "Nothing follows" in past, past
+
+	# The remedy names a number that works, so the next call is a correction rather than a guess.
+	assert "from=10" in past, past
+
+	task, failed = _called(bound, "subroutine_add", text="Something with no description")
+
+	assert not failed, task
+
+	numbered = re.search(r"#(\d+)", task)
+
+	assert numbered is not None, task
+
+	empty, failed = _called(
+		bound, "subroutine_show", ref=int(numbered.group(1)), **{"from": 40}
+	)
+
+	assert not failed, empty
+	assert "no description" in empty, empty
+	assert "continuing at character" not in empty, empty
+
+
 def test_a_body_short_enough_to_fit_is_never_cut (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -5094,7 +5148,7 @@ def test_the_link_tool_does_not_hard_code_a_renameable_vocabulary (
 	link = tools["subroutine_link"]
 	described = link["description"] + link["inputSchema"]["properties"]["type"]["description"]
 
-	seeded = {seed.key for seed in subroutine.db.seed._LINK_TYPES}
+	seeded = {seed.key for seed in subroutine.db.seed.LINK_TYPES}
 	named = {key for key in seeded if key in described}
 
 	assert named <= {"blocks"}, (

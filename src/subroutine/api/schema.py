@@ -60,6 +60,19 @@ def refuse_a_write_against_a_schema_this_build_does_not_expect (
 	passes through, so this is not a second list of writing routes — it is the same rule asked
 	a second question. A list is what `#676` and `#897` both fell behind.
 
+	**One route writes and is not caught by it, and that is stated rather than implied**
+	(`#1174`). ``GET /signin`` spends a single-use link and creates a browser session, so the
+	method is not the definition there. It is a ``GET`` for reasons that route argues at
+	length — a ``303`` is what takes the credential out of the address bar — and it is left
+	permitted during a mismatch on purpose: being able to sign in and *look* at an instance
+	that is refusing writes is the same courtesy as serving reads. What is not on purpose is a
+	docstring claiming a completeness the code does not have, which is how the next reader
+	concludes there is nothing here to check.
+
+	It is not in :data:`NOT_A_WRITE`, deliberately. That map is consulted after the method
+	check, so a ``GET`` never reaches it and an entry there would be one nothing reads —
+	which is a worse record than none. ``tests/test_api_schema.py`` holds the fact instead.
+
 	A failure to read the revision is a **no-op**, deliberately: this is a courtesy check, and a
 	database that cannot be reached at all will fail the request it was going to fail anyway,
 	with the driver's own words rather than with a sentence about migrations.

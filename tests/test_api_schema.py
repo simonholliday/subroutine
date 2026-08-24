@@ -228,3 +228,30 @@ def test_every_route_excused_from_the_schema_check_exists_and_is_a_write () -> N
 		f"{safe} are excused from a check that never applied to them — the rule is the method, "
 		"so a read needs no entry"
 	)
+
+
+def test_the_one_read_that_writes_is_recorded_rather_than_implied () -> None:
+	"""`#1174`. The guard's docstring said the method *is* the definition of a write.
+
+	``GET /signin`` spends a single-use link and creates a browser session, so it is a read by
+	method and a write by effect — and it went round the schema check without anybody deciding
+	it should. The outcome is defensible and is now written down at the guard; what this holds
+	is the *fact* the prose rests on, so the sentence cannot outlive it.
+
+	**Not an entry in ``NOT_A_WRITE``**, which the test above would reject: that map is
+	consulted after the method check, so a ``GET`` never reaches it and an entry would be a
+	record nothing reads. This is the record instead.
+	"""
+
+	mounted = {
+		(path, tuple(sorted(methods)))
+		for path, methods, _route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+	}
+
+	signin = [methods for path, methods in mounted if path == "/signin"]
+
+	assert signin == [("GET",)], (
+		"the schema guard's docstring names GET /signin as the one route that writes without "
+		f"being a write by method, and this application mounts {signin}. If it has stopped "
+		"being a GET the exception is gone and the paragraph explaining it should go too."
+	)
