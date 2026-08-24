@@ -46,6 +46,11 @@ upgrade involves.
   A ring is also refused for `ordering` now, not just `blocks`: *A before B before A* holds
   nothing up and is still a statement that cannot be true.
 
+  That refusal describes the relation you actually used. It used to say *cannot block* and
+  *neither could ever be started* whatever the relation was, and offer `relates_to` by name —
+  all three wrong for anything but `blocks`, and the last one wrong for a workspace that had
+  renamed it.
+
 - **An item type says what kind of thing it is.** Every type now carries a fixed `category` —
   `work`, `defect` or `question` for a task; `decision`, `reference` or `record` for a document —
   published on the type in `/v1/meta` and as `type_category` on every item.

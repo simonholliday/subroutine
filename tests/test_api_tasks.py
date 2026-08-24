@@ -1824,6 +1824,11 @@ def test_a_ring_of_blocking_links_is_refused_and_the_chain_is_named (world: Worl
 	assert closing.json()["code"] == "cycle_detected"
 	assert closing.json()["errors"][0]["message"].count("→") == 2, "the chain, not the ends"
 
+	# **The deadlock argument belongs to this category and only to it** (`SR#1158`). A `gating`
+	# ring really does leave every item in it unstartable, which is the sentence that was being
+	# said about every ring of any kind.
+	assert "Neither could ever be started" in closing.json()["hint"], closing.text
+
 	for ref in (first, second, third):
 		assert f"#{ref}" in closing.text
 
@@ -1889,6 +1894,19 @@ def test_a_ring_of_an_ordering_relation_is_refused_even_though_it_holds_nothing_
 
 	assert closing.status_code == 409, closing.text
 	assert closing.json()["code"] == "cycle_detected"
+
+	# **What it *says*, because the first version of this asserted the status and the code and
+	# not one word of the message** — so it passed while every sentence of the refusal was wrong
+	# (`SR#1158`). It said *cannot block* about a relation that does not block, *neither could
+	# ever be started* about work nothing was holding up, and offered `relates_to` by key.
+	said = closing.json()
+
+	assert "block" not in said["detail"], said["detail"]
+	assert "Comes before" in said["detail"], "the relation is not named as this workspace has it"
+	assert "could ever be started" not in said["hint"], (
+		"an ordering relation holds nothing up, so nothing here is unstartable"
+	)
+	assert "Relates to" in said["hint"], "the alternative is offered by title, not by key"
 
 
 def test_a_ring_of_a_type_that_does_not_sequence_work_is_allowed (world: World) -> None:

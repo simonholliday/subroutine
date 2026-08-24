@@ -48,6 +48,11 @@ LINKABLE = ("task", "document")
 #: because :data:`SEQUENCING` is the only thing that reads it.
 ORDERING = "ordering"
 
+#: What a relation is when it says only that two items are connected — no sequence, no binding.
+#: Named because the ring refusal offers one as the alternative, and offering it by *key* is
+#: what `#1158` was: advice naming a relation the workspace may not have.
+DESCRIBING = "describing"
+
 #: The relation :func:`proposals` builds an edge of, by key rather than by category — the one
 #: place a key is still read on purpose, and the reason is at the call site: a proposal
 #: *constructs* a link where every other rule *interprets* one, and the two governing relations
@@ -341,8 +346,13 @@ def _refuse_a_loop (
 	here = subroutine.domain.refs.format_ref(source.ref)
 	there = subroutine.domain.refs.format_ref(target.ref)
 
+	# **What the two sequencing categories share is *order*, so that is what the sentence says**
+	# (`#1158`). It said "cannot block", which is true of `gating` and of nothing else — the rule
+	# moved off the key with `#1157` and the wording did not. The relation's own title is quoted
+	# beside it, so this reads correctly whatever a workspace calls the thing.
 	raise subroutine.errors.Conflict(
-		f"{here} cannot block {there}, because {there} already blocks {here}.",
+		f"{here} cannot come before {there} under {link_type.title!r}, "
+		f"because {there} already comes before {here}.",
 		code="cycle_detected",
 		errors=[
 			subroutine.errors.FieldError(
@@ -351,8 +361,57 @@ def _refuse_a_loop (
 				message=f"The chain that comes back is {written}.",
 			)
 		],
-		hint="Neither could ever be started. Withdraw a link in that chain, or join them "
-		"with 'relates_to', which says they are connected without saying which is first.",
+		hint=_why_a_ring_is_wrong(session, link_type, workspace_id=workspace_id),
+	)
+
+
+def _why_a_ring_is_wrong (
+	session: sqlalchemy.orm.Session,
+	link_type: subroutine.db.models.vocabulary.LinkType,
+	*,
+	workspace_id: uuid.UUID,
+) -> str:
+	"""Say what is actually wrong with this ring, and what to do instead.
+
+	**The two categories are wrong in different ways and the hint said only one of them**
+	(`#1158`). *Neither could ever be started* is the cost of a ``gating`` ring and is **false**
+	of an ``ordering`` one, which holds nothing up by definition — so it told somebody their work
+	was stuck when it was not, and sent them to withdraw a link that was costing them nothing.
+
+	**The alternative is resolved rather than spelled.** It named ``relates_to``, a key, in the
+	hint of the function `#1157` had just moved off keys — so a workspace that renamed it was
+	advised to use a relation it does not have. Offered by title, and the clause is dropped
+	where the workspace has nothing to offer, because a suggestion that refuses is worse than
+	none.
+	"""
+
+	wrong = (
+		"Neither could ever be started."
+		if link_type.category == subroutine.domain.readiness.GATING
+		else "A sequence cannot come back to where it started."
+	)
+
+	# **Symmetric, and that is not a refinement — it is what the sentence claims.** Ordering by
+	# key alone offered `Duplicates`, which is `describing` and is a specific assertion about a
+	# pair rather than a neutral one: *connected without saying which is first* is exactly what
+	# `is_symmetric` means, and nothing else here means it. Caught by the test asserting the
+	# words rather than the status.
+	instead = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.LinkType)
+		.where(
+			subroutine.db.models.vocabulary.LinkType.workspace_id == workspace_id,
+			subroutine.db.models.vocabulary.LinkType.category == DESCRIBING,
+			subroutine.db.models.vocabulary.LinkType.is_symmetric.is_(True),
+		)
+		.order_by(subroutine.db.models.vocabulary.LinkType.key)
+	).first()
+
+	if instead is None:
+		return f"{wrong} Withdraw a link in that chain."
+
+	return (
+		f"{wrong} Withdraw a link in that chain, or join them with {instead.title!r}, "
+		f"which says they are connected without saying which is first."
 	)
 
 
