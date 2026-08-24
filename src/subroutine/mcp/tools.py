@@ -2354,6 +2354,75 @@ def _within_budget (
 	return "\n".join(parts)
 
 
+class _Checkout(typing.NamedTuple):
+	"""Where the checkout this session is standing in says work belongs, and what to say."""
+
+	#: The project to file under, resolved against *this* instance. ``None`` means file
+	#: wherever the caller's own arguments say, which is the workspace's Inbox by default.
+	project: str | None
+
+	#: The line to add to the answer, or ``None`` when there is nothing to report. Said even
+	#: when the marker was *not* used, because an agent holding a repository whose file says
+	#: one thing and an instance that says another needs to know which won.
+	said: str | None
+
+
+def _checkout (
+	client: subroutine.clients.base.Client, *, workspace: str | None, overridden: bool
+) -> _Checkout:
+	"""Return the project a ``.subroutine`` marker here files into, and the line that says so.
+
+	**One copy, because two handlers need this and only one of them had it** (`#1219`).
+	``subroutine_add`` read the marker from the day it was written and ``subroutine_document``
+	never did, so a document written from a marked checkout went to the workspace Inbox and the
+	answer did not say where it had gone. Five accumulated before anybody noticed, which is what
+	a silent write looks like from the outside.
+
+	``overridden`` is the caller naming a project themselves — a ``+key`` in a captured line, or
+	a ``project`` argument. Somebody speaking now outranks a file on disk (§13.7a).
+
+	**Looked for on every call rather than at startup** (§13.7a, `#159`). A stdio server outlives
+	the moment it was launched, and a repository adopted mid-session should not need it
+	restarted — which is the one thing an agent cannot do to itself.
+	"""
+
+	marker = subroutine.directory.find()
+
+	consulted = (
+		marker is not None
+		# **And only where the marker speaks for the connection this session is on** (`#414`).
+		# A marker names one instance; its project is a fact about that instance and nothing
+		# else. Without this, `directory.resolve`'s match-by-key fallback — which exists for
+		# markers written before `#177` gave them ids — filed work into a same-named project on
+		# whichever instance happened to answer.
+		and marker.speaks_for(client.connection.name)
+		and (marker.project is not None or marker.project_id is not None)
+		and not overridden
+	)
+
+	if not consulted or marker is None:
+		return _Checkout(None, None)
+
+	# **Resolved against this instance, never passed through** (`#232`). The marker's key went
+	# straight to the server until 0.1.0, so a checkout marked for somebody else's instance —
+	# which is what committing this file is *for* — refused every write with "there is no
+	# project 'SR' here", while the CLI beside it filed the task and said it had ignored the
+	# marker. `#166` settled that the marker is advisory; only one surface implemented it.
+	# Resolving also buys `#177`: a renamed project is followed by id, which this never did.
+	filed = subroutine.directory.resolve(marker, client.projects(workspace=workspace))
+
+	if filed is not None:
+		return _Checkout(filed, f"in {filed}, from {subroutine.directory.FILE_NAME}")
+
+	shown = marker.project or marker.project_id
+
+	return _Checkout(
+		None,
+		f"{subroutine.directory.FILE_NAME} here names {shown!r}, which is not on this "
+		f"instance. Ignoring it.",
+	)
+
+
 def _added (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -2372,42 +2441,21 @@ def _added (
 	when there is something to say, so an ordinary capture costs nothing.
 	"""
 
-	# **Looked for on every call rather than at startup** (§13.7a, `#159`). A stdio server
-	# outlives the moment it was launched, and a repository adopted mid-session should not
-	# need it restarted — which is the one thing an agent cannot do to itself.
-	marker = subroutine.directory.find()
 	line = _text(arguments, "text") or ""
 	workspace = _text(arguments, "workspace")
 
-	consulted = (
-		marker is not None
-		# **And only where the marker speaks for the connection this session is on** (`#414`).
-		# A marker names one instance; its project is a fact about that instance and nothing
-		# else. Without this, `directory.resolve`'s match-by-key fallback — which exists for
-		# markers written before `#177` gave them ids — filed work into a same-named project on
-		# whichever instance happened to answer.
-		and marker.speaks_for(client.connection.name)
-		and (marker.project is not None or marker.project_id is not None)
-		and not subroutine.domain.capture.names_a_project(line)
-	)
-
-	# **Resolved against this instance, never passed through** (`#232`). The marker's key went
-	# straight to the server until 0.1.0, so a checkout marked for somebody else's instance —
-	# which is what committing this file is *for* — refused every `subroutine_add` with "there
-	# is no project 'SR' here", while the CLI beside it filed the task and said it had ignored
-	# the marker. `#166` settled that the marker is advisory; only one surface implemented it.
-	# Resolving also buys `#177`: a renamed project is followed by id, which this never did.
-	filed = (
-		subroutine.directory.resolve(marker, client.projects(workspace=workspace))
-		if consulted and marker is not None
-		else None
+	# **A `+key` in the line is somebody speaking now, and outranks a file on disk** (§13.7a).
+	checkout = _checkout(
+		client,
+		workspace=workspace,
+		overridden=subroutine.domain.capture.names_a_project(line),
 	)
 
 	captured = client.capture(
 		text=line,
 		workspace=workspace,
 		type=_text(arguments, "type"),
-		project=filed,
+		project=checkout.project,
 		# **The second call an agent was measured skipping** (`#424`). `#392` put this on
 		# `subroutine_update`, which made a described item two calls on two tools — and the
 		# agent that reported this one said plainly why that loses: "an agent weighing calls
@@ -2434,16 +2482,8 @@ def _added (
 	# cannot see where its work went cannot tell a person either. That argument applies just
 	# as much when the marker was *not* used — more so, because the agent is then holding a
 	# repository whose file says one thing and an instance that says another.
-	if filed is not None:
-		answer = f"{answer}\n  in {filed}, from {subroutine.directory.FILE_NAME}"
-
-	elif consulted and marker is not None:
-		shown = marker.project or marker.project_id
-
-		answer = (
-			f"{answer}\n  {subroutine.directory.FILE_NAME} here names {shown!r}, which is not "
-			f"on this instance. Ignoring it."
-		)
+	if checkout.said is not None:
+		answer = f"{answer}\n  {checkout.said}"
 
 	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
 	# the caller most likely to have written something it believes was understood, and telling
@@ -2490,21 +2530,39 @@ def _wrote (
 	"""
 
 	ref = arguments.get("ref")
+	workspace = _text(arguments, "workspace")
 
 	if ref is None:
 		if not _text(arguments, "title"):
 			raise ValueError("Pass title to write a document, or ref to revise one.")
 
+		# **The checkout decides where a conclusion is filed, exactly as it decides where a task
+		# is** (`#1219`). This read no marker at all until 2026-08-24, so a document written from
+		# a marked repository landed in the workspace Inbox — and the answer below named the ref
+		# and not the project, so nothing on this surface could tell an agent it had happened.
+		# Five documents accumulated that way, two of them ones a session is told to read
+		# before starting work.
+		#
+		# **A `project` argument is the caller speaking now and still wins**, which is the same
+		# precedence a `+key` in a captured line has.
+		checkout = _checkout(
+			client,
+			workspace=workspace,
+			overridden=_text(arguments, "project") is not None,
+		)
+
 		document = client.create_document(
 			title=_text(arguments, "title") or "",
 			body=_text(arguments, "body"),
 			type=_text(arguments, "type"),
-			project=_text(arguments, "project"),
+			project=_text(arguments, "project") or checkout.project,
 			tags=_words(arguments, "tags"),
-			workspace=_text(arguments, "workspace"),
+			workspace=workspace,
 		)
 
-		return "Wrote " + _line(document, now=subroutine.db.types.utcnow())
+		answer = "Wrote " + _line(document, now=subroutine.db.types.utcnow())
+
+		return answer if checkout.said is None else f"{answer}\n  {checkout.said}"
 
 	# **Omitted is unchanged, and that is the whole reason this is worth a ref** (§8.3). An
 	# agent correcting one paragraph sends the body; the type, the project and the tags it
@@ -2530,9 +2588,12 @@ def _wrote (
 		type=said("type"),
 		project=said("project"),
 		tags=subroutine.clients.base.UNSET if tags is None else tags,
-		workspace=_text(arguments, "workspace"),
+		workspace=workspace,
 	)
 
+	# **A revision consults no marker, deliberately.** Omitted means unchanged (§8.3), so a
+	# document keeps the project it was filed under; letting the checkout speak here would move
+	# somebody else's document because of where the editor happened to be standing.
 	return "Revised " + _line(revised, now=subroutine.db.types.utcnow())
 
 

@@ -12,6 +12,17 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **A document written by an agent is filed where the checkout says**, the way a captured task
+  already was. `subroutine_document` never read the `.subroutine` marker, so a conclusion
+  written from a marked repository went to the workspace Inbox — and its answer named the
+  number without naming the project, so nothing on that surface said it had happened. Both
+  halves are fixed: the marker decides, and the answer says which project it chose and where
+  that came from. A `project` argument still wins, and revising a document never moves it.
+
 ## 0.8.1 — 2026-08-24
 
 > **This release changes the database schema**, to `4240ca248de1`.
