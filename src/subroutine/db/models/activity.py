@@ -113,14 +113,33 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 
 	# Both nullable: a system action has no user, and a session-authenticated action has
 	# no token. Recording which is which is what makes the audit trail worth having.
+	#
+	# **Deliberately not foreign keys** (`#672`). They were, with ``ON DELETE SET NULL``, so
+	# removing a user or a token silently rewrote every event that actor had ever written —
+	# retroactively, across the whole history, with nothing recording that it used to say more.
+	# A GDPR erasure *is* a hard user delete, and clearing out credentials nobody uses is
+	# exactly the tidying nobody thinks of as destructive; neither would have warned.
+	#
+	# **Dropping the constraint is the whole fix, because nothing joins through it.** This class
+	# declares no ``relationship``, and every reader is a plain column read or an ``== id``
+	# comparison — a join still works without one. What the constraint added here was the
+	# clause that erased the answer.
+	#
+	# **It also makes ``NULL`` mean one thing again.** It meant *either* a system action *or*
+	# somebody acted and the database forgot who, and the column could not tell them apart.
+	# Nothing nulls these now, so it means the first.
+	#
+	# **And it is the better answer for erasure, not the weaker one.** ``User`` carries
+	# :class:`~subroutine.db.mixins.SoftDeleteMixin`, so ordinary departure keeps the row and
+	# the name; a hard delete happens precisely when the name is meant to go. The identity
+	# therefore lives in one place, deleting it erases it, and the id left here is unlinkable —
+	# where a snapshotted name would put it on every row and owe a sweep for ever.
 	actor_user_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(),
-		sqlalchemy.ForeignKey("user.id", ondelete="SET NULL"),
 		nullable=True,
 	)
 	actor_token_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.uuid_column(),
-		sqlalchemy.ForeignKey("api_token.id", ondelete="SET NULL"),
 		nullable=True,
 	)
 	entity_type: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(

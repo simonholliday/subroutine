@@ -1161,3 +1161,139 @@ def test_going_back_past_a_reused_slug_says_what_is_in_the_way (
 
 	finally:
 		engine.dispose()
+
+
+#: The revision before the actor columns stopped being foreign keys.
+_BEFORE_DURABLE_ACTORS = "da7628199bff"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_an_events_actor_survives_the_migration_that_makes_it_durable (
+	migrated_url: str,
+) -> None:
+	"""`SR#672`. The rebuild must not renumber or lose what it is protecting.
+
+	Dropping a constraint is an ordinary ``ALTER`` on PostgreSQL and a **copy-drop-rename** on
+	SQLite, which cannot alter one in place. So the fix for a data-durability defect is itself
+	the one shape of migration that can lose data — and ``event.seq`` is the primary key every
+	client resumes a feed on, so renumbering would be worse than the defect: a caller asking
+	*what is after 4,812* would silently skip or repeat.
+
+	**Asserted against the rows rather than against the schema.** The generic history walk in
+	this file proves a populated database still migrates; it reads no values back, so a rebuild
+	that preserved the row count and scrambled the keys would pass it.
+
+	**With a real user, because the downgrade puts the constraint back.** An actor that does not
+	resolve is exactly what this migration makes possible and exactly what the old schema
+	refuses, so a round trip cannot carry one — which is the migration's own docstring being
+	true rather than a limitation of the test. The durability property is asserted next door,
+	where it does not need to travel backwards.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+			actor = subroutine.db.models.identity.User(username="u", username_normalized="u")
+
+			session.add_all((workspace, actor))
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			for which in range(4):
+				session.add(
+					subroutine.db.models.activity.Event(
+						workspace_id=workspace.id,
+						entity_type="task",
+						entity_id=subroutine.db.types.new_uuid(),
+						action="created",
+						actor_user_id=actor.id,
+						changes={"n": which},
+					)
+				)
+
+			session.commit()
+
+		before = _every_actor(engine)
+
+		assert len(before) == 4, f"the fixture wrote {len(before)} events, not four"
+		assert all(row[2] is not None for row in before), "no actor to preserve"
+
+		# Down across the revision and back up, with the rows in place the whole way.
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_DURABLE_ACTORS)
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		assert _every_actor(engine) == before, (
+			"an event's seq or actor changed while the table was rebuilt"
+		)
+
+	finally:
+		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_deleting_a_user_no_longer_erases_what_they_did (migrated_url: str) -> None:
+	"""The defect itself, reproduced against the migrated schema — `SR#672`.
+
+	Both actor columns were foreign keys with ``ON DELETE SET NULL``, so a hard delete rewrote
+	every event that actor had ever written: retroactively, across the whole history, with
+	nothing recording that it used to say more. A GDPR erasure **is** a hard user delete, and
+	clearing out unused credentials is exactly the tidying nobody thinks of as destructive.
+
+	**A hard delete rather than the soft one**, deliberately. ``User`` carries
+	``SoftDeleteMixin``, so ordinary departure keeps the row — which is why this was latent, and
+	why the erasure case is the one worth driving.
+
+	It also fixes what ``NULL`` means. It stood for *either* a system action *or* somebody acted
+	and the database forgot who; nothing nulls these now, so it means the first.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+			actor = subroutine.db.models.identity.User(username="u", username_normalized="u")
+
+			session.add_all((workspace, actor))
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			who = actor.id
+
+			session.add(
+				subroutine.db.models.activity.Event(
+					workspace_id=workspace.id,
+					entity_type="task",
+					entity_id=subroutine.db.types.new_uuid(),
+					action="created",
+					actor_user_id=who,
+				)
+			)
+			session.commit()
+
+			session.delete(actor)
+			session.commit()
+
+		assert [row[2] for row in _every_actor(engine)] == [who], (
+			"the event's actor was erased by deleting the row it pointed at"
+		)
+
+	finally:
+		engine.dispose()
+
+
+def _every_actor (engine: sqlalchemy.engine.Engine) -> list[tuple[typing.Any, ...]]:
+	"""Return every event's key and actor, oldest first."""
+
+	table = subroutine.db.base.Base.metadata.tables["event"]
+
+	with engine.connect() as connection:
+		found = connection.execute(
+			sqlalchemy.select(
+				table.c.seq, table.c.id, table.c.actor_user_id, table.c.actor_token_id
+			).order_by(table.c.seq.asc())
+		)
+
+		return [tuple(row) for row in found]

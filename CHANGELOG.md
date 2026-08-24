@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `a1b3cef13c45`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
 
 - **A document can say which one it replaces, from a terminal or a client.**
@@ -27,6 +33,23 @@ upgrade involves.
   needs one.
 
 ### Fixed
+
+- **Deleting a user or a token no longer erases what they did.** Both actor columns on the event
+  log were foreign keys with `ON DELETE SET NULL`, so removing either silently rewrote every
+  event that actor had ever written — retroactively, across the whole history, and with nothing
+  recording that it used to say more.
+
+  A GDPR erasure request *is* a hard user delete, and clearing out credentials nobody uses is
+  exactly the kind of tidying nobody thinks of as destructive. Neither would have warned you, and
+  both would have been discovered much later by somebody reading a history that no longer
+  answered its own question.
+
+  The columns and their values are unchanged; only the constraints are gone. **It also fixes what
+  an empty actor means**: it stood for *either* a system action *or* somebody acted and the
+  database forgot who, and nothing could tell the two apart. Nothing clears them now.
+
+  A hard-deleted user's own name is still gone with their record — the trail keeps the shape of
+  what they did without keeping who they were, which is what an erasure should leave.
 
 - **Revising a document accepts any of its flags on its own.** `subroutine doc edit 42 --tag ops`
   was refused with *"Nothing was piped in"*, because the check for whether you had said anything
