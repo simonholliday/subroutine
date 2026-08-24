@@ -2871,6 +2871,115 @@ export function chips (behind, showing) {
 	}));
 }
 
+//: What the browser tab says this application is, after whatever the page is.
+export const PRODUCT = "Subroutine";
+
+export function titlesByPath (projects) {
+	/*
+		Every project's whole path against its title — `#1214`.
+
+		**The tree arrives flat and in pre-order with a `depth`**, which is the shape
+		`placesToGo` already rebuilds an address from and the reason a project's `key` need only
+		be unique among its siblings (`#958`). The same walk answers a different question here:
+		whatever sits at each height is this row's ancestry, so `ancestry.length = depth` is what
+		pops back out of a subtree.
+
+		**Titles, where a row's project *chip* uses slugs**, and the two are not in tension.
+		`#151`'s rule is that a chip is the thing you can type back into an address; a tab title
+		is read at a glance and never typed, and a reader scanning eight tabs is looking for the
+		word they call the place rather than the word the URL calls it. Simon's own examples are
+		titles.
+	*/
+	const found = {};
+	const ancestry = [];
+
+	(projects || []).forEach((one) => {
+		const depth = one.depth || 0;
+
+		ancestry.length = depth;
+		ancestry.push(one.key);
+
+		found[ancestry.join(PATH_SEPARATOR)] = `${one.title || one.key}`;
+	});
+
+	return found;
+}
+
+export function pageTitle ({
+	item = null, place = null, showing = null, workspaces = [], projects = [],
+}) {
+	/*
+		What the browser tab says — `#1214`, Simon: *"I have multiple tabs open and they all just
+		say 'Subroutine' — unhelpful."*
+
+		**Nothing wrote one at all.** `index.html` carried a static `<title>` and `document.title`
+		was assigned nowhere, so it was not that the title was wrong; it was that every tab, on
+		every page, said one word.
+
+		| page | title |
+		| --- | --- |
+		| an item | `#1111 The release gate finishes inside its own timeout` |
+		| the root | `Agenda` |
+		| a workspace | `Projects: Agenda` |
+		| a project | `Projects / Subroutine: Board` |
+		| a sub-project | `Projects / Subroutine / Web UI: Board` |
+
+		**The scope reads with `/` and the view with `:`**, which is his and is right: they are
+		different axes, and one separator for both would read as a four-level path.
+
+		**A tab truncates from the right, so the front of the title is what survives.** That is
+		why the ref leads on an item — `#1111` is what tells two tabs apart at fifteen characters.
+		It cuts the other way for a place and only sometimes: several tabs on *different* projects
+		are told apart by the scope, several on *one* project in different views by the view.
+		Scope-first is right because the first case is the common one, and the trade is recorded
+		here rather than rediscovered.
+
+		**The view is whichever control is highlighted**, read from `chips` rather than from
+		`showing.view`. So the tab and the switcher cannot disagree — and *done* is a selection
+		rather than an arrangement (`#738`), which a title built from the view name alone would
+		have called `List`.
+
+		**The product name is on every page**, which settles the disagreement between his two
+		examples: a bookmark or a history entry reading only `Agenda` says nothing about which
+		application it came from, and the title is what names both.
+
+		**Pure, so it can be driven in Node** (`#640`) — the whole family of defects this arc
+		shipped were wiring rather than rules, and a rule that can be asked directly is one
+		fewer.
+	*/
+	const suffix = ` · ${PRODUCT}`;
+
+	/* **An item is its own page and takes no scope**, exactly as its address takes neither an
+	   arrangement nor a selection (`#766`): both describe a set of rows, and one item is not
+	   part of any set. */
+	if (item) return `#${item.ref} ${item.title || ""}`.trim() + suffix;
+
+	const named = (place && place.workspace) || null;
+	const space = (workspaces || []).find((one) => one.slug === named);
+	const titles = titlesByPath(projects);
+	const filed = (place && place.project) || "";
+
+	/* Each segment of the project path in turn, so a sub-project reads as its whole lineage.
+	   A segment the tree does not describe falls back to its key rather than vanishing — the
+	   listing does the same, for `#959`'s reason: a chip that disappears is worse than one
+	   naming something unfamiliar. */
+	const chain = filed
+		? filed.split(PATH_SEPARATOR).map((_part, at, parts) => {
+			const path = parts.slice(0, at + 1).join(PATH_SEPARATOR);
+
+			return titles[path] || parts[at];
+		})
+		: [];
+
+	const scope = named ? [`${(space && space.title) || named}`, ...chain] : [];
+	const chosen = (chips("", showing || { view: DEFAULT_VIEW, selection: {} })
+		.find((chip) => chip.chosen) || {}).name;
+	const view = `${chosen || (showing && showing.view) || DEFAULT_VIEW}`;
+	const shown = view.charAt(0).toUpperCase() + view.slice(1);
+
+	return (scope.length > 0 ? `${scope.join(" / ")}: ${shown}` : shown) + suffix;
+}
+
 export function listingAddress (place) {
 	/*
 		The address of whatever listing is showing behind an open item.
@@ -7466,6 +7575,33 @@ export function App () {
 
 		setError({ status: 401, message: "You are not signed in." });
 	}, []);
+
+	useEffect(() => {
+		/*
+			**What the browser tab says** — `#1214`, Simon: *"I have multiple tabs open and they
+			all just say 'Subroutine'."*
+
+			**An effect rather than a render, because `document` is not this app's to draw.**
+			Everything else here returns markup and lets Preact decide when it lands; the title
+			is a property of the document, so it is written after the render that decided it —
+			which is also what makes it survive a navigation that changes nothing else on screen.
+
+			**Deciding what it says is `pageTitle` and is pure** (`#640`), so what is left here
+			is the assignment. That split is the one this arc keeps being rescued by: four of the
+			faults it shipped were wiring, and none was a rule.
+
+			**`filable` is the project tree in pre-order**, which is the shape `titlesByPath`
+			needs — it is `GET /v1/projects?order=path` verbatim, never `filableFor`'s reordering,
+			which moves the Inbox to the front and would put a depth-walk out by one subtree.
+		*/
+		document.title = pageTitle({
+			item: open && open.item,
+			place: { workspace: everywhere ? null : workspace, project },
+			showing,
+			workspaces: me ? me.workspaces : [],
+			projects: filable,
+		});
+	}, [everywhere, filable, me, open, project, showing, workspace]);
 
 	const start = useCallback(async () => {
 		setError(null);

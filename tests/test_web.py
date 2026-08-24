@@ -1477,6 +1477,137 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	)
 
 
+TITLED_PLACES = [
+	{"key": "subroutine", "title": "Subroutine", "depth": 0},
+	{"key": "ui", "title": "Web UI", "depth": 1},
+	{"key": "ops", "title": "Release and hosting", "depth": 1},
+	{"key": "acme", "title": "Acme", "depth": 0},
+]
+
+TITLED_SPACES = [{"slug": "projects", "title": "Projects"}, {"slug": "personal", "title": "Errands"}]
+
+
+def test_every_page_says_which_item_or_place_it_is_showing (tmp_path: pathlib.Path) -> None:
+	"""`SR#1214`, Simon: *"I have multiple tabs open and they all just say 'Subroutine'."*
+
+	Nothing wrote a title at all — `index.html` carried a static one and `document.title` was
+	assigned nowhere — so it was never that the title was wrong; every tab on every page said one
+	word.
+
+	**The scope reads with `/` and the view with `:`**, which is his: they are different axes and
+	one separator for both would read as a four-level path.
+
+	**Titles rather than slugs**, which is not a contradiction of `SR#151`. That rule is about a
+	row's project chip, which is the thing you can type back into an address; a tab is read at a
+	glance and never typed, and a reader scanning eight of them wants the word they call the
+	place.
+	"""
+
+	shown = _views(tmp_path, [
+		("pageTitle", {"item": {"ref": 1111, "title": "The release gate finishes in time"}}),
+		("pageTitle", {"place": None, "showing": {"view": "agenda", "selection": {}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		("pageTitle", {"place": {"workspace": "projects", "project": None},
+			"showing": {"view": "agenda", "selection": {}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		("pageTitle", {"place": {"workspace": "projects", "project": "subroutine"},
+			"showing": {"view": "board", "selection": {"include_completed": "true"}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		("pageTitle", {"place": {"workspace": "projects", "project": "subroutine/ui"},
+			"showing": {"view": "board", "selection": {"include_completed": "true"}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+	])
+
+	assert shown == [
+		"#1111 The release gate finishes in time · Subroutine",
+		"Agenda · Subroutine",
+		"Projects: Agenda · Subroutine",
+		"Projects / Subroutine: Board · Subroutine",
+		"Projects / Subroutine / Web UI: Board · Subroutine",
+	], shown
+
+
+def test_a_tab_title_names_the_control_that_is_highlighted (tmp_path: pathlib.Path) -> None:
+	"""The view segment comes from `chips`, not from `showing.view` — `SR#1214`.
+
+	**Because *done* is a selection rather than an arrangement** (`SR#738`), and its arrangement
+	is a list. A title built from the view name would call that page `List`, which is the word
+	beside a control the reader can see is *not* the one lit up — the tab and the switcher
+	disagreeing about the same page.
+
+	**And an address no control produces highlights nothing**, which `chips` already answers by
+	computing `chosen` rather than remembering it. The view name is the fallback there, because a
+	title is not a place to refuse anything.
+	"""
+
+	finished, odd = _views(tmp_path, [
+		("pageTitle", {"place": {"workspace": "projects", "project": None},
+			"showing": {"view": "list",
+				"selection": {"status_category": "done", "order": "-completed_at"}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		("pageTitle", {"place": {"workspace": "projects", "project": None},
+			"showing": {"view": "list", "selection": {"status_category": "in_progress"}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+	])
+
+	assert finished == "Projects: Done · Subroutine", finished
+	assert odd == "Projects: List · Subroutine", (
+		f"an address no control produces named a control anyway: {odd}"
+	)
+
+
+def test_the_page_actually_writes_the_title_it_decided_on (tmp_path: pathlib.Path) -> None:
+	"""`SR#1214`'s wiring half, which is the half that has ever been wrong here.
+
+	`pageTitle` being right is worth nothing until something hands its answer to the document —
+	`SR#640`'s lesson, and the reason this harness exists: four of this arc's shipped faults were
+	a component handing a correct rule the wrong value, and none was the rule.
+
+	**Both an item and a place**, because they take different branches: an item takes no scope at
+	all, exactly as its address takes neither an arrangement nor a selection (`SR#766`).
+	"""
+
+	place = _driven(tmp_path, pathname="/projects", search="?view=list")
+
+	# **Lower case because this harness's workspace carries no title**, which is the documented
+	# fallback rather than a defect: `placesToGo` labels one `title || slug` for the same reason.
+	# Whether a title is preferred over a slug is asked of `pageTitle` directly next door; what
+	# this is for is that *something* reached the document at all.
+	assert place["title"] == "projects: List · Subroutine", (
+		f"the tab does not say which place it is showing: {place['title']!r}"
+	)
+
+	item = _driven(
+		tmp_path,
+		pathname="/projects/42",
+		answers={"/v1/tasks/42": {"ref": 42, "title": "Fix the pagination cursor",
+			"kind": "task", "status_is_default": True}},
+	)
+
+	assert item["title"] == "#42 Fix the pagination cursor · Subroutine", (
+		f"the tab does not say which item it is showing: {item['title']!r}"
+	)
+
+
+def test_a_project_the_tree_does_not_describe_still_names_itself (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A segment with no title falls back to its key rather than vanishing.
+
+	`SR#959`'s reason, one surface along: a chip that disappears is worse than one naming
+	something unfamiliar. The tree is capped at 200 projects and an address is anybody's to type,
+	so a path this page cannot describe is a real state rather than a defensive branch.
+	"""
+
+	[shown] = _views(tmp_path, [
+		("pageTitle", {"place": {"workspace": "projects", "project": "subroutine/unfetched"},
+			"showing": {"view": "list", "selection": {}},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+	])
+
+	assert shown == "Projects / Subroutine / unfetched: List · Subroutine", shown
+
+
 def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path) -> None:
 	"""`SR#1215`, Simon's decision of 2026-08-24, and `SR#649`'s amendment made visible.
 
@@ -7471,6 +7602,8 @@ def _views (
 			: name === "calendarDay" ? app.calendarDay(argument.value, argument.zone)
 			: name === "excluded" ? app.excluded(argument.key, argument.selection)
 			: name === "listingAddress" ? app.listingAddress(argument)
+			: name === "pageTitle" ? app.pageTitle(argument)
+			: name === "titlesByPath" ? app.titlesByPath(argument)
 			: name === "filed" ? app.filed(argument.values, argument.slug)
 			: name === "offered"
 				? app.offered(
@@ -8563,7 +8696,14 @@ def _driven (
 		}}
 
 		process.stdout.write(JSON.stringify(
-			{{ asked, written, said: text(root), links: addresses(root), rounds }}
+			{{
+				asked, written, said: text(root), links: addresses(root), rounds,
+				/* **What the tab says** (`SR#1214`). The rule that decides it is pure and asked
+				   directly next door; this is the wiring, which is where every fault this arc
+				   shipped actually was. `document` is the shim's, so an unassigned title reads
+				   as undefined and a page that writes none fails rather than passing quietly. */
+				title: globalThis.document.title || null,
+			}}
 		));
 
 		/* The poll's interval holds the process open, and a test that hangs is worse than one

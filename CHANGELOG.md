@@ -23,6 +23,12 @@ upgrade involves.
   `?view=list` and `?view=board` are unchanged, the switcher offers all three, and an address
   carrying a filter still gets a list, since an agenda cannot honour one.
 
+- **Every page in the browser says which item or place it is showing.** Tabs all read
+  `Subroutine`, whatever was open — nothing had ever written a title. An item's tab now leads
+  with its number, so two tabs are told apart at the width a real tab gives them, and a place
+  reads as `Projects / Subroutine: Board`: the scope with `/`, the view with `:`, and the
+  product name at the end so a bookmark says where it came from.
+
 - **The agenda says what it is not showing.** It holds back four things a list at the same
   address shows: work past the unscheduled cap, work dated beyond the look-ahead, work you
   deferred, and undated work in a project nobody is running. The first two have always reported
