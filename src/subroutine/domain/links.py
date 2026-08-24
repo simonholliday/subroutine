@@ -28,6 +28,7 @@ import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.db.seed
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -53,10 +54,14 @@ ORDERING = "ordering"
 #: what `#1158` was: advice naming a relation the workspace may not have.
 DESCRIBING = "describing"
 
-#: The relation :func:`proposals` builds an edge of, by key rather than by category — the one
-#: place a key is still read on purpose, and the reason is at the call site: a proposal
+#: The relation :func:`proposals` builds an edge of. Named by key **as well as** by category —
+#: the one place a key is still read on purpose, and the reason is at the call site: a proposal
 #: *constructs* a link where every other rule *interprets* one, and the two governing relations
-#: run opposite ways round.
+#: run opposite ways round, so a category alone cannot say which end a document goes at.
+#:
+#: **It is not read *instead of* the category, and it was until `#1166`.** A workspace may
+#: re-categorise this relation — ``update_link_type`` exists to permit exactly that — and a key
+#: read on its own went on proposing links that governed nothing.
 PROPOSED_TYPE = "documents"
 
 #: What a relation has to *be* for a document at one end of it to bind the other (§5.7,
@@ -64,6 +69,30 @@ PROPOSED_TYPE = "documents"
 #: until `#1156` measured what that costs: a workspace renaming the key kept the words and
 #: lost the behaviour, so *Read first* went empty while the link still read *Documents*.
 GOVERNING = "governing"
+
+#: What a relation key means, for an answer that came from before a link type carried a
+#: category (`#1168`).
+#:
+#: An instance one release behind sends a link body with no ``link_category`` at all, and the
+#: three surfaces that count blockers compare that value to :data:`~subroutine.domain.readiness
+#: .GATING`. Absent read as *not gating*, so held work read as unheld and the *N of M blockers
+#: done* rollup silently disappeared — on exactly the item a milestone is read off.
+#:
+#: **Filling from the key is agreement rather than a guess.** An instance that predates
+#: categories decides gating by comparing the key ``blocks``, because that is the rule it runs,
+#: so this reproduces what that instance itself would answer. A workspace on it that had
+#: renamed ``blocks`` loses the count — which is right, because that is `#1156`, the defect
+#: that instance actually has.
+#:
+#: **Derived from the seed rather than written out beside it.** A hand-written copy would need
+#: a guard saying the two agree, and two copies that agree are invisible until one of them
+#: stops. The cost of deriving is that a relation seeded in some later release would join this
+#: map and could be filled onto an older instance's hand-added key of the same name — which
+#: fails as *noise* rather than as loss, because nothing seeded since `#1157` is ``gating``
+#: and `#1151` is where that would be decided.
+BEFORE_CATEGORIES: dict[str, str] = {
+	one.key: one.category for one in subroutine.db.seed.LINK_TYPES
+}
 
 #: The categories whose rings are a contradiction — anything that asserts which of a pair comes
 #: first (decision `#1157`).
@@ -852,29 +881,35 @@ def proposals (
 	if not wanted:
 		return []
 
-	# **The one site that names a key on purpose, and it is the exception that proves `#1157`'s
-	# rule.** Every other rule about a relation *interprets* an existing link and reads the
-	# category; this one **constructs** a proposed one, and a category cannot say which end a
-	# document goes at.
+	# **The one site that names a key on purpose, and it asks two questions rather than one.**
+	# Every other rule about a relation *interprets* an existing link and reads the category
+	# alone; this one **constructs** a proposed one, so it needs both.
 	#
-	# Both governing relations run opposite ways round — a decision `documents` a task, and a
-	# task `derives_from` a specification — and the direction here is computed from which end
-	# did the citing. So picking whichever governing type came back first would produce a
-	# proposal that is correctly labelled and points the wrong way.
+	# *Which end does a document go at* can only be answered by the key. Both governing
+	# relations run opposite ways round — a decision `documents` a task, and a task
+	# `derives_from` a specification — and the direction here is computed from which end did
+	# the citing, so picking whichever governing type came back first would produce a proposal
+	# that is correctly labelled and points the wrong way.
 	#
-	# The cost of staying keyed is bounded and is the right way for a *suggestion* to fail: a
-	# workspace that has renamed this offers no proposals, rather than offering wrong ones.
+	# *Does it still bind* can only be answered by the category, and reading the key **instead
+	# of** it was `#1166`. `update_link_type` accepts a category on purpose — a relation this
+	# instance's migration could only backfill as `describing` has to be able to say what it
+	# actually is — so a workspace that re-categorises this one was still offered proposals,
+	# confirmed one because the product suggested it, and got a link `governing` then ignored.
+	# Two halves of one feature disagreeing about a row, which is what `#1156` was.
 	kind = session.scalars(
 		sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
 			subroutine.db.models.vocabulary.LinkType.workspace_id == workspace_id,
 			subroutine.db.models.vocabulary.LinkType.key == PROPOSED_TYPE,
+			subroutine.db.models.vocabulary.LinkType.category == GOVERNING,
 		)
 	).first()
 
 	if kind is None:
-		# **A workspace may delete a link type** (`#826`), and one that has deleted this has
-		# said it does not use the relation. Proposing links of a type it cannot make would be
-		# offering work that refuses.
+		# **Three ways to arrive here, and all three mean the same thing**: a workspace may
+		# delete a link type (`#826`), rename it, or say it no longer governs. Each is somebody
+		# saying they do not use this relation for this, and offering none is the right way for
+		# a *suggestion* to fail — quietly, rather than by proposing something wrong.
 		return []
 
 	visible = {

@@ -17,6 +17,7 @@ The three that can disagree, and the day each one did (2026-08-03):
 
 import json
 import pathlib
+import typing
 import uuid
 
 import pytest
@@ -48,8 +49,14 @@ def _me (
 	*,
 	instance_version: str | None = "1.0.0",
 	schema_revision: str | None = "abcdef123456",
+	zones: typing.Sequence[str | None] = (),
 ) -> subroutine.views.Me:
-	"""Build the smallest ``Me`` the renderer reads, with the two versions under test."""
+	"""Build the smallest ``Me`` the renderer reads, with the two versions under test.
+
+	``zones`` gives it one workspace per entry, resolved to that zone — which is what
+	:func:`subroutine.views.zones` reads, and the only reason a ``Me`` here has workspaces at
+	all.
+	"""
 
 	return subroutine.views.Me(
 		api_version="1.0",
@@ -66,7 +73,20 @@ def _me (
 		),
 		credential=None,
 		instance_permissions=[],
-		workspaces=[],
+		workspaces=[
+			subroutine.views.WorkspaceAccess(
+				id=uuid.UUID(int=index + 2),
+				slug=f"w{index}",
+				title=f"Workspace {index}",
+				timezone=zone,
+				reader_timezone=zone,
+				prioritised_project=None,
+				role="owner",
+				permissions=[],
+				narrowed_by_credential=False,
+			)
+			for index, zone in enumerate(zones)
+		],
 	)
 
 
@@ -575,3 +595,72 @@ class TestTheProgramAndTheInstance:
 
 		assert len(lines) == 2
 		assert "plugin is older than the program" in lines[1]
+
+
+class TestWhichZonesAreNamed:
+	"""``views.zones``, which says where this account's days are read when the machine differs.
+
+	Driven as a function rather than through ``whoami``, because the case that was wrong needs
+	**two** workspaces in different zones and the CLI test one file along builds one. That is
+	the shape of the defect: a rule that is right for every installation with a single
+	workspace and silently wrong past that.
+	"""
+
+	def test_a_machine_that_agrees_with_the_only_workspace_says_nothing (self) -> None:
+		"""The ordinary state, and a line that fires for everybody is not a signal."""
+
+		assert subroutine.views.zones(_me(zones=["Europe/London"]), machine="Europe/London") == []
+
+	def test_two_spellings_of_one_zone_are_not_a_difference (self) -> None:
+		"""``Etc/UTC`` against ``UTC``, which is what this machine reports against what ``init`` records."""
+
+		assert subroutine.views.zones(_me(zones=["UTC"]), machine="Etc/UTC") == []
+
+	def test_one_workspace_agreeing_does_not_silence_the_others (self) -> None:
+		"""`#1172`, and it is the whole finding.
+
+		The check asked whether *any* named zone matched the machine and returned nothing if
+		one did. So somebody in London with a London workspace and a New York one was told
+		nothing about New York — and somebody who belongs to workspaces in two zones is
+		precisely the reader this line exists for.
+		"""
+
+		said = subroutine.views.zones(
+			_me(zones=["Europe/London", "America/New_York"]), machine="Europe/London"
+		)
+
+		assert said, "the New York workspace differs and nothing said so"
+		assert "America/New_York" in said[0]
+
+	def test_a_zone_that_agrees_is_not_named_in_the_line (self) -> None:
+		"""The other half: naming it invites a reader to look for a difference that is not there."""
+
+		said = subroutine.views.zones(
+			_me(zones=["Europe/London", "America/New_York"]), machine="Europe/London"
+		)
+
+		read_in, machine = said[0].split(";")
+
+		assert "Europe/London" not in read_in, "an agreeing zone is not one of the answers"
+		assert "Europe/London" in machine, "and it is still named as the machine's own"
+
+	def test_every_workspace_differing_names_every_one (self) -> None:
+		"""And the case that always worked, so a fix cannot have narrowed it."""
+
+		said = subroutine.views.zones(
+			_me(zones=["Asia/Tokyo", "America/New_York"]), machine="Europe/London"
+		)
+
+		assert "Asia/Tokyo" in said[0]
+		assert "America/New_York" in said[0]
+
+	def test_a_machine_this_process_cannot_see_says_nothing (self) -> None:
+		"""``machine=None`` is the MCP surface, where reading the process zone would compare
+		an account against the *server* and call it the caller's."""
+
+		assert subroutine.views.zones(_me(zones=["Asia/Tokyo"]), machine=None) == []
+
+	def test_an_instance_that_publishes_no_resolved_zone_says_nothing (self) -> None:
+		"""*Did not say* rather than *they match*, which a line either way would claim."""
+
+		assert subroutine.views.zones(_me(zones=[None]), machine="Asia/Tokyo") == []

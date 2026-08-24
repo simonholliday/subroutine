@@ -124,7 +124,7 @@ def _vocabularies () -> dict[str, frozenset[str]]:
 	"""
 
 	found: dict[str, set[str]] = {
-		"link type": {one.key for one in subroutine.db.seed._LINK_TYPES}
+		"link type": {one.key for one in subroutine.db.seed.LINK_TYPES}
 	}
 
 	for kind in subroutine.db.seed._ITEM_TYPES:

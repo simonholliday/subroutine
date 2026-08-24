@@ -231,7 +231,7 @@ _ITEM_TYPES = (
 #: reads — never the key, which a workspace may rename. **Nothing is seeded `ordering`**: that is
 #: what a workspace's own *precedes* would be, asserting a sequence that holds nothing up, and
 #: whether every workspace should be given one is `#1151`.
-_LINK_TYPES = (
+LINK_TYPES = (
 	LinkTypeSeed("blocks", "Blocks", "Blocked by", "gating"),
 	LinkTypeSeed("relates_to", "Relates to", "Relates to", "describing", is_symmetric=True),
 	LinkTypeSeed("duplicates", "Duplicates", "Duplicated by", "describing"),
@@ -250,7 +250,7 @@ SEED_SETS: dict[int, SeedSet] = {
 		roles=_SYSTEM_ROLES,
 		statuses=_STATUSES,
 		item_types=_ITEM_TYPES,
-		link_types=_LINK_TYPES,
+		link_types=LINK_TYPES,
 	),
 }
 

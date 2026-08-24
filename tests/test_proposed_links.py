@@ -372,6 +372,80 @@ def test_a_workspace_that_has_removed_the_link_type_is_proposed_nothing (
 	assert _proposed(world, work["ref"]) == []
 
 
+def test_a_workspace_that_has_renamed_the_link_type_is_proposed_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The second of three ways a workspace says it does not use this relation.
+
+	Kept apart from the re-categorised case below, because the two look identical from the
+	outside and only one of them was ever right. A renamed key has always produced no
+	proposals; a re-categorised one produced proposals that governed nothing.
+	"""
+
+	world = test_api_tasks._world(session)
+	decision = _document(world)
+	work = _task(world, description=f"Follows #{decision['ref']}.")
+
+	assert _proposed(world, work["ref"]) != []
+
+	kinds = world.call("GET", "/v1/link-types").json()["items"]
+	governing = next(one for one in kinds if one["key"] == "documents")
+	renamed = world.call(
+		"PATCH", f"/v1/link-types/{governing['id']}", json={"key": "settles"}
+	)
+
+	assert renamed.status_code == 200, renamed.text
+	assert _proposed(world, work["ref"]) == []
+
+
+def test_a_relation_that_no_longer_governs_is_not_proposed_as_one_that_does (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1166`, found by a cold review asking whether `#1157`'s one exception survives a reader.
+
+	It survives about **direction** and did not survive about **meaning**. ``proposals`` reads
+	the key because only a key can say which end a document goes at — but it read the key
+	*instead of* the category, so a workspace that re-categorised this relation was offered a
+	proposal, confirmed it because the product suggested it, and got a link that
+	:func:`~subroutine.domain.links.governing` then ignored.
+
+	**The two halves are asserted together on purpose.** Either one alone passes against the
+	defect: before the fix the proposal was offered *and* the link did not govern, and each of
+	those is a true statement about a working feature in some other configuration. What is
+	wrong is the pair.
+	"""
+
+	world = test_api_tasks._world(session)
+	decision = _document(world)
+	work = _task(world, description=f"Follows #{decision['ref']}.")
+
+	assert _proposed(world, work["ref"]) != [], "the citation is indexed and offered"
+
+	kinds = world.call("GET", "/v1/link-types").json()["items"]
+	governing = next(one for one in kinds if one["key"] == "documents")
+	moved = world.call(
+		"PATCH", f"/v1/link-types/{governing['id']}", json={"category": "describing"}
+	)
+
+	assert moved.status_code == 200, moved.text
+	assert moved.json()["category"] == "describing"
+
+	assert _proposed(world, work["ref"]) == [], (
+		"a relation that no longer binds must not be proposed as one that does"
+	)
+
+	# And the other half: confirming it by hand still produces a link that governs nothing, so
+	# the proposal would have been advice the product then declined to honour.
+	made = world.call(
+		"POST",
+		f"/v1/documents/{decision['ref']}/links",
+		json={"target": work["ref"], "target_type": "task", "link_type": "documents"},
+	)
+
+	assert made.status_code == 201, made.text
+	assert _governing(world, work["ref"]) == []
+
+
 def _governing (
 	world: test_api_tasks.World, ref: int, *, kind: str = "tasks"
 ) -> list[dict[str, typing.Any]]:

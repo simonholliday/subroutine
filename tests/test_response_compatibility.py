@@ -33,6 +33,9 @@ import typing
 import pydantic
 import pytest
 
+import subroutine.db.seed
+import subroutine.domain.links
+import subroutine.domain.readiness
 import subroutine.views
 
 ROOT = subprocess.run(
@@ -527,6 +530,108 @@ def test_a_new_optional_field_is_accepted (before: dict[str, set[str]]) -> None:
 	assert offenders == [], (
 		"a field added *with* a default was reported, so this refuses ordinary additions"
 	)
+
+
+#: A body as an instance one release behind sends it: the seeded ``blocks`` relation, and no
+#: ``link_category`` key at all. Written out rather than captured, because capturing needs a
+#: running 0.7.6 and `#482`'s whole argument is that nobody will do that every time.
+A_LINK_FROM_BEFORE_CATEGORIES = {
+	"id": "01a03300-0000-7000-8000-000000000001",
+	"link_type": "blocks",
+	"label": "Blocks",
+	"direction": "outgoing",
+	"other": {
+		"id": "01a03300-0000-7000-8000-000000000002",
+		"ref": 7,
+		"title": "The thing in the way",
+		"entity_type": "task",
+		"status": "open",
+		"status_category": "open",
+		"status_is_default": True,
+	},
+}
+
+
+def test_an_absent_category_is_read_as_the_key_meant_before_there_were_any () -> None:
+	"""`#1168`. **Defaulted is not enough on a field somebody branches on.**
+
+	`#482`'s rule — every new field carries a default — answers *will a newer client refuse an
+	older instance*. It has nothing to say about *will a newer client misread one*, and
+	``link_category`` is the first field where that matters: three surfaces compare it to
+	``gating``, so an absent value read as the empty string read as *nothing is holding this
+	up*. The *N of M blockers done* rollup vanished from the terminal, from an agent's ``show``
+	and from the browser, on exactly the item a milestone is read off.
+
+	**The rule this adds, for the next field:** a default that drives a branch has to be
+	checked for *which way it fails*. `36a9602` did that deliberately for ``type_is_default``
+	and chose the direction that fails as noise — an older body reads as *nothing here is the
+	default*, so a type is printed that need not have been. This one failed as **loss**, which
+	is the direction that cannot be spotted by reading the output.
+	"""
+
+	link = subroutine.views.Link.model_validate(A_LINK_FROM_BEFORE_CATEGORIES)
+
+	assert link.link_category == subroutine.domain.readiness.GATING, (
+		"a blocker from an instance that predates categories still holds work up"
+	)
+
+	# The three surfaces are unchanged and still compare to `gating`; this is the value they
+	# now get. Asserting the comparison rather than the string is what makes that explicit.
+	assert (link.link_category == subroutine.domain.readiness.GATING) is (
+		A_LINK_FROM_BEFORE_CATEGORIES["link_type"] == "blocks"
+	), "and it agrees with the rule that older instance runs"
+
+
+def test_a_key_from_before_categories_that_nothing_recognises_stays_unstated () -> None:
+	"""The honest half: a relation somebody added by hand cannot be classified from here.
+
+	It is left ``None`` rather than guessed at, and ``None`` is not any category — so it holds
+	nothing up, which is what that instance's own pre-category rule did with it too. The point
+	of asserting it is that ``None`` and ``""`` are different claims: *nobody said* against
+	*somebody said nothing*.
+	"""
+
+	invented = dict(A_LINK_FROM_BEFORE_CATEGORIES, link_type="holds_up")
+	link = subroutine.views.Link.model_validate(invented)
+
+	assert link.link_category is None
+	assert link.link_category != subroutine.domain.readiness.GATING
+
+
+def test_a_category_the_server_did_state_is_never_overwritten () -> None:
+	"""A current instance decides, and the fill must not second-guess it.
+
+	This is the case a workspace that has re-categorised ``blocks`` depends on: the server
+	says ``describing``, and a client that "corrected" it from the key would put `#1156` back.
+	"""
+
+	said = dict(A_LINK_FROM_BEFORE_CATEGORIES, link_category="describing")
+
+	assert subroutine.views.Link.model_validate(said).link_category == "describing"
+
+
+def test_the_fill_is_derived_from_the_seed_rather_than_written_out_beside_it () -> None:
+	"""``BEFORE_CATEGORIES`` must stay a derivation, because a copy is what rots.
+
+	The tempting shape here was a frozen table of five pairs — *what these keys meant then*, as
+	against the seed's *what they mean now*. That distinction is real and it buys a second copy
+	of a rule, which is this codebase's signature defect; the seed is already this program's
+	statement of what a standard relation key means.
+
+	So the guard is not "the two agree" — they cannot disagree — but that the derivation is
+	still a derivation and still covers the relation the whole defect was about.
+	"""
+
+	seeded = {one.key: one.category for one in subroutine.db.seed.LINK_TYPES}
+
+	assert seeded == subroutine.domain.links.BEFORE_CATEGORIES, (
+		"this map is meant to *be* the seed's categories; a hand-written copy would need a "
+		"guard saying the two agree, and two copies that agree are invisible until one stops"
+	)
+	assert (
+		subroutine.domain.links.BEFORE_CATEGORIES["blocks"]
+		== subroutine.domain.readiness.GATING
+	), "and the relation `#1168` was about is in it"
 
 
 def test_unparsed_models_do_not_silently_widen_the_scope () -> None:

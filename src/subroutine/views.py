@@ -907,11 +907,48 @@ class Link(pydantic.BaseModel):
 	#: **Defaulted, because this model is not new** (`#345`, and `#1155` is the last time that
 	#: was learned the expensive way): an instance one release behind sends a link without it,
 	#: and a required field would make a newer client refuse the whole instance.
-	link_category: str = ""
+	#:
+	#: **``None`` rather than ``""``, and that is the whole of `#1168`.** Being defaulted is not
+	#: enough on a field somebody *branches* on. An absent category read as the empty string is
+	#: read as *not gating*, so against a 0.7.6 instance every blocker count silently went to
+	#: zero — held work reported as free to start. ``None`` says *this instance did not say*,
+	#: which is a thing :meth:`_read_the_key_when_the_server_did_not_say` can answer and the
+	#: empty string is not.
+	link_category: str | None = None
 
 	label: str
 	direction: str
 	other: LinkEnd
+
+	@pydantic.model_validator(mode="after")
+	def _read_the_key_when_the_server_did_not_say (self) -> "Link":
+		"""Fill the category from the key when the answer came from before there were any.
+
+		**Here rather than on the three surfaces that branch on it** (`#1168`, Simon's call).
+		The alternative was a fallback at each consumer, which puts the ``blocks`` literal back
+		on the terminal, the agent surface and the browser — the three copies `#1157` spent a
+		commit removing and `#1156` was filed about.
+
+		It runs on every ``Link``, and is a no-op for all but one caller: the local client and
+		the API both build this from a NOT NULL column, so the value is already there. Only an
+		HTTP client parsing an older instance's answer arrives with nothing.
+
+		A key this program does not recognise is left as ``None``. That is honest — a relation
+		somebody added by hand on an instance that had no categories cannot be classified from
+		here — and it is what the pre-category rule did with it too.
+		"""
+
+		if self.link_category is None:
+			said = subroutine.domain.links.BEFORE_CATEGORIES.get(self.link_type)
+
+			if said is not None:
+				# `object.__setattr__` is not needed — this model is not frozen — but assigning
+				# inside an `after` validator re-runs validation unless assignment validation is
+				# off, which it is. Checked rather than assumed: `model_config` sets no
+				# `validate_assignment`, so pydantic's default of False applies.
+				self.link_category = said
+
+		return self
 
 	def address (self) -> str:
 		"""Return what a caller addresses this by. A link has no ref of its own."""
@@ -3241,6 +3278,11 @@ def _same_clock (one: str, other: str) -> bool:
 
 	at = subroutine.db.types.utcnow()
 
+	# **The two `at`s are different variables and this is correct.** The inner generator is
+	# built in *this* scope, so its `at` is the one above; the outer comprehension binds its
+	# own, which shadows it only inside itself. Written down because a reader meets it as a
+	# variable used in its own definition — a cold review flagged it, checked it against seven
+	# zone pairs, and said plainly that the next reviewer would flag it again.
 	return all(
 		at.astimezone(here).utcoffset() == at.astimezone(there).utcoffset()
 		for at in (at + datetime.timedelta(days=days) for days in (0, 91, 182, 273))
@@ -3273,6 +3315,11 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 	**Silent when they agree**, which is the ordinary case, and silent when the instance is a
 	release behind and publishes no resolved zone: the second is *did not say* rather than
 	*they match*, and a line either way would be a claim this cannot support.
+
+	**Agreement is per workspace, and it was not** (`#1172`). This asked whether *any* named
+	zone matched the machine and went silent if one did — so somebody in London with a London
+	workspace and a New York one was told nothing about New York, and they are precisely the
+	reader this line exists for. Only the zones that actually differ are named now.
 	"""
 
 	said = sorted({
@@ -3284,15 +3331,17 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 	if not said or machine is None:
 		return []
 
-	if any(_same_clock(name, machine) for name in said):
+	# Named rather than counted: with more than one the reader needs to know which workspace
+	# is which, and that is what the block above this already prints. A zone that agrees with
+	# the machine is left out rather than listed — it is not what the line is about, and naming
+	# it invites the reader to look for a difference that is not there.
+	differing = [name for name in said if not _same_clock(name, machine)]
+
+	if not differing:
 		return []
 
-	# Named rather than counted: with more than one the reader needs to know which workspace
-	# is which, and that is what the block above this already prints.
-	where = said[0] if len(said) == 1 else ", ".join(said)
-
 	return [
-		f"Your days are read in {where}; this machine is set to {machine}.",
+		f"Your days are read in {', '.join(differing)}; this machine is set to {machine}.",
 		f"Set your account's zone with 'subroutine user timezone {machine}' if that is wrong.",
 	]
 

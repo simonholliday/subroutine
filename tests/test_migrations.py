@@ -467,7 +467,7 @@ def test_the_backfilled_link_category_is_the_one_the_seeder_would_have_written (
 				).tuples().all()
 			)
 
-		wanted = {one.key: one.category for one in subroutine.db.seed._LINK_TYPES}
+		wanted = {one.key: one.category for one in subroutine.db.seed.LINK_TYPES}
 
 		assert len(wanted) >= 5, f"only {sorted(wanted)} are seeded, so this checks little"
 		assert backfilled == wanted
