@@ -1179,6 +1179,16 @@ class Client(typing.Protocol):
 		status: str = UNSET,
 		project: str = UNSET,
 		tags: typing.Sequence[str] | None = UNSET,
+		#: The document this one replaces, by ref — `#1144`. ``None`` breaks the chain.
+		#:
+		#: **It does two things and only one of them can be done by hand.** It records which
+		#: document replaced which, under a unique index so the chain cannot fork, *and* it moves
+		#: the predecessor to a superseded status. A caller who could not send it could set the
+		#: old document's status and get half the outcome: the status moves and the chain stays
+		#: empty, so *what replaced this* has no answer afterwards — which `#1119` makes live,
+		#: because a superseded decision stops governing and there is then nothing to read
+		#: instead.
+		supersedes: int | None = UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document. Omitted is unchanged; ``None`` clears (§8.3).

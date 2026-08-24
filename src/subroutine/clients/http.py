@@ -1626,6 +1626,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		supersedes: int | None = subroutine.clients.base.UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, over the wire.
@@ -1646,6 +1647,9 @@ class Client:
 			# **`None` survives here and `UNSET` does not**, which is the whole of §8.3 on the
 			# wire: sending `"tags": null` clears them, and omitting the key leaves them alone.
 			"tags": tags if tags is subroutine.clients.base.UNSET else list(tags or ()),
+			# A bare ref, which `api.schemas.Reference` accepts alongside an id — the endpoint
+			# resolves it in the workspace the request is scoped to, exactly as it does on create.
+			"supersedes": supersedes,
 		}
 		answered = self._json(
 			"PATCH",

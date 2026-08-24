@@ -7797,3 +7797,125 @@ def test_show_survives_an_instance_that_cannot_answer_what_refers_to_this (
 	assert run("show", "1", expect=1).exit_code == 1, (
 		"an instance that could not answer was reported as one with nothing to say"
 	)
+
+
+def test_a_document_can_say_which_one_it_replaces (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1144`, at the terminal — the flag is its own code path.
+
+	The client-level guard proves both transports carry it; this proves the option that reaches
+	them exists and is wired to the right argument. Driving a command says nothing about its
+	flags, which is how a capability comes to be reachable in a library and not by anybody.
+
+	**Both outcomes asserted**, because only one of them can be had by hand: setting the old
+	document's status moves it and leaves the chain empty, and *what replaced this* then has no
+	answer for ever afterwards.
+	"""
+
+	run("init")
+	run("doc", "create", "How we deploy", "--body", "First answer.", "--type", "decision")
+	run("doc", "create", "How we deploy now", "--body", "Second answer.", "--type", "decision")
+
+	run("doc", "edit", "2", "--supersedes", "1")
+
+	old = run("show", "1").output
+
+	assert "superseded" in old.lower(), f"the replaced decision was not retired:\n{old}"
+
+	# **And an ordinary edit leaves the chain alone**, which is what stops the flag's default
+	# quietly superseding something on every revision — the failure this could most easily
+	# have introduced.
+	run("doc", "create", "Something else", "--type", "decision")
+	run("doc", "edit", "3", "--title", "Something else entirely")
+
+	untouched = run("show", "3").output
+
+	assert "superseded" not in untouched.lower(), untouched
+
+
+def test_revising_a_document_takes_any_of_its_flags_on_its_own (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1201`. `SR#299`'s rule was right and its list was hand-written.
+
+	Standard input is consulted only when nothing else was said, because an empty pipe cannot be
+	told from no pipe without blocking. That question was settled against a tuple of four values,
+	and two flags were added to this command afterwards — `--tag`, and `--supersedes` in the
+	change that found this — so each was refused when used alone.
+
+	**Every flag, not the two that were missing.** A test naming the two would be the same
+	hand-written list one layer up, and would pass on the day a third arrives.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Text.", "--type", "decision")
+	run("doc", "create", "Another", "--body", "Text.", "--type", "decision")
+
+	alone = (
+		("--title", "Retitled"),
+		("--type", "note"),
+		("--status", "draft"),
+		("--tag", "ops"),
+		("--supersedes", "1"),
+	)
+
+	for flag, value in alone:
+		# Each on its own, with nothing piped — which is what a script, a CI job and an agent
+		# shelling out all have, and is the case that was refused.
+		result = run("doc", "edit", "2", flag, value)
+
+		assert result.exit_code == 0, (
+			f"'doc edit 2 {flag} {value}' alone was refused:\\n{result.output}"
+		)
+
+	body = run("show", "2").output
+
+	assert "Text." in body, "a flag-only edit must leave the body alone"
+
+
+def test_the_hint_for_an_empty_pipe_names_every_flag_that_command_takes () -> None:
+	"""The other copy of the same list, and the one a caller actually reads — `SR#1201`.
+
+	It named five options and omitted ``--tag``, so somebody who had just used that flag was
+	told to try something else. Derived from the command Typer registered rather than from a
+	second list here, which would be the defect wearing a third hat.
+	"""
+
+	# **Typed loosely and reached through `get_command`**, which is `tests/test_cli_help`'s
+	# recorded lesson: Typer vendors its own click shim, so what comes back is a private
+	# `typer._click.core.Command` that is not a `click.Command`. A walk that asked
+	# `isinstance(x, click.Group)` once reported clean having read one command in forty-eight.
+	node: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+
+	for word in ("doc", "edit"):
+		node = node.get_command(click.Context(node, info_name="subroutine"), word)
+
+		assert node is not None, f"'doc edit' is not registered — no {word!r}"
+
+	edit = node
+	options = {
+		name
+		for parameter in edit.params
+		for name in getattr(parameter, "opts", ())
+		if name.startswith("--")
+	}
+	# The ref is an argument, and these two are about the output rather than the content.
+	options -= {"--json", "--help"}
+
+	assert len(options) >= 6, f"only {len(options)} options were found: {sorted(options)}"
+
+	# **Anchored on the hint itself, not on the message above it.** Slicing from the message
+	# caught the comment explaining the hint instead — which mentions two of the flags, so the
+	# guard reported the other six missing and would have reported none missing had the comment
+	# been longer. A scan over source is only as good as what it is pointed at.
+	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
+	start = source.index("Pipe the new text in, or pass")
+	hint = source[start : source.index(",\n", start + 200)]
+
+	missing = sorted(name for name in options if name not in hint)
+
+	assert not missing, (
+		f"the refusal tells a caller what to pass and does not mention {missing}. "
+		f"A flag they may have just used is the one most likely to be missing from it."
+	)

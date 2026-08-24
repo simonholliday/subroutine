@@ -4779,3 +4779,41 @@ def test_a_stale_change_is_refused_on_both_transports (pair: Pair) -> None:
 		assert changed.title == "Now I have read it", (
 			f"{client!r} refused a change carrying the version it had just read"
 		)
+
+
+def test_both_can_chain_a_document_to_the_one_it_replaces (pair: Pair) -> None:
+	"""`SR#1144`. ``PATCH /v1/documents`` accepted ``supersedes`` and neither client sent it.
+
+	**Here rather than in one transport's file, because the finding is that *neither* had it.**
+	The endpoint has taken it since M1; `test_reach` could not see the gap, being per *method*
+	rather than per argument — ``update_document`` exists and is called, so the route counted as
+	reached while a field it accepts reached nothing (`SR#149`, `SR#178`).
+
+	**Two outcomes, and only one of them can be had by hand.** It records which document replaced
+	which, *and* it retires the predecessor. Somebody who could only set a status got the second
+	without the first — the chain stayed empty, so *what replaced this* had no answer, which
+	`SR#1119` makes live: a superseded decision stops governing and there is then nothing to
+	point the reader at instead.
+	"""
+
+	local, remote = pair.both()
+
+	for client, name in ((local, "local"), (remote, "remote")):
+		old = client.create_document(title=f"How we deploy, {name}", type="decision")
+		new = client.create_document(title=f"How we deploy now, {name}", type="decision")
+
+		revised = client.update_document(ref=new.ref, supersedes=old.ref)
+
+		assert revised.supersedes_id == old.id, (
+			f"{name}: the chain was not recorded, so nothing says what replaced what"
+		)
+
+		# **The other half, which is what makes this more than a foreign key**: the predecessor
+		# is retired by the same call. Asserting only the chain would pass on a build that
+		# stored the id and left the old decision still governing.
+		retired = client.document(ref=old.ref)
+
+		assert retired is not None, f"{name}: the replaced document cannot be read back"
+		assert retired.status_category == "superseded", (
+			f"{name}: the superseded document is still {retired.status_category!r}"
+		)

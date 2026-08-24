@@ -1191,6 +1191,7 @@ class Client:
 		status: str = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
+		supersedes: int | None = subroutine.clients.base.UNSET,
 		expected_version: int | None = None,
 	) -> subroutine.views.Document:
 		"""Revise a document, through the same service the endpoint calls."""
@@ -1230,6 +1231,23 @@ class Client:
 				# `AttributeError` on `.id` rather than refusing by name.
 				changes["project"] = subroutine.domain.selection.project(
 					session, actor, chosen, project
+				)
+
+			# **Resolved to a row here, for the reason `project` above gives** (`#1144`): the
+			# service takes a `Document` and a caller carries a ref. Going through `_subject`
+			# rather than a bare lookup is what makes an unreadable document refuse by name
+			# instead of reporting that nothing replaced anything.
+			#
+			# `None` is passed straight through — that is §8.3 clearing the chain, and it is a
+			# thing somebody does when a supersession turns out to have been wrong.
+			if supersedes is not subroutine.clients.base.UNSET:
+				changes["supersedes"] = (
+					None
+					if supersedes is None
+					else session.get(
+						subroutine.db.models.work.Document,
+						self._subject(session, actor, chosen.id, "document", supersedes),
+					)
 				)
 
 			revised = subroutine.domain.documents.update(session, row, actor=actor, expected_version=expected_version, **changes)

@@ -14,7 +14,24 @@ upgrade involves.
 
 ## Unreleased
 
+### Added
+
+- **A document can say which one it replaces, from a terminal or a client.**
+  `subroutine doc edit 42 --supersedes 7`, and `supersedes` on `update_document` in both clients.
+  The endpoint has accepted it since the first release and nothing could send it, so the only way
+  to chain a decision to the one it retires was raw HTTP.
+
+  It does two things and only one could be had by hand: it records which document replaced which,
+  *and* it moves the predecessor to a superseded status. Setting that status yourself left the
+  chain empty — so *what replaced this* had no answer, on exactly the documents where somebody
+  needs one.
+
 ### Fixed
+
+- **Revising a document accepts any of its flags on its own.** `subroutine doc edit 42 --tag ops`
+  was refused with *"Nothing was piped in"*, because the check for whether you had said anything
+  knew about four flags and two had been added since. The refusal's own advice had the same gap,
+  and omitted the flag you were most likely to have just used.
 
 - **Creating a workspace checks its settings, the way changing one always has.**
   `POST /v1/workspaces` stored whatever settings map it was handed, so a key that
