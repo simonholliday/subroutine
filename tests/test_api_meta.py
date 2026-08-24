@@ -118,12 +118,22 @@ def test_every_link_type_it_publishes_can_actually_be_used (
 
 
 def test_every_sort_field_it_publishes_actually_sorts (world: test_api_tasks.World) -> None:
-	"""Published from the routers' own constants, and checked against the live endpoint."""
+	"""Published from the routers' own constants, and checked against the live endpoint.
+
+	**The floor is load-bearing since ``order`` gained a default.** It replaced ``sortable``,
+	which was a required field — so an endpoint that forgot to fill it produced a body the
+	client refused outright, and this loop could never run on nothing. A defaulted field fails
+	the other way: the key is present, empty, and every ``for`` over it passes by running zero
+	times. The default is deliberate and cannot go (an older instance sends no ``order`` at
+	all), so the assertion has to carry what the type used to.
+	"""
 
 	world.call("POST", "/v1/tasks", json={"title": "Something"})
 	listings = world.call("GET", "/v1/meta").json()["listings"]
 
-	for field in listings["task"]["sortable"]:
+	assert listings["task"]["order"], "nothing published, so this asserts about an empty set"
+
+	for field in listings["task"]["order"]:
 		assert world.call("GET", f"/v1/tasks?order={field}").status_code == 200
 		assert world.call("GET", f"/v1/tasks?order=-{field}").status_code == 200
 

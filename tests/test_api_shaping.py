@@ -5,10 +5,10 @@ and fifty of them is a substantial fraction of an agent's working context. So th
 test asserting the *saving* is real, not merely that the parameter is accepted — a shaping
 feature that returned the same number of bytes would pass every other test in this file.
 
-The other theme is that everything published is usable. ``/v1/meta`` lists selectable fields
-and formats; two tests take that list and exercise every entry, for the reason the sortable
-guard exists: a discovery endpoint that names something the endpoint refuses is worse than
-one that names nothing.
+The other theme is that everything published is usable. ``/v1/meta`` lists each listing's
+``fields`` and ``formats``; two tests take that list and exercise every entry, for the reason
+the ``order`` guard exists: a discovery endpoint that names something the endpoint refuses is
+worse than one that names nothing.
 """
 
 import datetime
@@ -410,7 +410,7 @@ def test_an_unknown_field_names_the_ones_that_exist (world: test_api_tasks.World
 def test_every_field_meta_publishes_can_actually_be_selected (
 	world: test_api_tasks.World, entity: str
 ) -> None:
-	"""The guard the sortable fields already have, for the same reason.
+	"""The guard the ``order`` fields already have, for the same reason.
 
 	A discovery endpoint naming a field the endpoint then refuses is worse than one naming
 	nothing: the client has spent a round trip to be misled.
@@ -421,9 +421,9 @@ def test_every_field_meta_publishes_can_actually_be_selected (
 
 	listing = world.call("GET", "/v1/meta").json()["listings"][entity]
 
-	assert listing["selectable"], f"nothing published for {entity}"
+	assert listing["fields"], f"nothing published for {entity}"
 
-	for field in listing["selectable"]:
+	for field in listing["fields"]:
 		response = world.call("GET", f"{listing['path']}?fields={field}")
 
 		assert response.status_code == 200, f"{entity}.{field} was published but refused"

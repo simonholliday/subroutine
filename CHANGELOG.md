@@ -32,6 +32,18 @@ upgrade involves.
   chain empty — so *what replaced this* had no answer, on exactly the documents where somebody
   needs one.
 
+### Changed
+
+- **`/v1/meta` names each listing's lists after the parameter that takes them.** `sortable` is
+  now `order` and `selectable` is now `fields`, matching `?order=` and `?fields=`. The old names
+  were what the lists *contain*, so reading one and reaching for `?select=` earned a refusal —
+  one wasted round trip on the endpoint that exists to prevent them.
+
+  **Both spellings are published in this release and the old pair goes in 0.9.0.** Nothing
+  breaks now, in either direction: a client from this release reads an older instance by falling
+  back to the old names, and an older client reads this one because the old names are still
+  there. Move to `order` and `fields` before 0.9.0.
+
 ### Fixed
 
 - **Deleting a user or a token no longer erases what they did.** Both actor columns on the event

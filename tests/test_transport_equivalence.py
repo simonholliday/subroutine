@@ -4398,13 +4398,12 @@ def test_both_refuse_a_ranking_on_a_listing_that_is_not_a_search (
 	`relevance` is published wherever a backend can rank, because that is what the instance can
 	do — and it enters a *request's* vocabulary only when there is a search to rank. So asking
 	for it without one was answered *"'relevance' is not a field this listing can sort by"*,
-	about a field the same instance advertises, and which `README.md` tells a client to rely on
-	in as many words:
+	about a field the same instance advertises.
 
-	> each listing's `sortable` names `relevance` **exactly when it can be ordered by one**. Do
-	> not infer it from anything else.
-
-	A client doing exactly that met a 422 about the wrong thing.
+	**The advertisement is the whole point**: a listing's `order` names `relevance` exactly when
+	that instance can rank one, so a client is meant to read it rather than infer ranking from
+	the backend, the version or anything else. A client doing exactly what it was told met a 422
+	about the wrong thing.
 
 	**Both transports, and both messages**, because a refusal is part of the contract: an agent
 	learns the rule from what it is told, and learning two different rules depending on how it

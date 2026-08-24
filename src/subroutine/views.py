@@ -4184,18 +4184,75 @@ class Listing(pydantic.BaseModel):
 
 	Reflected from the running application, so it cannot claim a filter that does not
 	exist or omit one that does.
+
+	**Each key is named after the parameter that consumes it**, except ``path`` and ``filters``:
+	``filters`` is a list of parameter *names* rather than one parameter's values, so there is
+	no single parameter to name it after. That rule arrived late — the two lists below were
+	originally called ``sortable`` and ``selectable``, after what they *contain*, so a caller
+	who read one and reached for ``?select=`` earned a refusal.
+
+	**``sortable`` and ``selectable`` are deprecated and will be removed in 0.9.0.** They carry
+	exactly what ``order`` and ``fields`` carry; read the new names.
 	"""
 
 	path: str
 	filters: list[str]
-	sortable: list[str]
 
-	#: What ``?fields=`` may name, and what ``?format=`` accepts (docs/design.md §14.10). Published
-	#: for the reason ``sortable`` is: an agent that has to discover a field name by being
-	#: refused has paid for the discovery in context, which is the cost shaping exists to
-	#: avoid in the first place.
-	selectable: list[str]
+	#: What ``?order=`` may name. Renamed from ``sortable`` by `#616`, which found the same
+	#: mismatch on ``selectable`` and settled that both move together or neither does.
+	order: list[str] = pydantic.Field(default_factory=list)
+
+	#: What ``?fields=`` may name (docs/design.md §14.10). Published for the reason ``order`` is:
+	#: an agent that has to discover a field name by being refused has paid for the discovery in
+	#: context, which is the cost shaping exists to avoid in the first place.
+	fields: list[str] = pydantic.Field(default_factory=list)
+
+	#: What ``?format=`` accepts.
 	formats: list[str]
+
+	#: Deprecated, and the reason both new keys above are **defaulted**. The direction that bites
+	#: is a new client reading an older instance: it is handed only these two, so an undefaulted
+	#: ``order`` would make every 0.8.0 instance unparseable to a 0.8.1 client — which is `#345`
+	#: exactly, in the opposite direction from the one `#616` was worried about.
+	sortable: list[str] = pydantic.Field(default_factory=list)
+	selectable: list[str] = pydantic.Field(default_factory=list)
+
+	@pydantic.model_validator(mode="after")
+	def _fill_each_name_from_its_twin (self) -> "Listing":
+		"""Give a caller both spellings whichever one the instance it reached knows.
+
+		Here rather than in the clients, following `#1168`: a fallback per consumer is the
+		second copy this rename exists to repay, and the two names are one value.
+
+		**Without this the default is a plausible wrong answer rather than a refusal.** A 0.8.1
+		client reading a 0.8.0 instance is handed ``sortable`` and no ``order``; the field
+		defaults to empty, so the client concludes the listing sorts by nothing — about an
+		instance advertising thirteen names. It has to be a default (a required ``order`` would
+		refuse every 0.8.0 instance outright), so the emptiness has to be repaired here.
+
+		**The second half is for a server this client will never otherwise understand.** 0.9.0
+		drops ``sortable`` and ``selectable``; a 0.8.1 client reading one then has the same
+		silence one version later, in the half nobody is watching. It can only be written now,
+		because this is the client that ships with the deprecation.
+
+		An empty list is ambiguous between *the instance did not say* and *there is nothing to
+		sort by*, and deliberately not distinguished with ``None``: both readings give the same
+		answer, because a listing that genuinely offers nothing sends both keys empty and the
+		fill is a no-op. Publishing ``array | null`` to buy a distinction that changes no
+		outcome would be the worse contract.
+		"""
+
+		if not self.order:
+			self.order = self.sortable
+		elif not self.sortable:
+			self.sortable = self.order
+
+		if not self.fields:
+			self.fields = self.selectable
+		elif not self.selectable:
+			self.selectable = self.fields
+
+		return self
 
 
 class Grammar(pydantic.BaseModel):

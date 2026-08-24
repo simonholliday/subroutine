@@ -576,11 +576,11 @@ def test_a_document_listing_publishes_the_deferral_ordering (
 	published = world.call("GET", "/v1/meta").json()["listings"]
 
 	for entity in ("task", "document"):
-		assert "deferred" in published[entity]["sortable"], (
+		assert "deferred" in published[entity]["order"], (
 			f"a {entity} listing sorts by deferral and does not say so"
 		)
 
-	assert "deferred" not in published["project"]["sortable"], (
+	assert "deferred" not in published["project"]["order"], (
 		"a project has nothing to defer, so offering the order would be an empty promise"
 	)
 
