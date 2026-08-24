@@ -27,6 +27,7 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.domain.projects
+import subroutine.installations
 import subroutine.mcp.tools
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1100,4 +1101,55 @@ def test_the_guaranteed_channel_names_the_practice_and_not_only_the_endpoint () 
 	assert "in_progress" in guide, (
 		"the guide never tells an agent to say it has started, so a person watching sees items "
 		"appear finished with nothing in between"
+	)
+
+
+def test_a_manifest_that_announces_its_version_announces_its_own () -> None:
+	"""`SR#839`. A plugin tells an instance which cached copy of itself is talking.
+
+	**The `subroutine-remote` plugin starts no program**, so there is nothing whose runtime
+	version could stand in — the editor posts straight to `/mcp` and the only version that
+	exists anywhere is a literal in this manifest. The stdio plugin needs none, because the
+	process it starts can answer for itself, which is why this is discovered by reading rather
+	than asserted of every plugin.
+
+	**Why it must be the plugin's own version and not the `uvx` series.** The pin answers *which
+	package may this bootstrap fetch*, where a series is right. This answers *which copy of the
+	plugin is this*, and a series cannot say — two cache keys in one series are exactly the pair
+	somebody needs told apart.
+
+	**Two files, so they can drift, which is what this stops.** A manifest is a cache key and
+	moves on any change under its directory (`SR#396`), between releases as well as at one — so
+	a bump that changed `plugin.json` and left this behind would ship a plugin that
+	misidentifies itself, at the moment somebody is trying to work out why their tools are odd.
+	"""
+
+	announcing = {}
+
+	for directory in PLUGIN_DIRECTORIES:
+		servers = directory / ".mcp.json"
+
+		if not servers.is_file():
+			continue
+
+		for name, server in _read(servers)["mcpServers"].items():
+			said = (server.get("headers") or {}).get(
+				subroutine.installations.PLUGIN_HEADER
+			)
+
+			if said is not None:
+				announcing[f"{directory.name}/{name}"] = (
+					said, _read(directory / ".claude-plugin" / "plugin.json")["version"]
+				)
+
+	assert announcing, (
+		"no manifest announces a version, so this asserts about nothing — if that is "
+		"deliberate, SR#839's client half has been removed and the header is gone with it"
+	)
+
+	wrong = {where: pair for where, pair in announcing.items() if pair[0] != pair[1]}
+
+	assert not wrong, (
+		f"a manifest announces a version that is not its own: {wrong} — the header and "
+		f"plugin.json move together, and scripts/release.py writes both"
 	)

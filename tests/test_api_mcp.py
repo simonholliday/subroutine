@@ -40,6 +40,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.sessions
+import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
 import subroutine.mcp.session
@@ -1069,4 +1070,22 @@ def test_a_remote_session_reaches_the_endpoint_and_speaks_the_transport (
 	assert "application/json" in sent[0]["accept"]
 	assert "text/event-stream" in sent[0]["accept"], (
 		"a client must offer both, because a server is free to answer with a stream"
+	)
+
+	# **`SR#839`: which copy of us is talking.** This forwarder is the one path where both
+	# answers are knowable — the program is this process and the plugin is the cache directory
+	# the editor started it from — and before this neither reached the far end. `User-Agent`
+	# carries `API_VERSION`, the contract version, which is the same on every release and so
+	# can never say that a caller is stale.
+	#
+	# **Asserted on the wire rather than on the header dict** the client was built with: a
+	# value that never leaves is not a value the server can read, and the two look identical
+	# from the constructor.
+	assert sent[0][subroutine.installations.PROGRAM_HEADER] == subroutine.installations.program()
+
+	# The plugin half is absent here and that is the honest answer, not a gap: nothing set
+	# `CLAUDE_PLUGIN_ROOT` for this process, so no plugin contributed this connection. A test
+	# that asserted a value would be asserting its own environment.
+	assert subroutine.installations.PLUGIN_HEADER not in sent[0], (
+		"a plugin version was announced by a session no plugin started"
 	)

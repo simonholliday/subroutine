@@ -88,6 +88,7 @@ class Client:
 				"Authorization": f"Bearer {token}",
 				"Accept": "application/json",
 				"User-Agent": f"subroutine/{subroutine.API_VERSION}",
+				**subroutine.installations.calling(),
 			},
 		)
 

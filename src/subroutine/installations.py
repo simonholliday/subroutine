@@ -110,3 +110,47 @@ def plugin () -> str | None:
 	version = manifest.get("version")
 
 	return version if isinstance(version, str) else None
+
+
+#: What a caller says about itself, so an instance can tell a stale one from a current one.
+#:
+#: **`#839`'s client half, and it ships before anything reads it on purpose.** A plugin is a
+#: *cache key* — Claude Code keeps an installed copy under its version — so the thing that goes
+#: stale is the copy on somebody's machine. A fix that taught only the *server* to notice would
+#: be useless for exactly the population it is for: a stale caller is running old client code by
+#: definition, so whatever is emitted today is what a future instance has to work with.
+#:
+#: **Measured before it was written** (`#839`, and `sandbox/#10` from the far side): nothing
+#: reached the server at all. ``User-Agent`` carries ``API_VERSION`` — the *contract* version,
+#: ``1.0`` — and `#539` moved the tool implementations server-side, so ``plugin()`` below
+#: reads ``CLAUDE_PLUGIN_ROOT`` in a process the plugin did not start. Both halves of `#381`'s
+#: three-way check were therefore inert on this transport, and the skill tells a reader that
+#: silence after the version line means nothing is wrong.
+#:
+#: **Nothing consumes these yet and that is not the same as an inert control** (`#303`). An
+#: inert control claims to enforce something and does not; this transmits a fact so that a later
+#: release can. Both relays are driven against the real application and asserted to send them,
+#: so deleting them fails rather than going quiet — which is what a control nothing reads could
+#: not say for itself.
+#:
+#: A missing ``Subroutine-Plugin`` means *no plugin contributed this connection* — a bare CLI,
+#: or a script. A missing ``Subroutine-Program`` means *nothing of ours is running here*, which
+#: is the ``subroutine-remote`` shape, where the editor posts straight to ``/mcp`` and the only
+#: version that exists is a literal in the manifest.
+#: What is running on the caller's own machine, and which cached copy of the plugin started it.
+#: Named here rather than spelled at each relay, because a header written twice is two strings
+#: that can drift and only one of them is ever read.
+PROGRAM_HEADER = "Subroutine-Program"
+PLUGIN_HEADER = "Subroutine-Plugin"
+
+
+def calling () -> dict[str, str]:
+	"""Return the headers naming what is making this request, omitting what cannot be known."""
+
+	said = {PROGRAM_HEADER: program()}
+	cached = plugin()
+
+	if cached is not None:
+		said[PLUGIN_HEADER] = cached
+
+	return said

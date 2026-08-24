@@ -68,6 +68,26 @@ BOOTSTRAPS = tuple(
 	)
 )
 
+#: The header a plugin uses to tell an instance which cached copy of itself is talking.
+#:
+#: `#839`. A plugin is a cache key, so what goes stale is the copy on somebody's machine — and a
+#: server-side fix would be useless for exactly that population, because a stale caller runs old
+#: client code by definition. So a release writes the version into the manifest that emits it.
+PLUGIN_HEADER = "Subroutine-Plugin"
+
+#: The plugin server definitions that announce their own version in a header. Discovered by
+#: *reading*, like :data:`BOOTSTRAPS` and for the same reason: a plugin that starts a program can
+#: report its version at runtime and needs no literal, so only a manifest that already carries
+#: one is rewritten. It is the plugin's **own** version rather than the series the ``uvx`` pin
+#: takes — the question it answers is *which copy is this*, and a series cannot say.
+ANNOUNCERS = tuple(
+	sorted(
+		path
+		for path in (ROOT / "plugins").glob("*/.mcp.json")
+		if PLUGIN_HEADER in path.read_text(encoding="utf-8")
+	)
+)
+
 #: The record `subroutine db upgrade --check` reads — item `#321`. **Written here rather than
 #: derived by whoever asks**, because the fact it carries is only knowable at the moment of
 #: release: the schema head this version expects. PyPI publishes a version and nothing about a
@@ -137,6 +157,11 @@ def main (argv: list[str] | None = None) -> int:
 			for bootstrap in BOOTSTRAPS
 			if _pins_in(bootstrap) - {pinned}
 		]
+		changing += [
+			f"  {manifest.parent.name}: {PLUGIN_HEADER} becomes {version}"
+			for manifest in ANNOUNCERS
+			if _announced_in(manifest) - {version}
+		]
 		changing.append(f"  {RELEASES.name}: {version} recorded at schema {head}")
 
 		print(f"Would release {version} ({on}):")
@@ -144,7 +169,9 @@ def main (argv: list[str] | None = None) -> int:
 		for line in changing:
 			print(line)
 
-		unchanged = (1 + len(PLUGINS) + len(BOOTSTRAPS) + 1) - len(changing)
+		unchanged = (
+			1 + len(PLUGINS) + len(BOOTSTRAPS) + len(ANNOUNCERS) + 1
+		) - len(changing)
 
 		already = "already says" if unchanged == 1 else "already say"
 
@@ -156,6 +183,7 @@ def main (argv: list[str] | None = None) -> int:
 	CHANGELOG.write_text(changelog, encoding="utf-8")
 	_write_plugin_version(version)
 	_write_uvx_pin(version)
+	_write_plugin_header(version)
 	_record_release(version, head, on)
 
 	# **This used to say `check_release_notes.py` is deliberately not run here**, on the grounds
@@ -165,6 +193,7 @@ def main (argv: list[str] | None = None) -> int:
 	_git(
 		"add", str(CHANGELOG), str(RELEASES),
 		*(str(path) for path in PLUGINS), *(str(path) for path in BOOTSTRAPS),
+		*(str(path) for path in ANNOUNCERS),
 	)
 	_git("commit", "-m", f"Release {version}", "-m", f"See CHANGELOG.md for what {version} contains.")
 
@@ -489,6 +518,42 @@ def _write_uvx_pin (version: str) -> None:
 		# package, and rewriting its file to change nothing is what `#749` was.
 		for pin in _pins_in(path) - {wanted}:
 			_replace_json_value(path, pin, wanted)
+
+
+def _write_plugin_header (version: str) -> None:
+	"""Tell every announcing manifest which version of itself it now is.
+
+	**The plugin's own version, unlike the ``uvx`` pin above.** The pin answers *which package
+	series may this bootstrap fetch*, so a series is right; this answers *which cached copy of
+	the plugin is talking*, and a series cannot say. On a release the two coincide because every
+	manifest is set to ``version`` in the same run — between releases they do not, and a plugin
+	bumped as a cache key (`#396`) must move this with it.
+
+	``tests/test_plugin.py`` holds the header against that plugin's own ``plugin.json``, so a
+	bump that changes one and not the other fails rather than shipping a manifest that
+	misidentifies itself.
+	"""
+
+	for path in ANNOUNCERS:
+		for said in _announced_in(path) - {version}:
+			_replace_json_value(path, said, version)
+
+
+def _announced_in (path: pathlib.Path) -> set[str]:
+	"""Return every version a manifest's headers claim to be.
+
+	Shared by the writer and the dry run, for the reason :func:`_pins_in` is: the two must not
+	disagree about whether a file needs touching.
+	"""
+
+	servers = json.loads(path.read_text(encoding="utf-8"))
+
+	return {
+		headers[PLUGIN_HEADER]
+		for server in servers.get("mcpServers", {}).values()
+		for headers in [server.get("headers") or {}]
+		if PLUGIN_HEADER in headers
+	}
 
 
 def _pins_in (path: pathlib.Path) -> set[str]:

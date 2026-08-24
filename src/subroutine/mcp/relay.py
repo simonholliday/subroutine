@@ -38,6 +38,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.domain.authentication
 import subroutine.errors
+import subroutine.installations
 import subroutine.mcp.protocol
 
 #: The endpoint an instance serves MCP on. Named once because both halves below reach it, and
@@ -187,6 +188,11 @@ def _over_http (
 			# nothing that could make the header disagree with the session.
 			"MCP-Protocol-Version": subroutine.mcp.protocol.PROTOCOL_VERSION,
 			"User-Agent": f"subroutine/{subroutine.API_VERSION}",
+			# **Which copy of us is talking** (`#839`). `User-Agent` carries `API_VERSION` — the
+			# contract, `1.0` — so before this nothing told the far end what was running here.
+			# This forwarder is the one path where both answers are knowable: the program is the
+			# process, and the plugin is the cache directory the editor started it from.
+			**subroutine.installations.calling(),
 		},
 	)
 

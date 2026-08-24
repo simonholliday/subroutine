@@ -34,6 +34,15 @@ upgrade involves.
 
 ### Changed
 
+- **A plugin tells the instance which copy of itself is talking.** A plugin is a cache key, so
+  the copy on your machine can fall behind the instance it connects to — and nothing reached the
+  server that could say so, while the guidance told an agent that silence meant all was well. A
+  session has run a skill four versions old and had no way to find out.
+
+  Requests now carry `Subroutine-Program` and, where a plugin started them, `Subroutine-Plugin`.
+  Nothing reports on them yet; this is the half that has to be in the version you install,
+  because a copy that is behind is running the old client by definition.
+
 - **A specification, a design or a note is in force the moment you write it.** Only a decision,
   a finding and a dead end were before; the other three started as drafts and stayed there,
   because nothing ever revisits that field. A draft does not govern — so a specification linked

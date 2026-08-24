@@ -26,6 +26,7 @@ import time
 import typing
 import uuid
 
+import httpx
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
@@ -58,6 +59,7 @@ import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.installations
 import subroutine.permissions
 import subroutine.views
 
@@ -1386,6 +1388,71 @@ def test_both_withdraw_a_link_the_same_way (pair: Pair) -> None:
 
 	assert second.ref in {task.ref for task in local.tasks(ready=True)}
 	assert local.links(ref=first.ref) == remote.links(ref=first.ref) == []
+
+
+def test_the_http_client_tells_the_instance_what_is_running_here (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#839`'s client half, driven on the wire rather than read off the constructor.
+
+	**The version that ships is the only one that can ever help.** A plugin is a cache key, so
+	what goes stale is the copy on somebody's machine — and a stale caller is running old client
+	code by definition. Teaching a *future* instance to notice would therefore be useless for
+	exactly the population it is for. Whatever this release emits is what every later instance
+	has to work with, which is why it went in before the tag rather than with the half that
+	reads it.
+
+	**Measured before it was written**: nothing identifying the caller reached the server at
+	all. ``User-Agent`` carries ``API_VERSION`` — the *contract* version, ``1.0`` — so it is the
+	same string on every release and can never say that a caller is behind.
+
+	**On the wire, not on the header dict.** A header the client was built with and never sends
+	is not a header a server can read, and the two are indistinguishable from the constructor.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test Instance"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Headers"
+	)
+	session.flush()
+
+	application = api_support.build_app(api_support.factory_for(session))
+	sent: list[httpx.Headers] = []
+
+	class Recording(httpx.BaseTransport):
+		"""The in-process bridge, keeping what the client asked it to send."""
+
+		def __init__ (self) -> None:
+			"""Wrap the transport the rest of this suite drives applications through."""
+
+			self._inner = api_support.SyncTransport(application)
+
+		def handle_request (self, request: httpx.Request) -> httpx.Response:
+			"""Record the outgoing headers and answer from the application."""
+
+			sent.append(request.headers)
+
+			return self._inner.handle_request(request)
+
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=issued.value.get_secret_value(),
+		transport=Recording(),
+		base_url=api_support.BASE_URL,
+	)
+
+	with remote:
+		remote.identity()
+
+	assert sent, "no request reached the transport, so this asserts about nothing"
+
+	assert sent[0][subroutine.installations.PROGRAM_HEADER] == subroutine.installations.program()
+
+	# Absent, and that is the answer rather than a gap: no plugin started this process, so
+	# claiming one would be asserting the test's own environment.
+	assert subroutine.installations.PLUGIN_HEADER not in sent[0]
 
 
 def test_both_record_the_unlink_against_the_item_the_reader_was_on (pair: Pair) -> None:
