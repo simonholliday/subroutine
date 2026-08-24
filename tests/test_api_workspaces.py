@@ -660,3 +660,78 @@ def test_deleting_and_restoring_are_both_idempotent (world: test_api_tasks.World
 	assert world.call("POST", "/v1/workspaces/acme/restore").json()["version"] == (
 		restored["version"]
 	)
+
+
+def test_creating_a_workspace_refuses_a_setting_that_changing_one_would_refuse (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1127`. The two ends of one field disagreed, and create is the end reached first.
+
+	``create`` stored ``dict(settings or {})`` while ``update`` ran the registry — so a key
+	``PATCH`` refuses by name was accepted silently by the call that *makes* the workspace, and
+	the value it refuses was stored. `SR#1025` chose *refuse on write, ignore on read* so a typo
+	is caught where somebody can still fix it; creating is a write.
+
+	**Both calls, in one test, because the finding is the disagreement.** Asserting the refusal
+	alone would pass on a build where ``PATCH`` had quietly stopped refusing too.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={"slug": "acme", "title": "Acme", "settings": {"no_such_setting": 1}},
+	)
+
+	assert made.status_code == 422, (
+		f"an undeclared setting was accepted at creation: {made.status_code} {made.text[:200]}"
+	)
+	assert "no_such_setting" in made.text, "the refusal does not name the key"
+
+	# The same body against the other end, which has always refused it — so this test cannot
+	# pass by both ends being wrong together.
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+	changed = world.call(
+		"PATCH", "/v1/workspaces/acme", json={"settings": {"no_such_setting": 1}}
+	)
+
+	assert changed.status_code == 422, changed.text
+
+
+def test_a_workspace_cannot_be_born_naming_a_status_it_does_not_have (
+	world: test_api_tasks.World,
+) -> None:
+	"""The half a registry entry cannot check alone — `SR#1127`.
+
+	``verified`` runs the workspace-aware checks, and on create the vocabulary is seeded in the
+	same call, so they are answerable. Skipping them let a workspace be born holding
+	``statuses.hidden`` naming statuses that do not exist, which `SR#1029`'s resolution then
+	reads out of a blob nothing ever validated.
+
+	**Ordering is the whole fix here**: the shape is checked before the row is stored and the
+	references after the seeding, because until the seeding there is nothing to refer to.
+	"""
+
+	refused = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={
+			"slug": "acme",
+			"title": "Acme",
+			"settings": {"statuses.hidden": ["no_such_status"]},
+		},
+	)
+
+	assert refused.status_code == 422, (
+		f"a workspace was created hiding a status it has never had: {refused.text[:200]}"
+	)
+
+	# **And a real one is accepted**, which is what stops the assertion above being satisfied by
+	# refusing every settings map — the failure this fix could most easily have introduced.
+	fine = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={"slug": "acme", "title": "Acme", "settings": {"statuses.hidden": ["done"]}},
+	)
+
+	assert fine.status_code == 201, fine.text
+	assert fine.json()["settings"]["statuses.hidden"] == ["done"]

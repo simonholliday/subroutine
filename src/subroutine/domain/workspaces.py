@@ -90,16 +90,39 @@ def create (
 	# refusal that named the caller's request rather than the workspace holding the bad value.
 	subroutine.domain.dates.zone(timezone)
 
+	# **Checked here as `update` checks it, and it was not** (`#1127`). This took whatever map
+	# it was handed, so a key `PATCH /v1/workspaces/{slug}` refuses by name was accepted
+	# silently by the call that *makes* the workspace — and create is the end a caller reaches
+	# first. `#1025` chose *refuse on write, ignore on read* deliberately, so that a typo is
+	# caught where somebody can still fix it; create is a write.
+	#
+	# **`applied` rather than `validated`, with an empty base**, so this is the same call
+	# `update` makes rather than a second spelling of it. Merging into `{}` reduces to *refuse
+	# an unknown key and read every value*, which is exactly what is wanted here.
+	chosen = subroutine.domain.settings.applied(
+		{}, dict(settings or {}), scope=subroutine.domain.settings.WORKSPACE
+	)
+
 	workspace = subroutine.db.models.identity.Workspace(
 		slug=normalized,
 		title=title,
 		timezone=timezone,
-		settings=dict(settings or {}),
+		settings=chosen,
 	)
 	session.add(workspace)
 	session.flush()
 
 	report = subroutine.db.seed.seed_workspace(session, workspace)
+
+	# **After the seeding, because these are the workspace-aware checks** — a setting naming a
+	# status refuses one this workspace does not have, and until the line above it has none. So
+	# the order is not incidental: validate the *shape* before storing, and the *references*
+	# once there is something to refer to.
+	#
+	# Against what the caller sent rather than against `workspace.settings`, which the seeder
+	# has just written its own key into. `update` passes its merged map for the reason its own
+	# comment gives; here the merged map and the caller's are the same thing plus that key.
+	subroutine.domain.settings.verified(session, workspace.id, chosen)
 	add_member(session, workspace, owner, role_key=FOUNDING_ROLE, actor=actor)
 
 	subroutine.domain.events.record(

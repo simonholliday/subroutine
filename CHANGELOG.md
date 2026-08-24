@@ -16,6 +16,15 @@ upgrade involves.
 
 ### Fixed
 
+- **Creating a workspace checks its settings, the way changing one always has.**
+  `POST /v1/workspaces` stored whatever settings map it was handed, so a key that
+  `PATCH /v1/workspaces/{slug}` refuses by name was accepted silently by the call that makes the
+  workspace — and that is the end a caller reaches first.
+
+  It also skipped the checks that need the workspace itself, so one could be born hiding a status
+  it has never had. Both ends now run the same two calls, in the order the fix requires: the
+  shape before the row is stored, the references once the vocabulary exists to refer to.
+
 - **A change an agent reads is named in your words, not the database's.** The change feed and an
   item's history said `changed status_id` and `changed assignee_id` — column names that appear
   nowhere else on that surface. They now read `changed how it is going` and `changed who has it`.
