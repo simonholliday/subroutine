@@ -988,6 +988,38 @@ def test_every_unreported_column_names_the_item_tracking_it () -> None:
 		assert "#" in reason, f"{column!r} is recorded as a gap with no item tracking it."
 
 
+@pytest.mark.parametrize(("name", "model", "view"), STORED, ids=[row[0] for row in STORED])
+def test_nothing_recorded_as_unreported_is_quietly_being_reported (
+	name: str, model: type[typing.Any], view: type[pydantic.BaseModel]
+) -> None:
+	"""``UNSETTABLE``'s mirror, for the register that describes the other direction — `SR#1126`.
+
+	**Four checks read ``UNREPORTED`` and not one compared it against the views.** That it is an
+	excuse only where the column is unreported, that the column still exists, that the reason
+	names an item, that the citation parses — all four survive the entry's own fix. So a field
+	added to a view for some unrelated reason leaves the excuse sitting there saying *read by
+	nothing*, which is the sentence two separate surveys have now read and repeated.
+
+	**Deleting an entry is what closes the item it names**, which is this register's whole
+	design and the reason a stale one costs more here than tidiness: it keeps an item looking
+	open. ``UNSETTABLE`` has had this check since `SR#42`, and its docstring states the
+	distinction — *the staleness check asks whether an excused field still exists; nothing asked
+	whether it is still unsettable*. This is that sentence with *reported* in place of
+	*settable*.
+	"""
+
+	reported = sorted(
+		column
+		for column in _columns(model)
+		if _excused(model, column, UNREPORTED) and column in _fields(view)
+	)
+
+	assert not reported, (
+		f"{reported} are recorded in UNREPORTED and `views.{view.__name__}` now reports them. "
+		f"Delete the entries — that is what closes the items they name."
+	)
+
+
 #: A reason pointing at the place a reader gets the content instead — ``Task.tags``,
 #: ``Member.role``. Capitalised on the left, because that is what tells a view apart from a
 #: module (``views.Vocabulary``) or a setting; and both halves bare, so ``kind='web_session'``
