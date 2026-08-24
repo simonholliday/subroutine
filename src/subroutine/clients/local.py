@@ -1315,6 +1315,8 @@ class Client:
 	) -> subroutine.views.Verification:
 		"""Record what was checked against one task."""
 
+		self._refuse_if_read_only()
+
 		with self._writing() as (session, actor):
 			task = self._require(session, actor, ref, workspace)
 			written = subroutine.domain.verifications.record(
@@ -1760,6 +1762,8 @@ class Client:
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
 
+		self._refuse_if_read_only()
+
 		with self._writing() as (session, actor):
 			row, owner, issued, created = subroutine.domain.tokens.issue(
 				session,
@@ -1792,6 +1796,8 @@ class Client:
 		self, *, username: str | None = None
 	) -> subroutine.views.SignInLink:
 		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
+
+		self._refuse_if_read_only()
 
 		# **Told, worked out, or refused** — `#1007`, and the middle branch is new.
 		#
@@ -1840,6 +1846,8 @@ class Client:
 	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
 		"""End every browser session an account holds, and report how many (`#248`)."""
 
+		self._refuse_if_read_only()
+
 		with self._writing() as (session, actor):
 			for_whom = subroutine.domain.selection.user(session, username)
 			stopped = subroutine.domain.sessions.sign_out_everywhere(
@@ -1852,6 +1860,8 @@ class Client:
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""
+
+		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			found = subroutine.domain.tokens.mine(session, actor, id_or_prefix)
@@ -1887,6 +1897,8 @@ class Client:
 	) -> subroutine.views.IssuedCalendar:
 		"""Mint a calendar feed and return its URL once (`#916`)."""
 
+		self._refuse_if_read_only()
+
 		with self._writing() as (session, actor):
 			feed, minted = subroutine.domain.calendars.issue(
 				session,
@@ -1918,6 +1930,8 @@ class Client:
 	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
 		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
 
+		self._refuse_if_read_only()
+
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)
 			minted = subroutine.domain.calendars.reset(
@@ -1939,6 +1953,8 @@ class Client:
 
 	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
 		"""Stop a calendar feed for good, now (`#916`)."""
+
+		self._refuse_if_read_only()
 
 		with self._writing() as (session, actor):
 			found = subroutine.domain.calendars.mine(session, actor, id_or_prefix)

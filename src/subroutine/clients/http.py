@@ -876,6 +876,8 @@ class Client:
 	) -> subroutine.views.IssuedToken:
 		"""Mint a credential and return it once, secret included (`#348`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.IssuedToken,
 			self._json(
@@ -903,6 +905,8 @@ class Client:
 	) -> subroutine.views.SignInLink:
 		"""Mint a single-use sign-in link for a browser, and return it once (`#248`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.SignInLink,
 			self._json("POST", "/v1/login-links", json=_given(username=username)),
@@ -911,6 +915,8 @@ class Client:
 	def sign_out_everywhere (self, *, username: str) -> subroutine.views.SignedOut:
 		"""End every browser session an account holds, and report how many (`#248`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.SignedOut,
 			self._json("POST", f"/v1/users/{username}/signout"),
@@ -918,6 +924,8 @@ class Client:
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
 		"""Stop a credential working, now (`#348`)."""
+
+		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{id_or_prefix}")
@@ -950,6 +958,8 @@ class Client:
 	) -> subroutine.views.IssuedCalendar:
 		"""Mint a calendar feed and return its URL once (`#916`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.IssuedCalendar,
 			self._json(
@@ -972,6 +982,8 @@ class Client:
 	def reset_calendar (self, *, id_or_prefix: str) -> subroutine.views.IssuedCalendar:
 		"""Give a feed a new URL, so the one somebody had stops working (`#916`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.IssuedCalendar,
 			self._json("POST", f"/v1/calendars/{id_or_prefix}/reset"),
@@ -979,6 +991,8 @@ class Client:
 
 	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
 		"""Stop a calendar feed for good, now (`#916`)."""
+
+		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.Calendar,
@@ -1074,6 +1088,8 @@ class Client:
 		self, *, username: str, timezone: str | None
 	) -> subroutine.views.User:
 		"""Say where somebody keeps their diary — your own account only."""
+
+		self._refuse_if_read_only()
 
 		answer = self._json("PATCH", f"/v1/users/{username}", json={"timezone": timezone})
 
@@ -1483,6 +1499,8 @@ class Client:
 	) -> subroutine.views.Task:
 		"""Take a lease on a task, or renew one this credential holds (`#350`)."""
 
+		self._refuse_if_read_only()
+
 		return self._parsed(
 			subroutine.views.Task,
 			self._json(
@@ -1496,6 +1514,8 @@ class Client:
 		self, *, ref: int, workspace: str | None = None
 	) -> subroutine.views.Task:
 		"""Give a task back, so somebody else can take it (`#350`)."""
+
+		self._refuse_if_read_only()
 
 		return self._parsed(
 			subroutine.views.Task,

@@ -16,8 +16,10 @@ Every test runs on SQLite and PostgreSQL, since two of the things most likely to
 NULL ordering and datetime awareness — are invisible on one of them.
 """
 
+import ast
 import datetime
 import json
+import pathlib
 import subprocess
 import sys
 import time
@@ -1965,6 +1967,175 @@ def test_a_read_only_connection_refuses_every_write_before_it_leaves (
 		)
 		== 0
 	)
+
+#: Where the two clients live. Held as a path so the scan below can be pointed at a synthetic
+#: source instead of at the real tree — `#405`'s rule, and the reason a planted offender can
+#: reach the real scanner rather than a copy of its rule.
+CLIENTS = pathlib.Path(__file__).resolve().parent.parent / "src" / "subroutine" / "clients"
+
+#: The verbs that change something, taken from the client's own vocabulary rather than typed
+#: out here, so a new one cannot be added on one side of this comparison alone.
+CHANGING_VERBS = (
+	subroutine.clients.base.CALLABLE_METHODS - subroutine.clients.base.READING_VERBS
+)
+
+#: A write this rule does not apply to, and why. **One entry, and it must stay hard to add to.**
+#:
+#: ``read_repeat`` names a changing verb and stores nothing — it is ``POST`` because a repeat
+#: rule is too long for a query string, and its own docstring says *"without storing
+#: anything"*. So the scan below sees a write where there is none, and the honest answer is to
+#: say so here rather than to weaken the detection until it agrees.
+NOT_REALLY_A_WRITE = {
+	"read_repeat": "a POST used as a question — it parses a repeat rule and stores nothing",
+}
+
+
+def _is_a_write (node: ast.AST) -> bool:
+	"""Report whether this node is one of the two ways a client method writes.
+
+	Two spellings, one meaning: the local client opens ``_writing()`` and the HTTP client names
+	a verb that changes something. Named rather than written inline because they are the same
+	question asked of two transports, and because the alternative ruff offers is one line of
+	four ``isinstance`` calls joined by ``or``.
+	"""
+
+	if isinstance(node, ast.Attribute):
+		return node.attr == "_writing"
+
+	return isinstance(node, ast.Constant) and node.value in CHANGING_VERBS
+
+
+def _writes_and_guards (source: str) -> tuple[set[str], set[str]]:
+	"""Return the public ``Client`` methods in this source that write, and those that refuse.
+
+	**The write set is derived from what makes a method a write, never from what guards
+	one.** That distinction is the whole point: `#1164` shipped because the rule lived in a
+	hand-written list of eight attempts, and a list cannot notice the ninth. A method that
+	opens ``_writing()`` is writing to a local database, and one that names ``POST``,
+	``PUT``, ``PATCH`` or ``DELETE`` is asking a server to write — neither of which can be
+	spelt any other way, so a new write method arrives already inside this set.
+
+	Takes the source as an argument rather than reading the tree, so the falsification below
+	can feed it a defect through the real scanner.
+	"""
+
+	found = next(
+		node
+		for node in ast.walk(ast.parse(source))
+		if isinstance(node, ast.ClassDef) and node.name == "Client"
+	)
+
+	writes: set[str] = set()
+	guards: set[str] = set()
+
+	for method in found.body:
+		if not isinstance(method, ast.FunctionDef) or method.name.startswith("_"):
+			continue
+
+		for node in ast.walk(method):
+			if _is_a_write(node):
+				writes.add(method.name)
+
+			elif isinstance(node, ast.Attribute) and node.attr == "_refuse_if_read_only":
+				guards.add(method.name)
+
+	return writes, guards
+
+
+@pytest.mark.parametrize("module", ["local", "http"])
+def test_every_client_write_refuses_a_read_only_connection (module: str) -> None:
+	"""`#1164` and `#1165`. The rule the test above proves, asked of every write there is.
+
+	That test drives eight calls and proves the mechanism fires. It cannot prove the mechanism
+	is *reached*, because its list of eight is written by hand — and its own comment says a
+	check added to one write "would leave the other two open, and nothing would say so",
+	which is exactly what then happened. ``verify`` arrived, the list did not grow, and a
+	connection its owner had marked read-only wrote a permanent record for a fortnight.
+
+	Sweeping for that shape found four more the report did not: ``claim``, ``release`` and
+	``set_timezone`` were guarded locally and open over HTTP — the transport §13.7 says the
+	setting exists for — and seven credential and calendar methods were open on both.
+
+	**There is no exemption for a credential or a calendar feed** (Simon, 2026-08-24). What
+	decided it is ``sign_out_everywhere``: it ends every browser session an account holds, on
+	somebody else's instance, through a connection configured to permit no writes at all.
+	"""
+
+	source = (CLIENTS / f"{module}.py").read_text(encoding="utf-8")
+	writes, guards = _writes_and_guards(source)
+
+	# A floor, because a scanner that read nothing satisfies every assertion below it.
+	assert len(writes) > 30, f"only {len(writes)} writes found in clients/{module}.py"
+
+	open_ones = sorted(writes - guards - set(NOT_REALLY_A_WRITE))
+
+	assert not open_ones, (
+		f"clients/{module}.py writes without consulting the connection's read_only setting: "
+		f"{open_ones}. Add self._refuse_if_read_only(), or say in NOT_REALLY_A_WRITE why the "
+		f"method does not write."
+	)
+
+
+@pytest.mark.parametrize("module", ["local", "http"])
+def test_nothing_excused_from_the_read_only_rule_has_started_writing (module: str) -> None:
+	"""The other direction, which is what stops an excuse outliving its reason.
+
+	An entry here says *the scan is wrong about this one*. If the method later grows a guard,
+	or stops being seen as a write at all, the entry is describing something that is no longer
+	true and the next reader takes it as a considered decision.
+	"""
+
+	source = (CLIENTS / f"{module}.py").read_text(encoding="utf-8")
+	writes, guards = _writes_and_guards(source)
+
+	for name, why in NOT_REALLY_A_WRITE.items():
+		if name not in writes:
+			continue
+
+		assert name not in guards, (
+			f"clients/{module}.py: {name!r} is excused from the read-only rule as {why!r} and "
+			f"now refuses one anyway. Delete the entry — the excuse is what is stale."
+		)
+
+
+def test_the_read_only_scan_can_see_a_write_that_forgot () -> None:
+	"""Falsified through the real scanner, against both spellings of a write.
+
+	A guard tested against a copy of its own rule cannot notice that the real code is shaped
+	differently, and this repository has shipped that twice. So the two cases here are the
+	two the scan claims to cover, written as a client would write them.
+	"""
+
+	local_shaped = (
+		"class Client:\n"
+		"\tdef wipe (self) -> None:\n"
+		'\t\t"""Delete everything."""\n\n'
+		"\t\twith self._writing() as (session, actor):\n"
+		"\t\t\tsession.delete(actor)\n"
+	)
+	http_shaped = (
+		"class Client:\n"
+		"\tdef wipe (self) -> None:\n"
+		'\t\t"""Delete everything."""\n\n'
+		'\t\tself._json("DELETE", "/v1/everything")\n'
+	)
+
+	for source in (local_shaped, http_shaped):
+		writes, guards = _writes_and_guards(source)
+
+		assert writes == {"wipe"}, f"the scan did not see the write in {source!r}"
+		assert not guards
+
+	guarded = (
+		"class Client:\n"
+		"\tdef wipe (self) -> None:\n"
+		'\t\t"""Delete everything."""\n\n'
+		"\t\tself._refuse_if_read_only()\n\n"
+		'\t\tself._json("DELETE", "/v1/everything")\n'
+	)
+	writes, guards = _writes_and_guards(guarded)
+
+	assert writes == guards == {"wipe"}, "and it sees the guard when there is one"
 
 
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
