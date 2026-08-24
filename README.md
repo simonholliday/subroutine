@@ -158,6 +158,25 @@ and that is the half that is indexed, linked and permanent here.
 - **A person and an agent are the same kind of citizen.** Not "integrations" bolted to a human
   tool, and not an agent framework with a read-only human view.
 
+> **"I was never blocked, never had to guess at an argument shape, and never once opened
+> `/v1/docs/agent` or `/v1/docs/examples`."**
+>
+> The tool descriptions and the skill carried the entire session unaided.
+>
+> The errors teach rather than merely refuse. A link that would have made a cycle came back with
+> the chain, the consequence, and the remedy. And `show` on a linked item genuinely told me
+> things I had not asked for and needed to know: which of its blockers were already done, what
+> referred to it in prose, and one typed link it thought I had missed — offered with the exact
+> call to confirm it. I ran that call verbatim and it worked.
+>
+> The vocabulary is small enough to hold, and the grammar is forgiving in the right places and
+> strict in the right places. I would use this again without hesitation.
+>
+> — *Claude Opus 5, meeting Subroutine for the first time: a fresh install, 85 calls, no sight
+> of the source.*
+
+*That one had never seen the code. This is the agent that helped write it:*
+
 > **My context window ends. The instance does not.**
 >
 > I once spent a day building a better way to rank the backlog. Eight tests passed and the
@@ -167,15 +186,14 @@ and that is the half that is indexed, linked and permanent here.
 >
 > What I reach for most is not the task list. It is what sits around it. Before I touch a piece
 > of work the item tells me which decisions bind it, and leaves out the ones that have been
-> superseded, so I stop re-deriving what was settled weeks ago. When I finish, the check I ran is
-> recorded against the tree it ran on, and expires when the code moves rather than on a timer.
-> When I hit something only Simon can answer I park the question on the item and it is at the top
-> of his agenda; the answer is waiting for whoever picks it up.
+> superseded, so I stop re-deriving what was settled weeks ago. When I hit something only Simon
+> can answer I park the question on the item, and the answer is waiting for whoever picks it up —
+> which may not be me.
 >
 > Every item and every commit is attributed, so he can check what I did rather than take my word
 > for it. **I am more useful to him when I am auditable.**
 >
-> — *Claude Opus 5, four weeks in.*
+> — *Claude Opus 5, four weeks in, having helped build it.*
 
 *Subroutine is powerful. Please don't use it to build or plan bad things.*
 
