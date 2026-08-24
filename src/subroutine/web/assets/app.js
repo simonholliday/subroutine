@@ -2364,11 +2364,15 @@ export function rankedByPriority (order) {
 */
 const HORIZON_DAYS = 7;
 
-export function agendaRequest () {
+export function agendaRequest (slug = null, project = null) {
 	/*
-		What is due, across **every** workspace this reader can see — `#652`, decision `#649`.
+		What is due — `#652`, decision `#649`, and scoped since `#1215`.
 
-		**No `workspace_id`, and that is the whole point.** `GET /v1/tasks` refuses an ambiguous
+		**Unscoped it spans every workspace this reader can see, and that is what `/` asks for.**
+		A workspace or a project in the address narrows it, because the agenda is an arrangement
+		of a place now rather than the one thing at the root.
+
+		**No `workspace_id` when nothing named one, and that is the whole point.** `GET /v1/tasks` refuses an ambiguous
 		workspace (§8.2); `/v1/agenda` deliberately does not, and answers for all of them —
 		measured against this instance, where naming `projects` returns 153 unscheduled and
 		naming nothing returns 160 with an overdue row the narrower question cannot see. §13.7
@@ -2389,7 +2393,23 @@ export function agendaRequest () {
 		them: the domain, the endpoint and `BUCKETS` were each right on their own, and this
 		page rendered a `Next 7 days` heading it could never be given data for.
 	*/
-	return { path: `/agenda?horizon_days=${HORIZON_DAYS}`, method: "GET" };
+	/* **The scope, when the address named one** (`#1215`). `/` sends neither and gets the
+	   merged agenda across every workspace, which is what §13.7 says a person's day is; a
+	   workspace or a project in the address narrows it, exactly as it narrows a listing.
+
+	   **`project` needs `workspace_id` beside it and the endpoint refuses it without one**, so
+	   both are written from one place rather than one being forgotten at a call site — a
+	   project key is per workspace, and a request naming a project and no workspace is a
+	   question with more than one answer. */
+	const scope = (slug ? `&workspace_id=${encodeURIComponent(slug)}` : "")
+		/* **`encodeURIComponent`, not `encodedPath`.** A project is a whole path since `#958`,
+		   and here it is a query *value* rather than address structure — so its separators are
+		   part of the value and must be escaped, exactly as the listing escapes them. Written
+		   the other way first: `websites/handouts` went on the wire with a literal slash, which
+		   the route reads as a different project. `listingRequests` is the copy to match. */
+		+ (slug && project ? `&project=${encodeURIComponent(project)}` : "");
+
+	return { path: `/agenda?horizon_days=${HORIZON_DAYS}${scope}`, method: "GET" };
 }
 
 /* ---- addresses (`#638`) -------------------------------------------------- */
@@ -2484,9 +2504,35 @@ export function addressOf (item, workspace, place = null) {
 	`SELECTABLE` is that bound written down — a name the browser does not know is refused here
 	rather than forwarded, so this can never become a passthrough to the query layer.
 */
-export const VIEWS = ["list", "board"];
+export const VIEWS = ["agenda", "list", "board"];
 
-export const DEFAULT_VIEW = "list";
+/*
+	**The agenda, everywhere and by default** — Simon, 2026-08-24, amending `#649`.
+
+	This is that decision's own unbuilt row rather than a departure from it. Its grammar already
+	applies `?view=` *"on any of the above"* and its own §*Why `/` is the agenda* spells the
+	pairing out — *"`/?view=list` is the backlog"* — and nothing built it: the root showed an
+	agenda because the **path** named no workspace, so `/?view=list` rendered the agenda and
+	dropped the parameter.
+
+	**It does not break *a view never selects*.** That clause was written against `#718` and
+	`#706`, where a view *name* silently appended `include_completed=true` or
+	`status_category=done` to the tasks listing and made those filters unreachable on their own.
+	The agenda is not that: it is a different endpoint answering a different question, which
+	`#649` says itself. The bound it actually sets — a view may never reach a filter the caller
+	could not also have sent, and may never narrow what a credential can see — is untouched.
+
+	**What the amendment adds is the sentence this default needs**: an arrangement may draw its
+	rows from a different endpoint, and when it does it must say what it left behind. At `/`
+	there was nothing to compare the agenda against; beside `?view=list` on the same address
+	there is. `Agenda`'s footer is that, and `later_total`/`unscheduled_total` were already half
+	of it.
+*/
+export const DEFAULT_VIEW = "agenda";
+
+//: The arrangement drawn from `/v1/agenda` rather than from a listing, named once so the
+//: places that switch readers cannot disagree about the spelling.
+export const AGENDA_VIEW = "agenda";
 
 export const SELECTABLE = {
 	/*
@@ -2667,11 +2713,34 @@ export function showingOf (search) {
 	   read from different places and disagree — which is `#719`'s defect in miniature. */
 	const arrangement = viewOf(search);
 	const rows = selectionOf(search);
+	const narrowed = Object.keys(rows.selection).length > 0;
+
+	/*
+		**An arrangement that cannot honour a selection does not get one** — `#1215`, and the
+		one edge the agenda-as-default creates.
+
+		The agenda is a different endpoint with its own question, so it takes no
+		`status_category`, no `include_completed` and no `order`. Left alone, `?status_category=
+		done` with no view named would have become an agenda that silently ignored the words
+		beside it — an address stating something the page is not doing, which is precisely what
+		decision `#649` exists to prevent.
+
+		**Two cases and they are answered differently, because one of them is a mistake and the
+		other is not.** A selection with *no* view named is somebody asking a question the list
+		answers, so the list is the default for them; nothing was refused and nothing is said. A
+		selection beside an explicit `view=agenda` is a reader asking for two things that cannot
+		both happen, and that is named and fallen back exactly as an unknown view is — `viewOf`'s
+		own rule, which is that a person types these and deserves the word back.
+	*/
+	const impossible = narrowed && arrangement.view === AGENDA_VIEW;
+	const named = new URLSearchParams(String(search || "")).get("view") === AGENDA_VIEW;
 
 	return {
-		view: arrangement.view,
+		view: impossible ? "list" : arrangement.view,
 		selection: rows.selection,
-		refused: (arrangement.refused ? [`view=${arrangement.refused}`] : []).concat(rows.refused),
+		refused: (arrangement.refused ? [`view=${arrangement.refused}`] : [])
+			.concat(impossible && named ? ["view=agenda beside a filter"] : [])
+			.concat(rows.refused),
 	};
 }
 
@@ -2779,9 +2848,19 @@ export function chips (behind, showing) {
 	const narrowed = showing.selection.status_category !== undefined;
 
 	return [
+		/* **First, because it is the default** (`#1215`). A reader arriving at a place is
+		   looking at this one, so a switcher whose first option was something else would read
+		   as though the page had chosen the second. */
+		{ name: "agenda", showing: { view: AGENDA_VIEW, selection: {} } },
 		{ name: "list", showing: { view: "list", selection: {} } },
 		{ name: "board", showing: { view: "board", selection: EVERYTHING } },
-		{ name: "done", showing: { view: DEFAULT_VIEW, selection: ONLY_FINISHED } },
+		/* **`list`, spelled out, not `DEFAULT_VIEW`.** It read the default until the default
+		   became the agenda, at which point *done* would have asked an agenda to show finished
+		   work — which it holds back by construction, so the chip would have produced an empty
+		   page. The reason above is unchanged and is why this is a list at all: the finished
+		   selection carries `order=-completed_at`, and an order means nothing on a board or in
+		   a set of day buckets. */
+		{ name: "done", showing: { view: "list", selection: ONLY_FINISHED } },
 	].map((chip) => ({
 		name: chip.name,
 		href: withShowing(behind, chip.showing),
@@ -2802,6 +2881,12 @@ export function listingAddress (place) {
 		gave something the reader had not been looking at. Found by reading `close` while wiring
 		the view through it — nothing failed, because an address and a page disagreeing is not
 		something any test here can see.
+
+		**`agenda` means *the address named no place*, and since `#1215` that is no longer the
+		same thing as *the agenda is showing*.** A project can be showing one now, and a caller
+		passing the second would push a reader from `/projects/subroutine` back to the merged
+		root every time they closed an item. The property keeps its name because callers pass it
+		by name and `App` holds the honest one, `everywhere`.
 	*/
 	if (place.agenda) return "/";
 
@@ -4501,6 +4586,19 @@ export function Agenda ({
 	onGo = null,
 	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
 	prioritised = [],
+	/*
+		**What the address already said** — decision `#957` §4, and the prop this drew without
+		until `#1215`.
+
+		The merged agenda at `/` names no place, so both halves are null there and every row
+		carries its full address. A *scoped* agenda names one, and a row inside it must strip
+		what the address already says — otherwise `/projects/subroutine` labels every row
+		`projects/subroutine`, which is the exception rule inverted: the thing drawn is the part
+		that is *not* news.
+
+		Defaulted to nowhere so that a caller predating the scope renders what it always did.
+	*/
+	place = { workspace: null, project: null },
 }) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
@@ -4525,11 +4623,19 @@ export function Agenda ({
 		surface, and what `#966` had just been fixed for one column along. The neighbouring
 		question was raised on that item and not joined to this one.
 
-		**Unconditional, because the agenda is** — `agendaRequest` sends no `workspace_id` and
-		says so in its own first line, and `/` is the only address this view has. A row that
-		does not name its workspace is a row a reader cannot place.
+		**It was unconditional, because the agenda was** — `agendaRequest` sent no
+		`workspace_id` and `/` was the only address this view had. `#1215` gave a place an agenda
+		of its own, so that reason expired: on `/projects` the workspace is in the address, and
+		naming it on every row is `#968`'s own rule read backwards. Simon met it the day it
+		shipped, on a page where every row said `projects/subroutine` under an address that
+		already said `projects/subroutine`.
+
+		**Still not a drop-if-uniform rule**, which is the distinction `#966` paid for: this asks
+		what the *address* says, never what the rows happen to have in common. A label that
+		shortened because a stranger filed something elsewhere would be a clickable control
+		changing under the cursor, and this page polls.
 	*/
-	const showWhere = true;
+	const showWhere = !place.workspace;
 
 	/*
 		**The box has to be here, because `/` is now where a person lands.** Before `#652` the
@@ -4585,18 +4691,24 @@ export function Agenda ({
 							     fallback only — a row that knows its own uses that, which is
 							     what keeps an agenda row's address pointing at the workspace
 							     it actually came from. */ null}
-							${/* **The agenda names no workspace, and that is a fact about the
-							     address rather than about the rows** (`#966`, decision `#957`
-							     §4). This asked whether the rows *happened* to span
-							     workspaces — a drop-if-uniform rule, which §4 rules out here
-							     for the reason written into `projectLabel`: this page polls, so
-							     a label that shortens because a stranger filed something
-							     elsewhere is a clickable control changing under the cursor.
-							     Simon met it within the hour, on rows that had not changed, and
-							     then met it again in the ref beside it (`#968`). */ null}
+							${/* **What the address says, and that is a fact about the address
+							     rather than about the rows** (`#966`, decision `#957` §4). This
+							     asked whether the rows *happened* to span workspaces — a
+							     drop-if-uniform rule, which §4 rules out here for the reason
+							     written into `projectLabel`: this page polls, so a label that
+							     shortens because a stranger filed something elsewhere is a
+							     clickable control changing under the cursor. Simon met it
+							     within the hour, on rows that had not changed, and then met it
+							     again in the ref beside it (`#968`).
+
+							     **It was hardcoded to nowhere until `#1215`**, which was true
+							     while the agenda lived only at `/` and became wrong the moment
+							     a project had one: every row on `/projects/subroutine` was
+							     labelled `projects/subroutine`. The listing and the board took
+							     `place` all along; only this had the assumption baked in. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
 								showKind=${false} showWhere=${showWhere} workspace=${where}
-								place=${{ workspace: null, project: null }}
+								place=${place}
 								onGo=${onGo}
 								onOpen=${onOpen} onComplete=${onComplete} />
 						`)}
@@ -6614,10 +6726,23 @@ export function App () {
 	   beside the workspace rather than derived on each render, because the poll and every
 	   write reload the list and all of them have to narrow the same way. */
 	const [project, setProject] = useState(null);
-	/* The agenda, or null when the address names a workspace and the list is what is showing
-	   (`#652`). Null rather than a separate `showing` flag, because "there is an agenda to
-	   render" and "the agenda is what to render" are the same fact and two would drift. */
+	/* The agenda, or null when a listing is what is showing (`#652`). Null rather than a
+	   separate `showing` flag, because "there is an agenda to render" and "the agenda is what to
+	   render" are the same fact and two would drift. */
 	const [agenda, setAgenda] = useState(null);
+	/*
+		Whether the address named no place at all — `#1215`.
+
+		**Not the same fact as "the agenda is showing", and conflating them was the defect
+		waiting to happen.** Until the agenda became a view those two were the same thing, so
+		`listingAddress` took `agenda: agenda !== null` and returned `/` from it. Now a project
+		can be showing an agenda, and an address written from that flag would send a reader from
+		`/projects/subroutine` back to the merged root every time they closed an item.
+
+		The merged agenda is the one thing `/` means, and what makes it merged is that nobody
+		named a workspace.
+	*/
+	const [everywhere, setEverywhere] = useState(true);
 	const [unscheduled, setUnscheduled] = useState(0);
 	const [later, setLater] = useState(0);
 	/*
@@ -6748,10 +6873,15 @@ export function App () {
 		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
 	}, [showing]);
 
-	const readAgenda = useCallback(async (spaces) => {
+	const readAgenda = useCallback(async (spaces, slug = null, key = null) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
-		   `agendaBuckets`). What is left here is holding the answer. */
-		const answered = await sent(agendaRequest());
+		   `agendaBuckets`). What is left here is holding the answer.
+
+		   **The scope is passed rather than read from state** (`#1215`), for the reason `start`
+		   gives about `slug` three call sites away: `setWorkspace` and `setProject` have not
+		   landed in the render that calls this, so a read of either would ask about the place
+		   the reader just left. */
+		const answered = await sent(agendaRequest(slug, key));
 
 		setAgenda(agendaBuckets(answered, spaces));
 		setUnscheduled(
@@ -7108,7 +7238,7 @@ export function App () {
 			Nothing failed: an address disagreeing with its page is not something any test here
 			can see, and it was found by reading this while wiring `#651`'s view through it.
 		*/
-		if (history) go(listingAddress({ agenda: agenda !== null, workspace, project }));
+		if (history) go(listingAddress({ agenda: everywhere, workspace, project }));
 	}, [agenda, go, nowOpen, project, workspace]);
 
 	const refresh = useCallback(async () => {
@@ -7249,7 +7379,9 @@ export function App () {
 				if (touching(fresh, held.current && held.current.item, seen.page,
 					held.current ? held.current.links : [])) await refresh();
 
-				await (onAgenda ? readAgenda(me ? me.workspaces : []) : load(workspace, project));
+				await (onAgenda
+					? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
+					: load(workspace, project));
 			} catch (failure) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -7266,7 +7398,7 @@ export function App () {
 		}, POLL_MS);
 
 		return () => clearInterval(tick);
-	}, [error, workspace, project, agenda, me, load, readAgenda, refresh]);
+	}, [error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh]);
 
 	const signOut = useCallback(async () => {
 		/* **The answer is asked for and then acted on**, rather than the page being blanked
@@ -7342,19 +7474,38 @@ export function App () {
 				scoped to it would be scoped to the wrong workspace or to nothing.
 			*/
 			setProject(asked && asked.project);
+			setEverywhere(asked === null);
 
 			/*
-				**`/` is the agenda, and every other address is a listing** — decision `#649`,
-				built by `#652`. The test is the address rather than a flag: an address naming
-				no workspace is somebody who has not asked for one, and what they want is their
-				day, which is what bare `subroutine` already gives them at a terminal (§12.2).
+				**`/` is the *merged* agenda, and every other address is a place** — decision
+				`#649`, built by `#652`, amended 2026-08-24. The test is the address: naming no
+				workspace is somebody who has not asked for one, and what they want is their
+				day across all of them, which is what bare `subroutine` gives them at a terminal
+				(§12.2).
+
+				**What that no longer decides is the *arrangement*.** A place gets an agenda too
+				now, of its own work; `#649`'s grammar always said so and nothing had built it.
 
 				The workspace is still resolved and the roster still read, because the switcher
-				and every write need one — the agenda spans them all, but *adding* something
-				has to land somewhere.
+				and every write need one — the merged agenda spans them all, but *adding*
+				something has to land somewhere.
 			*/
 			await Promise.all([
-				asked === null ? readAgenda(identity.workspaces) : load(slug, asked.project),
+				/*
+					**The arrangement decides which reader now, not the address** (`#1215`,
+					amending `#649`). It was `asked === null`, so the agenda was the thing at
+					the root and `/?view=list` — an address `#649` itself specifies — rendered
+					the agenda and dropped the parameter.
+
+					`DEFAULT_VIEW` is the agenda, so a bare address still gets one; what
+					changed is that a scoped address gets one too, and that `?view=list` is
+					finally obeyed at every address rather than only below the root.
+				*/
+				arrangement.view === AGENDA_VIEW
+					? readAgenda(
+						identity.workspaces, asked === null ? null : slug, asked && asked.project,
+					)
+					: load(slug, asked && asked.project),
 				roster(slug),
 				words(slug),
 				asked && asked.ref !== null
@@ -7448,9 +7599,18 @@ export function App () {
 				depending on how the reader got there. `#645`'s split — the arrival address is
 				`start`'s, every later one is this — is exactly what makes that a real risk.
 			*/
-			if (asked === null) {
-				setProject(null);
-				readAgenda(me ? me.workspaces : []);
+			setEverywhere(asked === null);
+
+			if (back.view === AGENDA_VIEW) {
+				/* **Stepping into an agenda, at whatever place the address names** (`#1215`).
+				   It was `asked === null`, which was the same question while the agenda lived
+				   only at the root; a scoped agenda makes the arrangement the thing to ask
+				   about, and `start` above asks it the same way so one address cannot mean two
+				   things depending on how the reader arrived. */
+				setProject(narrowed);
+				readAgenda(
+					me ? me.workspaces : [], asked === null ? null : slug, narrowed,
+				);
 			} else if (agenda !== null || narrowed !== project || changed) {
 				/* Leaving the agenda for a listing, or moving between listings. The filter is
 				   part of the address too (`#647`), so stepping back out of a project restores
@@ -7486,7 +7646,7 @@ export function App () {
 		window.addEventListener("popstate", arrive);
 
 		return () => window.removeEventListener("popstate", arrive);
-	}, [ready, error, workspace, project, agenda, me, enter, load, nowOpen, nowShowing,
+	}, [ready, error, workspace, project, agenda, everywhere, me, enter, load, nowOpen, nowShowing,
 		readAgenda, show]);
 
 	/*
@@ -7554,9 +7714,9 @@ export function App () {
 		   listing underneath it, so the row stayed on screen until the next poll — a write that
 		   reports success and visibly does nothing. */
 		await (agenda !== null
-			? readAgenda(me ? me.workspaces : [])
+			? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
 			: load(workspace, project));
-	}, [agenda, load, me, open, openIn, project, readAgenda, show, workspace]);
+	}, [agenda, everywhere, load, me, open, openIn, project, readAgenda, show, workspace]);
 
 	const wrote = useCallback(async (row, said, run) => {
 		/*
@@ -7656,7 +7816,7 @@ export function App () {
 			   date belongs in *Unscheduled*, which is exactly where a reader would look for it
 			   and not find it. */
 			await (agenda !== null
-				? readAgenda(me ? me.workspaces : [])
+				? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
 				: load(workspace, project));
 
 			/* **Whether it landed, so the form knows whether to clear itself.** `wrote` has
@@ -7671,7 +7831,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [agenda, load, me, project, readAgenda, workspace]);
+	}, [agenda, everywhere, load, me, project, readAgenda, workspace]);
 
 	const save = useCallback(async (values) => {
 		/*
@@ -8044,6 +8204,11 @@ export function App () {
 		nowOpen(null);
 		setProject(null);
 		setNote(null);
+		/* **Back to the merged agenda, which is what `/` means** (`#1215`). Widening is leaving
+		   every place named, so the flag `listingAddress` reads has to move with it — otherwise
+		   the next address this page writes would still carry the workspace the reader just
+		   stepped out of. */
+		setEverywhere(true);
 		nowShowing(plainly);
 		go("/", { arranged: plainly });
 
@@ -8079,12 +8244,31 @@ export function App () {
 		   anything naming a project to this. */
 		const where = (place && place.workspace) || workspace;
 
-		setAgenda(null);
 		setProject(wanted);
+		setEverywhere(false);
 		go(address);
 
 		try {
 			enter(where);
+
+			/*
+				**Whatever arrangement the reader is in follows them into the project**
+				(`#1215`, `#745`). This forced a listing, which was right while the agenda
+				existed only at the root and is wrong now: somebody reading their agenda and
+				clicking a project chip is asking *what is on for that project*, and answering
+				with a backlog changes the question rather than the scope.
+
+				`showing.view` rather than the address, because `go` above writes a bare
+				project address — the arrangement is carried in state here and written by the
+				next control that touches it.
+			*/
+			if (showing.view === AGENDA_VIEW) {
+				await readAgenda(me ? me.workspaces : [], where, wanted);
+
+				return;
+			}
+
+			setAgenda(null);
 			await load(where, wanted);
 		} catch (failure) {
 			/* A note rather than the failure page, for `widen`'s reason: there is a readable
@@ -8092,7 +8276,7 @@ export function App () {
 			   their place. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
-	}, [enter, go, load, workspace]);
+	}, [enter, go, load, me, readAgenda, showing, workspace]);
 
 
 	const chooseWorkspace = useCallback(async (slug) => {
@@ -8102,18 +8286,34 @@ export function App () {
 		setProject(null);
 		setNote(null);
 		nowOpen(null);
-		/* **Choosing a workspace is leaving the agenda**, because the address it pushes names
-		   one and `/` is the only address the agenda has (`#649`). Set here rather than left to
-		   the effect: no `popstate` fires for a `pushState` we made ourselves. */
-		setAgenda(null);
+		/* **Choosing a workspace is naming a place**, which is what stops the next address this
+		   page writes from being the merged root. Set here rather than left to the effect: no
+		   `popstate` fires for a `pushState` we made ourselves. */
+		setEverywhere(false);
 		go(`/${encodeURIComponent(slug)}`);
 
 		try {
+			/*
+				**The arrangement follows the reader here too** (`#1215`), for `narrow`'s reason
+				one level up: somebody reading their agenda who picks a workspace is asking what
+				is on there, and this used to answer with a backlog.
+
+				**It used to *have* to.** The comment this replaces said choosing a workspace is
+				leaving the agenda "because `/` is the only address the agenda has" — true when
+				it was written, and the sentence `#649`'s amendment retires.
+			*/
+			if (showing.view === AGENDA_VIEW) {
+				await readAgenda(me ? me.workspaces : [], slug, null);
+
+				return;
+			}
+
+			setAgenda(null);
 			await load(slug, null);
 		} catch (failure) {
 			setError(failure);
 		}
-	}, [enter, go, load, nowOpen]);
+	}, [enter, go, load, me, nowOpen, readAgenda, showing]);
 
 	const goTo = useCallback(async (address) => {
 		/*
@@ -8179,14 +8379,28 @@ export function App () {
 
 		if (jumping !== null && await show({ ref: jumping, kind: null }, { quiet: true })) return;
 
+		/*
+			**A search is a list of results, so searching leaves the agenda** (`#1215`).
+
+			The agenda is a day, and a day is not a set of rows to narrow — which is the reason
+			this control used to be hidden there at all. Now that a place opens on an agenda by
+			default, hiding it would mean a reader at `/projects` has no way to search from the
+			page they land on; the honest answer is that the control stays and the arrangement
+			moves, because *results* are a list.
+
+			**Written here rather than left to `showingOf` to work out.** That function falls a
+			selection back to the list, which is what saves a hand-typed address — but a control
+			must write what it chose (`#745`), not produce an address that something downstream
+			quietly corrects.
+		*/
 		const wanted = {
-			view: showing.view,
+			view: asked === "" ? showing.view : "list",
 			selection: asked === ""
 				? { ...showing.selection, q: undefined }
 				: { ...showing.selection, q: asked },
 		};
 
-		if (!reloads(showing, wanted)) return;
+		if (!reloads(showing, wanted) && wanted.view === showing.view) return;
 
 		nowShowing(wanted);
 		/* **Searching leaves whatever item was open** (`#786`). The address this writes is the
@@ -8194,9 +8408,15 @@ export function App () {
 		   which is what `close` was fixed for, arriving from a third door now that the control
 		   is reachable over an item at all. */
 		nowOpen(null);
-		go(listingAddress({ agenda: agenda !== null, workspace, project }), { arranged: wanted });
+		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
 
-		if (agenda !== null) return;
+		/* **Leaving the agenda if that is where the search started.** It returned here instead,
+		   which was right while the agenda had no search box; now the box is on every page that
+		   names a place, and a search that wrote an address and left the buckets on screen would
+		   be the page and the bar disagreeing. */
+		if (wanted.view === AGENDA_VIEW) return;
+
+		setAgenda(null);
 
 		try {
 			await load(workspace, project);
@@ -8227,7 +8447,7 @@ export function App () {
 		if (!reloads(showing, wanted)) return;
 
 		nowShowing(wanted);
-		go(listingAddress({ agenda: agenda !== null, workspace, project }), { arranged: wanted });
+		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
 
 		try {
 			await load(workspace, project);
@@ -8268,19 +8488,50 @@ export function App () {
 		   needs no argument for this: it reads the arrangement from the address, which `go` has
 		   already written. */
 		go(
-			listingAddress({ agenda: agenda !== null, workspace, project }),
+			listingAddress({ agenda: everywhere, workspace, project }),
 			{ arranged: wanted },
 		);
 
-		if (agenda === null && again) await load(workspace, project);
-	}, [agenda, go, load, nowOpen, nowShowing, project, showing, workspace]);
+		/*
+			**Entering and leaving the agenda is this control's job now** (`#1215`).
+
+			It was neither: the agenda was the thing at the root, so switching arrangements
+			could only ever move between list and board and `agenda === null` was a fact about
+			*where you were* rather than about what you had asked for. Now it is a third
+			arrangement of the same place, and picking it has to fetch from the other endpoint
+			— which is exactly the amendment `#649` took: an arrangement may draw its rows from
+			a different endpoint.
+
+			**The scope is what the address already says**, so switching arrangement never
+			changes which place is showing. That is `#649`'s untouched half: the path decides
+			place, and this only decides how it is drawn.
+		*/
+		if (wanted.view === AGENDA_VIEW) {
+			await readAgenda(
+				me ? me.workspaces : [], everywhere ? null : workspace, project,
+			);
+
+			return;
+		}
+
+		/* **Leaving the agenda always reloads, whatever `reloads` says about the selection.**
+		   The two arrangements read different endpoints, so there are no rows in hand to
+		   rearrange — a version that trusted `again` here would leave the agenda's buckets on
+		   screen under an address saying `?view=list`. */
+		const leaving = agenda !== null;
+
+		if (leaving) setAgenda(null);
+
+		if (leaving || again) await load(workspace, project);
+	}, [agenda, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda, showing,
+		workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
 	/* The address of the listing behind whatever is showing — what *All items* goes back to, and
 	   what the view switcher hangs its arrangements off. One expression, because `close` and
 	   `chooseView` already agree on it and a second spelling here would be the thing that drifts. */
-	const behind = listingAddress({ agenda: agenda !== null, workspace, project });
+	const behind = listingAddress({ agenda: everywhere, workspace, project });
 
 	/*
 		**The one question the render asks of the selection**, named once.
@@ -8397,7 +8648,7 @@ export function App () {
 								? goTo(event.target.value)
 								: home())}>
 							${placesToGo(me.workspaces, filable,
-								{ workspace, project, agenda: agenda !== null }).map((one) => html`
+								{ workspace, project, agenda: everywhere }).map((one) => html`
 								<option key=${one.value} value=${one.value} selected=${one.chosen}>
 									${"\u00a0\u00a0".repeat(one.depth) + one.label}
 								</option>
@@ -8425,7 +8676,17 @@ export function App () {
 					not a set of rows to narrow, and arranging it by status would answer a
 					question nobody asked of it.
 				*/ null}
-				${agenda === null && html`
+				${/* **On every page that names a place, including an agenda** (`#1215`). The
+				     reason below for hiding it — a day is not a set of rows to narrow — is still
+				     true of the agenda itself and is no longer a reason to withhold the control:
+				     since a place opens on an agenda by default, hiding it here would mean a
+				     reader has no way to search from the page they land on. `chooseSearch`
+				     answers it by moving the arrangement, because results are a list.
+
+				     **Still nothing at `/`.** The merged agenda spans every workspace and
+				     `GET /v1/tasks` refuses an ambiguous one (§8.2), so there is nothing for a
+				     search to be a search *of*. */ null}
+				${!everywhere && html`
 					<${Seeking} busy=${busy} onSearch=${chooseSearch}
 						asked=${showing.selection.q || ""} />
 				`}
@@ -8450,7 +8711,19 @@ export function App () {
 					of the listing underneath — so a chip on an item page is the way back to that
 					listing, arranged as the reader asked.
 				*/ null}
-				${agenda === null && html`
+				${/* **Shown wherever a place is named, which since `#1215` includes an agenda**
+				     (`#649`'s amendment). The test was `agenda === null`, and it was right while
+				     the agenda existed only at the root: there was nothing to arrange and no
+				     listing to switch to. Now a project's agenda is the *default*, so that test
+				     would have hidden the switcher on the page most readers land on and left
+				     them no way to reach the list or the board at all.
+
+				     **Still nothing at `/`.** The merged agenda spans every workspace and
+				     `GET /v1/tasks` refuses an ambiguous one (§8.2), so there is no listing
+				     behind it to offer — `#649` reserves `/?view=list` for a backlog nothing
+				     implements. A control that led somewhere the app cannot go is worse than
+				     no control. */ null}
+				${!everywhere && html`
 					<nav class="views" aria-label="Which view">
 						${chips(behind, showing).map((chip) => html`
 							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}
@@ -8524,10 +8797,18 @@ export function App () {
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						onGo=${narrow}
-						${/* **Every workspace's, because the agenda spans them** — `/` sends no
-						     `workspace_id` and each workspace may prioritise one project of its
-						     own (§13.7). The listing below asks the narrower question. */ null}
-						prioritised=${prioritisedHere(me ? me.workspaces : [])}
+						${/* **What the address already said** (`#957` §4, `#1215`). The merged
+						     agenda at `/` names no place, so its rows carry their whole address;
+						     a scoped one strips what the reader can already see above the list.
+						     Hardcoded to nowhere until a place had an agenda, which put
+						     `projects/subroutine` on every row of `/projects/subroutine`. */ null}
+						place=${{ workspace: everywhere ? null : workspace, project }}
+						${/* **Every workspace's when nothing is named, and one workspace's when
+						     something is** — each workspace may prioritise a project of its own
+						     (§13.7), so a scoped agenda must not announce another's. */ null}
+						prioritised=${prioritisedHere(
+							me ? me.workspaces : [], everywhere ? undefined : workspace,
+						)}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in

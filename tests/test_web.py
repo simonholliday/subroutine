@@ -1477,6 +1477,87 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	)
 
 
+def test_a_scoped_agenda_strips_the_place_its_address_already_names (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1215`, and the defect Simon found by reading a page the gate called green.
+
+	Decision `SR#957` §4: the exception is what is drawn. A row's project chip says where that
+	row is *relative to where the reader already is*, so a listing at `/projects/subroutine`
+	labels a row in `subroutine/ui` as `ui` and labels one filed directly in `subroutine` not at
+	all.
+
+	**The agenda hardcoded its place to nowhere**, which was true while `/` was its only address
+	and became wrong the moment a project had one: every row on `/projects/subroutine` was
+	labelled `projects/subroutine` under a heading that already said it. The listing and the
+	board took `place` all along — only this had the assumption baked into the component.
+
+	**Both directions, because either alone passes against half the fix.** A version that always
+	strips loses the merged agenda's whole address, which is `SR#966` and `SR#968` undone; one
+	that never strips is the defect.
+	"""
+
+	rows = [{
+		"key": "overdue", "label": "Overdue",
+		"items": [
+			{"ref": 1, "kind": "task", "title": "Under the project", "status_is_default": True,
+				"project_key": "ui", "project_path": "subroutine/ui", "workspace": "projects"},
+			{"ref": 2, "kind": "task", "title": "In the project itself",
+				"status_is_default": True, "project_key": "subroutine",
+				"project_path": "subroutine", "workspace": "projects"},
+		],
+	}]
+
+	# **Read as a reader reads it, with the tags taken out.** An `href` must stay complete
+	# whatever the chip says — `SR#638` gives an item one durable address — so asserting over the
+	# raw markup would match the link target and pass against the defect. The claim here is about
+	# the *label*.
+	def words (markup: str) -> str:
+		"""Return the text a reader sees, with every tag and attribute removed."""
+
+		return re.sub(r"<[^>]*>", " ", markup)
+
+	scoped = words(_rendered(tmp_path, {"Agenda": {
+		"buckets": rows, "where": "projects",
+		"place": {"workspace": "projects", "project": "subroutine"},
+	}})["Agenda"])
+
+	assert "projects/subroutine" not in scoped, (
+		f"a scoped agenda repeats the place its own address names on every row: {scoped}"
+	)
+	assert "ui" in scoped, (
+		f"the sub-project a row is actually in is not shown, so the chip says nothing: {scoped}"
+	)
+
+	# **The row filed directly in the addressed project gets no chip at all**, which is the
+	# other half of §4: there is no exception to draw.
+	assert scoped.count("ui") == 1, (
+		f"a row filed in the addressed project was labelled anyway: {scoped}"
+	)
+
+	merged = words(_rendered(tmp_path, {"Agenda": {
+		"buckets": rows, "where": "projects",
+	}})["Agenda"])
+
+	assert "projects/subroutine/ui" in merged, (
+		f"the merged agenda names no place, so a row must carry its whole address: {merged}"
+	)
+
+	# **The ref's workspace prefix is the other half, and it is a separate rule** (`SR#968`,
+	# `SR#638`): an item's durable address is `{workspace}/{ref}`, so showing the prefix is
+	# showing more of the address rather than adding a fact. Found by falsifying — the
+	# assertions above pass with the prefix wrong in either direction, because the project chip
+	# and the ref are two controls answering one question.
+	assert "projects/#1" in merged, (
+		f"the merged agenda spans workspaces and a row did not say which it is from: {merged}"
+	)
+	assert "projects/#1" not in scoped, (
+		f"a scoped agenda names the workspace on every row under an address that already says "
+		f"it: {scoped}"
+	)
+	assert "#1" in scoped, f"the row lost its number as well as its prefix: {scoped}"
+
+
 def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 	"""**`#913`. The one copy of these words that cannot import the others.**
 
@@ -7451,16 +7532,20 @@ def test_a_bare_address_still_reads_as_the_default_view (tmp_path: pathlib.Path)
 	an address omitting the arrangement hands its reader their own default instead of the sender's
 	page.
 
-	What did not change, and what this now guards, is that **`/projects` typed by hand is still the
-	list**. The fallback is what makes an address a person can shorten work at all.
+	What did not change, and what this now guards, is that **an address typed by hand still falls
+	back**. The fallback is what makes an address a person can shorten work at all.
+
+	**The default is the agenda since `SR#1215`**, which is Simon's amendment to `SR#649` and is
+	that decision's own unbuilt row — its grammar always paired `?view=list` with an agenda and
+	nothing had built the pairing anywhere but the root.
 	"""
 
 	plain, empty, board = _views(tmp_path, [
 		("viewOf", ""), ("viewOf", "?view="), ("viewOf", "?view=board"),
 	])
 
-	assert plain == {"view": "list", "refused": None}
-	assert empty == {"view": "list", "refused": None}
+	assert plain == {"view": "agenda", "refused": None}
+	assert empty == {"view": "agenda", "refused": None}
 	assert board == {"view": "board", "refused": None}
 
 	[written] = _views(tmp_path, [
@@ -7485,7 +7570,7 @@ def test_a_view_nobody_has_is_named_rather_than_blanking_the_page (
 
 	[answered] = _views(tmp_path, [("viewOf", "?view=gantt")])
 
-	assert answered == {"view": "list", "refused": "gantt"}
+	assert answered == {"view": "agenda", "refused": "gantt"}
 
 
 def test_the_arrangement_survives_being_written_into_an_address (
@@ -7680,6 +7765,12 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 
 	**The done control keeps whichever arrangement is showing**, which is the split doing its
 	job: a board of finished work is reachable and its address says exactly that.
+
+	**Four controls since `SR#1215`**, and the agenda is first because it is the default — a
+	switcher whose first option was something else would read as though the page had chosen the
+	second. `done` names `list` outright rather than following the default: an agenda holds back
+	finished work by construction, so a *done* chip that inherited the new default would produce
+	an empty page.
 	"""
 
 	plain, board, finished = _views(tmp_path, [
@@ -7693,6 +7784,7 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 	])
 
 	assert [chip["href"] for chip in plain] == [
+		"/projects?view=agenda",
 		"/projects?view=list",
 		"/projects?view=board&include_completed=true",
 		"/projects?view=list&status_category=done&order=-completed_at",
@@ -7709,7 +7801,7 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 	# arrangement; driving it gave a board with one populated column and three empty ones, and
 	# the reason is that its `order=-completed_at` means nothing on a board — columns discard
 	# the sequence rows arrived in.
-	assert [chip["href"] for chip in finished][2] \
+	assert [chip["href"] for chip in finished][3] \
 		== "/projects?view=list&status_category=done&order=-completed_at", (
 			"the done control must show a list, since the order it asks for needs one"
 		)
@@ -8475,7 +8567,7 @@ def test_arriving_at_a_listing_does_not_ask_for_finished_work (
 	the qualification of decision `SR#649` recorded on it.
 	"""
 
-	driven = _driven(tmp_path, pathname="/projects/subroutine")
+	driven = _driven(tmp_path, pathname="/projects/subroutine", search="?view=list")
 	tasks = [call for call in driven["asked"] if "/v1/tasks" in call["path"]]
 
 	assert tasks, "the listing asked for no tasks at all"
@@ -8527,7 +8619,7 @@ def test_the_done_view_never_asks_documents_a_question_they_refuse (
 		f"the done view asked the documents listing for something it refuses: {documents}"
 	)
 
-	plain = _driven(tmp_path, pathname="/projects")
+	plain = _driven(tmp_path, pathname="/projects", search="?view=list")
 
 	assert [call for call in plain["asked"] if "/v1/documents" in call["path"]], (
 		"the ordinary list must still read both collections — one ref counter serves them, so "
@@ -8604,7 +8696,7 @@ def test_the_finished_view_offers_no_capture_box (tmp_path: pathlib.Path) -> Non
 	"""
 
 	done = _driven(tmp_path, pathname="/projects", search="?status_category=done&order=-completed_at")
-	plain = _driven(tmp_path, pathname="/projects")
+	plain = _driven(tmp_path, pathname="/projects", search="?view=list")
 
 	assert "Add" not in done["said"], (
 		f"the finished view offered a capture box: {done['said']!r}"
@@ -8625,7 +8717,7 @@ def test_an_empty_page_says_which_question_it_answered (tmp_path: pathlib.Path) 
 	"""
 
 	done = _driven(tmp_path, pathname="/projects", search="?status_category=done&order=-completed_at")
-	plain = _driven(tmp_path, pathname="/projects")
+	plain = _driven(tmp_path, pathname="/projects", search="?view=list")
 
 	assert "Nothing has been finished here yet." in done["said"], (
 		f"an empty finished view did not say what was empty: {done['said']!r}"
@@ -8656,6 +8748,97 @@ def test_arriving_at_the_root_asks_for_the_agenda_across_every_workspace (
 	assert not any("/v1/tasks" in call["path"] for call in driven["asked"]), (
 		"the root is the agenda, so it must not also fetch a listing"
 	)
+
+
+def test_a_place_opens_on_its_own_agenda_and_view_list_is_obeyed_there (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1215`, Simon's amendment to `SR#649`, and that decision's own unbuilt row.
+
+	Its grammar always applied `?view=` *"on any of the above"* and its §*Why `/` is the agenda*
+	spelled the pairing out — *"`/?view=list` is the backlog"*. Nothing built it: the root showed
+	an agenda because the **path** named no workspace, so `?view=list` was dropped everywhere and
+	`/projects/subroutine` could only ever be a list.
+
+	**Both directions, because either alone passes against half the change.** A version that made
+	the agenda the default and never obeyed `?view=list` satisfies the first assertion; one that
+	kept the listing default satisfies the second.
+	"""
+
+	space = _driven(tmp_path, pathname="/projects")
+	asked = [call["path"] for call in space["asked"] if "/v1/agenda" in call["path"]]
+
+	assert len(asked) == 1, f"a workspace did not open on an agenda: {space['asked']}"
+	assert "workspace_id=projects" in asked[0], (
+		f"the workspace agenda was not narrowed to the workspace: {asked[0]}"
+	)
+	assert "project=" not in asked[0], (
+		f"a whole workspace was asked about as though it were one project: {asked[0]}"
+	)
+
+	filed = _driven(tmp_path, pathname="/projects/subroutine")
+	narrowed = [call["path"] for call in filed["asked"] if "/v1/agenda" in call["path"]]
+
+	assert len(narrowed) == 1, f"a project did not open on an agenda: {filed['asked']}"
+	assert "workspace_id=projects" in narrowed[0] and "project=subroutine" in narrowed[0], (
+		f"a project's agenda was not asked about that project: {narrowed[0]}"
+	)
+
+	# **`?project=` needs `workspace_id=` and the endpoint refuses it without one**, so the two
+	# are written together or not at all. Driven against a real instance by
+	# `test_every_request_this_app_can_make_is_one_the_instance_answers`; asserted here because
+	# a request that sent a project alone would be a 422 and an empty page.
+	assert narrowed[0].index("workspace_id=") < narrowed[0].index("project="), narrowed[0]
+
+	listed = _driven(tmp_path, pathname="/projects/subroutine", search="?view=list")
+
+	assert any("/v1/tasks" in call["path"] for call in listed["asked"]), (
+		f"?view=list at a place is still ignored, which is the row `SR#649` wrote and nobody "
+		f"built: {listed['asked']}"
+	)
+	assert not any("/v1/agenda" in call["path"] for call in listed["asked"]), (
+		f"a listing address also fetched an agenda: {listed['asked']}"
+	)
+
+
+def test_a_filter_keeps_a_listing_even_when_no_arrangement_was_named (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The one edge the agenda-as-default creates, and `SR#1215` answers it rather than leaving it.
+
+	The agenda is a different endpoint with its own question, so it takes no `status_category`,
+	no `include_completed` and no `order`. Left alone, `?status_category=done` with no view named
+	would have become an agenda that silently ignored the words beside it — an address stating
+	something the page is not doing, which is exactly what `SR#649` exists to prevent.
+
+	**Two cases, answered differently because one is a mistake and the other is not.** A filter
+	with no view named is somebody asking a question the list answers; nothing was refused and
+	nothing is said. A filter beside an explicit `?view=agenda` is a reader asking for two things
+	that cannot both happen, and that is named and fallen back exactly as an unknown view is.
+	"""
+
+	quiet, loud, plain = _views(tmp_path, [
+		("showingOf", "?status_category=done&order=-completed_at"),
+		("showingOf", "?view=agenda&status_category=done&order=-completed_at"),
+		("showingOf", "?view=agenda"),
+	])
+
+	assert quiet["view"] == "list", (
+		f"a filter with no arrangement named became an agenda, which cannot honour it: {quiet}"
+	)
+	assert quiet["refused"] == [], (
+		f"falling back to the list is the default doing its job, not a refusal: {quiet}"
+	)
+
+	assert loud["view"] == "list", loud
+	assert any("agenda" in word for word in loud["refused"]), (
+		f"asking for an agenda and a filter together was silently resolved rather than named: "
+		f"{loud}"
+	)
+
+	# **And the agenda is still reachable when nothing narrows it**, which is what stops the
+	# rule above being satisfied by never choosing the agenda at all.
+	assert plain == {"view": "agenda", "selection": {}, "refused": []}, plain
 
 
 def test_every_request_the_app_makes_on_arrival_is_a_declared_builder (
@@ -8762,7 +8945,7 @@ def test_a_poll_that_sees_something_new_reloads_the_listing (tmp_path: pathlib.P
 	"""
 
 	driven = _driven(
-		tmp_path, pathname="/projects", ticks=1,
+		tmp_path, pathname="/projects", search="?view=list", ticks=1,
 		answers={
 			"changes?newest": _feed([_event(7)]),
 			"changes?since": _feed([_event(7), _event(8, ref=99)]),
@@ -9221,7 +9404,10 @@ def test_the_list_a_reader_arrives_at_says_how_it_is_ordered (tmp_path: pathlib.
 	rows = {"items": [{"ref": 7, "kind": "task", "title": "Something",
 		"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"}],
 		"page": {"has_more": False, "next_cursor": None, "total": None}}
-	driven = _driven(tmp_path, pathname="/projects", answers={"/v1/tasks": rows})
+	driven = _driven(
+		tmp_path, pathname="/projects", search="?view=list",
+		answers={"/v1/tasks": rows},
+	)
 
 	assert "Newest first" in driven["said"], (
 		f"the list does not say how it is ordered: {driven['said'][:400]}"

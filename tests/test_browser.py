@@ -943,7 +943,7 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	"""
 
 	opened, _written, _refusing, *_ = running
-	page = opened("/projects")
+	page = opened("/projects?view=list")
 
 	page.wait_for_selector("a[href]", timeout=10_000)
 
@@ -1969,7 +1969,7 @@ def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -
 	"""
 
 	opened, _written, _refusing, *_ = running
-	page = opened("/projects")
+	page = opened("/projects?view=list")
 	page.wait_for_selector(".rows li .mark", timeout=10_000)
 
 	label = page.locator(".rows li a.mark").first
@@ -2267,7 +2267,11 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 
 	control.select_option("/projects")
 	page.wait_for_url("http://app.test/projects*", timeout=10_000)
-	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
+	# **Still an agenda, and that is `SR#1215` rather than a regression.** Choosing a workspace
+	# used to leave the agenda because `/` was the only address one had; a place has its own now,
+	# and the arrangement the reader is in follows them into it (`SR#745`). What this test is
+	# about — that one workspace is still somewhere you can go — is unchanged.
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
 	assert control.input_value() == "/projects", "narrowing left the control saying otherwise"
 
@@ -2317,7 +2321,9 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 
 	control.select_option("/projects")
 	page.wait_for_url("http://app.test/projects*", timeout=10_000)
-	page.wait_for_selector(".listing:not(.agenda)", timeout=10_000)
+	# **Still an agenda since `SR#1215`**, for the reason written out on the test above: a
+	# place has an agenda of its own now, and the arrangement follows the reader into it.
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
 	# The projects arrive with the workspace, so the tree is only offered once inside one.
 	#
@@ -2385,7 +2391,7 @@ def test_searching_for_a_ref_opens_that_item_and_a_dead_one_still_searches (
 
 	opened, _written, _refusing, _roster, missing, *_ = running
 	missing[0] = {"4242"}
-	page = opened("/projects")
+	page = opened("/projects?view=list")
 	page.wait_for_selector(".listing", timeout=10_000)
 
 	search = page.locator("header form.seeking input[name='q']")
@@ -2433,7 +2439,7 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 
 	opened, written, _refusing, roster, _missing, reads, *_ = running
 	before = roster[0]
-	page = opened("/projects/subroutine")
+	page = opened("/projects/subroutine?view=list")
 	page.wait_for_selector(".narrowed", timeout=10_000)
 
 	control = page.locator(".narrowed button.prioritise")
@@ -2829,10 +2835,17 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	chip.click()
 	page.wait_for_url(f"**{into}*", timeout=10_000)
 
-	_until(lambda: any(one.split("?")[0] == "v1/tasks" for one in reads))
-	listed = [one for one in reads if one.split("?")[0] == "v1/tasks"]
+	# **Either endpoint, because the arrangement rides along now** (`SR#1215`). The reader was
+	# on an agenda, so narrowing into a project keeps them on one — and the claim being made
+	# here is about *which workspace was asked*, not about which of the two reads answered it.
+	# Pinning the endpoint would make this test fail whenever the default arrangement changed,
+	# which is a fact about the page rather than about the defect it guards.
+	rows = ("v1/tasks", "v1/agenda")
 
-	assert listed, f"nothing loaded a listing, so the address moved and the page did not: {reads}"
+	_until(lambda: any(one.split("?")[0] in rows for one in reads))
+	listed = [one for one in reads if one.split("?")[0] in rows]
+
+	assert listed, f"nothing loaded any rows, so the address moved and the page did not: {reads}"
 
 	for one in listed:
 		assert "workspace_id=personal" in one, (
@@ -2851,9 +2864,9 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	reads.clear()
 	page.go_forward()
 	page.wait_for_selector(".detail", timeout=10_000)
-	_until(lambda: any(one.split("?")[0] == "v1/tasks" for one in reads))
+	_until(lambda: any(one.split("?")[0] in rows for one in reads))
 
-	stepped = [one for one in reads if one.split("?")[0] == "v1/tasks"]
+	stepped = [one for one in reads if one.split("?")[0] in rows]
 
 	assert stepped, f"stepping forward loaded no listing behind the item: {reads}"
 
@@ -3494,7 +3507,7 @@ def test_every_colour_a_project_may_wear_is_legible_and_unlike_the_other_seven (
 	# and the value being legible say nothing about whether a row is given the attribute the
 	# rule keys on — `SR#640`'s shape, six times in this repository, and `tests/dom.js` drops
 	# every attribute (`SR#784`) so it cannot see this either.
-	listed = opened("/projects")
+	listed = opened("/projects?view=list")
 	listed.wait_for_selector(".rows li", timeout=10_000)
 
 	drawn = listed.eval_on_selector_all(

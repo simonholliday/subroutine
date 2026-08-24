@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Added
 
+- **Every place in the browser opens on its agenda, and `?view=list` works everywhere.**
+  `/projects` and `/projects/subroutine` showed a list; the agenda existed only at `/`. It is a
+  third arrangement now, chosen with `?view=agenda` and shown by default, so the buckets you
+  already had — waiting, today, in progress, the week ahead — are available wherever you are.
+  `?view=list` and `?view=board` are unchanged, the switcher offers all three, and an address
+  carrying a filter still gets a list, since an agenda cannot honour one.
+
 - **The agenda can be asked about one project.** `GET /v1/agenda` took a workspace and nothing
   narrower, so there was no way to ask *what is on for this project today* — the question a
   person actually works in. `?project=` narrows to a project and everything under it, and
