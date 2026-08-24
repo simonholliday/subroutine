@@ -14,6 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
+### Added
+
+- **An item's page in the browser lists what it is made of.** It could say *this is part of
+  `#7`* and could not say *these four are part of this*, so a milestone's contents were
+  whatever prose somebody had typed into its description — a capability the terminal, MCP and
+  the HTTP API have all had. Parts are listed above *Links*, in the same format, each with its
+  status, finished ones struck through, and a count of how many are done. Finished parts are
+  included deliberately: a parent showing two of its four because the other two are closed
+  would misreport the thing you opened it to see.
+
 ### Fixed
 
 - **A document written by an agent is filed where the checkout says**, the way a captured task

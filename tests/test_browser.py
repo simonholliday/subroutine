@@ -540,6 +540,24 @@ LINKED: dict[str, typing.Any] = {
 	"page": {"has_more": False, "next_cursor": None, "total": 3},
 }
 
+#: What an item's parts answer — `SR#1218`. Two, because the claim is that a reader can tell a
+#: finished part from an unfinished one without opening either.
+#:
+#: **A closed one and an open one**, for `LINKED`'s reason exactly: a fixture where every part is
+#: closed cannot tell *this line is struck through* from *this stylesheet strikes everything*.
+PARTS: dict[str, typing.Any] = {
+	"items": [
+		{"id": "p-1", "ref": 7, "kind": "task", "title": "The first piece", "type": "bug",
+			"status": "ready", "status_is_default": True, "project_path": "subroutine/ui",
+			"is_complete": False},
+		{"id": "p-2", "ref": 8, "kind": "task", "title": "The second piece", "type": "chore",
+			"status": "done", "status_is_default": False, "project_path": "subroutine/ui",
+			"is_complete": True},
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": 2},
+}
+
+
 #: What the instance answers when it will not do something — a problem document, which is what
 #: every refusal here really is. The detail is what the page shows beside the form.
 REFUSED: dict[str, typing.Any] = {
@@ -664,6 +682,11 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: registered on the context once and every page shares it.
 	listing: list[typing.Any] = [ROWS]
 	daily: list[typing.Any] = [AGENDA]
+	#: What an item's parts answer — `SR#1218`. A holder for `listing`'s reason, and it must be
+	#: its own branch rather than falling through to the collection: ``?parent=`` is still
+	#: ``/v1/tasks``, so without this every open item would draw the whole listing as its own
+	#: sub-tasks and the strikethrough test next door would be counting rows from a board.
+	parts: list[typing.Any] = [EMPTY]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
 	#: Who the reader is, so one test can ask about an instance holding a single workspace —
@@ -810,6 +833,13 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
 				# opening an item read links that were rows and fell to the failure page. An
 				# empty collection is what the fall-through gives them, which is true.
+				# **An item's parts, before the collection they are drawn from** — the
+				# narrower request first, which is the trap this block already records three
+				# times. `?parent=` is a query rather than a path, so `wanted` cannot see it and
+				# the URL has to be read the way the workspace branches above read it.
+				else parts[0] if (
+					wanted.split("?")[0] == "v1/tasks" and "parent=" in route.request.url
+				)
 				else listing[0] if wanted.split("?")[0] == "v1/tasks"
 				else EMPTY
 			)
@@ -847,11 +877,15 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	context.route("**/*", answered)
 
 	def opened (
-		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None
+		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None,
+		made_of: typing.Any = None,
 	) -> typing.Any:
 		"""Open one address and wait for the app to have painted."""
 
 		listing[0] = ROWS if rows is None else rows
+		#: **Empty unless a caller asks**, so every test that predates parts opens an item with
+		#: none — which is what keeps this addition from changing eighteen other assertions.
+		parts[0] = EMPTY if made_of is None else made_of
 		# **A holder like `listing`, for the same reason**: the route is registered on the
 		# context once and every page shares it, so a caller that wants a different agenda
 		# cannot be given one as an argument to the route.
@@ -2928,7 +2962,7 @@ def test_stepping_back_onto_an_item_reads_it_where_its_address_says (
 	page.close()
 
 
-def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
+def test_a_closed_item_is_struck_through_and_a_mark_is_drawn_as_a_row_does (
 	running: typing.Any,
 ) -> None:
 	"""`SR#970`, Simon 2026-08-17, reading `SR#94`'s own links.
@@ -2940,6 +2974,10 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 	**A closed item is struck through**, which he asked for and which no computed style would
 	have had a reason to be checked without. Its own status chip is what keeps `SR#102`
 	satisfied, and the words are asserted next door; this is the half that needs a cascade.
+
+	**Both lists this page draws**, since `SR#1218` gave it a *Parts* list in the same format.
+	One claim reached twice rather than two tests: the rule is about a closed item and not about
+	which list it is on, and a stylesheet striking everything would satisfy either half alone.
 
 	**And a mark looks the same here as on a row**, which is the whole request: *the same type
 	of indicators should be present on all, so a user may familiarize themselves*. It is not
@@ -2971,11 +3009,14 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 			pad: getComputedStyle(one).paddingLeft })""",
 	)
 
-	page = opened("/projects/subroutine/ui/42")
-	page.wait_for_selector(".linked li", timeout=10_000)
+	page = opened("/projects/subroutine/ui/42", made_of=PARTS)
+	page.wait_for_selector(".links li", timeout=10_000)
 
 	drawn = page.eval_on_selector_all(
-		".linked li",
+		# **`.links`, not `.linked`.** Since `SR#1218` this page draws two lists in the same
+		# format, so the shared class means *a row in either* — and this test's whole method is
+		# counting how many lines are struck through.
+		".links li",
 		"""rows => rows.map((row) => {
 			const anchor = row.querySelector(":scope > a, :scope > button");
 			const chip = row.querySelector("a.mark");
@@ -3018,6 +3059,38 @@ def test_a_link_says_what_is_closed_and_draws_a_mark_as_a_row_does (
 		f"no link line drew a project chip, so the comparison below has nothing to make — "
 		f"the fixture needs an end whose project differs from the page's: {drawn}"
 	)
+
+	# **The same rule on the other list this page draws** (`SR#1218`). Folded in here rather
+	# than given a test of its own, because it is one claim — *a closed item is struck through*
+	# — reached on a second list, and everything else about parts is checked in
+	# `tests/test_web.py` at no cost: the rollup, the ordering above `Links`, the cap line and
+	# the words beside each row are all attribute-free and belong in the fast suite.
+	#
+	# **Two parts, one closed**, for the reason the links fixture carries: where every part is
+	# finished, *this line is struck* and *this stylesheet strikes everything* are the same
+	# observation.
+	parts = page.eval_on_selector_all(
+		".parts li",
+		"""rows => rows.map((row) => {
+			const anchor = row.querySelector(":scope > a, :scope > button");
+
+			return {
+				said: anchor ? anchor.textContent.trim() : "",
+				struck: anchor
+					? getComputedStyle(anchor).textDecorationLine.includes("line-through")
+					: false,
+			};
+		})""",
+	)
+
+	assert len(parts) == 2, f"the parts did not render: {parts}"
+
+	finished = [row["said"] for row in parts if row["struck"]]
+
+	assert len(finished) == 1, (
+		f"exactly one part here is finished, so exactly one may be struck through: {parts}"
+	)
+	assert "The second piece" in finished[0], f"the wrong part is struck through: {parts}"
 
 	for row in chips:
 		assert (row["tone"], row["edge"], row["pad"]) == (

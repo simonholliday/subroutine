@@ -65,6 +65,15 @@ const POLL_FIELDS = ["seq", "item_ref", "workspace_id", "entity_type"];
 const PAGE = 100;
 
 /*
+	How many of an item's parts are drawn — `#1218`, and the terminal's own `MAX_CHILDREN`.
+
+	**Whatever it does at the cap it must not do silently** (`#888`, and `#1175` is the open item
+	about a listing claiming a completeness it cannot have). The response says `has_more`, and
+	`Parts` renders that as a line rather than stopping at fifty rows and looking finished.
+*/
+const MAX_PARTS = 50;
+
+/*
 	**What a listing asks for, which is what a row shows and nothing else** (§14.10, `#645`).
 
 	Measured on the served instance: a whole page of tasks is 287 KB and a whole page of
@@ -979,7 +988,39 @@ export function itemRequests (kind, ref, slug) {
 		   request this function builds against a real instance. */
 		...(kind === "document"
 			? []
-			: [{ path: scoped(`/tasks/${ref}/verifications`, slug), method: "GET" }]),
+			: [
+				{ path: scoped(`/tasks/${ref}/verifications`, slug), method: "GET" },
+				/*
+					**What this item is made of** (`#1218`). The page could say *this is part of
+					#1207* and could not say *these four are part of this* — a capability the
+					terminal, MCP and HTTP have all had, missing from the one surface a person is
+					most likely to be looking at. §14.1's rule is that nothing an agent can see
+					may be invisible to a person.
+
+					**`include_completed=true` is unlike every other listing here and is
+					load-bearing**, which is why the terminal's own call carries the same
+					argument and the same reason: a parent showing two of its four children
+					because the other two are finished would misreport the thing somebody opened
+					it to see. A version reusing this app's ordinary listing defaults would draw
+					a silently shrinking list.
+
+					**Ordered by ref**, which for one counter allocated in creation order (§6.2)
+					is oldest first — the order the parts were decided in, and the one the
+					terminal prints.
+
+					**Tasks only.** A document has no children, and `?parent=` on
+					`/v1/documents` is refused rather than ignored (`api/query.py`), so asking
+					would fail the whole read of every document on the page.
+				*/
+				{
+					path: scoped(
+						`/tasks?parent=${ref}&include_completed=true&order=ref`
+						+ `&limit=${MAX_PARTS}`,
+						slug,
+					),
+					method: "GET",
+				},
+			]),
 	];
 }
 
@@ -4230,6 +4271,32 @@ export function blockersDone (links) {
 	return `  (${done} of ${held.length} blockers done)`;
 }
 
+export function partsDone (parts) {
+	/*
+		How much of a parent is finished — `#1218`, and `#84`'s rule at the terminal.
+
+		**Computed from the children rather than stored**, because a parent never
+		auto-completes: that is a write nobody made, it credits the closer of the last child
+		with a decision they did not take, and it cannot reverse when a child is added later.
+		So `4 of 4` beside an open parent is the question being put to a person and must read
+		as exactly that rather than as an error.
+
+		**Counted over what arrived, and the cap is why that needs saying.** A parent with more
+		parts than `MAX_PARTS` reports a count of what is drawn; the heading is not where that
+		is disclosed, the line under the list is.
+
+		**Nothing at all when there are no parts**, matching `blockersDone` — a rollup on an
+		item that is not a parent is a number a reader has to work out is meaningless.
+	*/
+	const rows = (parts && parts.items) || [];
+
+	if (rows.length === 0) return "";
+
+	const done = rows.filter((row) => row.is_complete).length;
+
+	return `  (${done} of ${rows.length} done)`;
+}
+
 export function Marks ({ badges, onGo = null }) {
 	/*
 		What `marks` decided, drawn — `#970`.
@@ -5890,6 +5957,10 @@ export function Doing ({
 
 export function Detail ({
 	item, links, comments, governing = [], checked = [], members = [], onOpen, onBack,
+	/* What this item is made of, with the envelope kept — `#1218`. Defaulted, because a
+	   document is read without asking for parts at all and `has_more` has to be readable
+	   without a guard at every use. */
+	parts = { items: [], has_more: false },
 	onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
@@ -6003,6 +6074,74 @@ export function Detail ({
 					})}
 				</ul>`}
 
+			${parts.items.length > 0 && html`
+				${/* **What this item is made of, above what it is joined to** — `#1218`, Simon's
+				     placement and the terminal's. A milestone's parts are the thing somebody
+				     opened it to read; its links are context around that.
+
+				     **The rollup is `#84`'s and is computed, never stored.** A parent never
+				     auto-completes, so `4 of 4` beside an open parent is a question being put
+				     to a person rather than a state nobody updated. */ null}
+				<h3>Parts${partsDone(parts)}</h3>
+				${/* **`linked` for the styling and `parts` to be addressable.** The two lists are
+				     drawn identically on purpose — Simon asked for *similar format* — which
+				     leaves a test no way to say *this row is a part* rather than *this row is on
+				     the page*, and a strikethrough assertion that cannot tell them apart is one
+				     that passes on the wrong list. */ null}
+				<ul class="linked parts">
+					${parts.items.map((part) => {
+						const going = { ref: part.ref, kind: "task" };
+						const to = workspace ? addressOf(going, workspace) : null;
+						const follow = (event) =>
+							followed(event, () => onOpen && onOpen(going));
+
+						/*
+							**The same marks a link end wears** (`#970`), so a part's status,
+							readiness and project chip are one rendering rather than two that
+							agree. `place` is what the address already said (decision `#957` §4),
+							so a part in the project you are looking at carries no chip and one
+							that crosses out of it does.
+						*/
+						const badges = marks(
+							{ ...part, kind: "task" }, true, null, { workspace, project }, !!onGo,
+						);
+
+						return html`
+							<li key=${part.id || part.ref}>
+								${/* **Struck through when it is closed**, which is Simon's and is
+								     *better here* than what the terminal does. The terminal dims,
+								     and argues that the rollup above already carries the count —
+								     but dimming is contrast alone, and `#102` says no information
+								     may exist only in a colour. A strikethrough is a second
+								     channel, and `marks` draws the `Done` or `Cancelled` chip
+								     beside it so the line reads correctly with every style
+								     switched off.
+
+								     **Not a divergence between surfaces** (`#989`): the fact —
+								     *this part is finished* — is the same on both, and only its
+								     rendering differs. */ null}
+								${to
+									? html`<a class=${part.is_complete ? "over" : null}
+										href=${to} onClick=${follow}>
+										#${part.ref} ${part.title}</a>`
+									: html`<button class=${`inline${part.is_complete ? " over" : ""}`}
+										onClick=${follow}>
+										#${part.ref} ${part.title}</button>`}
+								<${Marks} badges=${badges} onGo=${onGo} />
+							</li>
+						`;
+					})}
+				</ul>
+				${/* **A cap that says it is one** (`#888`, and `#1175` is the open item about a
+				     listing claiming a completeness it cannot have). Fifty parts and fifty-one
+				     look identical on the page; this is the only thing that tells them apart,
+				     and it names the surface that can show the rest rather than merely
+				     apologising. */ null}
+				${parts.has_more && html`
+					<p class="note">Showing the first ${MAX_PARTS}. There are more —
+						<code>subroutine show #${item.ref}</code> lists them all.</p>`}
+			`}
+
 			${(links.length > 0 || onLink) && html`
 				${/* **The count `#84` specified, on the surface Simon reads** (`#970`). A
 				     milestone is an item whose blockers are its contents, and `subroutine show`
@@ -6010,7 +6149,12 @@ export function Detail ({
 				     open each one. Its rule is copied deliberately: incoming `blocks` only,
 				     because a *relates to* has nothing to be N of. */ null}
 				<h3>Links${blockersDone(links)}</h3>
-				<ul class="linked">
+				${/* **`links` beside `linked`, so the two lists on this page are separable.**
+				     `Parts` is drawn in the same format on purpose (`#1218`), which leaves
+				     `.linked li` meaning *a row in either list* — and an assertion about one of
+				     them that cannot say which list it is on is one that passes on the wrong
+				     one. */ null}
+				<ul class="linked links">
 					${links.map((link) => {
 						const going = { ref: link.other.ref, kind: link.other.entity_type };
 						const to = workspace ? addressOf(going, workspace) : null;
@@ -6862,7 +7006,7 @@ export function App () {
 
 		for (const trying of order) {
 			try {
-				const [item, links, comments, governing, checked] = await Promise.all(
+				const [item, links, comments, governing, checked, parts] = await Promise.all(
 					itemRequests(trying, ref, slug).map(sent),
 				);
 
@@ -6870,7 +7014,21 @@ export function App () {
 					comments: comments.items, governing: governing.items,
 					/* Absent for a document, which asks for no such thing — so this is the
 					   empty list rather than a read of `undefined`. */
-					checked: checked ? checked.items : [] };
+					checked: checked ? checked.items : [],
+					/* **The envelope is kept, not flattened** (`#1218`). `has_more` is the only
+					   thing that can tell fifty parts from fifty-one, and a bare array would
+					   lose it — which is the shape `#1175` is open about elsewhere. */
+					parts: parts
+						? {
+							items: parts.items,
+							/* **`page.has_more`, not `has_more`.** The envelope nests it
+							   (§8.4) and reading the top level would have answered *no more*
+							   for every parent there is — the cap saying nothing, silently,
+							   which is the exact failure the line under the list exists to
+							   prevent. */
+							has_more: !!(parts.page && parts.page.has_more),
+						}
+						: { items: [], has_more: false } };
 			} catch (failure) {
 				if (failure.status !== 404 || trying === order[order.length - 1]) throw failure;
 			}

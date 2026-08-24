@@ -3126,6 +3126,90 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 	assert "Links" not in mute
 
 
+def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None:
+	"""`SR#1218`. The page drew the pointer up and not the list down.
+
+	`app.js` said *this is part of `SR#1207`* and could not say *these four are part of this*,
+	so the only thing a milestone's page carried about its contents was whatever prose somebody
+	had typed into the description. Simon met it reading a milestone in the browser: *"I see
+	'Sub-items: Four, split by what one change closes' — but this is in prose only."*
+
+	The capability was on the terminal, over MCP and over HTTP the whole time, which is what
+	§14.1 forbids: nothing an agent can see may be invisible to a person.
+
+	**The titles deliberately carry none of the words being asserted for.** A part titled *The
+	done one* would satisfy ``"done" in shown`` from the title alone and survive deleting every
+	mark — the trap the links test above records having walked into once already.
+	"""
+
+	shared = {"item": {"ref": 42, "title": "A parent", "status": "open", "kind": "task"},
+		"links": [], "comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	parts = {"items": [
+		{"id": "t-1", "ref": 7, "title": "The first piece", "type": "bug",
+			"status": "open", "status_is_default": True, "is_complete": False},
+		{"id": "t-2", "ref": 8, "title": "The second piece", "type": "task",
+			"status": "done", "is_complete": True},
+	], "has_more": False}
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "parts": parts}})["Detail"]
+
+	assert "The first piece" in shown and "The second piece" in shown, (
+		"a parent still cannot say what it is made of"
+	)
+
+	# **The rollup `SR#84` specifies, computed from the children rather than stored.** A parent
+	# never auto-completes, so a full count beside an open parent is a question being put to a
+	# person — and it has to render as exactly that.
+	assert "(1 of 2 done)" in shown, (
+		"the page cannot say how much of a parent is finished, which is the number "
+		"`subroutine show` prints and the reason `SR#84` needs no schema"
+	)
+
+	# **Each part's state, through the same `marks` a link end wears.** Asserted on the text
+	# because this harness drops every attribute (`SR#784`) — which is the right half here:
+	# `SR#102` says nothing may be said in styling alone, so the strikethrough has a chip beside
+	# it and the line reads correctly with every style switched off. The strikethrough itself is
+	# a browser test.
+	assert "done" in shown, "a finished part is not distinguishable from an unfinished one"
+	assert "bug" in shown, "a part does not say what kind of work it is"
+
+	# **Above `Links`**, which is Simon's placement and the terminal's: a parent's parts are what
+	# somebody opened it to read, and its links are context around them.
+	linked = [{"id": "l-1", "link_type": "blocks", "link_category": "gating",
+		"label": "Blocks", "direction": "outgoing",
+		"other": {"entity_type": "task", "ref": 9, "title": "Elsewhere",
+			"is_complete": False}}]
+	both = _rendered(
+		tmp_path, {"Detail": {**shared, "parts": parts, "links": linked}}
+	)["Detail"]
+
+	assert both.index("Parts") < both.index("Links"), (
+		"the parts are drawn below the links, so the thing the page is about is under the "
+		"context around it"
+	)
+
+	# **A cap that says it is one** (`SR#888`). Fifty parts and fifty-one look identical, and
+	# this is the only thing that tells them apart.
+	capped = _rendered(tmp_path, {"Detail": {
+		**shared, "parts": {**parts, "has_more": True},
+	}})["Detail"]
+
+	assert "Showing the first 50" in capped, (
+		"a truncated list of parts claims a completeness it cannot have, which is the shape "
+		"`SR#1175` is open about"
+	)
+	assert "Showing the first" not in shown, (
+		"an uncapped list says it was capped, so the line means nothing"
+	)
+
+	# **Nothing at all on an item with no parts**, rather than an empty heading — the same rule
+	# `blockersDone` follows. Most items are not parents.
+	bare = _rendered(tmp_path, {"Detail": shared})["Detail"]
+
+	assert "Parts" not in bare, "an ordinary item is drawn as though it were a parent"
+
+
 def test_the_item_page_says_what_has_been_checked (tmp_path: pathlib.Path) -> None:
 	"""`SR#1121`, and §14.1 is why it is here rather than only on the agent's surface.
 
