@@ -1220,6 +1220,11 @@ class Client(typing.Protocol):
 		project: str | None = None,
 		parent: int | None = None,
 		description: str | None = None,
+		#: How long before this a reminder is wanted, in ``estimate``'s grammar —
+		#: ``"2w"``, ``"1h"`` (`#1211`). **The capture line has no sigil for it and this
+		#: does not add one**, for the reason ``parent`` gives above: §6.13's line is
+		#: deliberately small, and a reminder is set far less often than it is read.
+		reminder: int | str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -1340,6 +1345,9 @@ class Client(typing.Protocol):
 		importance: int | None = UNSET,
 		urgency: int | None = UNSET,
 		estimate: int | str | None = UNSET,
+		#: How long before this a reminder is wanted, in ``estimate``'s grammar —
+		#: ``"2w"``, ``"1h"`` (`#1211`). ``None`` clears it.
+		reminder: int | str | None = UNSET,
 		project: str = UNSET,
 		assignee: str | None = UNSET,
 		tags: typing.Sequence[str] | None = UNSET,

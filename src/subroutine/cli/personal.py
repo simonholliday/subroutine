@@ -6893,6 +6893,12 @@ def register (
 			show_default=False,
 			help="How long, like '2h' or '90m'. Pass '' to clear it.",
 		),
+		remind: str = typer.Option(
+			UNGIVEN,
+			"--remind",
+			show_default=False,
+			help="How long before, like '2w' or '1h'. Pass '' to clear it.",
+		),
 		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
@@ -6968,6 +6974,9 @@ def register (
 
 		if estimate is not UNGIVEN:
 			changes["estimate"] = estimate or None
+
+		if remind is not UNGIVEN:
+			changes["reminder"] = remind or None
 
 		if importance != UNGIVEN_NUMBER:
 			changes["importance"] = importance
@@ -7051,29 +7060,7 @@ def register (
 				"--estimate, --type, --status or --repeat.",
 			)
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="update",
-			)
-			client = _require_connection(program, world, located.connection)
-			changed = client.update(ref=task.ref, workspace=located.workspace, **changes)
-			now = dataclasses.replace(located, item=changed)
-
-			_because(client, located, because, what="Changed")
-
-			if json_output:
-				say(json.dumps(_as_json(world, now.connection, now.item), indent=2))
-
-				return
-
-			say(_acted(world, now, "Changed"))
-			_suggest(
-				console,
-				f"subroutine show "
-				f"{world.address_of_located(now).replace(subroutine.domain.refs.SIGIL, '')}",
-			)
+		_changed(program, which=which, changes=changes, because=because, as_json=json_output)
 
 	@app.command()
 	def comment (
@@ -7559,6 +7546,47 @@ def register (
 		_show_today(program, workspace=selected.workspace)
 
 	return show_today, selected
+
+
+def _changed (
+	program: Program,
+	*,
+	which: str,
+	changes: dict[str, typing.Any],
+	because: str,
+	as_json: bool,
+) -> None:
+	"""Apply the fields a caller named to one task, and say what happened.
+
+	**Out of `register`'s closure to pay for an option that grew it** (`#943`'s ratchet, met by
+	`#1005` and `#1215` before this). Nothing here needs the closure that :class:`Program` does
+	not carry, which is the test that ratchet is really applying: what stayed behind is the part
+	that decides *whether a field was given*, and each of those decides it differently.
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="update",
+		)
+		client = _require_connection(program, world, located.connection)
+		changed = client.update(ref=task.ref, workspace=located.workspace, **changes)
+		now = dataclasses.replace(located, item=changed)
+
+		_because(client, located, because, what="Changed")
+
+		if as_json:
+			program.say(json.dumps(_as_json(world, now.connection, now.item), indent=2))
+
+			return
+
+		program.say(_acted(world, now, "Changed"))
+		_suggest(
+			program.console,
+			f"subroutine show "
+			f"{world.address_of_located(now).replace(subroutine.domain.refs.SIGIL, '')}",
+		)
 
 
 def _show_today (program: Program, *, workspace: str | None) -> None:
@@ -8689,6 +8717,16 @@ def _facts (located: Located) -> list[str]:
 
 		if item.estimate_minutes is not None:
 			facts.append(subroutine.domain.durations.humanize(item.estimate_minutes))
+
+		# **What a subscribed calendar will remind about, and when** (`#1211`). Said here
+		# rather than on a listing row for `#819`'s rule: a reminder changes nothing about
+		# which item to pick up, and 1 of 136 tasks on this instance carries one.
+		# **`reminder_human`, not `humanize(reminder_minutes)`.** The view already carries the
+		# rendered form and both surfaces read the same one, so there is no second copy of the
+		# grammar to drift — which is what `estimate_minutes` beside it needs an excuse entry
+		# in `tests/test_mcp.py` for, and this does not.
+		if item.reminder_human is not None:
+			facts.append(f"reminds {item.reminder_human} before")
 
 		# **Reported whether or not it has passed**, unlike `_when` below. A defer somebody
 		# set is a decision they made, and one that has since come round is still the answer

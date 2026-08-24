@@ -4708,6 +4708,14 @@ NOT_ON_THE_FORM = {
 	"due_is_all_day": "derived from whether the date carries a time",
 	"snoozed_is_all_day": "derived from whether the date carries a time",
 	"starts_is_all_day": "derived from whether the date carries a time",
+	# **A gap rather than a decision, so it is filed** (`SR#1211`, and `SR#1234` is the item).
+	# A reminder is set on an existing item far more often than at creation — you file a
+	# birthday, then decide you want telling — so the add form is the *less* useful half and the
+	# item page is where it belongs. The browser has no per-field control for it either, which
+	# is `SR#1218`'s shape rather than a line on this form.
+	#
+	# **Deleting this entry is what closes `SR#1234`.**
+	"reminder": "the browser cannot set or show one at all yet — SR#1234",
 	# The chain is explicit -> user -> workspace -> instance and null means *not stated* at every
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.

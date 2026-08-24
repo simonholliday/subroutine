@@ -206,6 +206,25 @@ class Task(
 	estimate_minutes: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, nullable=True
 	)
+	# How long before this a reminder is wanted, in minutes — `#1211`.
+	#
+	# **Relative, which is what makes it follow a repeat.** `#577` had already concluded that
+	# "one hour before" beats "09:00 on Thursday" because it survives the date moving; the same
+	# property is what lets a birthday reminder repeat every year without anything computing a
+	# date per occurrence. It is rendered as a `VALARM` hanging off the `VEVENT`, so a client
+	# expands it against the `RRULE` itself.
+	#
+	# **It attaches to the event rather than to a field**, which is how this sidesteps the
+	# question `#577` is still open on. An occasion is already one date — whichever of
+	# `due_at` and `starts_at` produced it — so the alarm is relative to *that*, and nothing
+	# here has to decide whether a reminder is a nudge or a warning.
+	#
+	# **Minutes, matching `estimate_minutes` beside it**, so one unit is stored throughout and
+	# `durations` is the one place that reads "2w" — a second unit here would be the lossless
+	# round trip that hides a disagreement.
+	reminder_minutes: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.Integer, nullable=True
+	)
 	spent_minutes: sqlalchemy.orm.Mapped[int] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Integer, default=0, nullable=False
 	)

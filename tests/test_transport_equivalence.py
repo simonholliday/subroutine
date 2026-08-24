@@ -4959,3 +4959,35 @@ def test_both_can_chain_a_document_to_the_one_it_replaces (pair: Pair) -> None:
 		assert retired.status_category == "superseded", (
 			f"{name}: the superseded document is still {retired.status_category!r}"
 		)
+
+
+def test_both_carry_a_reminder_through_to_the_calendar (pair: Pair) -> None:
+	"""`SR#1211`. A field one transport carries and the other drops is S3-07's defect returning.
+
+	**Both directions of the write**, because they take different paths: capture builds the task
+	from a line and `update` patches an existing one, and the local client assembles its call
+	from a comprehension where the HTTP one sends a body.
+	"""
+
+	local, remote = pair.both()
+
+	made = local.capture(text="Anna's birthday", reminder="2w")
+	echoed = remote.update(ref=made.task.ref, reminder="1h")
+
+	assert made.task.reminder_minutes == 14 * 24 * 60, made.task.reminder_minutes
+	assert made.task.reminder_human == "2w", (
+		f"the reminder reads back in a unit nobody wrote: {made.task.reminder_human!r}"
+	)
+	assert echoed.reminder_minutes == 60, echoed.reminder_minutes
+
+	over_the_wire = remote.capture(text="Sister's birthday", reminder="2w")
+	locally = local.update(ref=over_the_wire.task.ref, reminder="1h")
+
+	assert over_the_wire.task.reminder_minutes == 14 * 24 * 60
+	assert locally.reminder_minutes == 60
+
+	# **Cleared rather than only replaced**, which is the null case every duration field here
+	# has and the one a `**kwargs` pass-through is most likely to swallow.
+	for client, ref in ((local, made.task.ref), (remote, over_the_wire.task.ref)):
+		assert client.update(ref=ref, reminder=None).reminder_minutes is None
+

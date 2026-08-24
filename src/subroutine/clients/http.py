@@ -1296,6 +1296,7 @@ class Client:
 		project: str | None = None,
 		parent: int | None = None,
 		description: str | None = None,
+		reminder: int | str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -1338,6 +1339,7 @@ class Client:
 				# The grammar claims the phrase so the date parser cannot steal `monday` out
 				# of it, and leaves the words in the title — so a repeat has to arrive beside
 				# the line rather than inside it.
+				reminder=reminder,
 				recurrence=recurrence,
 				recurrence_anchor=recurrence_anchor,
 				recurrence_trigger=recurrence_trigger,
@@ -1552,6 +1554,7 @@ class Client:
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
+		reminder: int | str | None = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		assignee: str | None = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
@@ -1587,6 +1590,7 @@ class Client:
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,
+			"reminder": reminder,
 			"project": project,
 			"assignee": assignee,
 			"tags": None if tags is None else (

@@ -2037,6 +2037,13 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		if item.is_template:
 			facts.append(subroutine.views.THE_SERIES)
 
+		# **What a subscribed calendar will remind about, and when** (`#1211`). §14.1's rule
+		# is that nothing a person can see may be invisible to an agent, and
+		# `test_the_agents_show_reports_what_the_command_lines_show_reports` is what enforces
+		# it — this arrived as that guard failing rather than as something anybody remembered.
+		if item.reminder_human is not None:
+			facts.append(f"reminds {item.reminder_human} before")
+
 	# The project only when somebody filed it somewhere. The Inbox is where things go when
 	# nobody said, so naming it would be reporting the absence of a decision.
 	#

@@ -64,6 +64,7 @@ CHANGES: dict[str, tuple[typing.Any, typing.Any]] = {
 	"importance": (1, 5),
 	"urgency": (1, 5),
 	"estimate": ("30m", "2h"),
+	"reminder": ("1h", "2w"),
 	"tags": (["alpha"], ["beta"]),
 	#: **Every one of these keeps `snoozed_until` on or before `due_at`**, which §10.7 enforces
 	#: and which a pair chosen for tidiness walks straight into: the refusal names the *other*

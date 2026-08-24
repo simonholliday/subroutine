@@ -498,6 +498,10 @@ def materialise (
 		importance=template.importance,
 		urgency=template.urgency,
 		estimate_minutes=template.estimate_minutes,
+		# **Carried, unlike the snooze below it** (`#1211`). A reminder is a property of the
+		# series — "two weeks before my sister's birthday" is asked once and meant every year —
+		# where a defer is somebody saying *not this one*.
+		reminder_minutes=template.reminder_minutes,
 		due_at=(
 			whole_day
 			if dateless
@@ -562,6 +566,7 @@ def create (
 	importance: int | None = None,
 	urgency: int | None = None,
 	estimate: int | str | None = None,
+	reminder: int | str | None = None,
 	due: datetime.datetime | datetime.date | str | None = None,
 	due_is_all_day: bool | None = None,
 	starts: datetime.datetime | datetime.date | str | None = None,
@@ -613,6 +618,14 @@ def create (
 	# Accepts what §6.4's grammar accepts, so `"4h"` works here exactly as `~4h` does in a
 	# captured line. Parsed before anything is assigned, like the two priority axes.
 	estimated = None if estimate is None else subroutine.domain.durations.parse(estimate)
+	# **The same grammar `~2h` already speaks**, so "two weeks before" is written `2w` here as
+	# it is everywhere else (`#1211`). One parser, so a reminder and an estimate cannot come to
+	# disagree about what a week is.
+	warning = (
+		None
+		if reminder is None
+		else subroutine.domain.durations.parse(reminder, field="reminder_minutes")
+	)
 
 	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
 	instant = now or subroutine.db.types.utcnow()
@@ -683,6 +696,7 @@ def create (
 		importance=_priority(importance, field="importance"),
 		urgency=_priority(urgency, field="urgency"),
 		estimate_minutes=estimated,
+		reminder_minutes=warning,
 		due_at=deadline.instant,
 		due_is_all_day=deadline.is_all_day,
 		starts_at=beginning.instant,
@@ -921,6 +935,7 @@ def update (
 	importance: int | None = subroutine.domain.patch.UNSET,
 	urgency: int | None = subroutine.domain.patch.UNSET,
 	estimate: int | str | None = subroutine.domain.patch.UNSET,
+	reminder: int | str | None = subroutine.domain.patch.UNSET,
 	due: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	due_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	starts: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
@@ -1003,6 +1018,14 @@ def update (
 
 	if estimate is not subroutine.domain.patch.UNSET and estimate is not None:
 		cleaned_estimate = subroutine.domain.durations.parse(estimate)
+
+	# Same shape, same reason: ``None`` clears the reminder rather than being a duration.
+	cleaned_reminder: typing.Any = reminder
+
+	if reminder is not subroutine.domain.patch.UNSET and reminder is not None:
+		cleaned_reminder = subroutine.domain.durations.parse(
+			reminder, field="reminder_minutes"
+		)
 
 	# **§6.5's chain, and `task.timezone` is deliberately not in it** (`#1014`). It used to be
 	# passed as `explicit`, which is the chain's *top* step — so the zone a task was created in
@@ -1252,6 +1275,9 @@ def update (
 
 	if estimate is not subroutine.domain.patch.UNSET:
 		task.estimate_minutes = cleaned_estimate
+
+	if reminder is not subroutine.domain.patch.UNSET:
+		task.reminder_minutes = cleaned_reminder
 
 	if deadline is not subroutine.domain.patch.UNSET:
 		task.due_at = deadline.instant

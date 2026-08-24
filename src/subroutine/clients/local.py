@@ -2436,6 +2436,7 @@ class Client:
 		project: str | None = None,
 		parent: int | None = None,
 		description: str | None = None,
+		reminder: int | str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -2494,6 +2495,7 @@ class Client:
 					{
 						name: value
 						for name, value in (
+							("reminder", reminder),
 							("recurrence", recurrence),
 							("recurrence_anchor", recurrence_anchor),
 							("recurrence_trigger", recurrence_trigger),
@@ -2878,6 +2880,7 @@ class Client:
 		importance: int | None = subroutine.clients.base.UNSET,
 		urgency: int | None = subroutine.clients.base.UNSET,
 		estimate: int | str | None = subroutine.clients.base.UNSET,
+		reminder: int | str | None = subroutine.clients.base.UNSET,
 		project: str = subroutine.clients.base.UNSET,
 		assignee: str | None = subroutine.clients.base.UNSET,
 		tags: typing.Sequence[str] | None = subroutine.clients.base.UNSET,
@@ -2908,6 +2911,7 @@ class Client:
 			"importance": importance,
 			"urgency": urgency,
 			"estimate": estimate,
+			"reminder": reminder,
 			"tags": tags,
 			"due": due,
 			"due_is_all_day": due_is_all_day,

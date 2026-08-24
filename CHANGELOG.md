@@ -14,7 +14,20 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `7eba0170ad83`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
+
+- **A reminder rides on the calendar feed, so it repeats with the event.** Set one with
+  `subroutine update 42 --remind 2w`, or `reminder` over the API, and the feed carries a
+  `VALARM` on that event — so a subscribed calendar reminds you two weeks before *every*
+  occurrence of a yearly birthday. It is relative rather than a fixed date, which is what lets
+  it follow a repeat, and it needs nothing running on a clock at this end: the reminding
+  happens in your own calendar application, which already knows how you want to be told.
 
 - **Every place in the browser opens on its agenda, and `?view=list` works everywhere.**
   `/projects` and `/projects/subroutine` showed a list; the agenda existed only at `/`. It is a

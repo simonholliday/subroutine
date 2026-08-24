@@ -115,6 +115,11 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: How long the work is expected to take, in §6.4's grammar — ``"4h"``, ``"1h30m"``, or
 	#: a bare number of minutes. The same values ``~4h`` accepts in a captured line.
 	estimate: int | str | None = None
+	#: How long before this a reminder is wanted, in the
+	#: same grammar as ``estimate`` — ``"2w"``, ``"1h"`` (`#1211`). Rendered as a
+	#: ``VALARM`` on the calendar feed, so it follows a repeat without anything storing a
+	#: date per occurrence.
+	reminder: int | str | None = None
 
 	due: str | None = None
 	due_is_all_day: bool | None = None
@@ -156,6 +161,11 @@ class Update(subroutine.api.schemas.RequestModel):
 	importance: int | None = None
 	urgency: int | None = None
 	estimate: int | str | None = None
+	#: How long before this a reminder is wanted, in the
+	#: same grammar as ``estimate`` — ``"2w"``, ``"1h"`` (`#1211`). Rendered as a
+	#: ``VALARM`` on the calendar feed, so it follows a repeat without anything storing a
+	#: date per occurrence.
+	reminder: int | str | None = None
 
 	#: Move the task to another project in the same workspace, by key or id (#43). Its parts
 	#: go with it. **Not nullable**, unlike most fields here: every task is in a project, and
@@ -209,6 +219,7 @@ def create (
 			"importance",
 			"urgency",
 			"estimate",
+			"reminder",
 			"tags",
 			"due",
 			"due_is_all_day",
@@ -733,6 +744,7 @@ def change (
 			"importance",
 			"urgency",
 			"estimate",
+			"reminder",
 			"due",
 			"starts",
 			"snooze",

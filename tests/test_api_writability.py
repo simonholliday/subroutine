@@ -76,6 +76,7 @@ WRITTEN_AS: dict[str, str] = {
 	"starts_at": "starts",
 	"recurrence_rule": "recurrence",
 	"estimate_minutes": "estimate",
+	"reminder_minutes": "reminder",
 	"project_id": "project",
 	"body": "body",
 
@@ -263,6 +264,9 @@ DERIVED: dict[str, str] = {
 		"false by linking or by finishing what it holds up."
 	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
+	#: `estimate_human`'s exact twin, one field along (`SR#1211`), and the same argument: one
+	#: grammar rendered once, and a value a caller can read and send straight back.
+	"reminder_human": "reminder_minutes as a person would say it. Written by sending `reminder`.",
 	# **`estimate_human`'s twin, and filed under the same argument** (`SR#925`). §6.7 requires a
 	# repeat to be read back in *different words* from the ones typed — that is what makes it a
 	# check rather than a mirror — so this is generated from `recurrence_rule` and its anchor

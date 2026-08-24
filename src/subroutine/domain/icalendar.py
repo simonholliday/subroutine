@@ -77,6 +77,10 @@ def render (
 	return "".join(f"{folded}\r\n" for line in lines for folded in _fold(line))
 
 
+#: Minutes in a day, for writing a reminder as days rather than as a large number of minutes.
+_MINUTES_A_DAY = 24 * 60
+
+
 def _event (
 	occasion: subroutine.domain.calendars.Occasion,
 	*,
@@ -144,9 +148,56 @@ def _event (
 		# first one somebody else's instance generated.
 		lines.append(f"URL:{url_for(task)}")
 
+	# **A reminder, as an alarm hanging off this event** (`#1211`, and `#577`'s conclusion that
+	# a relative reminder beats an absolute one). The client expands it against the `RRULE`
+	# itself, so "two weeks before my sister's birthday" reminds two weeks before **every**
+	# occurrence and nothing here computes a date per year or stores one.
+	#
+	# **Relative to the event rather than to a field**, which is how this needs none of what
+	# `#577` is still open on: an occasion is already one date, so the alarm is relative to
+	# *that* and nothing has to decide whether a reminder is a nudge or a warning.
+	#
+	# **`DISPLAY` with a `DESCRIPTION`, because RFC 5545 §3.6.6 requires both** for that action
+	# — an alarm missing either is malformed, and a client's response to malformed is its own
+	# business rather than something we get to predict.
+	if task.reminder_minutes:
+		lines.extend(
+			[
+				"BEGIN:VALARM",
+				"ACTION:DISPLAY",
+				f"TRIGGER:-{_duration(task.reminder_minutes)}",
+				f"DESCRIPTION:{_escaped(PREFIXES[occasion.field] + task.title)}",
+				"END:VALARM",
+			]
+		)
+
 	lines.append("END:VEVENT")
 
 	return lines
+
+
+def _duration (minutes: int) -> str:
+	"""Return minutes as an RFC 5545 duration — ``P14D``, ``PT1H``, ``PT30M``.
+
+	**Whole days are written as days**, which is what a client shows a reader: `TRIGGER:-P14D`
+	reads as *two weeks before* where `-PT20160M` is the same instant and tells them nothing.
+	The value is one number in the database either way; this is the rendering of it.
+
+	**Days and minutes, never weeks.** `P2W` is legal and cannot be combined with anything else
+	in the same duration, so a rule that reached for it would have to fall back for 15 days —
+	two spellings, one of them rare, and no reader is better off for it.
+	"""
+
+	days, left = divmod(minutes, _MINUTES_A_DAY)
+
+	if left == 0:
+		return f"P{days}D"
+
+	hours, remainder = divmod(left, 60)
+	clock = f"{hours}H" if hours else ""
+	clock += f"{remainder}M" if remainder else ""
+
+	return f"P{days}DT{clock}" if days else f"PT{clock}"
 
 
 #: Which flag says whether each dated field carries a time. Read from a table rather than

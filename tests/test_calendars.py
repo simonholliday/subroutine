@@ -519,6 +519,105 @@ def test_a_repeat_that_names_its_own_day_reaches_the_calendar (
 	assert shown.rule, "the event kept is the standalone occurrence rather than the series"
 
 
+def test_a_reminder_rides_on_the_event_so_it_repeats_with_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1211`, Simon: *"for a birthday, I might enable a reminder 2 weeks before the event,
+	which should happen every year."*
+
+	**A `VALARM` hanging off the `VEVENT` is the whole mechanism**, and it is why this needed
+	neither a scheduler nor `SR#577`'s open questions answered. The client expands the alarm
+	against the `RRULE` itself, so nothing here computes a date per occurrence or stores one —
+	and the reminding happens in the reader's own calendar application, which is already running
+	and already knows how they want to be told.
+
+	**Relative rather than absolute**, which `SR#577` had already concluded is right on a
+	different argument — *"one hour before" survives the deadline moving* — and which turns out
+	to be the same property that makes a reminder follow a repeat.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Anna's birthday",
+		starts=NOW + datetime.timedelta(days=30),
+		starts_is_all_day=True,
+		recurrence="every year",
+		reminder="2w",
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	rendered = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Work",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	assert "BEGIN:VALARM" in rendered, (
+		f"a reminder somebody set reaches no calendar: {rendered}"
+	)
+
+	# **`P14D`, not `PT20160M`.** Both name the same instant and only one of them reads as *two
+	# weeks before* when a client shows it to somebody.
+	assert "TRIGGER:-P14D" in rendered, (
+		f"the reminder is not two weeks before, or is written in a unit nobody reads: "
+		f"{[line for line in rendered.split(chr(13) + chr(10)) if 'TRIGGER' in line]}"
+	)
+
+	# **Inside the `VEVENT` that carries the rule**, which is the entire reason this repeats:
+	# an alarm outside it, or on an event without the `RRULE`, would fire once.
+	body = rendered.split("BEGIN:VEVENT", 1)[1]
+	alarm = body.index("BEGIN:VALARM")
+
+	assert body.index("RRULE:") < alarm < body.index("END:VEVENT"), (
+		f"the alarm is not inside the repeating event, so it would fire once: {rendered}"
+	)
+
+	# **RFC 5545 §3.6.6 requires both for a DISPLAY alarm**, and a client's response to a
+	# malformed one is its own business rather than something worth predicting.
+	assert "ACTION:DISPLAY" in rendered and "DESCRIPTION:Anna" in rendered, rendered
+
+
+def test_an_item_with_no_reminder_carries_no_alarm (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half, so the test above cannot pass by every event carrying an alarm.
+
+	§6.16's rule read from the rendering end: a feed that attached an alarm to everything would
+	be a reminder nobody asked for on every task they have, which is worse than none at all.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	subroutine.domain.tasks.create(
+		session, project=project, actor=actor, title="Ordinary thing",
+		starts=NOW + datetime.timedelta(days=2),
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	rendered = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Work",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	assert "Ordinary thing" in rendered, "the fixture produced no event to check"
+	assert "VALARM" not in rendered, (
+		f"an item nobody set a reminder on carries one anyway: {rendered}"
+	)
+
+
 def test_an_occurrence_somebody_moved_is_still_on_the_calendar (
 	session: sqlalchemy.orm.Session,
 ) -> None:
@@ -650,6 +749,7 @@ def test_an_all_day_event_lands_on_the_day_its_writer_meant (
 		starts_is_all_day = False
 		due_is_all_day = False
 		estimate_minutes = None
+		reminder_minutes = None
 
 	setattr(_Row, field, stored)
 	setattr(_Row, all_day_flag, True)
@@ -699,6 +799,7 @@ def test_an_all_day_event_spans_one_day_across_a_clock_change () -> None:
 			starts_is_all_day = True
 			due_is_all_day = False
 			estimate_minutes = None
+			reminder_minutes = None
 			timezone = "Europe/London"
 
 		rendered = subroutine.domain.icalendar.render(
@@ -732,6 +833,7 @@ def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:
 		starts_is_all_day = False
 		due_is_all_day = False
 		estimate_minutes = 60
+		reminder_minutes = None
 
 	rendered = subroutine.domain.icalendar.render(
 		[subroutine.domain.calendars.Occasion(task=_Row(), field="starts_at")],  # type: ignore[arg-type]

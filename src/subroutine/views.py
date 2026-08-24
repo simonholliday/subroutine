@@ -615,6 +615,14 @@ class Task(pydantic.BaseModel):
 	estimate_minutes: int | None
 	estimate_human: str | None
 
+	#: How long before this a reminder is wanted — `#1211`. Both spellings, for
+	#: ``estimate``'s reason above: ``reminder_human`` is what a person says and feeds
+	#: straight back into ``reminder`` on a write.
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`).
+	reminder_minutes: int | None = None
+	reminder_human: str | None = None
+
 	#: The tag names on this task, alphabetical. Batch-loaded per page like the vocabulary
 	#: above and for the same reason. A tag is never an id here: a client acts on the word,
 	#: applies one by writing ``#health`` in a captured line, and would have to fetch a
@@ -2453,6 +2461,12 @@ def task (
 			None
 			if row.estimate_minutes is None
 			else subroutine.domain.durations.humanize(row.estimate_minutes)
+		),
+		reminder_minutes=row.reminder_minutes,
+		reminder_human=(
+			None
+			if row.reminder_minutes is None
+			else subroutine.domain.durations.humanize(row.reminder_minutes)
 		),
 		tags=vocabulary.tags.get(row.id, []),
 		completed_at=row.completed_at,
