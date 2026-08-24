@@ -1546,6 +1546,23 @@ def _listed (
 				f"List with filter due_at.gte=today, order due_at.",
 			]
 
+		# **What somebody chose to put down, said here too** (`#1215`). §14.1's rule cuts both
+		# ways: an agent that cannot see the gap between this and a listing reads *nothing on
+		# today* as an empty backlog and picks up something else. Each names the way to see it,
+		# because a count nobody can act on is furniture.
+		if agenda.deferred_total > 0:
+			rows = [
+				*rows,
+				f"{agenda.deferred_total} put off until later. "
+				f"List with filter snoozed_until.gt=today.",
+			]
+
+		if agenda.paused_total > 0:
+			rows = [
+				*rows,
+				f"{agenda.paused_total} in projects nobody is running.",
+			]
+
 		return "\n".join(rows) if rows else "Nothing on today."
 
 	project = _text(arguments, "project")

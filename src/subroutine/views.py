@@ -1917,6 +1917,21 @@ class Agenda(pydantic.BaseModel):
 	#: an instance one release behind sends no such key and must keep working.
 	later_total: int = 0
 
+	#: How much work this agenda holds back because somebody deferred it past the end of the
+	#: day being shown (§6.5).
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`), for
+	#: the reason ``in_progress`` above gives — a required field here makes a newer client refuse
+	#: an older instance outright rather than read the rest of what it said.
+	deferred_total: int = 0
+
+	#: How much undated work is in a project nobody is running. Putting a project down says
+	#: something about *what to work on*, so its undated work leaves the unscheduled bucket while
+	#: anything dated stays on the agenda.
+	#:
+	#: **Defaulted for the reason above.**
+	paused_total: int = 0
+
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
 #:
@@ -2969,6 +2984,8 @@ def agenda (
 		unscheduled=[task(row, vocabulary) for row in built.unscheduled],
 		unscheduled_total=built.unscheduled_total,
 		later_total=built.later_total,
+		deferred_total=built.deferred_total,
+		paused_total=built.paused_total,
 	)
 
 

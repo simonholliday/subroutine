@@ -7897,6 +7897,11 @@ def _render (
 	# one answer, because §13.7 merges connections and a deadline on the work instance counts
 	# exactly as much as one on the personal list.
 	later = sum(answer.value.later_total for answer in gathered.answers)
+	# **The other two things a day holds back** (`#1215`, Simon's decision of 2026-08-24). The
+	# two above report a cap and a window edge; these report what somebody chose to put down —
+	# a defer, and a project nobody is running. Summed across connections for `later`'s reason.
+	deferred = sum(answer.value.deferred_total for answer in gathered.answers)
+	paused = sum(answer.value.paused_total for answer in gathered.answers)
 	printed = False
 	first: Row | None = None
 
@@ -7943,6 +7948,26 @@ def _render (
 			rich.text.Text(
 				"      subroutine list --filter due_at.gte=today --order due_at",
 				style=DETAIL,
+			)
+		)
+
+	# **What somebody chose to put down, said for the browser's reason** (`#1215`). The agenda
+	# is a view beside a list at one address now, so an unexplained difference between the two
+	# is what `#649`'s amendment forbids — and `#989` binds the agenda to one answer on every
+	# surface, so the terminal says what the page says.
+	#
+	# **Each on its own line here where the browser puts all four on one**, which is not a
+	# divergence: `#989` binds the *answer*, never the rendering, and this surface already
+	# spends a line per fact above.
+	if deferred > 0:
+		console.print(
+			rich.text.Text(f"      and {deferred} put off until later", style=DETAIL)
+		)
+
+	if paused > 0:
+		console.print(
+			rich.text.Text(
+				f"      and {paused} in projects nobody is running", style=DETAIL
 			)
 		)
 
@@ -9123,6 +9148,12 @@ def _agenda_json (
 		# rendered path sums it — a script asking whether this view is complete has the same
 		# question a person does.
 		"later_total": sum(answer.value.later_total for answer in gathered.answers),
+		# **The two the rendered path gained with `#1215`**, summed the same way and for the
+		# same reason: `#992` is why one shape of this request exists per surface rather than
+		# per author, and a scripted agenda that could not account for its own gap would be the
+		# human path and the scripted path answering differently (§12.2a).
+		"deferred_total": sum(answer.value.deferred_total for answer in gathered.answers),
+		"paused_total": sum(answer.value.paused_total for answer in gathered.answers),
 		# **Every connection that did not answer, not only the ones that failed at this
 		# call.** A connection that could not be *opened* (no token, unparseable
 		# credentials) or that failed at `identity()` was named on stderr and reported here

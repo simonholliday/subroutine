@@ -4581,7 +4581,8 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, later = 0, where, onAdd, onOpen, onComplete, busy, adding,
+	buckets, more, later = 0, deferred = 0, paused = 0, where, onAdd, onOpen, onComplete, busy,
+	adding,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
@@ -4638,6 +4639,50 @@ export function Agenda ({
 	const showWhere = !place.workspace;
 
 	/*
+		**Everything this day is not showing, on one line** — `#1215`, Simon's decision of
+		2026-08-24 amending `#649`.
+
+		Two of these have been reported since `#997` and `#888`; the other two were silent, which
+		was harmless while the agenda had one address and became a visible unexplained gap the
+		moment it sat beside `?view=list` at the same one. Measured on this project before
+		deciding: 136 rows in the list against 126 the agenda accounted for.
+
+		**One line rather than four**, which was his choice against my three alternatives, and
+		the reason it is not a compromise is that what makes the accounting trustworthy is the
+		arithmetic rather than the layout: `tests/test_agenda.py` adds these to the rows the
+		agenda shows and compares against the listing at the same scope, so a fifth exclusion
+		added later stops the sum adding up and fails the build.
+
+		**A cause contributing nothing is left out, not printed as zero.** §12.2a: a column
+		saying the same thing on every row says nothing, and *0 deferred* on the ordinary day is
+		that rule one surface along. On this instance `paused` is zero on every page, because
+		nothing is on hold.
+
+		**Said in the reader's terms rather than the field's.** *deferred* is a word this product
+		uses of itself; what a person did was put something off.
+	*/
+	const held = [
+		{ count: more, said: `${more} more unscheduled` },
+		{ count: deferred, said: `${deferred} put off until later` },
+		{ count: paused, said: `${paused} in projects nobody is running` },
+		{ count: later, said: `${later} dated further out` },
+	].filter((one) => one.count > 0);
+
+	/*
+		**Drawn on the quiet day too, and that is the case it matters most in.** An empty agenda
+		saying only *nothing is due* while twenty-four rows sit behind it is the misreading this
+		exists to prevent — a reader checking whether there is work concludes there is none.
+		Written as one expression because the branch below returns early and a footer built twice
+		is two that can disagree.
+	*/
+	const accounting = held.length > 0 && html`
+		<p class="cut">
+			${held.length > 0 && held.reduce((sum, one) => sum + one.count, 0)} not shown here:
+			${held.map((one, at) => html`${at > 0 ? " · " : ""}${one.said}`)}
+		</p>
+	`;
+
+	/*
 		**The box has to be here, because `/` is now where a person lands.** Before `#652` the
 		root was a listing and carried one; moving the agenda in without it would have made
 		adding something require choosing a workspace first — §1.4's rule is that no entity may
@@ -4663,6 +4708,7 @@ export function Agenda ({
 					<div class="focus">${prioritisedSentence(prioritised)}</div>
 				`}
 				<div class="empty">Nothing is due, and nothing is waiting. </div>
+				${accounting}
 			</div>
 		`;
 	}
@@ -4731,12 +4777,7 @@ export function Agenda ({
 				said: the agenda is a day view, and what was missing was any sign it had left
 				something out.
 			*/ null}
-			${((more > 0) || (later > 0)) && html`
-				<div class="cut">
-					${more > 0 && html`<span>${more} more unscheduled.</span>`}
-					${later > 0 && html`<span>${later} dated further out.</span>`}
-				</div>
-			`}
+			${accounting}
 		</div>
 	`;
 }
@@ -6745,6 +6786,9 @@ export function App () {
 	const [everywhere, setEverywhere] = useState(true);
 	const [unscheduled, setUnscheduled] = useState(0);
 	const [later, setLater] = useState(0);
+	/* What the day is holding back that somebody chose to hold back — `#1215`. */
+	const [deferred, setDeferred] = useState(0);
+	const [paused, setPaused] = useState(0);
 	/*
 		The add form: whether it is open, and the two answers it needs to draw its dropdowns
 		(`#756`).
@@ -6888,6 +6932,10 @@ export function App () {
 			Math.max(0, (answered.unscheduled_total || 0) - (answered.unscheduled || []).length),
 		);
 		setLater(answered.later_total || 0);
+		/* **Both defaulted on the wire** (`#345`, `#482`), so a page served by an instance that
+		   predates them reads zero and draws one line fewer rather than refusing. */
+		setDeferred(answered.deferred_total || 0);
+		setPaused(answered.paused_total || 0);
 	}, []);
 
 	const load = useCallback(async (slug, key = null, after = null) => {
@@ -8795,6 +8843,7 @@ export function App () {
 					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
+						deferred=${deferred} paused=${paused}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						onGo=${narrow}
 						${/* **What the address already said** (`#957` §4, `#1215`). The merged

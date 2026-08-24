@@ -1477,6 +1477,48 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 	)
 
 
+def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path) -> None:
+	"""`SR#1215`, Simon's decision of 2026-08-24, and `SR#649`'s amendment made visible.
+
+	An arrangement may draw its rows from a different endpoint, and when it does it must say what
+	it left behind. Two of the agenda's four exclusions have reported a count since `SR#997` and
+	`SR#888`; the other two were silent, which was harmless while the agenda had one address and
+	became a gap a reader can see the moment it sits beside `?view=list` at the same one.
+
+	**One line, which was his choice against three alternatives**, and the arithmetic behind it
+	is guarded in `tests/test_agenda.py` rather than here: what makes the accounting trustworthy
+	is that the counts sum to the difference, not how many lines they are printed on.
+
+	**A cause contributing nothing is left out rather than printed as zero** — §12.2a one surface
+	along, and on this instance `paused` is zero on every page.
+	"""
+
+	shown = _rendered(tmp_path, {"Agenda": {
+		"buckets": [], "more": 12, "later": 3, "deferred": 9, "paused": 0,
+	}})["Agenda"]
+
+	assert "24 not shown here" in shown, (
+		f"the day does not account for what it left behind: {shown}"
+	)
+	assert "9 put off until later" in shown, (
+		f"work somebody deferred vanishes with nothing saying so, which is the gap this was "
+		f"built for: {shown}"
+	)
+	assert "12 more unscheduled" in shown and "3 dated further out" in shown, shown
+
+	assert "nobody is running" not in shown, (
+		f"a cause hiding nothing was printed anyway, so the line carries a zero a reader has "
+		f"to work out is meaningless: {shown}"
+	)
+
+	# **Nothing at all on a day that is showing everything**, rather than a line reading zero.
+	whole = _rendered(tmp_path, {"Agenda": {"buckets": [], "more": 0}})["Agenda"]
+
+	assert "not shown here" not in whole, (
+		f"a complete day claims to be hiding something: {whole}"
+	)
+
+
 def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	tmp_path: pathlib.Path,
 ) -> None:

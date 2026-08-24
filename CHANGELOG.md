@@ -23,6 +23,15 @@ upgrade involves.
   `?view=list` and `?view=board` are unchanged, the switcher offers all three, and an address
   carrying a filter still gets a list, since an agenda cannot honour one.
 
+- **The agenda says what it is not showing.** It holds back four things a list at the same
+  address shows: work past the unscheduled cap, work dated beyond the look-ahead, work you
+  deferred, and undated work in a project nobody is running. The first two have always reported
+  a count; the other two were silent, which mattered little while the agenda lived at one
+  address and matters now that it sits beside `?view=list` at every one. All four are accounted
+  for on one line, with any cause that hides nothing left out rather than printed as zero.
+  `deferred_total` and `paused_total` are new on the agenda response and are optional, so an
+  older client is unaffected.
+
 - **The agenda can be asked about one project.** `GET /v1/agenda` took a workspace and nothing
   narrower, so there was no way to ask *what is on for this project today* — the question a
   person actually works in. `?project=` narrows to a project and everything under it, and

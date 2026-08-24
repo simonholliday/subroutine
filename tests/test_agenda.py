@@ -27,9 +27,11 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.projects
+import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.views
 
 LONDON = "Europe/London"
 
@@ -142,6 +144,87 @@ def test_an_agenda_can_be_narrowed_to_a_project_and_everything_under_it (
 	assert _titles(world.agenda(project=elsewhere).unscheduled) == [
 		"Somewhere else entirely"
 	], "narrowing to a leaf project does not narrow"
+
+
+def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#1215`, Simon's decision of 2026-08-24, and the guard the footer is worth nothing without.
+
+	The agenda now sits beside ``?view=list`` at the same address, so a reader can flip between
+	two answers about one place and see different numbers of rows. `#649`'s amendment is that an
+	arrangement drawing its rows from another endpoint must say what it left behind — and a
+	*sentence* saying so decays, where this cannot: the four counts are added to the rows the
+	agenda actually shows and compared against the listing at the same scope.
+
+	**So a fifth exclusion added later is impossible to add silently.** It stops adding up and
+	this fails, naming the residual. That is the property, and it is why the compact one-line
+	footer Simon chose is not a compromise: what makes the accounting trustworthy is the
+	arithmetic, not the number of lines it is printed on.
+
+	**Every exclusion is represented, deliberately including one that hides nothing here.** A
+	fixture where a cause contributes zero cannot tell *this count is right* from *this count is
+	never read*, which is the shape this file has met before.
+	"""
+
+	world = World(session)
+	asleep = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key=f"H{uuid.uuid4().hex[:10].upper()}",
+		title="Put down for now",
+	)
+
+	# **Its status is what makes it not running**, read off the category rather than the key
+	# (`#983`) — a workspace may rename `on_hold`, and `#1157` is what that costs when a rule
+	# compares the label.
+	subroutine.domain.projects.update(
+		session, project=asleep, status_key="on_hold", actor=world.principal
+	)
+
+	world.task("Ordinary undated work")
+	world.task("Also undated")
+	world.task("Overdue", due=datetime.date(2026, 7, 27))
+	world.task("Beyond the window", due=datetime.date(2026, 11, 30))
+	world.task("Not until next month", snooze=datetime.date(2026, 9, 30))
+	world.task("In the project nobody is running", project=asleep)
+
+	session.flush()
+
+	agenda = world.agenda(horizon_days=7, unscheduled_limit=1)
+
+	shown = sum(
+		len(getattr(agenda, bucket)) for bucket in subroutine.views.AGENDA_BUCKETS
+	)
+	accounted = (
+		shown
+		+ max(0, agenda.unscheduled_total - len(agenda.unscheduled))
+		+ agenda.later_total
+		+ agenda.deferred_total
+		+ agenda.paused_total
+	)
+
+	# The listing at the same scope: live, unfinished work, which is what `?view=list` shows
+	# with no selection — the page a reader flips to.
+	listed = session.scalars(
+		subroutine.domain.scoping.readable_tasks(
+			world.principal, workspace_ids=[world.workspace.id], include_completed=False
+		)
+	).all()
+
+	assert accounted == len(listed), (
+		f"the agenda accounts for {accounted} rows and the listing at the same scope holds "
+		f"{len(listed)}. Something is being held back that nothing reports — every exclusion "
+		f"has to be a count a reader can see, which is `#649`'s amendment and the whole reason "
+		f"this arithmetic exists."
+	)
+
+	# **And each count is non-zero**, so the equality above cannot be satisfied by a scan that
+	# reads nothing. `unscheduled_limit=1` is what forces the cap to bite on two undated rows.
+	assert agenda.deferred_total == 1, agenda.deferred_total
+	assert agenda.paused_total == 1, agenda.paused_total
+	assert agenda.later_total == 1, agenda.later_total
+	assert agenda.unscheduled_total > len(agenda.unscheduled), agenda.unscheduled_total
 
 
 def _titles (tasks: tuple[subroutine.db.models.work.Task, ...]) -> list[str]:

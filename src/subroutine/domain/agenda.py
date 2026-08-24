@@ -144,6 +144,26 @@ class Agenda:
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
 
+	#: How much work this agenda holds back because somebody deferred it — `#1215`, Simon's
+	#: decision of 2026-08-24 amending `#649`.
+	#:
+	#: **The exclusion existed from the start and said nothing**, which was harmless while the
+	#: agenda lived at one address with nothing to compare it against. Beside `?view=list` on
+	#: the *same* address it is a gap a reader can see and cannot explain: measured on this
+	#: project, 136 rows in the list against 126 the agenda accounts for.
+	#:
+	#: **Counted before the defer is applied**, so it and the buckets partition the scope rather
+	#: than overlapping — a deferred row never reaches the bucketing at all.
+	deferred_total: int = 0
+
+	#: How much undated work is in a project nobody is running — `#983`, reported since `#1215`.
+	#:
+	#: **Counted after the defer and after the buckets have taken theirs**, mirroring `undated`
+	#: exactly with its running-project clause negated. Otherwise a row that is both deferred and
+	#: in a paused project would be counted twice, and the sum this exists to make true would
+	#: stop being true.
+	paused_total: int = 0
+
 	#: How many *dated* tasks this agenda does not show — further out than the look-ahead, or
 	#: past today where no look-ahead was asked for (`#997`). The same job
 	#: :attr:`unscheduled_total` does for the other pile: the window has an edge on every
@@ -425,6 +445,30 @@ def build (
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(later.subquery())
 	)
 
+	# **What the day holds back, counted so the page can account for itself** (`#1215`).
+	#
+	# The two counts above report a *cap* and a *window edge* — things the reader did not choose
+	# to hide. These two report things they did: a defer is somebody saying *not until Tuesday*,
+	# and a paused project is somebody putting work down. Simon's decision of 2026-08-24 is that
+	# all four are said anyway, on one line, because the agenda now sits beside `?view=list` at
+	# the same address and an unexplained difference between them is what `#649` exists to
+	# prevent. The objection — that this tells a reader daily about their own decisions — is on
+	# the item with the measurement that prompted it.
+	#
+	# **They partition, and that is load-bearing rather than tidy.** `deferred` is counted on the
+	# scope *before* `_visible` applies the defer, and `paused` on the rows that survived it and
+	# were not taken by a bucket. A guard adds the four to the agenda's own rows and compares
+	# against the listing at the same scope, so a fifth exclusion added later cannot be silent.
+	held = _deferred(
+		session, principal, workspace_ids, until=day_end, sortable=sortable, project=project
+	)
+	put_down = base.where(
+		model.starts_at.is_(None),
+		model.due_at.is_(None),
+		sqlalchemy.not_(subroutine.domain.readiness.in_a_running_project(model)),
+		model.id.not_in(seen),
+	)
+
 	return Agenda(
 		date=day,
 		timezone=timezone,
@@ -436,6 +480,103 @@ def build (
 		unscheduled=unscheduled,
 		unscheduled_total=total or 0,
 		later_total=beyond or 0,
+		deferred_total=session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(held.subquery())
+		) or 0,
+		paused_total=session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(put_down.subquery())
+		) or 0,
+	)
+
+
+def _deferred (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	*,
+	until: datetime.datetime,
+	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
+	project: subroutine.db.models.project.Project | None = None,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+	"""Return the work this day is hiding because somebody deferred it past the end of it.
+
+	**The same scope :func:`_visible` builds, with the defer inverted rather than dropped**
+	(`#1215`). Written as a second call to the one function that knows what an agenda's scope is,
+	so the two cannot disagree about privacy, the token's project scope or the workspace — which
+	is the duplication `readable_tasks` exists to prevent and which this file has paid for once
+	already.
+	"""
+
+	model = subroutine.db.models.work.Task
+
+	# **`_scoped`, not `_visible`.** The latter has already applied the defer, so negating it a
+	# second time asks for rows that are both deferred and not, which is nothing at all — written
+	# that way first, and it returned zero against data holding nine.
+	return _scoped(
+		workspace_ids, principal=principal, sortable=sortable, project=project
+	).where(
+		sqlalchemy.not_(subroutine.domain.readiness.undeferred(model, now=until))
+	)
+
+
+def _scoped (
+	workspace_ids: typing.Sequence[uuid.UUID],
+	*,
+	principal: subroutine.domain.authentication.Principal,
+	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
+	project: subroutine.db.models.project.Project | None = None,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
+	"""Return the live, unfinished, visible work this agenda is about, before any of its rules.
+
+	**The place, and nothing about the day.** Everything concerning *who may see what* — the
+	workspace scope, project visibility and the token's project scope — comes from
+	:func:`subroutine.domain.scoping.readable_tasks`, which is the one copy of those rules
+	(§7.3). The agenda kept its own until the slice-2 review found two copies disagreeing about
+	whether privacy reaches a private project's children.
+
+	**Lifted out of :func:`_visible` because two callers need the scope without the defer**
+	(`#1215`). ``_visible`` hides deferred work and ``_deferred`` counts exactly what it hid, so
+	one of them has to be able to ask the question before that rule is applied — and asking it by
+	negating a clause the select already carries returns nothing, correctly and uselessly.
+
+	**The project narrowing goes here, beside the workspace one, rather than per bucket.** Every
+	bucket narrows this, so one clause covers all seven and a bucket added later is scoped
+	without anybody remembering.
+
+	**``within_project`` rather than an id comparison**, so a named project means that area of
+	work and not that one node (`#320`). An agenda for a parent project that excluded its own
+	sub-projects would answer *nothing due today* about a tree full of deadlines.
+	"""
+
+	narrowed = (
+		[]
+		if project is None
+		else [subroutine.domain.scoping.within_project(project)]
+	)
+
+	return (
+		subroutine.domain.scoping.readable_tasks(
+			principal, workspace_ids=workspace_ids, include_completed=False
+		)
+		.where(*narrowed)
+		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**
+		# (`#853`). Two of the buckets are ranked, and `subroutine agenda` asks one connection
+		# per place and merges the answers — so the rank has to survive the wire or the merge
+		# sorts on nulls and silently keeps whichever connection answered first. The
+		# expression is a plain `CASE` over two columns, so this costs nothing a sort by it
+		# was not paying anyway.
+		#
+		# **Through `ordering.options` rather than a hand-rolled `with_expression`** (`#986`).
+		# The value carried and the value ordered by have to be the same expression, and since
+		# a prioritised project changes it per request there are now two ways for them to
+		# disagree. One function reading one vocabulary is what makes that impossible: the
+		# bucket named here is only there to select `priority_score`, which every ranked
+		# bucket uses.
+		.options(
+			*subroutine.domain.ordering.options(
+				None, allowed=sortable, default=ORDERS["unscheduled"]
+			)
+		)
 	)
 
 
@@ -484,44 +625,9 @@ def _visible (
 
 	model = subroutine.db.models.work.Task
 
-	# **The project narrowing goes here, beside the workspace one, rather than per bucket**
-	# (`#1215`). Every bucket narrows this select, so one clause covers all seven and a bucket
-	# added later is scoped without anybody remembering — which is the property that made
-	# `readable_tasks` the one copy of the visibility rules in the first place.
-	#
-	# **`within_project` rather than an id comparison**, so a named project means that area of
-	# work and not that one node (`#320`). An agenda for a parent project that excluded its own
-	# sub-projects would answer *nothing due today* about a tree full of deadlines.
-	narrowed = (
-		[]
-		if project is None
-		else [subroutine.domain.scoping.within_project(project)]
-	)
-
 	return (
-		subroutine.domain.scoping.readable_tasks(
-			principal, workspace_ids=workspace_ids, include_completed=False
-		)
-		.where(*narrowed)
+		_scoped(workspace_ids, principal=principal, sortable=sortable, project=project)
 		.where(subroutine.domain.readiness.undeferred(model, now=until))
-		# **Every row carries the ordering value, because a merged agenda re-sorts in Python**
-		# (`#853`). Two of the buckets are ranked, and `subroutine agenda` asks one connection
-		# per place and merges the answers — so the rank has to survive the wire or the merge
-		# sorts on nulls and silently keeps whichever connection answered first. The
-		# expression is a plain `CASE` over two columns, so this costs nothing a sort by it
-		# was not paying anyway.
-		#
-		# **Through `ordering.options` rather than a hand-rolled `with_expression`** (`#986`).
-		# The value carried and the value ordered by have to be the same expression, and since
-		# a prioritised project changes it per request there are now two ways for them to
-		# disagree. One function reading one vocabulary is what makes that impossible: the
-		# bucket named here is only there to select `priority_score`, which every ranked
-		# bucket uses.
-		.options(
-			*subroutine.domain.ordering.options(
-				None, allowed=sortable, default=ORDERS["unscheduled"]
-			)
-		)
 	)
 
 
