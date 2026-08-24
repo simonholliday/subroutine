@@ -37,6 +37,7 @@ import subroutine.domain.authentication
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -241,6 +242,10 @@ class World(typing.NamedTuple):
 	project: subroutine.db.models.project.Project
 	document: subroutine.db.models.work.Document
 
+	#: A task outside the private project, so a link can be made to span the boundary. `#302`
+	#: is about exactly that shape and nothing here could build one before.
+	visible: subroutine.db.models.work.Task
+
 
 @pytest.fixture(autouse=True)
 def _no_watermark (monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,6 +297,18 @@ def world (session: sqlalchemy.orm.Session) -> World:
 		body="Carefully.",
 		actor=subroutine.domain.authentication.Principal(user=owner),
 	)
+	visible = subroutine.domain.tasks.create(
+		session,
+		project=subroutine.domain.projects.create(
+			session,
+			workspace_id=workspace.id,
+			key="open",
+			title="Open",
+			owner_id=owner.id,
+		),
+		title="Book the venue",
+		actor=subroutine.domain.authentication.Principal(user=owner),
+	)
 	session.flush()
 
 	return World(
@@ -301,6 +318,7 @@ def world (session: sqlalchemy.orm.Session) -> World:
 		task=task,
 		project=private,
 		document=document,
+		visible=visible,
 	)
 
 
@@ -442,3 +460,146 @@ def test_an_event_of_an_unknown_kind_reaches_nobody (
 
 	assert not _reaches(session, world, world.owner, event.seq)
 	assert not _reaches(session, world, world.outsider, event.seq)
+
+
+def test_an_event_on_two_things_reaches_only_somebody_who_may_see_both (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#302`. One subject expresses one item's visibility, and some writes touch two.
+
+	The event here is about a **visible** task, so every clause above lets it through — and its
+	second subject is inside the private project. Before the conjunction the outsider was told
+	that something they can see is joined to something they cannot, and `changes` carried the
+	hidden item's ref: a number rather than a title, but the *relationship* is new information
+	and refs are close to guessable already.
+
+	**The owner still sees it**, which is the half that stops the fix being "hide link events".
+	"""
+
+	event = subroutine.domain.events.record(
+		session,
+		workspace_id=world.workspace.id,
+		entity_type="link",
+		entity_id=uuid.uuid4(),
+		subject_type="task",
+		subject_id=world.visible.id,
+		subject_b_type="task",
+		subject_b_id=world.task.id,
+		action="created",
+	)
+	session.flush()
+
+	assert _reaches(session, world, world.owner, event.seq), (
+		"the owner may see both ends and is told about neither"
+	)
+	assert not _reaches(session, world, world.outsider, event.seq), (
+		"an event joining a visible item to a private one reached somebody who may see one end"
+	)
+
+
+def test_the_second_subject_narrows_a_kind_that_is_not_a_link (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""The rule must be *a second subject must be visible*, never *a link's far end must be*.
+
+	``scoping.visible_events`` is built so that no clause in it knows about any particular
+	kind — a kind is narrowed through its own identity, and the moment one clause names one the
+	next has a precedent. So this asserts the property on a **comment**, which sets no second
+	subject anywhere in the code today: nothing about the mechanism may depend on links, and
+	whatever next happens to two items inherits the conjunction without a line being written.
+	"""
+
+	event = subroutine.domain.events.record(
+		session,
+		workspace_id=world.workspace.id,
+		entity_type="comment",
+		entity_id=uuid.uuid4(),
+		subject_type="task",
+		subject_id=world.visible.id,
+		subject_b_type="document",
+		subject_b_id=world.document.id,
+		action="created",
+	)
+	session.flush()
+
+	assert _reaches(session, world, world.owner, event.seq)
+	assert not _reaches(session, world, world.outsider, event.seq), (
+		"the conjunction is implemented for links rather than for a second subject"
+	)
+
+
+def test_a_link_across_the_boundary_is_written_with_both_ends (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""End to end: the write path has to set the pair or the predicate guards an empty column.
+
+	`SR#303`'s lesson is the one being applied — a control that is specified, documented and
+	inert reads exactly like one that works. The two tests above hand the predicate a second
+	subject and prove it narrows; this one never mentions the column, and fails if
+	``links.create`` stops filling it.
+
+	**Made from the visible end, and that direction is the whole test.** The event's subject is
+	then the task the outsider *may* see, so every clause in the disjunction lets it through and
+	the second subject is the only thing that can hide it. Written the other way round — source
+	private, target visible — this passes against the unfixed code, because the subject alone
+	already excludes them.
+	"""
+
+	acting = subroutine.domain.authentication.Principal(user=world.owner)
+
+	before = {row.seq for row in session.scalars(
+		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+	)}
+
+	near = subroutine.domain.links.resolve(
+		session, acting, workspace_id=world.workspace.id,
+		entity_type="task", identifier=world.visible.id,
+	)
+	far = subroutine.domain.links.resolve(
+		session, acting, workspace_id=world.workspace.id,
+		entity_type="task", identifier=world.task.id,
+	)
+
+	# `resolve` answers ``None`` for an end this caller may not see, and the owner may see
+	# both — so this is the assertion that stops a mis-set fixture testing an empty feed.
+	assert near is not None and far is not None
+
+	joined = subroutine.domain.links.create(
+		session,
+		workspace_id=world.workspace.id,
+		source=near,
+		target=far,
+		link_type_key="blocks",
+		actor=acting,
+	)
+	session.flush()
+
+	after = {row.seq for row in session.scalars(
+		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+	)}
+
+	(made,) = sorted(after - before)
+
+	assert _reaches(session, world, world.owner, made), "the author was not told about their own link"
+	assert not _reaches(session, world, world.outsider, made), (
+		"a link from a visible task to a private one reached somebody who may see only the "
+		"visible end — so the write path is not recording the second subject"
+	)
+
+	# **And the withdrawal, which discloses nothing and is still narrowed.** ``links.remove``
+	# records no ``changes`` at all, so an unlink never named the far end — but a reader who
+	# was not told the link was made and *is* told it went away has learned the same thing one
+	# step later. The visibility model is uniform or it is a hole with a delay on it.
+	subroutine.domain.links.remove(session, joined, actor=acting)
+	session.flush()
+
+	withdrawn = {row.seq for row in session.scalars(
+		subroutine.domain.events.feed(acting, workspace_ids=[world.workspace.id])
+	)} - after - before
+
+	(gone,) = sorted(withdrawn)
+
+	assert _reaches(session, world, world.owner, gone)
+	assert not _reaches(session, world, world.outsider, gone), (
+		"the unlink reached somebody the link itself was hidden from"
+	)

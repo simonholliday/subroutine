@@ -569,12 +569,19 @@ def visible_events (
 	item is.
 
 	**A link is matched through its subject too**, since ``#252`` gave link events one: a link
-	on a task in a private project is exactly as visible as that task. **What that does not
-	check is the far end** (`#302`) — a link's visibility is really the conjunction of two
-	items', and one subject can only express one of them, so an event whose source is visible
-	reports the *ref* of a target that may not be. A number rather than a title, and a
-	workspace's refs are close to guessable anyway, but it is recorded rather than assumed
-	away.
+	on a task in a private project is exactly as visible as that task. **And through a second
+	subject, because one of them could only ever express one end** (`#302`): a link's
+	visibility is the conjunction of two items', so an event whose source was visible reported
+	the *ref* of a target that may not be — a number rather than a title, and refs are close
+	to guessable, but what genuinely escaped was the *relationship* to that particular hidden
+	item.
+
+	**The conjunction is a separate ``AND`` and it names no kind.** The clauses below are a
+	disjunction — any of them makes an event readable — so a rule requiring something *as
+	well* cannot be one of them. It reads *if a second subject is set it must be visible too*,
+	which knows nothing about links, and that is deliberate: this module's property is that a
+	kind is narrowed through its own identity rather than by a special case, and one clause
+	naming a kind is the precedent for the next.
 
 	**Everything unlisted is excluded, and the clauses below are the whole of that rule**
 	(`#303`). A kind nobody wrote a clause for matches none of them and is invisible — to
@@ -648,4 +655,28 @@ def visible_events (
 
 	clauses.append(model.entity_type.in_(_WORKSPACE_LEVEL))
 
-	return sqlalchemy.or_(*clauses)
+	# **And a second subject, if the write happened on two things, must be visible too**
+	# (`#302`). Everything above is a disjunction — *any* of these makes an event readable —
+	# so the conjunction cannot be another clause in it. It is a separate `AND`: whatever made
+	# the row reachable, a stated second subject still has to be one this caller may see.
+	#
+	# **Nothing here knows what a link is**, deliberately. The rule is *if a second subject is
+	# set it must be visible*, never *if this is a link check the other end*, because the
+	# moment one clause in this module names a kind the next one has a precedent — and this
+	# module's whole property is that a kind is narrowed by its identity rather than by a
+	# special case. Anything that later happens to two items gets the conjunction for free.
+	#
+	# **A kind this credential cannot read at all matches no clause and so fails the test.**
+	# That is the answer we want: an agent scoped to tasks alone, looking at a task linked to
+	# a document, is not told the document exists.
+	stated = sqlalchemy.or_(
+		*[
+			sqlalchemy.and_(model.subject_b_type == kind, model.subject_b_id.in_(rows))
+			for kind, rows in identifiers.items()
+		]
+	)
+
+	return sqlalchemy.and_(
+		sqlalchemy.or_(*clauses),
+		sqlalchemy.or_(model.subject_b_type.is_(None), stated),
+	)

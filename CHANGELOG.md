@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `a1b3cef13c45`.
+> **This release changes the database schema**, to `4240ca248de1`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -45,6 +45,16 @@ upgrade involves.
   there. Move to `order` and `fields` before 0.9.0.
 
 ### Fixed
+
+- **A link between a visible item and one you cannot see no longer reaches you.** The change
+  feed scoped a link event by *one* of its two ends, so somebody entitled to see one end was
+  told that a particular item they are not entitled to see exists and is joined to it. What
+  escaped was a number rather than a title — but the relationship is the new part, and refs are
+  close to guessable already.
+
+  An event can now say it happened on two things, and one that does is visible only to somebody
+  who may see both. The rule is stated that generally on purpose: nothing in the feed's scoping
+  knows what a link is, so anything that later touches two items inherits it.
 
 - **Deleting a user or a token no longer erases what they did.** Both actor columns on the event
   log were foreign keys with `ON DELETE SET NULL`, so removing either silently rewrote every

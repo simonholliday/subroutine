@@ -618,6 +618,18 @@ INTERNAL: dict[str, str] = {
 		"truth — by `tests/test_prioritised_project.py`, which sets the pointer and reads the "
 		"address back on every surface."
 	),
+	"Event.subject_b_type": (
+		"**A scoping mechanism, and its content already reaches every caller who may have it** "
+		"(`#302`). The pair says *this write happened on a second item too*, so the feed can "
+		"require both to be visible; a link is the only thing that sets it today. Reporting it "
+		"would be the same fact twice — `changes` already carries `source` and `target` as "
+		"**refs**, which is the form a caller addresses by, and this holds one of the two as an "
+		"id, which is the form nothing wants. `task_id` above is the identical shape. **And "
+		"there is no disclosure question hiding in the excuse**, which is the half worth "
+		"checking: an event carrying this reaches nobody who cannot already see the item it "
+		"names, by construction of the rule it exists for."
+	),
+	"Event.subject_b_id": "The other half of the pair above.",
 	"depth": "Derived from `path`, and maintained with it.",
 	"meta": "The extension bag (§6.14). Unexposed until something writes to it.",
 	# **Everything below arrived when `#443` widened the walk past `Task` and `Document`.**

@@ -1297,3 +1297,153 @@ def _every_actor (engine: sqlalchemy.engine.Engine) -> list[tuple[typing.Any, ..
 		)
 
 		return [tuple(row) for row in found]
+
+
+_BEFORE_BOTH_ENDS = "a1b3cef13c45"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_link_event_written_before_the_second_subject_gains_the_far_end (
+	migrated_url: str,
+) -> None:
+	"""`SR#302`'s backfill, and the half that has to be driven rather than read.
+
+	The migration and ``links._far_end`` state one rule — *the end that is not the subject* —
+	in SQL and in Python, which a backfill cannot avoid: it runs where the domain does not
+	exist. So the guard is not that the two agree but that the SQL is **exercised in both
+	directions**, because the ordinary link and the inverse one are the two branches of its
+	``CASE`` and a fresh database only ever produces the first.
+
+	**Inverting the ``CASE`` is the falsification**, and it fails both assertions below. With
+	only the ordinary link here it would fail neither: subject and source coincide, so both
+	branches return the target and the bug is invisible.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_BOTH_ENDS)
+
+		workspace_id, kind_id = (subroutine.db.types.new_uuid() for _ in range(2))
+		near, far, other = (subroutine.db.types.new_uuid() for _ in range(3))
+		ordinary, inverse, subjectless = (subroutine.db.types.new_uuid() for _ in range(3))
+
+		with engine.begin() as connection:
+			_insert(connection, "workspace", {"id": workspace_id, "slug": "w", "title": "W"})
+			_insert(
+				connection,
+				"link_type",
+				{
+					"id": kind_id,
+					"workspace_id": workspace_id,
+					"key": "blocks",
+					"title": "Blocks",
+					"inverse_title": "Blocked by",
+					"category": "gating",
+					"is_symmetric": False,
+				},
+			)
+
+			# One row per link, because the backfill reads the **link** rather than `changes`
+			# — a link is soft-deleted, so this is the fact that survives a withdrawal.
+			for identifier, source, target in (
+				(ordinary, near, far),
+				(inverse, far, near),
+				# Its own pair of items: the unique index is on the ends and the relation, so a
+				# third link between the same two would be refused before it could be a fixture.
+				(subjectless, near, other),
+			):
+				_insert(
+					connection,
+					"link",
+					{
+						"id": identifier,
+						"workspace_id": workspace_id,
+						"source_type": "task",
+						"source_id": source,
+						"target_type": "task",
+						"target_id": target,
+						"link_type_id": kind_id,
+					},
+				)
+
+			# The ordinary shape: somebody stood on the source, so the far end is the target.
+			_insert(
+				connection,
+				"event",
+				{
+					"workspace_id": workspace_id,
+					"entity_type": "link",
+					"entity_id": ordinary,
+					"seq": 1,
+					"subject_type": "task",
+					"subject_id": near,
+					"action": "created",
+				},
+			)
+
+			# `SR#816`'s inversion, and the branch a fresh database never writes. The row is
+			# stored `far blocks near` because a row has one direction; the person was on
+			# `near`, which is the **target**, so the far end here is the *source*.
+			_insert(
+				connection,
+				"event",
+				{
+					"workspace_id": workspace_id,
+					"entity_type": "link",
+					"entity_id": inverse,
+					"seq": 2,
+					"subject_type": "task",
+					"subject_id": near,
+					"action": "created",
+				},
+			)
+
+			# Older than `SR#252`, so it has no subject at all. There is no *end that is not
+			# the subject* to name, and the row reaches nobody as it stands — inventing one
+			# would be a claim about what somebody did, made to hide what is already hidden.
+			_insert(
+				connection,
+				"event",
+				{
+					"workspace_id": workspace_id,
+					"entity_type": "link",
+					"entity_id": subjectless,
+					"seq": 3,
+					"action": "created",
+				},
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		(was_ordinary,) = _events_about(engine, ordinary, "subject_b_type", "subject_b_id")
+		(was_inverse,) = _events_about(engine, inverse, "subject_b_type", "subject_b_id")
+		(was_subjectless,) = _events_about(engine, subjectless, "subject_b_type", "subject_b_id")
+
+		assert was_ordinary["subject_b_type"] == "task"
+		assert was_ordinary["subject_b_id"] == far, (
+			"the reader stood on the source, so the end they may not be entitled to is the target"
+		)
+
+		assert was_inverse["subject_b_id"] == far, (
+			"the reader stood on the target of an inverse link, so the far end is the source — "
+			"and the same `CASE` has to answer both"
+		)
+
+		assert was_subjectless["subject_b_type"] is None
+		assert was_subjectless["subject_b_id"] is None
+
+		# And back, because the columns are the only copy of this and a downgrade that leaves
+		# them behind is not one.
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_BOTH_ENDS)
+
+		with engine.connect() as connection:
+			after = {
+				column["name"]
+				for column in sqlalchemy.inspect(connection).get_columns("event")
+			}
+
+		assert "subject_b_type" not in after and "subject_b_id" not in after
+
+	finally:
+		engine.dispose()

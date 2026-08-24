@@ -70,6 +70,8 @@ def record (
 	action: str,
 	subject_type: str | None = None,
 	subject_id: uuid.UUID | None = None,
+	subject_b_type: str | None = None,
+	subject_b_id: uuid.UUID | None = None,
 	changes: dict[str, typing.Any] | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.activity.Event:
@@ -85,6 +87,12 @@ def record (
 	on, a link's is the item it hangs off (`#252`) — and it is what makes both visible exactly
 	when that item is. See ``selected`` for what reads it, and ``scoping.visible_events`` for
 	why a kind without either a clause or a subject reaches nobody.
+
+	``subject_b_*`` names a **second** one, for a write that happened on two items (`#302`).
+	Only links pass it today. It narrows and never widens: an event carrying one is visible
+	only to somebody who may see *both*, which is the conjunction a single subject cannot
+	express. Setting it on something that happened on one item would hide the event from
+	nobody, but it would be a false statement about what the write touched.
 	"""
 
 	event = subroutine.db.models.activity.Event(
@@ -95,6 +103,8 @@ def record (
 		entity_id=entity_id,
 		subject_type=subject_type,
 		subject_id=subject_id,
+		subject_b_type=subject_b_type,
+		subject_b_id=subject_b_id,
 		action=action,
 		changes=None if changes is None else jsonable(changes),
 	)

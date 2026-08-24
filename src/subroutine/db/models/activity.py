@@ -164,6 +164,26 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 		subroutine.db.types.uuid_column(), nullable=True
 	)
 
+	# A **second** thing the event happened on, when it happened on two of them (`#302`). One
+	# subject can only express one item's visibility, and a link's is the *conjunction* of two:
+	# an event whose source is visible carried the `target`'s ref in `changes`, so a reader who
+	# could see one end learned that a particular hidden item existed and was joined to it.
+	#
+	# **Null on every write but a link's, and `scoping.visible_events` must not know that.**
+	# The rule it adds is *if a second subject is set it must be visible too* — generic, like
+	# every other rule in that module, because the moment one clause names a kind the next one
+	# has a precedent. Anything that later happens to two items gets the conjunction free.
+	#
+	# **It is the end that is not the subject**, which is what makes `#816`'s inversion fall
+	# out rather than needing a case: somebody withdrawing an *incoming* link is standing on
+	# the target, so the event already names the target and the far end is the source.
+	subject_b_type: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(32), nullable=True
+	)
+	subject_b_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.uuid_column(), nullable=True
+	)
+
 	action: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(64), nullable=False
 	)

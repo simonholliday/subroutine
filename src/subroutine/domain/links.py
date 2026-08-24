@@ -185,6 +185,27 @@ class Edge:
 	created_at: datetime.datetime
 
 
+def _far_end (
+	link: subroutine.db.models.work.Link, *, subject_id: uuid.UUID
+) -> tuple[str, uuid.UUID]:
+	"""Return the end of ``link`` that is not the one its event names.
+
+	**Read off the link row rather than out of ``changes``** (`#302`). The row is the authority
+	on what the two ends are, it survives a withdrawal because a link is soft-deleted, and it
+	holds ids — where ``changes`` holds *refs*, which would need a lookup and a guess about
+	whether the number names a task or a document.
+
+	**Falls back to the target**, which is the answer on every path where the subject is the
+	source — the ordinary case, and every case but `#816`'s inverse link. A subject that is
+	neither end cannot arise: ``acted_on`` is resolved from one of the two before it gets here.
+	"""
+
+	if subject_id == link.target_id:
+		return link.source_type, link.source_id
+
+	return link.target_type, link.target_id
+
+
 def create (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -293,6 +314,8 @@ def create (
 	session.add(link)
 	session.flush()
 
+	far_type, far_id = _far_end(link, subject_id=(acted_on or source).id)
+
 	subroutine.domain.events.record(
 		session,
 		workspace_id=workspace_id,
@@ -316,6 +339,12 @@ def create (
 		# path where the two are the same and passing it would be ceremony.
 		subject_type=(acted_on or source).entity_type,
 		subject_id=(acted_on or source).id,
+		# **The other end, so the event is visible only when both items are** (`#302`). The
+		# subject alone expresses one item's visibility, and a link's is the conjunction of
+		# two — so a reader who could see the source was handed the target's ref below, about
+		# an item they may not be entitled to know exists.
+		subject_b_type=far_type,
+		subject_b_id=far_id,
 		action=subroutine.domain.events.EventAction.CREATED,
 		changes={
 			"link_type": {"from": None, "to": link_type.key},
@@ -553,6 +582,10 @@ def remove (
 	link.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 	session.flush()
 
+	withdrawn_type, withdrawn_id = _far_end(
+		link, subject_id=link.source_id if acted_on is None else acted_on.id
+	)
+
 	subroutine.domain.events.record(
 		session,
 		workspace_id=link.workspace_id,
@@ -565,6 +598,13 @@ def remove (
 		# source would attribute their work to an item they never opened.
 		subject_type=link.source_type if acted_on is None else acted_on.entity_type,
 		subject_id=link.source_id if acted_on is None else acted_on.id,
+		# **Set here too, though a withdrawal discloses nothing** (`#302`): this call records no
+		# ``changes`` at all, so it never named the far end. It is the visibility model that has
+		# to be uniform — an event whose creation is hidden from somebody while its deletion is
+		# not is its own small disclosure, and *this link went away* about a link they were
+		# never told about is a stranger thing to read than either.
+		subject_b_type=withdrawn_type,
+		subject_b_id=withdrawn_id,
 		action=subroutine.domain.events.EventAction.DELETED,
 		actor=actor,
 	)
