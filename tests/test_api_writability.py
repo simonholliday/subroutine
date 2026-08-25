@@ -145,6 +145,16 @@ DERIVED: dict[str, str] = {
 	"last_login_at": "when this account last signed in; the sign-in writes it, never a caller.",
 	"depth": "how far down the tree this sits, counted from the path.",
 
+	#: **`SR#1281`.** ``completed_at is not None``, derived on the server so that nothing has to
+	#: work it out again. It was a link end's field and nowhere else, so four renderings of one
+	#: fact existed and the fourth — the browser — asked a *task* for it and got nothing: a
+	#: parent's sub-tasks counted `0 of 13` with thirteen finished.
+	#:
+	#: Settable only through `POST /v1/tasks/{ref}/complete`, which is the act rather than the
+	#: value; writing the flag directly would be a second way to reach a state, and `SR#84` is
+	#: about what that costs.
+	"is_complete": "whether this is over; the complete endpoint decides it, never a caller.",
+
 	#: **Written by `workspaces.create` and by nothing a person touches** (`#301`, `#982`).
 	#: There is no uniqueness constraint on it, which is safe only for exactly that reason —
 	#: `#982` declined to copy the pattern for the prioritised project on those grounds.

@@ -22,6 +22,11 @@ upgrade involves.
 
 ### Changed
 
+- **An item's contents are called its sub-tasks.** The heading over them read *Parts* at the
+  terminal, in the browser and through an agent's `show`; it reads **Sub-tasks** on all three
+  now, which is the word the rest of the product already uses for them. Nothing about how they
+  work has changed, and an item still says it is `part of #42` above.
+
 - **A repeating event is one event, and every edit says which occurrences it is for.** Until
   now a change to something that repeats landed on the copy in front of you and never reached
   the rule behind it — so a title you corrected came back wrong the next time it came round,
@@ -150,6 +155,15 @@ upgrade involves.
   would misreport the thing you opened it to see.
 
 ### Fixed
+
+- **A parent in the browser said none of its sub-tasks were finished.** An item made of other
+  items showed `0 of 13 done` with all thirteen closed, and drew none of them struck through —
+  while the same item at the terminal said `13 of 13`. Both counts are right now, and a
+  finished sub-task is struck through on the page as a finished blocker already was.
+
+  A task also reports `is_complete` over the API, beside the `completed_at` it has always
+  carried. That is a new field rather than a changed one, so nothing that reads a task today
+  needs to do anything.
 
 - **An edit to a repeating item can reach every occurrence from now on, not just this one.**
   Renaming next Tuesday's meeting used to correct it for exactly one week: the title went back

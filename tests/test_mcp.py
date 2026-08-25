@@ -1891,7 +1891,7 @@ def test_an_agent_reading_an_item_sees_its_parts (
 	shown, failed = _called(bound, "subroutine_show", ref=parent)
 
 	assert not failed, shown
-	assert "Parts (0 of 2 done)" in shown, shown
+	assert "Sub-tasks (0 of 2 done)" in shown, shown
 	assert "Write the changelog" in shown and "Cut the tag" in shown
 
 
@@ -1925,7 +1925,7 @@ def test_a_finished_part_is_still_shown_and_says_it_is_over (
 	shown, failed = _called(bound, "subroutine_show", ref=parent)
 
 	assert not failed, shown
-	assert "Parts (1 of 1 done)" in shown, shown
+	assert "Sub-tasks (1 of 1 done)" in shown, shown
 	assert "Write the changelog" in shown, "a finished part vanished from its parent"
 	assert "(over)" in shown, shown
 
@@ -1951,7 +1951,7 @@ def test_a_document_is_not_asked_for_parts (bound: subroutine.mcp.protocol.Serve
 	shown, failed = _called(bound, "subroutine_show", ref=int(numbered.group(1)))
 
 	assert not failed, shown
-	assert "Parts" not in shown, shown
+	assert "Sub-tasks" not in shown, shown
 
 
 def test_an_agent_can_file_a_task_under_another_one (
@@ -6326,7 +6326,7 @@ def test_filing_a_subtask_says_what_it_was_filed_under (
 	# The parent really took — otherwise this asserts a sentence rather than a filing.
 	shown, failed = _called(bound, "subroutine_show", ref=whole)
 	assert not failed, shown
-	assert "Parts" in shown, f"the parent has no parts, so the echo was a lie:\n{shown}"
+	assert "Sub-tasks" in shown, f"the parent has no parts, so the echo was a lie:\n{shown}"
 
 	# And an ordinary capture says nothing, because nobody named a parent — §1.4's rule that a
 	# default nobody chose is not a fact worth a line.

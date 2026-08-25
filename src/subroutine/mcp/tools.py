@@ -2173,7 +2173,7 @@ def _shown (
 		done = sum(1 for child in children if child.completed_at is not None)
 
 		parts.append("")
-		parts.append(f"Parts ({done} of {len(children)} done)")
+		parts.append(f"Sub-tasks ({done} of {len(children)} done)")
 		parts.extend(
 			f"#{child.ref}  {child.title}"
 			+ ("  (over)" if child.completed_at is not None else "")

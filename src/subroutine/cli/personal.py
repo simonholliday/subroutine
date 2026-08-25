@@ -8858,7 +8858,7 @@ def _render_item (
 
 		console.print("")
 		console.print(
-			rich.text.Text(f"Parts  ({done} of {len(children)} done)", style=HEADING)
+			rich.text.Text(f"Sub-tasks  ({done} of {len(children)} done)", style=HEADING)
 		)
 
 		for child in children:

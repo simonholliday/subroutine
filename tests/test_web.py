@@ -3451,7 +3451,7 @@ def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None
 		tmp_path, {"Detail": {**shared, "parts": parts, "links": linked}}
 	)["Detail"]
 
-	assert both.index("Parts") < both.index("Links"), (
+	assert both.index("Sub-tasks") < both.index("Links"), (
 		"the parts are drawn below the links, so the thing the page is about is under the "
 		"context around it"
 	)
@@ -3474,7 +3474,7 @@ def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None
 	# `blockersDone` follows. Most items are not parents.
 	bare = _rendered(tmp_path, {"Detail": shared})["Detail"]
 
-	assert "Parts" not in bare, "an ordinary item is drawn as though it were a parent"
+	assert "Sub-tasks" not in bare, "an ordinary item is drawn as though it were a parent"
 
 
 def test_the_item_page_says_what_has_been_checked (tmp_path: pathlib.Path) -> None:
@@ -6640,6 +6640,106 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 #: names why rather than merely excusing itself: a browser session is the thing being ended, and
 #: this harness has none.
 _NEEDS_A_BROWSER_SESSION = frozenset({"signOutRequest"})
+
+
+def test_a_parents_sub_tasks_are_counted_from_what_the_instance_really_sends (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""`SR#1281`, and the reason it is driven against a real instance rather than a fixture.
+
+	Simon, reading a milestone in the browser: *"I see 'Parts (0 of 13 done)'"* — with all
+	thirteen finished and the terminal saying **13 of 13**. Neither the count nor the
+	strikethrough beside it had ever worked, because both read ``is_complete`` and **a task did
+	not carry one**. It was a link end's field; the terminal and the agent's ``show`` each
+	re-derived the same fact from ``completed_at``, so three surfaces agreed and the fourth
+	asked for the answer and was handed nothing.
+
+    **The test next door could not see it, and that is the finding.** Its fixture writes
+	``"is_complete": True`` into the rows by hand — a field the payload does not have — so it
+	confirmed the rendering against a shape no server produces. A harness that supplies the
+	input under test can only ever check the half that was not broken.
+
+	**So the parts here come off the wire.** A real parent, a real finished child and a real
+	unfinished one, fetched through the same request the page builds, and handed to the
+	component exactly as it arrives. Nothing in this test knows the field's name, which is what
+	makes it survive the field being renamed and fail if it stops being sent.
+	"""
+
+	parent = instance.call(
+		"POST", "/v1/tasks", json={"text": "A parent", "workspace_id": instance.slug}
+	).json()
+
+	made = []
+
+	for title in ("The first piece", "The second piece"):
+		child = instance.call(
+			"POST",
+			"/v1/tasks",
+			json={
+				"text": title,
+				"workspace_id": instance.slug,
+				# **The id, not the ref** — the endpoint's own refusal names the field, and
+				# taking the spelling from it rather than guessing is why this is one line.
+				"parent_task_id": parent["id"],
+			},
+		)
+
+		assert child.status_code == 201, child.text
+		made.append(child.json())
+
+	finished = instance.call(
+		"POST", f"/v1/tasks/{made[1]['ref']}/complete?workspace_id={instance.slug}"
+	)
+
+	assert finished.status_code == 200, finished.text
+
+	# **The page's own request, not one written for this test.** `partsRequest` is what the
+	# browser builds and it carries `include_completed=true` deliberately — a parent showing
+	# one of its two children because the other is finished would misreport the thing somebody
+	# opened it to see.
+	answered = instance.call(
+		"GET",
+		f"/v1/tasks?parent={parent['ref']}&include_completed=true&order=ref"
+		f"&limit=50&workspace_id={instance.slug}",
+	)
+
+	assert answered.status_code == 200, answered.text
+
+	parts = answered.json()
+
+	assert len(parts["items"]) == 2, f"the fixture did not produce two children: {parts}"
+
+	shown = _rendered(tmp_path, {"Detail": {
+		"item": {"ref": parent["ref"], "title": "A parent", "status": "open", "kind": "task"},
+		"links": [], "comments": [], "workspace": instance.slug, "members": [],
+		"vocabulary": {"link_types": []},
+		"parts": parts,
+	}})["Detail"]
+
+	assert "1 of 2 done" in shown, (
+		f"a parent with one finished child of two counted something else. The page reads a "
+		f"field off each row; if the instance has stopped sending it, every count here is 0 "
+		f"and nothing says so. What arrived: {parts['items'][1]}"
+	)
+
+	# **The field itself, named**, because the count above would also pass if the page had
+	# started counting something else. This is the assertion the two fixtures next door cannot
+	# make: theirs write the field in by hand, so they say what the *component* does with it and
+	# nothing about whether it arrives.
+	assert "is_complete" in parts["items"][1], (
+		f"a task on the wire does not carry `is_complete`, so every parts count in the browser "
+		f"is 0 and every finished one is drawn unstruck — which is `SR#1281`. What arrived: "
+		f"{sorted(parts['items'][1])}"
+	)
+	assert parts["items"][1]["is_complete"] is True
+	assert parts["items"][0]["is_complete"] is False
+
+	# **The strikethrough is the same fact rendered a second way** (`SR#102`: no information may
+	# exist only in a colour) and it reads the same field, so it goes red with the assertions
+	# above rather than needing one here. It cannot have one here anyway: this harness drops
+	# every attribute but `href` (`SR#784`), so a class assertion through it would be asserting
+	# on something the instrument discards. `tests/test_browser.py` is where a computed
+	# `line-through` is read.
 
 
 def test_every_request_the_browser_makes_is_one_the_instance_accepts (

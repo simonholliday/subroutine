@@ -3361,7 +3361,7 @@ def test_show_names_both_directions_of_the_relationship (
 
 	parent = run("show", "1").output
 
-	assert "Parts" in parent
+	assert "Sub-tasks" in parent
 	assert "0 of 2 done" in parent
 	assert "First part" in parent and "Second part" in parent
 
@@ -3387,7 +3387,7 @@ def test_show_on_a_plain_task_still_says_nothing_about_hierarchy (
 	shown = run("show", "1").output
 
 	assert "part of" not in shown
-	assert "Parts" not in shown
+	assert "Sub-tasks" not in shown
 
 
 def test_a_default_install_can_make_a_project_and_file_into_it (

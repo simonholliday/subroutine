@@ -637,6 +637,26 @@ class Task(pydantic.BaseModel):
 	tags: list[str] = pydantic.Field(default_factory=list)
 
 	completed_at: datetime.datetime | None
+
+	#: Whether this is finished, which is ``completed_at is not None`` and is here so that
+	#: nothing has to work that out again (`#1281`).
+	#:
+	#: **It was on a link's end and nowhere else**, so four renderings of one fact existed: the
+	#: link view derived it, the terminal and the agent's ``show`` each re-derived it from
+	#: ``completed_at``, and the browser asked a *task* for the field — getting ``undefined``
+	#: on every row. A parent's sub-tasks therefore counted **0 of 13** with thirteen finished,
+	#: and none of them was struck through, on the one surface a person is most likely to be
+	#: looking at.
+	#:
+	#: **Derived on the server rather than left to each client**, which is the whole point: the
+	#: alternative offered was for the browser to read ``completed_at`` itself, and that is a
+	#: fifth copy of the rule — in the same page where the defect being fixed is two lists
+	#: disagreeing about one item.
+	#:
+	#: **It does not tell *done* from *cancelled***, deliberately, and neither does the link
+	#: end's. ``status_category`` is what answers that; this answers *is it over*.
+	is_complete: bool = False
+
 	archived_at: datetime.datetime | None
 	deleted_at: datetime.datetime | None
 
@@ -2561,6 +2581,7 @@ def task (
 		),
 		tags=vocabulary.tags.get(row.id, []),
 		completed_at=row.completed_at,
+		is_complete=row.completed_at is not None,
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
 		created_at=row.created_at,
@@ -2689,11 +2710,16 @@ def edge (found: subroutine.domain.links.Edge, vocabulary: Vocabulary) -> Edge:
 	)
 
 
-#: The two fields a link's end knows that the item it points at does not — one because it says
-#: which table the ref is in, and one because "finished" is a link's own question (`#210`).
-#: Everything else on :class:`LinkEnd` is a field of the item, which is what lets the rest be
-#: projected rather than assembled.
-_ENDS_OWN_FIELDS = ("entity_type", "is_complete")
+#: The one field a link's end knows that the item it points at does not: which table the ref is
+#: in. Everything else on :class:`LinkEnd` is a field of the item, which is what lets the rest
+#: be projected rather than assembled.
+#:
+#: **``is_complete`` was here too until `#1281`**, on the grounds that "finished" was a link's
+#: own question (`#210`). It stopped being one when a task learned to answer it: the two
+#: derivations read the same row and the same column, and a document takes the declared default
+#: either way. Keeping it would have left the one fact this arc is about — *is it over* —
+#: computed in two places on one page.
+_ENDS_OWN_FIELDS = ("entity_type",)
 
 
 def _end (end: subroutine.domain.links.End, vocabulary: Vocabulary) -> LinkEnd:
@@ -2727,7 +2753,6 @@ def _end (end: subroutine.domain.links.End, vocabulary: Vocabulary) -> LinkEnd:
 
 	return LinkEnd(
 		entity_type=end.entity_type,
-		is_complete=end.is_complete,
 		**{
 			name: getattr(rendered, name, field.default)
 			for name, field in LinkEnd.model_fields.items()

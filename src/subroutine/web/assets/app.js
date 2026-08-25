@@ -6451,7 +6451,7 @@ export function Detail ({
 				     **The rollup is `#84`'s and is computed, never stored.** A parent never
 				     auto-completes, so `4 of 4` beside an open parent is a question being put
 				     to a person rather than a state nobody updated. */ null}
-				<h3>Parts${partsDone(parts)}</h3>
+				<h3>Sub-tasks${partsDone(parts)}</h3>
 				${/* **`linked` for the styling and `parts` to be addressable.** The two lists are
 				     drawn identically on purpose — Simon asked for *similar format* — which
 				     leaves a test no way to say *this row is a part* rather than *this row is on
