@@ -1947,6 +1947,21 @@ class Agenda(pydantic.BaseModel):
 	#: the reason ``in_progress`` above gives.
 	occasions: list[Task] = pydantic.Field(default_factory=list)
 
+	#: Work of yours held up by an item somebody else is assigned to (`#1285`, decision `#1267`
+	#: §3). The other kind of waiting: :attr:`waiting` is a question parked for you, this is
+	#: your work held up by their row — and the two sit next to each other on every surface,
+	#: headed *Waiting on you* and *Waiting on somebody else*.
+	#:
+	#: **The key deliberately does not begin with ``waiting``.** That word already means the
+	#: narrower thing on this model, and ``assigned_to_me`` already means *strictly assigned* on
+	#: a calendar feed — decision `#1267` §2's naming hazard, met a third time and avoided.
+	#:
+	#: **Capped, and :attr:`blocked_by_others_total` says by how much.**
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`), for
+	#: the reason ``in_progress`` above gives.
+	blocked_by_others: list[Task] = pydantic.Field(default_factory=list)
+
 	#: How many unscheduled tasks there are in total, which is usually more than are listed:
 	#: an agenda that dumped a 400-item backlog would not be an agenda.
 	unscheduled_total: int
@@ -1981,6 +1996,13 @@ class Agenda(pydantic.BaseModel):
 	#:
 	#: **Defaulted for the reason above.**
 	passed_total: int = 0
+
+	#: How much work somebody else is holding up in total, which may be more than
+	#: :attr:`blocked_by_others` lists. **A cap must say it is one**, which is Simon's condition
+	#: on :attr:`unscheduled_total` and the reason :attr:`passed_total` exists.
+	#:
+	#: **Defaulted for the reason above.**
+	blocked_by_others_total: int = 0
 
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
@@ -3070,6 +3092,10 @@ def agenda (
 	so a bucket added to the dataclass and to the model reached an agent as an empty list, in
 	silence, exactly as ``in_progress`` did before `#992` gave the order one home. This is that
 	item's argument arriving at the last surface that had its own copy.
+
+	**The counts are derived the same way** (`#1285`), off the fields this model publishes, for
+	exactly the reason above: they were written out and a sixth would have been carried as a
+	nought with nothing failing.
 	"""
 
 	everything = [row for bucket in AGENDA_BUCKETS for row in getattr(built, bucket)]
@@ -3079,16 +3105,18 @@ def agenda (
 		for bucket in AGENDA_BUCKETS
 	}
 
-	return Agenda(
-		date=built.date,
-		timezone=built.timezone,
-		unscheduled_total=built.unscheduled_total,
-		later_total=built.later_total,
-		deferred_total=built.deferred_total,
-		paused_total=built.paused_total,
-		passed_total=built.passed_total,
-		**rendered,
-	)
+	# **And the counts are read off this model rather than listed** (`#1285`), which is the
+	# buckets' own lesson one field along: there were five of them written out here, and a
+	# sixth would have reached a client as a nought without anything failing. Every ``_total``
+	# the published model declares is asked of the built agenda, so a count that is declared
+	# and not computed raises here instead of reporting nothing quietly.
+	counts = {
+		field: getattr(built, field)
+		for field in Agenda.model_fields
+		if field.endswith("_total")
+	}
+
+	return Agenda(date=built.date, timezone=built.timezone, **counts, **rendered)
 
 
 def instance (row: subroutine.db.models.system.Instance) -> Instance:

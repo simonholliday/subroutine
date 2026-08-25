@@ -263,6 +263,50 @@ def test_the_agenda_never_advises_ticking_off_somebody_s_birthday (
 	)
 
 
+def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1288`, and it is `SR#1235` §5's defect one bucket along.
+
+	Measured on a disposable instance on 2026-08-25, while driving `SR#1285`: a blocked task sat
+	under **Waiting on somebody else** — the heading whose whole job is to say nobody can move
+	on it — with ``subroutine done 1`` printed directly beneath. ``done`` does not refuse it,
+	so the advice is not merely useless; it invites a write that skips the thing being waited on.
+
+	**Both halves, for the birthday test's reason.** The tip must not name the blocked row
+	*and* the page must still get one: an implementation that stopped looking on reaching this
+	section would pass the first assertion and lose the tip on every day the section appears.
+
+	**The blocker itself is on this page**, which reads oddly and is correct today: the agenda
+	is not narrowed by assignee (`#1265` is that, and it is not built), so somebody else's item
+	is ordinary work here. What this refuses is `done` on the row the heading has just said
+	nobody can start.
+	"""
+
+	run("init")
+	run("user", "create", "bob")
+	run("user", "add", "bob", "--role", "member")
+
+	run("add", "Ship the release")
+	run("add", "Sign off the copy")
+	run("update", "2", "--assignee", "bob")
+	run("link", "2", "blocks", "1")
+
+	shown = run("agenda").output
+
+	assert "Waiting on somebody else" in shown, (
+		f"work held up by somebody else has no section of its own:\n{shown}"
+	)
+	assert "Ship the release" in shown, f"the blocked row is not on the page at all:\n{shown}"
+	assert "Tip: subroutine done 1" not in shown, (
+		f"the agenda advises finishing the one row it has just said nobody can start:\n{shown}"
+	)
+	assert "Tip: subroutine done 2" in shown, (
+		f"it gave up at the blocked section instead of reading past it, so a day whose work "
+		f"sits below that heading loses the tip entirely:\n{shown}"
+	)
+
+
 def test_an_event_is_put_away_rather_than_achieved (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

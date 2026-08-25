@@ -1548,8 +1548,14 @@ def _listed (
 		# **Two counts rather than one number**, because the remedies differ: a larger limit
 		# reaches the first, and only a listing reaches the second. One total would be a
 		# figure with no action attached to it.
+		#
+		# **Both of the agenda's own caps** (`#1285`). `blocked_by_others` is capped for
+		# `unscheduled`'s reason and its remedy is the same one, so it is counted into the
+		# same figure rather than given a line an agent cannot act on differently.
 		hidden = (
-			len(every) - len(rows) + agenda.unscheduled_total - len(agenda.unscheduled)
+			len(every) - len(rows)
+			+ agenda.unscheduled_total - len(agenda.unscheduled)
+			+ agenda.blocked_by_others_total - len(agenda.blocked_by_others)
 		)
 
 		if hidden > 0:

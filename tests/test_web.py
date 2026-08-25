@@ -1630,11 +1630,18 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 	"""
 
 	shown = _rendered(tmp_path, {"Agenda": {
-		"buckets": [], "more": 12, "later": 3, "deferred": 9, "paused": 0, "gone": 2,
+		"buckets": [], "more": 12, "heldUp": 4, "later": 3, "deferred": 9, "paused": 0,
+		"gone": 2,
 	}})["Agenda"]
 
-	assert "26 not shown here" in shown, (
+	assert "30 not shown here" in shown, (
 		f"the day does not account for what it left behind: {shown}"
+	)
+	# **The second capped bucket, counted like the first** (`SR#1285`). It is the one cause
+	# here that the page itself chose to hide rather than the day holding back, which is why
+	# it reads *more* like `unscheduled` does.
+	assert "4 more waiting on somebody else" in shown, (
+		f"the blocked section capped what it drew and did not say so: {shown}"
 	)
 	assert "9 put off until later" in shown, (
 		f"work somebody deferred vanishes with nothing saying so, which is the gap this was "

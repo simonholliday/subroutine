@@ -27,6 +27,7 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.tasks
@@ -203,6 +204,17 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 		starts_is_all_day=True,
 	)
 
+	# **The second cap, represented for the first one's reason** (`SR#1285`). Two rows more
+	# than the limit, so the cap bites and the arithmetic has to account for what it hid — a
+	# fixture with an empty `blocked_by_others` cannot tell *this count is right* from *this
+	# count is never read*, and until this existed every test in this file left it at nought.
+	other = _somebody_else(world)
+
+	for number in range(subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 2):
+		theirs = world.task(f"Somebody else's {number}")
+		theirs.assignee_id = other.id
+		_blocks(world, theirs, world.task(f"Held up {number}"))
+
 	session.flush()
 
 	agenda = world.agenda(horizon_days=7, unscheduled_limit=1)
@@ -213,6 +225,7 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	accounted = (
 		shown
 		+ max(0, agenda.unscheduled_total - len(agenda.unscheduled))
+		+ max(0, agenda.blocked_by_others_total - len(agenda.blocked_by_others))
 		+ agenda.later_total
 		+ agenda.deferred_total
 		+ agenda.paused_total
@@ -241,6 +254,9 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	assert agenda.later_total == 1, agenda.later_total
 	assert agenda.passed_total == 1, agenda.passed_total
 	assert agenda.unscheduled_total > len(agenda.unscheduled), agenda.unscheduled_total
+	assert agenda.blocked_by_others_total > len(agenda.blocked_by_others), (
+		agenda.blocked_by_others_total
+	)
 
 
 def test_an_occasion_gets_its_own_section_and_leaves_it_when_the_day_has_gone (
@@ -822,6 +838,261 @@ def test_every_started_item_is_on_the_agenda_however_many_there_are (
 		f"the agenda showed {len(agenda.in_progress)} of "
 		f"{subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5} started items"
 	)
+
+
+def _blocks (world: World, blocker: typing.Any, blocked: typing.Any) -> None:
+	"""Say that one task holds another up, through the domain a client would reach."""
+
+	def end (task: typing.Any) -> subroutine.domain.links.End:
+		"""Return one end of a link, as a client's resolved form of this task."""
+
+		return subroutine.domain.links.End(
+			entity_type="task",
+			id=task.id,
+			ref=task.ref,
+			title=task.title,
+			project_id=task.project_id,
+		)
+
+	subroutine.domain.links.create(
+		world.session,
+		workspace_id=world.workspace.id,
+		source=end(blocker),
+		target=end(blocked),
+		link_type_key="blocks",
+	)
+	world.session.flush()
+
+
+def _somebody_else (world: World) -> subroutine.db.models.identity.User:
+	"""Add a second account to this workspace, so a blocker can belong to somebody."""
+
+	other = subroutine.domain.users.create(
+		world.session, username=f"other-{uuid.uuid4().hex[:8]}", timezone=LONDON
+	)
+
+	subroutine.domain.workspaces.add_member(
+		world.session, workspace=world.workspace, user=other, role_key="member"
+	)
+	world.session.flush()
+
+	return other
+
+
+def test_work_held_up_by_somebody_elses_item_gets_its_own_section (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`, decision `SR#1267` §3.** The other kind of waiting.
+
+	`waiting` is a question somebody parked for you. This is your work held up by their row,
+	and `#96`'s reason for not tracking it — *a `blocks` link resolves itself* — **is a claim
+	about a single worker**. When the blocker is somebody else's it resolves when they act,
+	and nothing told you it had been sitting there.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+
+	agenda = world.agenda()
+
+	assert _titles(agenda.blocked_by_others) == ["My bit"]
+	assert _titles(agenda.unscheduled) == ["Their bit"], (
+		"the blocker is somebody else's work and belongs in the ordinary pile, not here"
+	)
+
+
+def test_a_blocker_of_your_own_is_not_somebody_else (session: sqlalchemy.orm.Session) -> None:
+	"""**`SR#1285`, decision `SR#1267` §3a — the narrow reading, and it is Simon's.**
+
+	*Blocked by anything* floods a solo instance, which is most instances, and a solo
+	instance's blockers are its own work. `#96`'s argument still holds there, so it has to go
+	on holding here: work you are blocking yourself on is work, not a thing to chase somebody
+	about.
+	"""
+
+	world = World(session)
+
+	first = world.task("Do this first")
+	first.assignee_id = world.user.id
+	second = world.task("Then this")
+
+	_blocks(world, first, second)
+
+	assert world.agenda().blocked_by_others == ()
+
+
+def test_a_blocker_nobody_is_assigned_to_is_not_somebody_else (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`.** Nobody is holding it, so there is nobody to chase.
+
+	The honest thing to say about an unclaimed blocker is that it is unclaimed work, which is
+	what ``--ready`` already says one axis along. Naming it *waiting on somebody else* would
+	invite a reader to chase a person who does not exist.
+	"""
+
+	world = World(session)
+
+	_blocks(world, world.task("Nobody's job"), world.task("Mine"))
+
+	assert world.agenda().blocked_by_others == ()
+
+
+def test_a_finished_blocker_of_somebody_elses_releases_the_work (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`.** The section empties itself when they act, with nobody touching this row.
+
+	The edges are :func:`readiness.unblocked`'s, so this inherits every rule about what makes
+	a ``blocks`` link live — and it is worth one test of its own here, because a section that
+	only ever fills up is one people stop reading.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+
+	assert _titles(world.agenda().blocked_by_others) == ["My bit"]
+
+	subroutine.domain.tasks.complete(session, theirs, now=NOW, actor=world.principal)
+	session.flush()
+
+	assert world.agenda().blocked_by_others == ()
+	assert "My bit" in _titles(world.agenda().unscheduled)
+
+
+def test_work_held_up_by_somebody_else_is_reported_as_blocked_and_not_as_late (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`, and this is the half of the position that has a consequence.**
+
+	The bucket sits above ``overdue`` and the buckets are disjoint in computation order, so a
+	blocked task whose deadline has passed is reported here. That is the right way round:
+	*you are late* is not the useful sentence about work nobody has let you start, and
+	**chasing the other person is the only move available**. Same reasoning `#1116` used to
+	put `waiting` above `overdue` and `#1243` used for `in_progress`.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	mine = world.task("My bit", due=datetime.date(2026, 7, 20))
+
+	_blocks(world, theirs, mine)
+
+	agenda = world.agenda()
+
+	assert _titles(agenda.blocked_by_others) == ["My bit"]
+	assert agenda.overdue == (), "a blocked deadline is reported as blocked, not as late"
+
+
+def test_the_blocked_section_is_capped_and_says_how_much_it_is_holding_back (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`, decision `SR#1267` §3b.** A bar, not a dump — and a cap must say it is one.
+
+	Simon's qualifier was *"if those items would ordinarily be urgent/important enough to be
+	included"*. A threshold read off ``priority_score`` cannot be honest, because the score is
+	null unless both axes are set and most of a backlog would fall under any bar in silence;
+	ordering by rank and capping says the same thing and reports what it left out.
+
+	**More rows than the cap**, so a limit copied from somewhere else fails here rather than
+	passing on a fixture too small to notice it.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	for number in range(subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 3):
+		theirs = world.task(f"Their bit {number}")
+		theirs.assignee_id = other.id
+		_blocks(world, theirs, world.task(f"My bit {number}", importance=5, urgency=5))
+
+	agenda = world.agenda()
+
+	assert len(agenda.blocked_by_others) == subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT
+	assert agenda.blocked_by_others_total == (
+		subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 3
+	), agenda.blocked_by_others_total
+
+
+def test_a_row_a_cap_hides_does_not_reappear_under_a_later_heading (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`, and this was a real defect found by the arithmetic above rather than read.**
+
+	A cap decides how many rows are *drawn*. It must not decide which bucket owns them — the
+	first version pushed the limit into the query, so what `blocked_by_others` hid never
+	reached `seen` and fell through into `unscheduled`, where it was offered under *Next* as
+	something to pick up. It is the one thing it is not: nobody has let the reader start it.
+
+	**Only the last bucket may cap in the query**, because nothing follows it. This is the
+	guard on that, driven rather than asserted about the code.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	for number in range(subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 3):
+		theirs = world.task(f"Their bit {number}")
+		theirs.assignee_id = other.id
+		_blocks(world, theirs, world.task(f"Held up {number}"))
+
+	agenda = world.agenda()
+	elsewhere = [
+		title for title in _titles(agenda.unscheduled) if title.startswith("Held up")
+	]
+
+	assert elsewhere == [], (
+		f"{len(elsewhere)} rows the blocked section capped were offered under another "
+		f"heading: {elsewhere}"
+	)
+	assert agenda.blocked_by_others_total == (
+		subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 3
+	), "the count has to cover what the cap hid, or the footer under-reports it"
+
+
+def test_the_blocked_section_shows_the_most_important_of_what_it_holds_back (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1285`.** The cap takes the top of the rank, which is what makes the bar a bar.
+
+	A cap that took whichever rows the database handed back first would hide the item worth
+	chasing about behind five that are not, and the count beneath it would read as reassurance.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	for number in range(subroutine.domain.agenda.DEFAULT_BLOCKED_LIMIT + 1):
+		theirs = world.task(f"Their bit {number}")
+		theirs.assignee_id = other.id
+		_blocks(
+			world,
+			theirs,
+			world.task(f"My bit {number}", importance=1, urgency=1),
+		)
+
+	theirs = world.task("The one that matters to them")
+	theirs.assignee_id = other.id
+	_blocks(world, theirs, world.task("The one that matters", importance=5, urgency=5))
+
+	shown = _titles(world.agenda().blocked_by_others)
+
+	assert "The one that matters" in shown, shown
 
 
 def test_the_order_the_sections_are_shown_in_is_the_order_they_are_computed_in (

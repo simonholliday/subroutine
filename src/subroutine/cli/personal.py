@@ -434,6 +434,16 @@ _HEADINGS: dict[str, tuple[str, bool]] = {
 	# waiting on an answer, which is a commitment you have not kept in exactly the way a passed
 	# deadline is — and unlike everything below it, nothing here can move until you act.
 	"waiting": ("Waiting on you", True),
+	# **The pair with the one above it, and that is what makes both legible** (`#1285`,
+	# decision `#1267` §3). *Waiting on you* is a question somebody parked for you; this is
+	# your work held up by somebody else's row. The key says the mechanism and the heading
+	# says the experience, which is `occasions`/*Happening*'s established shape.
+	#
+	# **Not marked late as a section**, unlike the one above. Nothing here is a commitment you
+	# have failed to keep — the whole point is that the next move is not yours — and the buckets
+	# are disjoint in order, so a blocked task with a passed deadline lands here rather than in
+	# *Overdue*. The row still marks itself late, exactly as `in_progress` does.
+	"blocked_by_others": ("Waiting on somebody else", False),
 	"overdue": ("Overdue", True),
 	# **What is happening to you, above what there is to do** (decision `#1235` §4). A code
 	# freeze or a fortnight off is the context the rest of the page is read in, and none of it
@@ -457,6 +467,21 @@ _HEADINGS: dict[str, tuple[str, bool]] = {
 	# named only what its rows lacked.
 	"unscheduled": ("Next", False),
 }
+
+#: The agenda's sections whose rows nobody can be advised to finish (`#1288`).
+#:
+#: **Two ways to be un-finishable and they are different questions**, which is why this is a set
+#: of buckets rather than one more clause in :func:`_happens`. An occasion is un-finishable
+#: because of what it *is* — decision `#1235` §5, and it is a property of the row, so it travels
+#: with the row into whichever bucket claims it. A blocked row is un-finishable because of where
+#: it *stands*: the heading above it says somebody else has to move first, and the item itself
+#: is perfectly ordinary work.
+#:
+#: **Named as a set because it is the second one and there was no list when it arrived.** Each
+#: was added when its own bucket shipped, and a third would meet the same question with nothing
+#: to ask it.
+UNFINISHABLE: frozenset[str] = frozenset({"blocked_by_others"})
+
 
 def agenda_sections (days: int) -> tuple[tuple[str, str, bool], ...]:
 	"""Return the agenda's sections for a given look-ahead: heading, field, whether it is late.
@@ -8297,6 +8322,12 @@ def _render (
 	# **What simply went by** (decision `#1235` §3), summed for `later`'s reason. Not a decision
 	# anybody took and not an edge of the window: a day that has been.
 	gone = sum(answer.value.passed_total for answer in gathered.answers)
+	# **The second capped bucket, counted for the first one's reason** (`#1285`). A cap must
+	# say it is one, count what is hidden and offer a way to see it all.
+	held_up = sum(
+		answer.value.blocked_by_others_total - len(answer.value.blocked_by_others)
+		for answer in gathered.answers
+	)
 	printed = False
 	first: Row | None = None
 	# **One instant for the whole page**, the rule `domain.tasks` follows: two rows compared
@@ -8348,7 +8379,12 @@ def _render (
 		# sat under *Today* with `subroutine done 2` printed beneath it. So the first row that
 		# can honestly be finished is what the tip names, and a page holding nothing but
 		# occasions falls through to the empty-handed suggestion below.
-		if first is None:
+		#
+		# **Nor a row somebody else is holding up** (`#1288`), which is the same defect
+		# measured the same way one bucket along: *Waiting on somebody else* is the heading
+		# that says nobody can finish this, and `subroutine done 1` sat directly beneath it.
+		# :data:`UNFINISHABLE` carries why the two are separate tests.
+		if first is None and field not in UNFINISHABLE:
 			first = next((row for row in group if not _happens(row[1])), None)
 
 		for connection, task in group:
@@ -8372,6 +8408,17 @@ def _render (
 
 	if remaining > 0:
 		console.print(rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL))
+
+	# **The other cap saying it is one** (`#1285`, decision `#1267` §3b). Simon's condition on
+	# `unscheduled_total`, applied to the bucket he set it for: this section is ordered by rank
+	# and holds the top few, so the reader has to be told how much more somebody else is
+	# sitting on.
+	if held_up > 0:
+		console.print(
+			rich.text.Text(
+				f"      and {held_up} more waiting on somebody else", style=DETAIL
+			)
+		)
 
 	# **Said because the window has an edge and nothing else says so** (`#997`, Simon's
 	# decision of 2026-08-18). The agenda stays a day view — a listing answers *what is due
@@ -9651,24 +9698,19 @@ def _agenda_json (
 			field: [_as_json(world, name, task) for name, task in rows[field]]
 			for field in buckets
 		},
-		"unscheduled_total": sum(
-			answer.value.unscheduled_total for answer in gathered.answers
-		),
-		# **What the window left out** (`#997`), summed across connections exactly as the
-		# rendered path sums it — a script asking whether this view is complete has the same
-		# question a person does.
-		"later_total": sum(answer.value.later_total for answer in gathered.answers),
-		# **The two the rendered path gained with `#1215`**, summed the same way and for the
-		# same reason: `#992` is why one shape of this request exists per surface rather than
-		# per author, and a scripted agenda that could not account for its own gap would be the
-		# human path and the scripted path answering differently (§12.2a).
-		"deferred_total": sum(answer.value.deferred_total for answer in gathered.answers),
-		"paused_total": sum(answer.value.paused_total for answer in gathered.answers),
-		# **The fifth, and the only one nobody chose** (decision `#1235` §3). A listing at this
-		# scope still holds these rows — a passed event is not *completed* — so a script
-		# reconciling the two needs the number for the same reason a person reading the footer
-		# does.
-		"passed_total": sum(answer.value.passed_total for answer in gathered.answers),
+		# **Every count the agenda publishes, summed across connections and read off the
+		# model rather than listed** (`#1285`). There were six here, each with its own line
+		# — how much the cap held back, what the window left out, what somebody deferred,
+		# what is in a project nobody is running, and what simply went by — and a seventh
+		# would have been missing from the scripted path alone, which is `#992`'s defect
+		# exactly: the human path and the scripted path answering differently about one day
+		# (§12.2a). A script asking whether this view is complete has the same question a
+		# person reading the footer does, so it gets the same numbers by construction.
+		**{
+			field: sum(getattr(answer.value, field) for answer in gathered.answers)
+			for field in subroutine.views.Agenda.model_fields
+			if field.endswith("_total")
+		},
 		# **Every connection that did not answer, not only the ones that failed at this
 		# call.** A connection that could not be *opened* (no token, unparseable
 		# credentials) or that failed at `identity()` was named on stderr and reported here

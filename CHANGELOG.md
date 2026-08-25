@@ -65,6 +65,23 @@ upgrade involves.
 
 ### Added
 
+- **Your agenda says what you are waiting on somebody else for.** A new section, *Waiting on
+  somebody else*, directly under *Waiting on you*: work of yours that is held up by an item
+  somebody else is assigned to. It is on the terminal, in the browser and through the API and
+  an agent's tools.
+
+  It sits **above** *Overdue* deliberately, so a blocked deadline is reported as blocked rather
+  than as late — *you are late* is not the useful sentence about work nobody has let you start,
+  and chasing the other person is the only move available.
+
+  Narrow on purpose. A blocker of your own does not put anything here, and neither does one
+  nobody is assigned to: if you are working alone, this section never appears. The section is
+  ranked and shows the top few, with a count of how many more there are — and the agenda no
+  longer offers `subroutine done` on a row it has just said nobody can start.
+
+  Two new fields on `GET /v1/agenda`: `blocked_by_others` and `blocked_by_others_total`. Both
+  are optional, so a client reading an older instance is unaffected.
+
 - **An event is something that happens to you, and it is never late.** A birthday, a booked
   fortnight, a street closed by the council, a code freeze: add one with `--type event`, give it
   a start and an end, and it behaves like the thing it is. It is never offered as work to start,

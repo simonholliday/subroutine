@@ -266,6 +266,63 @@ def _live_blocks_edge (
 	)
 
 
+def blocked_by_somebody_else (
+	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching work held up by an item that is somebody else's.
+
+	**The narrow reading, and it is Simon's** (decision `#1267` §3a). *Blocked by anything*
+	floods a solo instance, which is most instances — and a solo instance's blockers are its own
+	work, which is `#96`'s original argument and still holds there. What this asks is narrower:
+	is there a live blocker whose assignee is a person, and is that person somebody other than
+	the one asking.
+
+	**`#96` is amended by this rather than overturned.** Its rule was *blocked is tracked;
+	waiting is a defer with a reason*, and its reason was that a ``blocks`` link resolves
+	itself. **That sentence is a claim about a single worker.** When the blocker is somebody
+	else's row it resolves when *they* act, and nothing tells you it has been sitting there.
+
+	**An unassigned blocker does not count**, deliberately: nobody is holding it, so there is
+	nobody to chase, and the honest thing to say about it is that it is unclaimed work — which
+	is what ``--ready`` already says one axis along. That rule is one comparison and a test
+	rather than two comparisons; the comment beside it says why.
+
+	:func:`unblocked`'s edges exactly, read the same direction, with one more join. Deliberately
+	not narrowed by visibility, for that function's reason: whether work is blocked is a fact
+	about the work rather than about the viewer. What that discloses is bounded and is the same
+	bound as before — that something unseen holds this up, never what, and never whom. Naming
+	the holder is a decision of its own.
+	"""
+
+	link = subroutine.db.models.work.Link
+	blocker = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+	kind = subroutine.db.models.vocabulary.LinkType
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(link.id)
+		.join(kind, kind.id == link.link_type_id)
+		.join(
+			blocker,
+			sqlalchemy.and_(blocker.id == link.source_id, link.source_type == "task"),
+		)
+		.join(filed_in, filed_in.id == blocker.project_id)
+		.where(
+			link.target_type == "task",
+			link.target_id == model.id,
+			# **One clause, and an unassigned blocker falls out of it on its own.** `NULL !=
+			# x` is unknown and a `WHERE` drops it, so a second `IS NOT NULL` beside this
+			# grants nothing — measured, by deleting it and watching every test still pass,
+			# which is `#303`'s shape and the reason it is not here. What holds the rule is
+			# the test, on both backends, because *unassigned does not count* is a decision
+			# rather than an accident of three-valued logic.
+			blocker.assignee_id != user_id,
+			*_live_blocks_edge(link, kind, blocker, filed_in, now=now),
+		)
+		.correlate(model)
+	)
+
+
 def blocked_among (
 	session: sqlalchemy.orm.Session,
 	identifiers: typing.Iterable[uuid.UUID],

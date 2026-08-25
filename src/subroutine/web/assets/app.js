@@ -4385,6 +4385,12 @@ const BUCKETS = [
 	   do** (`#1116`). Somebody is waiting on an answer, so nothing under it can move until
 	   this is dealt with. */
 	{ key: "waiting", label: "Waiting on you" },
+	/* **The pair with the one above it** (`#1285`, decision `#1267` §3). *Waiting on you* is a
+	   question somebody parked for you; this is the reader's own work held up by an item
+	   somebody else is assigned to. Above `overdue` deliberately: the buckets are disjoint in
+	   order, so a blocked task whose deadline has passed is reported as blocked rather than as
+	   late — *you are late* is not the useful sentence about work nobody has let you start. */
+	{ key: "blocked_by_others", label: "Waiting on somebody else" },
 	{ key: "overdue", label: "Overdue" },
 	/* **What is happening to the reader rather than being done by them** — decision `#1235`
 	   §4. A birthday, a booked fortnight, a code freeze: none of it is work anybody can pick
@@ -4743,7 +4749,8 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, later = 0, deferred = 0, paused = 0, gone = 0, where, onAdd, onOpen,
+	buckets, more, heldUp = 0, later = 0, deferred = 0, paused = 0, gone = 0,
+	where, onAdd, onOpen,
 	onComplete, busy,
 	adding,
 	/* Where to send a reader who clicks a project label — `#959`. */
@@ -4826,6 +4833,11 @@ export function Agenda ({
 	*/
 	const held = [
 		{ count: more, said: `${more} more unscheduled` },
+		/* **The second of the two capped buckets** (`#1285`). Its cap says it is one for
+		   `more`'s reason, and it is next to it because they are the same kind of omission —
+		   rows this page chose not to draw, where the three below are rows the day itself
+		   holds back. */
+		{ count: heldUp, said: `${heldUp} more waiting on somebody else` },
 		{ count: deferred, said: `${deferred} put off until later` },
 		{ count: paused, said: `${paused} in projects nobody is running` },
 		{ count: later, said: `${later} dated further out` },
@@ -7001,6 +7013,8 @@ export function App () {
 	*/
 	const [everywhere, setEverywhere] = useState(true);
 	const [unscheduled, setUnscheduled] = useState(0);
+	/* How much more somebody else is sitting on than this page drew (`#1285`). */
+	const [heldUp, setHeldUp] = useState(0);
 	const [later, setLater] = useState(0);
 	/* What the day is holding back that somebody chose to hold back — `#1215`. */
 	const [deferred, setDeferred] = useState(0);
@@ -7152,6 +7166,13 @@ export function App () {
 		setAgenda(agendaBuckets(answered, spaces));
 		setUnscheduled(
 			Math.max(0, (answered.unscheduled_total || 0) - (answered.unscheduled || []).length),
+		);
+		setHeldUp(
+			Math.max(
+				0,
+				(answered.blocked_by_others_total || 0)
+					- (answered.blocked_by_others || []).length,
+			),
 		);
 		setLater(answered.later_total || 0);
 		/* **Both defaulted on the wire** (`#345`, `#482`), so a page served by an instance that
@@ -9142,7 +9163,8 @@ export function App () {
 					onComplete=${mayWriteThere ? (row) => complete(row, openIn) : null}
 					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
-					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
+					? html`<${Agenda} buckets=${agenda} more=${unscheduled} heldUp=${heldUp}
+						later=${later}
 						deferred=${deferred} paused=${paused} gone=${gone}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						onGo=${narrow}

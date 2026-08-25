@@ -45,6 +45,19 @@ import subroutine.domain.scoping
 #: reminder that the pile exists, which is what :attr:`Agenda.unscheduled_total` is for.
 DEFAULT_UNSCHEDULED_LIMIT = 20
 
+#: How many blocked-by-somebody-else rows the agenda shows before it stops (`#1285`, decision
+#: `#1267` §3b). Fewer than :data:`DEFAULT_UNSCHEDULED_LIMIT`, and the reason is what the two
+#: sections are for: ``unscheduled`` is the pile you pick your next job out of, where **nothing
+#: here can be started at all**. It is context and a prompt to chase somebody, so it earns
+#: enough lines to chase from and not a wall. :attr:`Agenda.blocked_by_others_total` says how
+#: many more there are, which is the condition Simon set on any cap.
+#:
+#: **Not a request parameter, unlike ``unscheduled_limit``**, deliberately: no client has asked
+#: to move it, and an argument nothing passes is a control that grants nothing (`#303`). The
+#: count is on every surface and ``subroutine list`` shows every row, so *a way to see it all*
+#: is already answered without one. :func:`build` still takes it, which is what the tests use.
+DEFAULT_BLOCKED_LIMIT = 5
+
 #: The CLI's default look-ahead. Not the API's — it has none (docs/design.md §8.6).
 DEFAULT_HORIZON_DAYS = 7
 
@@ -94,6 +107,12 @@ ORDERS: dict[str, tuple[str, ...]] = {
 	# under way started first.
 	"occasions": ("starts_at",),
 	"today": ("due_at",),
+	# **Ranked, because it is capped** (`#1285`, decision `#1267` §3b). Simon's qualifier was
+	# *"if those items would ordinarily be urgent/important enough to be included"*, and a bar
+	# read off `priority_score` directly cannot be honest — the score is null unless both axes
+	# are set, so most of a backlog would fall under any threshold silently. Ordering by rank
+	# and capping is the same intent implemented in a way that says what it left out.
+	"blocked_by_others": ("-priority_score",),
 	# **Ranked, which is the same rule ``?order=-priority_score`` applies** (`#853`), so the
 	# agenda and a ranked listing cannot disagree about which item is the one to start.
 	"in_progress": ("-priority_score",),
@@ -140,6 +159,16 @@ BUCKETS: tuple[str, ...] = (
 	# question and nobody can act on the task until it is answered. Every other bucket is work
 	# the reader could pick up; this one is work they are holding up.
 	"waiting",
+	# **Directly under `waiting`, and the pair is what makes both legible** (`#1285`, decision
+	# `#1267` §3): *Waiting on you* is a question somebody parked for you, and *Waiting on
+	# somebody else* is your work held up by their item.
+	#
+	# **Above `overdue`, and that is the part with a consequence.** A blocked task whose
+	# deadline has passed is reported here rather than as late — *you are late* is not the
+	# useful sentence about work you cannot start, because chasing the other person is the only
+	# move available and this is the section that says so. Same reasoning as `#1116` for
+	# `waiting` and `#1243` for `in_progress`.
+	"blocked_by_others",
 	"overdue",
 	# **Above the day's own work, and below what is late** (decision `#1235` §4). Everything
 	# around it is work; this is what is happening *to* the reader, and a code freeze or a
@@ -207,9 +236,26 @@ class Agenda:
 	#: after with nobody acting — which is `#1235` §3's *derived, never written*.
 	occasions: tuple[subroutine.db.models.work.Task, ...] = ()
 
+	#: Work of yours that an item somebody else is assigned to is holding up (`#1285`, decision
+	#: `#1267` §3). The other kind of waiting: :attr:`waiting` is a question parked for you,
+	#: this is your work held up by somebody's else's row.
+	#:
+	#: **Narrow on purpose** — a blocker with no assignee does not count, and neither does one
+	#: of your own. *Blocked by anything* floods a solo instance, whose blockers are its own
+	#: work, which is `#96`'s argument and still holds there.
+	#:
+	#: **Capped, and :attr:`blocked_by_others_total` says by how much.** Nothing in it can be
+	#: started, so it is context rather than the day's work.
+	blocked_by_others: tuple[subroutine.db.models.work.Task, ...] = ()
+
 	#: How many undated tasks there are in total, which is usually more than were returned.
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
+
+	#: How much work somebody else is holding up in total, which may be more than
+	#: :attr:`blocked_by_others` lists. **A cap must say it is one** — Simon's condition on
+	#: `unscheduled_total`, and the reason `passed_total` exists.
+	blocked_by_others_total: int = 0
 
 	#: How much work this agenda holds back because somebody deferred it — `#1215`, Simon's
 	#: decision of 2026-08-24 amending `#649`.
@@ -271,6 +317,7 @@ def build (
 	date: datetime.date | None = None,
 	horizon_days: int | None = None,
 	unscheduled_limit: int = DEFAULT_UNSCHEDULED_LIMIT,
+	blocked_limit: int = DEFAULT_BLOCKED_LIMIT,
 	project: subroutine.db.models.project.Project | None = None,
 ) -> Agenda:
 	"""Return the agenda for one day, in the caller's timezone.
@@ -378,6 +425,21 @@ def build (
 			subroutine.db.models.vocabulary.Status,
 			subroutine.db.models.vocabulary.Status.id == model.status_id,
 		).where(subroutine.db.models.vocabulary.Status.key == WAITING_STATUS),
+		# **The other kind of waiting, and the narrow reading of it** (`#1285`, decision
+		# `#1267` §3a): a live blocker that somebody who is not the caller is assigned to.
+		# The predicate is `unblocked`'s edges with one more join, and the reasoning for
+		# every clause in it — including why an unassigned blocker does not count — is on
+		# `readiness.blocked_by_somebody_else`.
+		#
+		# **`principal.user` is the person asking.** A principal always has one, so there is
+		# no branch here; an agent's credential and its operator's are two principals with
+		# two accounts (`#335`), which is what makes an agent's *waiting on somebody else*
+		# mean the agent's own work rather than Simon's.
+		"blocked_by_others": base.where(
+			subroutine.domain.readiness.blocked_by_somebody_else(
+				model, now=now, user_id=principal.user.id
+			)
+		),
 		# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927`
 		# M-18, Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and
 		# said in passing that *"`overdue` and `today` are unlimited too and are naturally
@@ -453,9 +515,10 @@ def build (
 		"unscheduled": undated,
 	}
 
-	# **Which bucket is capped, and by what.** Exactly one is, and the arguments for leaving
-	# the others alone are written beside them above.
-	caps = {"unscheduled": unscheduled_limit}
+	# **Which buckets are capped, and by what.** Two are, and the arguments for leaving the
+	# others alone are written beside them above. Every entry here gets a total beside it,
+	# because a cap must say it is one, count what is hidden and offer a way to see it all.
+	caps = {"unscheduled": unscheduled_limit, "blocked_by_others": blocked_limit}
 
 	# **The buckets are disjoint in the order :data:`BUCKETS` declares, and that is now the
 	# only order there is** (`#1244`). Each one subtracts what its predecessors took, so a row
@@ -470,9 +533,23 @@ def build (
 	# **`seen` is therefore everything the page shows**, and there is no second name for it.
 	# `upcoming` used to be left out of it and unioned back in below, because it was computed
 	# after the subtraction rather than as part of it.
+	#
+	# **A cap is a display choice and never a membership one, which is the part that was
+	# wrong the first time.** A bucket owns every row its predicate claims; the cap decides
+	# how many are drawn. So the full set joins `seen` and the slice happens afterwards —
+	# otherwise a row `blocked_by_others` hid would fall through into `unscheduled` and be
+	# offered under *Next* as something to pick up, which is the one thing it is not. The
+	# accounting guard in `tests/test_agenda.py` is what found that, by counting it twice.
+	#
+	# **The last bucket is the exception and it is derived rather than named.** Nothing
+	# follows it, so what its cap hides has nowhere to fall — and it is `unscheduled`, whose
+	# set is the whole backlog. Loading every row of that in order to throw all but twenty
+	# away is the cost the cap exists to avoid, so there alone the limit goes into the query
+	# and a `COUNT` says what was left out.
 	rows: dict[str, tuple[subroutine.db.models.work.Task, ...]] = {}
-	narrowed: dict[str, sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]] = {}
+	totals: dict[str, int] = {}
 	seen: set[uuid.UUID] = set()
+	last = BUCKETS[-1]
 
 	for bucket in BUCKETS:
 		statement = membership[bucket]
@@ -484,26 +561,22 @@ def build (
 		if seen:
 			statement = statement.where(model.id.not_in(seen))
 
-		narrowed[bucket] = statement
 		cap = caps.get(bucket)
 
-		found = _run(
-			session,
-			statement if cap is None else statement.limit(cap),
-			bucket,
-			sortable,
-		)
+		if cap is not None and bucket == last:
+			found = _run(session, statement.limit(cap), bucket, sortable)
+			totals[bucket] = session.scalar(
+				sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+			) or 0
+		else:
+			found = _run(session, statement, bucket, sortable)
 
-		rows[bucket] = found
+			if cap is not None:
+				totals[bucket] = len(found)
+
 		seen.update(task.id for task in found)
+		rows[bucket] = found if cap is None else found[:cap]
 
-	# **Counted on the same narrowed query the rows came from, without the cap.** Anything
-	# else answers a different question: a count of *all* undated work would include the rows
-	# an earlier bucket already showed, and the page would say there were more than there are.
-	total = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.count())
-		.select_from(narrowed["unscheduled"].subquery())
-	)
 
 	# **How much dated work this agenda does not show** (`#997`). The window has an edge and
 	# every surface has the same edge, so a deadline three weeks out is in **no bucket at
@@ -581,7 +654,9 @@ def build (
 		in_progress=rows["in_progress"],
 		upcoming=rows["upcoming"],
 		unscheduled=rows["unscheduled"],
-		unscheduled_total=total or 0,
+		blocked_by_others=rows["blocked_by_others"],
+		unscheduled_total=totals["unscheduled"],
+		blocked_by_others_total=totals["blocked_by_others"],
 		later_total=beyond or 0,
 		deferred_total=session.scalar(
 			sqlalchemy.select(sqlalchemy.func.count()).select_from(held.subquery())
