@@ -2199,6 +2199,15 @@ def _snapshot (
 		"importance": task.importance,
 		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,
+		# `#1268`. Writable since `#1211` and absent from here, so setting a reminder wrote the
+		# column, recorded nothing, and — because `update` returns before the bump when nothing
+		# differs — **left `version` where it was**. §8.9's guard then compared a number that
+		# never moved for this field.
+		"reminder_minutes": task.reminder_minutes,
+		# `#1268`. What joins a row to its series, and the field that changes when a one-off
+		# becomes a repeat. *This now happens every week* is not a small edit, and it was
+		# invisible in the feed and in the version for the same reason as the reminder above.
+		"recurrence_template_id": task.recurrence_template_id,
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
 		"ends_at": task.ends_at,

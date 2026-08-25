@@ -11,6 +11,7 @@ invisible there by construction.
 
 import concurrent.futures
 import datetime
+import inspect
 import typing
 import unittest.mock
 import uuid
@@ -38,6 +39,7 @@ import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.links
 import subroutine.domain.mentions
+import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.tasks
@@ -1665,23 +1667,103 @@ def test_a_soft_delete_moves_the_version (
 	assert row.version == again
 
 
-#: Every field ``tasks.update`` can write, with a value that differs from what a freshly
-#: created task holds. Derived by hand from the signature and kept honest by the test below
-#: — which is the point: the *list* is not the guard, the behaviour is.
-CHANGEABLE: tuple[tuple[str, typing.Any], ...] = (
-	("title", "A different title"),
-	("description", "Something to say"),
-	("status_key", "in_progress"),
-	("importance", 4),
-	("urgency", 5),
-	("estimate", "4h"),
-	("due", "2026-09-01"),
-	("starts", "2026-09-02"),
-	("snooze", "2026-08-30"),
+#: How to change each parameter ``tasks.update`` accepts: what the task must already hold, and
+#: what to send. **The population is checked against the signature** by
+#: :func:`test_every_parameter_update_accepts_has_a_case`, which is what makes this a guard
+#: rather than a sample.
+#:
+#: **It said it was kept honest and it was not** (`#1268`). The comment here read *"derived by
+#: hand from the signature and kept honest by the test below — the list is not the guard, the
+#: behaviour is"*, and nothing compared it to anything: it held nine of ``update``'s twenty-one
+#: patchable parameters, and ``reminder`` — added with `#1211` — was simply absent, so the field
+#: that recorded no event and moved no version had no case to fail.
+#:
+#: The second half of that sentence is still right and is why each entry drives the real service
+#: rather than naming a column. The first half was a comment asserting a guard that was not
+#: there, which is worse than no comment: it stops the next reader checking.
+CHANGEABLE: dict[str, tuple[dict[str, typing.Any], typing.Any]] = {
+	"title": ({}, "A different title"),
+	"description": ({}, "Something to say"),
+	"status_key": ({}, "in_progress"),
+	"type_key": ({}, "bug"),
+	"importance": ({}, 4),
+	"urgency": ({}, 5),
+	"estimate": ({}, "4h"),
+	"reminder": ({}, "2w"),
+	"due": ({}, "2026-09-01"),
+	"due_is_all_day": ({"due": "2026-09-01"}, False),
+	"starts": ({}, "2026-09-02"),
+	"starts_is_all_day": ({"starts": "2026-09-02"}, False),
+	# An end is checked against the start it belongs to, so there has to be one.
+	"ends": ({"starts": "2026-09-02"}, "2026-09-03"),
+	"snooze": ({}, "2026-08-30"),
+	"snoozed_is_all_day": ({"snooze": "2026-08-30"}, False),
+	"tags": ({}, ["ops"]),
+	# A rule needs a day to anchor on, and *this now repeats* is the change `#1268` found
+	# recording nothing at all.
+	"recurrence": ({"starts": "2026-09-02"}, "every week"),
+}
+
+#: Parameters of ``tasks.update`` that write somewhere other than the row they are addressed to,
+#: and so cannot be asked to record an event on it.
+#:
+#: **Measured rather than assumed** (`#1268`): setting either of these on a repeating task runs a
+#: second ``update`` against the *template*, which bumps its version and records its own event —
+#: 1 → 2 → 3 across two calls. The addressed occurrence genuinely does not change, so a guard
+#: demanding an event on it would be demanding a lie.
+WRITES_TO_THE_SERIES = {
+	"recurrence_anchor": "changes how the series repeats, on the template that carries the rule",
+	"recurrence_trigger": "the same, and refused outright on something that does not repeat",
+}
+
+#: Parameters that need a value only a live session can supply, and are driven by their own tests.
+NEEDS_A_ROW = {
+	"assignee_id": "a user id — `test_content_changes` drives it through the API by username",
+	"project": "a Project object, and moving one is `move`'s own test",
+}
+
+
+def test_every_parameter_update_accepts_has_a_case () -> None:
+	"""`#1268`. The population comes from the signature, which cannot fall behind the signature.
+
+	This is the test the register above claimed to have. Without it a parameter added to
+	``update`` is simply absent from the list, so the behavioural check below runs one fewer
+	case and reports a clean run — *no cases failed* and *one case ran* being indistinguishable
+	in a parametrisation, which is this project's own recorded lesson from `#405`.
+
+	**Both excuse registers are named rather than inferred**, so a parameter lands in exactly
+	one of three places and each of the two exceptions carries a reason somebody can re-ask.
+	"""
+
+	patchable = {
+		name
+		for name, parameter in inspect.signature(subroutine.domain.tasks.update).parameters.items()
+		if parameter.default is subroutine.domain.patch.UNSET
+	}
+
+	assert len(patchable) > 15, (
+		f"only {len(patchable)} patchable parameters were found, so this has stopped reading "
+		f"the signature and every field would look covered"
+	)
+
+	covered = set(CHANGEABLE) | set(WRITES_TO_THE_SERIES) | set(NEEDS_A_ROW)
+
+	assert patchable - covered == set(), (
+		f"update accepts {sorted(patchable - covered)} and nothing here exercises them — add a "
+		f"case, or an entry saying which register they belong in and why"
+	)
+	assert covered - patchable == set(), (
+		f"{sorted(covered - patchable)} is no longer a parameter of update"
+	)
+
+
+@pytest.mark.parametrize(
+	("field", "value"),
+	[(name, value) for name, (_setup, value) in CHANGEABLE.items()],
+	# **Insertion order, not sorted** — the cases are built by iterating the mapping, so a
+	# sorted id list would label each failure with somebody else's field name.
+	ids=list(CHANGEABLE),
 )
-
-
-@pytest.mark.parametrize(("field", "value"), CHANGEABLE, ids=[name for name, _ in CHANGEABLE])
 def test_every_field_an_update_can_change_is_recorded_as_an_event (
 	session: sqlalchemy.orm.Session, field: str, value: typing.Any
 ) -> None:
@@ -1701,14 +1783,22 @@ def test_every_field_an_update_can_change_is_recorded_as_an_event (
 	Written per field rather than as a comparison against a list of names, because a list is
 	the same kind of hand-maintained thing that failed. This changes each field for real and
 	insists the feed says so.
+
+	**What the list could not do is be complete, and it was not** (`#1268`). It held nine of
+	``update``'s twenty-one patchable parameters, so ``reminder`` — which recorded no event and
+	moved no version — had no case to fail with. The population comes off the signature now, in
+	the test above; this half is still the behaviour, which is the part that was always right.
 	"""
 
 	workspace = _workspace(session)
 	project = _project(session, workspace)
-	task = subroutine.domain.tasks.create(session, project=project, title="Something to do")
+	task = subroutine.domain.tasks.create(
+		session, project=project, title="Something to do", **CHANGEABLE[field][0]
+	)
 	session.flush()
 
 	before = len(_events(session, workspace.id, "task", task.id))
+	version = task.version
 
 	subroutine.domain.tasks.update(session, task, **{field: value})
 	session.flush()
@@ -1720,6 +1810,14 @@ def test_every_field_an_update_can_change_is_recorded_as_an_event (
 	changes = recorded[-1].changes or {}
 
 	assert changes, f"the event for {field!r} records no changes at all"
+
+	# **The version, and it is the half `#1268` was really about.** `update` returns before the
+	# bump when nothing differs, so a field missing from `_snapshot` leaves §8.9's guard
+	# comparing a number that never moves — a stale caller's `If-Match` then passes silently,
+	# which is a worse outcome than a gap in the feed.
+	assert task.version > version, (
+		f"changing {field!r} left version at {version}, so a stale expected_version would pass"
+	)
 
 
 def test_an_update_that_changes_nothing_still_writes_nothing (

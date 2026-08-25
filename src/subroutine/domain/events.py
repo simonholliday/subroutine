@@ -148,6 +148,12 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
 			# Friday* and *at Friday 00:00* are different promises about the same instant.
 			"due_at",
 			"due_is_all_day",
+			# **Content rather than bookkeeping, and it is a judgement** (`#1268`). Every other
+			# scheduling field says *when* one piece of work happens, which §6.1 calls
+			# bookkeeping. This says the work happens **again** — *water the plants* and *water
+			# the plants every fortnight* are different undertakings, not the same one
+			# rescheduled, and a reader who saw the first is looking at something else now.
+			"recurrence_template_id",
 		}
 	),
 	"document": frozenset(
@@ -200,6 +206,9 @@ BOOKKEEPING_FIELDS: dict[str, frozenset[str]] = {
 			# The zone the dates were authored in (`#1014`). It re-renders a deadline without
 			# moving the instant it names, and the instant is the promise.
 			"timezone",
+			# When somebody wants to be nudged, which is not what the work is. It rides on the
+			# calendar feed (`#1211`) and moving it changes nothing anybody undertook.
+			"reminder_minutes",
 			# Derived from the status beside it and never moves alone (§10.7 invariant 5), so
 			# this entry decides nothing — it is here because the comparison can produce it and
 			# every field it can produce is classified.

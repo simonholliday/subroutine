@@ -124,6 +124,11 @@ upgrade involves.
 
 ### Fixed
 
+- **Setting a reminder, or turning a one-off into a repeat, is recorded.** Neither appeared in
+  the change feed and neither moved the item's version — so an editor holding a stale copy could
+  overwrite either without being told, which is the thing that version is for. Both now record
+  what changed, like every other field.
+
 - **A repeating event no longer leaves a ghost on the day it was moved from.** Move one
   occurrence of a weekly meeting and a subscribed calendar drew it on both days — the new one
   and the old — and the ghost was the one that looked normal. Deleting a single occurrence did

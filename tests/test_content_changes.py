@@ -58,6 +58,11 @@ TASK_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] = {
 	"snoozed_until": ({}, {"snooze": "tomorrow"}),
 	"snoozed_is_all_day": ({"snooze": "tomorrow"}, {"snoozed_is_all_day": False}),
 	"tags": ({}, {"tags": ["ops"]}),
+	"reminder_minutes": ({"starts": "tomorrow"}, {"reminder": "2w"}),
+	# **A one-off becoming a repeat**, which is the change this field exists to record
+	# (`SR#1268`). The setup gives it a day, because a rule with no date to anchor on is
+	# refused — correctly, and by a different message than the one this is about.
+	"recurrence_template_id": ({"starts": "tomorrow"}, {"recurrence": "every week"}),
 	# `project_id`, `completed_at` and `timezone` have their own tests below: one needs a
 	# project to move to, one is derived from the status and arrives by its own verb, and one
 	# moves only as a side effect of re-dating something from another zone.
