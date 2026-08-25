@@ -1101,13 +1101,56 @@ _NOT_A_COMMAND = frozenset({"add", "done", "help", "explain"})
 
 
 def _typed (block: str) -> list[str]:
-	"""Return the commands a reader would type from one console block, without the ``$``."""
+	"""Return the commands a reader would type from one console block, without the prompt.
 
-	return [
-		line.strip().removeprefix("$").strip()
-		for line in block.splitlines()
-		if line.strip().startswith("$")
-	]
+	**Both prompts, and continuations joined** (`SR#1280`). Reading only ``$`` meant the
+	invocations written the careful way were read by nothing: everything on the hosting page
+	that names the service account, the three XDG roots and an absolute path to the program is
+	prompted ``#`` and split across five lines with a trailing backslash. So the commands with
+	the most to get wrong were the only ones nobody checked, and the bare ones — a personal
+	instance, the least consequential — were the whole population.
+
+	It was found by a floor test rather than by reading: converting bare commands to the full
+	form took the count *down*, which is the shape of a scanner quietly reading less.
+
+	A line whose program is not ours falls out downstream in :func:`_program`, so ``# useradd``
+	and ``# systemctl`` need no special case — and prose inside a console block, which the
+	systemd sections carry after a ``#``, is dropped the same way.
+	"""
+
+	typed: list[str] = []
+	held: str | None = None
+
+	for line in block.splitlines():
+		bare = line.strip()
+
+		if held is not None:
+			held += " " + bare.removesuffix("\\").strip()
+
+			if not bare.endswith("\\"):
+				typed.append(held)
+				held = None
+
+			continue
+
+		if not bare.startswith(("$", "#")):
+			continue
+
+		started = bare[1:].strip()
+
+		if started.endswith("\\"):
+			held = started.removesuffix("\\").strip()
+
+			continue
+
+		typed.append(started)
+
+	# An unterminated continuation is a block that ends mid-command — worth keeping rather
+	# than dropping, so a page that does it is measured rather than silently read short.
+	if held is not None:
+		typed.append(held)
+
+	return typed
 
 
 def _blocks (page: pathlib.Path) -> list[str]:
@@ -1281,13 +1324,32 @@ def _invocations (pages: typing.Sequence[pathlib.Path] = PUBLISHED) -> list[Invo
 				if not words or not words[0].endswith("subroutine"):
 					continue
 
+				# **A template names no command** (`SR#1280`). A page that shows the *shape* of
+				# an invocation writes `… /opt/subroutine/bin/subroutine <command>`, and the
+				# stand-in is in the command position rather than in an argument's — so unlike
+				# `db restore <file>`, which is a real invocation carrying a placeholder, there
+				# is nothing here for the guards below to resolve.
+				if len(words) > 1 and _PLACEHOLDER.fullmatch(words[1]):
+					continue
+
 				found.append(Invocation(page=page.name, line=line, words=words[1:]))
 
 	return found
 
 
 def _program (words: list[str]) -> list[str]:
-	"""Return the command being run, stepping over ``sudo`` and environment assignments."""
+	"""Return the command being run, stepping over ``sudo``, ``env`` and its assignments.
+
+	**``env`` was missing and the docstring said otherwise** (`SR#1280`), which is worse than
+	saying nothing: the sentence stopped the next reader checking. The hosting page's careful
+	form is ``sudo -u subroutine env NAME=… NAME=… /opt/subroutine/bin/subroutine …`` — three
+	things to step over, not two — so every one of those lines came back with ``env`` as its
+	program and was dropped as somebody else's command.
+
+	It was invisible because it needed both halves to be wrong: nothing delivered a ``#``
+	line to this function in the first place, so the shape it could not parse was a shape it
+	never saw.
+	"""
 
 	rest = list(words)
 
@@ -1300,6 +1362,16 @@ def _program (words: list[str]) -> list[str]:
 
 				if flag in ("-u", "-g") and rest:
 					rest.pop(0)
+
+			continue
+
+		# **After ``sudo`` and before the assignments**, because that is the order the page
+		# writes them in and `env` takes its own flags the same way `sudo` does.
+		if rest[0] == "env" or rest[0].endswith("/env"):
+			rest.pop(0)
+
+			while rest and rest[0].startswith("-"):
+				rest.pop(0)
 
 			continue
 
@@ -1424,15 +1496,49 @@ def test_the_scan_reaches_the_commands_on_the_page () -> None:
 	"""The half the two tests above cannot assert about themselves.
 
 	Both are satisfied by finding nothing wrong, and a scanner that stopped parsing finds
-	nothing wrong too. The floor is deliberately well under what is there — 43 invocations
-	across the two pages when this was written — because the number is not the point.
+	nothing wrong too. The floor is deliberately well under what is there — **61 invocations**
+	across the pages when this was last measured — because the number is not the point.
+
+	**Raised from 30 with `SR#1280`, and the raise is the finding.** It fired at 29 when
+	invocations on the hosting page were converted to their full form, which read as *the page
+	lost commands* and was really *the scan never had them*: it read only ``$``-prompted lines
+	and could not step over ``env``, so every command naming the service account and its three
+	XDG roots was invisible. Fixing both took the count from 29 to 61. Leaving the floor at 30
+	afterwards would have made it vacuous.
 	"""
 
 	found = _invocations()
 
-	assert len(found) > 30, f"only {len(found)} invocations read from {len(PUBLISHED)} pages"
+	assert len(found) > 55, f"only {len(found)} invocations read from {len(PUBLISHED)} pages"
 	assert {invocation.page for invocation in found} == {page.name for page in PUBLISHED}, (
 		"one of the published pages contributed nothing"
+	)
+
+
+def test_the_scan_reads_the_invocations_written_the_careful_way () -> None:
+	"""The population that was invisible, named rather than left to a count — `SR#1280`.
+
+	A total says the scan reads *something*; it cannot say it reads the lines with the most to
+	get wrong. Those are the ones that name who a command runs as, which configuration and
+	data it uses, and which copy of the program — three things a bare invocation leaves to
+	whatever the reader's account happens to be.
+
+	**This is what the floor above could not have caught on its own.** The count went *down*
+	when those lines were written properly, so a scan reading none of them still cleared a
+	floor set from a smaller population — twice over, since the shape was unparseable and
+	undelivered at the same time.
+	"""
+
+	careful = [one for one in _invocations() if "sudo -u subroutine" in one.line]
+
+	assert len(careful) > 20, (
+		f"only {len(careful)} invocations run as the service account were read. Those are the "
+		f"ones that say which database they act on, so a scan that has stopped seeing them is "
+		f"checking the least consequential half of the page."
+	)
+
+	assert all("/opt/subroutine/bin/subroutine" in one.line for one in careful), (
+		"an invocation runs as the service account without naming which copy of the program"
 	)
 
 

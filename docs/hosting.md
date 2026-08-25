@@ -27,8 +27,37 @@ you for. Sending it to whoever you issue a token to saves the conversation.
 > out loud that TLS is handled. [Below](#tls-and-why-serve-refuses-without-it) is what that
 > refusal looks like and how to satisfy it honestly.
 
+## Reading the commands here
+
+**Every command that acts on the service's database is written out in full**, as five lines:
+
+```console
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine <command>
+```
+
+It is long, and the length is the point. It says on the line you are reading **who it runs as**,
+**which configuration and data it uses**, and **which copy of the program** — and those are the
+three things that decide which database you are about to change.
+
+**A bare `subroutine …` reads your own configuration, and that is not a failure you would
+notice.** It does not error: it finds whichever instance your account has, answers confidently
+about that one, and looks exactly like success. The commands on this page that *are* bare are
+bare on purpose — they are about a personal instance, or about a refusal any installation
+produces — and each one says so where it appears.
+
+**No alias, no shell function, no `PATH` change.** A second name for the program exists only in
+a shell somebody has already set up, so an instruction that depends on one depends on a step the
+reader can forget — and forgetting it does not fail, it addresses a different database. That is
+the failure this convention exists to prevent, so it is not also the cure. Repetition is cheaper
+than ambiguity here.
+
 ## Contents
 
+- [Reading the commands here](#reading-the-commands-here)
 - [An account and an install](#an-account-and-an-install)
 - [First run, and what it writes](#first-run-and-what-it-writes)
 - [PostgreSQL, and when to switch](#postgresql-and-when-to-switch)
@@ -117,7 +146,11 @@ costs an in-flight page of results rather than every credential in the installat
 came from rather than guessing:
 
 ```console
-$ subroutine config show
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine config show
   …
   database_url                      postgresql+psycopg:///subroutine  [/var/lib/subroutine/config/subroutine/config.toml]
   default_page_size                 50  [default]
@@ -363,7 +396,11 @@ backup will not do it either: backups are per-engine, so a SQLite one cannot be 
 PostgreSQL.
 
 ```console
-$ subroutine db copy --to postgresql+psycopg:///subroutine
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db copy --to postgresql+psycopg:///subroutine
   Copying sqlite:////var/lib/subroutine/subroutine.db
        to postgresql+psycopg:///subroutine
 
@@ -496,6 +533,9 @@ connection at what is now the same work.
 ## TLS, and why `serve` refuses without it
 
 Ask for a public bind with nothing in front of it and you get this:
+
+*Bare on purpose: this refusal is about the address and `public_url`, so any installation
+prints it and it says nothing about which database you are pointed at.*
 
 ```console
 $ subroutine serve --host 0.0.0.0
@@ -760,14 +800,26 @@ and giving them a role says where they may work. Those are different decisions a
 different people.
 
 ```console
-$ subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
   Created thomas
   Local commands will go on acting as si.
 
-$ subroutine user add thomas --role member --workspace acme
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine user add thomas --role member --workspace acme
   thomas is now member in acme
 
-$ subroutine user list --workspace acme
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine user list --workspace acme
   si      owner
   thomas  member  Thomas Anderson
 ```
@@ -782,14 +834,22 @@ whoever it names, once, and stops working after half an hour — so it is handed
 anything private is, and a second one costs nothing if the first goes stale.
 
 ```console
-$ subroutine login link --username thomas
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine login link --username thomas
 ```
 
 **If they are going to use the command line, or point an agent at this instance, issue a
 token.** It is readable exactly once:
 
 ```console
-$ subroutine token create --username thomas --title "Thomas's laptop"
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token create --username thomas --title "Thomas's laptop"
 ```
 
 Neither is a lesser version of the other and somebody may want both — the link opens a browser
@@ -850,7 +910,11 @@ there and says so. Setting somebody up should not take something away from you.
 **One command does all of it**, and it is the one to reach for:
 
 ```console
-$ subroutine agent create claude --project web --scope task:read --scope task:write
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine agent create claude --project web --scope task:read --scope task:write
   Created service account claude, with the contributor role.
 
   Set this in the environment the agent's session starts from:
@@ -894,7 +958,11 @@ nothing a profile can express that you could not have typed.
 | `colleague` | one workspace | the same | a second person, working as they would in their own |
 
 ```console
-$ subroutine agent create sam --profile collaborator --project sr --project web --write web
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine agent create sam --profile collaborator --project sr --project web --write web
 ```
 
 **The refusals are the point.** A combination that means two things at once is turned down
@@ -902,7 +970,11 @@ rather than resolved, because a credential that quietly does something other tha
 just described is one nobody checks again:
 
 ```console
-$ subroutine agent create nosy --profile observer --write web
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine agent create nosy --profile observer --write web
   '--write' does not go with the 'observer' profile.
     write: 'observer' changes nothing at all.
       Either drop '--write', or use '--profile collaborator' for an agent that reads widely and writes in one place.
@@ -918,7 +990,11 @@ A token may be narrower than the person who issued it, and this is where that ea
 Give an agent a machine identity of its own and only the permissions it needs:
 
 ```console
-$ subroutine token create --service-account reporter --scope task:read --title "weekly digest"
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token create --service-account reporter --scope task:read --title "weekly digest"
   Created service account reporter, with the contributor role.
 
   sr_d9fb02fa_UxzFqMe7i_NGb_eXRbOAsVhcm5_O-4pphVO6JhPe494
@@ -953,7 +1029,11 @@ is what stops an agent quietly promoting itself.
 reach at all:
 
 ```console
-$ subroutine token create --service-account web --workspace projects --project web
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token create --service-account web --workspace projects --project web
   Created service account web, with the contributor role.
   Restricted to web and anything filed underneath.
 ```
@@ -1311,11 +1391,19 @@ mounts fix their permissions at mount time — CIFS with `file_mode=`, for insta
 share. If that matters, the answer is on the share rather than here.
 
 ```console
-$ subroutine db backup
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db backup
   Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.sql
   60,069 bytes, schema d5d0458f5ad5.
 
-$ subroutine db backups
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db backups
   Backups of instance 'default', in /srv/backups/subroutine:
     subroutine-default-20260731T141853Z-d5d0458f5ad5.sql  2026-07-31 14:18 UTC  60,069 bytes  schema d5d0458f5ad5
 ```
@@ -1359,6 +1447,9 @@ $ subroutine db restore <file> --recover     # this instance, lost data, same id
 $ subroutine db restore <file> --as-clone    # a copy to poke at, new identity
 ```
 
+*Bare on purpose: `<file>` is a placeholder and this is the two flags side by side rather than
+a command to run. The one you actually type is below, in full.*
+
 Neither is a safe default. A recovery keeps the instance's identity, which is what agents key
 their caches on; a clone mints a new one, so that two live instances never claim to be the
 same. Getting it wrong is invisible in both directions, so you are asked.
@@ -1370,9 +1461,13 @@ API answers normally throughout. Subroutine refuses when it can see another conn
 `--force` overrides that for the case where it cannot:
 
 ```console
-$ sudo systemctl stop subroutine
-$ subroutine db restore <file> --recover
-$ sudo systemctl start subroutine
+# systemctl stop subroutine
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db restore <file> --recover
+# systemctl start subroutine
 ```
 
 `/readyz` is the exception, and only since it began comparing the instance identity: it used to
@@ -1407,13 +1502,21 @@ it, what it can reach, when it expires and when it was last used. No secret is s
 there is nothing in that listing to leak, and the prefix is what revoking takes:
 
 ```console
-$ subroutine token list
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token list
   a1b2c3d4  si      My laptop        no expiry
             everything its owner can do · last used 2026-07-31
   e5f6a7b8  claude  claude's token   until 2026-08-30
             task:read, task:write · in acme only · never used
 
-$ subroutine token revoke a1b2c3d4
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine token revoke a1b2c3d4
 ```
 
 Revoking is immediate: a revoked credential is checked on every request rather than cached, so
@@ -1498,6 +1601,24 @@ section — that is the whole point of the `config`, `data` and `state` lines. I
 the ones the unit sets, you are looking at a different installation from the one that serves
 requests, and everything below them is true about the wrong machine.
 
+**The line that should move is `program`, and only in that run.** That is the whole
+before-and-after: it names the version and the path of the copy this procedure upgrades, so a
+number that has not changed means step one did not take. `local` moves as well when the release
+carried a migration, and stays put when it did not — the CHANGELOG says which before you start.
+
+**Run `doctor` from your own shell and `program` will not move, correctly.** It is shorter and
+it works, so it is what an operator reaches for — and it reports *your* install,
+`~/.local/bin/subroutine`, which this procedure never touches. The server then appears as a
+connection line rather than as `program`, and that connection is what moves. An unchanged
+`program` there is not a failed upgrade; it is a different question being answered.
+
+**And your own client is now behind the server, which is expected and says so.** Nothing
+upgraded it, so it is an older program talking to a newer instance — `subroutine whoami` prints
+both versions and ends with *the program and the instance disagree, so a call may be refused for
+a field one of them does not have*. Meeting that for the first time immediately after an upgrade
+reads like damage and is the check working. Upgrade your own copy the way you installed it,
+whenever suits; nothing on the server is waiting for it.
+
 It exits non-zero when something needs attention, so it can be the last line of an update
 script. It talks only to the instances you have configured.
 
@@ -1505,7 +1626,11 @@ script. It talks only to the instances you have configured.
 instance can run for years without making an outbound request. Asking is something you do:
 
 ```console
-$ subroutine db upgrade --check
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db upgrade --check
 ```
 
 It answers in two or three lines — what is running, what has been released, and **whether
@@ -1559,7 +1684,11 @@ any one part of it: report what is installed and what the database is at, back u
 copy where it landed, migrate, then read the schema back rather than assuming.
 
 ```console
-$ subroutine db upgrade
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db upgrade
   Subroutine 0.7.1 expects schema 9c41d0b7ae52.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
@@ -1571,7 +1700,11 @@ It is safe to run when there is nothing to do — it prints the three numbers an
 also the cheapest way to ask the question:
 
 ```console
-$ subroutine db upgrade
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db upgrade
   Subroutine 0.7.1 expects schema 9c41d0b7ae52.
   The database is at 9c41d0b7ae52.
   Nothing to do.
@@ -1599,7 +1732,11 @@ a database this build does not match and it is refused, with the direction of th
 deciding the remedy:
 
 ```console
-$ subroutine agenda
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine agenda
   Nothing could be read.
   Local: This database is at schema 233f898a2bee, and this build expects 9c41d0b7ae52.
     Run 'subroutine db upgrade' — it backs up first, then migrates.
@@ -1653,7 +1790,11 @@ compares what is running against what has been published, which for a build from
 comparison between two different things — and it says so rather than guessing:
 
 ```console
-$ subroutine db upgrade --check
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db upgrade --check
   Running 0.8.2.dev14+g80e1a4a06, which is not a published release.
   The newest is 0.8.1.
   Its database schema is older than this build's, so it is not an upgrade. Nothing here downgrades a database.
