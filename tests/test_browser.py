@@ -888,6 +888,9 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# a new tab would have been asserting on a tab that never loaded.
 	context.route("**/*", answered)
 
+	#: Every page :func:`opened` has made, so it can close them again — `SR#1279`.
+	made: list[typing.Any] = []
+
 	def opened (
 		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None,
 		made_of: typing.Any = None,
@@ -903,7 +906,26 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		# cannot be given one as an argument to the route.
 		daily[0] = AGENDA if agenda is None else agenda
 
+		# **Everything this opened before is closed** (`SR#1279`). One module-scoped context and
+		# thirty-eight calls to this function left about twenty-seven pages alive at the end of
+		# a run, each with the app mounted and a ten-second poll going — a cost nobody chose,
+		# on the two cores a CI runner has.
+		#
+		# **It cost a red Browser job**, the first in fifteen runs: a switcher test asked for a
+		# project and its `reads` list was empty five seconds later, where the same test takes
+		# 0.14s on this machine. Re-running the same commit was green on all nine jobs.
+		#
+		# **Here rather than in a teardown**, because this is the only thing that makes a page
+		# and the ones it makes are the ones nobody remembers. A test that opens a second tab
+		# gets it from the *browser* — a modified click — which this never sees.
+		for stale in made:
+			if not stale.is_closed():
+				stale.close()
+
+		made.clear()
+
 		page = context.new_page()
+		made.append(page)
 		page.on(
 			"console",
 			lambda message: violations.append(message.text)
@@ -939,10 +961,63 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# **Unpacked with `*_` at every call site**, so a fifth holder costs one line here rather
 	# than eighteen edits to tests that do not care. What each one *is* is documented above;
 	# a test names only the holders it uses.
+	def restore () -> None:
+		"""Put every holder back the way a test found it — `SR#1278`.
+
+		**These are module-scoped, so a test that changes one changes it for the rest of the
+		file.** Four tests already put theirs back by hand and one says in a comment why; the
+		trouble is that a restore written as the last line of a test body only runs when the
+		test **passes**, which is the case that did not need one.
+
+		It cost a run: a switcher test failed mid-body leaving a one-workspace roster behind,
+		and four later tests failed on it. **One defect reported as five**, with the four
+		consequences printed after the cause — so the run reads as a collapse rather than as a
+		flake, and has to be reasoned about backwards.
+
+		Called from a teardown rather than added to each test, because the hazard belongs to
+		the holders and not to whoever happens to touch one next.
+		"""
+
+		listing[0] = ROWS
+		daily[0] = AGENDA
+		parts[0] = EMPTY
+		refusing[0] = None
+		roster[0] = IDENTITY
+		missing[0] = set()
+		repeating[0] = False
+		written.clear()
+		reads.clear()
+		violations.clear()
+
 	try:
-		yield opened, written, refusing, roster, missing, reads, unreadable, repeating
+		yield (
+			opened, written, refusing, roster, missing, reads, unreadable, repeating, restore
+		)
 	finally:
 		context.close()
+
+
+@pytest.fixture(autouse=True)
+def tidy (request: pytest.FixtureRequest) -> typing.Iterator[None]:
+	"""Put the shared holders back after every test that could have moved one — `SR#1278`.
+
+	**Only for tests that asked for `running`**, which is what `fixturenames` answers. Two
+	tests in this file read the source and take no fixture at all; making those depend on a
+	browser context to be tidied would be paying for a page in order to close it.
+
+	**After the test rather than before**, so a failure is what triggers it. A reset at the
+	start would leave the *last* test's state in place for whatever ran outside this file,
+	and — more to the point — would not stop the cascade, since by then the damage is done.
+	"""
+
+	yield
+
+	if "running" not in request.fixturenames:
+		return
+
+	*_, restore = request.getfixturevalue("running")
+
+	restore()
 
 
 def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> None:
@@ -1636,7 +1711,7 @@ def test_a_repeating_item_is_asked_about_before_anything_is_written (
 	about.
 	"""
 
-	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating = running
+	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating, *_ = running
 
 	repeating[0] = True
 
