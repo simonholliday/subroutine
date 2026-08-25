@@ -74,6 +74,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 	return [
 		*_the_program(),
 		*_the_directories(),
+		*_the_signing_key(resolved),
 		*_the_connections(resolved),
 		*_the_backups(resolved),
 	]
@@ -122,6 +123,43 @@ def _the_directories () -> list[Finding]:
 		Finding(area="config", detail=str(subroutine.config.config_home())),
 		Finding(area="data", detail=str(subroutine.config.data_home())),
 		Finding(area="state", detail=str(subroutine.config.state_home())),
+	]
+
+
+def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
+	"""Report whether this installation has the key that signs a listing's page cursor.
+
+	**The cheapest possible incoherence to detect, and nothing was detecting it** (`#1254`).
+	``init`` is the only thing that writes ``secret_key``, so an instance whose database
+	arrived any other way — copied, restored, promoted from a personal install — has none, and
+	the first listing longer than a page raises where nobody can connect it to the cause. This
+	command's whole claim is whether this machine's installation is coherent, and a key that is
+	simply absent is inside that claim.
+
+	The key itself is never printed. Whether there is one is the question; what it is belongs
+	in the file it was written to.
+	"""
+
+	if settings.secret_key:
+		return [Finding(area="signing key", detail="set")]
+
+	if settings.dev_mode:
+		return [
+			Finding(
+				area="signing key",
+				detail="none, and dev_mode is on, so one is made up per process",
+			)
+		]
+
+	return [
+		Finding(
+			area="signing key",
+			detail=(
+				"none — listings longer than a page will fail, because the cursor that "
+				"carries them is signed with it"
+			),
+			ok=False,
+		)
 	]
 
 

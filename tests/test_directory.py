@@ -81,6 +81,74 @@ def test_a_marker_that_cannot_be_read_is_treated_as_absent (tmp_path: pathlib.Pa
 	assert subroutine.directory.find(tmp_path) is None
 
 
+def test_a_directory_this_account_cannot_look_inside_holds_no_marker (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A real denial on a real directory, which is how `#1255` was met.
+
+	The service account was asked for a token from a shell sitting in the operator's own home
+	directory. It could not stat inside it, ``is_file`` raised, and a command that issues a
+	credential answered with a traceback.
+
+	Skipped rather than faked for a process that cannot be refused anything, since the
+	condition genuinely does not exist for one — and the sibling test below covers the same
+	code on every machine.
+	"""
+
+	closed = tmp_path / "closed"
+	_write(closed, 'project = "web"\n')
+	closed.chmod(0o000)
+
+	try:
+		try:
+			(closed / subroutine.directory.FILE_NAME).is_file()
+
+		except PermissionError:
+			pass
+
+		else:
+			pytest.skip("this process can read a directory with no permissions on it")
+
+		assert subroutine.directory.find(closed) is None
+
+	finally:
+		closed.chmod(0o700)
+
+
+def test_an_unreadable_directory_does_not_stop_the_walk (
+	monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""The marker above an unreadable directory is still found.
+
+	Continuing rather than giving up is the half a denial at the innermost directory cannot
+	show, since there is nothing above it to find. Patched at the call that raised, so the
+	real walk runs — and it runs everywhere, including as a process nothing can refuse.
+	"""
+
+	_write(tmp_path, 'project = "web"\n')
+
+	deep = tmp_path / "closed"
+	deep.mkdir()
+
+	refused = deep / subroutine.directory.FILE_NAME
+	real = pathlib.Path.is_file
+
+	def denied (self: pathlib.Path) -> bool:
+		"""Refuse the one candidate, and answer for every other path as usual."""
+
+		if self == refused:
+			raise PermissionError(13, "Permission denied", str(self))
+
+		return real(self)
+
+	monkeypatch.setattr(pathlib.Path, "is_file", denied)
+
+	found = subroutine.directory.find(deep)
+
+	assert found is not None
+	assert found.project == "web"
+
+
 def test_a_marker_holding_nothing_useful_is_absent (tmp_path: pathlib.Path) -> None:
 	"""An empty file, or one holding only keys this does not read, says nothing."""
 

@@ -467,6 +467,9 @@ def test_serve_builds_the_application_from_the_address_it_actually_binds (
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
 	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)
+	# A signing key rather than a fourth refusal patched out (`#1254`): `serve` declines to
+	# start without one, and an instance that has one is the ordinary state this is about.
+	monkeypatch.setenv("SUBROUTINE_SECRET_KEY", "a-key-so-serve-will-start")
 
 	subroutine.cli.main.serve(host="0.0.0.0", port=8199, log_level="", insecure=True)
 
@@ -501,6 +504,7 @@ def test_serve_does_not_let_uvicorn_read_the_forwarded_header (
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_unusable_storage", lambda settings: None)
 	monkeypatch.setattr(subroutine.cli.main, "_refuse_public_bind", lambda *a, **k: None)
 	monkeypatch.setattr(subroutine.cli.main, "_database_is_absent", lambda settings: False)
+	monkeypatch.setenv("SUBROUTINE_SECRET_KEY", "a-key-so-serve-will-start")
 
 	subroutine.cli.main.serve(host="", port=0, log_level="", insecure=False)
 

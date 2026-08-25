@@ -57,6 +57,15 @@ A service account with no login and no home to speak of, and a virtualenv it doe
 
 Drop the `[postgres]` extra if you are staying on SQLite. Python 3.11 or newer.
 
+That installs the newest published release. To track the repository instead, name it:
+
+```console
+# /opt/subroutine/bin/pip install "subroutine[postgres] @ git+https://github.com/simonholliday/subroutine"
+```
+
+Everything below works the same way, with one exception that has a section of its own — see
+[tracking a git ref](#tracking-a-git-ref-rather-than-a-release) under *Upgrading*.
+
 Subroutine keeps its files under the XDG directories — configuration in
 `$XDG_CONFIG_HOME/subroutine`, the database in `$XDG_DATA_HOME/subroutine`, the current
 context in `$XDG_STATE_HOME/subroutine`. The unit below points all three inside
@@ -179,6 +188,12 @@ and their kind before the query is built, so `cursor the` finds whatever `cursor
 `like` requires both and would find nothing. That is inherent to full-text search rather than
 a choice made here — it is written down because the rest of this product promises that every
 word you type must appear, and under this backend that is one word short of true.
+
+**It also changes the order, and for a growing backlog that is the larger of the two gains.**
+`native` ranks: the best match comes first, and a hit in a title outranks one in a body. `like`
+has no relevance to rank by, so its results fall back to the listing's ordinary order — newest
+first unless you asked for something else. Measured on a real workspace, the same query found
+the same 28 rows under both and put entirely different ones at the top.
 
 It exists on PostgreSQL only. Asking for it on SQLite is not an error — you get `like`, and
 `GET /v1/meta` reports which one is actually answering. Turning it on needs no migration
@@ -333,6 +348,15 @@ the confusion the paragraph above is warning about.
 
 ### Switching an instance you already have
 
+Two different situations wear this heading, and the second one is where most people are.
+
+If the instance is **already the service account's** — you set it up here, on SQLite, and now
+want PostgreSQL — the copy below is the whole of it. If the instance is **yours**, in your own
+home directory under a personal install, and you want it to become a service, read
+[promoting your own instance](#promoting-your-own-instance-to-a-service) first: the copy is the
+same command with two more things to get right, and there are two steps around it that the
+greenfield path does for you.
+
 **If you already have data in SQLite, copy it across first.** Do not just change the URL — that
 gives you an empty database and leaves everything you have in a file nothing is reading. A
 backup will not do it either: backups are per-engine, so a SQLite one cannot be restored into
@@ -376,6 +400,92 @@ $ subroutine db current
 
 An empty database says so and tells you to run `init`. It is never silently created underneath
 you.
+
+### Promoting your own instance to a service
+
+Everything above starts from `init`. This starts from an instance you have been using, in your
+own home directory, and turns it into the service the rest of this page describes. It was walked
+end to end on a live instance with real data before being written down.
+
+Do the account, the virtualenv and the PostgreSQL database from
+[the sections above](#an-account-and-an-install) first, up to but **not including** `init` — the
+database already exists and `init` would make a second one. Then:
+
+**1. Find out where your data is.** Under a personal install it is wherever your own XDG
+directories point, which by default is `~/.local/share/subroutine/subroutine.db`. Ask rather
+than assume — `subroutine doctor` prints the three roots in force, and if they are not the ones
+you expect then neither is the database.
+
+**2. Take a backup, and copy from that rather than from the live database.** This is better
+advice than "stop the service first", and for three reasons: the backup is a single consistent
+file with the write-ahead log already folded in, nothing has to be stopped, and it cannot change
+underneath the copy.
+
+```console
+$ subroutine db backup
+  Backed up instance 'default' to /home/si/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+  540,672 bytes, schema 9c41d0b7ae52.
+
+$ TAKEN=/home/si/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+$ sudo install -o subroutine -g subroutine -m 600 "$TAKEN" /var/lib/subroutine/from-my-account.db
+```
+
+The filename carries the instant and the schema, so put the one it actually printed in `TAKEN`
+rather than reading the path off this page.
+
+A plain `cp` of `subroutine.db` is **not** a copy of your data. The instance runs in WAL mode, so
+anything written since the last checkpoint is in the `-wal` file beside it — and a copy of the
+`.db` alone opens cleanly, counts its rows, and is silently out of date. `db backup` is the
+supported way to get one file.
+
+**3. Run the copy as the service account.** Not as yourself: `db copy` writes the tables as
+whoever runs it, and with PostgreSQL's peer authentication that makes *you* their owner — after
+which the service cannot write to its own database. Running it as the service account is also
+why step 2 put the file somewhere that account can read.
+
+```console
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    SUBROUTINE_DATABASE_URL=sqlite:////var/lib/subroutine/from-my-account.db \
+    /opt/subroutine/bin/subroutine db copy --to postgresql+psycopg:///subroutine
+```
+
+It refuses a source older than this build's schema, so upgrade the copy first if it says so —
+`db upgrade` against the same URL, which is why it is a file the service account owns rather
+than the one in your home directory.
+
+**4. Write a `config.toml`, and give it a `secret_key`.** This is the step the greenfield path
+hides, because `init` is the only thing that writes one and this path never runs `init`. Without
+it `serve` declines to start and says so; before that refusal existed, the instance started,
+passed every health check, satisfied `doctor`, and failed on the first listing longer than a
+page.
+
+`subroutine config show` prints your own instance's settings and where each one came from,
+which is the shortest way to see what belongs in the file. The key is not one of them —
+generate a fresh one rather than copying yours, since the two instances have no reason to share
+it and what it signs is in flight rather than stored:
+
+```console
+$ /opt/subroutine/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+Put that in `/var/lib/subroutine/config/subroutine/config.toml` as `secret_key = "…"`, owned by
+the service account and readable only by it, alongside `database_url`, `public_url` and whatever
+else [every setting](#every-setting-and-what-it-does) says you need. Then carry on from
+[the systemd unit](#the-systemd-unit).
+
+**5. Decide what happens to the install you started with.** Once the service is answering, the
+old one is a rollback and nothing else, and it is worth being deliberate about it — two copies
+of your work with no idea which is current is the thing this step exists to prevent.
+
+Reaching the new instance from your own machine is
+[its own section](#reaching-it-from-your-own-machine), and the one thing to know here is that
+adding it as a connection while your old local database is still configured is the case
+`connections add` checks for. It will tell you they are the same instance and refuse the second
+name. Keep the old database as your rollback by all means — just do not point a second
+connection at what is now the same work.
 
 ## TLS, and why `serve` refuses without it
 
@@ -1499,6 +1609,73 @@ revisions it moves between — and CI refuses a release that moves the schema wi
 comparing the migration history against the previous tag rather than by trusting anybody to
 remember. So the question "will this upgrade need downtime?" is answered before you download
 anything, which is the whole point.
+
+### Tracking a git ref rather than a release
+
+Everything above assumes a release from PyPI, which is the ordinary case. Tracking the
+repository is a legitimate choice for a self-hosted tool, and four things on this page work
+differently for it.
+
+**Upgrading is the same command with the URL in it**, because pip will not upgrade a direct
+reference by name:
+
+```console
+# systemctl stop subroutine
+# /opt/subroutine/bin/pip install --upgrade "subroutine[postgres] @ git+https://github.com/simonholliday/subroutine"
+```
+
+**Check that it took, because pip may say nothing either way.** On a direct URL it clones,
+resolves the commit, builds the metadata and prints neither *Successfully installed* nor
+*already up to date* — so its output cannot tell *already at HEAD* from *declined to replace*.
+The version is what answers:
+
+```console
+$ /opt/subroutine/bin/subroutine --version
+  subroutine 0.8.2.dev14+g80e1a4a06
+  schema 9c41d0b7ae52
+```
+
+The part after `+g` is the commit. If it has not moved, neither has the software, whatever the
+install printed.
+
+**`subroutine db upgrade --check` asks about releases, so it cannot answer this question.** It
+compares what is running against what has been published, which for a build from a branch is a
+comparison between two different things — and it says so rather than guessing:
+
+```console
+$ subroutine db upgrade --check
+  Running 0.8.2.dev14+g80e1a4a06, which is not a published release.
+  The newest is 0.8.1.
+  Its database schema is older than this build's, so it is not an upgrade. Nothing here downgrades a database.
+```
+
+**`subroutine db current` is what replaces it**, and it is the one to run between installing and
+upgrading. It compares the database in front of it against the build that is now installed,
+which is exactly the question `--check` was being asked:
+
+```console
+$ subroutine db current
+  Schema is at 4f177421eb91; newest is 9c41d0b7ae52.
+```
+
+When the two match it says so in one line — `Schema is at 9c41d0b7ae52.` — and there is nothing
+to do.
+
+**And a schema change arrives with no notice.** The migration notice at the top of a changelog
+entry belongs to a *release*, and CI refuses a release that moves the schema without one. From a
+branch there is no release to carry it, so the mechanism that exists to stop somebody meeting a
+migration halfway through an install never fires. `db current` between the two steps is the
+substitute.
+
+`subroutine db upgrade` itself needs no different handling, and says the useful half unprompted:
+
+```console
+$ subroutine db upgrade
+  Subroutine 0.8.2.dev14+g80e1a4a06 expects schema 9c41d0b7ae52.
+  The database is at 9c41d0b7ae52.
+  0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it — it can compare as newer than anything published.
+  Nothing to do.
+```
 
 ## What the licence asks of you, which is almost nothing
 

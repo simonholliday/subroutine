@@ -449,3 +449,54 @@ def test_an_ipv6_loopback_is_bracketed_so_the_port_is_still_a_port () -> None:
 	settings = subroutine.config.Settings(host="::1", port=8471)
 
 	assert subroutine.config.browsable_url(settings) == "http://[::1]:8471"
+
+
+@pytest.mark.parametrize(
+	"address",
+	[
+		"",
+		"https://tasks.example.com",
+		"https://tasks.example.com:8471/subroutine",
+		"http://127.0.0.1:8471",
+		"https://[2001:db8::1]:8471",
+		"https://hpz2g9.tailnet-example.ts.net",
+		"https://internal_host.example",
+		"https://xn--bcher-kva.example",
+	],
+)
+def test_a_usable_public_url_is_left_alone (address: str) -> None:
+	"""`#1257`'s refusal must not turn down anything anybody actually serves on.
+
+	It runs at startup, so what it refuses is an instance that may have been serving perfectly
+	well yesterday — which makes a false positive the expensive direction. An underscore and a
+	punycode label are both real; an empty value means nobody has said, which is not a fault.
+	"""
+
+	assert subroutine.config.public_url_fault(address) is None
+
+
+@pytest.mark.parametrize(
+	("address", "because"),
+	[
+		("https://hpz2g9.<your-tailnet>.ts.net", "host"),
+		("tasks.example.com", "http"),
+		("ftp://tasks.example.com", "http"),
+		("https://", "host"),
+		("https://tasks example.com", "host"),
+		("https://tasks.example.com:not-a-port", "port"),
+	],
+)
+def test_a_public_url_that_is_not_an_address_is_named_as_one (
+	address: str, because: str
+) -> None:
+	"""`#1257`. The first of these is how it was met, and it is the ordinary mistake.
+
+	A configuration template with a placeholder in it, pasted as given — which is exactly what
+	``docs/hosting.md`` invites, since it uses ``tasks.example.com`` in that position. The
+	service started, accepted it, and announced it as the address to reach the instance on.
+	"""
+
+	fault = subroutine.config.public_url_fault(address)
+
+	assert fault is not None
+	assert because in fault

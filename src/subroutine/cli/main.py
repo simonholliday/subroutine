@@ -8,6 +8,7 @@ whoever does want it.
 """
 
 import contextlib
+import dataclasses
 import datetime
 import getpass
 import pathlib
@@ -281,6 +282,30 @@ def _report_a_defect (exception: BaseException) -> None:
 	)
 
 
+#: What the API calls a field, and what a terminal calls the same one.
+#:
+#: `#1259`. A refusal raised below the transport deliberately names no spelling in its prose
+#: (`#547`), because its two readers call one thing ``workspace_id`` and ``workspace``; the
+#: ``FieldError`` carries the name and **each surface renders it in its own vocabulary**. This
+#: is the terminal's half of that bargain, which nothing was doing — so a person issuing a
+#: credential was told to fix ``workspace_id``, which is not something anybody can type here.
+TERMINAL_FIELD_NAMES = {"workspace_id": "workspace"}
+
+#: What a terminal can actually do about a refusal that came back over the wire, by the field
+#: and code that carry it.
+#:
+#: The API's own hint for an unsettled workspace offers *"use a token pinned to one"* — advice
+#: for the person **receiving** a credential, arriving in front of the person issuing one. The
+#: two spellings here are the ones ``context.refuse`` already gives on the personal path, so
+#: the same condition gets the same answer whichever command met it.
+TERMINAL_REMEDIES = {
+	("workspace_id", "missing_field"): (
+		"Say which — 'subroutine -w <workspace> …' for one command, or 'subroutine use "
+		"<workspace>' to keep working there."
+	),
+}
+
+
 def _printed (error: subroutine.errors.SubroutineError) -> None:
 	"""Write a refusal to standard error, without deciding how the process ends.
 
@@ -288,14 +313,34 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 	entirely: `_fail` raises `typer.Exit`, which means nothing once click's own runner has
 	been left behind, and reusing it there turned a missing backup directory into a traceback
 	about `typer.Exit`.
+
+	**One seam rather than one per command** (`#1259`). Everything the CLI prints a refusal
+	through arrives here — the personal path's ``fail`` is this function's caller too — so a
+	translation put here covers ``token create``, ``agent create`` and whatever routes through
+	a connection next, without anybody remembering.
 	"""
+
+	hint = error.hint
+	fields = []
+
+	for field in error.errors:
+		remedy = TERMINAL_REMEDIES.get((field.field, field.code))
+
+		if remedy is not None:
+			hint = remedy
+
+		spelling = TERMINAL_FIELD_NAMES.get(field.field)
+
+		fields.append(
+			field if spelling is None else dataclasses.replace(field, field=spelling)
+		)
 
 	_err.print(subroutine.cli.output.plain(error.detail), markup=False, highlight=False)
 
-	if error.hint is not None:
-		_err.print(subroutine.cli.output.plain(error.hint), markup=False, highlight=False)
+	if hint is not None:
+		_err.print(subroutine.cli.output.plain(hint), markup=False, highlight=False)
 
-	for field in error.errors:
+	for field in fields:
 		# A single field error whose message is already the detail — or already the hint —
 		# says nothing new. `subroutine add "#tag !3"` said "A title is required." and then
 		# "  title: A title is required."; a bad date printed a 200-character remedy and then
@@ -303,12 +348,12 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 		#
 		# **Only when it is the only one.** With several fields, naming each is the whole
 		# value of the list, however much any one of them repeats.
-		said = len(error.errors) == 1 and field.message in (error.detail, error.hint)
+		said = len(fields) == 1 and field.message in (error.detail, hint)
 
 		if not said:
 			_err.print(subroutine.cli.output.plain(f"  {field.field}: {field.message}"), markup=False, highlight=False)
 
-		if field.hint is None or field.hint in (error.hint, field.message):
+		if field.hint is None or field.hint in (hint, field.message):
 			continue
 
 		# Indented under the field it belongs to when that was printed, so a refusal naming
@@ -666,10 +711,17 @@ def serve (
 	settings = settings.model_copy(update={"host": where, "port": listening})
 
 	_refuse_unusable_storage(settings)
+	_refuse_an_unusable_public_url(settings)
 	_refuse_public_bind(settings, where, insecure=insecure)
 
 	if _database_is_absent(settings):
 		_refuse_absent_database(settings, doing=", so there would be nothing to serve")
+
+	# **After the database, deliberately.** An instance that has never been set up has neither,
+	# and a refusal about the signing key would then be a true sentence about the smaller of two
+	# problems — sending somebody to write a setting when what they need is `init`. The order is
+	# the one they meet things in.
+	_refuse_without_a_signing_key(settings)
 
 	# **Imported here rather than at the top of the module**, and measured rather than
 	# assumed: FastAPI and uvicorn together cost 0.3 seconds of this program's 0.8-second
@@ -789,6 +841,67 @@ def _refuse_public_bind (
 		"compromised tokens.",
 		"Either put a TLS-terminating proxy in front and set public_url to its https:// "
 		"address, or pass --insecure if this network is genuinely trusted.",
+	)
+
+
+def _refuse_an_unusable_public_url (settings: subroutine.config.Settings) -> None:
+	"""Refuse a ``public_url`` that is not an address at all (`#1257`).
+
+	**Before the TLS refusal**, which reads the same value and asks a different question. That
+	one wants to know whether bearer tokens are about to cross a network in the clear and is
+	satisfied by the scheme, deliberately — the documentation says so in terms: *the check is
+	satisfied by the https:// scheme, so this is you taking responsibility rather than the
+	program verifying anything.* That is right, and it leaves *is this a URL* asked by nobody.
+
+	Said in terms of what it will break rather than of parsing, because the value has no effect
+	at the moment it is set. It is what a calendar subscription, an MCP origin and a login link
+	are all built from, and each of those fails later, elsewhere, looking like a different
+	problem.
+	"""
+
+	fault = subroutine.config.public_url_fault(settings.public_url or "")
+
+	if fault is None:
+		return
+
+	_stop(
+		f"public_url is set to {(settings.public_url or '').strip()!r}, and {fault}.",
+		"It is what calendar subscriptions, sign-in links and the origins an agent may "
+		"connect from are all built from, so it has to be the address people actually reach "
+		"this on — through a proxy if there is one.",
+	)
+
+
+def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None:
+	"""Refuse to start with no ``secret_key``, rather than fail on the first listing (`#1254`).
+
+	**``init`` is the only thing that writes one**, and a service whose database arrived by any
+	other route never ran it — ``db copy`` into a new instance's directories, a backup restored
+	into a fresh service account, a personal install promoted to a service, a container mounting
+	a database beside an empty configuration directory. Every one of those skips ``init`` for the
+	good reason that the database already exists.
+
+	Nothing noticed. ``serve`` started, ``/healthz`` and ``/readyz`` were green, ``doctor`` said
+	nothing needed attention, and the first *paginated* listing raised out of six endpoints — a
+	``500`` with a ``RuntimeError`` in the journal, a long way from the decision that caused it,
+	on an instance every check called healthy.
+
+	Refused at startup, beside the bind and TLS refusals, which already establish that this
+	program declines to start wrong rather than fail later. **Not a key generated per process**:
+	:meth:`~subroutine.config.Settings.require_secret_key` argues that out, and it is right — it
+	would break every cursor on every restart, silently, which is worse than refusing.
+	"""
+
+	if settings.secret_key or settings.dev_mode:
+		return
+
+	_stop(
+		"There is no secret_key here, and it signs the cursor that carries a listing from "
+		"one page to the next — so this would start, pass every health check, and fail on "
+		"the first listing longer than a page.",
+		f"Put a secret_key in {subroutine.config.config_file_path()} or set "
+		"SUBROUTINE_SECRET_KEY. 'subroutine init' writes one, and a database that arrived "
+		"any other way has never had it run.",
 	)
 
 

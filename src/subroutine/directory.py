@@ -249,6 +249,13 @@ def find (start: pathlib.Path | None = None) -> Marker | None:
 	**The nearest wins and the walk stops there.** A repository inside another repository is
 	rare and deliberate when it happens, and merging two markers would produce a context
 	neither file states — which is worse than the one the closer file asked for.
+
+	**A directory this account cannot look inside holds no marker as far as we are concerned**
+	(`#1255`). That is :func:`_read`'s rule — unreadable is absent, not an error — applied to
+	finding the file rather than only to parsing it. It is reached by the ordinary documented
+	path: an operator running one of these commands under ``sudo -u`` from their own home
+	directory, which the service account cannot stat inside, and the alternative is a crash
+	report where a credential was asked for.
 	"""
 
 	here = (start or pathlib.Path.cwd()).resolve()
@@ -256,7 +263,13 @@ def find (start: pathlib.Path | None = None) -> Marker | None:
 	for directory in (here, *here.parents):
 		found = directory / FILE_NAME
 
-		if found.is_file():
+		try:
+			readable = found.is_file()
+
+		except OSError:
+			continue
+
+		if readable:
 			return _read(found)
 
 	return None

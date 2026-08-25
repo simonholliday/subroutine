@@ -457,8 +457,10 @@ def test_every_command_the_program_suggests_is_one_it_can_run () -> None:
 	removed" — it was not**, and building the neighbour guard in ``tests/test_packaging.py``
 	found that out the expensive way, by passing against the live defect.
 
-	Flags and arguments are deliberately not checked. A flag belongs to one command and the
-	false-positive rate of checking those is unknown; this is the cheap half that is certain.
+	Arguments are deliberately not checked. Flags used not to be either, on the grounds that
+	the false-positive rate was unknown — it was measured for `#1264` and is eleven, all
+	nameable, so :func:`test_every_flag_this_program_prints_is_one_it_accepts` below does that
+	half now.
 	"""
 
 	tips = _tips()
@@ -476,3 +478,138 @@ def test_every_command_the_program_suggests_is_one_it_can_run () -> None:
 	]
 
 	assert not broken, "the program suggests commands it cannot run:\n  " + "\n  ".join(broken)
+
+
+#: The ``--flag`` spellings in this source that are not options of ours, and why each is there.
+#:
+#: `#1264`. Every entry is a flag *named in a string* that no command declares, and the rule is
+#: that a legitimate one is not addressed to somebody at a terminal here — it belongs to another
+#: program, or it is a word about a colour, or it is a spelling being discussed rather than
+#: offered. Keyed by the file as well as the flag, because ``--quiet`` and ``--file`` are
+#: ordinary words: excusing them everywhere would wave through the next real mistake.
+NOT_OUR_OPTIONS = {
+	"db/backup.py::--dbname": "psql's, passed to it",
+	"db/backup.py::--file": "psql's, passed to it",
+	"db/backup.py::--no-owner": "pg_dump's, passed to it",
+	"db/backup.py::--no-privileges": "pg_dump's, passed to it",
+	"db/backup.py::--no-psqlrc": "psql's, passed to it",
+	"db/backup.py::--quiet": "psql's, passed to it",
+	"db/backup.py::--set": "psql's, passed to it",
+	"db/backup.py::--single-transaction": "psql's, passed to it",
+	"domain/palette.py::--accent": "the name of a colour role, not an option",
+	"domain/palette.py::--warn": "the name of a colour role, not an option",
+	"cli/personal.py::--show-status": "a spelling weighed in a comment and not taken",
+	"domain/capture.py::--projects": "the record of a flag that never existed, which is the "
+	"defect this guard is for",
+}
+
+
+#: What a flag looks like in prose. Lower case with interior hyphens, which is every option
+#: this program has; a ``--`` on its own or followed by anything else is not one.
+FLAG = re.compile(r"--[a-z][a-z0-9-]*")
+
+
+def _declared_options () -> set[str]:
+	"""Return every long option any command accepts, by walking the app.
+
+	Derived from the same walk the rest of this file uses, so a command added tomorrow brings
+	its flags with it. ``--help`` is added by hand: Typer attaches it when a command is
+	rendered rather than declaring it as a parameter, so it is real everywhere and appears in
+	no ``params`` list.
+	"""
+
+	found = {"--help"}
+
+	for _path, command in _commands():
+		for parameter in command.params:
+			for spelling in (
+				*getattr(parameter, "opts", ()),
+				*getattr(parameter, "secondary_opts", ()),
+			):
+				if spelling.startswith("--"):
+					found.add(spelling)
+
+	return found
+
+
+def _flags_named_in_source () -> dict[str, list[tuple[str, int]]]:
+	"""Return every ``--flag`` written into a string under ``src``, and where.
+
+	Read from the syntax tree rather than by grepping the text, so a flag in a comment — which
+	nobody but a programmer reads — is not mistaken for one the program says out loud.
+	"""
+
+	root = pathlib.Path(subroutine.cli.main.__file__).parent.parent
+	found: dict[str, list[tuple[str, int]]] = {}
+
+	for path in sorted(root.rglob("*.py")):
+		where = path.relative_to(root).as_posix()
+
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+				continue
+
+			for spelling in FLAG.findall(node.value):
+				found.setdefault(spelling, []).append((where, node.lineno))
+
+	return found
+
+
+def test_every_flag_this_program_prints_is_one_it_accepts () -> None:
+	"""`#1264`. Three of these have shipped and only somebody typing one has ever found them.
+
+	``require_secret_key`` offered ``--dev-mode``, which was never built; ``restore``'s help
+	said ``subroutine list --deleted``, where the flag is ``--trash`` and Typer's *did you
+	mean* then pointed at ``--deferred``; and ``domain/capture.py`` carries a comment about a
+	third, ``subroutine list --projects``, *"caught by running it"*.
+
+	That is the whole detection history: running it. A message naming a flag that does not
+	exist fires at the moment somebody has no other information, and what they reasonably
+	conclude from *no such option* is that the rest of the message is stale too.
+	"""
+
+	declared = _declared_options()
+
+	assert len(declared) > 50, (
+		f"only {len(declared)} options were found, which is too few — the walk has stopped "
+		f"reading the app, and every flag would then look wrong rather than none"
+	)
+
+	named = _flags_named_in_source()
+
+	assert named, "no flags were found in any string, so this asserts nothing"
+
+	broken = [
+		f"{where}:{line} names {spelling!r}, which no command accepts"
+		for spelling, sites in sorted(named.items())
+		if spelling not in declared
+		for where, line in sites
+		if f"{where}::{spelling}" not in NOT_OUR_OPTIONS
+	]
+
+	assert not broken, "the program names flags it does not have:\n  " + "\n  ".join(broken)
+
+
+def test_no_excused_flag_has_quietly_become_ours_or_gone_away () -> None:
+	"""An entry that is no longer needed is a considered decision nobody made.
+
+	Two ways one expires: the string moves or is deleted, and the excuse then describes
+	nothing; or we grow a real option by that name in that file, at which point the entry is
+	hiding a check rather than explaining one.
+	"""
+
+	declared = _declared_options()
+	named = _flags_named_in_source()
+
+	stale = []
+
+	for entry, why in sorted(NOT_OUR_OPTIONS.items()):
+		where, spelling = entry.split("::")
+
+		if not any(site == where for site, _line in named.get(spelling, [])):
+			stale.append(f"{entry} is excused as {why!r} and is not written there any more")
+
+		elif spelling in declared:
+			stale.append(f"{entry} is excused as {why!r} and is now an option this program has")
+
+	assert not stale, "excuses that have expired:\n  " + "\n  ".join(stale)

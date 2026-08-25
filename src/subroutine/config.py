@@ -22,6 +22,7 @@ import sqlite3
 import tempfile
 import tomllib
 import typing
+import urllib.parse
 
 import pydantic
 import pydantic.fields
@@ -212,6 +213,61 @@ def is_loopback (host: str) -> bool:
 		return False
 
 	return address.is_loopback
+
+
+#: What a hostname may be made of. Letters, digits, hyphens and dots are the whole of a DNS
+#: name; underscores appear in real internal zones and are allowed rather than argued with;
+#: colons are how :func:`urllib.parse.urlsplit` hands back an IPv6 literal, having taken the
+#: brackets off. **Deliberately permissive**: this is here to catch a value that cannot be an
+#: address at all, and refusing at startup means anything it turns down stops an instance that
+#: may have been serving perfectly well yesterday.
+HOSTNAME_CHARACTERS = re.compile(r"^[A-Za-z0-9._:-]+$")
+
+
+def public_url_fault (value: str) -> str | None:
+	"""Say why this cannot be the address an instance is reached at, or ``None`` if it can be.
+
+	**`#1257`: nothing checked that it was a URL at all**, which is a different question from
+	whether it is the *right* one. A placeholder pasted verbatim — ``https://host.<your-
+	tailnet>.ts.net`` — was accepted, and the service announced it as fact.
+
+	What it silently breaks is everything built from it and nothing at the moment it is set:
+	the address a person subscribes a calendar with, the origin allow-list an MCP client is
+	matched against, and the login links for the web interface. Each fails later, elsewhere,
+	and looks like a different problem.
+
+	**Reachability is deliberately not checked**, and could not be from here: ``public_url`` is
+	routinely an address only a proxy knows about, which is the arrangement the documentation
+	recommends. The scheme is not judged either — :func:`is_loopback`'s caller does that, where
+	the question is whether tokens are about to cross a network in the clear.
+	"""
+
+	address = value.strip()
+
+	if not address:
+		return None
+
+	parsed = urllib.parse.urlsplit(address)
+
+	if parsed.scheme not in ("http", "https"):
+		return "it does not begin with http:// or https://"
+
+	try:
+		host = parsed.hostname
+		# Read for its side effect: ``urlsplit`` parses lazily, so a port that is not a number
+		# raises here rather than when something tries to connect.
+		_port = parsed.port
+
+	except ValueError:
+		return "its port is not a number"
+
+	if not host:
+		return "it names no host"
+
+	if not HOSTNAME_CHARACTERS.match(host):
+		return "its host is not something a name or an address can be spelled with"
+
+	return None
 
 
 def browsable_url (settings: "Settings") -> str | None:
@@ -857,7 +913,8 @@ class Settings(pydantic_settings.BaseSettings):
 
 		raise RuntimeError(
 			"No secret_key is configured. Run 'subroutine init' to create one, set "
-			"SUBROUTINE_SECRET_KEY, or pass --dev-mode for local development."
+			"SUBROUTINE_SECRET_KEY, or put 'dev_mode = true' in config.toml for local "
+			"development."
 		)
 
 

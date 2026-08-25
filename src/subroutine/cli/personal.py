@@ -43,6 +43,7 @@ import typer.core
 
 import subroutine.cli.output
 import subroutine.clients.base
+import subroutine.clients.local
 import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
@@ -1861,18 +1862,41 @@ def _describing (reached: Welcomed) -> str:
 	return f"Reached {instance} as {reached.username}, in {', '.join(reached.workspaces)}."
 
 
+class Reach(typing.NamedTuple):
+	"""What asking every configured connection who it is could establish."""
+
+	#: The connection already naming the instance in question, if one does.
+	twice: str | None
+
+	#: The connections that did not answer, so this could not be settled for them.
+	unchecked: tuple[str, ...]
+
+
 def _already_reached (
 	roster: subroutine.connections.Roster,
 	resolved: subroutine.config.Settings,
 	instance: uuid.UUID,
-) -> str | None:
-	"""Return the connection already naming this instance, or ``None`` if none does.
+) -> Reach:
+	"""Report which connection already names this instance, and which could not be asked.
 
-	A connection that cannot be reached is passed over in silence rather than reported. It
+	A connection that cannot be reached is passed over rather than treated as a failure. It
 	is the ordinary state of the local one on the machine this command is written for, and
-	a warning about a work server being down would arrive while somebody is in the middle
-	of doing the one thing that does not need it.
+	refusing to add a work connection because a *different* server is down would be a worse
+	outcome than the collision this protects against.
+
+	**Passed over is not the same as answered, and saying so is the point** (`#1258`). What
+	was wrong here was not the skipping but the positive claim that followed it: every
+	connection was asked, some said nothing, and the command reported that this machine does
+	not already reach the instance. The gap is carried back so the caller can name it.
+
+	**A local database at an older schema is answered rather than skipped.** It raises like
+	one that is switched off — and it is neither switched off nor unknown, it is on this disk
+	with its own id in it. That state is *guaranteed* by the migration `docs/hosting.md`
+	prescribes, since the old database is deliberately kept as the rollback, so the guard was
+	defeated by the exact procedure the page recommends.
 	"""
+
+	unchecked: list[str] = []
 
 	for existing in roster:
 		try:
@@ -1882,12 +1906,79 @@ def _already_reached (
 				answered = client.identity()
 
 		except subroutine.errors.SubroutineError:
+			if existing.is_local:
+				if subroutine.clients.local.instance_id(resolved) == instance:
+					return Reach(existing.name, ())
+
+				continue
+
+			unchecked.append(existing.name)
+
 			continue
 
 		if answered.instance is not None and answered.instance.id == instance:
-			return existing.name
+			return Reach(existing.name, ())
 
-	return None
+	return Reach(None, tuple(unchecked))
+
+
+def _refuse_a_second_name_for_one_instance (
+	program: Program,
+	roster: subroutine.connections.Roster,
+	resolved: subroutine.config.Settings,
+	reached: Welcomed | None,
+	*,
+	wanted: str,
+) -> tuple[str, ...]:
+	"""Stop if this instance is already configured, and return what could not be asked.
+
+	**Refused here, where it is one word to change.** Left to be discovered, it is discovered by
+	``subroutine list`` refusing outright — the instance is counted once per name it is
+	configured under, so a merged read cannot be trusted and the whole listing is withheld. That
+	message can only tell somebody to edit a file, which is the friction this command exists to
+	remove.
+
+	It is the *check* that finds this, so ``--no-check`` passes it by. That is the escape hatch
+	and not a recommendation: `#327` is where two connections naming one instance becomes a
+	workable arrangement rather than a broken machine.
+
+	**A module-level function rather than the body of the command**, which is
+	``tests/test_personal_path.py``'s ratchet being paid rather than raised, the same way
+	:func:`_finished` and :func:`_planned` came out.
+	"""
+
+	if reached is None or reached.instance is None:
+		return ()
+
+	reach = _already_reached(roster, resolved, reached.instance.id)
+
+	if reach.twice is None:
+		return reach.unchecked
+
+	program.stop(
+		f"{wanted!r} is the same instance as {reach.twice!r}, which this machine already "
+		"reaches.",
+		f"Use {reach.twice!r} instead. Two names for one instance would make every merged "
+		"listing count its work twice, so this machine holds one.",
+	)
+
+
+def _what_was_not_checked (unchecked: typing.Sequence[str]) -> str:
+	"""Say which connections the duplicate check could not ask, and what that leaves open.
+
+	**The check said nothing about these, so neither does the command** (`#1258`). Said after
+	the connection is written rather than as a refusal: a server being down is not evidence of a
+	collision, and it is a poor reason to decline the one thing somebody is trying to do. What
+	it *is* evidence of is that the check was partial, and that is worth knowing while the name
+	they chose is still one word to change.
+	"""
+
+	named = ", ".join(repr(name) for name in unchecked)
+
+	return (
+		f"{named} did not answer, so this may be a second name for an instance this machine "
+		"already reaches."
+	)
 
 
 def _completions (item: Reached) -> str:
@@ -7260,7 +7351,7 @@ def register (
 
 		  subroutine restore 42
 
-		  subroutine list --deleted
+		  subroutine list --trash
 		"""
 
 		with program.opened() as world:
@@ -7545,26 +7636,9 @@ def register (
 			secret = _asked_for_a_token(program, wanted)
 
 		reached = _reaching(program, connection, roster, resolved, secret) if check else None
-
-		if reached is not None and reached.instance is not None:
-			twice = _already_reached(roster, resolved, reached.instance.id)
-
-			if twice is not None:
-				# **Refused here, where it is one word to change.** Left to be discovered, it is
-				# discovered by `subroutine list` refusing outright — the instance is counted
-				# once per name it is configured under, so a merged read cannot be trusted and
-				# the whole listing is withheld. That message can only tell somebody to edit a
-				# file, which is the friction this command exists to remove.
-				#
-				# It is the *check* that finds this, so `--no-check` passes it by. That is the
-				# escape hatch and not a recommendation: `#327` is where two connections naming
-				# one instance becomes a workable arrangement rather than a broken machine.
-				stop(
-					f"{wanted!r} is the same instance as {twice!r}, which this machine already "
-					"reaches.",
-					f"Use {twice!r} instead. Two names for one instance would make every "
-					"merged listing count its work twice, so this machine holds one.",
-				)
+		unchecked = _refuse_a_second_name_for_one_instance(
+			program, roster, resolved, reached, wanted=wanted
+		)
 
 		# **The token before the connection.** Both writes can fail on a full or read-only
 		# filesystem, and the two half-written states are not equally bad: a credential under a
@@ -7592,6 +7666,9 @@ def register (
 			say(_describing(reached))
 
 		say(f"Added {wanted} to {written}")
+
+		if unchecked:
+			say(_what_was_not_checked(unchecked))
 
 		if asked:
 			say(f"Its token is in {kept}, readable only by you.")

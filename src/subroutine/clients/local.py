@@ -3451,3 +3451,42 @@ def opened (
 		token=resolved.token,
 		token_source=resolved.source,
 	)
+
+
+def instance_id (settings: subroutine.config.Settings) -> uuid.UUID | None:
+	"""Return this database's instance id, whatever schema it happens to be at.
+
+	**`#1258`: the duplicate-instance check has to work on a database the client will not
+	open.** ``connections add`` asks every configured connection who it is, and a local one at
+	an older schema raises like one that is switched off — so it is passed over, and the
+	command then says positively that this machine does not already reach that instance. The
+	migration `docs/hosting.md` prescribes *guarantees* that state: you upgrade the program to
+	match the server, and the old database is deliberately left behind as the rollback.
+
+	The ``instance`` table and its ``id`` have existed since the initial revision, so the
+	question can be answered without matching the schema. Asked of a table expression rather
+	than the mapped class for exactly that reason — a model describes today's shape, and this
+	is here to read yesterday's.
+
+	``None`` for anything that does not answer: no database, no such table, no row. Every one
+	of those means *this is not a second name for an instance we already reach*, which is the
+	answer the caller needs rather than a failure to report.
+	"""
+
+	table = sqlalchemy.table(
+		"instance", sqlalchemy.column("id", subroutine.db.types.uuid_column())
+	)
+
+	engine = subroutine.db.session.create_engine(settings.database_url)
+
+	try:
+		with engine.connect() as connected:
+			found = connected.execute(sqlalchemy.select(table.c.id)).scalars().first()
+
+	except sqlalchemy.exc.SQLAlchemyError:
+		return None
+
+	finally:
+		engine.dispose()
+
+	return found if isinstance(found, uuid.UUID) else None

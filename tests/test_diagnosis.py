@@ -87,6 +87,50 @@ class TestWhatItLooksAt:
 		for area in ("config", "data", "state"):
 			assert str(home) in _named(found, area).detail
 
+	def test_it_says_whether_there_is_a_signing_key (self, home: pathlib.Path) -> None:
+		"""`#1254`. The cheapest possible incoherence, and nothing was looking for it.
+
+		``init`` is the only thing that writes ``secret_key``, so an instance whose database
+		arrived any other way — copied, restored, promoted from a personal install — has none.
+		It starts, serves health checks, and raises on the first listing longer than a page,
+		which is a long way from the decision that caused it.
+
+		Never the key itself. Whether there is one is the question.
+		"""
+
+		absent = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key=None, dev_mode=False)
+		)
+		reported = _named(absent, "signing key")
+
+		assert not reported.ok
+		assert not reported.unknown, "this is a fault here, not a question that went unanswered"
+
+		present = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key="a-real-key")
+		)
+
+		assert _named(present, "signing key").ok
+		assert "a-real-key" not in _named(present, "signing key").detail
+
+	def test_dev_mode_is_reported_as_neither_a_key_nor_a_fault (
+		self, home: pathlib.Path
+	) -> None:
+		"""A made-up key is not a fault, and it is not a key either.
+
+		``doctor`` turning red on a development machine would teach people to ignore it, and
+		saying "set" would be false — the value is invented per process, so every cursor
+		expires at every restart.
+		"""
+
+		found = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key=None, dev_mode=True)
+		)
+		reported = _named(found, "signing key")
+
+		assert reported.ok
+		assert "dev_mode" in reported.detail
+
 	def test_it_reports_no_plugin_by_saying_nothing (self, home: pathlib.Path) -> None:
 		"""A command line is not a plugin's child process, and that is the ordinary case.
 

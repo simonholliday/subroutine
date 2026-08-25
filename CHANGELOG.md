@@ -124,6 +124,42 @@ upgrade involves.
 
 ### Fixed
 
+- **A service built from a database you already had no longer starts without a signing key.**
+  `subroutine init` is the only thing that writes one, so an instance whose database arrived by
+  `db copy`, by a restore, or by promoting a personal install had none — and started, served
+  health checks, satisfied `subroutine doctor`, and then failed on the first listing longer than
+  a page. `serve` now declines to start and says what to do, and `doctor` reports it as
+  something needing attention.
+
+- **`serve` refuses a `public_url` that is not an address.** A placeholder pasted from a
+  template — `https://host.<your-tailnet>.ts.net` — was accepted, announced as the address to
+  reach the instance on, and then silently produced calendar subscriptions that could never
+  work and sign-in links nobody could follow. Whether it is *reachable* is still not checked
+  and never will be: it is routinely an address only a proxy knows about.
+
+- **Looking for a `.subroutine` marker no longer crashes in a directory it cannot read.** Any
+  command run under `sudo -u` from a home directory the service account cannot look inside gave
+  a crash report instead of an answer — which is the documented way to issue a token on a
+  server. A directory that cannot be read now holds no marker, as far as the search is
+  concerned, which is the rule the parser beside it already followed.
+
+- **Adding a connection notices a duplicate instance even when the local database is out of
+  date**, and says which connections it could not ask. A database one migration behind failed
+  like one that was switched off, so it was passed over — and the command then said positively
+  that this machine does not already reach that instance. The migration in `docs/hosting.md`
+  guarantees exactly that state, because you upgrade the program to match the server and keep
+  the old database as the rollback.
+
+- **A refusal at a terminal offers something you can type.** Asking for a credential on an
+  instance with several workspaces answered with the API's own wording — a `workspace_id` field
+  and advice to use a token pinned to one, neither of which is available to the person issuing
+  the credential. It now gives the two spellings a command line has, which is what the same
+  refusal has always said on the personal path.
+
+- **`subroutine restore`'s help no longer names a flag that does not exist.** It suggested
+  `subroutine list --deleted`; the flag is `--trash`. A test now checks every `--flag` this
+  program prints against the ones its commands actually accept.
+
 - **A document written by an agent is filed where the checkout says**, the way a captured task
   already was. `subroutine_document` never read the `.subroutine` marker, so a conclusion
   written from a marked repository went to the workspace Inbox — and its answer named the

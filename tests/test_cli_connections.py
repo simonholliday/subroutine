@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import typing
+import uuid
 import zoneinfo
 
 import click
@@ -35,7 +36,10 @@ import subroutine
 import subroutine.api.app
 import subroutine.auth
 import subroutine.cli.main
+import subroutine.cli.personal
+import subroutine.clients.local
 import subroutine.config
+import subroutine.connections
 import subroutine.credentials
 import subroutine.domain.profiles
 import subroutine.domain.tokens
@@ -1088,6 +1092,104 @@ def test_serve_refuses_a_non_loopback_bind_without_tls (
 	assert "public_url" in result.output
 
 
+def test_serve_refuses_a_public_url_that_is_not_an_address (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#1257`. A placeholder pasted as given, which is the ordinary way this is got wrong.
+
+	Bound to loopback on purpose: the TLS refusal a few lines away returns early for that, so
+	this asserts the new check runs on its own rather than riding on the old one. On a laptop
+	nothing would ever have told the operator, and the calendar subscriptions minted from it
+	would simply never work.
+	"""
+
+	run("init")
+	declare(home, '\npublic_url = "https://hpz2g9.<your-tailnet>.ts.net"\n')
+
+	result = run("serve", expect=1)
+
+	assert "public_url is set to" in result.output
+	assert "<your-tailnet>" in result.output, "it quotes back what was actually written"
+	assert "calendar subscriptions" in result.output, (
+		"it says what this breaks, not that a string failed to parse"
+	)
+
+
+def test_serve_refuses_without_a_signing_key (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#1254`. A service whose database arrived without ``init`` has no key and nothing said so.
+
+	Reproduced the way the migration produces it: an instance that exists, and a configuration
+	file with no ``secret_key`` in it — which is what ``db copy`` into a new service account's
+	directories, a restored backup, or a promoted personal install all leave behind. Before
+	this, ``serve`` started, ``/healthz`` and ``/readyz`` were green, ``doctor`` said nothing
+	needed attention, and the first listing longer than a page raised a ``RuntimeError``.
+	"""
+
+	run("init")
+
+	settings = home / "xdg_config_home" / "subroutine" / "config.toml"
+	kept = [
+		line
+		for line in settings.read_text(encoding="utf-8").splitlines(keepends=True)
+		if not line.startswith("secret_key")
+	]
+
+	assert len(kept) < len(settings.read_text(encoding="utf-8").splitlines()), (
+		"init did not write a secret_key, so removing one proves nothing"
+	)
+
+	settings.write_text("".join(kept), encoding="utf-8")
+
+	result = run("serve", expect=1)
+
+	assert "no secret_key" in result.output
+	assert "page" in result.output, "it says what breaks, not that a setting is missing"
+	assert "SUBROUTINE_SECRET_KEY" in result.output, "and both ways out"
+	assert "subroutine init" in result.output
+
+
+def test_serve_starts_in_dev_mode_with_no_signing_key (
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The refusal above must not fire on the arrangement that is allowed to have no key.
+
+	Without this the guard passes by refusing everything, which is the shape a refusal fails
+	in — and ``tests/api_support.py`` builds every application in this suite with ``dev_mode``,
+	so the whole of it would be asserting against a program nobody can start.
+	"""
+
+	run("init")
+	monkeypatch.setenv("SUBROUTINE_SECRET_KEY", "")
+	monkeypatch.setenv("SUBROUTINE_DEV_MODE", "1")
+
+	settings = home / "xdg_config_home" / "subroutine" / "config.toml"
+	settings.write_text(
+		"".join(
+			line
+			for line in settings.read_text(encoding="utf-8").splitlines(keepends=True)
+			if not line.startswith("secret_key")
+		),
+		encoding="utf-8",
+	)
+
+	started: dict[str, typing.Any] = {}
+
+	def instead_of_listening (app: typing.Any, **given: typing.Any) -> None:
+		"""Record that serve got as far as handing the application over."""
+
+		started.update(given)
+
+	monkeypatch.setattr("uvicorn.run", instead_of_listening)
+
+	run("serve")
+
+	assert started, "serve refused, or never reached uvicorn"
+
+
 def test_serving_bounds_how_long_a_stopping_server_waits (
 	run: typing.Callable[..., typer.testing.Result],
 	monkeypatch: pytest.MonkeyPatch,
@@ -1224,6 +1326,56 @@ def test_public_url_over_https_is_what_makes_a_public_bind_acceptable (
 	plain = run("serve", "--host", "0.0.0.0", expect=1)
 
 	assert "not an https:// address" in plain.output, "and it says why this one did not count"
+
+
+def test_an_ambiguous_workspace_is_refused_in_words_a_terminal_can_act_on (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1259`. Two refusals for one condition, one command apart, and one was unusable.
+
+	``add`` goes through the personal path and answers with the two spellings a person can
+	type. ``agent create`` goes through ``_administering`` and therefore over the wire, so what
+	reached the terminal was the API's own refusal unchanged: it named ``workspace_id``, which
+	is not something anybody can type here, and offered *"use a token pinned to one"* — advice
+	for the person receiving a credential, in front of the person issuing one.
+
+	The routing is right and is not what changed. `#547` already says each surface renders the
+	field in its own vocabulary; the terminal was the surface not doing it.
+	"""
+
+	with served(tmp_path) as remote:
+		subprocess.run(
+			[
+				sys.executable, "-m", "subroutine", "workspace", "create",
+				"second", "Second",
+			],
+			env={
+				**os.environ,
+				"XDG_CONFIG_HOME": str(remote.home / "config"),
+				"XDG_DATA_HOME": str(remote.home / "data"),
+				"XDG_STATE_HOME": str(remote.home / "state"),
+			},
+			capture_output=True,
+			text=True,
+			check=True,
+		)
+
+		declare(home, f'\n[connections.work]\nurl = "{remote.url}"\n')
+		subroutine.credentials.store("work", remote.token)
+
+		result = run("-c", "work", "agent", "create", "claude", expect=1)
+
+	assert "workspace_id" not in result.output, (
+		"a field name from a problem document is not something anybody can type at a terminal"
+	)
+	assert "token pinned to one" not in result.output, (
+		"that is advice for whoever receives the credential, not for whoever issues it"
+	)
+	assert "subroutine -w" in result.output
+	assert "subroutine use" in result.output
+	assert "second" in result.output, "and it still names the workspaces there are"
 
 
 def test_a_token_is_printed_once_and_not_stored_by_default (
@@ -3343,3 +3495,68 @@ def test_a_credential_listing_says_when_its_dates_are_this_machine_s (
 
 	assert note in said, f"the zone was assumed and not named:\n{said}"
 	assert "Pacific/Auckland" in said, f"the note does not say which zone it used:\n{said}"
+
+
+# --- The duplicate-instance check -------------------------------------------------------
+
+
+def test_a_local_database_a_schema_behind_is_still_recognised (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#1258`: the guard was defeated by the procedure the documentation prescribes.
+
+	The migration has you upgrade the program to match the server and keep the old database
+	as the rollback, so the local one is *necessarily* a schema behind at the moment
+	``connections add`` runs. It raised like a connection that is switched off, was passed
+	over in silence, and the command then said positively that this machine does not already
+	reach that instance.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	settings = subroutine.config.load_settings()
+	database = pathlib.Path(str(settings.database_url).removeprefix("sqlite:///"))
+
+	with sqlite3.connect(database) as opened:
+		mine = uuid.UUID(opened.execute("SELECT id FROM instance").fetchone()[0])
+		opened.execute("UPDATE alembic_version SET version_num = 'one-behind'")
+
+	assert subroutine.clients.local.instance_id(settings) == mine, (
+		"the id has to be readable from a database this build will not open, which is the "
+		"whole of what makes the check work rather than merely honest"
+	)
+
+	roster = subroutine.connections.roster(settings)
+
+	assert subroutine.cli.personal._already_reached(roster, settings, mine) == (
+		"local",
+		(),
+	)
+
+
+def test_a_connection_that_did_not_answer_is_named_rather_than_passed_over (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1258`'s second half: a partial check must not report as a whole one.
+
+	Said after the connection is written rather than instead of writing it. A server being
+	down is not evidence of a collision, and refusing to add a *different* connection because
+	of one would be a worse outcome than the thing being protected against.
+	"""
+
+	run("init", "--workspace", "Personal")
+
+	with refusing() as address:
+		declare(home, f'\n[connections.down]\nurl = "{address}"\n')
+		subroutine.credentials.store("down", "sr_nothing_answers_here")
+
+		with served(tmp_path) as remote:
+			subroutine.credentials.store("work", remote.token)
+
+			result = run("connections", "add", "work", "--url", remote.url)
+
+	assert "'down' did not answer" in result.output
+	assert "second name for an instance this machine already reaches" in result.output
+	assert "Added work to" in result.output, "the caveat is a note, not a refusal"
