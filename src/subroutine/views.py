@@ -2046,6 +2046,18 @@ BLOCKING_MARK = "blocker"
 #: from the thing it produces, and it needs no glossary.
 THE_SERIES = "the repeat itself"
 
+#: What an *occurrence* says about the row that outlives it — `#1247`.
+#:
+#: **The number was reachable and named nowhere.** ``show`` on the template works and says
+#: :data:`THE_SERIES`; nothing anywhere printed which number that was, so the only way to reach
+#: the row that persists — the one a reminder has to be set on, and the one a rename has to
+#: reach — was to guess an integer.
+#:
+#: Same vocabulary as its counterpart for the same reason: *repeat* is the word the product uses
+#: everywhere a person meets this, and *from* says which way round the two rows stand without
+#: asking anybody to learn what a template is.
+FROM_THE_REPEAT = "from repeat"
+
 
 def status_is_news (item: "Task | Project | Document") -> bool:
 	"""Report whether an item's status is worth telling a reader about.

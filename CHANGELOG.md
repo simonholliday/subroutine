@@ -124,6 +124,22 @@ upgrade involves.
 
 ### Fixed
 
+- **An edit to a repeating item can reach every occurrence from now on, not just this one.**
+  Renaming next Tuesday's meeting used to correct it for exactly one week: the title went back
+  when the following one came round, and nothing said so. A reminder had the same shape — set on
+  the occurrence it reached no calendar at all, because a subscribed calendar draws the repeat
+  rather than the copy in your list.
+
+  The choice belongs to you and nothing guesses it, so this release adds it to the parts of the
+  product that can ask: the terminal, the API and the browser come next. A change made to one
+  occurrence alone is not undone by a later change to the series, and moving the time of a
+  repeat moves the whole series by the same amount rather than dragging it back to the day you
+  happened to be looking at.
+
+- **An item that repeats says which repeat it came from.** `subroutine show` on next week's
+  occurrence now names the number of the repeat behind it. That number worked and appeared in no
+  output anywhere, so reaching the row that persists meant guessing an integer.
+
 - **Setting a reminder, or turning a one-off into a repeat, is recorded.** Neither appeared in
   the change feed and neither moved the item's version — so an editor holding a stale copy could
   overwrite either without being told, which is the thing that version is for. Both now record

@@ -2049,6 +2049,18 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		if item.is_template:
 			facts.append(subroutine.views.THE_SERIES)
 
+		# **The same explanation from the other end** (`#1247`), and it arrived here the way the
+		# reminder above did: as `#674`'s guard failing rather than as something anybody
+		# remembered. An agent that has just been told to correct a repeating item needs the
+		# number of the row that persists, or it edits the copy and the correction lasts one
+		# turn of the wheel — which is the defect, and an agent is the caller least able to
+		# notice it a month later.
+		elif item.recurrence_template_ref is not None:
+			facts.append(
+				f"{subroutine.views.FROM_THE_REPEAT} "
+				f"{subroutine.domain.refs.format_ref(item.recurrence_template_ref)}"
+			)
+
 		# **What a subscribed calendar will remind about, and when** (`#1211`). §14.1's rule
 		# is that nothing a person can see may be invisible to an agent, and
 		# `test_the_agents_show_reports_what_the_command_lines_show_reports` is what enforces

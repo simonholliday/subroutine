@@ -1043,6 +1043,7 @@ def update (
 	recurrence_trigger: str | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
+	scope: str | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
@@ -1059,6 +1060,13 @@ def update (
 	the task exactly as it was: the caller holds a live session it may still commit, so a
 	half-applied change that raised on the way through would be committed silently along
 	with whatever else that transaction was doing.
+
+	``scope`` says which occurrences of a repeating item an edit applies to — decision `#1249`,
+	and :data:`SCOPES` carries the two answers. ``None`` means the caller did not say, and lands
+	on the row it was given, which is what everything did before `#1247`. **The surfaces are
+	where that becomes a question a person is asked** (`#1251`) or a request refused for not
+	answering (`#1252`); here it is an argument, because a domain that guessed would be guessing
+	on behalf of whichever client happened to call it.
 	"""
 
 	# Permission first, before anything is even read: a caller who may not touch this task
@@ -1073,6 +1081,7 @@ def update (
 		workspace_id=task.workspace_id,
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
+	refuse_a_scope_that_means_nothing(task, scope)
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
@@ -1462,7 +1471,8 @@ def update (
 			actor=actor,
 		)
 
-	changes = subroutine.domain.events.changes_between(before, _snapshot(session, task))
+	after = _snapshot(session, task)
+	changes = subroutine.domain.events.changes_between(before, after)
 
 	if not changes:
 		return task
@@ -1513,6 +1523,15 @@ def update (
 	# so the record reads in the order it happened. A lease over work nobody can start protects
 	# nothing, and a name on the row saying somebody is holding it is simply false.
 	subroutine.domain.claims.released_if_finished(session, task, now=instant, actor=actor)
+
+	# **After this row is settled and recorded, because the other one is a consequence of it**
+	# (`#1247`). A change feed then reads in the order it happened: the row somebody edited, and
+	# then the row that had to follow — rather than two writes with no way to tell which was
+	# asked for.
+	if scope == FROM_NOW_ON:
+		_applied_to_the_series(
+			session, task, was=before, now_holds=after, actor=actor, instant=instant
+		)
 
 	# **After the event, so the order reads the way it happened**: this one was finished, then
 	# the next one appeared. The new instance records its own creation, so a change feed shows
@@ -1769,6 +1788,292 @@ def skip (
 		actor=actor,
 	)
 
+
+
+#: What an edit to a repeating item can apply to — decision `#1249` §2.
+#:
+#: **Two answers rather than the three every calendar offers**, and structurally so. Google,
+#: Apple and Outlook need *this-and-following* because they compute every occurrence from the
+#: rule, so *all* would rewrite last March. This materialises one occurrence at a time and keeps
+#: the finished ones as real rows the template never re-derives — **there is no past to rewrite**,
+#: so *from now on* already means *this one and every one after*.
+#:
+#: Say it in those words on every surface. *All events* promises something about history that
+#: does not happen.
+THIS_ONE = "this_one"
+FROM_NOW_ON = "from_now_on"
+
+SCOPES = (THIS_ONE, FROM_NOW_ON)
+
+#: What a scope choice never carries between a series and its occurrence — decision `#1249` §1.
+#:
+#: **These are the fields with no second answer**, which is why they are not a rule anybody has
+#: to learn: nobody is ever shown a prompt where one of the two options would be meaningless.
+#: Completing every future occurrence would end the series, which is what a series *running out*
+#: already means (`#94`); the join itself is what tells the two rows apart. A claim is a lease on
+#: rows that do not exist yet, and comments and links are not columns — what happened, happened
+#: to that one.
+NEVER_CARRIED = frozenset({"status_id", "completed_at", "recurrence_template_id"})
+
+#: The columns that move by the same amount rather than to the same value.
+#:
+#: A series' date and its occurrence's are **meant** to differ — by however many turns of the
+#: wheel are between them — so copying one onto the other would drag the whole grid back to the
+#: row that happened to be edited. Moving both by the same delta is what "from 3pm from now on"
+#: means, and it keeps every other occurrence where the rule puts it.
+#:
+#: ``occurrence_at`` travels with them and is not optional: it is the slot the series minted the
+#: row for, and `#1248` reads *has this been moved* off exactly that comparison. Left behind, a
+#: whole series shifting an hour would read as every occurrence individually rescheduled, and the
+#: calendar feed would emit an ``EXDATE`` for a slot nothing had left.
+MOVED_BY_DELTA = ("due_at", "starts_at", "ends_at", "snoozed_until")
+
+
+def _carried (
+	session: sqlalchemy.orm.Session,
+	target: subroutine.db.models.work.Task,
+	*,
+	was: dict[str, typing.Any],
+	now_holds: dict[str, typing.Any],
+	only_where_unchanged: bool,
+	actor: subroutine.domain.authentication.Principal | None,
+	instant: datetime.datetime,
+) -> None:
+	"""Carry one row of a series' change onto the other, and record it there.
+
+	``was`` and ``now_holds`` are the *source* row before and after — snapshots rather than the
+	rendered change list, because this compares against live column values and
+	:func:`~subroutine.domain.events.changes_between` has already put its own through
+	``jsonable``, where a datetime is a string and a UUID is a string.
+
+	**``only_where_unchanged`` is decision `#1249` §3, and it has exactly one direction.** When
+	the *series* is edited, the live occurrence takes the change only where it still held the
+	series' old value — so a title somebody set on this occurrence alone is not silently undone
+	by a later *from now on*. When the *occurrence* is edited there is no such question: the row
+	the person is looking at is the one they changed.
+
+	**An override needs no column** and that is the whole point of the rule: a field is
+	overridden exactly when it differs from the series, and the old value is in hand because it
+	is the row before the update.
+
+	The bookkeeping is written out rather than routed back through :func:`update`, and the
+	reason is that this is a **copy** rather than an edit: every value here has already been
+	validated on the row it came from, and re-validating would ask the far row's other columns
+	questions the caller never answered — a start moved to 3pm being checked against an end that
+	is about to move with it.
+	"""
+
+	before = _snapshot(session, target)
+	deltas = {
+		column: now_holds[column] - was[column]
+		for column in MOVED_BY_DELTA
+		if was.get(column) is not None and now_holds.get(column) is not None
+	}
+
+	for column, value in now_holds.items():
+		if column in NEVER_CARRIED or was.get(column) == value:
+			continue
+
+		if only_where_unchanged and before.get(column) != was.get(column):
+			continue
+
+		if column == "tags":
+			subroutine.domain.tags.set_on(
+				session,
+				target,
+				subroutine.domain.tags.ensure(
+					session, workspace_id=target.workspace_id, names=value
+				),
+			)
+
+		elif column in deltas and getattr(target, column) is not None:
+			# **Moved, not copied.** The two rows are meant to hold different dates; what they
+			# share is the shape of the move.
+			setattr(target, column, getattr(target, column) + deltas[column])
+
+		elif column in MOVED_BY_DELTA:
+			# A date that was cleared, or set from nothing, has no delta to apply — the value
+			# is the only thing there is to say.
+			setattr(target, column, value)
+
+		else:
+			setattr(target, column, value)
+
+	# **The slot moves with the dates it is a slot for.** `#1248` reads *has this been moved*
+	# off ``occurrence_at`` against the row's own date, so leaving it behind would make a series
+	# shifting an hour look like every occurrence being individually rescheduled — and the feed
+	# would emit an ``EXDATE`` for a slot nothing had left.
+	if target.occurrence_at is not None and deltas:
+		target.occurrence_at += next(iter(deltas.values()))
+
+	session.flush()
+
+	changes = subroutine.domain.events.changes_between(before, _snapshot(session, target))
+
+	if not changes:
+		return
+
+	if subroutine.domain.events.touches_content("task", changes):
+		target.content_updated_at = subroutine.db.types.utcnow()
+
+	target.version += 1
+	target.updated_by = None if actor is None else actor.user.id
+	session.flush()
+
+	if "title" in changes or "description" in changes:
+		subroutine.domain.mentions.synchronize(
+			session,
+			workspace_id=target.workspace_id,
+			source_type="task",
+			source_id=target.id,
+			texts=(target.title, target.description),
+		)
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=target.workspace_id,
+		entity_type="task",
+		entity_id=target.id,
+		action=subroutine.domain.events.EventAction.UPDATED,
+		changes=changes,
+		actor=actor,
+	)
+	session.flush()
+
+
+def _applied_to_the_series (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	*,
+	was: dict[str, typing.Any],
+	now_holds: dict[str, typing.Any],
+	actor: subroutine.domain.authentication.Principal | None,
+	instant: datetime.datetime,
+) -> None:
+	"""Send an edit to the other row of the series, whichever end the caller was holding.
+
+	**Decision `#1249` §1 and §4 are one mechanism seen from two sides.** A person is not aware
+	that there are two rows: for them there is one event that reoccurs. So an edit that says
+	*every one from now on* has to reach the row that persists, and an edit made **to** that row
+	has to reach the one they are looking at — or `subroutine list` goes on showing the old
+	title until the thing next comes round, which is the defect arriving from the other side.
+	"""
+
+	# **The row that was edited keeps its own slot in step, and it is not the same statement as
+	# the copy below.** When a series moves, its live occurrence has not been *individually*
+	# rescheduled — so ``occurrence_at`` has to move with the date or `#1248` reads the whole
+	# series shifting an hour as every occurrence being moved by hand, and the feed excludes a
+	# slot nothing left. Applied to whichever row was addressed; the other gets it in
+	# :func:`_carried`.
+	moved = [
+		now_holds[column] - was[column]
+		for column in MOVED_BY_DELTA
+		if was.get(column) is not None and now_holds.get(column) is not None
+		and was[column] != now_holds[column]
+	]
+
+	if moved and task.occurrence_at is not None:
+		task.occurrence_at += moved[0]
+		session.flush()
+
+	if task.is_template:
+		occurrence = live_occurrence(session, task)
+
+		if occurrence is not None:
+			_carried(
+				session,
+				occurrence,
+				was=was,
+				now_holds=now_holds,
+				only_where_unchanged=True,
+				actor=actor,
+				instant=instant,
+			)
+
+		return
+
+	series = series_of(session, task)
+
+	if series is not None:
+		_carried(
+			session,
+			series,
+			was=was,
+			now_holds=now_holds,
+			only_where_unchanged=False,
+			actor=actor,
+			instant=instant,
+		)
+
+
+def refuse_a_scope_that_means_nothing (
+	task: subroutine.db.models.work.Task, scope: str | None
+) -> None:
+	"""Refuse a scope on something that does not repeat, and an unknown one anywhere.
+
+	**Ignoring it would be the inert control this codebase has found three times** — a setting
+	that is accepted, documented and read by nothing. Somebody who says *from now on* about a
+	one-off has misunderstood something, and the cheapest moment to say so is the one where they
+	said it.
+	"""
+
+	if scope is None:
+		return
+
+	if scope not in SCOPES:
+		raise subroutine.errors.ValidationError(
+			f"{scope!r} is not a way for an edit to apply to a repeat.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field="scope",
+					code="invalid_field_value",
+					message=f"The answers are: {', '.join(SCOPES)}.",
+				)
+			],
+		)
+
+	if task.recurrence_template_id is None and not task.is_template:
+		raise subroutine.errors.ValidationError(
+			"That does not repeat, so there is only one of it to change.",
+			code="invalid_field_value",
+			hint="Leave the scope out and the change applies to it.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="scope",
+					code="invalid_field_value",
+					message="Only an edit to a repeating item says which occurrences it is for.",
+				)
+			],
+		)
+
+
+def live_occurrence (
+	session: sqlalchemy.orm.Session, template: subroutine.db.models.work.Task
+) -> subroutine.db.models.work.Task | None:
+	"""Return the one unfinished occurrence of a series, or ``None`` if there is none.
+
+	**There is exactly one at a time**, which is what makes decision `#1249` §4's write-through
+	well defined: `materialise` mints the next only when the last is finished. ``None`` is an
+	ordinary answer rather than a failure — a series whose rule is spent has no live row, and
+	neither has a template somebody is holding mid-creation.
+
+	Ordered by the slot it was minted for so that a database which has somehow been left with
+	two answers the same question the same way twice, rather than differently each call.
+	"""
+
+	task = subroutine.db.models.work.Task
+
+	return session.scalars(
+		sqlalchemy.select(task)
+		.where(
+			task.recurrence_template_id == template.id,
+			task.completed_at.is_(None),
+			task.deleted_at.is_(None),
+		)
+		.order_by(task.occurrence_at.asc().nulls_last(), task.id.asc())
+		.limit(1)
+	).first()
 
 
 def series_of (

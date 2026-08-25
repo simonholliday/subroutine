@@ -20,9 +20,11 @@ import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.cli.personal
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.domain.versions
@@ -926,3 +928,290 @@ def test_two_completions_at_once_mint_one_next_occurrence (
 				)
 
 			tidy.commit()
+
+
+# --- Which occurrences an edit is for — item `SR#1247`, decision `SR#1249` ------------------
+
+
+def test_an_edit_without_a_scope_lands_where_it_always_did (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1247`'s starting state, kept as the domain's answer when nobody has said.
+
+	The surfaces are where not saying becomes a question (`SR#1251`) or a refusal (`SR#1252`);
+	a domain that guessed would be guessing on behalf of whichever client happened to call it.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(session, made, title="Only here", now=NOW)
+	session.flush()
+
+	assert made.title == "Only here"
+	assert series.title != "Only here", "an edit with no scope reached the row that persists"
+
+
+def test_from_now_on_reaches_the_row_that_persists (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The defect `SR#1247` was filed for: a correction that lasted one turn of the wheel.
+
+	Measured on a disposable instance — rename the occurrence, complete it, and the next one
+	came back with the old title. Nothing said so, which is what made it worth an item rather
+	than a note.
+	"""
+
+	made = _repeating(session, recurrence="every week", title="Anna's birthday")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		title="Anna's birthday, corrected",
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.title == "Anna's birthday, corrected"
+	assert series.title == "Anna's birthday, corrected"
+
+	# **The next one, for real**, because the requirement is about what comes round rather than
+	# about two rows agreeing at one instant.
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+	session.flush()
+
+	assert _next_live(session, series).title == "Anna's birthday, corrected"
+
+
+def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1247`'s second measurement, and it is why `SR#1211` looked broken.
+
+	The feed draws the *series* for a scheduled repeat, so a reminder stored on the occurrence
+	emitted no ``VALARM`` at all — the feature worked perfectly, on a row nobody was looking at.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(
+		session, made, reminder="2w", scope=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
+	)
+	session.flush()
+
+	assert made.reminder_minutes == 20160
+	assert series.reminder_minutes == 20160, (
+		"the reminder is on the occurrence only, so no calendar will ever draw it"
+	)
+
+
+def test_from_now_on_moves_the_grid_rather_than_dragging_it_back (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A series' date and its occurrence's are meant to differ, by however many turns are between.
+
+	Copying one onto the other would pull the whole rule back to whichever row was edited. What
+	the two share is the *shape* of the move, which is what "from 3pm from now on" says.
+
+	**And the slot moves with it.** `SR#1248` reads *has this been individually moved* off
+	``occurrence_at`` against the row's own date, so a series shifting four hours would
+	otherwise read as the occurrence being rescheduled by hand — and the feed would exclude a
+	slot nothing had left.
+	"""
+
+	made = _repeating(
+		session, recurrence="every week", due=None, starts=NOW + datetime.timedelta(days=1)
+	)
+	series = _template(session, made)
+
+	assert made.starts_at is not None and series.starts_at is not None
+	was = made.starts_at
+	series_was = series.starts_at
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		starts=was + datetime.timedelta(hours=4),
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.starts_at == was + datetime.timedelta(hours=4)
+	assert series.starts_at == series_was + datetime.timedelta(hours=4)
+	assert made.occurrence_at == made.starts_at, (
+		"the slot was left behind, so a whole series moving reads as one occurrence moved"
+	)
+
+
+def test_an_edit_to_the_series_reaches_the_row_a_person_is_looking_at (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Decision `SR#1249` §4, which is `SR#1247` arriving from the other side.
+
+	The row in every listing is the occurrence, so a rename that touched only the template
+	would leave the old title on screen until the thing next came round.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		title="What it is really called",
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.title == "What it is really called"
+
+
+def test_a_change_made_to_one_occurrence_is_not_undone_by_a_later_series_edit (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Decision `SR#1249` §3, and the consequence nobody had raised when the model was agreed.
+
+	*Just this one* on a title makes the occurrence disagree with its series. A later *every one
+	from now on* has to leave that alone — and it needs no column to know: a field is overridden
+	exactly when it differs from the series, and the old value is in hand, being the row before
+	the update.
+	"""
+
+	made = _repeating(session, recurrence="every week", title="Standup")
+	series = _template(session, made)
+
+	subroutine.domain.tasks.update(session, made, title="Standup, short one", now=NOW)
+	session.flush()
+
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		title="Daily standup",
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert series.title == "Daily standup"
+	assert made.title == "Standup, short one", (
+		"a change somebody made to this occurrence alone was silently undone"
+	)
+
+	# **And an untouched field on the same row still follows**, which is what stops the rule
+	# being read as "an overridden row stops listening".
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		description="Fifteen minutes, standing up",
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.description == "Fifteen minutes, standing up"
+
+
+def test_completion_is_never_carried_to_the_series (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""One of decision `SR#1249` §1's four that never ask, and the one with teeth.
+
+	Completing every future occurrence would end the series, which is what a series *running
+	out* already means (`SR#94`) — so carrying it would give a second, unmarked route to
+	stopping a repeat, reached by finishing one of them.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+	finished = subroutine.domain.tasks.status_key_in(session, made.workspace_id, "done")
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		status_key=finished,
+		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert series.completed_at is None, "finishing one occurrence stopped the whole repeat"
+	assert series.status_id != made.status_id
+
+
+def test_a_scope_on_something_that_does_not_repeat_is_refused (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Ignored, this would be the inert control this codebase has found three times.
+
+	Somebody who says *from now on* about a one-off has misunderstood something, and the
+	cheapest moment to say so is the one where they said it.
+	"""
+
+	once = test_schedule._task(session, title="Pay the deposit", now=NOW)
+	session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(
+			session, once, title="Anything", scope=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
+		)
+
+	assert "does not repeat" in refused.value.detail
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(session, once, title="Anything", scope="all", now=NOW)
+
+
+def test_an_occurrence_says_which_repeat_it_came_from (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1247`'s third measurement: the number was reachable and printed by nothing.
+
+	``show`` on the template works and says *the repeat itself*; no output anywhere named which
+	number that was, so the only way to reach the row that persists — the one a reminder has to
+	be set on — was to guess an integer.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	shown = subroutine.cli.personal._facts(
+		subroutine.cli.personal.Located(
+			connection="local",
+			workspace="here",
+			item=subroutine.views.task(
+				made, subroutine.views.Vocabulary.for_tasks(session, [made])
+			),
+		)
+	)
+
+	# **The whole phrase, not the digits.** A bare ``str(ref)`` is in the priority cell, in a
+	# date and in half the other facts on a small instance, so asserting on it passes against
+	# the code this was written for — measured, by removing the line and watching it stay green.
+	wanted = (
+		f"{subroutine.views.FROM_THE_REPEAT} "
+		f"{subroutine.domain.refs.format_ref(series.ref)}"
+	)
+
+	assert wanted in shown, (
+		f"nothing on the occurrence names the repeat it came from: {shown}"
+	)
+
+	# And the other end still says which row it is, so this did not just move the confusion.
+	held = subroutine.cli.personal._facts(
+		subroutine.cli.personal.Located(
+			connection="local",
+			workspace="here",
+			item=subroutine.views.task(
+				series, subroutine.views.Vocabulary.for_tasks(session, [series])
+			),
+		)
+	)
+
+	assert subroutine.views.THE_SERIES in held
+	assert not any(wanted in fact for fact in held), "the series points at itself"
+

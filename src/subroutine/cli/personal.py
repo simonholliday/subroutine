@@ -9002,6 +9002,17 @@ def _facts (located: Located) -> list[str]:
 		if item.is_template:
 			facts.append(subroutine.views.THE_SERIES)
 
+		# **The other half of the same explanation** (`#1247`). The template's own ref was
+		# reachable — `show 5` works and says *the repeat itself* — and printed by nothing, so
+		# somebody who had renamed this occurrence and watched the correction come back wrong
+		# next month had no number to act on. Measured on a disposable instance: three faces of
+		# one defect, and this is the one that costs a line.
+		elif item.recurrence_template_ref is not None:
+			facts.append(
+				f"{subroutine.views.FROM_THE_REPEAT} "
+				f"{subroutine.domain.refs.format_ref(item.recurrence_template_ref)}"
+			)
+
 	# **Outside the task block since `#819`**, because both kinds carry tags now and from one
 	# vocabulary. It sat inside for as long as only a task could have them — so a document
 	# tagged through the API rendered nothing here, which is the *stored and shown nowhere*
