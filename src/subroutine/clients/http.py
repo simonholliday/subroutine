@@ -1297,6 +1297,7 @@ class Client:
 		parent: int | None = None,
 		description: str | None = None,
 		reminder: int | str | None = None,
+		ends: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -1340,6 +1341,7 @@ class Client:
 				# of it, and leaves the words in the title — so a repeat has to arrive beside
 				# the line rather than inside it.
 				reminder=reminder,
+				ends=ends,
 				recurrence=recurrence,
 				recurrence_anchor=recurrence_anchor,
 				recurrence_trigger=recurrence_trigger,
@@ -1562,6 +1564,7 @@ class Client:
 		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		starts: str | None = subroutine.clients.base.UNSET,
 		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		ends: str | None = subroutine.clients.base.UNSET,
 		snooze: str | None = subroutine.clients.base.UNSET,
 		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		recurrence: str | None = subroutine.clients.base.UNSET,
@@ -1606,6 +1609,7 @@ class Client:
 			# being consulted by nothing.
 			"starts": starts,
 			"starts_is_all_day": starts_is_all_day,
+			"ends": ends,
 			"snooze": snooze,
 			"snoozed_is_all_day": snoozed_is_all_day,
 			"recurrence": recurrence,
@@ -1673,6 +1677,7 @@ class Client:
 		ref: int,
 		workspace: str | None = None,
 		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden.
@@ -1688,6 +1693,9 @@ class Client:
 
 		if starts is not subroutine.clients.base.UNSET:
 			changes["starts"] = None if starts is None else starts.isoformat()
+
+		if ends is not subroutine.clients.base.UNSET:
+			changes["ends"] = None if ends is None else ends.isoformat()
 
 		if snooze is not subroutine.clients.base.UNSET:
 			changes["snooze"] = None if snooze is None else snooze.isoformat()

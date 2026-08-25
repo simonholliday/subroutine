@@ -566,6 +566,13 @@ class Task(pydantic.BaseModel):
 	starts_at: datetime.datetime | None = None
 	starts_is_all_day: bool = False
 
+	#: **When it is over** — decision `#1235`, and the far half of a span. Null on almost
+	#: everything: a task has a start because somebody planned it, and an end only when it
+	#: occupies a period — a booked fortnight, a code freeze, an hour with the dentist.
+	#:
+	#: Defaulted for ``starts_at``'s reason above (`#345`, `#482`).
+	ends_at: datetime.datetime | None = None
+
 	snoozed_until: datetime.datetime | None = None
 	snoozed_is_all_day: bool = False
 	timezone: str | None
@@ -2414,6 +2421,7 @@ def task (
 		due_is_all_day=row.due_is_all_day,
 		starts_at=row.starts_at,
 		starts_is_all_day=row.starts_is_all_day,
+		ends_at=row.ends_at,
 		snoozed_until=row.snoozed_until,
 		snoozed_is_all_day=row.snoozed_is_all_day,
 		# **All four fall back to the template's**, so an occurrence can say how it repeats.
@@ -2871,6 +2879,7 @@ _A_CHANGE_TO = {
 	"spent_minutes": "time spent",
 	"starts_at": "when it starts",
 	"starts_is_all_day": "when it starts",
+	"ends_at": "when it is over",
 	"status_id": "how it is going",
 	"type_id": "what kind it is",
 	"owner_id": "whose it is",

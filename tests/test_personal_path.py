@@ -6473,7 +6473,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: payments, none of them raised, and each cheaper than the last: what a feature pays now is
 #: the cost of noticing rather than the cost of designing, and the closure has gone from 4,769
 #: lines to under 1,800 without a single stage being planned as one.
-REGISTER_CEILING = 1_697
+REGISTER_CEILING = 1_685
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -6493,7 +6493,7 @@ REGISTER_CEILING = 1_697
 #: the closure still shrank by twenty-two: the body that applies the changes left as `_changed`,
 #: which needed nothing from the closure that `Program` does not carry. What stayed behind is
 #: the part deciding *whether each field was given*, and each of those decides it differently.
-MODULE_LEVEL_FLOOR = 145
+MODULE_LEVEL_FLOOR = 147
 
 
 def _register_span () -> tuple[int, int]:

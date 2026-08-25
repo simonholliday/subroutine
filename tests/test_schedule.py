@@ -633,6 +633,106 @@ def _day_scale_truncations (tree: pathlib.Path) -> dict[str, list[str]]:
 	return found
 
 
+def test_a_span_is_stored_from_both_ends_and_each_edge_takes_its_own_boundary (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A fortnight off is fifteen whole days, and the two edges are not symmetrical — `SR#1235`.
+
+	**The start is the first microsecond of its day and the end is the last**, which is §6.5's
+	all-day rule applied to a span: a holiday beginning on the 14th begins as the 14th does, and
+	one ending on the 28th is over when the 28th is rather than as it starts. Getting the second
+	one wrong loses a day off every holiday anybody books, silently, and it looks correct in the
+	database.
+	"""
+
+	task = _task(
+		session, starts="2026-08-14", ends="2026-08-28", title="Away"
+	)
+
+	london = zoneinfo.ZoneInfo(LONDON)
+
+	assert _instant(task.starts_at).astimezone(london).date() == datetime.date(2026, 8, 14)
+	assert _instant(task.ends_at).astimezone(london).date() == datetime.date(2026, 8, 28)
+
+	assert task.starts_is_all_day is True
+	assert _instant(task.starts_at).astimezone(london).time() == datetime.time(0, 0)
+	assert _instant(task.ends_at).astimezone(london).time() == datetime.time(
+		23, 59, 59, 999999
+	), "an end on its own last day stops as it begins, which loses the day"
+
+
+def test_a_span_that_could_not_mean_anything_is_refused_by_name (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The three ways to write an end that says nothing — `SR#1235`, `schedule.check_span`.
+
+	**In the service rather than in a CHECK constraint**, per this project's rule: the database
+	can refuse the row and cannot name the field, say which of the two to move, or fire at all
+	on SQLite for the third of these.
+
+	**The shapes are compared after interpretation, not as they were typed.** ``2026-08-28`` is a
+	whole day and ``2026-08-28T15:00:00Z`` is a time, and it is what they *became* that has to
+	agree — so this drives the service rather than the parser.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as alone:
+		_task(session, ends="2026-08-28", title="An end and no beginning")
+
+	assert "ends_at" in str(alone.value.errors)
+	assert "starts_at" in str(alone.value.errors)
+
+	with pytest.raises(subroutine.errors.ValidationError) as backwards:
+		_task(session, starts="2026-08-28", ends="2026-08-14", title="Finishes first")
+
+	assert "ends_at" in str(backwards.value.errors)
+
+	with pytest.raises(subroutine.errors.ValidationError) as mixed:
+		_task(
+			session,
+			starts="2026-08-14",
+			ends="2026-08-28T15:00:00Z",
+			title="A day at one end and a time at the other",
+		)
+
+	assert "starts_is_all_day" in str(mixed.value.errors), (
+		"the refusal has to name a field somebody can actually send, and an end has no flag"
+	)
+
+	# **One whole day at both ends is legitimate and must not be caught by the ordering rule.**
+	# A public holiday is exactly that, and comparing the stored instants would pass it by
+	# accident — midnight against the last microsecond — which is why the comparison is on days.
+	same = _task(session, starts="2026-08-31", ends="2026-08-31", title="Bank holiday")
+
+	assert same.ends_at is not None
+
+
+def test_moving_one_edge_of_a_span_is_checked_against_the_other (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A caller who mentions one end is still held to the one already stored — `SR#1235`.
+
+	The rule invariant 8 states for a defer and a deadline, and it bites harder here: a change
+	that names only the start is checked against nothing unless the stored end is read back, so
+	a booked fortnight could be pushed past its own finish by an edit that never mentioned it.
+	"""
+
+	task = _task(session, starts="2026-08-14", ends="2026-08-28", title="Away")
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(session, task, starts="2026-09-04", now=NOW)
+
+	# **And the end alone, the other way round**, because a rule aimed at one direction of a
+	# symmetric problem never fires for the other.
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(session, task, ends="2026-08-01", now=NOW)
+
+	subroutine.domain.tasks.update(session, task, ends="2026-09-04", now=NOW)
+
+	assert _instant(task.ends_at).astimezone(zoneinfo.ZoneInfo(LONDON)).date() == (
+		datetime.date(2026, 9, 4)
+	)
+
+
 def test_no_day_scale_date_is_truncated_without_its_zone () -> None:
 	"""The Python twin of `SR#773`'s browser guard, which is the half that was missing.
 

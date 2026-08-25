@@ -510,6 +510,10 @@ def materialise (
 		due_is_all_day=True if dateless else template.due_is_all_day,
 		starts_at=None if template.starts_at is None else template.starts_at + shift,
 		starts_is_all_day=template.starts_is_all_day,
+		# **Carried and shifted with the start**, because a span belongs to the series: a
+		# stand-up that runs 09:00 to 09:15 runs that long every day, and an occurrence carrying
+		# a start without its end would be the zero-length event `#1235` exists to prevent.
+		ends_at=None if template.ends_at is None else template.ends_at + shift,
 		# **Deliberately not carried.** A snooze is somebody saying "not yet" about one
 		# occurrence; repeating it would hide every future one for the same reason, which
 		# nobody asked for.
@@ -571,6 +575,7 @@ def create (
 	due_is_all_day: bool | None = None,
 	starts: datetime.datetime | datetime.date | str | None = None,
 	starts_is_all_day: bool | None = None,
+	ends: datetime.datetime | datetime.date | str | None = None,
 	snooze: datetime.datetime | datetime.date | str | None = None,
 	snoozed_is_all_day: bool | None = None,
 	recurrence: str | None = None,
@@ -656,6 +661,29 @@ def create (
 		all_day=starts_is_all_day,
 		field="starts_at",
 	)
+	# **The far end of the day, like a deadline and unlike a start** (`#1235`). A holiday that
+	# ends on the 28th is over when the 28th is, not at midnight as it begins — the same
+	# reasoning §6.5 applies to `due_at`, arriving at the same boundary for the same reason.
+	ending = subroutine.domain.schedule.interpret(
+		ends,
+		boundary=subroutine.domain.schedule.Boundary.END,
+		timezone=zone,
+		now=instant,
+		# **Inferred from the shape, never sent.** There is no `ends_is_all_day` to pass: a
+		# span's all-day-ness is one fact and `starts_is_all_day` holds it, so what a caller
+		# writes here decides only whether the two ends *agree* — which `check_span` insists
+		# on rather than silently picking one.
+		all_day=None,
+		field="ends_at",
+	)
+
+	subroutine.domain.schedule.check_span(
+		starts_at=beginning.instant,
+		starts_is_all_day=beginning.is_all_day,
+		ends_at=ending.instant,
+		ends_is_all_day=ending.is_all_day,
+		timezone=zone,
+	)
 
 	# **A repeat that names its own days is given the first of them** (`#1208`). Without this the
 	# row carries a rule and no date, so nothing that draws a date can draw it — including the
@@ -701,6 +729,7 @@ def create (
 		due_is_all_day=deadline.is_all_day,
 		starts_at=beginning.instant,
 		starts_is_all_day=beginning.is_all_day,
+		ends_at=ending.instant,
 		snoozed_until=defer.instant,
 		snoozed_is_all_day=defer.is_all_day,
 		# **The row a caller creates *is* the template when they gave a rule** (§6.7), rather
@@ -940,6 +969,7 @@ def update (
 	due_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	starts: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	starts_is_all_day: bool | None = subroutine.domain.patch.UNSET,
+	ends: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	snooze: datetime.datetime | datetime.date | str | None = subroutine.domain.patch.UNSET,
 	snoozed_is_all_day: bool | None = subroutine.domain.patch.UNSET,
 	recurrence: str | None = subroutine.domain.patch.UNSET,
@@ -1066,6 +1096,32 @@ def update (
 		zone=zone,
 		now=instant,
 		field="starts_at",
+	)
+	ending: typing.Any = _rescheduled(
+		task.ends_at,
+		given=ends,
+		all_day=subroutine.domain.patch.UNSET,
+		boundary=subroutine.domain.schedule.Boundary.END,
+		zone=zone,
+		now=instant,
+		field="ends_at",
+	)
+
+	# **Both ends resolved against what the task will look like** — the rule the block below
+	# states for invariant 8, and it bites harder here: a caller moving only the start of a
+	# booked fortnight would otherwise be checked against nothing, and could push the
+	# beginning past an end they never mentioned.
+	unmoved = beginning is subroutine.domain.patch.UNSET
+	unended = ending is subroutine.domain.patch.UNSET
+
+	subroutine.domain.schedule.check_span(
+		starts_at=task.starts_at if unmoved else beginning.instant,
+		starts_is_all_day=task.starts_is_all_day if unmoved else beginning.is_all_day,
+		ends_at=task.ends_at if unended else ending.instant,
+		# **The start's flag when the end is not moving**, because there is only one: an end
+		# has none of its own and inherits whatever the start already says.
+		ends_is_all_day=task.starts_is_all_day if unended else ending.is_all_day,
+		timezone=zone,
 	)
 
 	# Invariant 8 is checked against what the task *will* look like, not against what was
@@ -1286,6 +1342,9 @@ def update (
 	if beginning is not subroutine.domain.patch.UNSET:
 		task.starts_at = beginning.instant
 		task.starts_is_all_day = beginning.is_all_day
+
+	if ending is not subroutine.domain.patch.UNSET:
+		task.ends_at = ending.instant
 
 	if defer is not subroutine.domain.patch.UNSET:
 		task.snoozed_until = defer.instant
@@ -2076,6 +2135,7 @@ def _snapshot (
 		"estimate_minutes": task.estimate_minutes,
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
+		"ends_at": task.ends_at,
 		"starts_at": task.starts_at,
 		# `#1016`. Its two siblings were both here and this one was not, so flipping only
 		# whether a start is a whole day moved the row, bumped the version, and left no trace

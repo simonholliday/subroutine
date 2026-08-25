@@ -748,6 +748,7 @@ def test_an_all_day_event_lands_on_the_day_its_writer_meant (
 		due_at = None
 		starts_is_all_day = False
 		due_is_all_day = False
+		ends_at = None
 		estimate_minutes = None
 		reminder_minutes = None
 
@@ -798,6 +799,7 @@ def test_an_all_day_event_spans_one_day_across_a_clock_change () -> None:
 			due_at = None
 			starts_is_all_day = True
 			due_is_all_day = False
+			ends_at = None
 			estimate_minutes = None
 			reminder_minutes = None
 			timezone = "Europe/London"
@@ -832,6 +834,7 @@ def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:
 		due_at = None
 		starts_is_all_day = False
 		due_is_all_day = False
+		ends_at = None
 		estimate_minutes = 60
 		reminder_minutes = None
 
@@ -856,6 +859,109 @@ def test_the_rendered_document_is_what_a_calendar_will_accept () -> None:
 	# pair as one (decision `SR#972` §2).
 	assert "DTSTART:20260821T140000Z" in rendered
 	assert "DTEND:20260821T150000Z" in rendered
+
+
+def test_a_span_of_whole_days_is_one_banner_across_all_of_them () -> None:
+	"""A fortnight booked off is fifteen dates, not one — `SR#576`, decision `SR#1235`.
+
+	**The case that made the field necessary.** Until it existed the all-day branch wrote
+	``DTEND = DTSTART + 1 day`` unconditionally and consulted no other column, so a holiday from
+	the 14th to the 28th rendered as a single day. Nothing was wrong-looking about the file: it
+	was a valid all-day event, on the right date, of the wrong length.
+
+	**`VALUE=DATE` is deliberate and is not an implementation detail.** It is what every client
+	draws as a banner across the top of those days rather than as a block covering their hours,
+	which is what somebody means by *I am away that fortnight* — and it is why an end that is a
+	whole day cannot be expressed as a number of minutes.
+
+	**And `DTEND` is exclusive**, so the last day it names is the 29th. An end on its own last
+	date would stop a day early, which is the same off-by-one the single-day rule already
+	carries a comment about.
+	"""
+
+	london = zoneinfo.ZoneInfo("Europe/London")
+
+	def _stored (day: datetime.date, at: datetime.time) -> datetime.datetime:
+		"""Return the instant a whole-day edge is kept as, in the writer's zone."""
+
+		return datetime.datetime.combine(day, at, tzinfo=london).astimezone(datetime.UTC)
+
+	class _Row:
+		"""A fortnight off, stored the way the service stores one."""
+
+		id = uuid.UUID("77777777-8888-9999-aaaa-bbbbbbbbbbbb")
+		title = "Away"
+		starts_at = _stored(datetime.date(2026, 8, 14), datetime.time(0, 0))
+		# **The last microsecond of its day**, which is the boundary a whole-day end is given —
+		# the same one a deadline gets, because a holiday ending on the 28th is over when the
+		# 28th is rather than as it begins.
+		ends_at = _stored(datetime.date(2026, 8, 28), datetime.time(23, 59, 59, 999999))
+		due_at = None
+		starts_is_all_day = True
+		due_is_all_day = False
+		estimate_minutes = None
+		reminder_minutes = None
+		timezone = "Europe/London"
+
+	rendered = subroutine.domain.icalendar.render(
+		[subroutine.domain.calendars.Occasion(task=_Row(), field="starts_at")],  # type: ignore[arg-type]
+		name="Work", instance_id=uuid.uuid4(), now=NOW,
+	)
+
+	assert "DTSTART;VALUE=DATE:20260814" in rendered
+	assert "DTEND;VALUE=DATE:20260829" in rendered, (
+		"a fortnight off is not one day, and DTEND is the day after the last one"
+	)
+
+
+def test_an_end_is_read_before_an_estimate_and_an_estimate_is_still_read () -> None:
+	"""Both, in one test, because the fallback is the half that is easy to delete — `SR#1235`.
+
+	**The precedence is a decision rather than an accident.** ``ends_at`` is what somebody said
+	the span *is*; ``estimate_minutes`` is how long the work takes, which is a different claim —
+	a two-hour meeting costs two hours whether or not anybody works during it. So an explicit
+	end wins.
+
+	**And the estimate stays**, which is the part worth a guard: quick capture cannot set an end
+	(decision `SR#1235` §5), so ``Dentist at 2pm ~1h`` still arrives as a start and an estimate.
+	Dropping the fallback while calling it a cleanup would take the length off every appointment
+	ever captured, and every one of them would still render — as a valid event of no duration.
+	"""
+
+	def _rendered (ends: datetime.datetime | None, minutes: int | None) -> str:
+		"""Return the document one timed task produces."""
+
+		class _Row:
+			"""An appointment at two o'clock."""
+
+			id = uuid.UUID("cccccccc-dddd-eeee-ffff-000000000000")
+			title = "Dentist"
+			starts_at = datetime.datetime(2026, 8, 21, 14, 0, tzinfo=datetime.UTC)
+			ends_at = ends
+			due_at = None
+			starts_is_all_day = False
+			due_is_all_day = False
+			estimate_minutes = minutes
+			reminder_minutes = None
+			timezone = "UTC"
+
+		return subroutine.domain.icalendar.render(
+			[subroutine.domain.calendars.Occasion(task=_Row(), field="starts_at")],  # type: ignore[arg-type]
+			name="Work", instance_id=uuid.uuid4(), now=NOW,
+		)
+
+	both = _rendered(datetime.datetime(2026, 8, 21, 17, 0, tzinfo=datetime.UTC), 60)
+
+	assert "DTEND:20260821T170000Z" in both, "the end somebody gave lost to a guess at effort"
+	assert "DTEND:20260821T150000Z" not in both
+
+	assert "DTEND:20260821T150000Z" in _rendered(None, 60), (
+		"an appointment captured as 'at 2pm ~1h' has lost its length"
+	)
+
+	# **Neither, which must be no `DTEND` rather than an invented one** — the length of this is
+	# genuinely unknown, and RFC 5545 has a way to say so.
+	assert "DTEND" not in _rendered(None, None)
 
 
 def test_the_feed_endpoint_serves_a_calendar_and_revalidates (

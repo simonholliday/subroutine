@@ -2437,6 +2437,7 @@ class Client:
 		parent: int | None = None,
 		description: str | None = None,
 		reminder: int | str | None = None,
+		ends: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -2496,6 +2497,7 @@ class Client:
 						name: value
 						for name, value in (
 							("reminder", reminder),
+							("ends", ends),
 							("recurrence", recurrence),
 							("recurrence_anchor", recurrence_anchor),
 							("recurrence_trigger", recurrence_trigger),
@@ -2888,6 +2890,7 @@ class Client:
 		due_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		starts: str | None = subroutine.clients.base.UNSET,
 		starts_is_all_day: bool | None = subroutine.clients.base.UNSET,
+		ends: str | None = subroutine.clients.base.UNSET,
 		snooze: str | None = subroutine.clients.base.UNSET,
 		snoozed_is_all_day: bool | None = subroutine.clients.base.UNSET,
 		recurrence: str | None = subroutine.clients.base.UNSET,
@@ -2921,6 +2924,7 @@ class Client:
 			# defect, and a guard reading signatures could see neither.
 			"starts": starts,
 			"starts_is_all_day": starts_is_all_day,
+			"ends": ends,
 			"snooze": snooze,
 			"snoozed_is_all_day": snoozed_is_all_day,
 			"recurrence": recurrence,
@@ -2984,6 +2988,7 @@ class Client:
 		ref: int,
 		workspace: str | None = None,
 		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden."""
@@ -2994,6 +2999,9 @@ class Client:
 
 		if starts is not subroutine.clients.base.UNSET:
 			changes["starts"] = starts
+
+		if ends is not subroutine.clients.base.UNSET:
+			changes["ends"] = ends
 
 		if snooze is not subroutine.clients.base.UNSET:
 			changes["snooze"] = snooze

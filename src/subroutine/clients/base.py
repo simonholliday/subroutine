@@ -1225,6 +1225,11 @@ class Client(typing.Protocol):
 		#: does not add one**, for the reason ``parent`` gives above: §6.13's line is
 		#: deliberately small, and a reminder is set far less often than it is read.
 		reminder: int | str | None = None,
+		#: When it is over, for something that lasts — decision `#1235`. **The line has no
+		#: way to say this and this does not give it one**, exactly as ``reminder`` above:
+		#: §6.13's grammar is deliberately small, and an end is rare. It needs a start,
+		#: which the line *can* say — ``Away on 14 August`` with ``ends="2026-08-28"``.
+		ends: str | None = None,
 		recurrence: str | None = None,
 		recurrence_anchor: str | None = None,
 		recurrence_trigger: str | None = None,
@@ -1355,6 +1360,7 @@ class Client(typing.Protocol):
 		due_is_all_day: bool | None = UNSET,
 		starts: str | None = UNSET,
 		starts_is_all_day: bool | None = UNSET,
+		ends: str | None = UNSET,
 		snooze: str | None = UNSET,
 		snoozed_is_all_day: bool | None = UNSET,
 		recurrence: str | None = UNSET,
@@ -1491,6 +1497,7 @@ class Client(typing.Protocol):
 		ref: int,
 		workspace: str | None = None,
 		starts: datetime.datetime | datetime.date | None = UNSET,
+		ends: datetime.datetime | datetime.date | None = UNSET,
 		snooze: datetime.datetime | datetime.date | None = UNSET,
 	) -> subroutine.views.Task:
 		"""Set the day a task is planned for, or the day it becomes visible."""

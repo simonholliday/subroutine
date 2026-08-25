@@ -149,15 +149,17 @@ class Task(
 	# hour either side of its snooze could be filtered by one and sorted by the other.
 	parked: sqlalchemy.orm.Mapped[int | None] = sqlalchemy.orm.query_expression()
 
-	# Three distinct date fields, and each says a different thing about *when* (`#854`).
-	# Conflating a deadline with an intended day is what makes an overdue list meaningless
-	# within a month — and conflating an intended day with a *defer* is worse, because a
-	# defer hides the row, so an appointment filed as one is invisible until it starts.
+	# Four distinct date fields, and each says a different thing about *when* (`#854`, and
+	# `ends_at` since `#1235`). Conflating a deadline with an intended day is what makes an
+	# overdue list meaningless within a month — and conflating an intended day with a *defer*
+	# is worse, because a defer hides the row, so an appointment filed as one is invisible
+	# until it starts.
 	#
 	# | field | means | hides the row? |
 	# | --- | --- | --- |
 	# | `due_at` | must be finished by | no |
 	# | `starts_at` | begins at, or the day I intend to do it | no |
+	# | `ends_at` | is over at, sharing `starts_is_all_day` | no |
 	# | `snoozed_until` | do not show me this until | **yes** |
 	due_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
 		subroutine.db.types.UtcDateTime(), nullable=True
@@ -180,6 +182,34 @@ class Task(
 	)
 	starts_is_all_day: sqlalchemy.orm.Mapped[bool] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.Boolean, default=False, nullable=False
+	)
+
+	# **When it is over** — decision `#1235`, and the fourth thing a task can say about *when*.
+	# Meaningless without `starts_at`, which the service refuses rather than the column.
+	#
+	# **An end rather than a length, which reverses `#915` §3 and `#972` §2 on the condition
+	# they both named.** Those chose `estimate_minutes` as an appointment's span and said in
+	# terms: if the effort-versus-occupancy conflation bites, add the field. It bit on a
+	# fortnight's holiday — `estimate_minutes` is how much *work* something takes, so a booked
+	# holiday stored there shows `2w` in the agenda's estimate column and is swept up by
+	# `--filter estimate_minutes.lte=2h` when somebody asks for quick jobs.
+	#
+	# **An instant and not a duration**, which reverses `#576`'s own preference for the reason
+	# it did not have: an all-day end is a *date*. A fortnight is 20,160 minutes, which nobody
+	# types and nothing reads back, and `DTEND` is what RFC 5545 wants — so a duration would be
+	# converted to a date on every poll of every feed.
+	#
+	# **Any task may have one.** *Write the report, 2 to 4pm* is a span and is work; what makes
+	# something an event is its type, never its dates.
+	#
+	# **No all-day flag of its own, unlike the other three dates.** They are independent facts
+	# and each needs its own; an end is the far side of *one* span, so `starts_is_all_day`
+	# describes both of its edges. A second column would be a copy that has to be kept equal,
+	# which is this codebase's signature defect written into the schema — and it would make
+	# *starts all-day, ends at three* representable, which is not a thing anybody means. Input
+	# whose two ends disagree in shape is refused by `schedule.check_span` rather than stored.
+	ends_at: sqlalchemy.orm.Mapped[datetime.datetime | None] = sqlalchemy.orm.mapped_column(
+		subroutine.db.types.UtcDateTime(), nullable=True
 	)
 
 	# **Renamed from `start_at`**, which carried both meanings and was read as this one by

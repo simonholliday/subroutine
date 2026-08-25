@@ -14,13 +14,24 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `7eba0170ad83`.
+> **This release changes the database schema**, to `4f177421eb91`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **Something that lasts can say how long, so a holiday is not a single day.** A task takes an
+  end beside its start — `subroutine plan 7 "14 august" --until "28 august"`, or `ends` over the
+  API. A subscribed calendar draws it across those days as a banner rather than as one day, and
+  a code freeze that runs from Friday evening to Monday morning is one entry spanning the
+  weekend instead of a mark with no length.
+
+  Until now the only thing a calendar could read a span from was the estimate — how long the
+  *work* takes — which is a different claim: a two-hour meeting costs two hours whether or not
+  you work during it, and a fortnight off is not a fortnight of effort. The estimate is still
+  read when there is no end, so nothing captured as `Dentist at 2pm ~1h` changes.
 
 - **A reminder rides on the calendar feed, so it repeats with the event.** Set one with
   `subroutine update 42 --remind 2w`, or `reminder` over the API, and the feed carries a

@@ -429,8 +429,11 @@ def guide_text () -> str:
 		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
 		"cleared — the only way to clear a date. **The names you write are not the names you "
-		"read:** send `due`, `starts` and `snooze`, which accept the whole date grammar; you "
-		"get back `due_at`, `starts_at` and `snoozed_until`, which are instants. Sending "
+		"read:** send `due`, `starts`, `ends` and `snooze`, which accept the whole date "
+		"grammar; you get back `due_at`, `starts_at`, `ends_at` and `snoozed_until`, which "
+		"are instants. `ends` is the far side of a span and needs a `starts` beside it; it "
+		"has no all-day flag of its own, because a span is a whole day at both ends or a "
+		"time at both. Sending "
 		"`due_at` is a 422, because an unknown field is refused rather than ignored. `start` "
 		"and `planned_for` are refused too: they were one field that meant two things, and "
 		"they split rather than being aliased.",
@@ -891,14 +894,15 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		{"target": 2, "target_type": "document", "link_type": "derives_from"},
 	),
 	(
-		"Say when something begins. Send `starts`, `due` or `snooze` — the names you *write*. "
-		"You read back `starts_at`, `due_at` and `snoozed_until`, which are instants. Only "
-		"`snooze` hides the item; the other two leave it on the list. A whole day is `tomorrow` "
+		"Say when something begins, and how long it lasts. Send `starts`, `ends`, `due` or "
+		"`snooze` — the names you *write*. You read back `starts_at`, `ends_at`, `due_at` and "
+		"`snoozed_until`, which are instants. Only "
+		"`snooze` hides the item; the others leave it on the list. A whole day is `tomorrow` "
 		"or `2026-08-17`; an instant needs a full timestamp, because `tomorrow at 14:00` is the "
 		"grammar a person types at a terminal rather than the one this endpoint takes.",
 		"PATCH",
 		"/v1/tasks/1",
-		{"starts": "2026-08-17T14:00:00Z"},
+		{"starts": "2026-08-17T14:00:00Z", "ends": "2026-08-17T15:30:00Z"},
 	),
 	(
 		"Clear a date: send it as null. Omitting it would leave it alone.",

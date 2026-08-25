@@ -184,6 +184,11 @@ BOOKKEEPING_FIELDS: dict[str, frozenset[str]] = {
 			# are when somebody intends to get to it, which is theirs to change freely.
 			"starts_at",
 			"starts_is_all_day",
+			# **Beside its start rather than beside `due_at`, and that is a judgement** — a
+			# span is *when* something happens, which §6.1 puts here, where a deadline is a
+			# promise about finishing. Moving a booked holiday is rearranging your own
+			# diary; moving a deadline is changing what was undertaken.
+			"ends_at",
 			"snoozed_until",
 			"snoozed_is_all_day",
 			# §6.1 names repositioning. **This is why tags are here too**: a project is a

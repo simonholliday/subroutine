@@ -74,6 +74,7 @@ WRITTEN_AS: dict[str, str] = {
 	"due_at": "due",
 	"snoozed_until": "snooze",
 	"starts_at": "starts",
+	"ends_at": "ends",
 	"recurrence_rule": "recurrence",
 	"estimate_minutes": "estimate",
 	"reminder_minutes": "reminder",

@@ -53,6 +53,7 @@ TASK_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] = {
 	"urgency": ({}, {"urgency": 4}),
 	"estimate_minutes": ({}, {"estimate": "2h"}),
 	"starts_at": ({}, {"starts": "tomorrow"}),
+	"ends_at": ({"starts": "tomorrow"}, {"ends": "2027-12-01"}),
 	"starts_is_all_day": ({"starts": "tomorrow"}, {"starts_is_all_day": False}),
 	"snoozed_until": ({}, {"snooze": "tomorrow"}),
 	"snoozed_is_all_day": ({"snooze": "tomorrow"}, {"snoozed_is_all_day": False}),

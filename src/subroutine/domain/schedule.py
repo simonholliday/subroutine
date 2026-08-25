@@ -1,9 +1,14 @@
-"""The three date fields, and the all-day rule that makes them behave.
+"""The four date fields, and the all-day rule that makes them behave.
 
 docs/design.md §6.5 keeps a **deadline** (``due_at``), a **start** (``starts_at``) and a **defer
 instant** (``snoozed_until``) apart, because conflating them is what makes an overdue list
-meaningless within a month. This module is where user input becomes those columns and where
-the rules between them are enforced.
+meaningless within a month. Decision `#1235` added an **end** (``ends_at``) beside the start,
+so a fortnight off and a code freeze are one row rather than two. This module is where user
+input becomes those columns and where the rules between them are enforced.
+
+**The end is the only one of the four that is meaningless alone**, and that asymmetry is worth
+knowing before reading :func:`check_span`: a deadline, a start and a defer each say something
+on their own, where an end with no start names no period at all.
 
 **The middle one used to be two columns and one of them lied** (`#854`). There was a
 ``planned_for`` date beside a ``start_at`` instant, and ``start_at`` was read as *hide this
@@ -57,6 +62,10 @@ _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATE_FIELDS: dict[str, tuple[str, str]] = {
 	"due_at": ("due", "due_is_all_day"),
 	"starts_at": ("starts", "starts_is_all_day"),
+	# **Names the *start's* flag, deliberately.** An end has none of its own — it is the far
+	# side of one span — so a refusal about the shape of an end has to point at the field a
+	# caller can actually send.
+	"ends_at": ("ends", "starts_is_all_day"),
 	"snoozed_until": ("snooze", "snoozed_is_all_day"),
 }
 
@@ -387,6 +396,90 @@ def check_order (
 				field=field,
 				code="invalid_field_value",
 				message=f"`{field}` must not be later than `due_at`.",
+			)
+		],
+	)
+
+
+def check_span (
+	*,
+	starts_at: datetime.datetime | None,
+	starts_is_all_day: bool,
+	ends_at: datetime.datetime | None,
+	ends_is_all_day: bool,
+	timezone: str,
+) -> None:
+	"""Enforce the three things a start and an end have to agree about, or refuse.
+
+	Decision `#1235`. A span is *begins here, is over there*, and there are exactly three ways
+	to write one that means nothing:
+
+	* **an end with no start** — it names no period, only a moment already spelled ``due_at``;
+	* **an end before its start** — a fortnight off that finishes before it begins;
+	* **one end all-day and the other timed** — *starts all-day, ends at three* is not
+	  something anybody means, and rendering it would have to pick one and discard the other.
+
+	**In the service rather than in a CHECK constraint**, per the house rule: the database
+	cannot name the field or say which of the two to move, and on SQLite the third of these
+	would not fire at all.
+
+	**All-day pairs are compared as dates**, which is :func:`check_order`'s reasoning and the
+	same trap: an all-day start is stored as the first microsecond of its day and an all-day
+	end as the last, so comparing instants is right by accident and stops being right the
+	moment either boundary moves. A holiday that begins and ends on one day is legitimate —
+	a public holiday is exactly that — so the comparison has to allow equality on the *day*,
+	which the instants do not express.
+	"""
+
+	if ends_at is None:
+		return
+
+	if starts_at is None:
+		raise subroutine.errors.ValidationError(
+			"An end needs a beginning.",
+			code="invalid_field_value",
+			hint="Give it a start as well, or use a deadline if you mean one moment.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="ends_at",
+					code="invalid_field_value",
+					message="`ends_at` cannot be set without `starts_at`.",
+				)
+			],
+		)
+
+	if starts_is_all_day != ends_is_all_day:
+		raise subroutine.errors.ValidationError(
+			"Something is either a whole day or a time, not one at each end.",
+			code="invalid_field_value",
+			hint="Give both ends a time, or give both a date with no time.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="ends_is_all_day",
+					code="invalid_field_value",
+					message="`ends_is_all_day` must match `starts_is_all_day`.",
+				)
+			],
+		)
+
+	if starts_is_all_day and ends_is_all_day:
+		zone = subroutine.domain.dates.zone(timezone, "ends_at")
+
+		if starts_at.astimezone(zone).date() <= ends_at.astimezone(zone).date():
+			return
+
+	elif starts_at <= ends_at:
+		return
+
+	raise subroutine.errors.ValidationError(
+		"It cannot finish before it starts.",
+		code="invalid_field_value",
+		hint="Move the end later, or the start earlier.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="ends_at",
+				code="invalid_field_value",
+				message="`ends_at` must not be earlier than `starts_at`.",
 			)
 		],
 	)

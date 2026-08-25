@@ -110,6 +110,10 @@ def _event (
 		f"SUMMARY:{_escaped(PREFIXES[occasion.field] + task.title)}",
 	]
 
+	# **Only a start has a far end** — a deadline is a moment and `ends_at` says nothing about
+	# one. Read once here so both branches below ask the same question.
+	finish = task.ends_at if occasion.field == "starts_at" else None
+
 	if all_day:
 		# **A `DATE` value, and `DTEND` is the day *after*** — RFC 5545 makes the end
 		# exclusive, so an all-day event ending on its own date is zero days long and
@@ -120,21 +124,38 @@ def _event (
 		# day on either night the clocks move: local midnight on 25 October 2026 plus 24
 		# hours is 23:00 *the same evening* in London, so `DTEND` would equal `DTSTART` and
 		# the event would be the zero-length one this comment exists to prevent.
+		#
+		# **And the last day is `ends_at`'s where there is one** (`#1235`). Until then this
+		# was `started + 1 day` unconditionally, so a fortnight booked off rendered as a
+		# single day — the case that made the field necessary. A `VALUE=DATE` span is what
+		# every client draws as a banner across the top of those days rather than as a block
+		# covering their hours, which is the convention this reads as intended.
 		started = subroutine.domain.schedule.day_in(when, task.timezone)
+		last = started if finish is None else subroutine.domain.schedule.day_in(
+			finish, task.timezone
+		)
 
 		lines.append(f"DTSTART;VALUE=DATE:{_basic(started)}")
-		lines.append(f"DTEND;VALUE=DATE:{_basic(started + datetime.timedelta(days=1))}")
+		lines.append(f"DTEND;VALUE=DATE:{_basic(last + datetime.timedelta(days=1))}")
 
 	else:
 		lines.append(f"DTSTART:{_instant(when)}")
 
-		# **A span only where the pair says one** — decision `#972` §2. `starts_at` plus
-		# `estimate_minutes` is an occupied span; a deadline is an instant and takes no time,
-		# and a start with no estimate is something we do not know the length of. All three
-		# render honestly rather than being given an invented hour.
+		# **An end where one was given, an estimate where one was not** — decision `#1235`
+		# over decision `#972` §2, and the fallback is deliberate rather than left behind.
+		# `ends_at` is what somebody said the span *is*; `estimate_minutes` is how long the
+		# work takes, which is the best available guess at occupancy and is what `at 2pm ~1h`
+		# has parsed to since `#797`. Quick capture still cannot set an end (`#1235` §5), so
+		# dropping the fallback would take the span off every appointment ever captured.
+		#
+		# A deadline is an instant and takes no time; a start with neither is something whose
+		# length we do not know. Both render with no `DTEND` rather than an invented hour.
 		minutes = task.estimate_minutes if occasion.field == "starts_at" else None
 
-		if minutes:
+		if finish is not None:
+			lines.append(f"DTEND:{_instant(finish)}")
+
+		elif minutes:
 			lines.append(f"DTEND:{_instant(when + datetime.timedelta(minutes=minutes))}")
 
 	if occasion.rule:

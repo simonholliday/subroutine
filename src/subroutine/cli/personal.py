@@ -1896,6 +1896,64 @@ def _completions (item: Reached) -> str:
 	return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
 
 
+def _planned (
+	program: Program, *, which: str, when: str, until: str, because: str
+) -> None:
+	"""Set the day a task starts, and the day it is over if it lasts more than one.
+
+	**A module-level function rather than the body of the command**, which is the ratchet in
+	``tests/test_personal_path.py`` being paid rather than raised: ``register`` is a closure and
+	every line inside it is one more line that only one command can reach. ``_show_today`` and
+	``_changed`` came out the same way and for the same reason.
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="plan",
+		)
+		client = _require_connection(program, world, located.connection)
+
+		changed = client.schedule(
+			ref=task.ref,
+			workspace=located.workspace,
+			starts=_day(world, _asked(when, "Which day?"), at=located),
+			**_until(world, until, at=located),
+		)
+
+		# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is right in
+		# a list and wrong in the confirmation of a command whose whole job was to set the
+		# other field — the user said "tomorrow" and was shown Friday.
+		planned = f"Starts {_render_date(changed.starts_at, changed.timezone)}"
+
+		_because(client, located, because, what=planned)
+
+		program.say(_acted(world, dataclasses.replace(located, item=changed), planned))
+		_suggest(program.console, "subroutine agenda")
+
+
+def _until (
+	world: World, written: str, *, at: "Located"
+) -> dict[str, datetime.date | None]:
+	"""Return what to pass a client for ``--until``: nothing, a day, or an explicit clear.
+
+	**Three states, and a flag can only carry two of them without this.** ``UNSET`` and
+	``None`` mean different things to every client method here (§8.3) — leave it alone, and
+	clear it — so a bare ``plan 42 friday`` on something already running to the 28th must not
+	quietly end it early, and ``--until ''`` must be able to say *no longer a span* rather
+	than being read as a day nobody named.
+
+	Returned as keyword arguments rather than a sentinel because that is what makes the
+	first state expressible at the call site at all.
+	"""
+
+	if written is UNGIVEN:
+		return {}
+
+	return {"ends": None if written == "" else _day(world, written, at=at)}
+
+
 def _day (world: World, written: str, *, at: "Located") -> datetime.date:
 	"""Read a day the user named, **in their account's zone** (`#1083`, decision `#1088`).
 
@@ -6713,40 +6771,28 @@ def register (
 	def plan (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
+		until: str = typer.Option(
+			UNGIVEN,
+			"--until",
+			show_default=False,
+			help="The last day of it, if it lasts more than one. Pass '' to clear it.",
+		),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
 		"""Say which day you will do something.
+
+		'--until' is for something that lasts — a holiday, a conference, a code freeze.
 
 		Examples:
 
 		  subroutine plan 1 tomorrow
 
+		  subroutine plan 7 "14 august" --until "28 august"
+
 		  subroutine plan 42 friday --because "the review is on monday"
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="plan",
-			)
-			client = _require_connection(program, world, located.connection)
-
-			changed = client.schedule(
-				ref=task.ref,
-				workspace=located.workspace,
-				starts=_day(world, _asked(when, "Which day?"), at=located),
-			)
-
-			# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is
-			# right in a list and wrong in the confirmation of a command whose whole job was
-			# to set the other field — the user said "tomorrow" and was shown Friday.
-			planned = f"Starts {_render_date(changed.starts_at, changed.timezone)}"
-
-			_because(client, located, because, what=planned)
-
-			say(_acted(world, dataclasses.replace(located, item=changed), planned))
-			_suggest(console, "subroutine agenda")
+		_planned(program, which=which, when=when, until=until, because=because)
 
 	@app.command()
 	def defer (
@@ -8739,7 +8785,16 @@ def _facts (located: Located) -> list[str]:
 			facts.append(f"due {_render_date(item.due_at, item.timezone)}")
 
 		if item.starts_at is not None:
-			facts.append(f"starts {_render_date(item.starts_at, item.timezone)}")
+			# **One fact when there are two dates, not two** (`#576`). *starts 14 Aug · until
+			# 28 Aug* reads as two unrelated things; a span is one, and it is what somebody
+			# typed. The start is still printed alone when there is no end, which is every
+			# ordinary task.
+			facts.append(
+				f"starts {_render_date(item.starts_at, item.timezone)}"
+				if item.ends_at is None
+				else f"{_render_date(item.starts_at, item.timezone)} to "
+				f"{_render_date(item.ends_at, item.timezone)}"
+			)
 
 		if item.recurrence_rule is not None:
 			facts.append(
@@ -9061,6 +9116,7 @@ def _as_json (
 		"due_at": None if task.due_at is None else task.due_at.isoformat(),
 		"due_is_all_day": task.due_is_all_day,
 		"starts_at": None if task.starts_at is None else task.starts_at.isoformat(),
+		"ends_at": None if task.ends_at is None else task.ends_at.isoformat(),
 		"snoozed_until": None if task.snoozed_until is None else task.snoozed_until.isoformat(),
 		"importance": task.importance,
 		"urgency": task.urgency,

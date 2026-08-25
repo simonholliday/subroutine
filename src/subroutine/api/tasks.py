@@ -130,6 +130,15 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: being given the other one's behaviour.
 	starts: str | None = None
 	starts_is_all_day: bool | None = None
+
+	#: **When it is over** — decision `#1235`. Meaningless without ``starts``, which the
+	#: service refuses by name rather than ignoring.
+	#:
+	#: **No ``ends_is_all_day`` beside it, unlike the three dates above.** A span is a whole
+	#: day or a time at *both* ends, so ``starts_is_all_day`` describes it; what is sent here
+	#: has only to agree in shape, and is refused when it does not.
+	ends: str | None = None
+
 	snooze: str | None = None
 	snoozed_is_all_day: bool | None = None
 
@@ -185,6 +194,15 @@ class Update(subroutine.api.schemas.RequestModel):
 	#: being given the other one's behaviour.
 	starts: str | None = None
 	starts_is_all_day: bool | None = None
+
+	#: **When it is over** — decision `#1235`. Meaningless without ``starts``, which the
+	#: service refuses by name rather than ignoring.
+	#:
+	#: **No ``ends_is_all_day`` beside it, unlike the three dates above.** A span is a whole
+	#: day or a time at *both* ends, so ``starts_is_all_day`` describes it; what is sent here
+	#: has only to agree in shape, and is refused when it does not.
+	ends: str | None = None
+
 	snooze: str | None = None
 	snoozed_is_all_day: bool | None = None
 
@@ -225,6 +243,7 @@ def create (
 			"due_is_all_day",
 			"starts",
 			"starts_is_all_day",
+			"ends",
 			"snooze",
 			"snoozed_is_all_day",
 			"recurrence",
@@ -747,6 +766,7 @@ def change (
 			"reminder",
 			"due",
 			"starts",
+			"ends",
 			"snooze",
 			# **Declared and discarded until now** (`#94`). `PATCH` advertised these three and
 			# the handler never forwarded them, so a caller setting a repeat on an existing

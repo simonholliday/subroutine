@@ -4716,6 +4716,14 @@ NOT_ON_THE_FORM = {
 	#
 	# **Deleting this entry is what closes `SR#1234`.**
 	"reminder": "the browser cannot set or show one at all yet — SR#1234",
+	# **A gap rather than a decision, so it is filed** (`SR#576`, and `SR#1238` is the item),
+	# and the same shape as `reminder` above: the field landed on the model, both clients, the
+	# terminal, MCP and the calendar feed in one commit, and a surface's worth of controls is
+	# its own. **The end has no all-day flag to go with it** — decision `SR#1235`, it shares
+	# `starts_is_all_day` — so this is one control rather than the pair above.
+	#
+	# **Deleting this entry is what closes `SR#1238`.**
+	"ends": "the browser cannot set or show a span yet — SR#1238",
 	# The chain is explicit -> user -> workspace -> instance and null means *not stated* at every
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.

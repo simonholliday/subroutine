@@ -72,6 +72,10 @@ CHANGES: dict[str, tuple[typing.Any, typing.Any]] = {
 	"due": ("2026-12-01", "2027-01-01"),
 	"due_is_all_day": (True, False),
 	"starts": ("2026-11-01", "2026-11-15"),
+	# **Both after the fixture's start and after either value above**, because an end that
+	# precedes its beginning is refused — this guard changes one field at a time, so whichever
+	# start happens to be stored has to be earlier than both of these.
+	"ends": ("2026-11-20", "2026-12-20"),
 	"starts_is_all_day": (True, False),
 	"snooze": ("2026-10-01", "2026-11-01"),
 	"snoozed_is_all_day": (True, False),
@@ -95,6 +99,8 @@ CHANGES_FOR_DOCUMENT: dict[str, tuple[typing.Any, typing.Any]] = {
 BESIDE: dict[str, dict[str, typing.Any]] = {
 	"due_is_all_day": {"due": "2026-12-01"},
 	"starts_is_all_day": {"starts": "2026-11-01"},
+	# **An end with no beginning names no period**, which is the instance's own refusal.
+	"ends": {"starts": "2026-11-01"},
 	"snoozed_is_all_day": {"snooze": "2026-10-01"},
 	"recurrence": {"due": "2026-12-01"},
 	"recurrence_anchor": {"recurrence": "every month", "due": "2026-12-01"},
@@ -646,7 +652,12 @@ CLIENT_CASES = [one for one in _client_cases() if one[2] not in NOT_STORED]
 REQUIRED: dict[str, dict[str, typing.Any]] = {
 	# **With a deadline in the line**, because a repeat needs a date to repeat from and §6.13's
 	# grammar is where a captured task gets one.
-	"capture": {"text": "Under test by 2026-12-01"},
+	#
+	# **And a start, because `ends` needs one** — the line is where a captured task gets that
+	# too, and `BESIDE` cannot supply it here: its companions are dropped when the method does
+	# not declare them, and `capture` takes no `starts`. §6.13 reads both, so one line carries
+	# both, and the title is cleaned of each.
+	"capture": {"text": "Under test by 2026-12-01 on 2026-11-01"},
 	"create_document": {"title": "Under test", "body": "."},
 }
 
@@ -693,8 +704,15 @@ def _through (
 	# **Only the companions this method actually has.** `capture` takes no `due`: §6.13's line
 	# carries the date itself, which is why its text below has one in it. A companion sent to a
 	# method that does not declare it is a `TypeError` about the test rather than the product.
+	#
+	# **Companions go through `_as_declared` too**, which they did not until `ends` needed a
+	# `starts` beside it: `schedule` is the one method taking a `datetime.date`, and no earlier
+	# companion was an argument it declares. The conversion is the same and is wanted for the
+	# same reason — handing a client a shape mypy would refuse tests the test, not the product.
 	body.update({
-		name: value for name, value in BESIDE.get(field, {}).items() if name in declared
+		name: _as_declared(declared[name].annotation, value)
+		for name, value in BESIDE.get(field, {}).items()
+		if name in declared
 	})
 	body[field] = _as_declared(declared[field].annotation, value)
 

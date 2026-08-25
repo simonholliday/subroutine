@@ -73,19 +73,23 @@ def _dates_body () -> str:
 
 	keywords = _wrapped(subroutine.domain.dates.KEYWORDS, indent=17)
 
-	return f"""Three date fields, kept apart on purpose.
+	return f"""Four date fields, kept apart on purpose.
 
   due          A deadline. The date something has to be finished by.
   starts       When it begins. This is what 'agenda' shows.
                It takes a time, so 'monday at 14:00' is an appointment.
+  until        When it is over, for something that lasts more than a
+               moment — a holiday, a conference, a code freeze. Set it
+               with 'plan 7 "14 august" --until "28 august"'. A calendar
+               you have subscribed shows the whole run of days.
   hidden until A defer. The task does not appear at all before this. It is
-               the only one of the three that hides anything.
+               the only one of the four that hides anything.
 
 Most tasks use one of them. Many use none.
 
 Ways to write a date. **Everything below works at the command line; all but
 the last also work in a captured line, and the ones marked (api) are accepted
-in a `due`, `starts` or `snooze` field over HTTP.** A weekday name is
+in a `due`, `starts`, `ends` or `snooze` field over HTTP.** A weekday name is
 shorthand this tool resolves for you, so `subroutine plan 1 friday` works
 while `{{"due": "friday"}}` is refused — send `2026-07-31` or `end_of_week`
 there instead. /v1/meta publishes the exact list the API takes, under

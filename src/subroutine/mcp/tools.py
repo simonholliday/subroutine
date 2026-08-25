@@ -885,6 +885,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"description": "Hand it to somebody, by username. '' for nobody.",
 					},
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
+					"until": {
+						"type": "string",
+						"description": "The last day, if it lasts more than one. A date or ''.",
+					},
 					"defer": {
 						"type": "string",
 						"description": "Hide it until this day, or a time on it. '' to unhide.",
@@ -1881,8 +1885,16 @@ def _line (
 		# These were ``.date()`` on the stored instant, so a Los Angeles deadline read a day
 		# late and a London plan a day early — on the line the paragraph above calls *the*
 		# check. The check said the wrong day and said it confidently.
+		# **One cell when there are two dates** (`#576`), matching the terminal's `_facts`:
+		# a span is one fact and *for 14 Aug · until 28 Aug* reads as two unrelated ones.
+		# `#674`'s guard compares the two renderings field by field, so an end shown at the
+		# command line and not here is a build failure rather than an oversight.
 		if item.starts_at is not None:
-			cells.append(f"for {_day_of(item.starts_at, item)}")
+			cells.append(
+				f"for {_day_of(item.starts_at, item)}"
+				if item.ends_at is None
+				else f"{_day_of(item.starts_at, item)} to {_day_of(item.ends_at, item)}"
+			)
 
 		if item.due_at is not None:
 			cells.append(f"due {_day_of(item.due_at, item)}")
@@ -3097,21 +3109,21 @@ def _updated (
 	# keeps a change with no dates in it from fetching an identity it has no use for.
 	days: dict[str, datetime.datetime | datetime.date | None] = {}
 
-	if any(field in arguments for field in ("plan", "defer")):
+	if any(field in arguments for field in ("plan", "until", "defer")):
 		zone = _account_zone(client, workspace)
 
 		days = {
 			field: (_moment if field == "defer" else _day)(
 				arguments[field], field=field, timezone=zone
 			)
-			for field in ("plan", "defer")
+			for field in ("plan", "until", "defer")
 			if field in arguments
 		}
 
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
-			"description, repeat, plan or defer."
+			"description, repeat, plan, until or defer."
 		)
 
 	# **Two calls, because they are two endpoints** — `PATCH /v1/tasks` and the scheduling
@@ -3130,7 +3142,7 @@ def _updated (
 			workspace=workspace,
 			**{
 				name: days[field]
-				for field, name in (("plan", "starts"), ("defer", "snooze"))
+				for field, name in (("plan", "starts"), ("until", "ends"), ("defer", "snooze"))
 				if field in days
 			},
 		)
@@ -3155,7 +3167,7 @@ def _updated (
 	# **`plan` is a day and `defer` is a moment**, which is `#858`'s distinction and the reason
 	# these cannot share one renderer: a day is a label that never converts, and a moment has no
 	# day until somebody names a zone — which :func:`_day_of` reads off the item.
-	for field in ("plan", "defer"):
+	for field in ("plan", "until", "defer"):
 		if field not in days:
 			continue
 
