@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Subroutine</title>
-<link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+<!--
+	The mark (`#1286`). Kept in step with the sign-in page by `api.web.ICON_LINKS`, which is
+	the one place these three lines are authored — this file is served verbatim and cannot
+	interpolate, so `tests/test_web.py` compares the two instead.
+-->
+<link rel="icon" href="/app/favicon-on-black.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/app/favicon-on-black.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
 <link rel="stylesheet" href="/app/app.css">
 <!--
 	An import map rather than a build step. Every bare specifier any served module imports

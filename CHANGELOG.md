@@ -22,6 +22,12 @@ upgrade involves.
 
 ### Changed
 
+- **The browser wears the real Subroutine mark.** A designed icon — four points and three
+  edges forming a jagged S, the top-right point as the AI sparkle — in place of the blue
+  placeholder square. It is on the app and on the sign-in page, and it is a proper set rather
+  than one file: a vector, and 16/32/48/64 bitmaps so it is *correct* at tab size rather than
+  merely legible. The placeholder is gone.
+
 - **An item's contents are called its sub-tasks.** The heading over them read *Parts* at the
   terminal, in the browser and through an agent's `show`; it reads **Sub-tasks** on all three
   now, which is the word the rest of the product already uses for them. Nothing about how they

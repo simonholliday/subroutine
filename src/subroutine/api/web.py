@@ -42,9 +42,46 @@ ASSETS = pathlib.Path(subroutine.web.vendored.__file__).resolve().parent / "asse
 TYPES = {
 	".css": "text/css; charset=utf-8",
 	".html": "text/html; charset=utf-8",
+	# **The two bitmap kinds are the mark's, and until `#1286` neither was here** — so
+	# dropping a PNG into ``assets`` served nothing and nothing failed, because
+	# :func:`_collected` skips an unknown suffix in silence. That is the shape this codebase
+	# calls a control that grants nothing, met from the other side: a *closed* map is only
+	# safe while somebody notices what it closes out.
+	#
+	# ``image/x-icon`` rather than the registered ``image/vnd.microsoft.icon``: it is what
+	# every browser has read for twenty years, and the registered name is refused by some of
+	# them. This is exactly the case the comment above is about — the platform's table would
+	# have answered differently on different machines.
+	".ico": "image/x-icon",
 	".js": "text/javascript; charset=utf-8",
+	".png": "image/png",
 	".svg": "image/svg+xml",
 }
+
+#: What every page this instance serves puts in its head to declare the mark (`#1286`).
+#:
+#: **Declared once because two pages carry it** — the app shell and the sign-in page, which is
+#: the first thing anybody handed a login link ever sees. They were two copies of one
+#: ``<link>``, so changing the mark on one left the old one on the surface a new user meets
+#: first: `#583`/`#674`'s defect, on a line nobody would think to compare.
+#:
+#: **The sign-in page interpolates this; ``index.html`` is a static file and cannot**, so
+#: ``tests/test_web.py`` reads both and fails if they part company. One authored copy and one
+#: checked copy is what is available here, and it is enough.
+#:
+#: **``-on-black``, which is what *white on black* names.** The transparent ``-inverted`` files
+#: are a white mark on nothing and disappear against the light chrome most people run; a solid
+#: tile reads on any tab colour. Both sets are in the tree.
+#:
+#: **The ``.ico`` first and the SVG second, deliberately.** A browser takes the last one it
+#: understands, so the vector wins wherever it is supported and the bitmap is what is left for
+#: anything that does not — which is the order the exporter wrote and the opposite of the
+#: order that would work.
+ICON_LINKS = (
+	'<link rel="icon" href="/app/favicon-on-black.ico" sizes="16x16 32x32 48x48">\n'
+	'<link rel="icon" href="/app/favicon-on-black.svg" type="image/svg+xml">\n'
+	'<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">'
+)
 
 #: What a browser is told about keeping these files (`#914`).
 #:

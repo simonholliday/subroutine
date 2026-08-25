@@ -38,6 +38,7 @@ import starlette.status
 import subroutine.api.dependencies
 import subroutine.api.routing
 import subroutine.api.security
+import subroutine.api.web
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.selection
@@ -362,7 +363,7 @@ def _ask_before_switching (
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in as {now}?</title>
-<link rel="icon" href="/app/icon.svg" type="image/svg+xml">
+{subroutine.api.web.ICON_LINKS}
 <link rel="stylesheet" href="/app/app.css">
 </head>
 <body>

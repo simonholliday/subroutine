@@ -38,6 +38,7 @@ import subroutine.api.app
 import subroutine.api.documents
 import subroutine.api.pagination
 import subroutine.api.routing
+import subroutine.api.sessions
 import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.api.web
@@ -1903,6 +1904,97 @@ def test_the_page_asks_for_nothing_this_instance_does_not_serve () -> None:
 
 	for name in sorted(wanted):
 		assert name in subroutine.api.web.FILES, f"index.html asks for /app/{name}"
+
+
+def test_every_page_this_instance_serves_wears_the_same_mark () -> None:
+	"""**`SR#1286`.** Two pages declare the icon and one of them is where a new user lands.
+
+	The app shell and the sign-in page carried the same three lines as two copies, so changing
+	the mark on one would leave the old one on the first page anybody handed a login link ever
+	sees. That is one fact rendered twice, on a line nobody would think to compare — `#583` and
+	`#674`'s defect in its quietest form, because both pages go on working.
+
+	**One is interpolated and one cannot be.** ``sessions.py`` builds its head in Python and
+	uses :data:`subroutine.api.web.ICON_LINKS` directly; ``index.html`` is served verbatim, so
+	the same block is written there and this is what holds them together.
+	"""
+
+	page = (ASSETS / "index.html").read_text(encoding="utf-8")
+	source = pathlib.Path(subroutine.api.sessions.__file__).read_text(encoding="utf-8")
+
+	assert subroutine.api.web.ICON_LINKS in page, (
+		"`index.html` no longer carries the icon block `api.web.ICON_LINKS` declares, so the "
+		"app shell and the sign-in page can show different marks"
+	)
+	assert "subroutine.api.web.ICON_LINKS" in source, (
+		"the sign-in page has stopped interpolating the shared block and is writing its own"
+	)
+
+	# **And every file it names is served**, which the shell's own check does for the shell.
+	# This block is a *string*, so nothing else reads it: it could name three assets that do
+	# not exist and the only symptom would be a browser tab with no icon on it.
+	asked = {
+		part.split('"')[0]
+		for part in subroutine.api.web.ICON_LINKS.split('"/app/')[1:]
+	}
+
+	assert len(asked) == 3, f"the mark names {len(asked)} files rather than three: {asked}"
+
+	for name in sorted(asked):
+		assert name in subroutine.api.web.FILES, f"the mark asks for /app/{name}"
+
+
+def test_the_placeholder_mark_is_gone_and_nothing_still_asks_for_it () -> None:
+	"""**`SR#1286`**, and the deletion is the point rather than a side-effect.
+
+	``icon.svg`` was `#644`'s placeholder — a blue rounded square with a white tick — and its
+	own comment argued against ever shipping a multi-resolution bitmap: *"a build step in a
+	project whose whole web design decision was not to have one."* That was right for a
+	placeholder and does not survive a real mark. **These are exported, not built**: the sizes
+	already exist, there is no step to add, and a designed identity is worth being correct at
+	16px rather than merely legible.
+
+	So it is deleted rather than left beside the new one, and this says so — otherwise the
+	deletion reads as an oversight to whoever finds the reference next.
+	"""
+
+	assert "icon.svg" not in subroutine.api.web.FILES, (
+		"the placeholder mark is still served, so two icons ship and one of them is `#644`'s "
+		"blue square"
+	)
+
+	for path in (ASSETS / "index.html", pathlib.Path(subroutine.api.sessions.__file__)):
+		assert "icon.svg" not in path.read_text(encoding="utf-8"), (
+			f"{path.name} still asks for the placeholder, which this instance no longer serves"
+		)
+
+
+def test_the_mark_is_served_as_something_a_browser_will_draw () -> None:
+	"""**`SR#1286`.** ``TYPES`` is a closed map and it used to close out every bitmap.
+
+	``_collected`` skips a suffix it does not know **in silence**, so the whole icon set could
+	sit in ``assets`` and be served by nothing at all, with no test failing and no error
+	anywhere. A closed map is only safe while somebody notices what it closes out, and nothing
+	did until the files arrived.
+
+	**Driven through the real lookup rather than asserted about the map**, because the map
+	being right and the walk reading it are two facts.
+	"""
+
+	for name, kind in (
+		("favicon-on-black.ico", "image/x-icon"),
+		("favicon-on-black.svg", "image/svg+xml"),
+		("apple-touch-icon.png", "image/png"),
+	):
+		body, served = subroutine.api.web.FILES[name]
+
+		assert served == kind, f"{name} is served as {served!r}"
+		assert body, f"{name} is served empty"
+
+	# **The bytes are the exporter's**, checked at the file's own signature rather than by
+	# size: a truncated copy has the right name and the right suffix and draws nothing.
+	assert subroutine.api.web.FILES["apple-touch-icon.png"][0].startswith(b"\x89PNG\r\n")
+	assert subroutine.api.web.FILES["favicon-on-black.ico"][0].startswith(b"\x00\x00\x01\x00")
 
 
 def test_the_app_reaches_only_the_public_api () -> None:
