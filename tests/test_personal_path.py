@@ -215,6 +215,71 @@ def test_every_command_suggests_the_next_one (
 	assert "Tip: subroutine agenda" in run("done", "1").output
 
 
+def test_the_agenda_never_advises_ticking_off_somebody_s_birthday (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1236`, decision `SR#1235` §5 — the defect was the *advice*, not the permission.
+
+	Measured on a disposable instance on 2026-08-25: a birthday dated 14 March sat under
+	**Today**, five months late, with the agenda's own closing line reading ``subroutine done
+	2``. Completing one is still accepted — §13.5 says an error names what to do next and a
+	refusal here would be a wall — but a product that suggests ticking off somebody's birthday
+	is answering a question nobody asked.
+
+	**Both halves, because either alone passes against a mistake.** The tip must name the task,
+	and it must reach for it *past* the event: an implementation that simply skipped the whole
+	first section would pass an assertion about the birthday and lose the tip on a day whose
+	only work was in that section.
+	"""
+
+	run("init")
+	# **A whole date rather than "14 march"**, which the grammar reads as *the next one* and
+	# resolves to 2027 — so the assertion below would have passed because the birthday is past
+	# the look-ahead rather than because it has gone by, which is a different feature entirely.
+	run("add", "Anna's birthday on 2026-03-14", "--type", "event")
+	run("add", "Water the plants")
+
+	shown = run("agenda").output
+
+	assert "Anna's birthday" not in shown, (
+		f"an event five months past is still on the agenda:\n{shown}"
+	)
+	assert "1 already past" in shown, (
+		f"it left the day without the page accounting for it, which is the unexplained "
+		f"difference against a listing at the same scope:\n{shown}"
+	)
+
+	# The same page with the event happening *now*, so it is on it and the tip has to step
+	# over it rather than over the section.
+	run("add", "Code freeze", "--type", "event")
+	run("plan", "3", "today")
+
+	shown = run("agenda").output
+
+	assert "Code freeze" in shown, f"an event happening today is not on the agenda:\n{shown}"
+	assert "Happening" in shown, f"it is not under a heading of its own:\n{shown}"
+	assert "Tip: subroutine done 2" in shown, (
+		f"the agenda advises finishing something that merely happens:\n{shown}"
+	)
+
+
+def test_an_event_is_put_away_rather_than_achieved (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half of decision `SR#1235` §3: accepted, recorded, and reworded.
+
+	*Done* would be the program congratulating the reader on a day going by. It is not refused,
+	because a refusal is a wall with nothing to do next — it is simply described as what it is.
+	"""
+
+	run("init")
+	run("add", "Anna's birthday", "--type", "event")
+	run("add", "Water the plants")
+
+	assert "Marked as past" in run("done", "1").output
+	assert "Done" in run("done", "2").output
+
+
 def test_the_older_name_for_the_agenda_says_where_it_went (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -6552,7 +6617,13 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: payments, none of them raised, and each cheaper than the last: what a feature pays now is
 #: the cost of noticing rather than the cost of designing, and the closure has gone from 4,769
 #: lines to under 1,800 without a single stage being planned as one.
-REGISTER_CEILING = 1_685
+#:
+#: **And a sixth, on one word** (`SR#1236`). ``done`` learned to say *Marked as past* about
+#: something that merely happened, rather than *Done* — four lines of behaviour inside a
+#: command. Its whole body left as :func:`subroutine.cli.personal._finished`, which is thirty-
+#: five. Six payments, none of them raised, and the pattern has not varied once: the closure is
+#: where a command's body is easiest to write and hardest to reach from anywhere else.
+REGISTER_CEILING = 1_664
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -6572,7 +6643,13 @@ REGISTER_CEILING = 1_685
 #: the closure still shrank by twenty-two: the body that applies the changes left as `_changed`,
 #: which needed nothing from the closure that `Program` does not carry. What stayed behind is
 #: the part deciding *whether each field was given*, and each of those decides it differently.
-MODULE_LEVEL_FLOOR = 147
+#: **147 → 150 on 2026-08-25, with the ceiling to 1,664** (`SR#1236`). Two arrived —
+#: ``_finished``, which is ``done``'s body lifted out, and ``_happens``, which answers *is this
+#: something that happens to you* for both the agenda's closing tip and ``done``'s wording —
+#: and the floor had been standing one under the count for a while, so it moves three. Both
+#: numbers moved the right way on a change that *added* behaviour, which is what this pair
+#: exists to make ordinary.
+MODULE_LEVEL_FLOOR = 150
 
 
 def _register_span () -> tuple[int, int]:

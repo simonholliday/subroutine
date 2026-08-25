@@ -165,6 +165,10 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	**Every exclusion is represented, deliberately including one that hides nothing here.** A
 	fixture where a cause contributes zero cannot tell *this count is right* from *this count is
 	never read*, which is the shape this file has met before.
+
+	**It has already caught one** (`SR#1236`): an occasion that has gone by leaves the agenda
+	with nobody acting on it, and a listing at this scope still shows it, so the sum stopped
+	adding up until ``passed_total`` existed to say so.
 	"""
 
 	world = World(session)
@@ -188,6 +192,15 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	world.task("Beyond the window", due=datetime.date(2026, 11, 30))
 	world.task("Not until next month", snooze=datetime.date(2026, 9, 30))
 	world.task("In the project nobody is running", project=asleep)
+	# **The fifth exclusion, represented like the other four** (`SR#1236`). A passed event is
+	# not *completed*, so the listing below still holds it and this view does not — which is
+	# precisely the residual this arithmetic exists to make impossible to leave unreported.
+	world.task(
+		"A birthday in March",
+		type_key="event",
+		starts=datetime.date(2026, 3, 14),
+		starts_is_all_day=True,
+	)
 
 	session.flush()
 
@@ -202,6 +215,7 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 		+ agenda.later_total
 		+ agenda.deferred_total
 		+ agenda.paused_total
+		+ agenda.passed_total
 	)
 
 	# The listing at the same scope: live, unfinished work, which is what `?view=list` shows
@@ -224,7 +238,123 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	assert agenda.deferred_total == 1, agenda.deferred_total
 	assert agenda.paused_total == 1, agenda.paused_total
 	assert agenda.later_total == 1, agenda.later_total
+	assert agenda.passed_total == 1, agenda.passed_total
 	assert agenda.unscheduled_total > len(agenda.unscheduled), agenda.unscheduled_total
+
+
+def test_an_occasion_gets_its_own_section_and_leaves_it_when_the_day_has_gone (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1236`, decision `SR#1235` §4 — the measured defect, and the three shapes it has.
+
+	A birthday planned to a date that has passed sat in **Today**, every day, for ever: the
+	bucket's clause is ``starts_at <= day_end`` and a past start is kept there deliberately
+	(`SR#927` M-18), which is right for work you meant to begin and wrong for a day that went
+	by. Driven on a disposable instance on 2026-08-25 against a birthday dated 14 March, it was
+	in Today, in ``--ready``, and the agenda's own tip read ``subroutine done 2``.
+
+	**All three of Simon's shapes are here, because each is over at a different moment**: a
+	single all-day date, an all-day span, and a timed span. A fixture holding only the first
+	cannot tell a rule about ``starts_at`` from a rule about the whole period.
+
+	**And an ordinary task with a start in the past is asserted to stay in Today**, which is
+	what makes this falsifiable in the other direction: excluding by *dates* rather than by
+	*type* would pass every assertion above and quietly undo `SR#927` M-18.
+	"""
+
+	world = World(session)
+
+	birthday = world.task(
+		"Anna's birthday", type_key="event", starts=TODAY, starts_is_all_day=True
+	)
+	world.task(
+		"Anna's birthday last March",
+		type_key="event",
+		starts=datetime.date(2026, 3, 14),
+		starts_is_all_day=True,
+	)
+	world.task(
+		"A fortnight off",
+		type_key="event",
+		starts=datetime.date(2026, 7, 27),
+		ends=datetime.date(2026, 8, 7),
+		starts_is_all_day=True,
+	)
+	world.task(
+		"Code freeze",
+		type_key="event",
+		starts=datetime.datetime(2026, 7, 29, 17, 0, tzinfo=datetime.UTC),
+		ends=datetime.datetime(2026, 7, 31, 8, 0, tzinfo=datetime.UTC),
+	)
+	world.task("Meant to start it on Monday", starts=datetime.date(2026, 7, 27))
+
+	session.flush()
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert sorted(_titles(agenda.occasions)) == [
+		"A fortnight off", "Anna's birthday", "Code freeze"
+	], f"the occasions section holds {_titles(agenda.occasions)}"
+
+	assert _titles(agenda.today) == ["Meant to start it on Monday"], (
+		f"Today holds {_titles(agenda.today)} — an occasion is in it, or an ordinary task with "
+		f"a start in the past has been thrown out with them"
+	)
+
+	# **In no bucket at all, with nobody having acted.** That is `SR#1235` §3 — a passed event
+	# is derived rather than written, so `completed_at` is still null and no scheduler ran.
+	assert birthday.completed_at is None
+	assert "Anna's birthday last March" not in [
+		title
+		for bucket in subroutine.views.AGENDA_BUCKETS
+		for title in _titles(getattr(agenda, bucket))
+	], "a birthday five months past is still on the agenda somewhere"
+
+	assert agenda.passed_total == 1, (
+		f"{agenda.passed_total} occasions reported as already happened — a listing at this "
+		f"scope still shows the March birthday, so a day that drops it silently is the "
+		f"unexplained difference `SR#649`'s amendment forbids"
+	)
+
+	# **Not counted as *further out*, which is the word that would have been false.** It is
+	# dated and unshown, which is `later_total`'s whole predicate, so the two counts have to
+	# partition those rows rather than both claim them.
+	assert agenda.later_total == 0, (
+		f"{agenda.later_total} reported as dated further out, and the only candidate is a "
+		f"birthday five months behind"
+	)
+
+
+def test_an_occasion_leaves_the_section_the_morning_after_and_not_before (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The boundary, on the shape whose boundary is easiest to get wrong.
+
+	An all-day start is stored at the **first** instant of its day (§6.5), so the obvious
+	predicate — *is its end behind now* — calls somebody's birthday passed at one minute past
+	midnight on their birthday. The agenda answers by overlap with the day being shown, which is
+	exact; :func:`subroutine.domain.readiness.passed` answers against the clock and subtracts a
+	day for this case, and the two have to agree about which day a birthday belongs to.
+
+	**Both sides asserted, because one of them is the good news.** A version that dropped it a
+	day early and a version that kept it a day late are the same one-line mistake with opposite
+	signs, and asserting only the disappearance would pass the first.
+	"""
+
+	world = World(session)
+
+	world.task("Anna's birthday", type_key="event", starts=TODAY, starts_is_all_day=True)
+	session.flush()
+
+	assert _titles(world.agenda().occasions) == ["Anna's birthday"], "it is not there on the day"
+
+	assert _titles(world.agenda(date=TODAY - datetime.timedelta(days=1)).occasions) == [], (
+		"it is on the agenda the day before it happens"
+	)
+
+	assert _titles(world.agenda(date=TODAY + datetime.timedelta(days=1)).occasions) == [], (
+		"it is still on the agenda the morning after"
+	)
 
 
 def _titles (tasks: tuple[subroutine.db.models.work.Task, ...]) -> list[str]:

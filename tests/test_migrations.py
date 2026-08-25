@@ -521,10 +521,28 @@ def test_the_backfilled_type_category_is_the_one_the_seeder_would_have_written (
 				).tuples().all()
 			)
 
+		# **The eleven that migration knows about, and it is no longer every type there is**
+		# (`SR#1236`). `seed.ITEM_TYPES` is seed set 1, which is what existed when
+		# `491e1a09de04` was written; `event` arrives at set 2 and that migration has never
+		# heard of it, so if it were the one putting the row back it would take the fallback
+		# and come back as `work`.
 		wanted = {one.key: one.category for one in subroutine.db.seed.ITEM_TYPES}
+		everything = {
+			one.key: one.category for one in subroutine.db.seed.SEEDED_ITEM_TYPES
+		}
 
 		assert len(wanted) >= 11, f"only {sorted(wanted)} are seeded, so this checks little"
-		assert backfilled == wanted
+		assert {
+			key: category for key, category in backfilled.items() if key in wanted
+		} == wanted
+
+		# **And a later set's type comes back right too, which is a claim about a different
+		# migration.** The walk down passes through every revision between, so the one that
+		# seeded `event` removed its own row on the way past and put it back on the way up —
+		# that is why this is `occasion` rather than the fallback. A seed added by a migration
+		# that did not undo itself would show up here as its entity's default category, which
+		# is the shape to look for if this ever fails.
+		assert backfilled == everything
 
 	finally:
 		engine.dispose()

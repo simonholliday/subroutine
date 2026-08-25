@@ -268,7 +268,7 @@ class Client(typing.Protocol):
 		workspace: str | None = None,
 		project: str | None = None,
 	) -> subroutine.views.Agenda:
-		"""Return the four buckets, across every workspace this credential reaches.
+		"""Return the agenda's buckets, across every workspace this credential reaches.
 
 		``project`` narrows further, to one project **and everything under it** (`#320`). It
 		needs ``workspace`` beside it and is refused without one: a project key is per workspace

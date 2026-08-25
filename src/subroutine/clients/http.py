@@ -181,7 +181,7 @@ class Client:
 		workspace: str | None = None,
 		project: str | None = None,
 	) -> subroutine.views.Agenda:
-		"""Return the four buckets, across every workspace this credential reaches."""
+		"""Return the agenda's buckets, across every workspace this credential reaches."""
 
 		body = self._json(
 			"GET",

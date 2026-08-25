@@ -1625,10 +1625,10 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 	"""
 
 	shown = _rendered(tmp_path, {"Agenda": {
-		"buckets": [], "more": 12, "later": 3, "deferred": 9, "paused": 0,
+		"buckets": [], "more": 12, "later": 3, "deferred": 9, "paused": 0, "gone": 2,
 	}})["Agenda"]
 
-	assert "24 not shown here" in shown, (
+	assert "26 not shown here" in shown, (
 		f"the day does not account for what it left behind: {shown}"
 	)
 	assert "9 put off until later" in shown, (
@@ -1636,6 +1636,14 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 		f"built for: {shown}"
 	)
 	assert "12 more unscheduled" in shown and "3 dated further out" in shown, shown
+
+	# **The fifth, and the only one nobody chose** (`SR#1236`, decision `SR#1235` §3). A passed
+	# event is not *completed*, so `?view=list` at this scope still holds it — which makes it
+	# exactly the unexplained difference between two views of one place that this line exists
+	# to close.
+	assert "2 already past" in shown, (
+		f"an event that has gone by leaves the day with nothing saying so: {shown}"
+	)
 
 	assert "nobody is running" not in shown, (
 		f"a cause hiding nothing was printed anyway, so the line carries a zero a reader has "
@@ -11021,7 +11029,7 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
 
 	drawn = set(re.findall(r"^\t([a-z_]+):", mapping.group(1), re.M))
-	seeded = {one.key for one in subroutine.db.seed.ITEM_TYPES}
+	seeded = {one.key for one in subroutine.db.seed.SEEDED_ITEM_TYPES}
 
 	assert len(seeded) >= 10, f"only {seeded} seeded, so this checks almost nothing"
 

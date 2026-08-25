@@ -433,6 +433,18 @@ _HEADINGS: dict[str, tuple[str, bool]] = {
 	# deadline is — and unlike everything below it, nothing here can move until you act.
 	"waiting": ("Waiting on you", True),
 	"overdue": ("Overdue", True),
+	# **What is happening to you, above what there is to do** (decision `#1235` §4). A code
+	# freeze or a fortnight off is the context the rest of the page is read in, and none of it
+	# is work anybody can pick up — which is why it is not in *Today*, whose question is *what
+	# can I start*.
+	#
+	# **"Happening" rather than "Happening today"**, which would be false under `--day`: the
+	# heading below already carries that debt and one copy of it is enough. It is also true of
+	# a fortnight that began last week, which "today" would quietly deny.
+	#
+	# **Never marked late**, because an occasion cannot be: it has no deadline, and Simon's own
+	# words are that *it does not become overdue, it just finishes*.
+	"occasions": ("Happening", False),
 	"today": ("Today", False),
 	# The number is filled in per render by :func:`agenda_sections`, because `--days` moves
 	# the window and a heading saying seven over a two-day look-ahead would be a defect
@@ -1899,6 +1911,52 @@ def _completions (item: Reached) -> str:
 	listed = ", ".join(sorted(slugs))
 
 	return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
+
+
+def _finished (program: Program, *, which: str, because: str) -> None:
+	"""Tick something off, or — for something that merely happened — put it away.
+
+	**A module-level function rather than the body of the command**, which is
+	``tests/test_personal_path.py``'s ratchet being paid rather than raised: ``register`` is a
+	closure and every line inside it is one more line that only one command can reach.
+	:func:`_planned`, ``_show_today`` and ``_changed`` came out the same way and for the reason.
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="done",
+		)
+
+		# **An occasion is put away rather than achieved** (decision `#1235` §3). Ticking off
+		# somebody's birthday is not refused here — a refusal is a wall with nothing to do next
+		# — but calling it *Done* would be the program congratulating the reader on a day going
+		# by. Nothing ever suggests this; when somebody asks for it they get it, in words that
+		# say what actually happened.
+		achieved = not _happens(task)
+
+		if task.completed_at is not None:
+			# Saying so beats reporting success twice. The case this is really about is an
+			# up-arrow repeat, which used to land on whatever had taken that number.
+			program.say(_acted(world, located, "Already done" if achieved else "Already past"))
+			_suggest(program.console, "subroutine list", "everything still open")
+
+			return
+
+		client = _require_connection(program, world, located.connection)
+		finished = client.complete(ref=task.ref, workspace=located.workspace)
+
+		_because(client, located, because, what="Done")
+
+		program.say(
+			_acted(
+				world,
+				dataclasses.replace(located, item=finished),
+				"Done" if achieved else "Marked as past",
+			)
+		)
+		_suggest(program.console, "subroutine agenda")
 
 
 def _planned (
@@ -5950,7 +6008,7 @@ def register (
 	def add (
 		words: list[str] = typer.Argument(None, help="What you need to do."),
 		kind: str = typer.Option(
-			"", "--type", help="task, bug, feature, chore, spike. Defaults to task."
+			"", "--type", help="task, bug, feature, chore, spike, event. Defaults to task."
 		),
 		description: str = typer.Option(
 			"", "--description", help="What it is about, in full. The title stays one line."
@@ -6721,28 +6779,7 @@ def register (
 		  subroutine done 42 --because "superseded by #99"
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="done",
-			)
-
-			if task.completed_at is not None:
-				# Saying so beats reporting success twice. The case this is really about is
-				# an up-arrow repeat, which used to land on whatever had taken that number.
-				say(_acted(world, located, "Already done"))
-				_suggest(console, "subroutine list", "everything still open")
-
-				return
-
-			client = _require_connection(program, world, located.connection)
-			finished = client.complete(ref=task.ref, workspace=located.workspace)
-
-			_because(client, located, because, what="Done")
-
-			say(_acted(world, dataclasses.replace(located, item=finished), "Done"))
-			_suggest(console, "subroutine agenda")
+		_finished(program, which=which, because=because)
 
 	@app.command()
 	def skip (
@@ -6950,7 +6987,7 @@ def register (
 			show_default=False,
 			help="How long before, like '2w' or '1h'. Pass '' to clear it.",
 		),
-		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike."),
+		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike, event."),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		assignee: str = typer.Option(
@@ -7981,6 +8018,9 @@ def _render (
 	# a defer, and a project nobody is running. Summed across connections for `later`'s reason.
 	deferred = sum(answer.value.deferred_total for answer in gathered.answers)
 	paused = sum(answer.value.paused_total for answer in gathered.answers)
+	# **What simply went by** (decision `#1235` §3), summed for `later`'s reason. Not a decision
+	# anybody took and not an edge of the window: a day that has been.
+	gone = sum(answer.value.passed_total for answer in gathered.answers)
 	printed = False
 	first: Row | None = None
 	# **One instant for the whole page**, the rule `domain.tasks` follows: two rows compared
@@ -8025,7 +8065,15 @@ def _render (
 
 		console.print(rich.text.Text(heading, style=LATE if late else HEADING))
 		printed = True
-		first = first or group[0]
+
+		# **The tip may never name an occasion** (decision `#1235` §5). `done` on one is
+		# accepted and nothing here refuses it; what the defect actually was is the product
+		# *advising* it — measured on a disposable instance, where a birthday five months past
+		# sat under *Today* with `subroutine done 2` printed beneath it. So the first row that
+		# can honestly be finished is what the tip names, and a page holding nothing but
+		# occasions falls through to the empty-handed suggestion below.
+		if first is None:
+			first = next((row for row in group if not _happens(row[1])), None)
 
 		for connection, task in group:
 			console.print(
@@ -8083,6 +8131,14 @@ def _render (
 			rich.text.Text(
 				f"      and {paused} in projects nobody is running", style=DETAIL
 			)
+		)
+
+	# **Said for the same reason as the four above** (`#649`'s amendment, decision `#1235` §3):
+	# a list at this scope still shows these and this page does not, and an unexplained
+	# difference between two views of one place is the thing that rule exists to prevent.
+	if gone > 0:
+		console.print(
+			rich.text.Text(f"      and {gone} already past", style=DETAIL)
 		)
 
 	if first is None:
@@ -8954,6 +9010,21 @@ def _is_late (item: Item, *, now: datetime.datetime) -> bool:
 	return subroutine.domain.schedule.is_overdue(item, now=now)
 
 
+def _happens (item: Item) -> bool:
+	"""Report whether this happens to you rather than being work you could finish.
+
+	Decision `#1235`. **The type's category, never its key** — a workspace may rename ``event``
+	or add ``holiday`` beside it through `#1129`, and a rule comparing the label is `#1156`.
+
+	Read here so a surface can decline to *suggest* one: the agenda's closing tip is
+	``subroutine done``, and the measured defect was the product advising a reader to tick off
+	somebody's birthday. Completing one is still accepted — a refusal is a wall — it is simply
+	never proposed.
+	"""
+
+	return item.type_category == subroutine.domain.readiness.OCCASION
+
+
 def _when (item: Item) -> str:
 	"""Return a short trailing phrase describing an item's dates, or nothing at all.
 
@@ -9306,6 +9377,11 @@ def _agenda_json (
 		# human path and the scripted path answering differently (§12.2a).
 		"deferred_total": sum(answer.value.deferred_total for answer in gathered.answers),
 		"paused_total": sum(answer.value.paused_total for answer in gathered.answers),
+		# **The fifth, and the only one nobody chose** (decision `#1235` §3). A listing at this
+		# scope still holds these rows — a passed event is not *completed* — so a script
+		# reconciling the two needs the number for the same reason a person reading the footer
+		# does.
+		"passed_total": sum(answer.value.passed_total for answer in gathered.answers),
 		# **Every connection that did not answer, not only the ones that failed at this
 		# call.** A connection that could not be *opened* (no token, unparseable
 		# credentials) or that failed at `identity()` was named on stderr and reported here

@@ -1,9 +1,14 @@
 """``GET /v1/agenda`` — "what am I doing today?" as one request.
 
-The four buckets are §8.6's, and they are **disjoint by priority**: a task appears in
-exactly one of them, so a client can render the whole thing without deduplicating and a
-count means what it says. Overdue wins over today, today over upcoming, and anything with
-no date at all falls to unscheduled.
+The buckets are §8.6's, and they are **disjoint by priority**: a task appears in exactly one
+of them, so a client can render the whole thing without deduplicating and a count means what
+it says. Overdue wins over today, today over upcoming, and anything with no date at all falls
+to unscheduled. An occasion — something that happens to you rather than work you do — is taken
+out before any of that and given a bucket of its own (decision `#1235`).
+
+**No number is written here**, deliberately: there were four, then six, and this sentence said
+four for both of the changes in between. :data:`subroutine.views.AGENDA_BUCKETS` is the list,
+and it is what every surface walks.
 
 Unlike ``GET /v1/tasks`` this spans every workspace the caller can read, because "what am I
 doing today" is a question about a person's day rather than about a workspace — the dentist
@@ -74,7 +79,7 @@ def read (
 		),
 	),
 ) -> subroutine.views.Agenda:
-	"""Return today's work, in four disjoint buckets."""
+	"""Return today's work, in disjoint buckets."""
 
 	now = subroutine.db.types.utcnow()
 	narrowing = _within(session, actor, workspace_id, project)

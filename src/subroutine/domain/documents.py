@@ -114,7 +114,7 @@ CURRENT_CATEGORY = "current"
 #: which is `#1171`, tracked for the day `#1129` makes item types renameable and unchanged by
 #: this widening.
 IN_FORCE_WHEN_WRITTEN = frozenset(
-	one.key for one in subroutine.db.seed.ITEM_TYPES if one.entity_type == "document"
+	one.key for one in subroutine.db.seed.SEEDED_ITEM_TYPES if one.entity_type == "document"
 )
 
 

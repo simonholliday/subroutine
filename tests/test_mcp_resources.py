@@ -539,7 +539,7 @@ def test_every_document_type_either_binds_the_reader_or_describes_something () -
 	"""
 
 	seeded = {
-		one.key for one in subroutine.db.seed.ITEM_TYPES if one.entity_type == "document"
+		one.key for one in subroutine.db.seed.SEEDED_ITEM_TYPES if one.entity_type == "document"
 	}
 	classified = subroutine.domain.documents.GOVERNS | subroutine.domain.documents.DESCRIBES
 

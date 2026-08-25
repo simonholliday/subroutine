@@ -1919,6 +1919,14 @@ class Agenda(pydantic.BaseModel):
 	#: read the rest of what it said.
 	in_progress: list[Task] = pydantic.Field(default_factory=list)
 
+	#: What is happening to you today rather than being done by you — the ``occasion`` type
+	#: category (decision `#1235` §4). A birthday, a booked fortnight, a code freeze: things
+	#: nobody can be offered as work, which is why they are not in ``today``.
+	#:
+	#: **Defaulted, so a client can read an instance that predates it** (`#345`, `#482`), for
+	#: the reason ``in_progress`` above gives.
+	occasions: list[Task] = pydantic.Field(default_factory=list)
+
 	#: How many unscheduled tasks there are in total, which is usually more than are listed:
 	#: an agenda that dumped a 400-item backlog would not be an agenda.
 	unscheduled_total: int
@@ -1947,6 +1955,13 @@ class Agenda(pydantic.BaseModel):
 	#: **Defaulted for the reason above.**
 	paused_total: int = 0
 
+	#: How many occasions this agenda leaves out because they have already happened (decision
+	#: `#1235` §3). A listing at the same scope still shows them — a passed event is not
+	#: *completed* — so the difference between the two is said rather than left to be noticed.
+	#:
+	#: **Defaulted for the reason above.**
+	passed_total: int = 0
+
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
 #:
@@ -1974,6 +1989,15 @@ AGENDA_BUCKETS: tuple[str, ...] = (
 	"in_progress",
 	"waiting",
 	"overdue",
+	# **Above the day's own work, and below what is late** (decision `#1235` §4). Everything
+	# around it is work; this is what is happening *to* the reader, and a code freeze or a
+	# fortnight off is the context the rest of the page is read in — so it goes before *Today*
+	# and after the things that are already owed.
+	#
+	# **The same position the buckets are computed in**, which is not a tidiness: `agenda.build`
+	# takes an occasion's rows before `today` can, and `#1244` is what it costs when this list
+	# and that one disagree.
+	"occasions",
 	"today",
 	"upcoming",
 	"unscheduled",
@@ -2129,6 +2153,22 @@ class Vocabulary:
 	Three queries for a page of fifty rows rather than a hundred and fifty. Built as an
 	object rather than passed as three dictionaries because every renderer below needs all
 	three, and a signature that takes three lookup tables invites one of them being stale.
+
+	**The clock is read here, once, and deliberately not passed in.** Two of the loads below
+	mark rows *blocked* and *blocker*, and what counts as a live blocker became a question about
+	the clock when an occasion learned to be over with nobody saying so (decision `#1235` §3).
+	The rest of this codebase threads ``now`` from the request, and that is right where the
+	caller has one — :func:`subroutine.domain.readiness.ready` and
+	:func:`subroutine.domain.agenda.build` both do. **This class has thirty-five call sites and
+	not one of them holds a request instant**, so a parameter here would be thirty-five copies of
+	``utcnow()`` written at the call rather than one instant threaded through, which is the
+	appearance of the property and not the property.
+
+	What is really wanted is that **one page resolves against one instant**, which is what
+	reading it here gives. The residue is that a listing's ``?ready=true`` filter and its own
+	*Blocked* marks are resolved microseconds apart, so a freeze lapsing between them could show
+	a ready row still marked blocked until the next refresh. §6.3a's warning is about a
+	*cursor*, where a disagreement skips or repeats rows; nothing here paginates on it.
 	"""
 
 	def __init__ (
@@ -2211,11 +2251,15 @@ class Vocabulary:
 		# N+1 — and that was the recorded obstacle to marking blocked work for as long as
 		# anybody wanted it marked. Loaded here because this class is already the answer to
 		# "what does a page of rows need that a row cannot know on its own".
-		self.blocked = subroutine.domain.readiness.blocked_among(session, wanted)
+		# **One instant for both marks and for every row on the page** — see the class
+		# docstring for why it is read here rather than passed.
+		now = subroutine.db.types.utcnow()
+
+		self.blocked = subroutine.domain.readiness.blocked_among(session, wanted, now=now)
 		# The mirror, one `EXISTS` scan the same way (`#569`). Two queries rather than one
 		# because they are opposite directions over the same edges, and both return
 		# immediately on an empty page.
-		self.blocking = subroutine.domain.readiness.blocking_among(session, wanted)
+		self.blocking = subroutine.domain.readiness.blocking_among(session, wanted, now=now)
 
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
@@ -2990,35 +3034,34 @@ def happened (event: Event) -> str:
 def agenda (
 	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
 ) -> Agenda:
-	"""Render a built agenda, loading the vocabulary for all four buckets at once.
+	"""Render a built agenda, loading the vocabulary for every bucket at once.
 
 	One :class:`Vocabulary` across the whole thing rather than one per bucket: the same
-	three statuses turn up in every bucket, and four loads would be three too many.
+	three statuses turn up in every bucket, and six loads would be five too many.
+
+	**The buckets are walked from :data:`AGENDA_BUCKETS` rather than listed here** (`#1236`).
+	They were listed, twice in this function — once to gather the rows and once to render them —
+	so a bucket added to the dataclass and to the model reached an agent as an empty list, in
+	silence, exactly as ``in_progress`` did before `#992` gave the order one home. This is that
+	item's argument arriving at the last surface that had its own copy.
 	"""
 
-	everything = [
-		*built.waiting,
-		*built.overdue,
-		*built.today,
-		*built.in_progress,
-		*built.upcoming,
-		*built.unscheduled,
-	]
+	everything = [row for bucket in AGENDA_BUCKETS for row in getattr(built, bucket)]
 	vocabulary = Vocabulary.for_tasks(session, everything)
+	rendered: dict[str, typing.Any] = {
+		bucket: [task(row, vocabulary) for row in getattr(built, bucket)]
+		for bucket in AGENDA_BUCKETS
+	}
 
 	return Agenda(
 		date=built.date,
 		timezone=built.timezone,
-		waiting=[task(row, vocabulary) for row in built.waiting],
-		overdue=[task(row, vocabulary) for row in built.overdue],
-		today=[task(row, vocabulary) for row in built.today],
-		upcoming=[task(row, vocabulary) for row in built.upcoming],
-		in_progress=[task(row, vocabulary) for row in built.in_progress],
-		unscheduled=[task(row, vocabulary) for row in built.unscheduled],
 		unscheduled_total=built.unscheduled_total,
 		later_total=built.later_total,
 		deferred_total=built.deferred_total,
 		paused_total=built.paused_total,
+		passed_total=built.passed_total,
+		**rendered,
 	)
 
 

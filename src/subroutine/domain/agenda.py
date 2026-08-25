@@ -1,10 +1,11 @@
 """What am I doing today — the one question a personal to-do list has to answer well.
 
-Four named buckets rather than a flat list, because a person's day has structure and
+Named buckets rather than a flat list, because a person's day has structure and
 because a flat list loses the most common kind of personal task (docs/design.md §8.6). The
 buckets in priority order:
 
 ``overdue``      a deadline that has already passed
+``occasions``    what is happening to you today rather than being done by you
 ``today``        planned for today or earlier, or due at some point today
 ``upcoming``     due or planned inside a look-ahead window
 ``unscheduled``  no dates at all — "buy milk"
@@ -88,6 +89,11 @@ ORDERS: dict[str, tuple[str, ...]] = {
 	"waiting": (),
 	# Soonest first, because that is the order the days arrive in.
 	"overdue": ("due_at",),
+	# **``starts_at``, because an occasion has no deadline to sort by** — decision `#1235`, and
+	# it is the whole of what makes one an occasion. A fortnight that began last week sits above
+	# a birthday today, which is the order the days arrive in read honestly: the one already
+	# under way started first.
+	"occasions": ("starts_at",),
 	"today": ("due_at",),
 	# **Ranked, which is the same rule ``?order=-priority_score`` applies** (`#853`), so the
 	# agenda and a ranked listing cannot disagree about which item is the one to start.
@@ -140,6 +146,19 @@ class Agenda:
 	#: half-finished work (`#841`).
 	in_progress: tuple[subroutine.db.models.work.Task, ...] = ()
 
+	#: What is happening to you today rather than being done by you — the ``occasion`` type
+	#: category (decision `#1235` §4). A birthday, a booked fortnight, a street closed by the
+	#: council, a code freeze.
+	#:
+	#: **Its own section rather than the ``today`` bucket**, because *today* answers *what can I
+	#: pick up* and an event is not an answer to it. The measured defect: a birthday planned to a
+	#: date that has passed sat in Today every day for ever, was offered by ``--ready``, and the
+	#: agenda's own tip read ``subroutine done 2``.
+	#:
+	#: **Membership is overlap with the day being shown**, so it leaves by itself the morning
+	#: after with nobody acting — which is `#1235` §3's *derived, never written*.
+	occasions: tuple[subroutine.db.models.work.Task, ...] = ()
+
 	#: How many undated tasks there are in total, which is usually more than were returned.
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
@@ -155,6 +174,16 @@ class Agenda:
 	#: **Counted before the defer is applied**, so it and the buckets partition the scope rather
 	#: than overlapping — a deferred row never reaches the bucketing at all.
 	deferred_total: int = 0
+
+	#: How many occasions this agenda leaves out because they have already happened — decision
+	#: `#1235` §3, and the count `tests/test_agenda.py`'s arithmetic demanded the moment there
+	#: was a fifth way to be left out.
+	#:
+	#: **A listing still shows them and this view does not**, which is exactly the unexplained
+	#: difference `#649`'s amendment forbids: a passed event is not *completed*, so nothing
+	#: hides it from ``?view=list``, and the agenda drops it because a day that went by is not
+	#: part of today. Saying how many is what makes that a decision rather than a gap.
+	passed_total: int = 0
 
 	#: How much undated work is in a project nobody is running — `#983`, reported since `#1215`.
 	#:
@@ -179,6 +208,7 @@ class Agenda:
 		return not (
 			self.waiting
 			or self.overdue
+			or self.occasions
 			or self.today
 			or self.in_progress
 			or self.upcoming
@@ -302,9 +332,44 @@ def build (
 	overdue = tuple(task for task in overdue if task.id not in seen)
 	seen.update(task.id for task in overdue)
 
+	# **Before `today`, and it has to be** (decision `#1235` §4). The buckets are disjoint in
+	# the order they are computed and `views.AGENDA_BUCKETS` shows them in the same order —
+	# `#1244` is what it costs when those two part company — so this both sits above the day's
+	# work on the page and takes its rows before `today` can.
+	#
+	# **Overlap with the day, which is what makes a passed event leave on its own.** An
+	# occasion is here when it has begun by tonight and is not over before this morning; its end
+	# is `ends_at` where there is one and its start otherwise. An all-day start is the first
+	# instant of its day and an all-day end the last (§6.5), so a birthday is current for
+	# exactly its own day and a fortnight for exactly its fifteen.
+	#
+	# **Nothing is written and no scheduler runs** — `#1235` §3, which is `#915` §1's argument
+	# reapplied: a timer that only fires when the program happens to be up is worse than none,
+	# because it teaches somebody to trust it.
+	occasions = _run(
+		session,
+		base.where(
+			subroutine.domain.readiness.is_occasion(model),
+			model.starts_at.is_not(None),
+			model.starts_at <= day_end,
+			sqlalchemy.func.coalesce(model.ends_at, model.starts_at) >= day_start,
+		),
+		"occasions",
+		sortable,
+	)
+	occasions = tuple(task for task in occasions if task.id not in seen)
+	seen.update(task.id for task in occasions)
+
 	today = _run(
 		session,
 		base.where(
+			# **And it is not an occasion** (decision `#1235` §4). Without this the defect the
+			# section was built to fix survives it: `starts_at <= day_end` keeps a past start in
+			# today's bucket deliberately — right for work you meant to begin — and a birthday
+			# in March is then in Today in August, every day, for ever. The bucket above takes
+			# the ones that are actually happening; this clause is what stops the rest coming
+			# back through the door beside it.
+			sqlalchemy.not_(subroutine.domain.readiness.is_occasion(model)),
 			sqlalchemy.or_(
 				# **Compared against the end of the day, not against the day** (`#854`).
 				# This used to read `planned_for <= day`, a `DATE` against a `date`; the
@@ -442,7 +507,13 @@ def build (
 	# there, which is the answer that looks like good news.
 	shown = seen | {task.id for task in upcoming}
 	later = base.where(
-		sqlalchemy.or_(model.starts_at.is_not(None), model.due_at.is_not(None))
+		sqlalchemy.or_(model.starts_at.is_not(None), model.due_at.is_not(None)),
+		# **Behind you is not further out** (decision `#1235` §3). An occasion that has gone by
+		# is dated and unshown, so without this it would be counted here and the terminal would
+		# say *and 3 dated further out* about three birthdays in March. The two counts partition
+		# the dated-and-unshown rows rather than overlapping, which is what keeps the
+		# arithmetic below meaning anything.
+		sqlalchemy.not_(subroutine.domain.readiness.passed(model, now=now)),
 	)
 
 	if shown:
@@ -451,6 +522,16 @@ def build (
 	beyond = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(later.subquery())
 	)
+
+	# **The fifth thing a day leaves out, and the first that nobody chose** (decision `#1235`
+	# §3). A defer and a paused project are decisions; a cap and a window are edges; this is
+	# simply a day that went by. It is reported for `#649`'s reason all the same — a listing at
+	# the same scope still shows these rows, because a passed event is not *completed* and
+	# nothing hides it there.
+	gone = base.where(subroutine.domain.readiness.passed(model, now=now))
+
+	if shown:
+		gone = gone.where(model.id.not_in(shown))
 
 	# **What the day holds back, counted so the page can account for itself** (`#1215`).
 	#
@@ -481,6 +562,7 @@ def build (
 		timezone=timezone,
 		waiting=waiting,
 		overdue=overdue,
+		occasions=occasions,
 		today=today,
 		in_progress=started,
 		upcoming=upcoming,
@@ -492,6 +574,9 @@ def build (
 		) or 0,
 		paused_total=session.scalar(
 			sqlalchemy.select(sqlalchemy.func.count()).select_from(put_down.subquery())
+		) or 0,
+		passed_total=session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(gone.subquery())
 		) or 0,
 	)
 

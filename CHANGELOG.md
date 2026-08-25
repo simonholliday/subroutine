@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `4f177421eb91`.
+> **This release changes the database schema**, to `9c41d0b7ae52`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -32,6 +32,21 @@ upgrade involves.
   marked late: the marking follows the row instead of the section it happens to be in.
 
 ### Added
+
+- **An event is something that happens to you, and it is never late.** A birthday, a booked
+  fortnight, a street closed by the council, a code freeze: add one with `--type event`, give it
+  a start and an end, and it behaves like the thing it is. It is never offered as work to start,
+  it gets its own *Happening* section on the agenda rather than being mixed in with the day's
+  jobs, and it leaves that section by itself the morning after — nobody has to tick off somebody
+  else's birthday.
+
+  Anything blocked on one is released when the event is over, so a deploy waiting on a code
+  freeze becomes startable the moment the freeze lifts, with nothing to remember.
+
+  Existing workspaces get the new type when they upgrade. Quick capture is unchanged: a line
+  like `Anna's birthday on 14 March every year` still files an ordinary task, because guessing
+  between *a birthday* and *call mum on Sunday* from the words alone is exactly the kind of
+  mistake this product does not make quietly.
 
 - **Something that lasts can say how long, so a holiday is not a single day.** A task takes an
   end beside its start — `subroutine plan 7 "14 august" --until "28 august"`, or `ends` over the

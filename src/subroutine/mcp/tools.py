@@ -779,7 +779,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"type": "object",
 				"properties": {
 					"text": {"type": "string", "description": "The line to capture."},
-					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
+					"type": {"type": "string", "description": "task, bug, feature, chore, spike, event."},
 					"description": {
 						"type": "string",
 						"description": "Why it matters, in full. The title stays one line.",
@@ -871,7 +871,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"urgency": {"type": "integer", "description": "1-5, 5 soonest."},
 					"estimate": {"type": "string", "description": "How long, e.g. '4h'."},
 					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
-					"type": {"type": "string", "description": "task, bug, feature, chore, spike."},
+					"type": {"type": "string", "description": "task, bug, feature, chore, spike, event."},
 					"title": {"type": "string", "description": "A new title."},
 					"description": {
 						"type": "string",

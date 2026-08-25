@@ -230,6 +230,23 @@ ITEM_TYPES = (
 	ItemTypeSeed("document", "dead_end", "Dead end", "decision"),
 )
 
+#: What decision `#1235` adds, at seed version 2 — the first set after the one every workspace
+#: was born with.
+#:
+#: **One row, and it is a *type* rather than an entity.** An event needs a ref, a project,
+#: comments, links, a description and a claim, and every one of those is already a task's;
+#: building a third kind of item to gain a discriminator a column already provides is this
+#: codebase's signature defect at the largest scale available. What makes it an event is
+#: ``occasion``, which ``--ready`` and the agenda read.
+#:
+#: **``occasion`` for the category and ``event`` for the type**, mirroring ``defect``/``bug``:
+#: the category is the abstract kind and the type is the word people use. It leaves a workspace
+#: room to add ``holiday`` or ``freeze`` under the same category once `#1129` lands, and each of
+#: those inherits the behaviour without another release.
+EVENT_TYPES = (
+	ItemTypeSeed("task", "event", "Event", "occasion"),
+)
+
 #: ``derives_from`` is the one that earns its place twice over: it is how the tasks
 #: implementing a specification point back at it, and how a bug points back at the failing
 #: check that found it (docs/design.md §5.7).
@@ -258,11 +275,32 @@ SEED_SETS: dict[int, SeedSet] = {
 		item_types=ITEM_TYPES,
 		link_types=LINK_TYPES,
 	),
+	# **The first set added after release, and the machinery above is what it proves.** A
+	# workspace already at 1 applies this and nothing else; one created after it applies both,
+	# in order. Decision `#1235`.
+	#
+	# **A workspace that predates the migration carrying this is at version 1 and has the row
+	# anyway**, because the migration inserts it directly — the seeder is idempotent by key, so
+	# a later call finds it present, writes nothing and moves the number up. Doing it in the
+	# migration rather than by rewriting a JSON settings blob on two backends is the cheaper
+	# half of the same outcome.
+	2: SeedSet(item_types=EVENT_TYPES),
 }
 
 #: The version a freshly seeded workspace ends up at. Derived rather than declared, so
 #: adding a seed set cannot be half-done.
 SEED_VERSION = max(SEED_SETS)
+
+#: Every item type a fully seeded workspace ends up with, in the order the sets apply.
+#:
+#: **Derived, because :data:`ITEM_TYPES` stopped being the answer the moment there were two
+#: sets.** Three guards read *the seeds* to ask what every seeded type must have — a glyph in
+#: the browser, a mention in ``--help``, a category the backfill agrees about — and all three
+#: read set 1 by name. A type added at version 2 would have escaped every one of them in
+#: silence, which is a guard reading a list that no longer means what its name says.
+SEEDED_ITEM_TYPES: tuple[ItemTypeSeed, ...] = tuple(
+	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].item_types
+)
 
 #: The two tables whose rows carry a display order, handled together because the rule for
 #: where a newly seeded row goes is the same for both.

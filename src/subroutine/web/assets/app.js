@@ -3688,6 +3688,7 @@ export const TYPE_ICONS = {
 	feature: "sparkle",
 	chore: "broom",
 	spike: "flask",
+	event: "calendar-dots",
 	note: "note",
 	spec: "file-text",
 	design: "compass-tool",
@@ -3716,6 +3717,10 @@ export const CATEGORY_ICONS = {
 	work: "check-square",
 	defect: "bug",
 	question: "flask",
+	/* The picture of the type that represents it, which is this map's own rule: a workspace
+	   that adds `holiday` under `occasion` through `#1129` gets what `event` carries, and reads
+	   as *this is something that happens, and I do not know more*. */
+	occasion: "calendar-dots",
 	decision: "gavel",
 	reference: "file-text",
 	record: "note",
@@ -4343,6 +4348,13 @@ const BUCKETS = [
 	   this is dealt with. */
 	{ key: "waiting", label: "Waiting on you" },
 	{ key: "overdue", label: "Overdue" },
+	/* **What is happening to the reader rather than being done by them** — decision `#1235`
+	   §4. A birthday, a booked fortnight, a code freeze: none of it is work anybody can pick
+	   up, which is why it sits above *Today* rather than inside it.
+
+	   **"Happening" rather than "Happening today"**, matching the terminal: it is true of a
+	   fortnight that began last week, where "today" would deny it. */
+	{ key: "occasions", label: "Happening" },
 	{ key: "today", label: "Today" },
 	{ key: "upcoming", label: `Next ${HORIZON_DAYS} days` },
 	{ key: "unscheduled", label: "Next" },
@@ -4693,7 +4705,8 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, later = 0, deferred = 0, paused = 0, where, onAdd, onOpen, onComplete, busy,
+	buckets, more, later = 0, deferred = 0, paused = 0, gone = 0, where, onAdd, onOpen,
+	onComplete, busy,
 	adding,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
@@ -4778,6 +4791,10 @@ export function Agenda ({
 		{ count: deferred, said: `${deferred} put off until later` },
 		{ count: paused, said: `${paused} in projects nobody is running` },
 		{ count: later, said: `${later} dated further out` },
+		/* **The fifth, and the only one nobody chose** — decision `#1235` §3. A list at this
+		   scope still shows a passed event, because it is not *completed*, so the difference
+		   between the two views is said rather than left to be found. */
+		{ count: gone, said: `${gone} already past` },
 	].filter((one) => one.count > 0);
 
 	/*
@@ -6901,6 +6918,7 @@ export function App () {
 	/* What the day is holding back that somebody chose to hold back — `#1215`. */
 	const [deferred, setDeferred] = useState(0);
 	const [paused, setPaused] = useState(0);
+	const [gone, setGone] = useState(0);
 	/*
 		The add form: whether it is open, and the two answers it needs to draw its dropdowns
 		(`#756`).
@@ -7048,6 +7066,7 @@ export function App () {
 		   predates them reads zero and draws one line fewer rather than refusing. */
 		setDeferred(answered.deferred_total || 0);
 		setPaused(answered.paused_total || 0);
+		setGone(answered.passed_total || 0);
 	}, []);
 
 	const load = useCallback(async (slug, key = null, after = null) => {
@@ -8982,7 +9001,7 @@ export function App () {
 					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} later=${later}
-						deferred=${deferred} paused=${paused}
+						deferred=${deferred} paused=${paused} gone=${gone}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						onGo=${narrow}
 						${/* **What the address already said** (`#957` §4, `#1215`). The merged

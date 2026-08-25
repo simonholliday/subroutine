@@ -1714,6 +1714,105 @@ def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> No
 	assert second in listed, "the blocker is done and the task is still held back"
 
 
+def test_ready_excludes_an_event_because_nobody_can_be_offered_one (world: World) -> None:
+	"""`SR#1236`, decision `SR#1235` §4 — the first task category that decides anything.
+
+	Simon's definition is *out of our control, never due or overdue; it just happens*. An event
+	occurs whether or not anybody acts, so ranking it against the backlog and handing it back as
+	*what to start next* is offering the wrong thing — measured on a disposable instance, where
+	a birthday five months past came back from ``--ready`` with the tip ``subroutine done 2``
+	beside it.
+
+	**The ordinary task carrying the same dates is asserted to stay**, which is the whole of the
+	falsification: what makes something an occasion is its *type*, never its dates, and a rule
+	written against ``starts_at`` would pass the first assertion and take every appointment with
+	it.
+	"""
+
+	appointment = world.call(
+		"POST", "/v1/tasks", json={"title": "Dentist", "starts": "2099-03-14"}
+	).json()["ref"]
+	birthday = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Anna's birthday", "type": "event", "starts": "2099-03-14"},
+	).json()["ref"]
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert birthday not in listed, "an event is offered as work somebody could start"
+	assert appointment in listed, (
+		"an ordinary task was excluded too, so the rule is reading the dates rather than "
+		"the type"
+	)
+
+	# **And it is still there when nobody has asked about readiness**, because the category
+	# decides what can be *started* and never what exists. An event that vanished from the
+	# backlog would be a filter wearing a delete's clothes.
+	everything = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]
+	]
+
+	assert birthday in everything
+
+
+def test_an_event_stops_blocking_when_it_is_over_without_anybody_completing_it (
+	world: World,
+) -> None:
+	"""`SR#1236`, decision `SR#1235` §3 — two ways to be over, and one predicate that knows both.
+
+	A code freeze is exactly the thing somebody blocks a deploy on, and nothing will ever set
+	its ``completed_at``: a passed event is *derived*, no scheduler runs, and the product goes
+	out of its way never to suggest ticking one off. So a blocking rule reading that column
+	alone leaves the deploy shut for ever, and the only way out is the one act the design says
+	not to advise.
+
+	**Driven at two instants against one database**, because the claim is that readiness
+	*changes* rather than that it was computed correctly once — which is the same reason
+	``test_finishing_the_blocker_makes_the_blocked_task_ready`` exists beside its own sibling.
+	"""
+
+	freeze = world.call(
+		"POST",
+		"/v1/tasks",
+		json={
+			"title": "Code freeze",
+			"type": "event",
+			"starts": "2020-01-01T17:00:00Z",
+			"ends": "2099-01-01T09:00:00Z",
+		},
+	).json()["ref"]
+	deploy = world.call("POST", "/v1/tasks", json={"title": "Deploy v2"}).json()["ref"]
+	_blocking(world, freeze, deploy)
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert deploy not in listed, "a freeze that has not lifted is not holding the deploy back"
+
+	# The same freeze, moved so that it is behind us. Nothing else changes and nothing is
+	# completed — `completed_at` is asserted null below for exactly that reason.
+	world.call("PATCH", f"/v1/tasks/{freeze}", json={"ends": "2020-01-02T09:00:00Z"})
+
+	after = world.call("GET", f"/v1/tasks/{freeze}").json()
+
+	assert after["completed_at"] is None, (
+		"the freeze was completed, so this proves nothing about an event being over on its own"
+	)
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert deploy in listed, (
+		"the freeze lifted and the deploy is still blocked — an event nobody will ever tick "
+		"off is a permanent blocker"
+	)
+
+
 def test_ready_excludes_a_task_deferred_to_the_future (world: World) -> None:
 	"""docs/design.md §6.5's third reason to skip something, which is a clock rather than a graph.
 

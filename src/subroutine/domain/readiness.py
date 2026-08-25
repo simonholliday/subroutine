@@ -41,8 +41,108 @@ import subroutine.errors
 #: from this name, so the two cannot part company.
 GATING = "gating"
 
+#: The task-type category that says something *happens to you* — decision `#1235`, Simon's
+#: *out of our control, never due or overdue; it just happens*. A birthday, a booked fortnight,
+#: a street closed by the council, a code freeze.
+#:
+#: **Read here rather than beside each caller** for :data:`GATING`'s reason: ``--ready`` hides
+#: these, :func:`passed` decides when one stops holding work up, and the agenda gives them a
+#: section — three rules about one category, and `#1156` is what it costs when a set of rules
+#: written in terms of one vocabulary keep their own copies of it.
+#:
+#: **The category and never the key**, so a workspace adding ``holiday`` or ``freeze`` under it
+#: through `#1129` inherits all three without a release.
+OCCASION = "occasion"
 
-def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+
+def is_occasion (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items that happen rather than get done — decision `#1235`.
+
+	**A correlated ``EXISTS`` rather than a join**, which is :func:`in_a_running_project`'s
+	shape and its reasoning: in a ``WHERE`` clause both planners make it a semi-join and it
+	short-circuits, where `#856`'s ``ORDER BY <subquery>`` computes a key for every row in the
+	table. ``task.type_id`` is NOT NULL, so this never has to reason about a row with no type.
+	"""
+
+	kind = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.ItemType)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(kind.id)
+		.where(kind.id == model.type_id, kind.category == OCCASION)
+		.correlate(model)
+	)
+
+
+def passed (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching occasions that have gone by — decision `#1235`, §3.
+
+	**Derived, never written.** ``completed_at`` stays null and no scheduler exists to be
+	trusted: `#915` chose to compute occurrences rather than materialise them precisely because
+	an in-process timer that only fires when the program happens to be up is worse than none,
+	and the same argument settles this. A computed answer cannot be stale.
+
+	Three shapes, because *when is it over* is a different question for each:
+
+	* **a span** — ``ends_at`` is the answer and needs nothing else, whether it is a fortnight
+	  off or a code freeze that lifts at nine on Monday;
+	* **a whole day with no end** — a birthday. Over once a whole day has gone by since it
+	  began, which is what ``now - 1 day`` says without asking the database to do date
+	  arithmetic in two dialects. An all-day start is stored at the first instant of its day
+	  (§6.5), so comparing that instant against ``now`` directly would call somebody's birthday
+	  passed at one minute past midnight *on* their birthday;
+	* **an instant with no end** — over when it happens, which is all an instant can mean.
+
+	**The known slop is one hour, twice a year.** A local day is 23 or 25 hours long across a
+	daylight-saving boundary and this subtracts 24. The alternative is a per-row timezone, which
+	SQL cannot do — :func:`subroutine.domain.schedule.is_overdue` is where a per-row zone is
+	honoured, in Python, on a loaded row. Nothing here decides what a person *sees*: the agenda
+	buckets an occasion by overlapping the day being shown, which is exact.
+	"""
+
+	a_day_ago = now - datetime.timedelta(days=1)
+
+	return sqlalchemy.and_(
+		is_occasion(model),
+		model.starts_at.is_not(None),
+		sqlalchemy.or_(
+			sqlalchemy.and_(model.ends_at.is_not(None), model.ends_at < now),
+			sqlalchemy.and_(
+				model.ends_at.is_(None),
+				model.starts_is_all_day,
+				model.starts_at <= a_day_ago,
+			),
+			sqlalchemy.and_(
+				model.ends_at.is_(None),
+				sqlalchemy.not_(model.starts_is_all_day),
+				model.starts_at < now,
+			),
+		),
+	)
+
+
+def over (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items that are finished *or* have simply gone by.
+
+	**One predicate because there are now two ways to be over** — decision `#1235` §3 says so
+	in terms. Work is over when somebody completed or cancelled it; an occasion is over when its
+	end is behind you and nobody did anything at all. Every rule asking *is this finished* has to
+	ask both, and asking it as two literals that happen to agree is `#1156`.
+
+	``completed_at`` rather than the status vocabulary, for :func:`unblocked`'s reason: §10.7's
+	invariant 5 makes that column non-null exactly when the category is ``done`` or
+	``cancelled``, so it answers without joining a table an installation may rename rows in.
+	"""
+
+	return sqlalchemy.or_(model.completed_at.is_not(None), passed(model, now=now))
+
+
+def unblocked (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items nothing unfinished is blocking.
 
 	A ``blocks`` link runs source → target, so an item's blockers are the *sources* of links
@@ -54,6 +154,11 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 	invariant 5 makes that column non-null exactly when the category is ``done`` or
 	``cancelled``, so it answers the same question without joining a table an installation is
 	free to rename rows in.
+
+	**``now`` is here because there are two ways to be over** (decision `#1235` §3). A code
+	freeze holds a deploy shut until it lifts and then stops, with nobody marking anything done
+	— so what counts as a live blocker is a question about the clock, and :func:`over` is the
+	one predicate that answers it.
 	"""
 
 	link = subroutine.db.models.work.Link
@@ -72,13 +177,15 @@ def unblocked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 		.where(
 			link.target_type == "task",
 			link.target_id == model.id,
-			*_live_blocks_edge(link, kind, blocker, filed_in),
+			*_live_blocks_edge(link, kind, blocker, filed_in, now=now),
 		)
 		.correlate(model)
 	)
 
 
-def blocking (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+def blocking (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items that are holding something unfinished up.
 
 	**The mirror of :func:`unblocked`, and `#569` is the mirror of `#425`.** That item made
@@ -104,14 +211,19 @@ def blocking (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 		.where(
 			link.source_type == "task",
 			link.source_id == model.id,
-			*_live_blocks_edge(link, kind, held, filed_in),
+			*_live_blocks_edge(link, kind, held, filed_in, now=now),
 		)
 		.correlate(model)
 	)
 
 
 def _live_blocks_edge (
-	link: type[typing.Any], kind: type[typing.Any], other: typing.Any, filed_in: typing.Any
+	link: type[typing.Any],
+	kind: type[typing.Any],
+	other: typing.Any,
+	filed_in: typing.Any,
+	*,
+	now: datetime.datetime,
 ) -> tuple[sqlalchemy.ColumnElement[bool], ...]:
 	"""Return what makes a ``blocks`` link count: it is live and its far end is unfinished.
 
@@ -137,7 +249,12 @@ def _live_blocks_edge (
 		kind.category == GATING,
 		# Finished work is neither held up nor holding anything up. Without this a shipped
 		# release would go on marking everything that ever blocked it.
-		other.completed_at.is_(None),
+		#
+		# **And an occasion that has gone by is over without anybody saying so** (decision
+		# `#1235` §3). A code freeze is exactly the thing somebody blocks a deploy on, and
+		# nothing will ever set its `completed_at` — the product goes out of its way not to
+		# suggest it — so reading that column alone would leave the deploy blocked for ever.
+		sqlalchemy.not_(over(other, now=now)),
 		other.deleted_at.is_(None),
 		# **And the project it is filed in is still there.** `projects.delete` does not touch
 		# its tasks — "every listing joins the project and excludes deleted ones, so they
@@ -150,7 +267,10 @@ def _live_blocks_edge (
 
 
 def blocked_among (
-	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+	session: sqlalchemy.orm.Session,
+	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	now: datetime.datetime,
 ) -> set[uuid.UUID]:
 	"""Return which of these tasks something unfinished is blocking — item ``#425``.
 
@@ -171,11 +291,16 @@ def blocked_among (
 	is bounded — that something unseen blocks an item, never what.
 	"""
 
-	return _matching(session, identifiers, lambda model: sqlalchemy.not_(unblocked(model)))
+	return _matching(
+		session, identifiers, lambda model: sqlalchemy.not_(unblocked(model, now=now))
+	)
 
 
 def blocking_among (
-	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+	session: sqlalchemy.orm.Session,
+	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	now: datetime.datetime,
 ) -> set[uuid.UUID]:
 	"""Return which of these tasks are holding something unfinished up — item ``#569``.
 
@@ -194,7 +319,7 @@ def blocking_among (
 	importance disclosed *what*, and was refused by ``tests/test_scoping.py`` for it.
 	"""
 
-	return _matching(session, identifiers, blocking)
+	return _matching(session, identifiers, lambda model: blocking(model, now=now))
 
 
 def _matching (
@@ -411,8 +536,17 @@ def ready (
 	"""
 
 	return sqlalchemy.and_(
-		unblocked(model),
+		unblocked(model, now=now),
 		undeferred(model, now=now),
 		unclaimed(model, now=now, by=by),
 		in_a_running_project(model),
+		# **An event is not work anybody can be offered** (decision `#1235` §4). It happens
+		# whether or not you act, so ranking it against the backlog and handing it back as
+		# *what to start next* is offering the wrong thing — measured on a disposable instance,
+		# where a birthday five months past was returned by `--ready` with the tip
+		# `subroutine done 2` beside it.
+		#
+		# **The category, not the dates.** An ordinary task may carry a start and an end and is
+		# still work; what makes something an occasion is what it *is*.
+		sqlalchemy.not_(is_occasion(model)),
 	)

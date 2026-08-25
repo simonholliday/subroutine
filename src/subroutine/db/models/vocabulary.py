@@ -65,7 +65,7 @@ class ItemType(
 	"""What kind of thing a task or document is.
 
 	One table serves both, discriminated by ``entity_type`` — the same trick statuses
-	use. Tasks are typed task, bug, feature, chore or spike; documents are typed spec,
+	use. Tasks are typed task, bug, feature, chore, spike or event; documents are typed spec,
 	design, note, decision, finding or dead end.
 
 	``category`` is what a client branches on when it does not recognise the key (decision

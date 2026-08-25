@@ -127,7 +127,7 @@ def _vocabularies () -> dict[str, frozenset[str]]:
 		"link type": {one.key for one in subroutine.db.seed.LINK_TYPES}
 	}
 
-	for kind in subroutine.db.seed.ITEM_TYPES:
+	for kind in subroutine.db.seed.SEEDED_ITEM_TYPES:
 		found.setdefault(f"{kind.entity_type} type", set()).add(kind.key)
 
 	for status in subroutine.db.seed._STATUSES:

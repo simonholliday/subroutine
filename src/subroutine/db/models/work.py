@@ -27,7 +27,13 @@ class Task(
 	subroutine.db.mixins.VersionMixin,
 	subroutine.db.mixins.SoftDeleteMixin,
 ):
-	"""Something that can be finished. Typed task, bug, feature, chore or spike."""
+	"""Something that can be finished — or, since decision `#1235`, something that happens.
+
+	Typed task, bug, feature, chore, spike or event. An ``event`` is stored here and is never
+	called a task: it needs a ref, a project, comments, links, a description and a claim, and
+	every one of those is already this table's. What tells the two apart is the type's
+	*category* — ``occasion`` — which ``--ready`` and the agenda read.
+	"""
 
 	__tablename__ = "task"
 	__table_args__ = (
