@@ -3559,9 +3559,20 @@ def test_a_local_database_a_schema_behind_is_still_recognised (
 	settings = subroutine.config.load_settings()
 	database = pathlib.Path(str(settings.database_url).removeprefix("sqlite:///"))
 
-	with sqlite3.connect(database) as opened:
+	# **Assigned and closed rather than `with sqlite3.connect(…)`** (`#1272`). That context
+	# manager commits a transaction; it does **not** close the connection, unlike every other
+	# `with` a Python programmer meets. The abandoned handle is finalised whenever the collector
+	# reaches it, which on 3.13 and later raises — and `filterwarnings = ["error"]` then fails
+	# *whichever test was running at the time*, which is never this one.
+	opened = sqlite3.connect(database)
+
+	try:
 		mine = uuid.UUID(opened.execute("SELECT id FROM instance").fetchone()[0])
 		opened.execute("UPDATE alembic_version SET version_num = 'one-behind'")
+		opened.commit()
+
+	finally:
+		opened.close()
 
 	assert subroutine.clients.local.instance_id(settings) == mine, (
 		"the id has to be readable from a database this build will not open, which is the "

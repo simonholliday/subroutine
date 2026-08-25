@@ -636,3 +636,80 @@ def test_every_side_effect_import_says_why (entry: tuple[tuple[str, str], str]) 
 	(relative, module), reason = entry
 
 	assert len(reason) > 8, f"{relative}'s {module} needs a reason, not a placeholder"
+
+
+#: Spellings that are legal Python, read as correct, and are wrong here — with the reason each
+#: one is banned rather than merely discouraged.
+#:
+#: **The bar for an entry is that reading cannot catch it and no tool will.** Ruff has no rule
+#: for any of these and no type checker can see them; what makes them worth a line is that the
+#: obvious spelling is the broken one, so the next person arrives at it by good reasoning.
+FORBIDDEN_SPELLINGS = {
+	"with sqlite3.connect": (
+		"a sqlite3 connection's context manager commits a transaction and does **not** close "
+		"the connection, unlike every other `with` in the language. The abandoned handle is "
+		"finalised whenever the collector reaches it, which raises on Python 3.13 and later — "
+		"and `filterwarnings = [\"error\"]` then fails whichever test happened to be running, "
+		"never the one at fault. Assign it and close it in a `finally` (`#1272`)"
+	),
+}
+
+
+def _spelled (needle: str) -> list[str]:
+	"""Return every place in the tree that writes this, with its line number.
+
+	Read from the text rather than the syntax tree, deliberately: what is banned is a *spelling*
+	a reader will copy, and an AST walk would also match the equivalent written some other way —
+	which is not what this is about and would refuse code that is correct.
+	"""
+
+	found = []
+	# **This module is out of scope, and it has to be**: the ban is written here as a *string*,
+	# so a scan that read its own register would report the register. That is the recorded trap
+	# of a guard counting its own explanation — the prose that describes the defect being taken
+	# as an instance of it. The floor below is what keeps the exclusion from hiding a narrowed
+	# walk, since it asks for something that is certainly out there.
+	mine = pathlib.Path(__file__).resolve()
+
+	for where in (*CHECKED, "tests"):
+		for path in sorted((ROOT / where).rglob("*.py")):
+			if "migrations" in path.parts or path.resolve() == mine:
+				continue
+
+			for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+				if needle in line and not line.lstrip().startswith("#"):
+					found.append(f"{path.relative_to(ROOT)}:{number}")
+
+	return found
+
+
+@pytest.mark.parametrize("spelling", sorted(FORBIDDEN_SPELLINGS))
+def test_nothing_in_the_tree_uses_a_spelling_that_reads_as_correct (spelling: str) -> None:
+	"""`#1272`. Three CI runs red, on half the matrix, blaming a test that was not at fault.
+
+	The local gate runs one interpreter and CI runs four, so this class of defect cannot be
+	caught before a push by running the suite — only by not writing it.
+	"""
+
+	found = _spelled(spelling)
+
+	assert not found, (
+		f"{spelling!r} — {FORBIDDEN_SPELLINGS[spelling]}\n  " + "\n  ".join(found)
+	)
+
+
+def test_the_spelling_scan_reads_the_tree () -> None:
+	"""A scan that matches nothing passes, and so does one that has stopped reading.
+
+	The two are indistinguishable from a green run, which is this project's own recorded lesson
+	about a guard whose walk quietly narrowed — so this asks the scan for something that is
+	certainly there and insists it finds it.
+	"""
+
+	found = _spelled("import sqlite3")
+
+	assert len(found) > 3, (
+		f"the scan found {len(found)} files importing sqlite3, which is too few — it has "
+		f"stopped reading the tree, and every ban above would pass by matching nothing"
+	)
+

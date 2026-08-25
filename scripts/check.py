@@ -254,7 +254,20 @@ def main (argv: list[str] | None = None) -> int:
 
 		return 1
 
-	print(f"\nAll {len(results)} passed. {len(NOT_LOCALLY)} CI steps were not run; --list says why.")
+	# **Which interpreter, because that is what "all passed" leaves out** (`#1273`). CI runs the
+	# tests on four Pythons and this runs them on one, so the summary was a true sentence that
+	# reads as a wider claim than it makes — and `#1272` went out over three pushes behind it,
+	# green here on 3.12 and red on 3.13 and 3.14 every time.
+	#
+	# **The version rather than a count of versions**, since the gap is not *how many* but
+	# *which*: an operator reading `3.12` against a matrix they can look up knows exactly what
+	# has not been covered, where "1 of 4" would tell them only to worry.
+	running = ".".join(str(part) for part in sys.version_info[:3])
+
+	print(
+		f"\nAll {len(results)} passed on Python {running}. "
+		f"{len(NOT_LOCALLY)} CI steps were not run; --list says why."
+	)
 
 	return 0
 
