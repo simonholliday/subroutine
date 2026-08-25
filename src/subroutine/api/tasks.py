@@ -214,6 +214,19 @@ class Update(subroutine.api.schemas.RequestModel):
 	recurrence_trigger: str | None = None
 	timezone: str | None = None
 
+	#: Which occurrences of a repeating item this change is for — ``this_one`` or
+	#: ``from_now_on``, decision `#1249`. **Required when the task repeats and the change
+	#: touches a field with two possible answers**, and refused on anything that does not
+	#: repeat; a one-off has only one of it to change.
+	#:
+	#: **This is a breaking change and is meant to be** (`#1252`). ``{"starts": "3pm"}`` on a
+	#: repeating item answered 200 before this and answers 422 now. Keeping the old behaviour
+	#: as the default was the alternative and was refused: an edit silently reaching one
+	#: occurrence is a correction that expires next month.
+	#:
+	#: **Not ``scope``**, which in this API already means how narrow a credential is (`#1275`).
+	applies_to: str | None = None
+
 	#: The version this change is based on (docs/design.md §8.9). Optional; ``If-Match`` does the
 	#: same job for a client that prefers the header.
 	expected_version: int | None = None
@@ -825,6 +838,7 @@ def change (
 			session,
 			task,
 			timezone=body.timezone,
+			applies_to=body.applies_to,
 			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
 			# **Carried so an automatic lease renewal uses the lease this instance chose**
 			# (`#1113`). Without it a renewal would silently fall back to the built-in default

@@ -1275,12 +1275,21 @@ export function restoreRequest (going, slug) {
 	};
 }
 
-export function assignRequest (row, who, slug) {
-	/* Hand it over, or take it back off everybody — `null` is a value here, not an omission. */
+export function assignRequest (row, who, slug, appliesTo = null) {
+	/*
+		Hand it over, or take it back off everybody — `null` is a value here, not an omission.
+
+		**One gesture, and it still asks on a repeating item** (decision `#1249` §1). Simon
+		named the assignee among the fields that ask, and he is right for the reason the whole
+		decision is: *who does the stand-up this week* and *who does the stand-up from now on*
+		are different sentences, and nothing but the person knows which was meant. So unlike
+		`moveRequest` next door — a status, which has one answer — this one carries an answer
+		when there is a question to answer.
+	*/
 	return {
 		path: scoped(`/tasks/${row.ref}`, slug),
 		method: "PATCH",
-		body: { assignee: who },
+		body: appliesTo ? { assignee: who, applies_to: appliesTo } : { assignee: who },
 	};
 }
 
@@ -1610,7 +1619,24 @@ export function fromItem (item) {
 	};
 }
 
-export function edited (values, item) {
+export function repeats (item) {
+	/*
+		Whether an item is one of a series, from either end of it — decision `#1249`, `#1253`.
+
+		**The browser's copy of `views.repeats`**, which the API's own clients call. A page
+		holds a rendered item and never a row, so the surface deciding whether to put the
+		question to somebody has nothing else to read. Getting it wrong is loud in both
+		directions: too narrow and the save is refused for not saying, too wide and it is
+		refused for saying.
+
+		`is_template` first because that end is reachable — `show` names the series' number
+		since `#1247`, so somebody can open it, and reaching it must not be a way round the
+		question.
+	*/
+	return Boolean(item && (item.is_template || item.recurrence_template_ref));
+}
+
+export function edited (values, item, appliesTo = null) {
 	/*
 		What an edit becomes on the wire — pure, and **the opposite rule from `filed`**.
 
@@ -1641,6 +1667,18 @@ export function edited (values, item) {
 	};
 
 	const body = { expected_version: (item || {}).version };
+
+	/*
+		**Which occurrences this save is for** (decision `#1249`, `#1252`). Sent only when
+		answered: `null` here means *nobody was asked* rather than *clear it*, and there is
+		nothing to clear — the endpoint refuses an answer about an item with one of it.
+
+		**This form is why the browser had to ask at all.** Everything it shows is sent on
+		every save, unchanged values included — see above — so on a repeating item a save
+		always writes a field with two answers, and without a question there would be no way to
+		save one from here at all.
+	*/
+	if (appliesTo) body.applies_to = appliesTo;
 
 	NEVER_CLEARED.forEach((name) => {
 		const value = said(name);
@@ -1725,14 +1763,14 @@ export function conflictIn (failure) {
 	return (failure.body && failure.body.current) || null;
 }
 
-export function updateRequest (values, item, slug) {
+export function updateRequest (values, item, slug, appliesTo = null) {
 	/* Save an edit. `edited` builds the body here for the reason `addRequest` calls `filed`:
 	   it is the guard that drives every builder against a real instance which then drives the
 	   body-building too. */
 	return {
 		path: scoped(`/tasks/${item.ref}`, slug),
 		method: "PATCH",
-		body: edited(values, item),
+		body: edited(values, item, appliesTo),
 	};
 }
 
@@ -5666,6 +5704,55 @@ export function Editing ({
 	`;
 }
 
+export function Asking ({ what, onAnswer, onCancel, busy = false }) {
+	/*
+		Decision `#1249` §6: which occurrences a change is for, asked on save.
+
+		**Simon offered a second Save button and it was rejected on three counts.** It doubles
+		the primary action on every save, so neither is primary and the reader has to read both
+		even to fix a typo; a button label cannot say what you changed; and nobody else does it,
+		so there is nothing already learned to lean on. A control beside each field was rejected
+		too — it keeps the decision next to the thing it is about, and it is easy to miss, which
+		for a change that feels irreversible is worse than being stopped.
+
+		**Two answers, not the three every calendar offers.** Google, Apple and Outlook need
+		*this and following* because they compute every occurrence from the rule, so *all* would
+		rewrite last March. Nothing here re-derives an occurrence somebody has finished, so
+		*every one from now on* already means this one and every one after — and the words say
+		exactly that rather than *all*, which would promise something that does not happen.
+
+		**It names the item and not the change.** Naming the change is what decision `#1249` §6
+		asked for and it is not free: this form sends every control it shows on every save, and
+		telling what moved would mean comparing `2026-09-01` against the instant the server
+		stored — a second copy of the server's own normalisation, living here. `#1276` is that,
+		with the measurement.
+
+		Inline and not a modal, which is the house rule `Note` states: news with something to do
+		about it is a panel with buttons in it.
+	*/
+	return html`
+		<div class="conflict asking" role="alert">
+			<strong>This repeats.</strong>${" "}
+			Does ${what} apply to just this one, or to every one from now on?
+			${/* **Both answers wear `action` and neither wears `primary`** (design `#1046`,
+			     decision `#1249` §6). Neither is *the* action: the whole argument against a
+			     second Save button was that two primary controls mean neither is primary, and
+			     making one of these the accented one would say the same thing in a quieter
+			     voice — that the other is the unusual answer, when it is simply the other
+			     answer. `Cancel` is `quiet` because it changes nothing, which is what that
+			     role means. */ null}
+			<div class="line">
+				<button type="button" class="action" disabled=${busy}
+					onClick=${() => onAnswer("this_one")}>Just this one</button>
+				<button type="button" class="action" disabled=${busy}
+					onClick=${() => onAnswer("from_now_on")}>Every one from now on</button>
+				<button type="button" class="quiet" disabled=${busy}
+					onClick=${onCancel}>Cancel</button>
+			</div>
+		</div>
+	`;
+}
+
 export function Conflict ({ theirs }) {
 	/*
 		What a 409 means, said to a person — `#757`, §8.9.
@@ -6944,6 +7031,11 @@ export function App () {
 	   to say about a 409 is what the item says now. */
 	const [editing, setEditing] = useState(false);
 	const [conflict, setConflict] = useState(null);
+	/* A write held back until somebody says which occurrences it is for (decision `#1249`,
+	   `#1253`). It holds *the write* rather than a flag, because two gestures reach it — a save
+	   and handing an item to somebody — and the answer has to resume whichever one was
+	   interrupted. Null whenever nothing is being asked, which is nearly always. */
+	const [asking, setAsking] = useState(null);
 	/* What the server made of the repeat somebody is typing (`#94`, §6.7). Null until they
 	   type something, so the disclosure opens saying nothing rather than complaining about an
 	   empty box. Shared by both forms because only one of them is ever on screen. */
@@ -7987,14 +8079,35 @@ export function App () {
 
 	/* **`inside` for `status`'s reason** (`#1040`): assigning somebody else's item to somebody
 	   is a write nobody can see they made. */
-	const assign = useCallback((row, who, inside = workspace) => wrote(
+	const assigning = useCallback((row, who, inside, appliesTo) => wrote(
 		row,
 		() => ({
 			text: who ? `#${row.ref} is ${who}'s.` : `#${row.ref} is nobody's now.`,
 			tone: "good",
 		}),
-		() => sent(assignRequest(row, who, inside)),
-	), [workspace, wrote]);
+		() => sent(assignRequest(row, who, inside, appliesTo)),
+	), [wrote]);
+
+	/*
+		**One gesture, and it still asks when the item repeats** (decision `#1249` §1). Simon
+		named the assignee among the fields with two answers, and *who does the stand-up this
+		week* is a different sentence from *who does it from now on*. So unlike `status` next
+		door — which has one answer and writes straight through — this one stops and asks.
+
+		The question is put before the request rather than after a refusal, which matters:
+		`#1259`'s rule is that a remedy has to belong to the surface it arrives on, and *send
+		applies_to* is not something anybody can do from a select.
+	*/
+	const assign = useCallback((row, who, inside = workspace) => {
+		if (!repeats(row)) return assigning(row, who, inside, null);
+
+		setAsking({
+			what: who ? `giving it to ${who}` : "taking it off everybody",
+			run: (appliesTo) => assigning(row, who, inside, appliesTo),
+		});
+
+		return null;
+	}, [assigning, workspace]);
 
 	const add = useCallback(async (values, asDocument) => {
 		/* **The reload afterwards keeps the filter the reader is looking at.** Without
@@ -8039,7 +8152,7 @@ export function App () {
 		}
 	}, [agenda, everywhere, load, me, project, readAgenda, workspace]);
 
-	const save = useCallback(async (values) => {
+	const saving = useCallback(async (values, appliesTo) => {
 		/*
 			**A 409 is an ordinary answer here, not a failure** (§8.9, `#757`). Somebody else
 			saved while this form was open; nothing was written, and the reader's typing is
@@ -8060,7 +8173,7 @@ export function App () {
 			   wrong item it overwrites all of them at once. */
 			const saved = await sent(open.item.kind === "document"
 				? documentRequest(values, open.item, openIn)
-				: updateRequest(values, open.item, openIn));
+				: updateRequest(values, open.item, openIn, appliesTo));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
 			setEditing(false);
@@ -8081,6 +8194,24 @@ export function App () {
 			setBusy(false);
 		}
 	}, [open, openIn, show]);
+
+	/*
+		**The question goes in front of the save, and only for a repeating item** (decision
+		`#1249`, `#1253`). It is not a confirmation: `edited` sends every control this form
+		shows on every save — including the ones nobody touched — so on a series a save always
+		writes a field with two answers, and there would otherwise be no way to save one here
+		at all.
+
+		A document never reaches it, because a document does not repeat and `repeats` reads the
+		two fields only a task carries.
+	*/
+	const save = useCallback((values) => {
+		if (!open || !repeats(open.item)) return saving(values, null);
+
+		setAsking({ what: "this change", run: (appliesTo) => saving(values, appliesTo) });
+
+		return null;
+	}, [open, saving]);
 
 	/*
 		**The card in the air** (`#711`). A ref rather than the row, because the only thing a
@@ -8957,6 +9088,17 @@ export function App () {
 			`}
 
 			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
+
+			${asking && html`
+				<${Asking} what=${asking.what} busy=${busy}
+					onAnswer=${(appliesTo) => {
+						const run = asking.run;
+
+						setAsking(null);
+						run(appliesTo);
+					}}
+					onCancel=${() => setAsking(null)} />
+			`}
 
 			${open
 				? html`<${Detail} ...${open} members=${furnished.members} onOpen=${show} busy=${busy}

@@ -66,6 +66,7 @@ import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.search
 import subroutine.domain.settings
+import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
@@ -2051,7 +2052,14 @@ def _finished (program: Program, *, which: str, because: str) -> None:
 
 
 def _planned (
-	program: Program, *, which: str, when: str, until: str, because: str
+	program: Program,
+	*,
+	which: str,
+	when: str,
+	until: str,
+	because: str,
+	just_this_one: bool = False,
+	from_now_on: bool = False,
 ) -> None:
 	"""Set the day a task starts, and the day it is over if it lasts more than one.
 
@@ -2073,6 +2081,9 @@ def _planned (
 			ref=task.ref,
 			workspace=located.workspace,
 			starts=_day(world, _asked(when, "Which day?"), at=located),
+			applies_to=_which_occurrences(
+				program, task, just_this_one=just_this_one, from_now_on=from_now_on
+			),
 			**_until(world, until, at=located),
 		)
 
@@ -2084,6 +2095,48 @@ def _planned (
 		_because(client, located, because, what=planned)
 
 		program.say(_acted(world, dataclasses.replace(located, item=changed), planned))
+		_suggest(program.console, "subroutine agenda")
+
+
+def _hidden (
+	program: Program,
+	*,
+	which: str,
+	when: str,
+	because: str,
+	just_this_one: bool = False,
+	from_now_on: bool = False,
+) -> None:
+	"""Hide a task until a day, or a time on one.
+
+	**Out of `register`'s closure to pay for the two flags this command grew** (`#943`'s
+	ratchet, and the fourth command to leave the same way — ``_planned``, ``_changed`` and
+	``_withdrawn`` went before it). Nothing here needs the closure that :class:`Program` does
+	not carry, which is the test that ratchet is really applying.
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			verb="defer",
+		)
+		client = _require_connection(program, world, located.connection)
+
+		changed = client.schedule(
+			ref=task.ref,
+			workspace=located.workspace,
+			snooze=_moment(world, _asked(when, "Hide it until when?"), at=located),
+			applies_to=_which_occurrences(
+				program, task, just_this_one=just_this_one, from_now_on=from_now_on
+			),
+		)
+
+		hidden = f"Hidden until {_when_rendered(changed)}"
+
+		_because(client, located, because, what=hidden)
+
+		program.say(_acted(world, dataclasses.replace(located, item=changed), hidden))
 		_suggest(program.console, "subroutine agenda")
 
 
@@ -6910,6 +6963,8 @@ def register (
 			show_default=False,
 			help="The last day of it, if it lasts more than one. Pass '' to clear it.",
 		),
+		just_this_one: bool = JUST_THIS_ONE_OPTION,
+		from_now_on: bool = FROM_NOW_ON_OPTION,
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 	) -> None:
 		"""Say which day you will do something.
@@ -6925,12 +6980,22 @@ def register (
 		  subroutine plan 42 friday --because "the review is on monday"
 		"""
 
-		_planned(program, which=which, when=when, until=until, because=because)
+		_planned(
+			program,
+			which=which,
+			when=when,
+			until=until,
+			because=because,
+			just_this_one=just_this_one,
+			from_now_on=from_now_on,
+		)
 
 	@app.command()
 	def defer (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
 		when: str = typer.Argument("", help="A day to hide it until, or a day and a time."),
+		just_this_one: bool = JUST_THIS_ONE_OPTION,
+		from_now_on: bool = FROM_NOW_ON_OPTION,
 		because: str = typer.Option(
 			"", "--because", help="What you are waiting for, recorded against it."
 		),
@@ -6949,26 +7014,14 @@ def register (
 		  subroutine defer 42 2026-09-01 --because "waiting on the provider's reply"
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				verb="defer",
-			)
-			client = _require_connection(program, world, located.connection)
-
-			changed = client.schedule(
-				ref=task.ref,
-				workspace=located.workspace,
-				snooze=_moment(world, _asked(when, "Hide it until when?"), at=located),
-			)
-
-			hidden = f"Hidden until {_when_rendered(changed)}"
-
-			_because(client, located, because, what=hidden)
-
-			say(_acted(world, dataclasses.replace(located, item=changed), hidden))
-			_suggest(console, "subroutine agenda")
+		_hidden(
+			program,
+			which=which,
+			when=when,
+			because=because,
+			just_this_one=just_this_one,
+			from_now_on=from_now_on,
+		)
 
 	@app.command()
 	def move (
@@ -7114,6 +7167,8 @@ def register (
 			show_default=False,
 			help="Measure the next one from 'schedule' or from 'completion'.",
 		),
+		just_this_one: bool = JUST_THIS_ONE_OPTION,
+		from_now_on: bool = FROM_NOW_ON_OPTION,
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -7239,7 +7294,15 @@ def register (
 				"--estimate, --type, --status or --repeat.",
 			)
 
-		_changed(program, which=which, changes=changes, because=because, as_json=json_output)
+		_changed(
+			program,
+			which=which,
+			changes=changes,
+			because=because,
+			as_json=json_output,
+			just_this_one=just_this_one,
+			from_now_on=from_now_on,
+		)
 
 	@app.command()
 	def comment (
@@ -7720,6 +7783,8 @@ def _changed (
 	changes: dict[str, typing.Any],
 	because: str,
 	as_json: bool,
+	just_this_one: bool = False,
+	from_now_on: bool = False,
 ) -> None:
 	"""Apply the fields a caller named to one task, and say what happened.
 
@@ -7736,7 +7801,24 @@ def _changed (
 			verb="update",
 		)
 		client = _require_connection(program, world, located.connection)
-		changed = client.update(ref=task.ref, workspace=located.workspace, **changes)
+
+		# **Asked before the write and never after it**, which is what makes the answer a
+		# decision rather than a confirmation. A change that names only a status or only how
+		# something repeats has no second answer (decision `#1249` §1) and the domain lets it
+		# through — but the question is put here, before the request, so a repeating item is
+		# never edited and then asked about.
+		changed = client.update(
+			ref=task.ref,
+			workspace=located.workspace,
+			applies_to=(
+				None
+				if not (changes.keys() - subroutine.clients.base.NEVER_ASKS)
+				else _which_occurrences(
+					program, task, just_this_one=just_this_one, from_now_on=from_now_on
+				)
+			),
+			**changes,
+		)
 		now = dataclasses.replace(located, item=changed)
 
 		_because(client, located, because, what="Changed")
@@ -7857,6 +7939,123 @@ def _typeable (world: World, connection: str, item: Item) -> str:
 	return world.address_of_item(connection, item, next_time=True).replace(
 		subroutine.domain.refs.SIGIL, ""
 	)
+
+
+#: What a person may type at decision `#1249`'s prompt, and what each answer means.
+#:
+#: **Longer forms as well as the letter**, because somebody who has been asked *just this one,
+#: or every one from now on* will type a word from the question as often as an initial. What is
+#: deliberately absent is ``a`` and ``all``: *all* promises something about history that does
+#: not happen (`#1249` §2), so it is not a word this program answers to.
+OCCURRENCE_ANSWERS = {
+	"j": subroutine.domain.tasks.THIS_ONE,
+	"just": subroutine.domain.tasks.THIS_ONE,
+	"this": subroutine.domain.tasks.THIS_ONE,
+	"just this one": subroutine.domain.tasks.THIS_ONE,
+	"e": subroutine.domain.tasks.FROM_NOW_ON,
+	"every": subroutine.domain.tasks.FROM_NOW_ON,
+	"from now on": subroutine.domain.tasks.FROM_NOW_ON,
+	"every one from now on": subroutine.domain.tasks.FROM_NOW_ON,
+}
+
+JUST_THIS_ONE = "--just-this-one"
+FROM_NOW_ON = "--from-now-on"
+
+#: Decision `#1249`'s two answers as command-line flags, declared once for the three commands
+#: that write a field with two answers on it.
+#:
+#: **One descriptor rather than three copies of the same nine lines.** The help text is
+#: user-facing, so three copies is three places for it to drift — and a flag whose wording
+#: differs between `update` and `plan` reads as two different flags. Typer builds its own
+#: parameter per command from one of these, so sharing it changes nothing about what either
+#: command parses; what it removes is the drift.
+JUST_THIS_ONE_OPTION = typer.Option(
+	False, JUST_THIS_ONE, help="If it repeats: change this one only."
+)
+FROM_NOW_ON_OPTION = typer.Option(
+	False, FROM_NOW_ON, help="If it repeats: change this one and every one after it."
+)
+
+#: What to say when there is nobody to ask, in one place because three commands say it.
+NOBODY_TO_ASK = (
+	f"Add {JUST_THIS_ONE}, or {FROM_NOW_ON} for every one after it too."
+)
+
+
+def _a_terminal_is_attached () -> bool:
+	"""Say whether there is somebody who could answer a question.
+
+	**Asked of stdin, which is where an answer would have to come from.** Not of the console: a
+	piped ``--json`` reader still leaves somebody at a keyboard, and refusing them would be
+	reading the wrong end of the pipe.
+
+	**A function rather than the expression inline, because ``CliRunner`` replaces
+	``sys.stdin``** for the duration of an invocation — so a test monkeypatching the real one
+	is patching something the command never sees, and passes against the defect. That trap is
+	recorded here already (`#299`) and this is the seam that makes the *other* half drivable:
+	the piped refusal is driven with this function untouched, so the real ``isatty`` is what
+	answers there, and only the prompt path is reached by substituting it.
+	"""
+
+	return sys.stdin.isatty()
+
+
+def _which_occurrences (
+	program: Program,
+	task: subroutine.views.Task,
+	*,
+	just_this_one: bool,
+	from_now_on: bool,
+) -> str | None:
+	"""Settle which occurrences an edit is for — decision `#1249` §5, and `#1251`.
+
+	**Three answers to one question, chosen by who is there.** A flag settles it. Otherwise a
+	terminal with somebody at it is asked, because being asked is the point of decision 1 —
+	and anything else is refused by name, which is `#299`'s rule that the question has to be
+	settled *before* stdin is read rather than by reading it. A script, a CI job or an agent
+	that blocked on a prompt would hang for ever on input that is not coming.
+
+	``None`` for something that does not repeat, which is most of what anybody edits: the
+	prompt must not become a toll on every ordinary change.
+
+	**The refusal names the two flags rather than the two values.** ``this_one`` and
+	``from_now_on`` are what goes over the wire and neither is a thing to type at a terminal;
+	`#1259`'s rule is that a refusal offers the remedy for the surface it arrived on.
+	"""
+
+	if just_this_one and from_now_on:
+		program.stop(
+			"An edit is for this one or for every one from now on, not both.",
+			f"Pass one of {JUST_THIS_ONE} and {FROM_NOW_ON}.",
+		)
+
+	if just_this_one:
+		return subroutine.domain.tasks.THIS_ONE
+
+	if from_now_on:
+		return subroutine.domain.tasks.FROM_NOW_ON
+
+	if not subroutine.views.repeats(task):
+		return None
+
+	if not _a_terminal_is_attached():
+		program.stop(
+			"That repeats: is this one changing, or every one from now on?",
+			NOBODY_TO_ASK,
+		)
+
+	while True:
+		# To stderr, like every other prompt here, so a `--json` reader on stdout is never
+		# handed a question.
+		answer: str = typer.prompt(
+			"That repeats. Change just this one, or every one from now on? [j/e]", err=True
+		)
+		settled = OCCURRENCE_ANSWERS.get(answer.strip().lower())
+
+		if settled is not None:
+			return settled
+
+		program.warn("Answer j for just this one, or e for every one from now on.")
 
 
 def _asked (given: str, question: str) -> str:

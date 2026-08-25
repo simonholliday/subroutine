@@ -43,8 +43,10 @@ import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.views
 import test_api_tasks
 import test_api_writability
 
@@ -136,6 +138,18 @@ NOT_STORED: dict[str, str] = {
 	#: A name match is all that guard can ask, which is the gap this file was written to cover.
 	"timezone": "the zone this request's dates are resolved in, not a value being assigned — "
 	"`#1014` writes it back only when a date moves",
+
+	#: **A guard refusing a design, which is the second time that has been the right reading**
+	#: (`#1235`'s all-day flag was the first). This field says *which occurrences* an edit is
+	#: for, so its whole effect is **where** the write lands rather than what the entity holds
+	#: — and a value the entity never carries cannot be given two values and read back. It is
+	#: not a gap in this register: it is what the field is.
+	#:
+	#: `tests/test_repeat_edit_surfaces.py` is what proves it was read, and it does the thing
+	#: this file cannot — drives both answers against a real series and asks which row moved.
+	"applies_to": "which occurrences an edit is for (decision `#1249`), so its effect is "
+	"where the write lands rather than a value on the entity — "
+	"`tests/test_repeat_edit_surfaces.py` drives both answers and is what proves it is read",
 }
 
 
@@ -478,11 +492,27 @@ def _changed (
 	where = f"/v1/{kind}s/{ground.task if kind == 'task' else ground.document}"
 	path = f"{where}/move{here}" if model == "Move" else f"{where}{here}"
 	method = "POST" if model == "Move" else "PATCH"
+	body: dict[str, typing.Any] = {field: value}
 
-	answer = ground.world.call(method, path, json={field: value})
+	# **Answered when the item already repeats, and only then** (`#1252`). The loop above
+	# applies a field's companions one at a time, and for a repeat one of those companions is
+	# the rule itself — so the call that sends the date afterwards is an edit to a series and
+	# has to say which occurrences it is for. A fixed entry in :data:`BESIDE` could not do it:
+	# the same companion is sent to a create, where saying it is refused.
+	if kind == "task" and model == "Update":
+		holding = ground.world.call("GET", f"{where}{here}")
+
+		assert holding.status_code == 200, holding.text
+
+		if holding.json().get("is_template") or holding.json().get(
+			"recurrence_template_ref"
+		):
+			body["applies_to"] = subroutine.domain.tasks.FROM_NOW_ON
+
+	answer = ground.world.call(method, path, json=body)
 
 	assert answer.status_code == 200, (
-		f"{method} {path} with {{{field!r}: {value!r}}} answered {answer.status_code}: "
+		f"{method} {path} with {body!r} answered {answer.status_code}: "
 		f"{answer.text}. A refusal here is this file having chosen a value the endpoint "
 		f"cannot take, not the endpoint being wrong."
 	)
@@ -718,6 +748,20 @@ def _through (
 
 	if not creates:
 		body["ref"] = ground.task if kind == "task" else ground.document
+
+		# **Answered when the item already repeats, and only then** (`#1252`). These cases run
+		# the same call twice, and the first of them can be what *makes* something a series —
+		# ``recurrence`` sends a date beside the rule, and a date asks. So the answer cannot be
+		# a fixed companion in :data:`BESIDE`: on the first call it would be refused for saying
+		# something about an item with one of it, and on the second it is required.
+		#
+		# Read back rather than remembered, because which call made it a series is exactly the
+		# thing this harness must not have an opinion about.
+		if "applies_to" in declared and kind == "task":
+			holding = client.task(ref=body["ref"], workspace=ground.world.workspace.slug)
+
+			if subroutine.views.repeats(holding):
+				body["applies_to"] = subroutine.domain.tasks.FROM_NOW_ON
 
 	# **Named on every call**, because this instance holds two workspaces — see `_changed`.
 	body.setdefault("workspace", ground.world.workspace.slug)

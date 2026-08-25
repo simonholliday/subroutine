@@ -2431,6 +2431,23 @@ def _prose_bytes (text: str | None) -> int:
 	return 0 if text is None else len(text.encode("utf-8"))
 
 
+def repeats (task: Task) -> bool:
+	"""Say whether a rendered task is one of a series, from either end of it.
+
+	**The client-side half of `tasks.repeats`**, which asks the same question of a row. A
+	client holds a view and never a model, so a surface deciding whether to put decision
+	`#1249`'s question to somebody has nothing else to read.
+
+	Two copies of one rule is this codebase's signature defect, and this pair is deliberate
+	and loud rather than silent: getting it wrong in either direction ends in a refusal from
+	the domain — *that repeats, say which occurrences* if this is too narrow, *that does not
+	repeat* if it is too wide. ``tests/test_recurring_tasks.py`` drives both against one row
+	so they cannot drift quietly.
+	"""
+
+	return task.is_template or task.recurrence_template_ref is not None
+
+
 def task (
 	row: subroutine.db.models.work.Task, vocabulary: Vocabulary
 ) -> Task:

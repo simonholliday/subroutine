@@ -846,6 +846,16 @@ fieldset {
 	line-height: 1.5;
 }
 
+/* **A question wears the same look as news, because it is the same kind of interruption**
+   (`SR#1253`, decision `SR#1249` §6). What it adds is somewhere to answer: two buttons on a
+   line of their own, so neither is read as a caption on the sentence above them. */
+.asking .line {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-5);
+	margin-top: var(--space-5);
+}
+
 /*
 	What just happened. **The tone is a colour and says nothing on its own** (`#102`): the
 	sentence carries the outcome, so the border is a way to spot it rather than to read it.

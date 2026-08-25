@@ -2897,6 +2897,7 @@ class Client:
 		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
 		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		applies_to: str | None = None,
 		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, through the same service the API calls."""
@@ -2973,6 +2974,7 @@ class Client:
 				row,
 				now=subroutine.db.types.utcnow(),
 				actor=actor,
+				applies_to=applies_to,
 				expected_version=expected_version,
 				settings=self.settings,
 				**changes,
@@ -2990,6 +2992,7 @@ class Client:
 		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		applies_to: str | None = None,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden."""
 
@@ -3014,6 +3017,7 @@ class Client:
 				row,
 				now=subroutine.db.types.utcnow(),
 				actor=actor,
+				applies_to=applies_to,
 				settings=self.settings,
 				**changes,
 			)

@@ -252,6 +252,11 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 	},
 	"Conflict": {"theirs": {"ref": 42, "title": "What it says now"}},
+	# **Decision `SR#1249` §6's question, rendered with what a real gesture puts in it.**
+	# `what` is the phrase the sentence is built around and it differs per gesture — a save
+	# says *this change*, handing an item over says *giving it to jo* — so a sample with an
+	# empty one would render a sentence nobody meets.
+	"Asking": {"what": "this change", "busy": False},
 	# **Filled rather than empty**, because the disclosure's own rule is that it opens when the
 	# item already repeats — a sample with no rule in it would render the closed case and say
 	# nothing about the one a reader editing a repeat actually meets (`SR#94`).
@@ -6202,6 +6207,15 @@ class Instance(typing.NamedTuple):
 	#: reads as a failure. `task` is patched three times over by assign, unassign and restore.
 	spare: int
 	spare_version: int
+	#: A repeating task, and its version, so an edit that has to say which occurrences it is
+	#: for can be driven against a real one (`SR#1252`). Nothing else here writes to it, for
+	#: `spare`'s reason: an edit sends `expected_version` and a stale one is a 409.
+	#:
+	#: **This is what makes the answer checkable at all.** Against a task that does not repeat
+	#: the answer is refused by name, and against one that does, leaving it out is refused —
+	#: so a fixture holding only ordinary tasks could drive neither direction.
+	repeating: int
+	repeating_version: int
 	#: A link the fixture made, so removing one can be driven — a DELETE needs an id that
 	#: exists, and the ids the calls above create are not threaded back into this list.
 	link: str
@@ -6271,6 +6285,18 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		assert answer.status_code == 201, answer.text
 		refs.append(answer.json())
 
+	repeating = call(
+		"POST",
+		"/v1/tasks",
+		json={
+			"text": "Stand-up +web",
+			"workspace_id": slug,
+			"due": "2026-09-01",
+			"recurrence": "every week",
+		},
+	)
+	assert repeating.status_code == 201, repeating.text
+
 	document = call(
 		"POST",
 		"/v1/documents",
@@ -6314,6 +6340,8 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		task=refs[0]["ref"],
 		spare=refs[1]["ref"],
 		spare_version=refs[1]["version"],
+		repeating=repeating.json()["ref"],
+		repeating_version=repeating.json()["version"],
 		link=joined.json()["id"],
 		document=document.json()["ref"],
 		username=setup.user.username,
@@ -6528,6 +6556,37 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			"importance": "", "urgency": "", "estimate": "",
 			"starts": "", "snooze": "", "due": "", "tags": "",
 		}, {"ref": place.spare, "version": place.spare_version + 1}, place.slug]),
+		# **A save on something that repeats, which has to say which occurrences it is for**
+		# (`SR#1252`, decision `SR#1249`). Both answers, because they are two writes rather than
+		# one write and a flag: *just this one* lands on the row in front of the reader and
+		# *every one from now on* also reaches the row that persists, and an instance could
+		# accept the word and act on neither.
+		#
+		# **The version moves between them**, which is why the second says `+ 1`. `edited` sends
+		# `expected_version` on every save (§8.9), and a stale one is a 409 that this guard
+		# would read as the page a reader would have got.
+		("updateRequest", [{
+			"title": "Just this stand-up",
+			"description": "", "project": place.project, "type": "task",
+			"status": place.status, "assignee": "",
+			"importance": "", "urgency": "", "estimate": "",
+			"starts": "", "snooze": "", "due": "2026-09-08", "tags": "",
+		}, {"ref": place.repeating, "version": place.repeating_version}, place.slug, "this_one"]),
+		("updateRequest", [{
+			"title": "Every stand-up",
+			"description": "", "project": place.project, "type": "task",
+			"status": place.status, "assignee": "",
+			"importance": "", "urgency": "", "estimate": "",
+			"starts": "", "snooze": "", "due": "2026-09-15", "tags": "",
+		}, {
+			"ref": place.repeating, "version": place.repeating_version + 1,
+		}, place.slug, "from_now_on"]),
+		# **Handing a repeating item over asks too** (decision `SR#1249` §1). It is one gesture
+		# and one field, which is what makes it look like `statusRequest` below — and it is not,
+		# because *who does this one* and *who does it from now on* are different sentences.
+		("assignRequest", [
+			{"ref": place.repeating}, place.username, place.slug, "from_now_on",
+		]),
 		# **The quick path** (`SR#758`): one field and no `expected_version`, which is right
 		# here and wrong for the form — a single control read and written in one gesture cannot
 		# be refused for a field somebody else moved and this reader never saw.
@@ -6634,8 +6693,8 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 	declared = _builders(_served_modules()["app.js"])
 	place = Instance(
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
-		task=1, spare=3, spare_version=1, link="l", document=2, username="si", status="open",
-		cursor="c", since=1,
+		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
+		document=2, username="si", status="open", cursor="c", since=1,
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 

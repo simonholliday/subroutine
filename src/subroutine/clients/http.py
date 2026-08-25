@@ -1571,6 +1571,7 @@ class Client:
 		recurrence_anchor: str | None = subroutine.clients.base.UNSET,
 		recurrence_trigger: str | None = subroutine.clients.base.UNSET,
 		timezone: str | None = subroutine.clients.base.UNSET,
+		applies_to: str | None = None,
 		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields, over the wire.
@@ -1616,6 +1617,12 @@ class Client:
 			"recurrence_anchor": recurrence_anchor,
 			"recurrence_trigger": recurrence_trigger,
 			"timezone": timezone,
+			# **Sent only when answered**, unlike everything above it. ``None`` here means
+			# *the caller did not say* rather than *clear it* — there is nothing to clear —
+			# and sending a null would be answering the question with a third word.
+			"applies_to": (
+				subroutine.clients.base.UNSET if applies_to is None else applies_to
+			),
 		}
 		body = self._json(
 			"PATCH",
@@ -1679,6 +1686,7 @@ class Client:
 		starts: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
+		applies_to: str | None = None,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden.
 
@@ -1699,6 +1707,9 @@ class Client:
 
 		if snooze is not subroutine.clients.base.UNSET:
 			changes["snooze"] = None if snooze is None else snooze.isoformat()
+
+		if applies_to is not None:
+			changes["applies_to"] = applies_to
 
 		body = self._json(
 			"PATCH",

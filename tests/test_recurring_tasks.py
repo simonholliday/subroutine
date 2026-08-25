@@ -933,23 +933,109 @@ def test_two_completions_at_once_mint_one_next_occurrence (
 # --- Which occurrences an edit is for — item `SR#1247`, decision `SR#1249` ------------------
 
 
-def test_an_edit_without_a_scope_lands_where_it_always_did (
+def test_an_edit_that_does_not_say_is_refused (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`SR#1247`'s starting state, kept as the domain's answer when nobody has said.
+	"""`SR#1252`, and it is the breaking half Simon took knowingly.
 
-	The surfaces are where not saying becomes a question (`SR#1251`) or a refusal (`SR#1252`);
-	a domain that guessed would be guessing on behalf of whichever client happened to call it.
+	This answered 200 the day before and answers 422 now. The alternative was keeping the old
+	behaviour as the default — every edit landing on the occurrence and nothing reaching the
+	series — and he refused it, because an agent silently getting *just this one* is the whole
+	defect `SR#1247` reports.
+
+	**The refusal names ``applies_to``**, which is the field an HTTP caller sends. Nothing here
+	names ``title``: the argument names in this layer are not words anybody typed.
 	"""
 
 	made = _repeating(session, recurrence="every week")
 	series = _template(session, made)
 
-	subroutine.domain.tasks.update(session, made, title="Only here", now=NOW)
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.tasks.update(session, made, title="Only here", now=NOW)
+
+	assert [field.field for field in refused.value.errors] == ["applies_to"]
+	assert refused.value.code == "missing_field"
+
+	# **Nothing was assigned**, which is the guarantee `update`'s docstring makes and the
+	# reason the refusal sits in the validation pass: the caller holds a live session it may
+	# still commit, so a half-applied change would be committed along with whatever else that
+	# transaction was doing.
+	assert made.title != "Only here", "a refused edit was applied anyway"
+	assert series.title != "Only here"
+
+
+def test_the_series_itself_cannot_be_edited_without_saying_either (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Both ends of a series ask, because `SR#1247` made the other end reachable.
+
+	``show`` names the template's number now, so somebody can address it directly — and if
+	editing *that* row skipped the question, the answer to "how do I change every one" would
+	be "find the other row", which is the two-rows model this whole story exists to hide.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.tasks.update(session, series, title="Only here", now=NOW)
+
+
+def test_nothing_excused_from_asking_is_a_field_that_has_gone () -> None:
+	"""The stale half. An excuse that outlived its reason reads as a considered decision.
+
+	`SR#405`'s rule, and this register is worth it twice over: an entry naming a parameter
+	``update`` no longer takes would silently excuse whatever later took the name — and the
+	population is derived, so the *other* direction needs no test at all. Anything patchable
+	and not excused asks, by subtraction.
+	"""
+
+	gone = subroutine.domain.tasks.NEVER_ASKS - subroutine.domain.tasks.PATCHABLE
+
+	assert not gone, f"{sorted(gone)} are excused from asking and `update` no longer takes them"
+
+	assert len(subroutine.domain.tasks.PATCHABLE) > 15, (
+		f"only {sorted(subroutine.domain.tasks.PATCHABLE)} were read off the signature, so the "
+		"derivation has stopped working and every field would be excused by accident"
+	)
+
+
+def test_an_update_that_names_no_field_is_never_asked_about (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The empty case, which is what the whole mechanism rests on.
+
+	`update` is reached with nothing to change by every caller that sends only a version, a
+	timezone or a lease renewal — and it must go through. What decides it is the set of
+	arguments the caller actually *named*, read off the frame before any local exists, so a
+	patchable argument added tomorrow is covered without anybody remembering. This is the test
+	that would notice that reading going wrong: a capture that saw every parameter rather than
+	every parameter *given* would refuse here.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+
+	subroutine.domain.tasks.update(session, made, now=NOW)
+
+
+def test_a_change_with_no_asking_field_is_not_asked_about (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Decision `SR#1249` §1's four exemptions, from the side that matters.
+
+	A status has no second answer and neither has the repeat rule itself, so being asked would
+	be friction with no decision in it. **This is the test that stops the refusal becoming a
+	toll on every edit of a repeating item**, which is most of what a repeating item's life is.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+
+	subroutine.domain.tasks.update(
+		session, made, recurrence="every month", now=NOW
+	)
 	session.flush()
 
-	assert made.title == "Only here"
-	assert series.title != "Only here", "an edit with no scope reached the row that persists"
+	assert _template(session, made).recurrence_rule is not None
 
 
 def test_from_now_on_reaches_the_row_that_persists (
@@ -969,7 +1055,7 @@ def test_from_now_on_reaches_the_row_that_persists (
 		session,
 		made,
 		title="Anna's birthday, corrected",
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -998,7 +1084,7 @@ def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
 	series = _template(session, made)
 
 	subroutine.domain.tasks.update(
-		session, made, reminder="2w", scope=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
+		session, made, reminder="2w", applies_to=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
 	)
 	session.flush()
 
@@ -1035,7 +1121,7 @@ def test_from_now_on_moves_the_grid_rather_than_dragging_it_back (
 		session,
 		made,
 		starts=was + datetime.timedelta(hours=4),
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -1063,7 +1149,7 @@ def test_an_edit_to_the_series_reaches_the_row_a_person_is_looking_at (
 		session,
 		series,
 		title="What it is really called",
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -1085,14 +1171,20 @@ def test_a_change_made_to_one_occurrence_is_not_undone_by_a_later_series_edit (
 	made = _repeating(session, recurrence="every week", title="Standup")
 	series = _template(session, made)
 
-	subroutine.domain.tasks.update(session, made, title="Standup, short one", now=NOW)
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		title="Standup, short one",
+		applies_to=subroutine.domain.tasks.THIS_ONE,
+		now=NOW,
+	)
 	session.flush()
 
 	subroutine.domain.tasks.update(
 		session,
 		series,
 		title="Daily standup",
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -1108,7 +1200,7 @@ def test_a_change_made_to_one_occurrence_is_not_undone_by_a_later_series_edit (
 		session,
 		series,
 		description="Fifteen minutes, standing up",
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -1134,7 +1226,7 @@ def test_completion_is_never_carried_to_the_series (
 		session,
 		made,
 		status_key=finished,
-		scope=subroutine.domain.tasks.FROM_NOW_ON,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
 		now=NOW,
 	)
 	session.flush()
@@ -1157,13 +1249,13 @@ def test_a_scope_on_something_that_does_not_repeat_is_refused (
 
 	with pytest.raises(subroutine.errors.ValidationError) as refused:
 		subroutine.domain.tasks.update(
-			session, once, title="Anything", scope=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
+			session, once, title="Anything", applies_to=subroutine.domain.tasks.FROM_NOW_ON, now=NOW
 		)
 
 	assert "does not repeat" in refused.value.detail
 
 	with pytest.raises(subroutine.errors.ValidationError):
-		subroutine.domain.tasks.update(session, once, title="Anything", scope="all", now=NOW)
+		subroutine.domain.tasks.update(session, once, title="Anything", applies_to="all", now=NOW)
 
 
 def test_an_occurrence_says_which_repeat_it_came_from (

@@ -908,6 +908,18 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"type": "string",
 						"description": "How often it comes round. '' stops it.",
 					},
+					# **An agent cannot edit a repeating item at all without this** (`#1252`),
+					# which is §21.2's test answered at its sharpest: not *would it get this
+					# wrong* but *is it refused outright*. The change is deliberately breaking
+					# and the refusal names this argument, so an agent that meets it once knows
+					# what to send — but only if the argument is on the schema to be sent.
+					"applies_to": {
+						"type": "string",
+						"description": (
+							"If it repeats: 'this_one', or 'from_now_on' for every one after "
+							"it too. Required then, refused otherwise."
+						),
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -3142,8 +3154,13 @@ def _updated (
 	# verbs §12.2's `plan` and `defer` reach. Folding them into one client method here would
 	# be this surface inventing a shape the others do not have, which is the divergence
 	# `#146` measured rather than a fix for it.
+	# **Carried to both calls, because both write asking fields** (`#1252`). A repeating item
+	# moved through `schedule` is the case decision `#1249` was filed for, so answering the
+	# question on the edit and not on the move would leave the whole point unreachable.
+	applies_to = _text(arguments, "applies_to")
+
 	changed = (
-		client.update(ref=ref, workspace=workspace, **changes)
+		client.update(ref=ref, workspace=workspace, applies_to=applies_to, **changes)
 		if changes
 		else client.task(ref=ref, workspace=workspace)
 	)
@@ -3152,6 +3169,7 @@ def _updated (
 		changed = client.schedule(
 			ref=ref,
 			workspace=workspace,
+			applies_to=applies_to,
 			**{
 				name: days[field]
 				for field, name in (("plan", "starts"), ("until", "ends"), ("defer", "snooze"))

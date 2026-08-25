@@ -22,6 +22,33 @@ upgrade involves.
 
 ### Changed
 
+- **A repeating event is one event, and every edit says which occurrences it is for.** Until
+  now a change to something that repeats landed on the copy in front of you and never reached
+  the rule behind it — so a title you corrected came back wrong the next time it came round,
+  and a reminder you set reached no calendar at all. That is fixed, and the fix is a question:
+
+  ```
+  subroutine update 42 --title "Morning stand-up" --from-now-on
+  subroutine plan 42 friday --just-this-one
+  ```
+
+  At a terminal you are simply asked, once per save, and you answer `j` or `e`. There is no
+  third answer on purpose: nothing here re-derives an occurrence you have already finished, so
+  *every one from now on* cannot rewrite last March and never claims to.
+
+  An occurrence you moved by hand keeps what you gave it. Change the series later and the
+  fields you did not override follow; the ones you did are left alone.
+
+  > **This is a breaking change for anything that edits a repeating task over the API.**
+  > `PATCH /v1/tasks/42 {"starts": "3pm"}` on a repeating item answered `200` and now answers
+  > `422` naming `applies_to`, whose two values are `this_one` and `from_now_on`. Agents get
+  > the same argument on `subroutine_update`, and `/v1/meta` publishes both words under
+  > `grammars.repeat_edits`.
+  >
+  > The old behaviour is not available as a default, deliberately: it is the one where a
+  > correction quietly expires, and nothing said so. A change that only sets a status, or only
+  > changes how something repeats, is unaffected — there is no second answer to either.
+
 - **The agenda leads with what you have already started.** *In progress* was in the middle,
   between the day's work and everything else; it is now the first section you see, on the
   terminal, in the browser and through the API. Everything below it is something you could

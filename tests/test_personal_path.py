@@ -7373,6 +7373,152 @@ def test_a_repeat_can_be_set_precisely_rather_than_only_written_in_a_sentence (
 	assert "on the 30th" not in shown.output, "the old rule should be gone, not beside it"
 
 
+def test_editing_a_repeat_from_a_script_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1251`, and it is `SR#299`'s rule rather than a new one.
+
+	The question has to be settled **before** stdin is read rather than by reading it: a
+	command that blocked on a prompt would hang for ever in a CI job, in a script, or under an
+	agent, on input that is not coming. So with nobody there it refuses, and names the two
+	things somebody could have typed.
+
+	**Driven with the real terminal check**, not a substitute — under a runner stdin is a pipe,
+	which is exactly the state being tested. The prompt below is the half that needs a seam.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	refused = run("update", "2", "--title", "Morning stand-up", expect=1)
+
+	assert "--just-this-one" in refused.output
+	assert "--from-now-on" in refused.output
+
+	# **Never *all*.** Decision `SR#1249` §2: nothing here re-derives a finished occurrence, so
+	# there is no past to rewrite and the word would promise something that does not happen.
+	assert "all of them" not in refused.output
+
+	for word in FORBIDDEN:
+		assert word not in refused.output.lower()
+
+	# **And it stopped before writing anything**, which is the difference between a refusal and
+	# a warning about something already done.
+	assert "Morning stand-up" not in run("show", "2").output
+
+
+def test_a_flag_settles_which_occurrences_an_edit_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The scripted answer, and the one that proves the edit reached the row that persists.
+
+	`SR#1247`'s defect measured from the terminal: rename the occurrence, complete it, and the
+	next one used to come back with the old title. Here the series is asked for, so what comes
+	round next is what was typed.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	changed = run("update", "2", "--title", "Morning stand-up", "--from-now-on")
+
+	assert changed.exit_code == 0
+	assert "Morning stand-up" in run("show", "2").output
+
+	# **The series itself**, which `SR#1247` made reachable by naming its number on `show`.
+	assert "Morning stand-up" in run("show", "1").output
+
+
+def test_only_one_of_the_two_flags_may_be_given (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Two answers to one question is a mistake worth naming rather than resolving by order."""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	refused = run(
+		"update", "2", "--title", "Either", "--just-this-one", "--from-now-on", expect=1
+	)
+
+	assert "not both" in refused.output
+
+
+def test_a_terminal_is_asked_which_occurrences_an_edit_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#1251`, and being asked is the *point* rather than a convenience.
+
+	Decision `SR#1249` §1 is Simon's, overruling a per-field table I proposed: a rule that
+	sends a title to every occurrence and a time to one is invisible, because there is no
+	surface on which it could be stated where a reader would meet it. A choice made every time
+	is a rule nobody has to learn.
+
+	**One thing is substituted and it is named**: whether a terminal is attached. Everything
+	below it — the prompt, what the words mean, where the write lands — is the real code, and
+	the refusal above is driven with this function untouched. A harness that supplied both
+	halves would confirm only the one that was not in doubt.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	monkeypatch.setattr(subroutine.cli.personal, "_a_terminal_is_attached", lambda: True)
+
+	answered = run("update", "2", "--title", "Morning stand-up", input="e\n")
+
+	assert answered.exit_code == 0
+	assert "Morning stand-up" in run("show", "1").output, (
+		"answering 'every one from now on' left the row that persists alone"
+	)
+
+
+def test_an_ordinary_edit_is_never_asked_which_occurrences_it_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Most of what anybody edits does not repeat, and the question must cost it nothing.
+
+	**The direction a guard is least likely to be checked in.** A build that asked about every
+	edit would pass every test above this one, and would put a prompt in front of somebody
+	correcting a typo on a shopping list — which is friction with no decision in it.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	monkeypatch.setattr(subroutine.cli.personal, "_a_terminal_is_attached", lambda: True)
+
+	changed = run("update", "1", "--title", "Buy oat milk")
+
+	assert changed.exit_code == 0
+	assert "repeat" not in changed.output.lower()
+
+
+def test_planning_a_repeat_asks_too (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""*This week I'll do the meeting at 3pm instead of 11am* is the case the story is for.
+
+	Simon's own example, and the one only the person can answer — we have no way of knowing
+	whether they want every future meeting moved or just the next one. So a *move* has to ask
+	as loudly as an edit does; asking on `update` alone would leave the whole point unreachable
+	from the command somebody actually types.
+	"""
+
+	run("init")
+	run("add", "Stand-up", "--repeat", "every tuesday")
+
+	refused = run("plan", "2", "2026-09-04", expect=1)
+
+	assert "--just-this-one" in refused.output
+
+	moved = run("plan", "2", "2026-09-04", "--just-this-one")
+
+	assert moved.exit_code == 0
+
+
 def test_a_repeat_can_be_stopped_from_the_terminal (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

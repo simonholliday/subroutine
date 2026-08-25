@@ -339,7 +339,20 @@ def test_every_change_to_an_entity_honours_the_version_it_was_given (
 
 	# Moved on, so the version each caller holds is genuinely out of date. Without this every
 	# route would pass by agreeing with a version that never changed.
-	world.call("PATCH", f"/v1/tasks/{task['ref']}", json={"description": "moved on"})
+	#
+	# **Asserted, because this test's whole premise is that it worked** (`#1252`). The task is
+	# deliberately repeating, so this edit has to say which occurrences it is for — and when it
+	# silently began answering 422 the version stopped moving, which made *every* route below
+	# look as though it had honoured a header it never read. A setup call whose answer nobody
+	# checks is a premise nobody checks.
+	moved = world.call(
+		"PATCH",
+		f"/v1/tasks/{task['ref']}",
+		json={"description": "moved on", "applies_to": "from_now_on"},
+	)
+
+	assert moved.status_code == 200, moved.text
+
 	world.call("PATCH", f"/v1/documents/{document['ref']}", json={"body": "moved on"})
 	world.call("PATCH", "/v1/projects/web", json={"description": "moved on"})
 

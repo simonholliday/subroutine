@@ -779,6 +779,24 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				"Solar eclipse today at 18:30",
 			],
 		),
+		# **The one closed language a caller is refused for not speaking** (`#1252`). Every
+		# other grammar here is a convenience — write a date badly and the words stay in the
+		# title. This one answers a question `PATCH /v1/tasks` asks, so an agent that has not
+		# read it meets a 422 on an edit that worked the week before.
+		#
+		# Read off `tasks.ANSWERS` rather than written out, so the published pair cannot
+		# disagree with the pair the refusal lists.
+		"repeat_edits": subroutine.views.Grammar(
+			description=(
+				"Which occurrences an edit to a repeating item is for, sent as applies_to. "
+				"Required when the item repeats and the change touches a field with two "
+				"possible answers; refused on anything that does not repeat. There is no "
+				"third answer: nothing here re-derives a finished occurrence, so from_now_on "
+				"already means this one and every one after."
+			),
+			vocabulary=list(subroutine.domain.tasks.ANSWERS),
+			examples=["this_one", "from_now_on"],
+		),
 	}
 
 #: Worked calls, in the order an agent actually needs them. §13.3 has asked for these since

@@ -7,6 +7,7 @@ without its ref or its history.
 """
 
 import datetime
+import inspect
 import typing
 import uuid
 
@@ -1043,7 +1044,7 @@ def update (
 	recurrence_trigger: str | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
-	scope: str | None = None,
+	applies_to: str | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
 	expected_version: int | None = None,
@@ -1061,13 +1062,32 @@ def update (
 	half-applied change that raised on the way through would be committed silently along
 	with whatever else that transaction was doing.
 
-	``scope`` says which occurrences of a repeating item an edit applies to — decision `#1249`,
-	and :data:`SCOPES` carries the two answers. ``None`` means the caller did not say, and lands
+	``applies_to`` says which occurrences of a repeating item an edit is for — decision `#1249`,
+	and :data:`ANSWERS` carries the two of them. ``None`` means the caller did not say, and lands
 	on the row it was given, which is what everything did before `#1247`. **The surfaces are
 	where that becomes a question a person is asked** (`#1251`) or a request refused for not
 	answering (`#1252`); here it is an argument, because a domain that guessed would be guessing
 	on behalf of whichever client happened to call it.
 	"""
+
+	# **Which arguments the caller actually named, taken before any local exists** — so this
+	# is exactly the parameters, and a patchable argument added later is covered without
+	# anybody remembering to list it here. That is `#1268`'s lesson one layer along: a field
+	# missing from a hand-written register is invisible to every guard built on the register.
+	#
+	# **Two statements rather than one, and the reason is `#1272`.** `locals()` inside a
+	# comprehension's leftmost iterable is a question about scoping rules that moved in 3.12
+	# (PEP 709) and again in 3.13 (PEP 667) — and this machine has neither, so the only place
+	# an answer would arrive is a red CI job. Called plainly, in the function's own body, it
+	# means the same thing on every version the project supports.
+	#
+	# Anything that is not a patch argument survives the filter and is harmless: what is asked
+	# of this is its intersection with :data:`ASKS_WHICH_OCCURRENCES`, which holds parameter
+	# names and nothing else.
+	arguments = locals()
+	named = frozenset(
+		name for name, value in arguments.items() if value is not subroutine.domain.patch.UNSET
+	)
 
 	# Permission first, before anything is even read: a caller who may not touch this task
 	# should not be able to learn from the error message whether their new title was valid.
@@ -1081,7 +1101,8 @@ def update (
 		workspace_id=task.workspace_id,
 	)
 	subroutine.domain.versions.require(task, expected_version, noun="This task")
-	refuse_a_scope_that_means_nothing(task, scope)
+	refuse_an_answer_that_means_nothing(task, applies_to)
+	refuse_an_edit_that_does_not_say(task, applies_to, named=named)
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
@@ -1528,7 +1549,7 @@ def update (
 	# (`#1247`). A change feed then reads in the order it happened: the row somebody edited, and
 	# then the row that had to follow — rather than two writes with no way to tell which was
 	# asked for.
-	if scope == FROM_NOW_ON:
+	if applies_to == FROM_NOW_ON:
 		_applied_to_the_series(
 			session, task, was=before, now_holds=after, actor=actor, instant=instant
 		)
@@ -1800,12 +1821,18 @@ def skip (
 #:
 #: Say it in those words on every surface. *All events* promises something about history that
 #: does not happen.
+#:
+#: **The word for the question is ``applies_to`` and never ``scope``** (`#1275`). A published
+#: field is a semver'd contract, and ``scope`` already means *permission narrowing* in this
+#: API — a token carries ``scopes`` and a ``project_scope``, and `scoping` is the module that
+#: decides which rows a caller may see. One word covering both is the hazard `#1267` recorded
+#: about ``assigned_to_me``, met a second time and cheap to avoid before anything ships.
 THIS_ONE = "this_one"
 FROM_NOW_ON = "from_now_on"
 
-SCOPES = (THIS_ONE, FROM_NOW_ON)
+ANSWERS = (THIS_ONE, FROM_NOW_ON)
 
-#: What a scope choice never carries between a series and its occurrence — decision `#1249` §1.
+#: What an answer never carries between a series and its occurrence — decision `#1249` §1.
 #:
 #: **These are the fields with no second answer**, which is why they are not a rule anybody has
 #: to learn: nobody is ever shown a prompt where one of the two options would be meaningless.
@@ -2006,10 +2033,110 @@ def _applied_to_the_series (
 		)
 
 
-def refuse_a_scope_that_means_nothing (
-	task: subroutine.db.models.work.Task, scope: str | None
+#: Every argument of :func:`update` that patches a field, derived rather than listed.
+#:
+#: **A patchable parameter is exactly one whose default is the patch sentinel**, so this is a
+#: measurement of the signature rather than a copy of it. `#1268` is why: a hand-written
+#: register of `update`'s fields was two short, and the two guards built on it were both blind
+#: to the gap because each read the register rather than the function.
+PATCHABLE = frozenset(
+	name
+	for name, parameter in inspect.signature(update).parameters.items()
+	if parameter.default is subroutine.domain.patch.UNSET
+)
+
+#: The patchable fields with only one answer on a repeating item — decision `#1249` §1.
+#:
+#: **Nobody is ever shown a prompt where one of the two answers would be meaningless**, which
+#: is what stops this being a rule a person has to learn. Two reasons, and the second is
+#: measured rather than argued:
+#:
+#: - a status is `#1249` §1's first row — completing every future occurrence would end the
+#:   series, which is what a series *running out* already means (`#94`), and starting all of
+#:   them means nothing;
+#: - the three repeat arguments edit **how this repeats**, which lives on the series and
+#:   nowhere else. ``_repeat_changed`` already routes them there whichever row was addressed,
+#:   so there is no second row for an answer to choose between.
+#:
+#: The claim, comments and links are `#1249` §1's other three rows and are not here because
+#: they are not fields of an update at all.
+#:
+#: **Everything else asks, by subtraction rather than by enrolment**, so a field added to
+#: :func:`update` asks until somebody writes down why it should not.
+NEVER_ASKS = frozenset(
+	{"status_key", "recurrence", "recurrence_anchor", "recurrence_trigger"}
+)
+
+ASKS_WHICH_OCCURRENCES = PATCHABLE - NEVER_ASKS
+
+
+def repeats (task: subroutine.db.models.work.Task) -> bool:
+	"""Say whether a task is one of a series, from either end of it.
+
+	**Both ends, deliberately.** The row a person is looking at is the occurrence and the row
+	that persists is the template, and an edit can arrive addressed to either — `show` names
+	the other one now (`#1247`), so the template is reachable and reaching it must not be a
+	way round the question.
+	"""
+
+	return task.recurrence_template_id is not None or task.is_template
+
+
+def refuse_an_edit_that_does_not_say (
+	task: subroutine.db.models.work.Task,
+	applies_to: str | None,
+	*,
+	named: frozenset[str],
 ) -> None:
-	"""Refuse a scope on something that does not repeat, and an unknown one anywhere.
+	"""Refuse a change to a repeating item that has not said which occurrences it is for.
+
+	Decision `#1249` §5, and **Simon took the breaking half knowingly**: this answered 200
+	yesterday and answers 422 now. The alternative was keeping today's behaviour as the
+	default, and he refused it — an agent silently getting *just this one* is the whole
+	failure `#1247` reports.
+
+	**The precedent is §12.6a**, where ``db restore`` refuses without ``--recover`` or
+	``--as-clone`` because both defaults are wrong half the time and the damage is invisible
+	in both directions. This is that, exactly: a title correction that reaches one occurrence
+	expires next month, and a time change that reaches the series moves a meeting nobody
+	agreed to move.
+
+	**A change that names no asking field is not refused**, so completing something, moving it
+	between statuses or altering how it repeats all go through untouched — there is no second
+	answer to any of them and being asked would be friction with no decision in it.
+
+	The refusal says what to do and does not name the fields, because the names here are this
+	function's arguments rather than the caller's: ``status_key`` and ``assignee_id`` are not
+	words anybody sent, and a refusal naming the wrong field is `#1259`'s defect.
+	"""
+
+	if applies_to is not None or not repeats(task):
+		return
+
+	if not named & ASKS_WHICH_OCCURRENCES:
+		return
+
+	raise subroutine.errors.ValidationError(
+		"That repeats, so this change has to say which occurrences it is for.",
+		code="missing_field",
+		hint=f"Say {THIS_ONE} to change this one, or {FROM_NOW_ON} for every one after it too.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="applies_to",
+				code="missing_field",
+				message=(
+					"An edit to a repeating item says whether it is for this one or every "
+					"one from now on."
+				),
+			)
+		],
+	)
+
+
+def refuse_an_answer_that_means_nothing (
+	task: subroutine.db.models.work.Task, applies_to: str | None
+) -> None:
+	"""Refuse an answer about something that does not repeat, and an unknown one anywhere.
 
 	**Ignoring it would be the inert control this codebase has found three times** — a setting
 	that is accepted, documented and read by nothing. Somebody who says *from now on* about a
@@ -2017,30 +2144,30 @@ def refuse_a_scope_that_means_nothing (
 	said it.
 	"""
 
-	if scope is None:
+	if applies_to is None:
 		return
 
-	if scope not in SCOPES:
+	if applies_to not in ANSWERS:
 		raise subroutine.errors.ValidationError(
-			f"{scope!r} is not a way for an edit to apply to a repeat.",
+			f"{applies_to!r} is not a way for an edit to apply to a repeat.",
 			code="invalid_field_value",
 			errors=[
 				subroutine.errors.FieldError(
-					field="scope",
+					field="applies_to",
 					code="invalid_field_value",
-					message=f"The answers are: {', '.join(SCOPES)}.",
+					message=f"The answers are: {', '.join(ANSWERS)}.",
 				)
 			],
 		)
 
-	if task.recurrence_template_id is None and not task.is_template:
+	if not repeats(task):
 		raise subroutine.errors.ValidationError(
 			"That does not repeat, so there is only one of it to change.",
 			code="invalid_field_value",
-			hint="Leave the scope out and the change applies to it.",
+			hint="Leave it out and the change applies to the one item there is.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="scope",
+					field="applies_to",
 					code="invalid_field_value",
 					message="Only an edit to a repeating item says which occurrences it is for.",
 				)

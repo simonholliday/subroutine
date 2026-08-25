@@ -542,7 +542,11 @@ def test_a_slot_that_no_longer_holds_an_occurrence_is_excluded_from_the_grid (
 
 	if how == "moved":
 		subroutine.domain.tasks.update(
-			session, made, actor=actor, starts=NOW + datetime.timedelta(days=3)
+			session,
+			made,
+			actor=actor,
+			starts=NOW + datetime.timedelta(days=3),
+			applies_to=subroutine.domain.tasks.THIS_ONE,
 		)
 
 	else:
@@ -631,7 +635,11 @@ def test_an_all_day_exclusion_is_written_as_a_date (
 	assert made.starts_at is not None, "an all-day repeat with no day is not this case either"
 
 	subroutine.domain.tasks.update(
-		session, made, actor=actor, starts=made.starts_at + datetime.timedelta(days=2)
+		session,
+		made,
+		actor=actor,
+		starts=made.starts_at + datetime.timedelta(days=2),
+		applies_to=subroutine.domain.tasks.THIS_ONE,
 	)
 	session.flush()
 
@@ -912,7 +920,13 @@ def test_an_occurrence_somebody_moved_is_still_on_the_calendar (
 	session.flush()
 
 	moved = NOW + datetime.timedelta(days=3)
-	subroutine.domain.tasks.update(session, created, starts=moved, actor=actor)
+	subroutine.domain.tasks.update(
+		session,
+		created,
+		starts=moved,
+		actor=actor,
+		applies_to=subroutine.domain.tasks.THIS_ONE,
+	)
 	session.flush()
 
 	feed, _minted = _feed(session, workspace, owner)

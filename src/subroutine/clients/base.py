@@ -170,6 +170,24 @@ class Answered:
 	text: str
 
 
+#: The arguments to :meth:`Client.update` and :meth:`Client.schedule` that a repeating item is
+#: **not** asked about — decision `#1249` §1.
+#:
+#: **Written at this layer because this is where both callers are.** The command line puts the
+#: question to a person and the MCP tool relays it from an agent, and each would otherwise have
+#: had its own opinion of which fields have a second answer. The domain holds the same rule in
+#: its own vocabulary (``tasks.NEVER_ASKS``); the two are kept honest by driving every argument
+#: through a real edit rather than by comparing the lists, which would only prove they agree
+#: about the names they share.
+#:
+#: A status has no second answer, the three repeat arguments live on the series and nowhere
+#: else, and a timezone is not a patchable field at all — the service reads it beside a date
+#: rather than storing what was sent.
+NEVER_ASKS = frozenset(
+	{"status", "recurrence", "recurrence_anchor", "recurrence_trigger", "timezone"}
+)
+
+
 class Client(typing.Protocol):
 	"""One connection, ready to be asked things.
 
@@ -1367,6 +1385,10 @@ class Client(typing.Protocol):
 		recurrence_anchor: str | None = UNSET,
 		recurrence_trigger: str | None = UNSET,
 		timezone: str | None = UNSET,
+		#: Which occurrences of a repeating item this change is for — ``"this_one"`` or
+		#: ``"from_now_on"``, decision `#1249`. Required when the task repeats and refused
+		#: when it does not, so a caller cannot answer a question nobody asked.
+		applies_to: str | None = None,
 		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Change a task's own fields. Omitted is unchanged; ``None`` clears (§8.3).
@@ -1499,8 +1521,14 @@ class Client(typing.Protocol):
 		starts: datetime.datetime | datetime.date | None = UNSET,
 		ends: datetime.datetime | datetime.date | None = UNSET,
 		snooze: datetime.datetime | datetime.date | None = UNSET,
+		applies_to: str | None = None,
 	) -> subroutine.views.Task:
-		"""Set the day a task is planned for, or the day it becomes visible."""
+		"""Set the day a task is planned for, or the day it becomes visible.
+
+		``applies_to`` is decision `#1249`'s answer — ``"this_one"`` or ``"from_now_on"``.
+		**Moving a repeating item is the case the whole story was filed for**, so this is not
+		the optional extra it looks like beside the three dates.
+		"""
 
 	def close (self) -> None:
 		"""Release whatever this holds."""

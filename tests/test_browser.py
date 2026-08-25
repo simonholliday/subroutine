@@ -687,6 +687,12 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: ``/v1/tasks``, so without this every open item would draw the whole listing as its own
 	#: sub-tasks and the strikethrough test next door would be counting rows from a board.
 	parts: list[typing.Any] = [EMPTY]
+	#: Whether the item this page opens repeats — `SR#1253`. A holder for `listing`'s reason:
+	#: the route is registered on the context once and every page shares it.
+	#:
+	#: **Off by default**, so the thirty-five tests that predate the question open an item that
+	#: does not repeat and are never asked one.
+	repeating: list[bool] = [False]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
 	#: Who the reader is, so one test can ask about an instance holding a single workspace —
@@ -828,7 +834,13 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# `v1/tasks/\d+`, where it *is* a `startswith` match — which is the whole
 				# difference between the two traps this block records and this line.
 				else LINKED if re.fullmatch(r"v1/tasks/\d+/links", wanted)
-				else CARD if re.fullmatch(r"v1/tasks/\d+", wanted)
+				else (
+					# **A ref for the series it belongs to is the whole of *this repeats***,
+					# which is what `app.repeats` reads and what `views.repeats` reads at the
+					# other end. A rule or a description would not do: those are reported on
+					# both rows, and only this one says *there is another row*.
+					dict(CARD, recurrence_template_ref=7) if repeating[0] else CARD
+				) if re.fullmatch(r"v1/tasks/\d+", wanted)
 				# **The collection, and only the collection.** `startswith` also matched every
 				# sub-resource — `v1/tasks/42/links` was answered with a page of *tasks* — so
 				# opening an item read links that were rows and fell to the failure page. An
@@ -928,7 +940,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	# than eighteen edits to tests that do not care. What each one *is* is documented above;
 	# a test names only the holders it uses.
 	try:
-		yield opened, written, refusing, roster, missing, reads, unreadable
+		yield opened, written, refusing, roster, missing, reads, unreadable, repeating
 	finally:
 		context.close()
 
@@ -1570,6 +1582,18 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	**Read for fat**: one gesture per form and two assertions, and the second is what stops the
 	first passing at a viewport where both collapse to one column.
+
+	**Raised to thirty-six for `SR#1253`, and it is the clearest kind of raise there is**: the
+	shim states in its own file that a test wanting to click needs a real DOM and that growing
+	it is the wrong answer. The addition asks whether a gesture on a repeating item **holds its
+	write back** until somebody has answered — a change event, a `useState` landing in the
+	render that draws the panel, and a click on a button that does not exist until it has. Every
+	other part of that feature is pure and is tested in ``tests/test_web.py``; the seam between
+	them is reachable nowhere else, and it is the seam four faults have shipped through.
+
+	**And what it is worth is a whole surface.** The edit form sends every control it shows on
+	every save, so without the question a repeating item cannot be changed from the browser at
+	all — and the page would look entirely well until somebody pressed Save on one.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1577,12 +1601,79 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 35, (
+	assert len(tests) <= 36, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
 		f"read every raise in this docstring as a set: it has moved 17 to 34 in nine days."
 	)
+
+
+def test_a_repeating_item_is_asked_about_before_anything_is_written (
+	running: typing.Any,
+) -> None:
+	"""`SR#1253`, decision `SR#1249` §6 — and the wire is the whole of what is being checked.
+
+	Every piece of this is pure and tested next door: `repeats` reads the item, `edited` and
+	`assignRequest` put the answer on the wire, and both shapes are driven against a real
+	instance in ``tests/test_web.py``. What none of that can reach is `App` deciding to **hold
+	the write back** — a change event on a `<select>`, a `useState` that has to land in the
+	render that draws the panel, and a click on a button that only exists after it.
+
+	``tests/dom.js`` says in its own words that a test wanting to click needs a real DOM and
+	that growing the shim is the wrong answer, so this is not a raise for something cheaper
+	could answer.
+
+	**What it is worth is the failure it prevents.** The browser's form sends every control it
+	shows on every save, so with the question missing a repeating item cannot be changed from
+	this page at all — every save and every hand-over answers 422. That is a whole surface
+	going dark on a class of item, and it would look exactly like a working page until somebody
+	pressed Save on one.
+
+	**Read for fat**: one gesture, one click and three assertions. The first is that nothing was
+	written — which is the half a page that asked *and wrote anyway* would pass without — the
+	second that the answer reached the wire, and the third that the item is what the write is
+	about.
+	"""
+
+	opened, written, _refusing, _roster, _missing, _reads, _unreadable, repeating = running
+
+	repeating[0] = True
+
+	try:
+		page = opened("/")
+		page.wait_for_selector(".listing.agenda", timeout=10_000)
+		page.click(".listing.agenda a.row[href='/projects/subroutine/ui/94']")
+		page.wait_for_selector(".detail .doing label.assign", timeout=10_000)
+		written.clear()
+
+		page.select_option(".detail .doing label.assign:last-of-type select", "si")
+		page.wait_for_selector(".asking", timeout=10_000)
+
+		assert not [one for one in written if one[0] == "PATCH"], (
+			f"handing over a repeating item wrote before anybody had answered: {written}"
+		)
+
+		page.click(".asking button:text('Every one from now on')")
+		page.wait_for_timeout(300)
+
+		writes = [one for one in written if one[0] == "PATCH"]
+
+		assert writes, f"answering the question wrote nothing: {written}"
+
+		_method, where, body, _url = writes[0]
+
+		assert json.loads(body or "{}") == {"assignee": "si", "applies_to": "from_now_on"}, (
+			f"the answer did not reach the wire: {body!r}"
+		)
+		# **The item this page is showing, which is `CARD` whatever the address said** — this
+		# harness answers every numbered path with the one card, and that is `#1040`'s trap
+		# rather than something to assert around: what matters here is that the answer travelled
+		# with the write, and *which item* is asked properly two tests down.
+		assert where == "v1/tasks/42", f"the write went somewhere unexpected: {where}"
+
+	finally:
+		repeating[0] = False
 
 
 def test_a_wide_screen_shows_every_column_the_board_has (running: typing.Any) -> None:
@@ -2653,7 +2744,7 @@ def test_an_open_item_is_furnished_from_the_workspace_it_is_in (
 	`tests/dom.js` cannot execute (`SR#640`).
 	"""
 
-	opened, _written, _refusing, roster, _missing, reads, unreadable = running
+	opened, _written, _refusing, roster, _missing, reads, unreadable, *_ = running
 	before = roster[0]
 
 	page = opened("/")
@@ -2811,7 +2902,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	workspace the rows are from.
 	"""
 
-	opened, _written, _refusing, roster, _missing, reads, _unreadable = running
+	opened, _written, _refusing, roster, _missing, reads, _unreadable, *_ = running
 
 	assert len(roster[0]["workspaces"]) > 1, "there is no second workspace to be wrong about"
 
