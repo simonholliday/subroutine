@@ -545,6 +545,76 @@ def test_a_repeat_that_names_its_own_day_reaches_the_calendar (
 	assert shown.rule, "the event kept is the standalone occurrence rather than the series"
 
 
+def test_a_repeating_birthday_is_not_labelled_as_a_deadline (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1209`, decision `SR#1235`. The observable requirement, in the rendered feed.
+
+	**Measured on a disposable instance before the fix**, from a line somebody would really
+	type — ``subroutine add "Anna's birthday every year on 14 March" --type event`` produced
+	``SUMMARY:Due: Anna's birthday`` under ``RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14``.
+	Yearly, for ever, in somebody's calendar.
+
+	The feed's wording comes from which *field* the date sits in —
+	``PREFIXES = {"due_at": "Due: ", "starts_at": ""}`` — and the repeat grammar swallows the
+	day, so nothing reached the date grammar and a hardcoded ``due_at`` was invented. `SR#1208`
+	made that choice deliberately, on a bill, and named this item in the code as the place to
+	answer it for a birthday.
+
+	**Asserted against the rendered text rather than the field**, because the field is the
+	mechanism and the summary is the requirement: a later change that kept ``starts_at`` and
+	reworded the prefixes would satisfy a field assertion and put the sentence back.
+
+	**The bill is rendered beside it**, so a change that dropped ``Due:`` for everything passes
+	the first assertion and fails the second — which is what the earlier version of this defect
+	would have looked like fixed the wrong way.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	for title, kind, rule in (
+		("Anna's birthday", "event", "every year on 14 March"),
+		("Pay the council tax", "task", "every month on the 1st"),
+	):
+		subroutine.domain.tasks.create(
+			session,
+			project=project,
+			actor=actor,
+			title=title,
+			type_key=kind,
+			recurrence=rule,
+		)
+
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	body = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Mine",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	assert "SUMMARY:Anna's birthday" in body, (
+		f"a birthday is not in the calendar under its own name:\n{body}"
+	)
+	assert "SUMMARY:Due: Anna's birthday" not in body, (
+		f"somebody's birthday is a deadline, every year, for ever:\n{body}"
+	)
+	assert "SUMMARY:Due: Pay the council tax" in body, (
+		f"the bill lost its deadline too, so this dropped the prefix for everything rather "
+		f"than deciding which items are due:\n{body}"
+	)
+
+	# **An all-day yearly repeat**, which is the rest of the done-when: a `VALUE=DATE` start,
+	# the exclusive end convention §20.4 uses for a banner, and the rule itself rather than a
+	# tail of computed occurrences.
+	assert "DTSTART;VALUE=DATE:20270314" in body, body
+	assert "RRULE:FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14" in body, body
+
+
 def test_a_reminder_rides_on_the_event_so_it_repeats_with_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:

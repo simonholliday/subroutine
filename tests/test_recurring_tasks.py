@@ -140,6 +140,66 @@ def test_a_repeat_that_names_its_own_day_is_given_that_day (
 	)
 
 
+def test_a_repeating_birthday_gets_a_day_it_happens_on_rather_than_a_deadline (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1209`, decision `SR#1235`. The column follows what the item *is*.
+
+	`SR#1208` hardcoded ``due_at`` and said so in the code: *"What a birthday wants is the
+	opposite and is `SR#1209`"*. Until this, ``Anna's birthday every year on 14 March`` reached
+	somebody's calendar as **``SUMMARY:Due: Anna's birthday``**, yearly, for ever — because the
+	feed's wording is decided by which field the date sits in and the phrasing cannot tell a
+	birthday from a council-tax payment.
+
+	**The bill is asserted beside it and that is the whole falsification.** One grammar produces
+	both; a change that moved every self-dating rule to ``starts_at`` would pass every assertion
+	about the birthday and quietly undo Simon's own example from `SR#1208`.
+
+	**The edge is asserted too, and it is the half nothing else catches.** §6.5 stores an all-day
+	deadline at the last microsecond of its day and an all-day start at the first; a version that
+	picked the column and kept ``Boundary.END`` renders identically everywhere — the calendar
+	draws the local date either way — and leaves every comparison that reads the instant as the
+	*beginning* of the day out by one. Falsified: with the edge reverted, this test fails and the
+	calendar test for the same change still passes.
+	"""
+
+	birthday = _repeating(
+		session,
+		title="Anna's birthday",
+		type_key="event",
+		recurrence="every year on 14 March",
+		due=None,
+	)
+	bill = _repeating(
+		session, title="Pay the council tax", recurrence="every month on the 1st", due=None
+	)
+
+	occasion = _template(session, birthday)
+	work = _template(session, bill)
+
+	assert occasion.due_at is None, (
+		"a birthday was given a deadline, which is what writes `Due: Anna's birthday` into "
+		"somebody's calendar every year"
+	)
+	assert occasion.starts_at is not None and occasion.starts_is_all_day
+	assert occasion.starts_at.astimezone(datetime.UTC).day == 14, occasion.starts_at
+
+	# The first microsecond of the day, not the last: a start and a deadline sit at opposite
+	# edges of the same date.
+	assert occasion.starts_at.astimezone(datetime.UTC).hour == 0, occasion.starts_at
+
+	assert work.due_at is not None and work.starts_at is None, (
+		"the bill lost its deadline too, so this moved every self-dating rule rather than the "
+		"ones that are not deadlines"
+	)
+
+	# **The occurrence follows**, which is what makes this a fix at the root: `_is_on_its_grid`
+	# compares `occurrence_at` against `due_at or starts_at`, so a birthday whose slot parted
+	# company with its own start would be drawn twice by the calendar.
+	assert birthday.starts_at is not None and birthday.due_at is None
+	assert birthday.occurrence_at == birthday.starts_at
+
+
 def test_a_series_filed_before_it_was_dated_still_mints_dated_occurrences (
 	session: sqlalchemy.orm.Session,
 ) -> None:
@@ -173,6 +233,52 @@ def test_a_series_filed_before_it_was_dated_still_mints_dated_occurrences (
 	)
 	assert minted.due_is_all_day
 	assert minted.occurrence_at == minted.due_at, (
+		"the slot and the date parted company, so this reads as an occurrence somebody moved"
+	)
+
+
+def test_an_undated_birthday_filed_before_the_fix_mints_a_day_rather_than_a_deadline (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1209`'s half of the compatibility path above, and it is a second copy of one rule.
+
+	``materialise`` computes its own occurrence and snaps it, where ``create`` asks
+	:func:`subroutine.domain.tasks.first_whole_day` — so the choice of column exists in two
+	places. They agreed for as long as both were hardcoded to ``due_at``, which is exactly the
+	condition under which two copies are invisible: nothing compares them and neither is wrong.
+
+	**This is the test that makes them one.** Both now read ``own_day_field`` and snap through
+	``whole_day_for``; reverting either half alone fails here or in the sibling above, and
+	nothing else in the suite reaches this branch at all — creation dates such a template now,
+	so the fallback is only ever exercised by a series somebody already had.
+	"""
+
+	instance = _repeating(
+		session,
+		title="Anna's birthday",
+		type_key="event",
+		recurrence="every year on 14 March",
+		due=None,
+	)
+	template = _template(session, instance)
+
+	# The state the old code left: a rule, and no date at either end.
+	template.starts_at = None
+	template.starts_is_all_day = False
+	session.flush()
+
+	minted = subroutine.domain.tasks.materialise(
+		session, template, after=instance.occurrence_at, now=NOW
+	)
+
+	assert minted is not None, "the series stopped minting anything"
+	assert minted.due_at is None, (
+		"an occurrence of a birthday was given a deadline, so the calendar says `Due:` about a "
+		"day nobody owes anybody"
+	)
+	assert minted.starts_at is not None and minted.starts_is_all_day
+	assert minted.starts_at.astimezone(datetime.UTC).day == 14, minted.starts_at
+	assert minted.occurrence_at == minted.starts_at, (
 		"the slot and the date parted company, so this reads as an occurrence somebody moved"
 	)
 

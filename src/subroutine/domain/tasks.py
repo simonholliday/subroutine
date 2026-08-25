@@ -32,6 +32,7 @@ import subroutine.domain.instances
 import subroutine.domain.mentions
 import subroutine.domain.ordering
 import subroutine.domain.patch
+import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
@@ -277,10 +278,32 @@ def _repeat (
 
 
 
+def own_day_field (category: str) -> str:
+	"""Return the column a rule that names its own day fills, for an item of this category.
+
+	**Decision `#1235`, and the first thing that answers this question by what the item *is*.**
+	`#1208` hardcoded ``due_at`` and said in terms that a birthday wants the opposite — the
+	phrasing cannot tell them apart, because *every month on the 1st* and *every year on 14
+	March* are one grammar and *the council tax* and *Anna's birthday* are the difference.
+
+	An occasion is Simon's *out of our control, never due or overdue — it just happens*, so a
+	deadline is the one thing its date cannot be. Everything else keeps `#1208`'s answer, which
+	was taken on his own example: a bill really is due on the 1st.
+
+	**The category and never the key**, so a workspace adding ``holiday`` under ``occasion``
+	through `#1129` inherits this without a release.
+	"""
+
+	if category == subroutine.domain.readiness.OCCASION:
+		return "starts_at"
+
+	return "due_at"
+
+
 def first_whole_day (
-	rule: str, *, timezone: str, now: datetime.datetime
+	rule: str, *, timezone: str, now: datetime.datetime, field: str = "due_at"
 ) -> subroutine.domain.schedule.Moment:
-	"""Return the first day a rule that names its own days falls on, as a whole-day deadline.
+	"""Return the first day a rule that names its own days falls on, as a whole day.
 
 	**"Every month on the 1st" says when, and until `#1208` nothing wrote that down.** `#94`
 	lets such a rule anchor itself on the moment it was filed rather than refusing it for not
@@ -288,21 +311,24 @@ def first_whole_day (
 	surface that draws a date then had nothing to draw: measured on a fresh 0.8.1 instance, the
 	series was invisible to the calendar feed entirely, and the occurrence it minted was too.
 
-	**A whole day, because these rules name days and never times.** The grammar has no
-	``BYHOUR``, so anchoring on the filing instant gave each slot that instant's time of day —
-	18:27 on the first of the month, because that is when somebody was at their desk. Snapped
-	like every other typed deadline, so a client draws a date rather than a one-minute
-	appointment.
+	**A whole day, and :func:`whole_day_for` is why** — the grammar names days and never times.
 
-	**A deadline rather than a start**, which is the same judgement :func:`series_start` already
-	makes for a series that *has* dates: "the 30th of every month" is overwhelmingly a thing
-	that is due then. What a *birthday* wants is the opposite and is `#1209`, gated on `#576` —
-	answering *is this a deadline or a thing that happens* in two places is how the two come to
-	disagree.
+	**Which column is the caller's to say, and :func:`own_day_field` is what says it** (`#1209`).
+	It was hardcoded to ``due_at``, which is right for the bill `#1208` was written from and
+	wrong for a birthday — *"Due: Anna's birthday"*, yearly, for ever, in somebody's calendar.
+	The phrasing cannot tell those apart; the type category can.
 
-	**One function because two callers need the answer**: creation, so the series itself carries
-	a date and can be drawn as a repeat, and :func:`materialise`, which is what carries a series
-	filed before this existed.
+	**The edge follows the column.** §6.5 stores an all-day deadline at the last microsecond of
+	its day and an all-day start at the first, so a version that chose the column and kept
+	``Boundary.END`` would store a birthday's start at the *end* of its day. **Every rendering
+	still reads right** — the calendar draws `VALUE=DATE` from the local date either way — and
+	the comparisons that take the instant for the beginning of the day are a day out:
+	:func:`subroutine.domain.readiness.passed` would keep the birthday current for a day after
+	it, because it measures a whole day from the start.
+
+	**Creation is the only caller now**, so the series itself carries a date and can be drawn as
+	a repeat. :func:`materialise` computes the occurrence itself and shares the snapping through
+	:func:`whole_day_for`; it is what carries a series filed before `#1208` existed.
 	"""
 
 	found = subroutine.domain.recurrence.occurrences(rule, start=now, timezone=timezone, limit=1)
@@ -310,13 +336,38 @@ def first_whole_day (
 	if not found:
 		return subroutine.domain.schedule.Moment(instant=None, is_all_day=False)
 
+	return whole_day_for(found[0], field=field, timezone=timezone, now=now)
+
+
+def whole_day_for (
+	moment: datetime.datetime, *, field: str, timezone: str, now: datetime.datetime
+) -> subroutine.domain.schedule.Moment:
+	"""Snap a day a rule computed to the edge of it that ``field`` stores.
+
+	**The pairing of column and edge, in one place** (`#1209`). §6.5 stores an all-day deadline
+	at the last microsecond of its day and an all-day start at the first, so the two travel
+	together — and they were two copies before this, one here and one inlined in
+	:func:`materialise`, agreeing only because both were hardcoded to ``due_at``. The moment the
+	column became a question they would have had to be changed twice, which is `#1156`'s shape
+	and the reason this codebase watches for it.
+
+	**A whole day, always, because these rules name days and never times.** The recurrence
+	grammar has no ``BYHOUR``: anchoring on the filing instant gave each slot that instant's time
+	of day, so a client drew a one-minute appointment at whatever o'clock somebody was at their
+	desk.
+	"""
+
 	return subroutine.domain.schedule.interpret(
-		found[0],
-		boundary=subroutine.domain.schedule.Boundary.END,
+		moment,
+		boundary=(
+			subroutine.domain.schedule.Boundary.END
+			if field == "due_at"
+			else subroutine.domain.schedule.Boundary.START
+		),
 		timezone=timezone,
 		now=now,
 		all_day=True,
-		field="due_at",
+		field=field,
 	)
 
 
@@ -455,25 +506,21 @@ def materialise (
 	# day it falls in, which is what `interpret` does for every other typed deadline, so the end
 	# of the day is the deadline and the calendar draws a date rather than an appointment.
 	#
-	# **`due_at` rather than `starts_at`, and only for this case.** A council tax bill is due; a
-	# birthday is not, and the calendar prefixes differ, so getting it wrong writes *"Due: Anna's
-	# birthday"* into somebody's calendar. Which of the two a dateless series wants is `#576`'s
-	# question and `#1209` is where it is answered — answering it twice is how the two come to
-	# disagree.
+	# **Which column it lands in is decided by what the item is** (`#1209`, decision `#1235`),
+	# and it was hardcoded to `due_at`. A council tax bill is due; a birthday is not, and the
+	# calendar prefixes differ, so the hardcoding wrote *"Due: Anna's birthday"* into somebody's
+	# calendar every year. `own_day_field` is the one answer and `whole_day_for` is the one
+	# snapping rule, because this branch and `create`'s have to agree and previously agreed only
+	# by both being wrong the same way.
 	#
 	# **`occurrence_at` moves with it**, because the invariant above is what the grid is read
 	# through and the cursor for the *next* slot is this column. Snapping one and not the other
 	# would leave every occurrence looking rescheduled.
 	dateless = template.due_at is None and template.starts_at is None
+	kind = session.get(subroutine.db.models.vocabulary.ItemType, template.type_id)
+	own_field = own_day_field("" if kind is None else kind.category)
 	whole_day = (
-		subroutine.domain.schedule.interpret(
-			occurrence,
-			boundary=subroutine.domain.schedule.Boundary.END,
-			timezone=zone,
-			now=now,
-			all_day=True,
-			field="due_at",
-		).instant
+		whole_day_for(occurrence, field=own_field, timezone=zone, now=now).instant
 		if dateless
 		else None
 	)
@@ -503,13 +550,21 @@ def materialise (
 		# where a defer is somebody saying *not this one*.
 		reminder_minutes=template.reminder_minutes,
 		due_at=(
-			whole_day
+			(whole_day if own_field == "due_at" else None)
 			if dateless
 			else None if template.due_at is None else template.due_at + shift
 		),
-		due_is_all_day=True if dateless else template.due_is_all_day,
-		starts_at=None if template.starts_at is None else template.starts_at + shift,
-		starts_is_all_day=template.starts_is_all_day,
+		due_is_all_day=(
+			own_field == "due_at" if dateless else template.due_is_all_day
+		),
+		starts_at=(
+			(whole_day if own_field == "starts_at" else None)
+			if dateless
+			else None if template.starts_at is None else template.starts_at + shift
+		),
+		starts_is_all_day=(
+			own_field == "starts_at" if dateless else template.starts_is_all_day
+		),
 		# **Carried and shifted with the start**, because a span belongs to the series: a
 		# stand-up that runs 09:00 to 09:15 runs that long every day, and an occurrence carrying
 		# a start without its end would be the zero-length event `#1235` exists to prevent.
@@ -689,13 +744,24 @@ def create (
 	# row carries a rule and no date, so nothing that draws a date can draw it — including the
 	# calendar, which is where a repeating bill is most of the point. `first_whole_day` holds the
 	# reasoning and is the same function `materialise` falls back to.
+	#
+	# **Which column it lands in is decided by what the item is** (`#1209`, decision `#1235`).
+	# A council-tax payment on the 1st is due then; a birthday on 14 March is not due at all,
+	# and until this the two were one hardcoded answer — so a yearly birthday reached somebody's
+	# calendar as *Due: Anna's birthday*, for ever.
 	if (
 		repeat is not None
 		and deadline.instant is None
 		and beginning.instant is None
 		and subroutine.domain.recurrence.names_its_own_day(repeat.rule)
 	):
-		deadline = first_whole_day(repeat.rule, timezone=zone, now=instant)
+		field = own_day_field(item_type.category)
+		found = first_whole_day(repeat.rule, timezone=zone, now=instant, field=field)
+
+		if field == "due_at":
+			deadline = found
+		else:
+			beginning = found
 
 	# **The defer only** — `schedule._ORDERED_BEFORE_DUE` carries why `starts_at` is exempt.
 	subroutine.domain.schedule.check_order(

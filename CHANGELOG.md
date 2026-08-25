@@ -43,6 +43,11 @@ upgrade involves.
   Anything blocked on one is released when the event is over, so a deploy waiting on a code
   freeze becomes startable the moment the freeze lifts, with nothing to remember.
 
+  A repeating event is a day it happens on rather than a deadline, so `Anna's birthday every
+  year on 14 March --type event` reaches a subscribed calendar as *Anna's birthday* instead of
+  *Due: Anna's birthday*. A repeating bill is unchanged and still says *Due:*, which is the
+  point — what decides it is what the item is, not how its rule was phrased.
+
   Existing workspaces get the new type when they upgrade. Quick capture is unchanged: a line
   like `Anna's birthday on 14 March every year` still files an ordinary task, because guessing
   between *a birthday* and *call mum on Sunday* from the words alone is exactly the kind of
