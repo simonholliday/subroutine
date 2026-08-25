@@ -34,11 +34,11 @@ import dataclasses
 import datetime
 import enum
 import re
+import typing
 import zoneinfo
 
 import subroutine.db.models.identity
 import subroutine.db.models.system
-import subroutine.db.models.work
 import subroutine.domain.dates
 import subroutine.errors
 
@@ -485,7 +485,26 @@ def check_span (
 	)
 
 
-def is_overdue (task: subroutine.db.models.work.Task, *, now: datetime.datetime) -> bool:
+class Dated(typing.Protocol):
+	"""Anything carrying the two columns :func:`is_overdue` reads.
+
+	**A protocol rather than the model, so a rendered view can be asked the same question**
+	(`#1243`). The terminal marks a late row from a :class:`subroutine.views.Task` and the
+	domain marks one from a mapped row; naming the model here would have left the terminal to
+	write ``due_at < now`` again, which is the two-copies defect in the one rule §6.5 exists to
+	get right. ``views`` cannot be imported here — it imports this module.
+	"""
+
+	@property
+	def due_at (self) -> datetime.datetime | None:
+		"""When it has to be finished by, if anybody said."""
+
+	@property
+	def completed_at (self) -> datetime.datetime | None:
+		"""When it was finished, if it has been."""
+
+
+def is_overdue (task: Dated, *, now: datetime.datetime) -> bool:
 	"""Report whether a task's deadline has passed.
 
 	The test docs/design.md §6.5 exists for: a task due all-day Friday is **not** overdue at nine

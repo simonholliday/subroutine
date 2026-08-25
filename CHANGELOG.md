@@ -20,6 +20,17 @@ upgrade involves.
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+### Changed
+
+- **The agenda leads with what you have already started.** *In progress* was in the middle,
+  between the day's work and everything else; it is now the first section you see, on the
+  terminal, in the browser and through the API. Everything below it is something you could
+  *begin* — this is the only section that is already in hand, and finishing something beats
+  starting something else.
+
+  A started task that is also late now appears there rather than under *Overdue*, and is still
+  marked late: the marking follows the row instead of the section it happens to be in.
+
 ### Added
 
 - **Something that lasts can say how long, so a holiday is not a single day.** A task takes an

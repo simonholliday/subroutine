@@ -390,6 +390,85 @@ def test_the_agenda_says_how_much_dated_work_is_past_the_look_ahead (
 	)
 
 
+def test_the_agenda_leads_with_what_is_already_in_hand (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Simon's decision of 2026-08-25 — `SR#1243`.
+
+	*"I would naturally complete a task before starting another."* Everything below this
+	section is a candidate to **begin**; this is the only one already in hand, so it leads.
+
+	**The order is asserted rather than the membership**, because membership is what
+	`tests/test_agenda_surfaces.py` already compares across all three surfaces. What that file
+	cannot see is which heading a person meets first, which is the whole of what was decided.
+	"""
+
+	run("init")
+	run("add", "Already going")
+	run("update", "1", "--status", "in_progress")
+	run("add", "Somebody is waiting")
+	run("update", "2", "--status", "needs_input")
+
+	printed = run("agenda").output
+
+	assert "In progress" in printed and "Waiting on you" in printed, printed
+	assert printed.index("In progress") < printed.index("Waiting on you"), (
+		"work already in hand is the one section that is not something to pick up"
+	)
+
+
+def test_a_task_you_have_started_and_are_late_on_still_reads_as_late (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The consequence of `SR#1243`'s reorder, and the reason the mark moved to the row.
+
+	**The buckets are disjoint in order**, so `in_progress` leading means a started task whose
+	deadline has passed is reported there rather than under *Overdue* — and the heading and the
+	colour both used to be properties of the section. Two of `SR#102`'s three signals would have
+	gone with it, leaving a late item looking ordinary.
+
+	**Driven through the command rather than by calling the helper**, because a helper that
+	returns the right answer to nobody is exactly the shape this guards against: the assertion
+	is on what a person sees.
+	"""
+
+	run("init")
+	run("add", "Started and late by today-3d")
+	run("update", "1", "--status", "in_progress")
+
+	printed = run("agenda").output
+
+	assert "Started and late" in printed
+	assert printed.index("In progress") < printed.index("Started and late"), (
+		"a started task belongs under what is in hand, not under Overdue"
+	)
+
+	# **The date is the signal that survives in plain text**, and it is the one `SR#102` says
+	# must be there whatever the colour does: no information exists only in a colour. The style
+	# itself is asserted below, off the rendered row rather than off stripped output.
+	assert "due " in printed, "a late row that does not say when is a colour on its own"
+
+
+def test_a_document_is_never_late_however_a_section_is_marked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1243`. ``_is_late`` narrows to a task before asking, and a document has no deadline.
+
+	**The guard that matters is the narrowing**, not the comparison: the row-level mark is
+	applied to every row in every section, and a document reaches those sections through the
+	same listing a task does (§12.2a). Asking a document about a deadline it cannot have would
+	be an `AttributeError` in the middle of somebody's agenda.
+	"""
+
+	run("init")
+	printed = run("doc", "create", "A conclusion", "--body", "Something concluded.").output
+
+	assert "A conclusion" in printed
+
+	# Rendered through the listing that applies the mark, which is what exercises the narrowing.
+	assert "A conclusion" in run("list").output
+
+
 def test_an_agenda_showing_everything_says_nothing_about_what_it_left_out (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -418,17 +418,22 @@ Row = tuple[str, Item]
 #: A bucket the agenda carries and this does not name raises at import, which is the intended
 #: failure: a heading nobody chose is worse than a build that stops.
 _HEADINGS: dict[str, tuple[str, bool]] = {
-	# **First, and marked late for the same reason `overdue` is** (`#1116`). Somebody has been
+	# **First, Simon's decision of 2026-08-25** (`#1243`): *"I would naturally complete a task
+	# before starting another."* It was between the day and the rest (`#853`), on the argument
+	# that started work is neither scheduled nor a candidate to pick up. That is still true and
+	# it now puts this at the top rather than in the middle: everything below is something to
+	# *begin*, and this is the only section that is already in hand.
+	#
+	# **Not marked late as a section**, and it is the reason the marking moved to the row: this
+	# bucket takes a started task whose deadline has passed, so a flag here would paint work
+	# that is merely in progress, and a flag nowhere would lose the late one entirely.
+	"in_progress": ("In progress", False),
+	# **Marked late for the same reason `overdue` is** (`#1116`). Somebody has been
 	# waiting on an answer, which is a commitment you have not kept in exactly the way a passed
 	# deadline is — and unlike everything below it, nothing here can move until you act.
 	"waiting": ("Waiting on you", True),
 	"overdue": ("Overdue", True),
 	"today": ("Today", False),
-	# **Between the day and the rest** (`#853`). Work somebody is in the middle of is
-	# neither scheduled nor a candidate to pick up, and it is the first thing to look at
-	# after what the day demands — a person who left something half-finished yesterday
-	# should not have to find it among two hundred captured tasks.
-	"in_progress": ("In progress", False),
 	# The number is filled in per render by :func:`agenda_sections`, because `--days` moves
 	# the window and a heading saying seven over a two-day look-ahead would be a defect
 	# shipped with the flag that causes it (`#1005`).
@@ -7978,8 +7983,29 @@ def _render (
 	paused = sum(answer.value.paused_total for answer in gathered.answers)
 	printed = False
 	first: Row | None = None
+	# **One instant for the whole page**, the rule `domain.tasks` follows: two rows compared
+	# against two clocks can disagree about the same second, and a listing that marks one late
+	# and not the next is worse than one that marks neither.
+	moment = subroutine.db.types.utcnow()
 
-	if not rows.get("overdue") and not rows.get("today"):
+	# **And nothing started is carrying a deadline** (`#1243`). The two dated buckets used to be
+	# the whole question; `in_progress` now leads and the buckets are disjoint in the order they
+	# are computed, so a started task that is late or due today is reported *there* and both of
+	# them are empty. Without this clause the page said *Nothing due today* directly above a row
+	# reading `(due Sat 22 Aug)` — measured, on a disposable instance, immediately after the
+	# reorder.
+	#
+	# **Any deadline at all, rather than one that has passed**, deliberately: a started task due
+	# in three weeks would also be in this section rather than in `upcoming`, and telling a
+	# reader something true is worth less than never telling them something false. The cost is a
+	# sentence sometimes not printed, and §12.2a already says a line that appears on every page
+	# says nothing.
+	dated = any(
+		isinstance(task, subroutine.views.Task) and task.due_at is not None
+		for _connection, task in rows.get("in_progress") or []
+	)
+
+	if not rows.get("overdue") and not rows.get("today") and not dated:
 		# **Named rather than "today" when a day was asked for**, or the sentence contradicts
 		# the heading two lines above it.
 		say(
@@ -8003,7 +8029,21 @@ def _render (
 
 		for connection, task in group:
 			console.print(
-				_item_line(world, connection, task, late=late, columns=columns)
+				# **The row decides, not the section** (`#1243`). `in_progress` leads now, and
+				# the buckets are disjoint in order, so a started task with a passed deadline
+				# is reported there rather than under *Overdue* — where the heading and the
+				# colour both used to come from. Two of `#102`'s three signals would have gone
+				# with it, leaving only the date in the ordinary style.
+				#
+				# **`or`, not a replacement**: `#1116` marks everything under *Waiting on you*
+				# late whether or not it has a deadline, and that decision is untouched.
+				_item_line(
+					world,
+					connection,
+					task,
+					late=late or _is_late(task, now=moment),
+					columns=columns,
+				)
 			)
 
 	if remaining > 0:
@@ -8894,6 +8934,24 @@ def _dated (day: datetime.date, *, today: datetime.date | None = None) -> str:
 		return bare
 
 	return f"{bare} {day.year}"
+
+
+def _is_late (item: Item, *, now: datetime.datetime) -> bool:
+	"""Report whether this row's deadline has passed — `#1243`.
+
+	**Asks the domain rather than comparing here.** §6.5 stores an all-day deadline at the last
+	microsecond of its day precisely so that *due all day Friday* is not late on Friday morning,
+	and a second copy of ``due_at < now`` written at a terminal is the copy that would drift
+	from it.
+
+	**A document is never late**, because it has no deadline to pass: ``_when`` says the same
+	thing one function down, and for the same reason.
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return False
+
+	return subroutine.domain.schedule.is_overdue(item, now=now)
 
 
 def _when (item: Item) -> str:

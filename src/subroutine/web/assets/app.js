@@ -4334,13 +4334,16 @@ export function columns (items) {
 	both. Add a section there and this fails until it is here.
 */
 const BUCKETS = [
-	/* **First, and it is the only bucket that is not work the reader could do** (`#1116`).
-	   Somebody is waiting on an answer, so nothing under it can move until this is dealt with —
-	   which is why it sits above a passed deadline rather than beside one. */
+	/* **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
+	   complete a task before starting another."* Everything below this is a candidate to
+	   begin; this is the only section that is already in hand. */
+	{ key: "in_progress", label: "In progress" },
+	/* **Above a passed deadline, and it is the only bucket that is not work the reader could
+	   do** (`#1116`). Somebody is waiting on an answer, so nothing under it can move until
+	   this is dealt with. */
 	{ key: "waiting", label: "Waiting on you" },
 	{ key: "overdue", label: "Overdue" },
 	{ key: "today", label: "Today" },
-	{ key: "in_progress", label: "In progress" },
 	{ key: "upcoming", label: `Next ${HORIZON_DAYS} days` },
 	{ key: "unscheduled", label: "Next" },
 ];

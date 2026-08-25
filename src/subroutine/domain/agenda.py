@@ -263,6 +263,24 @@ def build (
 	#
 	# **Read by key, which nothing else here does.** `WAITING_STATUS` carries why: `#96`
 	# refused a fifth status category, so there is none to ask for.
+	# **First in this sequence as well as first on the page** (`#1243`). The buckets are
+	# disjoint *in the order they are computed*, and that order lives here while the order they
+	# are *shown* in lives in `views.AGENDA_BUCKETS` — two lists, and until 2026-08-25 they
+	# happened to agree, so nothing had ever compared them. Moving one and not the other put a
+	# started, overdue task under a heading that said *In progress* was above *Overdue* while
+	# the membership still gave it to *Overdue*. `#1244` is the guard.
+	started = _run(
+		session,
+		base.join(
+			subroutine.db.models.vocabulary.Status,
+			subroutine.db.models.vocabulary.Status.id == model.status_id,
+		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
+		"in_progress",
+		sortable,
+	)
+
+	seen = {task.id for task in started}
+
 	waiting = _run(
 		session,
 		base.join(
@@ -272,8 +290,8 @@ def build (
 		"waiting",
 		sortable,
 	)
-
-	seen = {task.id for task in waiting}
+	waiting = tuple(task for task in waiting if task.id not in seen)
+	seen.update(task.id for task in waiting)
 
 	overdue = _run(
 		session,
@@ -351,17 +369,6 @@ def build (
 	# rather than by assignee. If it ever does, the shape is already beside it: Simon's
 	# condition was that a cap must *say* it is one, count what is hidden and offer a way to
 	# see it all, which is exactly what `unscheduled_total` is.
-	started = _run(
-		session,
-		base.join(
-			subroutine.db.models.vocabulary.Status,
-			subroutine.db.models.vocabulary.Status.id == model.status_id,
-		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
-		"in_progress",
-		sortable,
-	)
-	started = tuple(task for task in started if task.id not in seen)
-	seen.update(task.id for task in started)
 
 	upcoming: tuple[subroutine.db.models.work.Task, ...] = ()
 

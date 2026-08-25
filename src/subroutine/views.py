@@ -1961,10 +1961,20 @@ class Agenda(pydantic.BaseModel):
 #: is handed the bare key because it is parsing rather than reading — and collapsing that into
 #: one string would make a rendering decision on behalf of surfaces that have already made it.
 AGENDA_BUCKETS: tuple[str, ...] = (
+	# **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
+	# complete a task before starting another."* Work already in hand is the first thing to
+	# look at, because everything below it is a candidate to *begin* and this is the only
+	# section that is not.
+	#
+	# **It outranks `overdue` as well, and that is the part with a consequence.** The buckets
+	# are disjoint in order, so a started task with a passed deadline is reported here rather
+	# than under *Overdue* — which is right (you are already on it) and which means the late
+	# marking cannot come from the section. Both surfaces mark the row instead; the browser
+	# always did.
+	"in_progress",
 	"waiting",
 	"overdue",
 	"today",
-	"in_progress",
 	"upcoming",
 	"unscheduled",
 )
