@@ -20,6 +20,7 @@ import typing
 import uuid
 import zoneinfo
 
+import dateutil.rrule
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
@@ -476,6 +477,174 @@ def test_a_repeating_series_is_one_event_on_the_calendar (
 	assert standups[0].rule, (
 		"the one event kept is the standalone occurrence rather than the rule, so a client "
 		"sees this Monday and no others"
+	)
+
+
+def _series_block (body: str, summary: str) -> str:
+	"""Return the ``DTSTART``/``RRULE``/``EXDATE`` lines of the one event carrying a rule.
+
+	Unfolded first, because a long ``EXDATE`` wraps and a line-oriented read of a folded feed
+	silently loses the half after the break — which is a shape this project has met before in
+	its own scanners.
+	"""
+
+	unfolded = body.replace("\r\n ", "").replace("\n ", "")
+	events = [
+		one for one in unfolded.split("BEGIN:VEVENT") if f"SUMMARY:{summary}" in one
+	]
+	ruled = [one for one in events if "RRULE:" in one]
+
+	assert len(ruled) == 1, f"expected one event with a rule, got {len(ruled)}:\n{unfolded}"
+
+	return "\n".join(
+		line
+		for line in ruled[0].splitlines()
+		if line.startswith(("DTSTART", "RRULE", "EXDATE"))
+	)
+
+
+@pytest.mark.parametrize("how", ["moved", "deleted"])
+def test_a_slot_that_no_longer_holds_an_occurrence_is_excluded_from_the_grid (
+	session: sqlalchemy.orm.Session, how: str
+) -> None:
+	"""`SR#1248`. The rule kept describing a slot with nothing in it, so a client drew a phantom.
+
+	**Measured before the fix**, with the two commands on the item: a weekly series and
+	``subroutine plan 2 <another day>`` put the meeting on both days, and the one on the
+	original day is the one that looks normal.
+
+	**Two ways a slot empties and they are settled together**, because the second was found by
+	looking rather than by being reported: a deleted occurrence leaves the feed entirely, so
+	the grid goes on describing its day with nothing beside it at all.
+
+	**Expanded by a real parser rather than matched as text.** ``EXDATE`` has to carry the same
+	value type as ``DTSTART`` and land exactly on a slot the rule generates, and a string
+	assertion cannot see either — an ``EXDATE`` a minute off, or in the wrong format, reads as
+	correct and excludes nothing.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	slot = NOW + datetime.timedelta(days=1)
+	made = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Team meeting",
+		starts=slot,
+		recurrence="every week",
+	)
+	session.flush()
+
+	assert made.occurrence_at == slot, "the fixture is not on the grid it is about to leave"
+
+	if how == "moved":
+		subroutine.domain.tasks.update(
+			session, made, actor=actor, starts=NOW + datetime.timedelta(days=3)
+		)
+
+	else:
+		subroutine.domain.tasks.delete(session, made, actor=actor)
+
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	body = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Mine",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	drawn = list(
+		dateutil.rrule.rrulestr(_series_block(body, "Team meeting"), forceset=True)
+	)[:3]
+
+	assert slot not in [one.astimezone(datetime.UTC) for one in drawn], (
+		f"the grid still draws the slot nothing is in any more ({how}):\n{body}"
+	)
+	assert drawn, "the whole series stopped being drawn, which is worse than the phantom"
+
+
+def test_a_series_nobody_has_touched_carries_no_exclusions (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half of `SR#1248`, and without it the fix passes by excluding everything.
+
+	An ``EXDATE`` on a slot that *does* still hold its occurrence takes a real meeting out of
+	somebody's calendar — the same defect with the sign reversed, and the more expensive one.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Standup",
+		starts=NOW + datetime.timedelta(days=1),
+		recurrence="every week",
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	body = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Mine",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	assert "EXDATE" not in body, f"a series nobody has edited has a hole in it:\n{body}"
+
+
+def test_an_all_day_exclusion_is_written_as_a_date (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1248`. An ``EXDATE`` whose value type differs from ``DTSTART``'s excludes nothing.
+
+	RFC 5545 §3.8.5.1 requires the two to match, and a client that reads them as different
+	types simply does not find the slot — so the phantom stays and the feed looks corrected.
+	The all-day branch is the one that can get this wrong, because everything else here is an
+	instant.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	made = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Bin day",
+		type_key="event",
+		recurrence="every tuesday",
+	)
+	session.flush()
+
+	assert made.starts_is_all_day, "the fixture is not the all-day case this is about"
+	assert made.starts_at is not None, "an all-day repeat with no day is not this case either"
+
+	subroutine.domain.tasks.update(
+		session, made, actor=actor, starts=made.starts_at + datetime.timedelta(days=2)
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	body = subroutine.domain.icalendar.render(
+		subroutine.domain.calendars.occasions(session, feed, now=NOW),
+		name="Mine",
+		instance_id=uuid.uuid4(),
+		now=NOW,
+	)
+
+	assert "EXDATE;VALUE=DATE:" in body, (
+		f"an all-day grid excluded a slot by instant, which its dates are not:\n{body}"
 	)
 
 

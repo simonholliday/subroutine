@@ -75,6 +75,10 @@ class Occasion:
 	#: series has no grid, because its dates are a function of when somebody acts.
 	rule: str | None = None
 
+	#: Slots the rule describes that no longer hold anything, rendered as ``EXDATE`` (`#1248`).
+	#: Only ever set beside a ``rule``: a grid is the only thing that can have a hole in it.
+	emptied: tuple[datetime.datetime, ...] = ()
+
 
 def create (
 	session: sqlalchemy.orm.Session,
@@ -534,29 +538,95 @@ def occasions (
 	found: list[Occasion] = []
 	rows = list(session.scalars(statement))
 
-	# **Templates first, so an instance can be asked whether its own grid is already here**
-	# (`#1067`). A `schedule` series was emitted twice: the template as an `RRULE` covering
-	# every occurrence, and its live instance again as a standalone event on a date the grid
-	# already carries. The changelog says a repeating item arrives "as a repeating event
-	# rather than as several hundred copies"; it arrived as a repeating event plus a copy.
-	gridded = set()
+	# **Which templates put a grid in this feed** (`#1067`). A `schedule` series was emitted
+	# twice: the template as an `RRULE` covering every occurrence, and its live instance again
+	# as a standalone event on a date the grid already carries. The changelog says a repeating
+	# item arrives "as a repeating event rather than as several hundred copies"; it arrived as
+	# a repeating event plus a copy.
+	#
+	# **Asked of `_occasions_of` rather than re-derived from the columns**, so the rule for
+	# *does this template emit anything* lives in one place. It is asked twice, which costs
+	# nothing and is what stops the two copies disagreeing.
+	gridded = {
+		row.id
+		for row in rows
+		if row.is_template and _occasions_of(row, earliest=earliest, latest=latest)
+	}
+
+	emptied = _emptied_slots(session, principal, rows, gridded, workspace_id=feed.workspace_id)
 
 	for row in rows:
-		if not row.is_template:
-			continue
+		if row.is_template:
+			found.extend(
+				_occasions_of(
+					row,
+					earliest=earliest,
+					latest=latest,
+					emptied=tuple(sorted(emptied.get(row.id, ()))),
+				)
+			)
 
-		occasions = _occasions_of(row, earliest=earliest, latest=latest)
-
-		if occasions:
-			gridded.add(row.id)
-
-		found.extend(occasions)
-
-	for row in rows:
-		if not row.is_template and not _is_on_its_grid(row, gridded):
+		elif not _is_on_its_grid(row, gridded):
 			found.extend(_occasions_of(row, earliest=earliest, latest=latest))
 
 	return found
+
+
+def _emptied_slots (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	rows: typing.Sequence[subroutine.db.models.work.Task],
+	gridded: set[uuid.UUID],
+	*,
+	workspace_id: uuid.UUID,
+) -> dict[uuid.UUID, set[datetime.datetime]]:
+	"""Return, per template, the grid slots that no longer hold an occurrence (`#1248`).
+
+	**A rule with a hole in it needs the hole said out loud.** A client expands the ``RRULE``
+	and draws every slot it describes, so a slot whose occurrence has gone elsewhere — or gone
+	— is a meeting in somebody's calendar that is not happening, and it is the one that looks
+	normal. RFC 5545's ``EXDATE`` is how you say it, and ``occurrence_at`` is already exactly
+	the value it needs: *the slot the series minted this row for*, kept unchanged when the date
+	moves, which is what lets :func:`_is_on_its_grid` see a move at all.
+
+	**Two ways a slot empties, and they had to be settled together** rather than one of them
+	being discovered next: the occurrence was **moved**, and the occurrence was **deleted**.
+	Both were measured before this was written, and both left the phantom.
+
+	The deleted half needs its own query, because the feed's own read deliberately excludes
+	deleted rows — they are not work any more and must not appear as events. Narrowed to the
+	templates that actually put a grid in this feed, so a feed with no repeating items asks
+	nothing extra.
+
+	**Restored is answered for free.** Nothing is stored; this is computed per request from the
+	rows as they are, so taking an occurrence back out of the trash refills its slot and the
+	``EXDATE`` stops being emitted.
+	"""
+
+	emptied: dict[uuid.UUID, set[datetime.datetime]] = {}
+
+	for row in rows:
+		template_id = row.recurrence_template_id
+
+		if row.is_template or template_id not in gridded:
+			continue
+
+		if not _is_on_its_grid(row, gridded) and row.occurrence_at is not None:
+			emptied.setdefault(template_id, set()).add(row.occurrence_at)
+
+	if not gridded:
+		return emptied
+
+	task = subroutine.db.models.work.Task
+	discarded = subroutine.domain.scoping.readable_tasks(
+		principal, workspace_ids=[workspace_id], include_deleted=True, include_completed=True
+	).where(task.deleted_at.is_not(None), task.recurrence_template_id.in_(gridded))
+
+	for row in session.scalars(discarded):
+		if row.occurrence_at is not None and row.recurrence_template_id is not None:
+			emptied.setdefault(row.recurrence_template_id, set()).add(row.occurrence_at)
+
+	return emptied
 
 
 def _is_on_its_grid (row: subroutine.db.models.work.Task, gridded: set[uuid.UUID]) -> bool:
@@ -589,8 +659,13 @@ def _occasions_of (
 	*,
 	earliest: datetime.datetime,
 	latest: datetime.datetime,
+	emptied: tuple[datetime.datetime, ...] = (),
 ) -> list[Occasion]:
-	"""Return the dates one task puts on a calendar, which may be none, one or two."""
+	"""Return the dates one task puts on a calendar, which may be none, one or two.
+
+	``emptied`` is meaningful only for a template, and only on the field ``occurrence_at``
+	follows — see :func:`_own_grid_field`.
+	"""
 
 	# **A template is here only to carry a rule** (`#972` §1), and only a `schedule`-anchored
 	# one: a completion-anchored series has no grid, so its template describes nothing a
@@ -599,8 +674,15 @@ def _occasions_of (
 		if row.recurrence_anchor != "schedule" or not row.recurrence_rule:
 			return []
 
+		anchoring = _own_grid_field(row)
+
 		return [
-			Occasion(task=row, field=field, rule=row.recurrence_rule)
+			Occasion(
+				task=row,
+				field=field,
+				rule=row.recurrence_rule,
+				emptied=emptied if field == anchoring else (),
+			)
 			for field in ("starts_at", "due_at")
 			if getattr(row, field) is not None
 		]
@@ -617,6 +699,23 @@ def _occasions_of (
 			found.append(Occasion(task=row, field=field))
 
 	return found
+
+
+def _own_grid_field (template: subroutine.db.models.work.Task) -> str:
+	"""Say which of a template's two dates ``occurrence_at`` is a slot on.
+
+	An occurrence records one ``occurrence_at`` — ``due_at or starts_at`` — so a series
+	carrying both dates has two grids and one recorded slot, and only one of them can be
+	excluded honestly. This names that one, rather than putting a date on a grid it is not a
+	point of.
+
+	**The same limitation :func:`_is_on_its_grid` records**, and it bites here in the matching
+	direction: a series with both dates gets its deadline grid corrected and its start grid
+	left showing the phantom. What removes both is `RECURRENCE-ID` overrides and a per-field
+	original this schema does not keep. Narrow enough to accept and too specific to guess at.
+	"""
+
+	return "due_at" if template.due_at is not None else "starts_at"
 
 
 def _unknown () -> subroutine.errors.NotFound:

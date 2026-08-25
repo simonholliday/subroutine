@@ -124,6 +124,12 @@ upgrade involves.
 
 ### Fixed
 
+- **A repeating event no longer leaves a ghost on the day it was moved from.** Move one
+  occurrence of a weekly meeting and a subscribed calendar drew it on both days — the new one
+  and the old — and the ghost was the one that looked normal. Deleting a single occurrence did
+  the same, leaving the day marked with nothing on it. The feed now says which slots of a
+  repeat are empty, so a client draws what is actually happening.
+
 - **A service built from a database you already had no longer starts without a signing key.**
   `subroutine init` is the only thing that writes one, so an instance whose database arrived by
   `db copy`, by a restore, or by promoting a personal install had none — and started, served

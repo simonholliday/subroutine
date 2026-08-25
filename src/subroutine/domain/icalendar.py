@@ -161,6 +161,26 @@ def _event (
 	if occasion.rule:
 		lines.append(f"RRULE:{occasion.rule}")
 
+		# **The holes in the grid, said out loud** (`#1248`). A client expands the rule and
+		# draws every slot it describes, so one whose occurrence has been moved or deleted is
+		# an appointment in somebody's calendar that is not happening — and it is the one that
+		# looks normal, because the moved occurrence appears beside it as an ordinary event.
+		#
+		# **The value type has to match `DTSTART`'s** (RFC 5545 §3.8.5.1) or the exclusion
+		# matches nothing, so this branches exactly as the start above did rather than picking
+		# a format. Several dates go on one line, comma separated, which `_fold` then wraps.
+		if occasion.emptied:
+			if all_day:
+				days = [
+					_basic(subroutine.domain.schedule.day_in(one, task.timezone))
+					for one in occasion.emptied
+				]
+
+				lines.append("EXDATE;VALUE=DATE:" + ",".join(days))
+
+			else:
+				lines.append("EXDATE:" + ",".join(_instant(one) for one in occasion.emptied))
+
 	if url_for is not None:
 		# **Not escaped, because `URL` is a URI value rather than a TEXT one** (RFC 5545
 		# §3.3.13). Running it through `_escaped` would put a backslash in front of every
