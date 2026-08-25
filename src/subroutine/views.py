@@ -1985,43 +1985,15 @@ class Agenda(pydantic.BaseModel):
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
 #:
-#: **Here rather than once per surface** (`#992`, and `#913`'s move for the same reason). Three
-#: surfaces walk these in order — the terminal's sections, the browser's `BUCKETS` and an
-#: agent's flat list — and until this existed each carried its own copy, so the order and the
-#: membership were free to disagree. They did: `in_progress` reached the dataclass, the CLI and
-#: the browser and never reached an agent at all.
+#: **This is :data:`subroutine.domain.agenda.BUCKETS`, not a copy of it** (`#1244`). The order
+#: decides two things — how the page reads, and which bucket a row that qualifies for two
+#: belongs to, because ``agenda.build`` subtracts each bucket's rows from the next. Those were
+#: declared separately until 2026-08-25 and nothing compared them, so moving one produced
+#: headings that promised an arrangement the membership did not follow.
 #:
-#: **The keys, and deliberately not the labels.** What each surface *calls* a bucket differs
-#: for good reasons — the terminal says `Next 7 days` where the look-ahead is seven, an agent
-#: is handed the bare key because it is parsing rather than reading — and collapsing that into
-#: one string would make a rendering decision on behalf of surfaces that have already made it.
-AGENDA_BUCKETS: tuple[str, ...] = (
-	# **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
-	# complete a task before starting another."* Work already in hand is the first thing to
-	# look at, because everything below it is a candidate to *begin* and this is the only
-	# section that is not.
-	#
-	# **It outranks `overdue` as well, and that is the part with a consequence.** The buckets
-	# are disjoint in order, so a started task with a passed deadline is reported here rather
-	# than under *Overdue* — which is right (you are already on it) and which means the late
-	# marking cannot come from the section. Both surfaces mark the row instead; the browser
-	# always did.
-	"in_progress",
-	"waiting",
-	"overdue",
-	# **Above the day's own work, and below what is late** (decision `#1235` §4). Everything
-	# around it is work; this is what is happening *to* the reader, and a code freeze or a
-	# fortnight off is the context the rest of the page is read in — so it goes before *Today*
-	# and after the things that are already owed.
-	#
-	# **The same position the buckets are computed in**, which is not a tidiness: `agenda.build`
-	# takes an occasion's rows before `today` can, and `#1244` is what it costs when this list
-	# and that one disagree.
-	"occasions",
-	"today",
-	"upcoming",
-	"unscheduled",
-)
+#: **It lives in the domain because the domain cannot import this module**, which imports the
+#: domain. The name stays here because every surface reaches for it by this one.
+AGENDA_BUCKETS: tuple[str, ...] = subroutine.domain.agenda.BUCKETS
 
 
 #: What a listing calls work that cannot start yet, and work that is holding others up.

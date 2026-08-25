@@ -12,6 +12,7 @@ somebody's morning when it should not: finished, deferred, deleted, a recurrence
 or in a private project belonging to someone else.
 """
 
+import dataclasses
 import datetime
 import typing
 import uuid
@@ -820,6 +821,91 @@ def test_every_started_item_is_on_the_agenda_however_many_there_are (
 	assert len(agenda.in_progress) == subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5, (
 		f"the agenda showed {len(agenda.in_progress)} of "
 		f"{subroutine.domain.agenda.DEFAULT_UNSCHEDULED_LIMIT + 5} started items"
+	)
+
+
+def test_the_order_the_sections_are_shown_in_is_the_order_they_are_computed_in (
+	session: sqlalchemy.orm.Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""**`SR#1244`, and it is driven rather than compared.**
+
+	The buckets are disjoint *in the order they are computed*, and the headings are drawn in
+	the order they are *shown*. Those were two declarations that happened to agree until
+	2026-08-25, and every guard read only the displayed one — so moving `in_progress` to the
+	front of the page left a started, overdue task under *Overdue*, below a heading that said
+	*In progress* came first. The suite stayed green.
+
+	There is one declaration now, so this asserts the consequence rather than the equality:
+	move `overdue` above `in_progress` in :data:`subroutine.domain.agenda.BUCKETS` and the row
+	must move with it. A `build` that has gone back to a written-out sequence answers
+	`in_progress` both times.
+	"""
+
+	world = World(session)
+	started = subroutine.domain.tasks.status_for(session, world.workspace.id, "in_progress")
+
+	task = world.task("Started and late", due=datetime.date(2026, 7, 28))
+	task.status_id = started.id
+	session.flush()
+
+	assert _titles(world.agenda().in_progress) == ["Started and late"], (
+		"a started, overdue task belongs to the first of the two buckets that claims it"
+	)
+	assert world.agenda().overdue == ()
+
+	monkeypatch.setattr(
+		subroutine.domain.agenda,
+		"BUCKETS",
+		_moved(subroutine.domain.agenda.BUCKETS, "overdue", above="in_progress"),
+	)
+
+	assert _titles(world.agenda().overdue) == ["Started and late"], (
+		"the computation order did not follow BUCKETS, so it is declared somewhere else too"
+	)
+	assert world.agenda().in_progress == ()
+
+
+def test_the_sections_a_surface_draws_are_the_ones_the_agenda_computed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1244`.** One tuple, reached by two names — never a copy.
+
+	This is identity rather than equality on purpose. Two equal literals are exactly the state
+	this item was filed about: correct for as long as nobody moved either, with nothing able to
+	see the disagreement afterwards.
+	"""
+
+	assert subroutine.views.AGENDA_BUCKETS is subroutine.domain.agenda.BUCKETS
+
+
+def test_every_bucket_declared_is_one_the_agenda_reports (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1244`.** A bucket that is computed and never returned disappears in silence.
+
+	Every other way of getting this wrong is loud — a name missing from the predicates or from
+	:data:`subroutine.domain.agenda.ORDERS` raises on the next call. Forgetting the field on
+	:class:`subroutine.domain.agenda.Agenda` is the quiet one: the bucket is still computed, it
+	still takes its rows away from the buckets below it, and then nothing carries it to a page.
+	"""
+
+	fields = {field.name for field in dataclasses.fields(subroutine.domain.agenda.Agenda)}
+
+	for bucket in subroutine.domain.agenda.BUCKETS:
+		assert bucket in fields, f"{bucket} is computed and there is nowhere to report it"
+		assert bucket in subroutine.domain.agenda.ORDERS, f"{bucket} has no declared order"
+
+
+def _moved (buckets: tuple[str, ...], bucket: str, *, above: str) -> tuple[str, ...]:
+	"""Return the buckets with one of them lifted to just before another."""
+
+	assert bucket in buckets and above in buckets
+
+	rest = [name for name in buckets if name != bucket]
+
+	return tuple(
+		name for other in rest for name in ((bucket, other) if other == above else (other,))
 	)
 
 

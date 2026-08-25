@@ -1,14 +1,13 @@
 """What am I doing today — the one question a personal to-do list has to answer well.
 
 Named buckets rather than a flat list, because a person's day has structure and
-because a flat list loses the most common kind of personal task (docs/design.md §8.6). The
-buckets in priority order:
+because a flat list loses the most common kind of personal task (docs/design.md §8.6).
 
-``overdue``      a deadline that has already passed
-``occasions``    what is happening to you today rather than being done by you
-``today``        planned for today or earlier, or due at some point today
-``upcoming``     due or planned inside a look-ahead window
-``unscheduled``  no dates at all — "buy milk"
+**:data:`BUCKETS` is the list, in priority order, and it is the only one** (`#1244`). It
+decides how a day reads *and* which bucket claims a row that qualifies for two, because
+:func:`build` walks it and each bucket subtracts what the ones before it took. This paragraph
+used to name five of them, which was a fourth copy and had been wrong since two more were
+added.
 
 **The ``unscheduled`` bucket is what makes quick capture worth having.** Most personal
 tasks are captured with no date, and without a bucket for them they would never appear in
@@ -105,6 +104,55 @@ ORDERS: dict[str, tuple[str, ...]] = {
 	"upcoming": ("due_at", "starts_at"),
 	"unscheduled": ("-priority_score",),
 }
+
+#: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
+#:
+#: **One list, and it decides two things at once — which is the whole of `#1244`.** It is the
+#: order the sections are *shown* in on all three surfaces (`#992`), and it is the order
+#: :func:`build` *computes* them in, which is what makes them disjoint: every bucket subtracts
+#: what the ones before it took, so a row qualifying for two belongs to whichever comes first.
+#:
+#: **Those were two declarations until 2026-08-25 and nothing had ever compared them.** They
+#: agreed for as long as nobody moved one. Moving `in_progress` to the front of the displayed
+#: order alone produced a page whose headings promised *In progress* above *Overdue* while the
+#: membership still gave a started, overdue task to *Overdue* — so the item appeared under a
+#: heading further down than the reader had been told to look. The suite stayed green, because
+#: every guard read the displayed list and nothing read the other one.
+#:
+#: **:data:`subroutine.views.AGENDA_BUCKETS` is this tuple**, not a copy of it. It is aliased
+#: there because the surfaces reach for it by that name and the domain cannot import the
+#: views, which import it.
+BUCKETS: tuple[str, ...] = (
+	# **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
+	# complete a task before starting another."* Work already in hand is the first thing to
+	# look at, because everything below it is a candidate to *begin* and this is the only
+	# section that is not.
+	#
+	# **It outranks `overdue` as well, and that is the part with a consequence.** The buckets
+	# are disjoint in order, so a started task with a passed deadline is reported here rather
+	# than under *Overdue* — which is right (you are already on it) and which means the late
+	# marking cannot come from the section. Both surfaces mark the row instead; the browser
+	# always did.
+	"in_progress",
+	# **Before `overdue`, and that is the whole of the decision** (`#1116`). A task that is
+	# both overdue and waiting on an answer belongs here: *you owe an answer* is the more
+	# actionable truth than *this is late*, because the lateness is a consequence of the
+	# question and nobody can act on the task until it is answered. Every other bucket is work
+	# the reader could pick up; this one is work they are holding up.
+	"waiting",
+	"overdue",
+	# **Above the day's own work, and below what is late** (decision `#1235` §4). Everything
+	# around it is work; this is what is happening *to* the reader, and a code freeze or a
+	# fortnight off is the context the rest of the page is read in — so it goes before *Today*
+	# and after the things that are already owed.
+	#
+	# **Which also takes its rows before `today` can**, since one list decides both. That is
+	# not a coincidence to be maintained; it is why there is one list.
+	"occasions",
+	"today",
+	"upcoming",
+	"unscheduled",
+)
 
 
 def order_for (bucket: str) -> tuple[tuple[str, bool], ...]:
@@ -203,17 +251,14 @@ class Agenda:
 
 	@property
 	def is_empty (self) -> bool:
-		"""Report whether there is nothing at all to show."""
+		"""Report whether there is nothing at all to show.
 
-		return not (
-			self.waiting
-			or self.overdue
-			or self.occasions
-			or self.today
-			or self.in_progress
-			or self.upcoming
-			or self.unscheduled
-		)
+		Walked from :data:`BUCKETS` rather than listed, so a bucket added tomorrow counts here
+		without anybody remembering to add it — this had been a written-out list of seven and
+		was a third place the set of buckets was declared (`#1244`).
+		"""
+
+		return not any(getattr(self, bucket) for bucket in BUCKETS)
 
 
 def build (
@@ -237,7 +282,7 @@ def build (
 	``horizon_days`` of ``None`` omits the ``upcoming`` bucket entirely, which is the API's
 	default; the CLI passes :data:`DEFAULT_HORIZON_DAYS`.
 
-	**The buckets are disjoint**, in the order they are listed above. A task that is both
+	**The buckets are disjoint**, in the order :data:`BUCKETS` declares. A task that is both
 	overdue and planned for today belongs in ``overdue`` — it is the more urgent truth about
 	it, and showing one task twice in a five-line summary makes the summary useless.
 	"""
@@ -267,191 +312,14 @@ def build (
 		session, principal, workspace_ids, until=day_end, sortable=sortable, project=project
 	)
 
-	# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927` M-18,
-	# Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and said in
-	# passing that *"`overdue` and `today` are unlimited too and are naturally bounded by
-	# dates"*. Dates do not bound this: a deadline that has passed goes on having passed, so
-	# this bucket grows with however much you are late on and has no ceiling at all —
-	# `in_progress`'s bound, workers times leases, does not apply here.
-	#
-	# **It stays uncapped anyway, on `#888`'s other argument**, which is the one that carries:
-	# hiding work misleads the reader into starting something else, and that is worse for late
-	# work than for anything on the page. Measured before deciding: 2 overdue, 1 today, on the
-	# instance this project runs on.
-	#
-	# **What would change it, and what the change must look like.** A backlog large enough that
-	# a day's agenda is unreadable — every row here renders through `views.task`, and this is
-	# also MCP's `subroutine_list(today=true)`, where §13's context economy is a first-order
-	# cost. If it ever comes to that, `#888` already fixed the shape: a cap must *say* it is
-	# one, count what is hidden and offer a way to see it all, which is exactly what
-	# `unscheduled_total` is below. Do not add a bare `.limit()`.
-	# **Before `overdue`, and that is the whole of the decision** (`#1116`). A task that is both
-	# overdue and waiting on an answer belongs here: *you owe an answer* is the more actionable
-	# truth than *this is late*, because the lateness is a consequence of the question and
-	# nobody can act on the task until it is answered. Every other bucket is work the reader
-	# could pick up; this one is work they are holding up.
-	#
-	# **Read by key, which nothing else here does.** `WAITING_STATUS` carries why: `#96`
-	# refused a fifth status category, so there is none to ask for.
-	# **First in this sequence as well as first on the page** (`#1243`). The buckets are
-	# disjoint *in the order they are computed*, and that order lives here while the order they
-	# are *shown* in lives in `views.AGENDA_BUCKETS` — two lists, and until 2026-08-25 they
-	# happened to agree, so nothing had ever compared them. Moving one and not the other put a
-	# started, overdue task under a heading that said *In progress* was above *Overdue* while
-	# the membership still gave it to *Overdue*. `#1244` is the guard.
-	started = _run(
-		session,
-		base.join(
-			subroutine.db.models.vocabulary.Status,
-			subroutine.db.models.vocabulary.Status.id == model.status_id,
-		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
-		"in_progress",
-		sortable,
+	# **The look-ahead, resolved before the buckets so that `upcoming` is a predicate like the
+	# rest of them.** ``None`` means no window was asked for, which is the API's default, and
+	# that bucket is then empty rather than absent — the section still exists, it holds nothing.
+	horizon = (
+		None
+		if horizon_days is None
+		else _boundary(day + datetime.timedelta(days=horizon_days), timezone, end=True)
 	)
-
-	seen = {task.id for task in started}
-
-	waiting = _run(
-		session,
-		base.join(
-			subroutine.db.models.vocabulary.Status,
-			subroutine.db.models.vocabulary.Status.id == model.status_id,
-		).where(subroutine.db.models.vocabulary.Status.key == WAITING_STATUS),
-		"waiting",
-		sortable,
-	)
-	waiting = tuple(task for task in waiting if task.id not in seen)
-	seen.update(task.id for task in waiting)
-
-	overdue = _run(
-		session,
-		base.where(model.due_at.is_not(None), model.due_at < day_start),
-		"overdue",
-		sortable,
-	)
-	overdue = tuple(task for task in overdue if task.id not in seen)
-	seen.update(task.id for task in overdue)
-
-	# **Before `today`, and it has to be** (decision `#1235` §4). The buckets are disjoint in
-	# the order they are computed and `views.AGENDA_BUCKETS` shows them in the same order —
-	# `#1244` is what it costs when those two part company — so this both sits above the day's
-	# work on the page and takes its rows before `today` can.
-	#
-	# **Overlap with the day, which is what makes a passed event leave on its own.** An
-	# occasion is here when it has begun by tonight and is not over before this morning; its end
-	# is `ends_at` where there is one and its start otherwise. An all-day start is the first
-	# instant of its day and an all-day end the last (§6.5), so a birthday is current for
-	# exactly its own day and a fortnight for exactly its fifteen.
-	#
-	# **Nothing is written and no scheduler runs** — `#1235` §3, which is `#915` §1's argument
-	# reapplied: a timer that only fires when the program happens to be up is worse than none,
-	# because it teaches somebody to trust it.
-	occasions = _run(
-		session,
-		base.where(
-			subroutine.domain.readiness.is_occasion(model),
-			model.starts_at.is_not(None),
-			model.starts_at <= day_end,
-			sqlalchemy.func.coalesce(model.ends_at, model.starts_at) >= day_start,
-		),
-		"occasions",
-		sortable,
-	)
-	occasions = tuple(task for task in occasions if task.id not in seen)
-	seen.update(task.id for task in occasions)
-
-	today = _run(
-		session,
-		base.where(
-			# **And it is not an occasion** (decision `#1235` §4). Without this the defect the
-			# section was built to fix survives it: `starts_at <= day_end` keeps a past start in
-			# today's bucket deliberately — right for work you meant to begin — and a birthday
-			# in March is then in Today in August, every day, for ever. The bucket above takes
-			# the ones that are actually happening; this clause is what stops the rest coming
-			# back through the door beside it.
-			sqlalchemy.not_(subroutine.domain.readiness.is_occasion(model)),
-			sqlalchemy.or_(
-				# **Compared against the end of the day, not against the day** (`#854`).
-				# This used to read `planned_for <= day`, a `DATE` against a `date`; the
-				# column is an instant now, so the boundary has to be one too or every
-				# comparison is an instant against midnight in whichever zone the driver
-				# guessed. Everything that has begun by tonight belongs to today, which is
-				# what `<=` said before and still says.
-				#
-				# **So a start date in the past stays in today's bucket, and that is
-				# deliberate** (`#927` M-18, Simon's decision of 2026-08-17). It is the
-				# `starts_at` analogue of `overdue` above: work you meant to begin and did
-				# not is work for today, every day, until you do it or move it.
-				#
-				# **Narrowing this to starts falling *within* today would lose the task
-				# entirely**, which is why the obvious fix is the wrong one — `undated`
-				# below is `starts_at IS NULL AND due_at IS NULL`, so a task with a start
-				# and no deadline is in no other bucket at all. The agenda would stop
-				# mentioning it, in silence, and `list` would become the only place it
-				# appears — which is a worse answer than showing it every day.
-				model.starts_at <= day_end,
-				sqlalchemy.and_(model.due_at >= day_start, model.due_at <= day_end),
-			)
-		),
-		# NULLs last explicitly. SQLite sorts them first by default and PostgreSQL last, so
-		# the undated-but-planned tasks would appear at opposite ends of this list depending
-		# on which backend answered (docs/design.md §10.3).
-		#
-		# **`position` was the second key here and decided nothing** (`#951`, cold review
-		# `#927`'s L-9). It is `default=0, nullable=False` and no code writes it, so every row
-		# holds the same value and the clause could never separate two rows — while reading, to
-		# anybody skimming, like the thing that ordered them. What actually breaks a tie is
-		# `_run`'s `created_at`, which it appends to every bucket. Removed rather than wired,
-		# which is `#303`'s answer to a control that grants nothing.
-		#
-		# `#853` took the same column out of the *unscheduled* bucket for a stronger reason —
-		# there it was the only key, so the answer to "what should I work on" was "whatever you
-		# wrote down first". This one was harmless and is gone for tidiness rather than for a
-		# defect. The column stays: `#28` records it as unwritten and `#787` is what would
-		# write it.
-		"today",
-		sortable,
-	)
-	today = tuple(task for task in today if task.id not in seen)
-	seen.update(task.id for task in today)
-
-	# **What is already started, between the day's work and everything else** (`#853`). Read
-	# off the status *category* rather than a key, because a workspace may rename the row —
-	# `in_progress` is one of the five categories §6.5 fixes, and the key beside it is not.
-	#
-	# **Deliberately unlimited, unlike `unscheduled` below** — Simon's decision of 2026-08-14,
-	# `#888`: *"a user viewing their own agenda should see all in-progress items. Hiding some
-	# risks misleading the user. They may start others instead of finishing items we didn't
-	# show them."*
-	#
-	# **Measured before deciding**, because the cold review raised it as unbounded and the word
-	# is doing a lot of work: 2 in-progress against 179 unscheduled on the served instance. The
-	# argument is what the two are bounded *by* rather than the numbers — `unscheduled` grows
-	# with the backlog and has no ceiling at all, where this is bounded by how many workers
-	# there are times how much each holds at once, which §14.11's leases keep small on purpose.
-	#
-	# **What would change it is team size**, since every bucket here is scoped by readability
-	# rather than by assignee. If it ever does, the shape is already beside it: Simon's
-	# condition was that a cap must *say* it is one, count what is hidden and offer a way to
-	# see it all, which is exactly what `unscheduled_total` is.
-
-	upcoming: tuple[subroutine.db.models.work.Task, ...] = ()
-
-	if horizon_days is not None:
-		horizon = _boundary(day + datetime.timedelta(days=horizon_days), timezone, end=True)
-
-		upcoming = _run(
-			session,
-			base.where(
-				sqlalchemy.or_(
-					sqlalchemy.and_(model.due_at > day_end, model.due_at <= horizon),
-					sqlalchemy.and_(model.starts_at > day_end, model.starts_at <= horizon),
-				)
-			),
-			"upcoming",
-			sortable,
-		)
-		upcoming = tuple(task for task in upcoming if task.id not in seen)
 
 	# **A project that is not running keeps its dated work on the agenda and loses this
 	# bucket** (`#983`). Putting a project down says something about *what to work on*, and
@@ -471,23 +339,170 @@ def build (
 		subroutine.domain.readiness.in_a_running_project(model),
 	)
 
-	if seen:
-		undated = undated.where(model.id.not_in(seen))
+	# **What each bucket is about — and deliberately not what order they come in** (`#1244`).
+	# This is a mapping keyed by bucket, so the sequence it happens to be written in decides
+	# nothing at all; the loop below reads :data:`BUCKETS`, which is the one place the order
+	# exists. Every bucket keeps its own predicate, because they answer genuinely different
+	# questions — a status category, a status key, a pair of dates — and only the sequencing
+	# is shared.
+	membership: dict[
+		str, sqlalchemy.Select[tuple[subroutine.db.models.work.Task]] | None
+	] = {
+		# **Read off the status *category* rather than a key, because a workspace may rename
+		# the row** (`#853`) — `in_progress` is one of the five categories §6.5 fixes, and the
+		# key beside it is not.
+		#
+		# **Deliberately unlimited, unlike `unscheduled`** — Simon's decision of 2026-08-14,
+		# `#888`: *"a user viewing their own agenda should see all in-progress items. Hiding
+		# some risks misleading the user. They may start others instead of finishing items we
+		# didn't show them."*
+		#
+		# **Measured before deciding**, because the cold review raised it as unbounded and the
+		# word is doing a lot of work: 2 in-progress against 179 unscheduled on the served
+		# instance. The argument is what the two are bounded *by* rather than the numbers —
+		# `unscheduled` grows with the backlog and has no ceiling at all, where this is bounded
+		# by how many workers there are times how much each holds at once, which §14.11's
+		# leases keep small on purpose.
+		#
+		# **What would change it is team size**, since every bucket here is scoped by
+		# readability rather than by assignee. If it ever does, the shape is already beside it:
+		# Simon's condition was that a cap must *say* it is one, count what is hidden and offer
+		# a way to see it all, which is exactly what `unscheduled_total` is.
+		"in_progress": base.join(
+			subroutine.db.models.vocabulary.Status,
+			subroutine.db.models.vocabulary.Status.id == model.status_id,
+		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
+		# **Read by key, which nothing else here does.** `WAITING_STATUS` carries why: `#96`
+		# refused a fifth status category, so there is none to ask for.
+		"waiting": base.join(
+			subroutine.db.models.vocabulary.Status,
+			subroutine.db.models.vocabulary.Status.id == model.status_id,
+		).where(subroutine.db.models.vocabulary.Status.key == WAITING_STATUS),
+		# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927`
+		# M-18, Simon's decision of 2026-08-17). That item declined a cap on `in_progress` and
+		# said in passing that *"`overdue` and `today` are unlimited too and are naturally
+		# bounded by dates"*. Dates do not bound this: a deadline that has passed goes on
+		# having passed, so this bucket grows with however much you are late on and has no
+		# ceiling at all — `in_progress`'s bound, workers times leases, does not apply here.
+		#
+		# **It stays uncapped anyway, on `#888`'s other argument**, which is the one that
+		# carries: hiding work misleads the reader into starting something else, and that is
+		# worse for late work than for anything on the page. Measured before deciding: 2
+		# overdue, 1 today, on the instance this project runs on.
+		#
+		# **What would change it, and what the change must look like.** A backlog large enough
+		# that a day's agenda is unreadable — every row here renders through `views.task`, and
+		# this is also MCP's `subroutine_list(today=true)`, where §13's context economy is a
+		# first-order cost. If it ever comes to that, `#888` already fixed the shape: a cap
+		# must *say* it is one, count what is hidden and offer a way to see it all, which is
+		# exactly what `unscheduled_total` is. Do not add a bare `.limit()`.
+		"overdue": base.where(model.due_at.is_not(None), model.due_at < day_start),
+		# **Overlap with the day, which is what makes a passed event leave on its own**
+		# (decision `#1235` §4). An occasion is here when it has begun by tonight and is not
+		# over before this morning; its end is `ends_at` where there is one and its start
+		# otherwise. An all-day start is the first instant of its day and an all-day end the
+		# last (§6.5), so a birthday is current for exactly its own day and a fortnight for
+		# exactly its fifteen.
+		#
+		# **Nothing is written and no scheduler runs** — `#1235` §3, which is `#915` §1's
+		# argument reapplied: a timer that only fires when the program happens to be up is
+		# worse than none, because it teaches somebody to trust it.
+		"occasions": base.where(
+			subroutine.domain.readiness.is_occasion(model),
+			model.starts_at.is_not(None),
+			model.starts_at <= day_end,
+			sqlalchemy.func.coalesce(model.ends_at, model.starts_at) >= day_start,
+		),
+		"today": base.where(
+			# **And it is not an occasion** (decision `#1235` §4). Without this the defect the
+			# section was built to fix survives it: `starts_at <= day_end` keeps a past start
+			# in today's bucket deliberately — right for work you meant to begin — and a
+			# birthday in March is then in Today in August, every day, for ever. The bucket
+			# above takes the ones that are actually happening; this clause is what stops the
+			# rest coming back through the door beside it.
+			sqlalchemy.not_(subroutine.domain.readiness.is_occasion(model)),
+			sqlalchemy.or_(
+				# **Compared against the end of the day, not against the day** (`#854`).
+				# This used to read `planned_for <= day`, a `DATE` against a `date`; the
+				# column is an instant now, so the boundary has to be one too or every
+				# comparison is an instant against midnight in whichever zone the driver
+				# guessed. Everything that has begun by tonight belongs to today, which is
+				# what `<=` said before and still says.
+				#
+				# **So a start date in the past stays in today's bucket, and that is
+				# deliberate** (`#927` M-18, Simon's decision of 2026-08-17). It is the
+				# `starts_at` analogue of `overdue` above: work you meant to begin and did
+				# not is work for today, every day, until you do it or move it.
+				#
+				# **Narrowing this to starts falling *within* today would lose the task
+				# entirely**, which is why the obvious fix is the wrong one — `undated`
+				# above is `starts_at IS NULL AND due_at IS NULL`, so a task with a start
+				# and no deadline is in no other bucket at all. The agenda would stop
+				# mentioning it, in silence, and `list` would become the only place it
+				# appears — which is a worse answer than showing it every day.
+				model.starts_at <= day_end,
+				sqlalchemy.and_(model.due_at >= day_start, model.due_at <= day_end),
+			)
+		),
+		"upcoming": None if horizon is None else base.where(
+			sqlalchemy.or_(
+				sqlalchemy.and_(model.due_at > day_end, model.due_at <= horizon),
+				sqlalchemy.and_(model.starts_at > day_end, model.starts_at <= horizon),
+			)
+		),
+		"unscheduled": undated,
+	}
 
-	# **Ordered by rank, which is what makes this section worth reading** (`#853`). It was
-	# `position` — a column `#28` records as written by nothing — and then `created_at`, so a
-	# person with two hundred captured tasks got the twenty oldest and `!1/1 tidy the desk`
-	# sat above `!5/5 renew the passport`. With no planned days and two deadlines across this
-	# project's 172 open tasks, **this bucket *is* the agenda**, so the answer to "what should
-	# I work on" was "whatever you wrote down first".
-	unscheduled = _run(
-		session,
-		undated.limit(unscheduled_limit),
-		"unscheduled",
-		sortable,
-	)
+	# **Which bucket is capped, and by what.** Exactly one is, and the arguments for leaving
+	# the others alone are written beside them above.
+	caps = {"unscheduled": unscheduled_limit}
+
+	# **The buckets are disjoint in the order :data:`BUCKETS` declares, and that is now the
+	# only order there is** (`#1244`). Each one subtracts what its predecessors took, so a row
+	# qualifying for two belongs to whichever comes first — and the reader is promised exactly
+	# that arrangement, because the headings are walked from the same tuple.
+	#
+	# **Subtracted in the query rather than in Python**, which the buckets above `unscheduled`
+	# used to do. A cap applied before the subtraction returns fewer rows than it claims, so
+	# the one capped bucket has always had to do it this way; doing it once, for all of them,
+	# is what lets the loop treat every bucket alike.
+	#
+	# **`seen` is therefore everything the page shows**, and there is no second name for it.
+	# `upcoming` used to be left out of it and unioned back in below, because it was computed
+	# after the subtraction rather than as part of it.
+	rows: dict[str, tuple[subroutine.db.models.work.Task, ...]] = {}
+	narrowed: dict[str, sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]] = {}
+	seen: set[uuid.UUID] = set()
+
+	for bucket in BUCKETS:
+		statement = membership[bucket]
+
+		if statement is None:
+			rows[bucket] = ()
+			continue
+
+		if seen:
+			statement = statement.where(model.id.not_in(seen))
+
+		narrowed[bucket] = statement
+		cap = caps.get(bucket)
+
+		found = _run(
+			session,
+			statement if cap is None else statement.limit(cap),
+			bucket,
+			sortable,
+		)
+
+		rows[bucket] = found
+		seen.update(task.id for task in found)
+
+	# **Counted on the same narrowed query the rows came from, without the cap.** Anything
+	# else answers a different question: a count of *all* undated work would include the rows
+	# an earlier bucket already showed, and the page would say there were more than there are.
 	total = session.scalar(
-		sqlalchemy.select(sqlalchemy.func.count()).select_from(undated.subquery())
+		sqlalchemy.select(sqlalchemy.func.count())
+		.select_from(narrowed["unscheduled"].subquery())
 	)
 
 	# **How much dated work this agenda does not show** (`#997`). The window has an edge and
@@ -505,7 +520,6 @@ def build (
 	# omits `upcoming` unless asked, so on that call *everything* dated beyond today is unshown
 	# and this counts all of it. A predicate written against `horizon` would have reported zero
 	# there, which is the answer that looks like good news.
-	shown = seen | {task.id for task in upcoming}
 	later = base.where(
 		sqlalchemy.or_(model.starts_at.is_not(None), model.due_at.is_not(None)),
 		# **Behind you is not further out** (decision `#1235` §3). An occasion that has gone by
@@ -516,8 +530,8 @@ def build (
 		sqlalchemy.not_(subroutine.domain.readiness.passed(model, now=now)),
 	)
 
-	if shown:
-		later = later.where(model.id.not_in(shown))
+	if seen:
+		later = later.where(model.id.not_in(seen))
 
 	beyond = session.scalar(
 		sqlalchemy.select(sqlalchemy.func.count()).select_from(later.subquery())
@@ -530,8 +544,8 @@ def build (
 	# nothing hides it there.
 	gone = base.where(subroutine.domain.readiness.passed(model, now=now))
 
-	if shown:
-		gone = gone.where(model.id.not_in(shown))
+	if seen:
+		gone = gone.where(model.id.not_in(seen))
 
 	# **What the day holds back, counted so the page can account for itself** (`#1215`).
 	#
@@ -560,13 +574,13 @@ def build (
 	return Agenda(
 		date=day,
 		timezone=timezone,
-		waiting=waiting,
-		overdue=overdue,
-		occasions=occasions,
-		today=today,
-		in_progress=started,
-		upcoming=upcoming,
-		unscheduled=unscheduled,
+		waiting=rows["waiting"],
+		overdue=rows["overdue"],
+		occasions=rows["occasions"],
+		today=rows["today"],
+		in_progress=rows["in_progress"],
+		upcoming=rows["upcoming"],
+		unscheduled=rows["unscheduled"],
 		unscheduled_total=total or 0,
 		later_total=beyond or 0,
 		deferred_total=session.scalar(
