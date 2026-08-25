@@ -391,15 +391,21 @@ It works in the other direction too, which is what you want for a laptop copy of
 instance, or for going back.
 
 The driver is `psycopg` (version 3), which is what the `[postgres]` extra installs. Confirm
-before starting the service:
+before starting the service, as the account the service runs as:
 
 ```console
-$ subroutine db current
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db current
   Schema is at 9c41d0b7ae52.
 ```
 
-An empty database says so and tells you to run `init`. It is never silently created underneath
-you.
+A database with no schema in it says so **and names which database it looked at**, which is the
+line to read: run this from your own shell instead and it answers, correctly and uselessly, about
+whatever `database_url` resolves to for *you*. It is never silently created underneath you
+either way.
 
 ### Promoting your own instance to a service
 
@@ -1472,7 +1478,11 @@ what is running and where it came from, which configuration it is reading, what 
 answers, and when a backup was last taken.
 
 ```console
-$ subroutine doctor
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine doctor
   program  0.2.1, at /opt/subroutine/bin/subroutine
   config   /var/lib/subroutine/config
   data     /var/lib/subroutine/data
@@ -1651,15 +1661,26 @@ $ subroutine db upgrade --check
 
 **`subroutine db current` is what replaces it**, and it is the one to run between installing and
 upgrading. It compares the database in front of it against the build that is now installed,
-which is exactly the question `--check` was being asked:
+which is exactly the question `--check` was being asked — **and it needs the same three
+variables as everything else here**, for the same reason:
 
 ```console
-$ subroutine db current
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db current
   Schema is at 4f177421eb91; newest is 9c41d0b7ae52.
 ```
 
 When the two match it says so in one line — `Schema is at 9c41d0b7ae52.` — and there is nothing
 to do.
+
+**Run bare, it answers about your own account's database** and the answer looks just like the one
+you asked for. That is the paragraph above this section arriving in the one place it is easiest
+to skip: this command reads a *database*, it finds it through configuration, and without the
+variables the configuration it reads is yours. It says which database it looked at, so the
+sentence to check is the path — not the schema.
 
 **And a schema change arrives with no notice.** The migration notice at the top of a changelog
 entry belongs to a *release*, and CI refuses a release that moves the schema without one. From a
@@ -1667,10 +1688,15 @@ branch there is no release to carry it, so the mechanism that exists to stop som
 migration halfway through an install never fires. `db current` between the two steps is the
 substitute.
 
-`subroutine db upgrade` itself needs no different handling, and says the useful half unprompted:
+`subroutine db upgrade` itself needs no different handling — the same invocation as
+[above](#upgrading), variables and all — and says the useful half unprompted:
 
 ```console
-$ subroutine db upgrade
+# sudo -u subroutine env \
+    XDG_CONFIG_HOME=/var/lib/subroutine/config \
+    XDG_DATA_HOME=/var/lib/subroutine/data \
+    XDG_STATE_HOME=/var/lib/subroutine/state \
+    /opt/subroutine/bin/subroutine db upgrade
   Subroutine 0.8.2.dev14+g80e1a4a06 expects schema 9c41d0b7ae52.
   The database is at 9c41d0b7ae52.
   0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it — it can compare as newer than anything published.

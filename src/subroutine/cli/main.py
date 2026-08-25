@@ -1152,7 +1152,18 @@ def database_current () -> None:
 		head = subroutine.db.migrate.head_revision()
 
 	if current is None:
-		_say("This database has no schema yet. Run 'subroutine init'.")
+		# **Which database, on this branch too** (`#1269`). The one four lines above names the
+		# URL, says where the value came from and points at the file to set it in; this one said
+		# *"This database has no schema yet. Run 'subroutine init'."* and named nothing — so an
+		# operator who ran it from their own shell instead of the service's got a true sentence
+		# about the wrong database, with `init` offered as the remedy. On a machine whose work is
+		# on a served instance, taking that advice makes a **second** personal instance.
+		#
+		# **And a file that exists holding nothing is the likelier state**, not the rarer one: a
+		# retired instance, a path something touched, a copy taken and emptied. The branch with
+		# no file at all was the one that got the explanation.
+		_say(f"There is no schema in the database at {safe_url(settings.database_url)}.")
+		_say(_where_a_database_would_come_from(settings))
 
 		return
 

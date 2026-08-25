@@ -140,6 +140,12 @@ upgrade involves.
   occurrence now names the number of the repeat behind it. That number worked and appeared in no
   output anywhere, so reaching the row that persists meant guessing an integer.
 
+- **`subroutine db current` says which database it looked at when that database is empty.** It
+  said only *"This database has no schema yet. Run `subroutine init`."* — true about whatever
+  database it found, and silent about which one that was. Run from your own shell rather than a
+  service's, it answered about your own file and offered to set up a second instance. The
+  neighbouring case, where there is no file at all, has always named it.
+
 - **Setting a reminder, or turning a one-off into a repeat, is recorded.** Neither appeared in
   the change feed and neither moved the item's version — so an editor holding a stale copy could
   overwrite either without being told, which is the thing that version is for. Both now record

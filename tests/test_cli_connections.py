@@ -2811,6 +2811,48 @@ def test_a_configuration_the_roster_cannot_read_still_refuses_rather_than_crashi
 	assert "Run 'subroutine init' to set an instance up here" in result.output
 
 
+def test_a_database_with_no_schema_says_which_database (
+	home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#1269`. Met by an operator upgrading a real service, and nothing was wrong.
+
+	``db current`` run from a personal shell rather than the service account's opened *their*
+	default SQLite path — a file that exists and holds nothing — and answered *"This database
+	has no schema yet. Run 'subroutine init'."* True about the database it looked at, useless
+	about the one that was asked for, and naming neither.
+
+	**The advice was the worse half.** ``init`` on a machine whose work is on a served instance
+	makes a **second** personal one, which is `SR#264`'s family — a refusal naming a cause it
+	has not established, arriving where somebody has least patience for one.
+
+	**The branch four lines above already did this**: no file at all names the URL, says where
+	the value came from and points at the file to set it in. A file that exists holding nothing
+	is the *likelier* state — a retired instance, a path something touched, a copy emptied —
+	and it was the branch with no explanation.
+	"""
+
+	settings = subroutine.config.load_settings()
+	database = pathlib.Path(str(settings.database_url).removeprefix("sqlite:///"))
+	database.parent.mkdir(parents=True, exist_ok=True)
+	sqlite3.connect(database).close()
+
+	result = run("db", "current")
+
+	assert result.exception is None or isinstance(result.exception, SystemExit), (
+		f"a report, not a crash: {result.exception!r}"
+	)
+
+	assert str(database) in result.output, (
+		f"it does not say which database it looked at:\n{result.output}"
+	)
+	assert "no schema" in result.output
+
+	# **Where the value came from, which is the sentence that settles it.** The path alone
+	# leaves a reader wondering whether it is the one they configured; *nothing has configured
+	# database_url, so this is the default* answers that outright.
+	assert "database_url" in result.output
+
+
 def test_a_listing_is_not_refused_for_a_duplicate_it_reports_separately (
 	two: Remote, home: pathlib.Path, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
