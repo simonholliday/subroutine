@@ -76,6 +76,32 @@ def _project (
 	return subroutine.domain.projects.create(session, workspace_id=workspace.id, **kwargs)
 
 
+@pytest.fixture
+def wall_clock (monkeypatch: pytest.MonkeyPatch) -> datetime.datetime:
+	"""Pin the clock the *endpoint* reads, and hand back the instant it will see — `SR#1245`.
+
+	Every other test here calls :func:`subroutine.domain.calendars.occasions` with an explicit
+	``now``, so the window is whatever the test says it is. The endpoint cannot work that way:
+	a feed a caller polls has no request instant to inherit, so ``api/calendars.py`` reads the
+	wall clock deliberately — and the two tests that drive it therefore dated their fixture from
+	:data:`NOW` and measured it against *today*.
+
+	**They passed for eight days and then stopped**, at 09:00 on 2026-08-25: ``PAST_DAYS`` is
+	seven and the task started ``NOW + 1 day``, so the row sat exactly on the trailing edge of
+	the window and fell out of it while nothing changed. The failure says *this task is not in
+	the feed*, which is indistinguishable from a broken query, and it arrives in whatever piece
+	of work happens to be under way.
+
+	**Pinned rather than moved further out.** A start thirty days on would buy four hundred days
+	and be the same defect rescheduled — and it would still be a green gate meaning *when it
+	ran* rather than *what the tree does*.
+	"""
+
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: NOW)
+
+	return NOW
+
+
 def _task (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
@@ -965,7 +991,7 @@ def test_an_end_is_read_before_an_estimate_and_an_estimate_is_still_read () -> N
 
 
 def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
-	session: sqlalchemy.orm.Session,
+	session: sqlalchemy.orm.Session, wall_clock: datetime.datetime,
 ) -> None:
 	"""The whole round trip over HTTP, driven rather than reasoned about — `SR#916`.
 
@@ -1152,7 +1178,7 @@ def test_turning_calendar_feeds_off_refuses_to_mint_one_and_still_lets_one_be_en
 
 
 def test_a_feed_can_be_made_listed_reset_and_revoked_over_http (
-	session: sqlalchemy.orm.Session,
+	session: sqlalchemy.orm.Session, wall_clock: datetime.datetime,
 ) -> None:
 	"""§20.3's four verbs, driven end to end against the URL each one produces.
 
