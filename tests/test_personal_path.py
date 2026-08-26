@@ -58,6 +58,17 @@ FORBIDDEN = (
 	"claim",
 )
 
+#: Words §13.5b does not list and this product still never says to a person.
+#:
+#: **Kept apart from `FORBIDDEN` because that tuple is the specification verbatim**, and a test
+#: that quietly widens a quoted list stops being able to say what the specification requires.
+#:
+#: *template* is the one that has bitten (`#1310`). The vocabulary was already decided —
+#: `views.THE_SERIES` is *"the repeat itself"* and `FROM_THE_REPEAT` is *"from repeat"* — and
+#: `recurrence_template_id` still rendered as *"recurrence template"*, because a rendering was
+#: only ever asked about the seven words above and about an `_id` suffix.
+OUR_WORD_NOT_THEIRS = ("template",)
+
 
 @pytest.fixture
 def home (
@@ -322,6 +333,35 @@ def test_an_event_is_put_away_rather_than_achieved (
 
 	assert "Marked as past" in run("done", "1").output
 	assert "Done" in run("done", "2").output
+
+
+def test_the_record_of_finishing_an_occasion_says_what_the_screen_said (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1312`: the word was avoided on the line that scrolls and not on the one that keeps.
+
+	``_because`` writes the act and the reason as a **comment on the item**, so
+	``done <ref> --because "..."`` on a birthday left *"Done — ..."* on the permanent record
+	while the ephemeral line said *"Marked as past"*. Decision `SR#1235` §3's argument is about
+	what the product calls a day going by; the record is the one place that has to hold, and it
+	was the one place it did not.
+
+	Read back through ``show`` rather than asserted against the writer, because the defect was
+	two renderings of one act disagreeing while only one of them was ever looked at. The test
+	above passes on the defect — it reads ``done``'s own output.
+	"""
+
+	run("init")
+	run("add", "Anna's birthday", "--type", "event")
+	run("add", "Water the plants")
+
+	run("done", "1", "--because", "she had a lovely day")
+	run("done", "2", "--because", "they were dry")
+
+	assert "Marked as past — she had a lovely day" in run("show", "1").output
+	assert "Done — she had a lovely day" not in run("show", "1").output
+
+	assert "Done — they were dry" in run("show", "2").output, "ordinary work is still Done"
 
 
 def test_the_older_name_for_the_agenda_says_where_it_went (
@@ -7753,7 +7793,10 @@ def test_every_column_an_event_can_name_reads_as_words (
 	for name in sorted(columns):
 		words = subroutine.views.field_in_words(name)
 
-		if any(word in words.lower() for word in FORBIDDEN) or words.endswith(("_id", " id")):
+		if (
+			any(word in words.lower() for word in FORBIDDEN + OUR_WORD_NOT_THEIRS)
+			or words.endswith(("_id", " id"))
+		):
 			unreadable.append(f"{name} → {words!r}")
 
 	assert not unreadable, (

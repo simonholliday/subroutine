@@ -673,18 +673,27 @@ def test_a_span_that_could_not_mean_anything_is_refused_by_name (
 	**The shapes are compared after interpretation, not as they were typed.** ``2026-08-28`` is a
 	whole day and ``2026-08-28T15:00:00Z`` is a time, and it is what they *became* that has to
 	agree — so this drives the service rather than the parser.
+
+	**Each ``field`` is asserted as a field, not as a substring of the message** (`SR#1311`).
+	The previous version asked whether ``"starts_is_all_day"`` appeared anywhere in
+	``str(errors)``, under a comment saying the refusal has to name a field somebody can send —
+	and it passed while ``field`` was ``ends_is_all_day``, because the *message* contained the
+	other name. It could not fail for the thing it was about.
 	"""
+
+	written_start, _ = subroutine.domain.schedule.DATE_FIELDS["starts_at"]
+	written_end, shape = subroutine.domain.schedule.DATE_FIELDS["ends_at"]
 
 	with pytest.raises(subroutine.errors.ValidationError) as alone:
 		_task(session, ends="2026-08-28", title="An end and no beginning")
 
-	assert "ends_at" in str(alone.value.errors)
-	assert "starts_at" in str(alone.value.errors)
+	assert [error.field for error in alone.value.errors] == [written_end]
+	assert written_start in alone.value.errors[0].message
 
 	with pytest.raises(subroutine.errors.ValidationError) as backwards:
 		_task(session, starts="2026-08-28", ends="2026-08-14", title="Finishes first")
 
-	assert "ends_at" in str(backwards.value.errors)
+	assert [error.field for error in backwards.value.errors] == [written_end]
 
 	with pytest.raises(subroutine.errors.ValidationError) as mixed:
 		_task(
@@ -694,7 +703,7 @@ def test_a_span_that_could_not_mean_anything_is_refused_by_name (
 			title="A day at one end and a time at the other",
 		)
 
-	assert "starts_is_all_day" in str(mixed.value.errors), (
+	assert [error.field for error in mixed.value.errors] == [shape], (
 		"the refusal has to name a field somebody can actually send, and an end has no flag"
 	)
 

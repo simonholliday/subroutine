@@ -188,6 +188,90 @@ def test_the_sections_cover_every_bucket_the_agenda_carries () -> None:
 	)
 
 
+#: How an agent's agenda says each total the model publishes.
+#:
+#: **Every ``_total`` on :class:`subroutine.views.Agenda` must appear here**, so a sixth cannot
+#: be added and quietly reach two surfaces of three — which is exactly what ``passed_total`` did
+#: (`SR#1305`). The terminal printed it and the browser was handed it; the agent branch carried a
+#: hand-written list of three, on the one page where both other renderers had *stopped* listing
+#: totals by hand in the same range.
+#:
+#: The value is the phrase to look for, not the whole line, because the wording is prose and the
+#: claim being made here is that the figure is *said at all*.
+AGENT_SAYS_EACH_TOTAL = {
+	"later_total": "dated further out",
+	"deferred_total": "put off until later",
+	"paused_total": "nobody is running",
+	"passed_total": "already past",
+	# **Both of the agenda's own caps are counted into one figure, deliberately** (`SR#1285`):
+	# their remedy is the same one, so two lines would be a distinction an agent cannot act on.
+	"unscheduled_total": "more not shown",
+	"blocked_by_others_total": "more not shown",
+}
+
+#: Which totals count a bucket that is *on the page*, and the bucket each of them caps.
+#:
+#: **The two kinds of total are not asked the same question, and treating them alike is wrong in
+#: the direction that passes.** The four exclusions above count rows the day leaves out
+#: altogether, so any figure above zero means something is unsaid. These two count the whole of a
+#: bucket the reader can already see — so what is unsaid is the *difference*, and a page showing
+#: every unscheduled row it has is holding nothing back however large the figure is.
+CAPS_A_SHOWN_BUCKET = {
+	"unscheduled_total": "unscheduled",
+	"blocked_by_others_total": "blocked_by_others",
+}
+
+
+def test_every_total_the_agenda_publishes_is_said_to_an_agent (
+	surfaces: Surfaces,
+) -> None:
+	"""`SR#1305`: derived from the model, because the one that was dropped was dropped by hand.
+
+	Two halves, and the first is the one that catches a new field. **The register above is
+	compared against ``views.Agenda``'s own ``_total`` fields in both directions**, so adding a
+	seventh fails here on the day it is added rather than on the day somebody reads an agenda
+	and notices a number missing — and deleting one that no longer exists is what closes the
+	entry.
+
+	The second half drives whichever totals this fixture actually makes non-zero and asserts the
+	phrase reaches the rendering. It is deliberately not a claim about all six: a fixture with
+	every exclusion populated at once is a different and much larger fixture, and the structural
+	half above is what makes the omission impossible rather than merely unlikely.
+	"""
+
+	published = {
+		name for name in subroutine.views.Agenda.model_fields if name.endswith("_total")
+	}
+
+	assert published == set(AGENT_SAYS_EACH_TOTAL), (
+		f"the agenda publishes {sorted(published)} and the agent surface accounts for "
+		f"{sorted(AGENT_SAYS_EACH_TOTAL)}"
+	)
+
+	asked = subroutine.cli.personal.agenda_asked(workspace=None)
+	answered = surfaces.gathered(**asked).answers[0].value
+	agent = subroutine.mcp.tools._listed(surfaces.client, {"today": True})
+
+	assert set(CAPS_A_SHOWN_BUCKET) <= published, (
+		f"{sorted(set(CAPS_A_SHOWN_BUCKET) - published)} is capped and is not published"
+	)
+	assert set(CAPS_A_SHOWN_BUCKET.values()) <= set(BUCKETS), (
+		f"{sorted(set(CAPS_A_SHOWN_BUCKET.values()) - set(BUCKETS))} is not a bucket"
+	)
+
+	for name, phrase in AGENT_SAYS_EACH_TOTAL.items():
+		bucket = CAPS_A_SHOWN_BUCKET.get(name)
+		unsaid = getattr(answered, name) - (
+			0 if bucket is None else len(getattr(answered, bucket))
+		)
+
+		if unsaid > 0:
+			assert phrase in agent, (
+				f"{name} leaves {unsaid} unsaid and an agent is told nothing "
+				f"matching {phrase!r}:\n{agent}"
+			)
+
+
 def test_every_surface_asks_the_agenda_for_the_same_day_in_the_same_zone (
 	surfaces: Surfaces, tmp_path: pathlib.Path
 ) -> None:

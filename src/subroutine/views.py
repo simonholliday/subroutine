@@ -2975,7 +2975,16 @@ _A_CHANGE_TO = {
 	"recurrence_anchor": "how it repeats",
 	"recurrence_rule": "how it repeats",
 	"recurrence_text": "how it repeats",
+	# **Joins the family rather than naming the join** (`#1310`). This column moving means the
+	# row was attached to a series or taken out of one, which is a change to how it repeats —
+	# and *template* is a word this product deliberately never says to a person, since
+	# `THE_SERIES` is "the repeat itself" and `FROM_THE_REPEAT` is "from repeat".
+	"recurrence_template_id": "how it repeats",
 	"recurrence_trigger": "how it repeats",
+	# Says whether this row is the repeat itself rather than one turn of it, which is the same
+	# fact about repeating that the four above carry.
+	"is_template": "how it repeats",
+	"reminder_minutes": "when it reminds you",
 	"snoozed_until": "when it comes back",
 	"snoozed_is_all_day": "when it comes back",
 	"spent_minutes": "time spent",
@@ -2986,6 +2995,10 @@ _A_CHANGE_TO = {
 	"type_id": "what kind it is",
 	"owner_id": "whose it is",
 	"supersedes_id": "what it replaces",
+	# A project's starting shape. Read by nothing today — the column is kept for `#1029` — and
+	# it is here because the guard beside this asks every column rather than the ones that have
+	# moved so far.
+	"template": "how it was set up",
 	"timezone": "its timezone",
 	# Never moves on an item — §5.4 refuses a cross-workspace move outright — and it is here
 	# because the guard beside this asks every column rather than the ones that have moved so

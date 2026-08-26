@@ -3727,3 +3727,54 @@ def test_a_title_is_stored_on_one_line_and_a_comment_is_not (world: World) -> No
 
 	assert commented.status_code == 201, commented.text
 	assert commented.json()["body"] == planted, "a comment's paragraphs were run together"
+
+
+def test_every_field_a_span_refusal_names_is_one_a_caller_can_send (
+	world: World,
+) -> None:
+	"""`SR#1311`: a refusal naming a field the endpoint refuses is `SR#1259`'s defect.
+
+	All three of ``schedule.check_span``'s refusals named **columns** — ``ends_at`` where the
+	request field is ``ends``, and ``ends_is_all_day``, which no surface accepts at all because
+	an end has no flag of its own. The hint was actionable, so nobody noticed; a caller doing
+	what ``field`` said got a second 422 saying that field is not accepted.
+
+	**Driven through HTTP rather than asserted in the domain**, because the domain cannot see
+	what the endpoint accepts and that gap is the whole defect. The population comes off
+	``Update.model_fields`` so a renamed request field fails here rather than in somebody's
+	client.
+
+	**This covers ``check_span``'s three refusals and no others, deliberately.** Driving the
+	same probe at an unparseable date shows ``field: "due_at"`` where the accepted field is
+	``due`` — every ``schedule.interpret`` caller passes a column name, across four modules.
+	That is `SR#1317`, and it is said here rather than left to a green test to imply this
+	endpoint's refusals are all correct.
+	"""
+
+	accepted = set(subroutine.api.tasks.Update.model_fields)
+	ref = world.call("POST", "/v1/tasks", json={"title": "A span to argue with"}).json()["ref"]
+
+	bodies = (
+		{"ends": "2026-08-28"},
+		{"starts": "2026-08-28", "ends": "2026-08-14"},
+		{"starts": "2026-08-14", "ends": "2026-08-28T15:00:00Z"},
+	)
+
+	named = []
+
+	for body in bodies:
+		answer = world.call("PATCH", f"/v1/tasks/{ref}", json=body)
+
+		assert answer.status_code == 422, body
+
+		for error in answer.json()["errors"]:
+			named.append(error["field"])
+
+	assert named, "the three refusals have to name something"
+
+	unsendable = sorted({field for field in named if field not in accepted})
+
+	assert not unsendable, (
+		f"These refusals name fields PATCH /v1/tasks/{{id_or_ref}} does not accept: "
+		f"{unsendable}. A caller who does what the refusal says gets a second 422."
+	)

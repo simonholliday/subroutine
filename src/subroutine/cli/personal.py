@@ -2064,15 +2064,15 @@ def _finished (program: Program, *, which: str, because: str) -> None:
 		client = _require_connection(program, world, located.connection)
 		finished = client.complete(ref=task.ref, workspace=located.workspace)
 
-		_because(client, located, because, what="Done")
+		# **Derived once because both readers must agree, and they did not** (`#1310`'s sibling,
+		# `#1312`). ``_because`` writes a comment that outlives the session and the line below
+		# is gone the moment the screen scrolls — so the word avoided above was avoided only in
+		# the place nobody re-reads, and a birthday carried "Done — ..." on its record for ever.
+		outcome = "Done" if achieved else "Marked as past"
 
-		program.say(
-			_acted(
-				world,
-				dataclasses.replace(located, item=finished),
-				"Done" if achieved else "Marked as past",
-			)
-		)
+		_because(client, located, because, what=outcome)
+
+		program.say(_acted(world, dataclasses.replace(located, item=finished), outcome))
 		_suggest(program.console, "subroutine agenda")
 
 

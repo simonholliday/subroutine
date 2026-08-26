@@ -1579,13 +1579,39 @@ def _listed (
 				f"List with filter snoozed_until.gt=today.",
 			]
 
+		# **A day that has gone by is the fifth way out, and it reached two surfaces of three**
+		# (`#1305`, decision `#1235` §3). The terminal says *and N already past* and the browser
+		# is handed the same figure; this branch printed the three above it and not this one,
+		# on the surface §14.1 says nothing a person can see may be invisible to. A passed
+		# occasion is not *completed*, so an ordinary listing still holds it — which is exactly
+		# the unexplained difference between two views of one place that `#649`'s amendment
+		# forbids.
+		if agenda.passed_total > 0:
+			rows = [
+				*rows,
+				f"{agenda.passed_total} already past. List with filter starts_at.lt=today.",
+			]
+
+		# **This one names no way to see the rows and there is not one to name.** A project's
+		# status is not among the fields a listing can be filtered by, so the sentence above
+		# about furniture is knowingly unmet here rather than met with an invented filter —
+		# `#1318` is where it gets a remedy.
 		if agenda.paused_total > 0:
 			rows = [
 				*rows,
 				f"{agenda.paused_total} in projects nobody is running.",
 			]
 
-		return "\n".join(rows) if rows else "Nothing on today."
+		# **Emptiness is decided from the buckets, not from what has accumulated** (`#1306`).
+		# By this point ``rows`` is non-empty whenever any count line was appended, so a day
+		# with nothing in any bucket read as two footnotes and never said the day was clear —
+		# leaving an agent to infer it from the absence of rows it was never shown. The
+		# statement comes first and the counts stay, because they are footnotes on an answer
+		# rather than the answer.
+		if not every:
+			rows = ["Nothing on today.", *rows]
+
+		return "\n".join(rows)
 
 	project = _text(arguments, "project")
 

@@ -179,6 +179,28 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent's agenda now says how many events have already gone by, and says when a day is
+  clear.** Two gaps on the one surface. A day leaves out five kinds of thing, and an agent was
+  told about three of them — so an event that had already happened simply vanished, with no sign
+  it existed, on the surface that is meant to hide nothing a person can see. And an agenda with
+  nothing in any bucket printed only its footnotes, so *"1 put off until later."* arrived with
+  no statement that there was nothing on. Both the terminal and the browser were already right.
+
+- **A refusal about a start and an end now names a field you can actually send.** Writing a span
+  with a date at one end and a time at the other was refused by `ends_is_all_day`, which no
+  surface accepts — an end has no flag of its own, because one flag covers both ends. All three
+  of these refusals named database columns rather than request fields, so doing what the error
+  said produced a second error.
+
+- **Finishing a birthday no longer records it as *Done*.** The screen said *Marked as past* and
+  the note left on the item said *Done*, which is the copy that lasts. The product avoids
+  congratulating you on a day going by, and it was avoiding it only in the place nobody re-reads.
+
+- **Two kinds of change in the change feed read as English rather than as schema.** Setting a
+  reminder reported `reminder minutes`, and attaching something to a repeat reported `recurrence
+  template` — a word this product otherwise never says to you. They read *when it reminds you*
+  and *how it repeats* now, alongside every other repeat change.
+
 - **A repeating deadline no longer moves a day forward every time you save it.** A bill due on
   the 1st of the month became due on the 2nd, then the 3rd, then the 4th — once per save,
   whatever you were actually editing, because the browser's edit form sends every field it

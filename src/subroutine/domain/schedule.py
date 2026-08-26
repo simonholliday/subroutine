@@ -429,7 +429,17 @@ def check_span (
 	moment either boundary moves. A holiday that begins and ends on one day is legitimate —
 	a public holiday is exactly that — so the comparison has to allow equality on the *day*,
 	which the instants do not express.
+
+	**Every field named below is the one a caller can send, read off :data:`DATE_FIELDS`
+	rather than written out** (`#1311`, beside `#1310` and `#1312`). All three of
+	these refusals named columns: ``ends_at`` where the request field is ``ends``, and
+	``ends_is_all_day``, which no surface accepts at all because an end has no flag of its own.
+	That is `#1259`'s defect in the one message whose whole job is saying which field to move,
+	and it is what :data:`DATE_FIELDS` was built to prevent one caller along.
 	"""
+
+	written_start, _ = DATE_FIELDS["starts_at"]
+	written_end, shape = DATE_FIELDS["ends_at"]
 
 	if ends_at is None:
 		return
@@ -441,9 +451,9 @@ def check_span (
 			hint="Give it a start as well, or use a deadline if you mean one moment.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="ends_at",
+					field=written_end,
 					code="invalid_field_value",
-					message="`ends_at` cannot be set without `starts_at`.",
+					message=f"`{written_end}` cannot be set without `{written_start}`.",
 				)
 			],
 		)
@@ -455,9 +465,12 @@ def check_span (
 			hint="Give both ends a time, or give both a date with no time.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="ends_is_all_day",
+					field=shape,
 					code="invalid_field_value",
-					message="`ends_is_all_day` must match `starts_is_all_day`.",
+					message=(
+						f"`{shape}` covers both ends of a span, so `{written_start}` and "
+						f"`{written_end}` have to be the same shape."
+					),
 				)
 			],
 		)
@@ -477,9 +490,9 @@ def check_span (
 		hint="Move the end later, or the start earlier.",
 		errors=[
 			subroutine.errors.FieldError(
-				field="ends_at",
+				field=written_end,
 				code="invalid_field_value",
-				message="`ends_at` must not be earlier than `starts_at`.",
+				message=f"`{written_end}` must not be earlier than `{written_start}`.",
 			)
 		],
 	)

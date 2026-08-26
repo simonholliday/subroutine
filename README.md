@@ -242,6 +242,9 @@ not built — named here because a tool that overstates itself wastes your after
 | Priorities — importance × urgency, ranked in bands | **Built** |
 | One prioritised project per workspace, whose work rises without hiding anybody else's | **Built** |
 | Deadlines, planned days, and deferring until later | **Built** |
+| Something that lasts — a start and a real end, rather than one moment | **Built** |
+| Events — a birthday, a booked fortnight, a code freeze: what happens to you, never due or overdue | **Built** |
+| Reminders — *two weeks before my sister's birthday*, asked once and carried by your calendar | **Built** |
 | `blocks` dependencies, and `--ready` to filter by them | **Built** |
 | A fixed meaning on every relation, so the words are yours to rename | **Built** |
 | Milestones — an item whose blockers are its contents | **Built** |
@@ -293,7 +296,7 @@ not built — named here because a tool that overstates itself wastes your after
 | `subroutine setup claude` — a hook that gives back what an agent is still holding | **Built** |
 | Multiple connections merged into one agenda | **Built** |
 | The agenda as the browser's front page | **Built** |
-| Calendar feeds — subscribe Google, Apple or Outlook to your work | **Built** |
+| Calendar feeds — subscribe Google, Apple or Outlook to your work, your events and your reminders | **Built** |
 | A board in the browser, with drag-and-drop between columns | **Built** |
 | A calendar view | Planned |
 
