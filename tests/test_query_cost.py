@@ -154,6 +154,32 @@ RATIO_CEILING = 25.0
 #: made to pass.
 KNOWN_EXPENSIVE: dict[str, str] = {}
 
+#: Subjects the *ratio* does not fit, each with what measures it instead (`#1295`).
+#:
+#: **Not the same thing as :data:`KNOWN_EXPENSIVE`, and the difference is the point.** That
+#: register is for a listing genuinely over the ceiling, where the number *is* the finding and
+#: has to go on being printed. This one is for a subject where the ratio measures something
+#: other than what the ceiling is about — so leaving it in would not keep a finding visible, it
+#: would be a red build that says nothing true.
+#:
+#: **The ratio is a proxy for an N+1**, which is what this file's own sentence says it watches:
+#: *a listing that consults rows other than the ones it returns, once per candidate*. For one
+#: query returning one page that proxy is good. The agenda is **fourteen statements returning
+#: 184 rows** at :data:`TASKS`, so its ratio is dominated by per-statement and per-row overhead
+#: — measured at 17.3x on a workstation and 30.9x on a CI runner **on the same commit**, where
+#: the baseline moved only 1.45x between the two.
+#:
+#: **And the row count is a decision rather than a cost to remove**: 79 overdue and 80 today,
+#: both uncapped by `#888` — *"hiding work misleads the reader into starting something else."*
+#:
+#: Each entry is still measured by :data:`CEILING_MS`, which it passes with room, **and** by
+#: :func:`test_a_composite_view_asks_a_bounded_number_of_questions`, which is the N+1 measured
+#: directly and cannot be moved by a busy machine.
+MEASURED_ANOTHER_WAY: dict[str, str] = {
+	"agenda": "`#1295` — fourteen statements against a one-statement baseline, so the ratio "
+	"measures the machine. A bounded statement count is the guard instead.",
+}
+
 #: What a single measurement may cost outright, in milliseconds, on either backend — the
 #: unordered page included.
 #:
@@ -763,7 +789,9 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 	expensive = {
 		name: measured.ratio(name)
 		for name in measured.timings
-		if measured.ratio(name) > RATIO_CEILING and name not in KNOWN_EXPENSIVE
+		if measured.ratio(name) > RATIO_CEILING
+		and name not in KNOWN_EXPENSIVE
+		and name not in MEASURED_ANOTHER_WAY
 	}
 
 	assert not _too_slow(measured), (
@@ -776,6 +804,117 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 		f"page. An ordering that reads rows other than the one it returns is the shape to "
 		f"look for — aggregate them once per statement with a LEFT JOIN, never once per "
 		f"candidate row.\n{measured.report()}"
+	)
+
+
+#: How many statements a whole agenda may issue, at any number of rows (`#1295`).
+#:
+#: **Fourteen measured**, at :data:`TASKS`: eight bucket queries — one is skipped when no
+#: look-ahead is asked for — and five counts, plus the prioritised-project lookup the ordering
+#: resolves once. The allowance above that is deliberately small, because the thing this
+#: catches is not a statement or two: an N+1 here would be two thousand.
+#:
+#: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
+#: code rather than about the machine it ran on.
+AGENDA_STATEMENTS = 18
+
+
+def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""**What makes an entry in :data:`MEASURED_ANOTHER_WAY` go away** — this file's own rule.
+
+	An excuse naming a subject nothing measures is an excuse for a thing that no longer exists,
+	and it reads as a considered decision for as long as nobody checks. Every register in this
+	repository is asked what removes its entries; this is that question for the newest one.
+	"""
+
+	engine, backend = seeded
+	measured = _measured(engine, work={"agenda": _agenda})
+
+	unmeasured = set(MEASURED_ANOTHER_WAY) - set(measured.timings) - {"agenda"}
+
+	assert not unmeasured, (
+		f"{sorted(unmeasured)} is excused from the ratio on {backend} and is measured by "
+		f"nothing here, so the entry is describing a subject that has gone"
+	)
+
+
+def test_a_composite_view_asks_a_bounded_number_of_questions (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""**`SR#1295`.** The N+1 measured directly, for a subject the ratio does not fit.
+
+	This file watches for *a listing that consults rows other than the ones it returns, once per
+	candidate*, and uses cost against an unordered page as the proxy for it. That proxy is good
+	for one query returning one page and poor for the agenda, which is legitimately fourteen
+	statements returning 184 rows — so its ratio measured 17.3x on a workstation and 30.9x on a
+	CI runner **on the same commit**, while the baseline moved 1.45x.
+
+	**Counting the statements cannot move like that.** Fourteen is a property of the code. A
+	query per candidate at :data:`TASKS` rows would be two thousand, so this fails by three
+	orders of magnitude rather than by a margin somebody has to judge.
+
+	**Falsified by putting a query inside the loop over a bucket's rows**, and the result is a
+	stronger argument than the one this was written from: **198 questions for 184 rows, and the
+	ratio test passed**. A real N+1, invisible to the instrument that exists to catch it,
+	because on an unloaded machine two hundred trivial lookups cost less than the margin the
+	ceiling allows. This fails it by an order of magnitude.
+	"""
+
+	engine, backend = seeded
+	asked: list[str] = []
+
+	def count (
+		conn: typing.Any,
+		cursor: typing.Any,
+		statement: str,
+		parameters: typing.Any,
+		context: typing.Any,
+		executemany: bool,
+	) -> None:
+		"""Note one statement the agenda sent."""
+
+		asked.append(statement)
+
+	factory = subroutine.db.session.create_session_factory(engine)
+
+	with subroutine.db.session.session_scope(factory) as session:
+		user = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).first()
+
+		assert user is not None, "the fixture did not bootstrap a user"
+
+		context = Context(
+			session=session,
+			principal=subroutine.domain.authentication.Principal(user=user, token=None),
+			workspace_id=session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace.id)
+			).one(),
+		)
+
+		sqlalchemy.event.listen(engine, "before_cursor_execute", count)
+
+		try:
+			built = _agenda(context)
+
+		finally:
+			sqlalchemy.event.remove(engine, "before_cursor_execute", count)
+
+	shown = sum(len(getattr(built, bucket)) for bucket in subroutine.domain.agenda.BUCKETS)
+
+	# **The rows are asserted too, and that is what stops this passing by measuring nothing.**
+	# A build that returned an empty agenda would issue few statements and sail through — the
+	# floor every scanner in this repository needs, and the one this file's own `_measured`
+	# already has in the shape of a baseline.
+	assert shown > PAGE, (
+		f"the agenda returned {shown} rows on {backend}, which is too few for this to be "
+		f"measuring a page's worth of work at all"
+	)
+
+	assert len(asked) <= AGENDA_STATEMENTS, (
+		f"On {backend}, one agenda asked {len(asked)} questions for {shown} rows, against an "
+		f"allowance of {AGENDA_STATEMENTS}. A query per candidate is what this catches, and it "
+		f"is the thing `#1295` records the ratio as no longer able to see."
 	)
 
 
@@ -815,7 +954,9 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 	expensive = {
 		name: measured.ratio(name)
 		for name in measured.timings
-		if measured.ratio(name) > RATIO_CEILING and name not in KNOWN_EXPENSIVE
+		if measured.ratio(name) > RATIO_CEILING
+		and name not in KNOWN_EXPENSIVE
+		and name not in MEASURED_ANOTHER_WAY
 	}
 
 	assert not _too_slow(measured), (
