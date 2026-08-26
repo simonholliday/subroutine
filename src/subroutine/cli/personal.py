@@ -9234,21 +9234,31 @@ def _facts (located: Located) -> list[str]:
 		# to "why was this not on my list in June" — where a field that erased itself on
 		# arrival would leave that question permanently unanswerable.
 		if item.snoozed_until is not None:
-			facts.append(f"from {_render_date(item.snoozed_until, item.timezone)}")
+			facts.append(f"from {_when_rendered(item)}")
 
 		if item.due_at is not None:
-			facts.append(f"due {_render_date(item.due_at, item.timezone)}")
+			facts.append(
+				"due "
+				f"{_render_moment(item.due_at, item.timezone, all_day=item.due_is_all_day)}"
+			)
 
 		if item.starts_at is not None:
 			# **One fact when there are two dates, not two** (`#576`). *starts 14 Aug · until
 			# 28 Aug* reads as two unrelated things; a span is one, and it is what somebody
 			# typed. The start is still printed alone when there is no end, which is every
 			# ordinary task.
+			#
+			# **An end shares the start's flag**, because it has none of its own (decision
+			# `#1235` §2) — so a span is timed at both ends or at neither, and one call
+			# answers for both.
+			started = _render_moment(
+				item.starts_at, item.timezone, all_day=item.starts_is_all_day
+			)
 			facts.append(
-				f"starts {_render_date(item.starts_at, item.timezone)}"
+				f"starts {started}"
 				if item.ends_at is None
-				else f"{_render_date(item.starts_at, item.timezone)} to "
-				f"{_render_date(item.ends_at, item.timezone)}"
+				else f"{started} to "
+				f"{_render_moment(item.ends_at, item.timezone, all_day=item.starts_is_all_day)}"
 			)
 
 		if item.recurrence_rule is not None:
@@ -9420,10 +9430,13 @@ def _when (item: Item) -> str:
 	# agenda looks broken. A deadline still prints alongside it, because "not until December,
 	# and wanted by the fifteenth" is two facts and dropping either misinforms.
 	if _deferred(task):
-		deferred = f"from {_render_date(task.snoozed_until, task.timezone)}"
+		deferred = f"from {_when_rendered(task)}"
 
 		if task.due_at is not None:
-			return f"  ({deferred}, due {_render_date(task.due_at, task.timezone)})"
+			return (
+				f"  ({deferred}, due "
+				f"{_render_moment(task.due_at, task.timezone, all_day=task.due_is_all_day)})"
+			)
 
 		return f"  ({deferred})"
 
@@ -9452,10 +9465,21 @@ def _when (item: Item) -> str:
 			else subroutine.domain.recurrence.describe(
 				task.recurrence_rule, anchor=task.recurrence_anchor
 			),
+			# **The o'clock when the row carries one** (`#1298`). A doctor's appointment and a
+			# birthday were the same line until this, on the one line somebody reads to check
+			# what was understood.
 			None
 			if task.starts_at is None
-			else f"starts {_render_date(task.starts_at, task.timezone)}",
-			None if task.due_at is None else f"due {_render_date(task.due_at, task.timezone)}",
+			else (
+				"starts "
+				f"{_render_moment(task.starts_at, task.timezone, all_day=task.starts_is_all_day)}"
+			),
+			None
+			if task.due_at is None
+			else (
+				"due "
+				f"{_render_moment(task.due_at, task.timezone, all_day=task.due_is_all_day)}"
+			),
 		)
 		if phrase is not None
 	]
@@ -9497,6 +9521,42 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 	return _dated(subroutine.domain.schedule.day_in(instant, timezone))
 
 
+def _render_moment (
+	instant: datetime.datetime | None, timezone: str | None, *, all_day: bool
+) -> str:
+	"""Render a date, **saying the o'clock when the row says there is one** (`#1298`).
+
+	:func:`_render_date` with the one thing a whole day does not have. *Tue 1 Dec* and *Tue 1
+	Dec at 11:00* are different facts, and until this the terminal printed the first for both
+	— so a doctor's appointment and a birthday were indistinguishable on every surface here.
+	``explain dates`` says of ``starts``: *"It takes a time, so 'monday at 14:00' is an
+	appointment"*, which was true of the store and false of everything that drew it.
+
+	**Read from the stored flag rather than from the instant.** An all-day start is the first
+	microsecond of its day and an all-day deadline the last (§6.5), so *"is the time
+	midnight"* would call a real midnight appointment a whole day and call every all-day
+	deadline timed. The flag is what the store decided and is the only honest source.
+
+	**In the row's own zone**, like every date this program renders: decision `#1088`'s rule
+	that a day is a label. Converting to the reader's clock would move an 11:00 appointment to
+	a different o'clock, and — for the all-day rows this deliberately says nothing about — to
+	a different day.
+	"""
+
+	day = _render_date(instant, timezone)
+
+	if all_day or instant is None:
+		return day
+
+	local = instant.astimezone(
+		subroutine.domain.dates.zone(
+			timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
+		)
+	)
+
+	return f"{day} at {local.strftime('%H:%M')}"
+
+
 def _when_rendered (task: subroutine.views.Task) -> str:
 	"""Render when a task is hidden until, **saying the o'clock when there is one** (`#858`).
 
@@ -9521,18 +9581,9 @@ def _when_rendered (task: subroutine.views.Task) -> str:
 	rendering and belongs beside the rendering.
 	"""
 
-	day = _render_date(task.snoozed_until, task.timezone)
-
-	if task.snoozed_is_all_day or task.snoozed_until is None:
-		return day
-
-	local = task.snoozed_until.astimezone(
-		subroutine.domain.dates.zone(
-			task.timezone or subroutine.domain.schedule.DEFAULT_TIMEZONE
-		)
+	return _render_moment(
+		task.snoozed_until, task.timezone, all_day=task.snoozed_is_all_day
 	)
-
-	return f"{day} at {local.strftime('%H:%M')}"
 
 
 def _as_json (
@@ -9615,8 +9666,14 @@ def _as_json (
 		"due_at": None if task.due_at is None else task.due_at.isoformat(),
 		"due_is_all_day": task.due_is_all_day,
 		"starts_at": None if task.starts_at is None else task.starts_at.isoformat(),
+		# **The flag beside its instant, as the deadline above already has it** (`#1298`). It
+		# was the one date column here whose shape a script could not read, so *Anna's birthday*
+		# and *the dentist at 11:00* arrived identical — and unlike the API's row there is no
+		# `?fields=` to ask for it by name. An end shares this flag, having none of its own.
+		"starts_is_all_day": task.starts_is_all_day,
 		"ends_at": None if task.ends_at is None else task.ends_at.isoformat(),
 		"snoozed_until": None if task.snoozed_until is None else task.snoozed_until.isoformat(),
+		"snoozed_is_all_day": task.snoozed_is_all_day,
 		"importance": task.importance,
 		"urgency": task.urgency,
 		"estimate_minutes": task.estimate_minutes,

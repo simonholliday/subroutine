@@ -151,6 +151,11 @@ class LinkEnd(pydantic.BaseModel):
 	#: rendered in the reader's zone rather than the one it was written in is `#773`, which
 	#: shipped once and was correct in winter.
 	due_at: datetime.datetime | None = None
+
+	#: Whether that deadline names a whole day or an o'clock (`#1298`). Beside the defer's own
+	#: flag, which has been here since `#858` for the same reason — a mark that says *Overdue 2
+	#: Dec* on a listing row and on a link line has to answer one question the same way twice.
+	due_is_all_day: bool = False
 	snoozed_until: datetime.datetime | None = None
 	snoozed_is_all_day: bool = False
 	timezone: str | None = None

@@ -916,6 +916,45 @@ def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
 	)
 
 
+def test_a_deadline_with_an_o_clock_says_it_on_a_row_as_it_does_on_the_fact_sheet (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1298`. The two renderings of one deadline disagreed about whether it had a time.
+
+	`#864` gave the *start* its flag when `#797` taught the capture grammar `at 14:00`, and left
+	the deadline behind — so the item page's `Facts` said *2 Dec 2026, 17:00* while the row two
+	clicks away said *due 2 Dec 2026*. `when` and `marks` both read `day` with the flag omitted,
+	which defaults to a whole day, so the omission read as a deliberate choice.
+
+	**The comment above them said so in terms**: *"a deadline and a planned day stay days: a
+	time on one would be precision the writer never supplied"*. True when it was written, false
+	from the day the grammar could supply it, and the line below it had already been changed.
+
+	Both a timed one and a whole-day one, because appending unconditionally is the same defect
+	pointed the other way: an all-day deadline is stored at the **last** microsecond of its day,
+	so guessing from the clock would print `23:59` against every ordinary one.
+	"""
+
+	timed = {"ref": 42, "kind": "task", "title": "Send the invoice",
+		"due_at": "2026-12-02T17:00:00+00:00", "due_is_all_day": False,
+		"timezone": "Europe/London"}
+	whole = {"ref": 43, "kind": "task", "title": "Renew the licence",
+		"due_at": "2026-12-02T23:59:59.999999+00:00", "due_is_all_day": True,
+		"timezone": "Europe/London"}
+
+	rendered = _rendered(tmp_path, {
+		"Row": {"item": timed, "showKind": False},
+		"Listing": {"items": [whole]},
+	})
+
+	assert "17:00" in rendered["Row"], (
+		f"a row dropped the o'clock the fact sheet shows: {rendered['Row']}"
+	)
+	assert "23:59" not in rendered["Listing"], (
+		f"a whole-day deadline was given the o'clock it is stored at: {rendered['Listing']}"
+	)
+
+
 def test_a_reader_who_is_not_signed_in_is_told_what_to_ask_for (
 	tmp_path: pathlib.Path,
 ) -> None:

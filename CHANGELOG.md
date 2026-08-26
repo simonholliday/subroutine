@@ -179,6 +179,14 @@ upgrade involves.
 
 ### Fixed
 
+- **An appointment now says what time it is at.** `subroutine add "Doctor's appointment tomorrow
+  at 11:00"` read the time and stored it, and then every surface but the calendar drew it as
+  *starts Thu 27 Aug* — so an appointment and a birthday were the same line at the terminal, in
+  `show`, on the agenda and to an agent. All of them now say the o'clock when the item has one
+  and stay silent when it does not. A deadline with a time behaves the same way, including on a
+  row in the browser, whose item page had been showing it all along. `list --json` reports
+  whether a start or a defer names a whole day, which only the deadline did before.
+
 - **Planning something no longer destroys the time it was created with.** `subroutine add
   "Doctor's appointment tomorrow at 11:00"` read the time and stored it; `subroutine plan 1
   tomorrow` then re-snapped the whole thing to a whole day and threw the 11:00 away, reporting

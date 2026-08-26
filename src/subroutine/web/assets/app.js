@@ -94,7 +94,8 @@ const TASK_FIELDS = [
 	/* How well a row answered a search, so a merged list can be put back into the order
 	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
 	"relevance",
-	"ref", "title", "due_at", "starts_at", "starts_is_all_day", "blocked", "project_key",
+	"ref", "title", "due_at", "due_is_all_day", "starts_at", "starts_is_all_day",
+	"blocked", "project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest
 	   ancestor's, or its workspace's. Resolved on the server, so what arrives is a palette name
@@ -3959,7 +3960,9 @@ export function marks (
 	}
 	if (overdue(item)) {
 		states.push({
-			text: `Overdue ${day(item.due_at, item.timezone)}`,
+			/* The flag, for `when`'s reason two functions down (`#1298`): the same deadline
+			   drawn by two renderers must not answer differently about whether it has a time. */
+			text: `Overdue ${day(item.due_at, item.timezone, item.due_is_all_day)}`,
 			family: "state",
 			tone: "late",
 		});
@@ -4139,17 +4142,21 @@ export function when (item, now = null) {
 		has — a cancelled item carries one too, and *cancelled 3 Aug* is the honest thing to say
 		about it rather than nothing.
 
-		**Only the finished stamp carries a time** (`#746`). A deadline and a planned day stay
-		days: both are dates *somebody chose*, and a time on one would be precision the writer
-		never supplied. This is a stamp the program made, it is exact, and it is what the page is
-		ordered on.
+		**The finished stamp always carries a time; a deadline and a planned day carry one when
+		the row says they have one.** `#746` read *"both stay days: a time on one would be
+		precision the writer never supplied"*, which was true while nothing could supply it —
+		and `#797` taught the capture grammar `at 14:00`, so `#864` gave the start its flag and
+		left the deadline behind. The two lines below then disagreed about one question, on one
+		row (`#1298`). The stamp is different in kind: the program made it, it is exact, and it
+		is what the page is ordered on.
 	*/
 	if (item.completed_at) {
 		return `${item.status_category === "cancelled" ? "cancelled" : "done"} `
 			+ `${moment(item.completed_at, now)}`;
 	}
 
-	if (item.due_at && !overdue(item)) return `due ${day(item.due_at, item.timezone)}`;
+	if (item.due_at && !overdue(item))
+		return `due ${day(item.due_at, item.timezone, item.due_is_all_day)}`;
 	if (item.starts_at)
 		return `→ ${day(item.starts_at, item.timezone, item.starts_is_all_day)}`;
 

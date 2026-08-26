@@ -2560,6 +2560,40 @@ def test_an_agent_is_told_a_day_argument_will_not_take_a_time (
 	assert not failed, _taken
 
 
+def test_an_agents_row_says_the_o_clock_when_the_row_carries_one (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1298` on this surface, where the line **is** the confirmation of every write.
+
+	A doctor's appointment and a birthday rendered identically — *for 2026-12-01* on both —
+	so an agent capturing *"on 2026-12-01 at 11:00"* was answered in words that would also
+	have been printed had the time never been read. The skill tells it that this line is the
+	check.
+
+	**Written as ISO**, because this surface sends instants and a model should not have to
+	parse a human date phrase to answer a question about one.
+
+	Both are asserted together, so a fix that appended a time unconditionally fails on the
+	birthday — an all-day start is the *first* microsecond of its day, so guessing from the
+	clock would print ``T00:00`` against every whole-day row.
+	"""
+
+	timed, failed = _called(
+		bound, "subroutine_add", text="Doctor's appointment on 2026-12-01 at 11:00"
+	)
+
+	assert not failed, timed
+	assert "2026-12-01T11:00" in timed, f"the agent's row dropped the o'clock:\n{timed}"
+
+	whole, failed = _called(bound, "subroutine_add", text="Anna's birthday on 2026-12-01")
+
+	assert not failed, whole
+	assert "2026-12-01" in whole, f"the agent's row dropped the day:\n{whole}"
+	assert "2026-12-01T" not in whole, (
+		f"a whole day was given an o'clock nobody wrote:\n{whole}"
+	)
+
+
 def test_a_planned_day_is_reported_where_a_deadline_is (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -5473,27 +5507,65 @@ def test_the_link_tool_does_not_hard_code_a_renameable_vocabulary (
 	assert "meta" in described, "nothing points at where this workspace's list actually is"
 
 
+def _attributes_of (node: ast.FunctionDef, variable: str) -> set[str]:
+	"""Return every ``<variable>.<field>`` read inside one function body."""
+
+	return {
+		read.attr
+		for read in ast.walk(node)
+		if isinstance(read, ast.Attribute)
+		and isinstance(read.value, ast.Name)
+		and read.value.id == variable
+	}
+
+
 def _read_by (module: typing.Any, function: str, variable: str) -> set[str]:
 	"""Return the view fields one renderer reads off the item it is given.
 
 	Derived by reading the renderer rather than listed beside it, which is the only reason
 	this comparison stays true as either surface grows — `#427`'s method.
+
+	**It follows a helper the whole item is handed to, one level deep** (`#1298`). Reading a
+	single function body cannot see a field the renderer reads *through* a call, and the
+	symptom is the wrong way round: extracting a shared helper made the terminal look as
+	though it had **stopped** reading a field, so the stale-entry test below reported a
+	deliberate excuse as expired. A scan that goes blind when code is tidied would train
+	somebody to keep the duplication.
+
+	One level rather than a full call graph, because that is what the surfaces do — a renderer
+	hands the item to a phrase-maker — and an unbounded walk would need cycle handling for no
+	case that exists. The parameter is matched by **position**, so the helper is free to call
+	it something else.
 	"""
 
 	tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
-	found = set()
+	defined = {
+		node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+	}
+	node = defined.get(function)
 
-	for node in ast.walk(tree):
-		if not isinstance(node, ast.FunctionDef) or node.name != function:
+	if node is None:
+		return set()
+
+	found = _attributes_of(node, variable)
+
+	for call in ast.walk(node):
+		if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
 			continue
 
-		found |= {
-			read.attr
-			for read in ast.walk(node)
-			if isinstance(read, ast.Attribute)
-			and isinstance(read.value, ast.Name)
-			and read.value.id == variable
-		}
+		helper = defined.get(call.func.id)
+
+		if helper is None:
+			continue
+
+		for position, argument in enumerate(call.args):
+			if not isinstance(argument, ast.Name) or argument.id != variable:
+				continue
+
+			taken = helper.args.posonlyargs + helper.args.args
+
+			if position < len(taken):
+				found |= _attributes_of(helper, taken[position].arg)
 
 	return found
 
@@ -5571,6 +5643,12 @@ NOT_ON_AN_AGENTS_ROW: dict[str, str] = {
 		"The terminal marks a deferred row because a person asked for a list and got one "
 		"item fewer than they expected. An agent's listings hide deferred work by default "
 		"and it asks for it by name, so a row it is looking at is one it asked to see."
+	),
+	"snoozed_is_all_day": (
+		"`snoozed_until`'s flag and so `snoozed_until`'s reason: it decides whether the "
+		"o'clock is said beside the day (`#1298`), and a row that says nothing about the "
+		"defer at all has no day to say it beside. Surfaced when the scan above learned to "
+		"follow a renderer into its helper — one fact, two columns, one excuse."
 	),
 	"timezone": (
 		"`NOT_SHOWN_TO_AN_AGENT`'s reason, unchanged: this surface sends ISO instants and "

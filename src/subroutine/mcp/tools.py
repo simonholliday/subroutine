@@ -1817,6 +1817,42 @@ def _day_of (
 	).isoformat()
 
 
+def _moment_of (
+	instant: datetime.datetime,
+	item: subroutine.views.Task | subroutine.views.Document,
+	*,
+	all_day: bool,
+) -> str:
+	"""Return a day, **with the o'clock when the row says there is one** (`#1298`).
+
+	:func:`_day_of` and the one thing a whole day does not have, so a doctor's appointment and
+	a birthday are two different lines here as they are at the command line. They were the
+	same line on every surface but the calendar feed, which drew ``DTSTART`` correctly and had
+	no way to say that the four beside it did not.
+
+	**Written as ISO**, ``2026-12-01T11:00``, because that is what this surface sends and a
+	model should not have to parse *"Tue 1 Dec at 11:00"* to answer a question about it.
+
+	**Read from the stored flag, never from the instant.** §6.5 puts an all-day start at the
+	first microsecond of its day, so *"is it midnight"* would call a genuine midnight
+	appointment a whole day and would be wrong about every all-day deadline, which is stored
+	at the last microsecond instead.
+	"""
+
+	day = _day_of(instant, item)
+
+	if all_day:
+		return day
+
+	local = instant.astimezone(
+		subroutine.domain.dates.zone(
+			getattr(item, "timezone", None) or subroutine.domain.schedule.DEFAULT_TIMEZONE
+		)
+	)
+
+	return f"{day}T{local:%H:%M}"
+
+
 def _line (
 	item: subroutine.views.Task | subroutine.views.Document,
 	*,
@@ -1933,15 +1969,20 @@ def _line (
 		# a span is one fact and *for 14 Aug · until 28 Aug* reads as two unrelated ones.
 		# `#674`'s guard compares the two renderings field by field, so an end shown at the
 		# command line and not here is a build failure rather than an oversight.
+		# **An end shares the start's flag**, having none of its own (decision `#1235` §2).
 		if item.starts_at is not None:
+			started = _moment_of(item.starts_at, item, all_day=item.starts_is_all_day)
 			cells.append(
-				f"for {_day_of(item.starts_at, item)}"
+				f"for {started}"
 				if item.ends_at is None
-				else f"{_day_of(item.starts_at, item)} to {_day_of(item.ends_at, item)}"
+				else f"{started} to "
+				f"{_moment_of(item.ends_at, item, all_day=item.starts_is_all_day)}"
 			)
 
 		if item.due_at is not None:
-			cells.append(f"due {_day_of(item.due_at, item)}")
+			cells.append(
+				f"due {_moment_of(item.due_at, item, all_day=item.due_is_all_day)}"
+			)
 
 		# **On the row, not only in `show`** (`#922`). `_more`'s own argument for carrying it
 		# is that a repeat changes what every other fact means — *due Thursday* on something
@@ -2063,7 +2104,10 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		# **Reported whether or not it has passed.** A defer is a decision somebody made, and
 		# one that has come round is still the answer to why this was not on the list in June.
 		if item.snoozed_until is not None:
-			facts.append(f"from {_day_of(item.snoozed_until, item)}")
+			facts.append(
+				"from "
+				f"{_moment_of(item.snoozed_until, item, all_day=item.snoozed_is_all_day)}"
+			)
 
 		if item.completed_at is not None:
 			facts.append(f"done {_day_of(item.completed_at, item)}")

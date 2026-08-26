@@ -1167,6 +1167,68 @@ def test_a_day_long_until_on_a_timed_event_is_refused_rather_than_flattening_it 
 	assert after["ends_at"] == before["ends_at"], "a refused command set the end anyway"
 
 
+def test_a_timed_event_says_its_o_clock_and_a_whole_day_one_does_not (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1298`. A doctor's appointment and a birthday were the same line everywhere here.
+
+	The capture grammar reads *at 11:00* and stores it with the flag off; ``add``, ``list``,
+	``show`` and the agenda all printed *starts Tue 1 Dec*, so the terminal could not tell a
+	reader which of the two they were looking at. ``explain dates`` says of ``starts``: *"It
+	takes a time, so 'monday at 14:00' is an appointment"* — true of the store and false of
+	everything that drew it.
+
+	**All four renderings, because one of them being right is the condition under which the
+	others look fine.** They are one function now (`_render_moment`), and the pair is asserted
+	together so a fix that simply appended a time everywhere fails on the birthday.
+	"""
+
+	run("init")
+	added = run("add", "Doctor's appointment on 2026-12-01 at 11:00", "--type", "event")
+	birthday = run("add", "Anna's birthday on 2026-12-01", "--type", "event")
+
+	assert "at 11:00" in added.output, f"the confirmation dropped the time:\n{added.output}"
+	# ``Dec at`` rather than ``at``, because the tip line below every command contains *what
+	# happened* and a looser check reads the ``at`` inside *what* as a time.
+	assert "Dec at" not in birthday.output, (
+		f"a whole day was given an o'clock nobody wrote:\n{birthday.output}"
+	)
+
+	for surface, output in (
+		("list", run("list").output),
+		("show", run("show", "1").output),
+		("agenda", run("agenda", "2026-12-01").output),
+	):
+		assert "at 11:00" in output, f"{surface} does not say the appointment is at 11:00:\n{output}"
+
+	standing = run("show", "2").output
+
+	assert "starts Tue 1 Dec" in standing, f"show lost the birthday's day:\n{standing}"
+	assert "Dec at" not in standing, f"show gave a birthday a time:\n{standing}"
+
+
+def test_the_scripted_listing_row_says_whether_a_start_names_a_whole_day (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1298`, on the path with no eyes and no `?fields=` to ask with.
+
+	``list --json`` carried ``due_is_all_day`` and not ``starts_is_all_day``, so a script could
+	read the shape of a deadline and not the shape of a start — and a null instant would then
+	be indistinguishable from a whole-day one. Unlike the API's row there is no way to request
+	a field by name here, so a key that is absent is a fact that cannot be had.
+	"""
+
+	run("init")
+	run("add", "Doctor's appointment on 2026-12-01 at 11:00", "--type", "event")
+	run("add", "Anna's birthday on 2026-12-01", "--type", "event")
+
+	rows = {row["ref"]: row for row in json.loads(run("list", "--json").output)}
+
+	assert rows[1]["starts_is_all_day"] is False, "a timed start is reported as a whole day"
+	assert rows[2]["starts_is_all_day"] is True, "a whole day is reported as timed"
+	assert "snoozed_is_all_day" in rows[1], "the defer's own flag is still missing"
+
+
 def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
