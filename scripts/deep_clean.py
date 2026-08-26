@@ -140,6 +140,29 @@ def _remove (path: pathlib.Path, *, kind: str, dry_run: bool) -> Step:
 	return Step(kind, str(path), "removed")
 
 
+def places (home: pathlib.Path) -> list[pathlib.Path]:
+	"""Return the directories an installed program may be sitting in, for this home.
+
+	**A function rather than a literal, so the contract can be asserted** (`#1345`). The rule is
+	that everything this touches is under the home it was given — which is what lets a test
+	point a destructive run at a scratch directory and know nothing can escape. A system
+	directory is outside that, so it is consulted only when there is no isolation to break.
+
+	**Written this way because the obvious test could not fail here.** Asserting on the *report*
+	needs the program to actually be in ``/usr/local/bin``, and this machine has none — which is
+	exactly how the defect reached CI, where ``pip install -e .`` into the system Python puts
+	one there. Returning the list makes the claim checkable on any machine, with no fixture that
+	has to contain the thing being guarded against.
+	"""
+
+	inside = [home / ".local" / "bin"]
+
+	if home != pathlib.Path.home():
+		return inside
+
+	return [*inside, pathlib.Path("/usr/local/bin")]
+
+
 def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	"""Remove the installed program, and refuse anything that is not one.
 
@@ -150,13 +173,21 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 	**The tell is where it points**, not that it exists, which is why this reads the link rather
 	than trusting the name.
+
+	**A system directory is consulted only when this is the real machine** (`#1345`). Everything
+	else here lives under ``home``, which is what lets a test point the whole run at a scratch
+	directory and know nothing can escape; ``/usr/local/bin`` sits outside that contract and can
+	only be honoured when there is no isolation to break. CI found this and no local run could
+	have: it installs with ``pip install -e .`` into the system Python, so ``subroutine`` really
+	is in ``/usr/local/bin`` there — the test asked for a clean machine, was told about a
+	program it could not have removed, and failed on all four interpreters.
 	"""
 
 	name = subroutine.config.APPLICATION_NAME
 	steps: list[Step] = []
 	tools = home / ".local" / "share" / "uv" / "tools" / name
 
-	for directory in (home / ".local" / "bin", pathlib.Path("/usr/local/bin")):
+	for directory in places(home):
 		binary = directory / name
 
 		if not binary.exists() and not binary.is_symlink():

@@ -469,3 +469,83 @@ def test_a_by_hand_line_is_always_a_command_and_never_advice (
 			assert word == "&&" or not word.endswith(","), (
 				f"a command has prose punctuation in it: {line}"
 			)
+
+
+def test_a_run_pointed_at_a_scratch_home_looks_nowhere_else (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#1345`. CI failed on all four interpreters and no local run could have.
+
+	The isolation contract is *everything this touches is under the home it was given*, which
+	is what lets a test point the whole run at a scratch directory. ``/usr/local/bin`` was
+	consulted unconditionally, outside that contract — and CI installs with ``pip install -e .``
+	into the system Python, so ``subroutine`` genuinely is there. The clean-machine test asked
+	for nothing outstanding and was told about a program it had no way to remove.
+
+	**This machine has no ``/usr/local/bin/subroutine``, so the fixture could not hold the
+	defect** — the same reason the quoting bug shipped, one commit earlier, and the reason this
+	asserts on *every path mentioned* rather than on the one that bit.
+
+	Driven by reading the report rather than the source: a path outside the given home appearing
+	anywhere in the output is the failure, whichever directory it came from.
+	"""
+
+	_installed()
+
+	assert deep_clean.main(["--yes"], home=tmp_path) == 0, capsys.readouterr().out
+
+	printed = capsys.readouterr().out
+	roots = (str(tmp_path), "searched", "connection")
+
+	for line in printed.splitlines():
+		if not line.strip() or line.lstrip().startswith(("reason:", "by hand:")):
+			continue
+
+		mentioned = [one for one in line.split() if one.startswith("/")]
+
+		for path in mentioned:
+			# The XDG roots are redirected by `conftest.py` and are legitimately elsewhere;
+			# what must never appear is a system directory nobody pointed this at.
+			assert not path.startswith(("/usr/", "/opt/", "/etc/", "/bin/", "/sbin/")), (
+				f"a run given {tmp_path} reported on {path}, which is outside it:\n{printed}"
+			)
+
+	assert any(one in printed for one in roots), (
+		f"the report mentions none of the scratch home, so this checked nothing:\n{printed}"
+	)
+
+
+def test_the_places_searched_for_a_program_stay_inside_the_home_given (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1345`, and the assertion the report-reading version could not make.
+
+	The contract is that everything touched is under the home passed in. ``/usr/local/bin`` broke
+	it unconditionally, and CI failed on all four interpreters because it installs with
+	``pip install -e .`` into the system Python and really does have a ``subroutine`` there.
+
+	**No local run could have caught that by reading the report**, because this machine has no
+	such file — the same blind fixture that shipped the quoting defect one commit earlier. So
+	the claim is asserted where it is decided instead: what is *searched*, rather than what
+	happened to be found.
+
+	Both directions, because a rule that returns nothing outside the home would also return
+	nothing at all, and then the program would never be removed from a real machine.
+	"""
+
+	scratch = deep_clean.places(tmp_path)
+
+	assert scratch, "a scratch run searches nowhere, so nothing would ever be removed"
+
+	for one in scratch:
+		assert tmp_path in one.parents or one == tmp_path, (
+			f"a run given {tmp_path} would search {one}, which is outside it"
+		)
+
+	# **And on the real machine the system directory is back**, or an ordinary install that put
+	# the program in `/usr/local/bin` is quietly left behind by a tool reporting a clean machine.
+	real = deep_clean.places(pathlib.Path.home())
+
+	assert pathlib.Path("/usr/local/bin") in real, (
+		f"a real run searches only {real}, so a system install would survive it"
+	)
