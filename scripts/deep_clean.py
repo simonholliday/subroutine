@@ -232,6 +232,34 @@ def _published_plugins () -> list[str]:
 	return [f"{one['name']}@{market}" for one in loaded.get("plugins", []) if one.get("name")]
 
 
+def _left_behind (home: pathlib.Path, market: str) -> bool:
+	"""Say whether anything of ours is under Claude Code's directory (`#1347`).
+
+	**Asked before declaring the plugin somebody else's problem.** The four places it could be:
+	the version-keyed cache, the cloned marketplace, and the two registry files that name what
+	is installed and where it came from. A machine with none of them has never had this plugin,
+	whatever is or is not on the ``PATH``.
+
+	Read rather than parsed — a substring is enough to answer *is there any trace*, and parsing
+	Claude Code's private files to answer a yes/no would be a second thing to keep in step with
+	a format that is not ours.
+	"""
+
+	plugins = home / CLAUDE_PLUGINS
+
+	if (plugins / "cache" / market).exists() or (plugins / "marketplaces" / market).exists():
+		return True
+
+	for name in ("installed_plugins.json", "known_marketplaces.json"):
+		try:
+			if market in (plugins / name).read_text(encoding="utf-8"):
+				return True
+		except (OSError, UnicodeDecodeError):
+			continue
+
+	return False
+
+
 def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	"""Uninstall the plugins and forget the marketplace, through Claude Code's own CLI.
 
@@ -254,11 +282,25 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	# the part you can see.
 
 	if claude is None:
+		# **Nothing installed is not something left to do** (`#1347`). No ``claude`` on the
+		# machine and no trace of ours under its directory means the plugin was never here —
+		# which is the outcome asked for, so it is reported as one. Saying *skipped* instead
+		# made a machine that had never seen Claude Code report work outstanding for ever, and
+		# CI is exactly that machine: its test jobs install no editor, so all four failed on a
+		# clean run. Third time an expected absence has been dressed as an unfinished job here.
+		if not _left_behind(home, market):
+			steps.append(Step("claude", "plugins and marketplace", "absent"))
+
+			return steps
+
+		# **But a trace with no `claude` to remove it *is* somebody's job.** Its registry files
+		# are its own bookkeeping and hand-editing them is how a plugin ends up listed and
+		# absent, which reports success and starts no server (`#236`).
 		steps.append(Step(
 			"claude",
 			"plugins and marketplace",
 			"SKIPPED",
-			detail="no 'claude' on PATH, and these files are its own bookkeeping",
+			detail="something of ours is under ~/.claude and there is no 'claude' to remove it",
 			by_hand=" && ".join([
 				*(f"claude plugin uninstall {one}" for one in _published_plugins()),
 				f"claude plugin marketplace remove {market}",

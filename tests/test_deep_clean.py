@@ -549,3 +549,67 @@ def test_the_places_searched_for_a_program_stay_inside_the_home_given (
 	assert pathlib.Path("/usr/local/bin") in real, (
 		f"a real run searches only {real}, so a system install would survive it"
 	)
+
+
+def test_a_machine_that_never_had_claude_code_is_not_told_it_has_work_left (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1347`. CI has no editor on its test runners, so all four jobs failed on a clean run.
+
+	No ``claude`` on the ``PATH`` and no trace of ours under its directory means the plugin was
+	never on this machine — which is the outcome being asked for. Reporting it as *skipped* made
+	such a machine say *1 left for you* for ever, and pointed the reader at a command they
+	cannot run.
+
+	**Third time an expected absence has been dressed as an unfinished job here**, after the
+	plugin uninstall's own error text and the unconditional markers step. The register a report
+	of a destructive operation is read in is the whole of why it keeps mattering.
+
+	**Driven by removing `claude` rather than by finding a machine without one** — this one has
+	it, which is exactly why the defect reached CI.
+	"""
+
+	monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+	_installed()
+
+	assert deep_clean.main(["--yes"], home=tmp_path) == 0, capsys.readouterr().out
+
+	printed = capsys.readouterr().out
+
+	assert "nothing left for you" in printed, (
+		f"a machine that never had Claude Code was told it has work outstanding:\n{printed}"
+	)
+
+
+def test_a_trace_left_with_no_claude_to_remove_it_is_still_reported (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1347`, and the half that stops the fix becoming *never mention it*.
+
+	Claude Code uninstalled while its plugin cache remains is a real state, and the registry
+	files are its own bookkeeping — hand-editing them is how a plugin ends up listed and absent,
+	which reports success and starts no server. So a trace with no way to remove it is genuinely
+	somebody's job and has to say so.
+
+	Both directions, because a rule that only ever answers *absent* would pass the guard above
+	while quietly leaving a plugin installed on every machine that has one.
+	"""
+
+	# A cache directory is one of the four traces; the others are the marketplace clone and
+	# the two registry files.
+	cache = tmp_path / ".claude" / "plugins" / "cache" / subroutine.config.APPLICATION_NAME
+	cache.mkdir(parents=True)
+	(cache / "0.8.1").mkdir()
+
+	monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+	_installed()
+
+	assert deep_clean.main(["--yes"], home=tmp_path) == 2
+
+	printed = capsys.readouterr().out
+
+	assert "SKIPPED" in printed and "claude" in printed, (
+		f"a plugin left on the machine was not reported:\n{printed}"
+	)
