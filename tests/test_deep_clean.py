@@ -21,6 +21,7 @@ import pytest
 
 import subroutine.config
 import subroutine.context
+import subroutine.directory
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -300,3 +301,67 @@ def test_the_clean_never_reaches_past_the_home_it_was_given (
 			f"a child was started against {given.get('HOME')!r} rather than the home this run "
 			f"was given, so it would act on the machine instead of on the scratch directory"
 		)
+
+
+def test_a_deep_clean_finds_the_markers_rather_than_handing_over_a_command (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#1342`. The one question this whole script answers was left for the operator to run.
+
+	It printed ``find ~ -name .subroutine`` and called that a step. Driven on a real machine,
+	the operator ran it and found four — in repositories they had forgotten about. A marker is
+	not merely a trace either: it decides which project a bare ``subroutine add`` files into, so
+	a checkout carrying one is *not* a machine that has never met this program, which is the
+	whole state being produced.
+
+	Reported and never removed, because a marker is very often a committed file belonging to
+	somebody's repository.
+	"""
+
+	_installed()
+
+	checkout = tmp_path / "work" / "something"
+	checkout.mkdir(parents=True)
+	marker = checkout / subroutine.directory.FILE_NAME
+	marker.write_text("project = 'sr'\n", encoding="utf-8")
+
+	assert deep_clean.main(["--yes"], home=tmp_path) == 2
+
+	printed = capsys.readouterr().out
+
+	assert marker.exists(), "a marker in somebody's repository was removed"
+	assert str(marker) in printed, (
+		f"the marker was not found, so the operator is still running find by hand:\n{printed}"
+	)
+	assert f"rm {marker}" in printed, "a refusal has to carry the command that finishes it"
+
+
+def test_a_clean_machine_reports_that_nothing_is_left (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#1342`. Run twice on a real machine, the second run said *1 left for you*.
+
+	The markers entry fired unconditionally, so the summary could never say the job was done and
+	the exit code was never zero. **A tool that cannot report success is one nobody reads the
+	end of** — and this one is read at the end precisely because everything above it is
+	irreversible.
+
+	**The search is still reported when it finds nothing**, as a note rather than a job: no line
+	and no markers look identical in the output, and the difference is whether the check ran at
+	all.
+	"""
+
+	assert deep_clean.main(["--yes"], home=tmp_path) == 0
+
+	printed = capsys.readouterr().out
+
+	assert "nothing left for you" in printed, (
+		f"a clean machine was still reported as having work outstanding:\n{printed}"
+	)
+	assert "searched" in printed, (
+		f"the marker search is invisible, so a skipped check reads as a clean result:"
+		f"\n{printed}"
+	)
+	assert "Run the commands above" not in printed, (
+		f"a clean run tells the operator to run commands that are not there:\n{printed}"
+	)

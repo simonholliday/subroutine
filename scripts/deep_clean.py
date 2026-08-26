@@ -37,6 +37,7 @@ import sys
 import typing
 
 import subroutine.config
+import subroutine.directory
 
 #: The plugins this repository publishes, and the marketplace they come from. Read from the
 #: manifests rather than named here, so a third plugin is covered on the day it ships — the
@@ -243,11 +244,13 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			env={**os.environ, "HOME": str(home)},
 		)
 		# **Not installed is a success here**, because the outcome asked for is that it is gone.
+		# **Not installed is the outcome asked for, so it is reported as one.** Passing the
+		# CLI's own words through made an already-clean machine read as two failures — a red
+		# cross and a truncated sentence against a line whose outcome column says ``absent``.
+		# A report of a destructive operation is read for what went wrong, and putting the
+		# ordinary case in that register is how somebody stops reading it.
 		steps.append(Step(
-			"claude plugin",
-			plugin,
-			"uninstalled" if done.returncode == 0 else "absent",
-			detail="" if done.returncode == 0 else (done.stderr or done.stdout).strip()[:120],
+			"claude plugin", plugin, "uninstalled" if done.returncode == 0 else "absent"
 		))
 
 	if dry_run:
@@ -261,10 +264,7 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			env={**os.environ, "HOME": str(home)},
 		)
 		steps.append(Step(
-			"claude marketplace",
-			market,
-			"removed" if done.returncode == 0 else "absent",
-			detail="" if done.returncode == 0 else (done.stderr or done.stdout).strip()[:120],
+			"claude marketplace", market, "removed" if done.returncode == 0 else "absent"
 		))
 
 	# **Then check, because uninstalling is not the same act as the cache being gone** — the
@@ -353,7 +353,15 @@ def _things_nobody_else_may_decide (
 			by_hand="unset SUBROUTINE_PROFILE, and take it out of your shell profile",
 		))
 
-	for name in sorted(one for one in os.environ if one.startswith("SUBROUTINE_")):
+	# **``SUBROUTINE_TEST_*`` configures the harness, not the product**, which is the same line
+	# ``tests/conftest.py`` draws and for the same reason. Reporting them told somebody running
+	# the suite that their machine carried overrides it did not — and it was the *gate* that
+	# found this, because those variables are only set there.
+	for name in sorted(
+		one
+		for one in os.environ
+		if one.startswith("SUBROUTINE_") and not one.startswith("SUBROUTINE_TEST_")
+	):
 		if name == "SUBROUTINE_PROFILE":
 			continue
 
@@ -365,15 +373,63 @@ def _things_nobody_else_may_decide (
 			by_hand=f"unset {name}, and take it out of your shell profile",
 		))
 
-	steps.append(Step(
-		"markers",
-		".subroutine files in your checkouts",
-		"SKIPPED",
-		detail="each names a project by id and belongs to that repository, not to the install",
-		by_hand="find ~ -name .subroutine -not -path '*/.git/*'",
-	))
-
 	return steps
+
+
+#: Directories a marker is never in and which are expensive to walk. Pruned rather than
+#: filtered afterwards, so the cost is not paid at all.
+NOT_WORTH_WALKING = frozenset({
+	".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+	".cache", ".mypy_cache", ".pytest_cache", ".npm", ".mozilla", ".local",
+})
+
+
+def _markers (home: pathlib.Path) -> list[Step]:
+	"""Find the ``.subroutine`` files in somebody's checkouts, and report what is there.
+
+	**Searched rather than suggested** (`SR#1342`). This used to hand over a ``find`` command,
+	which meant the one question the whole script exists to answer — *is there any trace left* —
+	was the operator's to run. Driven on a real machine it found four, in repositories the
+	person had forgotten about.
+
+	**Reported and never removed.** A marker names a project by id and belongs to the repository
+	it sits in, very often committed; deleting somebody's tracked file because it mentions this
+	program is exactly the guess a destructive tool may not make.
+
+	**And it is not merely a trace.** A marker decides which project a bare ``subroutine add``
+	files into, so a checkout carrying one is not a machine that has never met this program —
+	which is the whole state this script exists to produce. A first-contact run made inside such
+	a directory would answer differently and nobody would know why.
+
+	**And the search is reported even when it finds nothing**, because *no line* and *no
+	markers* look identical in the output — the difference between a check that ran and one
+	that was skipped, which is the thing a report of an irreversible operation must not blur.
+	"""
+
+	found: list[pathlib.Path] = []
+
+	for root, directories, files in os.walk(home, followlinks=False):
+		directories[:] = [one for one in directories if one not in NOT_WORTH_WALKING]
+
+		if subroutine.directory.FILE_NAME in files:
+			found.append(pathlib.Path(root) / subroutine.directory.FILE_NAME)
+
+	if not found:
+		return [Step("markers", f"searched {home}", "note", detail="none found")]
+
+	return [
+		Step(
+			"markers",
+			str(one),
+			"SKIPPED",
+			detail=(
+				"a checkout carrying one does not behave like a fresh one, and it is very "
+				"often committed"
+			),
+			by_hand=f"rm {one}",
+		)
+		for one in sorted(found)
+	]
 
 
 def _elsewhere () -> list[tuple[str, str]]:
@@ -508,6 +564,7 @@ def main (
 	steps.extend(_executable(home, dry_run=options.dry_run))
 	steps.extend(_claude(home, dry_run=options.dry_run))
 	steps.extend(_things_nobody_else_may_decide(settings, connections))
+	steps.extend(_markers(home))
 
 	outstanding = _report(steps)
 	removed = sum(
