@@ -95,10 +95,19 @@ def passed (
 	* **an instant with no end** — over when it happens, which is all an instant can mean.
 
 	**The known slop is one hour, twice a year.** A local day is 23 or 25 hours long across a
-	daylight-saving boundary and this subtracts 24. The alternative is a per-row timezone, which
-	SQL cannot do — :func:`subroutine.domain.schedule.is_overdue` is where a per-row zone is
-	honoured, in Python, on a loaded row. Nothing here decides what a person *sees*: the agenda
-	buckets an occasion by overlapping the day being shown, which is exact.
+	daylight-saving boundary and this subtracts 24. **No portable SQL converts an instant using
+	a zone taken from the row** — measured rather than recalled, SQLite answers
+	``datetime(t, 'Europe/London')`` with NULL, silently — and
+	:func:`subroutine.domain.schedule.is_overdue` is where a per-row zone is honoured, in
+	Python, on a loaded row.
+
+	**The sentence that used to close this paragraph was the one that hid `#1296`.** It read
+	*"Nothing here decides what a person sees: the agenda buckets an occasion by overlapping the
+	day being shown, which is exact."* That was true of the case it was written for and was
+	never re-asked: the overlap compared a whole-day row's stored instant against the reader's
+	day, so an event moved between sections — and sometimes into none — depending on who was
+	looking. The agenda enumerates the zones actually present and compares a date against a
+	date now, which is exact; this function stays coarse because nothing it answers is drawn.
 	"""
 
 	a_day_ago = now - datetime.timedelta(days=1)
@@ -408,13 +417,22 @@ def _matching (
 
 
 def undeferred (
-	model: type[typing.Any], *, now: datetime.datetime
+	model: type[typing.Any],
+	*,
+	now: datetime.datetime | sqlalchemy.ColumnElement[datetime.datetime],
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items whose defer instant has passed, or that have none.
 
 	``now`` is passed in rather than read here so that one request resolves every relative
 	comparison against a single instant — the same rule ``domain.tasks`` follows, and the
 	reason a task cannot be deferred and ready in one listing.
+
+	**It may be an expression rather than a value, and the agenda passes one** (`#1296`). A
+	whole-day defer is stored at the first instant of *its own* local day (§6.5), so a single
+	boundary answers *has this come round* differently for two people an hour apart — measured,
+	a defer to tomorrow was visible to one reader and hidden from another. Taking a per-row
+	boundary here is what lets that be fixed without a second copy of this rule: ``?ready=``
+	goes on asking *can I start this now*, which is honestly an instant.
 	"""
 
 	return sqlalchemy.or_(model.snoozed_until.is_(None), model.snoozed_until <= now)

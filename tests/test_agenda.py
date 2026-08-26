@@ -92,6 +92,219 @@ class World:
 		)
 
 
+
+#: The zones a whole-day row is read from in `SR#1296`'s guards, spanning UTC-7 to UTC+12.
+#:
+#: **London is the zone the rows are *written* in**, so it is the control: its answers are what
+#: every other reader must agree with, because a whole day belongs to the day it was labelled
+#: with (decision `SR#1088`).
+READERS = ("Europe/London", "Etc/UTC", "America/Los_Angeles", "Pacific/Auckland")
+
+
+def _bucket_of (built: subroutine.domain.agenda.Agenda, title: str) -> str:
+	"""Return the bucket one title landed in, or ``none`` — `SR#1296`.
+
+	**Which bucket rather than which rows**, because the defect moves a row between two
+	sections that are both plausible, and an assertion naming one section could pass while the
+	row sat in another. It also catches the worse symptom, which is a row in *no* bucket.
+	"""
+
+	for bucket in subroutine.domain.agenda.BUCKETS:
+		if title in _titles(getattr(built, bucket)):
+			return bucket
+
+	return "none"
+
+
+def _read_by_everybody (
+	world: World, title: str, *, day: datetime.date
+) -> dict[str, str]:
+	"""Return which bucket a title lands in for each reader, on **the same** calendar day.
+
+	**The day is pinned, and without that this measures the wrong thing.** Which day *today* is
+	genuinely differs by reader — that is decision `SR#1088` working — so leaving it to default
+	would confound *what day is it* with *which day does this row belong to*, and the second is
+	the question. Met while measuring this: an unpinned probe reported a timed row moving and
+	an all-day deadline not, and both readings were artefacts of the day changing underneath.
+	"""
+
+	return {
+		zone: _bucket_of(world.agenda(timezone=zone, horizon_days=7, date=day), title)
+		for zone in READERS
+	}
+
+
+def test_a_whole_day_row_is_in_the_same_section_whoever_is_reading (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1296`. *Get paid* was under *Next 7 days* in the terminal and *Happening* in the browser.
+
+	Simon met it as two surfaces disagreeing; they were two **accounts**, an hour apart, each
+	answering its own question correctly. A whole-day row is stored at an edge of *its own*
+	local day (§6.5), so reading it as an instant against somebody else's day boundary asks
+	about clocks when the question is about dates — and decision `SR#1088` settles that a day
+	is a label and belongs to the day it was labelled with, on every clock.
+
+	**Three shapes and both columns**, because the item names one and the measurement found
+	more: a whole-day start moves between *Happening*, *Today* and *Next 7 days*, and a
+	whole-day **deadline** moves between *Overdue* and *Today* — which is the row a person is
+	meant to act on first, silently a day out.
+	"""
+
+	world = World(session)
+	tomorrow = TODAY + datetime.timedelta(days=1)
+	yesterday = TODAY - datetime.timedelta(days=1)
+
+	world.task("An event tomorrow", type_key="event", starts=tomorrow, starts_is_all_day=True)
+	world.task("An event today", type_key="event", starts=TODAY, starts_is_all_day=True)
+	world.task("Something starting tomorrow", starts=tomorrow, starts_is_all_day=True)
+	world.task("Due today", due=TODAY, due_is_all_day=True)
+	world.task("Due yesterday", due=yesterday, due_is_all_day=True)
+
+	expected = {
+		"An event tomorrow": "upcoming",
+		"An event today": "occasions",
+		"Something starting tomorrow": "upcoming",
+		"Due today": "today",
+		"Due yesterday": "overdue",
+	}
+
+	for title, belongs in expected.items():
+		landed = _read_by_everybody(world, title, day=TODAY)
+
+		assert set(landed.values()) == {belongs}, (
+			f"{title!r} was written in {LONDON} and belongs in {belongs!r}, and readers "
+			f"disagree: {landed}"
+		)
+
+
+def test_a_whole_day_event_on_today_does_not_vanish_for_a_reader_further_west (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1296`'s worst symptom, and worse than the item reports.
+
+	**Measured: the event was in no bucket at all** for a reader west of the zone it was
+	written in. Its start is the first instant of its own day, which is *before* a westward
+	reader's day begins, so the overlap test dropped it; ``today`` excludes occasions by
+	design; and ``upcoming`` wants a start after tonight. A row landing in the wrong section is
+	a nuisance, and a row landing in none is the agenda quietly not mentioning something.
+
+	Kept apart from the guard above because *disagreement* and *absence* are different
+	failures, and an assertion that the readers agree would be satisfied by all of them losing
+	it.
+	"""
+
+	world = World(session)
+	world.task("Anna's birthday", type_key="event", starts=TODAY, starts_is_all_day=True)
+
+	landed = _read_by_everybody(world, "Anna's birthday", day=TODAY)
+
+	assert "none" not in landed.values(), (
+		f"a whole-day event on today is in no section at all for some reader: {landed}"
+	)
+
+
+def test_a_whole_day_defer_hides_a_row_from_everybody_or_from_nobody (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1296`, one layer up from the buckets and arguably worse.
+
+	A defer says *not until Tuesday*. It is stored at the first instant of its own local day
+	(§6.5), and the agenda hid a row by reading that instant against the **reader's** day —
+	so *not yet* was honoured for one person and broken for another an hour away. Measured
+	before the fix: a defer to tomorrow was visible in UTC and in Los Angeles, hidden in London
+	and in Auckland.
+
+	**Found by asking what else compares a whole-day value**, rather than by the report, which
+	is only about which section a row lands in. A fix that corrected the sections and left this
+	would have made the agenda put every row under the right heading and still show the wrong
+	set of rows.
+
+	``readiness.undeferred`` is unchanged in meaning and takes the boundary as an expression, so
+	``?ready=`` goes on asking *can I start this now* — which is honestly an instant.
+	"""
+
+	world = World(session)
+	tomorrow = TODAY + datetime.timedelta(days=1)
+
+	world.task("Not until tomorrow", snooze=tomorrow, snoozed_is_all_day=True)
+	world.task("Back from today", snooze=TODAY, snoozed_is_all_day=True)
+
+	seen = {
+		zone: sorted(
+			row.title
+			for bucket in subroutine.domain.agenda.BUCKETS
+			for row in getattr(
+				world.agenda(timezone=zone, horizon_days=7, date=TODAY), bucket
+			)
+		)
+		for zone in READERS
+	}
+
+	assert list(seen.values()).count(["Back from today"]) == len(READERS), (
+		f"a whole-day defer came round on different days for different readers: {seen}"
+	)
+
+
+def test_a_row_with_a_time_still_belongs_to_the_reader_s_own_clock (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other half of decision `SR#1088`, and what stops `SR#1296`'s fix over-reaching.
+
+	*A day is a label, a moment is a point in time.* A meeting at 22:00 UTC genuinely has not
+	begun yet where it is already tomorrow, so it **must** move between sections as the reader
+	changes — and a fix that made every date behave like a label would have taken that away
+	while every assertion about whole days went on passing.
+
+	The instant is chosen to sit inside one reader's day and outside another's, because a time
+	in the middle of the afternoon is the same section for everybody and would prove nothing.
+	"""
+
+	world = World(session)
+	world.task(
+		"A meeting at the edge of the day",
+		type_key="event",
+		starts=datetime.datetime(2026, 7, 30, 22, 0, tzinfo=datetime.UTC),
+		starts_is_all_day=False,
+	)
+
+	landed = _read_by_everybody(world, "A meeting at the edge of the day", day=TODAY)
+
+	assert len(set(landed.values())) > 1, (
+		f"a timed row answered the same for every reader, so an instant has been made to "
+		f"behave like a label: {landed}"
+	)
+	assert landed["Pacific/Auckland"] == "upcoming", (
+		f"22:00 UTC has not begun where it is already tomorrow: {landed}"
+	)
+
+
+def test_a_whole_day_row_dated_somewhere_neither_reader_is (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The zone branch itself, which the guards above reach only for the reader's own zone.
+
+	A row carries the zone **it** was written in, which is whoever filed it — so the interesting
+	case is a third zone belonging to neither the writer of the other rows nor the reader. It is
+	also what falsifies a fix that special-cased *the reader's zone against London*.
+	"""
+
+	world = World(session)
+	world.task(
+		"A holiday booked in Tokyo",
+		type_key="event",
+		starts=TODAY,
+		starts_is_all_day=True,
+		timezone="Asia/Tokyo",
+	)
+
+	landed = _read_by_everybody(world, "A holiday booked in Tokyo", day=TODAY)
+
+	assert set(landed.values()) == {"occasions"}, (
+		f"a whole day labelled with today is not today for everybody: {landed}"
+	)
+
+
 def test_an_agenda_can_be_narrowed_to_a_project_and_everything_under_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:

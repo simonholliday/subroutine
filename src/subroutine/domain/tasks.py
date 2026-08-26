@@ -379,23 +379,6 @@ def first_whole_day (
 	return whole_day_for(found[0], field=field, timezone=timezone, now=now)
 
 
-#: Which edge of a local day each date column stores when it holds a whole day (§6.5).
-#:
-#: **Written out because ``ends_at`` breaks the shortcut this used to be** (`#1303`). The rule
-#: was *the end of the day for a deadline, the beginning for anything else*, which is right for
-#: three columns and wrong for the fourth: an all-day span ending on Friday ends when Friday
-#: does, and :func:`~subroutine.domain.tasks.update` has always said so. Nothing had asked
-#: :func:`whole_day_for` about an end, so a function whose docstring claims to be the one
-#: pairing of column and edge was quietly incomplete — the shape a guard cannot see, because
-#: every existing caller passes a column the shortcut happens to get right.
-WHOLE_DAY_EDGE = {
-	"due_at": subroutine.domain.schedule.Boundary.END,
-	"starts_at": subroutine.domain.schedule.Boundary.START,
-	"ends_at": subroutine.domain.schedule.Boundary.END,
-	"snoozed_until": subroutine.domain.schedule.Boundary.START,
-}
-
-
 def whole_day_for (
 	moment: datetime.datetime | datetime.date,
 	*,
@@ -406,7 +389,7 @@ def whole_day_for (
 	"""Snap a day to the edge of it that ``field`` stores.
 
 	**The pairing of column and edge, in one place** (`#1209`), declared as
-	:data:`WHOLE_DAY_EDGE`. §6.5 stores an all-day deadline at the last microsecond of its day
+	:data:`subroutine.domain.schedule.WHOLE_DAY_EDGE`. §6.5 stores an all-day deadline at the last microsecond of its day
 	and an all-day start at the first, so the two travel together — and they were two copies
 	before this, one here and one inlined in :func:`materialise`, agreeing only because both
 	were hardcoded to ``due_at``. The moment the column became a question they would have had
@@ -421,7 +404,7 @@ def whole_day_for (
 
 	return subroutine.domain.schedule.interpret(
 		moment,
-		boundary=WHOLE_DAY_EDGE[field],
+		boundary=subroutine.domain.schedule.WHOLE_DAY_EDGE[field],
 		timezone=timezone,
 		now=now,
 		all_day=True,
@@ -2042,7 +2025,7 @@ def _reshaped (
 	**Days rather than a duration**, because that is the only part of a shape change that
 	survives it: the two rows are a whole number of local days apart, and rounding a timedelta
 	gets that wrong at exactly the edges §6.5 stores things at. What lands is the target's own
-	day moved by that many, wearing the new shape — the edge from :data:`WHOLE_DAY_EDGE` when
+	day moved by that many, wearing the new shape — the edge from :data:`~subroutine.domain.schedule.WHOLE_DAY_EDGE` when
 	the date became a whole day, and the source's own time of day when it stopped being one.
 	"""
 
@@ -2057,7 +2040,7 @@ def _reshaped (
 	# is what puts the same wall-clock time on the landing day across a clock change.
 	return subroutine.domain.schedule.interpret(
 		datetime.datetime.combine(landing, now_holds.astimezone(zone).time()),
-		boundary=WHOLE_DAY_EDGE[column],
+		boundary=subroutine.domain.schedule.WHOLE_DAY_EDGE[column],
 		timezone=timezone,
 		now=now,
 		all_day=False,

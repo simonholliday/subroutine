@@ -809,10 +809,16 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 
 #: How many statements a whole agenda may issue, at any number of rows (`#1295`).
 #:
-#: **Fourteen measured**, at :data:`TASKS`: eight bucket queries — one is skipped when no
+#: **Fifteen measured**, at :data:`TASKS`: eight bucket queries — one is skipped when no
 #: look-ahead is asked for — and five counts, plus the prioritised-project lookup the ordering
-#: resolves once. The allowance above that is deliberately small, because the thing this
-#: catches is not a statement or two: an N+1 here would be two thousand.
+#: resolves once and the zone lookup `#1296` added. The allowance above that is deliberately
+#: small, because the thing this catches is not a statement or two: an N+1 here would be two
+#: thousand.
+#:
+#: **It was fourteen until `#1296`**, and the number is restated rather than left because a
+#: comment that says *measured* has to say what was measured. The one added asks which zones
+#: the whole-day rows in scope were dated in, so each can be compared as a date rather than
+#: against somebody else's midnight.
 #:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.

@@ -81,6 +81,31 @@ class Boundary(enum.StrEnum):
 	START = "start"
 
 
+#: Which edge of a local day each date column stores when it holds a whole day (§6.5).
+#:
+#: **Beside :data:`DATE_FIELDS` because it is the same kind of fact**: one row per date column,
+#: saying something a caller cannot see from the column's name. That one gives the word a caller
+#: sends and the flag that decides the shape; this gives the edge that shape lands on.
+#:
+#: **Written out because ``ends_at`` breaks the shortcut this used to be** (`#1303`). The rule
+#: was *the end of the day for a deadline, the beginning for anything else*, which is right for
+#: three columns and wrong for the fourth: an all-day span ending on Friday ends when Friday
+#: does, and :func:`~subroutine.domain.tasks.update` has always said so. Nothing had asked
+#: :func:`~subroutine.domain.tasks.whole_day_for` about an end, so a function whose docstring
+#: claims to be the one pairing of column and edge was quietly incomplete — the shape a guard
+#: cannot see, because every existing caller passes a column the shortcut happens to get right.
+#:
+#: **It is also what makes a whole-day row comparable** (`#1298`'s neighbour, `#1296`): a
+#: stored instant says which local date it is only once you know which edge of that date it
+#: sits on, so the agenda reads this to compare a date rather than a moment.
+WHOLE_DAY_EDGE = {
+	"due_at": Boundary.END,
+	"starts_at": Boundary.START,
+	"ends_at": Boundary.END,
+	"snoozed_until": Boundary.START,
+}
+
+
 @dataclasses.dataclass(frozen=True)
 class Moment:
 	"""An instant, and whether the user meant a whole day rather than a time.

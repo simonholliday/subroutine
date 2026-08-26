@@ -179,6 +179,15 @@ upgrade involves.
 
 ### Fixed
 
+- **An all-day event is in the same part of your agenda whoever is reading it.** A whole day is
+  a label, so *Get paid on 27 August* belongs to the 27th on every clock — and it was being
+  compared as a moment, so the same event sat under *Next 7 days* for one person and *Happening*
+  for another an hour away. Further out it was worse: an event on today disappeared from the
+  agenda entirely for a reader west of the place it was written. Deadlines had the same fault,
+  so one a day past could read as due today; and something you had put off until tomorrow could
+  come back early. A date is now compared as a date, in the zone it was written in, and a
+  genuine time of day still belongs to your own clock.
+
 - **An appointment now says what time it is at.** `subroutine add "Doctor's appointment tomorrow
   at 11:00"` read the time and stored it, and then every surface but the calendar drew it as
   *starts Thu 27 Aug* — so an appointment and a birthday were the same line at the terminal, in

@@ -355,17 +355,31 @@ def build (
 		),
 	)
 
-	base = _visible(
-		session, principal, workspace_ids, until=day_end, sortable=sortable, project=project
-	)
+	scoped = _scoped(workspace_ids, principal=principal, sortable=sortable, project=project)
+
+	# **Which zones the whole-day rows in scope were dated in** (`#1296`), so each of them can
+	# be compared as a *date* rather than as an instant read against somebody else's clock.
+	# Empty on an instance where everybody shares a zone, which is the ordinary case, and every
+	# comparison below then collapses to the boundary it used before.
+	#
+	# **Asked before the defer is applied, deliberately**: which rows the defer hides is itself
+	# one of the comparisons this corrects, so a zone list drawn from the already-filtered set
+	# would be missing exactly the rows whose visibility is in question.
+	zones = _other_zones(session, scoped, timezone)
+
+	def edge (column: str, *, on: datetime.date, reader: datetime.datetime) -> typing.Any:
+		"""Return the instant this column is measured against, per row, on that day."""
+
+		return _edge(column, day=on, timezone=timezone, zones=zones, reader=reader)
+
+	base = _visible(scoped, until=edge("snoozed_until", on=day, reader=day_end))
 
 	# **The look-ahead, resolved before the buckets so that `upcoming` is a predicate like the
 	# rest of them.** ``None`` means no window was asked for, which is the API's default, and
 	# that bucket is then empty rather than absent — the section still exists, it holds nothing.
+	horizon_day = None if horizon_days is None else day + datetime.timedelta(days=horizon_days)
 	horizon = (
-		None
-		if horizon_days is None
-		else _boundary(day + datetime.timedelta(days=horizon_days), timezone, end=True)
+		None if horizon_day is None else _boundary(horizon_day, timezone, end=True)
 	)
 
 	# **A project that is not running keeps its dated work on the agenda and loses this
@@ -458,7 +472,13 @@ def build (
 		# first-order cost. If it ever comes to that, `#888` already fixed the shape: a cap
 		# must *say* it is one, count what is hidden and offer a way to see it all, which is
 		# exactly what `unscheduled_total` is. Do not add a bare `.limit()`.
-		"overdue": base.where(model.due_at.is_not(None), model.due_at < day_start),
+		# **A whole-day deadline is compared as a date** (`#1296`). Measured before the fix:
+		# a deadline of yesterday, written in London and read in Auckland, was reported as due
+		# *today* — the row a person is meant to act on first, quietly one day out.
+		"overdue": base.where(
+			model.due_at.is_not(None),
+			model.due_at < edge("due_at", on=day, reader=day_start),
+		),
 		# **Overlap with the day, which is what makes a passed event leave on its own**
 		# (decision `#1235` §4). An occasion is here when it has begun by tonight and is not
 		# over before this morning; its end is `ends_at` where there is one and its start
@@ -469,11 +489,25 @@ def build (
 		# **Nothing is written and no scheduler runs** — `#1235` §3, which is `#915` §1's
 		# argument reapplied: a timer that only fires when the program happens to be up is
 		# worse than none, because it teaches somebody to trust it.
+		# **Each end is measured against the edge it is stored at** (`#1296`), which is why the
+		# ``coalesce`` above it went: a start and an end land on opposite edges of their day, so
+		# one expression standing in for both can only be right about one of them. For a
+		# whole-day row this now reads *its date has begun and has not gone by*, in its own
+		# zone, which is the only reading that is the same for every person looking.
 		"occasions": base.where(
 			subroutine.domain.readiness.is_occasion(model),
 			model.starts_at.is_not(None),
-			model.starts_at <= day_end,
-			sqlalchemy.func.coalesce(model.ends_at, model.starts_at) >= day_start,
+			model.starts_at <= edge("starts_at", on=day, reader=day_end),
+			sqlalchemy.or_(
+				sqlalchemy.and_(
+					model.ends_at.is_not(None),
+					model.ends_at >= edge("ends_at", on=day, reader=day_start),
+				),
+				sqlalchemy.and_(
+					model.ends_at.is_(None),
+					model.starts_at >= edge("starts_at", on=day, reader=day_start),
+				),
+			),
 		),
 		"today": base.where(
 			# **And it is not an occasion** (decision `#1235` §4). Without this the defect the
@@ -502,14 +536,31 @@ def build (
 				# and no deadline is in no other bucket at all. The agenda would stop
 				# mentioning it, in silence, and `list` would become the only place it
 				# appears — which is a worse answer than showing it every day.
-				model.starts_at <= day_end,
-				sqlalchemy.and_(model.due_at >= day_start, model.due_at <= day_end),
+				model.starts_at <= edge("starts_at", on=day, reader=day_end),
+				# **One expression for both shapes** (`#1296`): a whole-day deadline is stored
+				# at one edge, so both bounds resolve to the same instant and the pair reads as
+				# *due on this date*. A timed one keeps the window it always had.
+				sqlalchemy.and_(
+					model.due_at >= edge("due_at", on=day, reader=day_start),
+					model.due_at <= edge("due_at", on=day, reader=day_end),
+				),
 			)
 		),
-		"upcoming": None if horizon is None else base.where(
+		# **Both edges of the window are per-row** (`#1296`). The near one has to be, or this
+		# and ``today`` disagree about the same row and it lands in both or in neither; the far
+		# one for the same reason one section along — a look-ahead measured in *days* that
+		# stopped at somebody else's midnight would keep or drop the last day by an accident of
+		# geography.
+		"upcoming": None if horizon is None or horizon_day is None else base.where(
 			sqlalchemy.or_(
-				sqlalchemy.and_(model.due_at > day_end, model.due_at <= horizon),
-				sqlalchemy.and_(model.starts_at > day_end, model.starts_at <= horizon),
+				sqlalchemy.and_(
+					model.due_at > edge("due_at", on=day, reader=day_end),
+					model.due_at <= edge("due_at", on=horizon_day, reader=horizon),
+				),
+				sqlalchemy.and_(
+					model.starts_at > edge("starts_at", on=day, reader=day_end),
+					model.starts_at <= edge("starts_at", on=horizon_day, reader=horizon),
+				),
 			)
 		),
 		"unscheduled": undated,
@@ -762,13 +813,9 @@ def _scoped (
 
 
 def _visible (
-	session: sqlalchemy.orm.Session,
-	principal: subroutine.domain.authentication.Principal,
-	workspace_ids: typing.Sequence[uuid.UUID],
+	scoped: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
 	*,
-	until: datetime.datetime,
-	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
-	project: subroutine.db.models.project.Project | None = None,
+	until: datetime.datetime | sqlalchemy.ColumnElement[datetime.datetime],
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the select every bucket narrows: live, unfinished, actionable, visible work.
 
@@ -799,17 +846,20 @@ def _visible (
 	tomorrow does not. ``starts_at`` of today is the reader saying *this belongs to this day*,
 	and a defer inside the same day may not overrule it.
 
-	:func:`subroutine.domain.readiness.undeferred` is unchanged and keeps comparing against an
-	instant, because ``?ready=`` asks *what can I start now* — a different question, to which an
+	:func:`subroutine.domain.readiness.undeferred` keeps comparing against an instant for
+	``?ready=``, because that asks *what can I start now* — a different question, to which an
 	appointment at 14:00 is honestly "not yet".
+
+	**``until`` may be an expression, and here it is one** (`#1296`). A whole-day defer is
+	stored at the first instant of *its own* local day, so one boundary answers *has this come
+	round* differently for two readers an hour apart: measured, a defer to tomorrow was visible
+	to a reader in UTC and hidden from one in London. The boundary is per row now, and the
+	scoped select is taken as an argument so that the zone lookup it needs can happen first.
 	"""
 
 	model = subroutine.db.models.work.Task
 
-	return (
-		_scoped(workspace_ids, principal=principal, sortable=sortable, project=project)
-		.where(subroutine.domain.readiness.undeferred(model, now=until))
-	)
+	return scoped.where(subroutine.domain.readiness.undeferred(model, now=until))
 
 
 def _run (
@@ -841,6 +891,107 @@ def _run (
 				)
 			)
 		)
+	)
+
+
+def _other_zones (
+	session: sqlalchemy.orm.Session,
+	base: sqlalchemy.Select[tuple[subroutine.db.models.work.Task]],
+	timezone: str,
+) -> tuple[str, ...]:
+	"""Return the zones, other than the reader's, that whole-day rows in scope were dated in.
+
+	**One extra statement, and it answers nothing on the ordinary instance** (`#1296`). A
+	whole-day row is stored at an edge of its *own* local day (§6.5), so reading it as an
+	instant against somebody else's day boundary asks the wrong question — and the only way to
+	ask the right one in a query is to know which zones are actually present, because no
+	portable SQL converts an instant using a value from the row.
+
+	**Measured rather than recalled**: SQLite 3.45.1 answers ``datetime(t, 'Europe/London')``
+	with **NULL**, silently. ``'localtime'`` works and is the *server's* zone, which is nobody's.
+	:func:`subroutine.domain.readiness.passed` records the same limitation and settles for a
+	documented hour of slop; the agenda decides what a person sees, so it cannot.
+
+	**The reader's own zone is excluded**, which is what keeps this free where it should be: a
+	workspace whose dates were all written in one place returns no rows at all and every
+	comparison below collapses to the boundary it already used.
+
+	Narrowed to rows that carry a whole-day date, because a timed row is a genuine instant and
+	belongs to the reader's clock — decision `#1088`, and the reason a widened window would be
+	the wrong fix rather than a coarse one.
+
+	**The flags are derived from :data:`subroutine.domain.schedule.DATE_FIELDS` rather than
+	named**, and that is not tidiness: the first version listed the two this item was reported
+	about and left out the defer's, so a whole-day defer went on coming round on a different
+	day for each reader while every bucket above it had been corrected. A list written from the
+	columns somebody happened to be thinking about is the shape this repository keeps finding.
+	"""
+
+	model = subroutine.db.models.work.Task
+	flags = {flag for _written, flag in subroutine.domain.schedule.DATE_FIELDS.values()}
+	asked = (
+		base.with_only_columns(model.timezone)
+		.distinct()
+		.where(
+			model.timezone.is_not(None),
+			model.timezone != timezone,
+			sqlalchemy.or_(*(getattr(model, flag) for flag in sorted(flags))),
+		)
+		.order_by(None)
+	)
+
+	return tuple(sorted(zone for zone in session.scalars(asked) if zone is not None))
+
+
+def _edge (
+	column: str,
+	*,
+	day: datetime.date,
+	timezone: str,
+	zones: typing.Sequence[str],
+	reader: datetime.datetime,
+) -> sqlalchemy.ColumnElement[datetime.datetime]:
+	"""Return, per row, the instant ``column`` must be compared against for this day (`#1296`).
+
+	**A whole day is a label and a time is a point** — decision `#1088`, arriving at the one
+	place that decides what a person sees. An all-day row is stored at an edge of *its own*
+	local day, so comparing it against the reader's day boundary answers a question about
+	clocks when the question is about dates: *Get paid* on 27 August was under *Next 7 days*
+	for a reader in London and under *Happening* for one in UTC, an hour away. Further out it
+	is worse — measured, a whole-day event on today **disappeared from every bucket** for a
+	reader west of the zone it was written in.
+
+	So a whole-day row is compared against the same edge *it* stores, computed in *its* zone:
+	:data:`subroutine.domain.schedule.WHOLE_DAY_EDGE` is which edge, and the comparison then
+	tests the date rather than the moment. A timed row keeps ``reader``, because it genuinely
+	is an instant and genuinely does belong to whoever is looking.
+
+	**A row with no zone recorded takes the reader's**, which is what it did before this and is
+	the only honest answer: a row that never said where it was written has no local date of its
+	own to claim.
+
+	**A ``CASE`` rather than a join**, because the zones are a handful of literals the caller
+	has already resolved and this has to read the same on both backends.
+	"""
+
+	model = subroutine.db.models.work.Task
+	_written, flag = subroutine.domain.schedule.DATE_FIELDS[column]
+	whole_day = getattr(model, flag)
+	end = (
+		subroutine.domain.schedule.WHOLE_DAY_EDGE[column]
+		is subroutine.domain.schedule.Boundary.END
+	)
+
+	return sqlalchemy.case(
+		*(
+			(
+				sqlalchemy.and_(whole_day, model.timezone == zone),
+				_boundary(day, zone, end=end),
+			)
+			for zone in zones
+		),
+		(whole_day, _boundary(day, timezone, end=end)),
+		else_=reader,
 	)
 
 
