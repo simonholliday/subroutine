@@ -2980,9 +2980,11 @@ def _moment (
 ) -> datetime.datetime | datetime.date | None:
 	"""Read a day an agent named, **keeping a time of day when it wrote one** (`#858`).
 
-	`_day`'s sibling and its implementation — `_day` is this with the clock thrown away, so
-	the two vocabularies cannot drift apart. Which fields take which is decided at the one
-	call site, where the reason can be read beside both.
+	`_day`'s sibling. It **was** its implementation — `_day` was this with the clock thrown
+	away — until `#1299` made `_day` refuse a written time rather than drop it, which is a
+	different act and cannot be spelled as a discard. They share the grammar and no longer
+	share a body. Which fields take which is decided at the one call site, where the reason
+	can be read beside both.
 
 	A weekday, a bare date and a §9.3 expression all name a day; only a written time is
 	honoured, which is the rule ``schedule.interpret_written_moment`` states in full.

@@ -107,7 +107,18 @@ def passed (
 	never re-asked: the overlap compared a whole-day row's stored instant against the reader's
 	day, so an event moved between sections — and sometimes into none — depending on who was
 	looking. The agenda enumerates the zones actually present and compares a date against a
-	date now, which is exact; this function stays coarse because nothing it answers is drawn.
+	date now, which is exact.
+
+	**The coarseness here is defensible; the reason first given for it was not** (`#1332`).
+	That sentence closed *"this function stays coarse because nothing it answers is drawn"*,
+	and three things it answers are drawn: ``passed_total`` is printed on the terminal, in the
+	browser and to an agent; ``later_total`` is its complement, so the same hour decides which
+	of two counts a row is in; and :func:`over` reads this to decide whether a blocker still
+	gates, which decides what ``--ready`` returns and what lands in *waiting on somebody else*
+	— rows, on a page. The true version is that the slop is **an hour, twice a year, inside the
+	day this compares**, which is a claim about the size of the error rather than about who
+	reads it, and cannot rot the way the other one did. Making a claim of exactly the kind that
+	cost this item, in the paragraph rewritten to record it, is the thing to notice.
 	"""
 
 	a_day_ago = now - datetime.timedelta(days=1)

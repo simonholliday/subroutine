@@ -116,10 +116,6 @@ ORDERS: dict[str, tuple[str, ...]] = {
 	# **Ranked, which is the same rule ``?order=-priority_score`` applies** (`#853`), so the
 	# agenda and a ranked listing cannot disagree about which item is the one to start.
 	"in_progress": ("-priority_score",),
-	# **``starts_at`` second, and it is the key the client used to drop.** An appointment next
-	# Tuesday carrying no deadline is ordered by when it begins; without this it fell to the
-	# tiebreak and sorted by age, which reads as an arbitrary arrangement of things that have
-	# a very obvious one.
 	# **One key, because two of them sort in two runs** (`#1321`). This was
 	# ``("due_at", "starts_at")``: everything carrying a deadline sorted by it, and everything
 	# with only a start had a null deadline — and `clauses` states ``NULLS LAST`` in both
@@ -706,7 +702,14 @@ def build (
 	# were not taken by a bucket. A guard adds the four to the agenda's own rows and compares
 	# against the listing at the same scope, so a fifth exclusion added later cannot be silent.
 	held = _deferred(
-		session, principal, workspace_ids, until=day_end, sortable=sortable, project=project
+		session,
+		principal,
+		workspace_ids,
+		# **The same expression `_visible` hid them with** (`#1328`), so what this counts is
+		# exactly what that dropped. Two spellings of one boundary is what broke it.
+		until=edge("snoozed_until", on=day, reader=day_end),
+		sortable=sortable,
+		project=project,
 	)
 	put_down = base.where(
 		model.starts_at.is_(None),
@@ -746,7 +749,7 @@ def _deferred (
 	principal: subroutine.domain.authentication.Principal,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	*,
-	until: datetime.datetime,
+	until: datetime.datetime | sqlalchemy.ColumnElement[datetime.datetime],
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	project: subroutine.db.models.project.Project | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
@@ -757,6 +760,15 @@ def _deferred (
 	so the two cannot disagree about privacy, the token's project scope or the workspace — which
 	is the duplication `readable_tasks` exists to prevent and which this file has paid for once
 	already.
+
+	**And ``until`` is whatever :func:`_visible` was given, never a second answer to the same
+	question** (`#1328`). `#1296` made the defer's boundary a per-row expression, and this took
+	the reader's flat instant for one release: a whole-day defer written east of the reader was
+	then hidden from every bucket by one boundary and counted by neither this nor anything
+	else, so the row was in no section, in no total, and in the listing at the same scope. The
+	docstring on :attr:`Agenda.deferred_total` calls that partition load-bearing, and it was
+	the accounting guard's blind spot — it builds and reads in one zone, where the two
+	boundaries collapse onto each other.
 	"""
 
 	model = subroutine.db.models.work.Task

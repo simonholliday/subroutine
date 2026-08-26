@@ -173,9 +173,16 @@ def test_the_day_a_row_is_scheduled_on_is_the_same_answer_in_all_three_spellings
 			)
 		)
 		off_the_row = field.read(row)
+		# **Off a rendered view, and that is the whole point of the third spelling**
+		# (`SR#1333`). This read :data:`VIEW_READERS` and handed it the **ORM row**, and
+		# ``scheduling`` builds its ``Derived`` with the same function object — so the
+		# comparison was ``scheduled_on(row) == scheduled_on(row)`` and could not fail, on the
+		# one of the three that a merged listing actually uses. ``scheduled_on`` reaches its
+		# columns through ``getattr(..., None)``, so a field a view stopped carrying comes back
+		# ``None`` in silence and orders a whole section by the other date.
 		off_the_view = subroutine.domain.ordering.VIEW_READERS[
 			subroutine.domain.ordering.SCHEDULED_FOR
-		](row)
+		](subroutine.views.task(row, subroutine.views.Vocabulary.for_tasks(session, [row])))
 
 		assert in_sql == off_the_row == off_the_view, (
 			f"{row.title!r}: the database says {in_sql}, a loaded row says {off_the_row} and a "
@@ -499,6 +506,13 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 	world.task("Overdue", due=datetime.date(2026, 7, 27))
 	world.task("Beyond the window", due=datetime.date(2026, 11, 30))
 	world.task("Not until next month", snooze=datetime.date(2026, 9, 30))
+	# **And one deferred to tomorrow, which is the only place the defect lives** (`SR#1328`).
+	# `_visible` hides a row past the start of the shown day in the row's own zone and
+	# `_deferred` counted it past the end of that day in the **reader's**, so the gap between
+	# the two boundaries is under a day wide. A defer two months out is on the far side of
+	# both and cannot see it — measured, by putting the old boundary back and watching this
+	# guard stay green with only the row above in it.
+	world.task("Not until tomorrow", snooze=TODAY + datetime.timedelta(days=1))
 	world.task("In the project nobody is running", project=asleep)
 	# **The fifth exclusion, represented like the other four** (`SR#1236`). A passed event is
 	# not *completed*, so the listing below still holds it and this view does not — which is
@@ -523,21 +537,6 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 
 	session.flush()
 
-	agenda = world.agenda(horizon_days=7, unscheduled_limit=1)
-
-	shown = sum(
-		len(getattr(agenda, bucket)) for bucket in subroutine.views.AGENDA_BUCKETS
-	)
-	accounted = (
-		shown
-		+ max(0, agenda.unscheduled_total - len(agenda.unscheduled))
-		+ max(0, agenda.blocked_by_others_total - len(agenda.blocked_by_others))
-		+ agenda.later_total
-		+ agenda.deferred_total
-		+ agenda.paused_total
-		+ agenda.passed_total
-	)
-
 	# The listing at the same scope: live, unfinished work, which is what `?view=list` shows
 	# with no selection — the page a reader flips to.
 	listed = session.scalars(
@@ -546,23 +545,53 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 		)
 	).all()
 
-	assert accounted == len(listed), (
-		f"the agenda accounts for {accounted} rows and the listing at the same scope holds "
-		f"{len(listed)}. Something is being held back that nothing reports — every exclusion "
-		f"has to be a count a reader can see, which is `#649`'s amendment and the whole reason "
-		f"this arithmetic exists."
-	)
+	# **Read from every zone, on the same pinned day** (`SR#1328`). The rows are written in
+	# London and the arithmetic has to hold for somebody reading them from anywhere: this
+	# guard built and read in one zone, where every per-row boundary `SR#1296` introduced
+	# collapses onto the reader's own, so it could not see a row hidden by one boundary and
+	# counted against another. That is exactly what happened to the whole-day defer, and the
+	# zone tests beside this one assert on *which rows are visible* and never on the totals —
+	# so between them the two guards covered both halves and neither covered the join.
+	#
+	# **The day is pinned for `_read_by_everybody`'s reason**: which day *today* is genuinely
+	# differs by reader, and leaving it to default would confound that with what is measured.
+	for zone in READERS:
+		agenda = world.agenda(
+			timezone=zone, horizon_days=7, unscheduled_limit=1, date=TODAY
+		)
 
-	# **And each count is non-zero**, so the equality above cannot be satisfied by a scan that
-	# reads nothing. `unscheduled_limit=1` is what forces the cap to bite on two undated rows.
-	assert agenda.deferred_total == 1, agenda.deferred_total
-	assert agenda.paused_total == 1, agenda.paused_total
-	assert agenda.later_total == 1, agenda.later_total
-	assert agenda.passed_total == 1, agenda.passed_total
-	assert agenda.unscheduled_total > len(agenda.unscheduled), agenda.unscheduled_total
-	assert agenda.blocked_by_others_total > len(agenda.blocked_by_others), (
-		agenda.blocked_by_others_total
-	)
+		shown = sum(
+			len(getattr(agenda, bucket)) for bucket in subroutine.views.AGENDA_BUCKETS
+		)
+		accounted = (
+			shown
+			+ max(0, agenda.unscheduled_total - len(agenda.unscheduled))
+			+ max(0, agenda.blocked_by_others_total - len(agenda.blocked_by_others))
+			+ agenda.later_total
+			+ agenda.deferred_total
+			+ agenda.paused_total
+			+ agenda.passed_total
+		)
+
+		assert accounted == len(listed), (
+			f"read from {zone}, the agenda accounts for {accounted} rows and the listing at "
+			f"the same scope holds {len(listed)}. Something is being held back that nothing "
+			f"reports — every exclusion has to be a count a reader can see, which is `#649`'s "
+			f"amendment and the whole reason this arithmetic exists."
+		)
+
+		# **And each count is non-zero**, so the equality above cannot be satisfied by a scan
+		# that reads nothing. `unscheduled_limit=1` forces the cap to bite on two undated rows.
+		assert agenda.deferred_total == 2, (zone, agenda.deferred_total)
+		assert agenda.paused_total == 1, (zone, agenda.paused_total)
+		assert agenda.later_total == 1, (zone, agenda.later_total)
+		assert agenda.passed_total == 1, (zone, agenda.passed_total)
+		assert agenda.unscheduled_total > len(agenda.unscheduled), (
+			zone, agenda.unscheduled_total
+		)
+		assert agenda.blocked_by_others_total > len(agenda.blocked_by_others), (
+			zone, agenda.blocked_by_others_total
+		)
 
 
 def test_an_occasion_gets_its_own_section_and_leaves_it_when_the_day_has_gone (
@@ -1815,3 +1844,99 @@ def test_an_empty_agenda_is_still_empty_with_the_new_bucket (
 	_waiting(world, asked)
 
 	assert not world.agenda().is_empty
+
+
+def test_a_whole_day_event_re_dated_from_another_zone_stays_in_its_bucket (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1327`. `SR#1296`'s worst symptom, through the door `SR#1296` did not close.
+
+	`SR#1014` relabels ``task.timezone`` to the zone a date was authored in, and leaves the
+	instants already on the row where they are. That cost was only a rendering an hour out
+	until `SR#1296` made a whole-day row's bucket depend on comparing it against the edge of
+	the day *its own zone column* names — after which a row stored at London midnight and
+	labelled New York matches no day's edge at all.
+
+	**Measured before the fix**: an event on today, correct for all four readers, was in **no**
+	bucket for any of them after a colleague five hours away made an unrelated dated edit, and
+	was counted under *dated further out* — the agenda saying an event happening today is
+	something to look at next week.
+
+	The edit driven here is deliberately not to the start itself. Clearing a defer the row
+	never had changes nothing a person would notice, and is enough to relabel the zone.
+	"""
+
+	world = World(session)
+	birthday = world.task(
+		"Anna's birthday", type_key="event", starts=TODAY, starts_is_all_day=True
+	)
+
+	assert "none" not in _read_by_everybody(world, "Anna's birthday", day=TODAY).values(), (
+		"this row was already broken before the edit, so the edit is not what is measured"
+	)
+
+	subroutine.domain.tasks.update(
+		session,
+		birthday,
+		snooze=None,
+		timezone="America/New_York",
+		now=NOW,
+	)
+	session.flush()
+
+	assert birthday.timezone == "America/New_York", (
+		"the zone was not relabelled, so this drives none of what it is about"
+	)
+
+	landed = _read_by_everybody(world, "Anna's birthday", day=TODAY)
+
+	assert "none" not in landed.values(), (
+		f"a whole-day event relabelled to another zone is in no section for some reader: "
+		f"{landed}"
+	)
+	assert len(set(landed.values())) == 1, (
+		f"the readers disagree about which section it belongs in: {landed}"
+	)
+
+
+def test_relabelling_a_row_moves_its_whole_day_dates_and_leaves_its_timed_ones (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1327`, and the half that says what the repair may **not** do.
+
+	A whole day is a label and a time is a point (decision `SR#1088`). So relabelling the zone
+	moves a whole-day date onto the same *day* in the new zone — the row goes on meaning the
+	day it always meant — and must leave a timed date exactly where it is, because a timed
+	date is a moment and `SR#1014`'s promise is that it keeps it.
+
+	Without the second half, re-dating one field from a plane would silently walk every other
+	appointment on the row across the clock.
+	"""
+
+	row = World(session).task(
+		"Two dates",
+		starts=datetime.datetime(2026, 8, 20, 9, 0, tzinfo=datetime.UTC),
+		due=datetime.date(2026, 8, 25),
+	)
+	stood_at = row.starts_at
+
+	assert row.due_is_all_day is True and row.starts_is_all_day is False, (
+		"this fixture no longer holds one date of each kind"
+	)
+
+	subroutine.domain.tasks.update(
+		session, row, snooze=None, timezone="Pacific/Auckland", now=NOW
+	)
+	session.flush()
+
+	assert row.starts_at == stood_at, "a timed date was walked across the clock"
+
+	assert row.due_at == subroutine.domain.tasks.whole_day_for(
+		datetime.date(2026, 8, 25),
+		field="due_at",
+		timezone="Pacific/Auckland",
+		now=NOW,
+	).instant, (
+		f"the whole-day deadline is not the end of the 25th in the zone the row now names: "
+		f"{row.due_at}"
+	)

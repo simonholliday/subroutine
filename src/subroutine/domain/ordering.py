@@ -708,6 +708,11 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	# is for: it reads *everything a listing accepts* rather than :data:`TASK_FIELDS`, because
 	# the newest sort fields are added per request and a name a merged listing accepts and then
 	# ignores is worse than one it refuses.
+	#
+	# **And that guard had to be told about `scheduling` before the sentence above was true**
+	# (`#1333`). It called two of the three widening functions, so this entry was in no
+	# population and deleting the line left the file green — a comment asserting a guard that
+	# was not there, which reads as more trustworthy than no comment at all.
 	SCHEDULED_FOR: scheduled_on,
 	"created_at": lambda item: item.created_at,
 	"updated_at": lambda item: item.updated_at,

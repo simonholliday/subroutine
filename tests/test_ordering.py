@@ -44,22 +44,31 @@ def _everything_a_listing_accepts () -> set[str]:
 	adds `deferred` (`#877`), so the static map is the endpoint's vocabulary minus the two
 	fields added most recently — which is precisely the half a guard needs to see.
 
-	Built by calling the same two functions the endpoint and the local client call, so a third
+	Built by calling the same functions the endpoint and the local client call, so a further
 	per-request field is covered on the day it is written rather than when somebody notices.
+
+	**And `scheduling` is one of them** (`#1333`). It was not, for a release: the comment
+	beside :data:`~subroutine.domain.ordering.VIEW_READERS`' newest entry says that entry is
+	safe *because* this reads everything a listing accepts — and this read two of the three
+	functions that widen the vocabulary, so ``scheduled_for`` was in no population at all.
+	Measured by deleting the entry and running this file: **fourteen passed**. That is a
+	comment asserting a guard which is not there, which is worse than no comment.
 	"""
 
 	model = subroutine.db.models.work.Task
 
 	return set(
-		subroutine.domain.ordering.searching(
-			subroutine.domain.ordering.sinking(
-				subroutine.domain.ordering.TASK_FIELDS,
-				model=model,
-				now=datetime.datetime.now(datetime.UTC),
-			),
-			terms=["anything"],
-			columns=[model.title, model.description],
-			carried_on=model.relevance,
+		subroutine.domain.ordering.scheduling(
+			subroutine.domain.ordering.searching(
+				subroutine.domain.ordering.sinking(
+					subroutine.domain.ordering.TASK_FIELDS,
+					model=model,
+					now=datetime.datetime.now(datetime.UTC),
+				),
+				terms=["anything"],
+				columns=[model.title, model.description],
+				carried_on=model.relevance,
+			)
 		)
 	)
 

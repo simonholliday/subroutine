@@ -179,6 +179,55 @@ upgrade involves.
 
 ### Fixed
 
+- **Clearing a date on a repeating item no longer fails.** `subroutine plan 1 ""`, an agent's
+  `plan=""` and `PATCH /v1/tasks/{ref} {"due": null}` all answered with an internal error when
+  the change applied to every occurrence from now on. Clearing a date also clears its
+  whole-day flag, which the code that carries a *shape change* across a series read as a shape
+  to carry — onto a date that was no longer there.
+
+- **An edit made to a repeat changes both rows or neither, never half of each.** Past the
+  first occurrence, an edit that made a deadline a whole day was applied to the row you were
+  holding and its flag alone was copied to the other — leaving a row that called itself
+  all-day while storing a time, so it was marked late in the middle of its own day. This was
+  visible only after one occurrence had been completed.
+
+- **Adding or removing a deadline on a repeating item no longer draws it twice in a
+  calendar.** A repeat's slot follows its deadline if it has one and its start otherwise, so
+  adding a deadline moves the slot from one to the other. It was left behind, and the feed
+  then read an item nobody had touched as one rescheduled by hand: it emitted an exclusion for
+  a time the rule never produces *and* drew the occurrence a second time.
+
+- **A repeat added to a task that already has tags keeps them.** `subroutine add "Water the
+  plants #home"` followed by `subroutine update 1 --repeat "every monday"` lost the tag from
+  the second week onwards. The other way round — capturing the tag and the rule in one line —
+  was fixed in this release already; this is the same defect on the other path to a repeat.
+
+- **A whole-day item re-dated by somebody in another timezone stays on your agenda.** Editing
+  any date on an item relabels it with the zone that edit was made in, and the item's other
+  dates were left where the old zone put them. A birthday or a deadline could then match no
+  day at all and vanish from every section of the agenda — for everybody, not only for the
+  person who made the edit — while being counted under *dated further out*. Its untouched
+  whole-day dates now move to the same day in the new zone; a date with a time on it keeps its
+  moment, as before.
+
+- **Work deferred to a day is counted in the agenda's footer wherever you read it from.** A
+  whole-day defer written in one timezone and read from another could be hidden from every
+  section by one boundary and counted by another, so the row was in no section, in no total,
+  and only visible by switching to the plain listing.
+
+- **`plan --until` says what is actually in the way.** On an item whose start carries a time it
+  refused by asking for a shape the command line cannot produce — *"Give both ends a time, or
+  give both a date with no time"* — and neither is possible here. It now names the start's
+  time as the reason, and `explain dates` marks the one form `plan` does not take.
+
+- **`plan` confirms the time it kept.** It answered *"Starts Wed 2 Dec"* on a timed
+  appointment — word for word what it printed in the release where it was destroying that
+  time — and recorded that sentence against the item when given `--because`.
+
+- **The refusal for a repeat's underlying rule suits the command you ran.** Linking, moving or
+  discarding one advised you to complete the series, which was `delete`'s advice given to
+  every caller. It now points at the occurrence you can act on.
+
 - **The next seven days are listed in date order.** Everything with a deadline was listed first
   and everything with only a start after it, so the section read *28 Aug, 31 Aug, 1 Sep, 27 Aug,
   29 Aug, 2 Sep* — two runs of dates under a heading that is a stretch of time. It is one run
@@ -223,8 +272,10 @@ upgrade involves.
 
   A day-only argument handed a *time* is now refused rather than quietly truncated — `--until
   "2026-08-27T11:30:00"` used to keep the date, drop the 11:30 and say nothing. Setting a time
-  on a start or an end still needs `PATCH /v1/tasks`, and a repeat that starts at a time can no
-  longer be given a whole-day end in the same breath: it is refused instead of being flattened.
+  on a start or an end still needs `PATCH /v1/tasks`, so `plan --until` on **anything whose
+  start carries a time** is refused rather than flattened — an ordinary task captured as `"Fix
+  the parser tomorrow at 11:00"` as much as a repeat. The refusal now says that is what is in
+  the way, instead of asking for a shape this surface cannot produce.
 
 - **A repeating task now carries the tags you gave it.** `subroutine add "Water the plants #home
   every monday"` answered *(read #home)* and then handed back a row without the tag: a repeat is

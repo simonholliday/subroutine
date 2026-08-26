@@ -1761,3 +1761,204 @@ def test_an_occurrence_says_which_repeat_it_came_from (
 	assert subroutine.views.THE_SERIES in held
 	assert not any(wanted in fact for fact in held), "the series points at itself"
 
+
+
+def test_clearing_a_date_on_a_repeat_is_not_an_internal_error (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1323`. The fix for `SR#1303` guarded both ends of a move and not the far one.
+
+	Clearing a date flips its all-day flag as well as emptying the column, so a *cleared*
+	column looks exactly like a **shape change** to
+	:func:`~subroutine.domain.tasks._changed_shape` — and there is nothing to reshape onto.
+	``_reshaped`` reached ``None.astimezone`` and the call came back as a 500 rather than as
+	one of the typed refusals, on ``subroutine plan 1 ""``, ``subroutine_update(plan="")`` and
+	``PATCH /v1/tasks/{ref} {"due": null, "applies_to": "from_now_on"}``.
+
+	**Driven for both columns**, because the branch is shared and the flags differ.
+	"""
+
+	def _clear_the_deadline (row: subroutine.db.models.work.Task) -> None:
+		"""Clear a repeat's deadline for every occurrence from now on."""
+
+		subroutine.domain.tasks.update(
+			session,
+			row,
+			due=None,
+			applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+			now=NOW,
+		)
+
+	def _clear_the_start (row: subroutine.db.models.work.Task) -> None:
+		"""Clear a repeat's start for every occurrence from now on."""
+
+		subroutine.domain.tasks.update(
+			session,
+			row,
+			starts=None,
+			applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+			now=NOW,
+		)
+
+	for cleared, clear in (("due_at", _clear_the_deadline), ("starts_at", _clear_the_start)):
+		live = _repeating(
+			session,
+			recurrence="every week",
+			due=datetime.date(2026, 9, 1) if cleared == "due_at" else None,
+			starts=datetime.date(2026, 9, 1) if cleared == "starts_at" else None,
+		)
+		series = _template(session, live)
+
+		clear(live)
+		session.flush()
+
+		assert getattr(live, cleared) is None, f"{cleared} was not cleared on the occurrence"
+		assert getattr(series, cleared) is None, f"{cleared} was not cleared on the series"
+
+
+def test_a_shape_change_made_at_the_template_end_never_leaves_a_flag_without_its_date (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1324`, and the shape it needs is **past the first turn of the wheel**.
+
+	``only_where_unchanged`` holds a column back when the target already differs from the
+	source's old value — *somebody moved this one by hand* — and after one completed occurrence
+	that is true of the dates by construction, because an occurrence is a whole grid shift
+	ahead of its template. The **flag** passed the same test, because both rows still agreed
+	about it, so an edit made at the template end skipped ``due_at`` and copied
+	``due_is_all_day`` on its own: the live row then claimed to be all-day and was stored at
+	09:00, which is the row §6.5 says cannot exist and
+	:func:`~subroutine.domain.tasks._reshaped` was written to prevent.
+
+	Every test written for `SR#1303` builds through ``create(recurrence=…)`` and edits the
+	**first** occurrence, where the shift is zero and the guard never bites. This one completes
+	one turn first, which is the only difference and the whole of it.
+	"""
+
+	live = _repeating(
+		session,
+		recurrence="every week",
+		due=datetime.datetime(2026, 8, 16, 9, 0, tzinfo=datetime.UTC),
+	)
+	series = _template(session, live)
+
+	subroutine.domain.tasks.complete(session, live, now=NOW)
+	following = _next_live(session, series)
+
+	assert following.due_at != series.due_at, (
+		"the occurrence has not drifted from its template, so this drives the first turn again"
+	)
+
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		due=datetime.date(2026, 8, 16),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+	session.refresh(following)
+
+	assert series.due_is_all_day is True, "the row the edit was made on did not take the shape"
+
+	# **The property, and it is about the pair rather than about either half.** A row whose
+	# date was held back keeps the flag that describes it; a row that took the date takes both.
+	assert following.due_is_all_day is False, (
+		"the flag was copied onto a row whose date was held back, so it claims a shape its "
+		f"stored instant does not have: {following.due_at} marked all-day"
+	)
+	# **The date was held back, so the row still means what it meant.** A whole-day flag over
+	# this instant would say the deadline is the end of the 23rd, where the row says 09:00 —
+	# and :func:`~subroutine.domain.schedule.is_overdue` reads the instant and nothing else, so
+	# the lie is silent until it marks the row late in the middle of its own day.
+	assert following.due_at == test_schedule._instant(
+		datetime.datetime(2026, 8, 23, 9, 0, tzinfo=datetime.UTC)
+	), "the occurrence's own deadline moved, so this is no longer testing the held-back case"
+
+
+def test_adding_a_deadline_to_a_repeat_moves_its_slot_onto_the_grid_it_is_now_measured_by (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1325`. `SR#1302` fixed the slot for a date that **moved** and not for one added.
+
+	:func:`~subroutine.domain.tasks.grid_field` names the column ``occurrence_at`` is a slot
+	on, and a deadline wins over a start — so adding a deadline to a series that had only a
+	start moves the slot from one grid to the other. A column set from nothing is in no delta,
+	and *was this on the grid* was being asked of the column the slot is on **now**, whose old
+	value was ``None`` and is never equal to anything. The slot was left on the old grid,
+	:func:`~subroutine.domain.calendars._is_on_its_grid` read a row nobody had touched as
+	individually rescheduled, and the feed emitted an ``EXDATE`` for a slot nothing had left
+	*and* drew the occurrence a second time.
+
+	**Both directions**, because clearing a deadline is the mirror image and the same branch.
+	"""
+
+	live = _repeating(
+		session,
+		recurrence="every week",
+		due=None,
+		starts=datetime.datetime(2026, 8, 16, 9, 0, tzinfo=datetime.UTC),
+	)
+
+	assert live.occurrence_at == live.starts_at, "this series did not begin on its start's grid"
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		due=datetime.date(2026, 8, 18),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert live.occurrence_at == subroutine.domain.tasks.grid_date(live), (
+		f"the slot stayed on the start's grid while the row is measured by its deadline: "
+		f"occurrence_at {live.occurrence_at}, grid {subroutine.domain.tasks.grid_date(live)}"
+	)
+
+	subroutine.domain.tasks.update(
+		session,
+		live,
+		due=None,
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert live.occurrence_at == subroutine.domain.tasks.grid_date(live), (
+		"clearing the deadline left the slot on the grid it no longer has"
+	)
+
+
+def test_a_rule_added_to_a_task_that_already_has_tags_keeps_them_on_every_occurrence (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1326`. `SR#1307`'s fix reached one of the two ways a series comes into being.
+
+	:func:`~subroutine.domain.tasks.materialise` copies the template's tags onto each
+	occurrence, which is right — and :func:`~subroutine.domain.tasks.begin_repeating`, the path
+	taken when a rule is added to a task that already exists, mints the template by copying
+	named columns. A tag is a join and was not one of them, so ``materialise`` faithfully
+	copied an empty set.
+
+	``subroutine add "Water the plants #home"`` then ``subroutine update 1 --repeat "every
+	monday"`` lost the tag from the second turn of the wheel onwards. Every test written for
+	`SR#1307` builds through ``create(recurrence=…)``, where the row the caller's tags landed
+	on **is** the template and there is nothing to copy.
+	"""
+
+	task = _repeating(session, tags=["home"], due=datetime.date(2026, 8, 31))
+
+	subroutine.domain.tasks.update(session, task, recurrence="every week", now=NOW)
+	series = _template(session, task)
+
+	assert [tag.name for tag in subroutine.domain.tags.on(session, series)] == ["home"], (
+		"the template the rule minted carries none of the task's tags"
+	)
+
+	subroutine.domain.tasks.complete(session, task, now=NOW)
+	following = _next_live(session, series)
+
+	assert [tag.name for tag in subroutine.domain.tags.on(session, following)] == ["home"], (
+		"the tag survived on the series and not on the occurrence minted from it"
+	)

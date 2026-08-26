@@ -2125,7 +2125,15 @@ def _planned (
 		# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is right in
 		# a list and wrong in the confirmation of a command whose whole job was to set the
 		# other field — the user said "tomorrow" and was shown Friday.
-		planned = f"Starts {_render_date(changed.starts_at, changed.timezone)}"
+		#
+		# **And it says the o'clock the command has just kept** (`#1330`). This was the last
+		# rendering in the file still going through :func:`_render_date`, so ``plan`` printed
+		# *Starts Wed 2 Dec* — byte for byte what it printed while it was **destroying** that
+		# time, which is the silence `#1299` was about. Worse than a screen: ``_because``
+		# writes this sentence into the item's record, where it outlives the session.
+		planned = "Starts " + _render_moment(
+			changed.starts_at, changed.timezone, all_day=changed.starts_is_all_day
+		)
 
 		_because(client, located, because, what=planned)
 
@@ -2196,6 +2204,15 @@ def _until (
 
 	**The end keeps its own clock, exactly as the start does** (`#1299`) — ``ends_at`` shares
 	``starts_is_all_day``, because an end has none of its own (decision `#1235` §2).
+
+	**And it says so itself when there is no clock to keep** (`#1329`). An end named as a day
+	with nothing to carry is a whole day, so on a row whose start has a time the two ends come
+	out different shapes and ``check_span`` refuses — correctly, and with a hint written for
+	somebody sending fields over HTTP: *give both ends a time, or give both a date with no
+	time*. **Neither is reachable from here.** Nothing at this surface writes a time onto an
+	end, and nothing at this surface takes the clock off a start, so following the advice was
+	impossible in both directions — which is `#1322`'s finding met in the first refusal written
+	after it. Refusing here instead names the thing that is actually in the way.
 	"""
 
 	if written is UNGIVEN:
@@ -2203,6 +2220,15 @@ def _until (
 
 	if written == "":
 		return {"ends": None}
+
+	if task.starts_at is not None and not task.starts_is_all_day and task.ends_at is None:
+		raise subroutine.errors.ValidationError(
+			f"{task.title!r} starts at a time, and an end named as a day is a whole day.",
+			hint=(
+				"Something is a whole day at both ends or a time at both. Giving an end its "
+				"own time of day is not something the command line can do yet."
+			),
+		)
 
 	return {
 		"ends": subroutine.domain.schedule.on_the_day(

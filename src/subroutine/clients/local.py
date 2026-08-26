@@ -3332,8 +3332,19 @@ class Client:
 		the reasons written there. Saying *"there is no task #6"* about a row the caller has
 		just been shown leaves them nothing to do; naming it points at the command that works.
 
-		**The wider lookup is asked only when the narrow one found nothing**, so the ordinary
-		refusal — a ref that really names nothing — costs no second query.
+		**The hint says what to do, and never what this one caller happened to be doing**
+		(`#1331`). Five verbs resolve refs through :meth:`_in_the_trash_too` — ``delete``,
+		``link``, ``discard``, ``undiscard`` and ``move`` — and the first version offered
+		``done`` to all of them, so somebody drawing a link between two items was advised to
+		complete a series. Both clauses below are true whatever the caller came to do: the
+		occurrence is the row to act on, and stopping the series is the other thing you might
+		have wanted.
+
+		**The second query is the price of the ordinary refusal, not of the rare one.** This
+		runs *because* the narrow lookup found nothing, so a ref naming nothing at all pays for
+		the wider look and a template does not. It is one indexed read on the way out of a
+		failing call, which is the cheapest moment there is to spend one — but the earlier
+		sentence here had it exactly backwards and would have misled anybody costing it.
 		"""
 
 		written = subroutine.domain.refs.format_ref(ref)
@@ -3345,8 +3356,9 @@ class Client:
 				return subroutine.errors.NotFound(
 					f"{written} is the repeat itself, not a task — {series.title}",
 					hint=(
-						f"Stop it with 'subroutine done {ref}', which keeps what it was and what "
-						f"it ran. Read it with 'subroutine show {ref}'."
+						f"'subroutine list' names the occurrence to act on instead, and "
+						f"'subroutine show {ref}' reads the repeat. 'subroutine done {ref}' "
+						f"stops it altogether, keeping what it was and what it ran."
 					),
 				)
 

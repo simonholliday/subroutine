@@ -8569,3 +8569,163 @@ def test_the_hint_for_an_empty_pipe_names_every_flag_that_command_takes () -> No
 		f"the refusal tells a caller what to pass and does not mention {missing}. "
 		f"A flag they may have just used is the one most likely to be missing from it."
 	)
+
+
+def test_planning_a_span_on_a_timed_item_refuses_without_advising_the_impossible (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1329`. The refusal was right and its hint named two things this surface cannot do.
+
+	``plan <day> --until <day>`` on a row whose start carries a time reaches ``check_span``'s
+	shape refusal, whose hint is *"Give both ends a time, or give both a date with no time."*
+	That is good advice **over HTTP** and neither half is reachable from a terminal: nothing
+	here writes a time onto an end, and nothing here takes the clock off a start — ``plan`` is
+	the only writer of ``starts_at`` and now preserves whatever clock is there, and
+	``subroutine update`` has no ``--starts``.
+
+	So a person was told to do one of two things and could do neither, which is `SR#1322`'s own
+	finding — *following the advice confirmed the false statement* — met in the first refusal
+	written after it.
+
+	**Driven on an ordinary task**, no ``--type event`` and no repeat, because the release note
+	described this as affecting *a repeat* and it affects everything with a time on its start.
+	"""
+
+	run("init")
+	run("add", "Fix the parser on 2026-12-01 at 11:00")
+
+	before = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert before["starts_is_all_day"] is False, "the fixture is not a timed ordinary task"
+
+	refused = run("plan", "1", "2026-12-02", "--until", "2026-12-05", expect=1)
+
+	assert "starts at a time" in refused.output, (
+		f"the refusal does not name the thing that is in the way:\n{refused.output}"
+	)
+
+	# **The property is about what it does *not* say.** Either sentence sends a reader to a
+	# surface they are not on, and the reason to check both is that they fail in opposite
+	# directions — one asks for a capability, the other for a removal.
+	assert "Give both ends a time" not in refused.output, (
+		f"the hint still asks for a timed end, which nothing here can write:\n{refused.output}"
+	)
+	assert "date with no time" not in refused.output, (
+		f"the hint still asks for the clock to come off, which nothing here can do:"
+		f"\n{refused.output}"
+	)
+
+	after = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert after["starts_at"] == before["starts_at"], "a refused command moved the start anyway"
+	assert after["ends_at"] is None, "a refused command set the end anyway"
+
+
+def test_planning_a_timed_item_confirms_the_o_clock_it_kept (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1330`. The command that stopped destroying a time still would not say it.
+
+	``plan``'s confirmation was the last date rendering in this file going through
+	``_render_date``, so it printed *Starts Wed 2 Dec* — **byte for byte what it printed while
+	it was throwing the 11:00 away**, which is the silence `SR#1299` was filed about. A fix
+	whose output is identical to the defect's teaches nobody that anything changed.
+
+	**And it is written down.** ``--because`` records that sentence as a comment on the item,
+	where it outlives the session and is read by whoever asks what happened.
+	"""
+
+	run("init")
+	run("add", "Doctor's appointment on 2026-12-01 at 11:00", "--type", "event")
+
+	planned = run("plan", "1", "2026-12-02", "--because", "the surgery moved it")
+
+	assert "11:00" in planned.output, (
+		f"the confirmation does not say the time the command has just kept:\n{planned.output}"
+	)
+
+	shown = run("show", "1").output
+
+	assert "11:00" in shown, f"the recorded reason dropped the o'clock too:\n{shown}"
+
+
+def test_the_repeat_refusal_points_at_the_occurrence_whatever_the_caller_was_doing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1331`. The hint was ``delete``'s and five verbs raise it.
+
+	``_in_the_trash_too`` is how ``delete``, ``link``, ``discard``, ``undiscard`` and ``move``
+	resolve a ref, so a ref naming a recurrence template refuses through one message for all of
+	them — and it read *"Stop it with 'subroutine done 2'"*. Somebody drawing a link between
+	two items was advised to complete a series.
+
+	Naming the row is right and is `SR#1322`'s improvement; the remedy has to be one that is
+	true whatever the caller came to do.
+	"""
+
+	run("init")
+	run("add", "Water the plants every monday")
+	run("add", "Something to link it to")
+
+	# **Found rather than assumed.** A repeat is two rows and which ref each gets is an
+	# allocation detail; asserting one here would make this test about that instead.
+	rows = {
+		ref: json.loads(run("show", str(ref), "--json").output)["item"] for ref in (1, 2, 3)
+	}
+	series = next(ref for ref, row in rows.items() if row.get("is_template"))
+	ordinary = next(
+		ref
+		for ref, row in rows.items()
+		if not row.get("is_template") and row["title"] == "Something to link it to"
+	)
+
+	refused = run("link", str(ordinary), "blocks", str(series), expect=1)
+
+	assert "the repeat itself" in refused.output, (
+		f"the refusal no longer names what the row is:\n{refused.output}"
+	)
+	assert "subroutine list" in refused.output, (
+		f"nothing points at the row the caller can actually act on:\n{refused.output}"
+	)
+
+
+def test_the_dates_topic_names_the_one_command_that_refuses_a_timestamp (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1332`. ``explain dates`` said the whole list works here, and one row stopped working.
+
+	The page opens *"Everything below works at the command line"* and lists ``a time
+	2026-08-01T17:00:00Z``. Since `SR#1299` ``plan`` refuses a written time — deliberately,
+	because it names a day — while ``defer`` and ``update --due`` still take one. So the
+	vocabulary is no longer uniform across the commands, and this page was the only place
+	saying that it is.
+
+	**Driven rather than read.** Asserting the sentence changed would pass against a page that
+	says anything at all; what makes this a guard is that both halves of the claim are
+	exercised against the real commands, so the page and the product cannot drift apart
+	without one of the three assertions failing.
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	topic = run("explain", "dates").output
+
+	assert "2026-08-01T17:00:00Z" in topic, "the timestamp row has gone; this guard is stale"
+	assert "plan" in topic, (
+		f"the dates topic does not say which command refuses a time of day:\n{topic}"
+	)
+
+	# The half that still works, so the page is not being made to under-promise instead.
+	run("defer", "1", "2026-12-05T17:00:00Z")
+
+	assert json.loads(run("show", "1", "--json").output)["item"]["snoozed_until"] is not None, (
+		"'defer' stopped taking a timestamp, so the page's general claim needs re-reading"
+	)
+
+	refused = run("plan", "1", "2026-12-05T17:00:00Z", expect=1)
+
+	assert "time of day" in refused.output, (
+		f"'plan' no longer refuses a timestamp, so this page's exception is stale:"
+		f"\n{refused.output}"
+	)

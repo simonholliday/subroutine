@@ -302,6 +302,18 @@ def own_day_field (category: str) -> str:
 	return "due_at"
 
 
+def grid_field_for (due_at: datetime.datetime | None) -> str:
+	"""Say which column a row holding this deadline puts its slot on.
+
+	The rule itself, taken apart from the row so that it can also be asked of a **snapshot** —
+	:func:`_kept_on_its_grid` has to know which column the slot was on *before* an edit as well
+	as which one it is on now, and an edit may move it from one to the other. Written once here
+	rather than spelled a second time over a dict, which is `#1302` exactly.
+	"""
+
+	return "due_at" if due_at is not None else "starts_at"
+
+
 def grid_field (row: subroutine.db.models.work.Task) -> str:
 	"""Say which of a row's two dates ``occurrence_at`` is a slot on.
 
@@ -324,7 +336,7 @@ def grid_field (row: subroutine.db.models.work.Task) -> str:
 	not keep. Narrow enough to accept and too specific to guess at.
 	"""
 
-	return "due_at" if row.due_at is not None else "starts_at"
+	return grid_field_for(row.due_at)
 
 
 def grid_date (row: subroutine.db.models.work.Task) -> datetime.datetime | None:
@@ -540,9 +552,12 @@ def materialise (
 	# gates both of its branches on one of those two columns being set.
 	#
 	# **The code already assumed this could not happen.** `_is_on_its_grid` compares
-	# `occurrence_at == (due_at or starts_at)`, which cannot hold while one side is null — so
-	# the deduplication that stops a rule and its occurrence appearing twice in a calendar was
-	# reasoning about a state the writer had not considered.
+	# `occurrence_at` against :func:`grid_date`, which is null while both columns are — so the
+	# deduplication that stops a rule and its occurrence appearing twice in a calendar was
+	# reasoning about a state the writer had not considered. (It spelled the rule out as
+	# `due_at or starts_at` when this was written; `#1302` made it one function, and the
+	# quotation is corrected here rather than left as the one place a reader hunting copies of
+	# the rule would find one and not know it was a quotation.)
 	#
 	# **A deadline, and a whole day.** The rule names days and never times — the grammar has no
 	# `BYHOUR` — so anchoring on the filing instant gave the slot a time of day nobody chose:
@@ -1525,7 +1540,27 @@ def update (
 	if any(
 		moved is not subroutine.domain.patch.UNSET for moved in (deadline, beginning, defer)
 	):
+		# **And the dates it leaves behind are moved onto the same days in the new zone**
+		# (`#1327`). Relabelling the column without touching the instants leaves a row whose
+		# two halves disagree, which since `#1296` puts it in no agenda bucket at all.
+		was_written_in = task.timezone
 		task.timezone = zone
+
+		_resnapped(
+			task,
+			was_written_in=was_written_in,
+			already_resolved=frozenset(
+				column
+				for column, moved in (
+					("due_at", deadline),
+					("starts_at", beginning),
+					("ends_at", ending),
+					("snoozed_until", defer),
+				)
+				if moved is not subroutine.domain.patch.UNSET
+			),
+			now=instant,
+		)
 
 	# **Applied before the "nothing changed" return below**, because a repeat lives on the
 	# *series* rather than on this row: `changes_between` compares the task with itself and
@@ -2069,22 +2104,143 @@ def _kept_on_its_grid (
 	**A column whose shape changed has no delta**, so the only honest question left is whether
 	the slot was on the grid before: if it was, it still is, and it takes the column's new
 	value. A row somebody had already moved by hand stays moved.
+
+	**And an edit can change which column is tracked at all**, which is the third case and the
+	one the first version missed (`#1325`): adding a deadline to a series that had only a start
+	moves the slot from one grid to the other, and a column set from nothing is in no delta. So
+	*was this on the grid* has to be asked of the column the slot was on **before** the edit —
+	reading it off the column it is on now asks about a value that was ``None``, which is never
+	equal to anything, so the row was left stranded on a grid it is no longer measured against.
+	:func:`~subroutine.domain.calendars._is_on_its_grid` then read a row nobody had touched as
+	individually rescheduled, and the feed drew it twice. Clearing a deadline is the mirror.
 	"""
 
 	if row.occurrence_at is None:
 		return
 
 	tracked = grid_field(row)
+	was_tracked = grid_field_for(before.get("due_at"))
 
-	if tracked in deltas:
+	if tracked == was_tracked and tracked in deltas:
 		row.occurrence_at += deltas[tracked]
 
 		return
 
 	held = grid_date(row)
 
-	if held is not None and row.occurrence_at == before.get(tracked):
+	if held is not None and row.occurrence_at == before.get(was_tracked):
 		row.occurrence_at = held
+
+
+def _resnapped (
+	task: subroutine.db.models.work.Task,
+	*,
+	was_written_in: str | None,
+	already_resolved: frozenset[str],
+	now: datetime.datetime,
+) -> None:
+	"""Move a row's untouched whole-day dates onto the same local day in its new zone (`#1327`).
+
+	`#1014` rewrites ``task.timezone`` whenever a date was authored, and until `#1296` the cost
+	of leaving the stored instants behind was only that they rendered an hour out. It decides
+	**membership** now: a whole-day row is bucketed by comparing it against the edge of the day
+	*its own zone column* names, so a row stored at London midnight and labelled New York
+	matches no day's edge at all and falls out of every bucket, for every reader, while being
+	counted under *dated further out*. Measured: a birthday re-dated by a colleague five hours
+	away vanished from the agenda of all four readers it had been correct for.
+
+	**The row is what is wrong, not the comparison.** Widening the comparison to tolerate it
+	would have to tolerate a whole day at each end — the offset between two zones reaches
+	twenty-six hours — which is exactly the precision the buckets are made of. So the write is
+	where it is repaired: the day the row *meant* is read in the zone it was written in, and
+	stored again at the edge of that same day in the zone it is being relabelled to.
+
+	**A timed date is not touched**, because it genuinely is a point and `#1014`'s promise is
+	that it keeps its moment. **Nor is a column this very call resolved**, which was already
+	interpreted in the new zone and would be read back in the wrong one.
+
+	It repairs one thing on its way past: a whole-day value stored anywhere other than its
+	edge — the sub-microsecond drift `#1291` left behind on occurrences minted before it — is
+	snapped as it is rewritten, because the day is what is read and the edge is what is
+	written.
+	"""
+
+	relabelled = task.timezone
+
+	# **A row that never said where it was written has no day of its own to keep**, which is
+	# the same answer :func:`~subroutine.domain.agenda._edge` gives it: it takes the reader's
+	# zone, so there is nothing here to repair.
+	if relabelled is None or was_written_in is None or was_written_in == relabelled:
+		return
+
+	written_in = subroutine.domain.dates.zone(was_written_in, "timezone")
+
+	for column in MOVED_BY_DELTA:
+		held = getattr(task, column)
+
+		if (
+			held is None
+			or column in already_resolved
+			or not getattr(task, ALL_DAY_FLAG[column])
+		):
+			continue
+
+		setattr(
+			task,
+			column,
+			whole_day_for(
+				held.astimezone(written_in).date(),
+				field=column,
+				timezone=relabelled,
+				now=now,
+			).instant,
+		)
+
+
+def _flags_held_back (
+	*,
+	was: dict[str, typing.Any],
+	now_holds: dict[str, typing.Any],
+	before: dict[str, typing.Any],
+	only_where_unchanged: bool,
+) -> frozenset[str]:
+	"""Name the all-day flags whose own date column is not being carried (`#1324`).
+
+	**A flag and the date it describes are one fact and have to be decided together.**
+	``only_where_unchanged`` holds a column back when the target already differs from the
+	source's old value — *somebody moved this one by hand, leave it alone* — and past the first
+	turn of a series that is **always** true of the dates, because an occurrence is a whole grid
+	shift ahead of its template by construction. The flag is not held back by that test, because
+	both rows still agree about it, so a shape change made at the *template* end skipped
+	``due_at`` and copied ``due_is_all_day`` on its own. What landed on the live row was an
+	all-day deadline stored at 09:00 — the row §6.5 says cannot exist and
+	:func:`_reshaped` was written to prevent, written by the function that fixes it.
+
+	**Held back only when every date naming it is**, which is what keeps a span honest:
+	:data:`ALL_DAY_FLAG` points both edges at ``starts_is_all_day``, so a flag whose other end
+	*is* being reshaped still has to travel — :func:`_reshaped` has already written that shape
+	into the instant, and leaving the flag behind would state the opposite.
+	"""
+
+	if not only_where_unchanged:
+		return frozenset()
+
+	moving = [
+		column
+		for column in MOVED_BY_DELTA
+		if column in now_holds and was.get(column) != now_holds[column]
+	]
+
+	carried = {
+		ALL_DAY_FLAG[column]
+		for column in moving
+		if before.get(column) == was.get(column)
+	}
+
+	return frozenset(
+		{ALL_DAY_FLAG[column] for column in moving if before.get(column) != was.get(column)}
+		- carried
+	)
 
 
 def _carried (
@@ -2123,6 +2279,12 @@ def _carried (
 
 	before = _snapshot(session, target)
 	deltas = _deltas(was, now_holds)
+	held_back = _flags_held_back(
+		was=was,
+		now_holds=now_holds,
+		before=before,
+		only_where_unchanged=only_where_unchanged,
+	)
 
 	# **Resolved only when something is going to be re-shaped**, which is rare: §6.5's chain
 	# reaches the workspace and the instance, and every other carried edit is a copy.
@@ -2139,6 +2301,11 @@ def _carried (
 			continue
 
 		if only_where_unchanged and before.get(column) != was.get(column):
+			continue
+
+		# **A flag whose date stayed behind stays with it** (`#1324`), or the row claims a
+		# shape its stored instant does not have.
+		if column in held_back:
 			continue
 
 		if column == "tags":
@@ -2159,6 +2326,12 @@ def _carried (
 			column in MOVED_BY_DELTA
 			and getattr(target, column) is not None
 			and was.get(column) is not None
+			# **Both ends of the move, not just the near one** (`#1323`). Clearing a date
+			# flips its flag too, so the shape *did* change and there is still nothing to
+			# reshape onto — :func:`_reshaped` read ``None.astimezone`` and the call was a
+			# 500 rather than one of the typed refusals. The branch below already says the
+			# right thing about a cleared column.
+			and value is not None
 			and _changed_shape(column, was=was, now_holds=now_holds)
 		):
 			# **A shape change carries as days and a new edge, never as a delta** (`#1303`).
@@ -2567,6 +2740,16 @@ def begin_repeating (
 
 	session.add(template)
 	session.flush()
+
+	# **The tags travel too** (`#1326`). Every occurrence inherits the template's tags
+	# through :func:`materialise`, and the template built here is a copy of named columns —
+	# a tag is a join and was not one of them, so a rule added to a task that already
+	# carried tags lost them from the second turn of the wheel onwards. `#1307` fixed the
+	# reading end and its tests all build the series through ``create``, where the row the
+	# caller's tags landed on *is* the template and there is nothing to copy.
+	subroutine.domain.tags.set_on(
+		session, template, subroutine.domain.tags.on(session, task)
+	)
 
 	# Refused after the template exists rather than before, so the message is the one
 	# `series_start` gives — one rule about what a repeat needs a date for, in one place.

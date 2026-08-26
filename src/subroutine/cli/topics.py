@@ -87,9 +87,12 @@ def _dates_body () -> str:
 
 Most tasks use one of them. Many use none.
 
-Ways to write a date. **Everything below works at the command line; all but
-the last also work in a captured line, and the ones marked (api) are accepted
-in a `due`, `starts`, `ends` or `snooze` field over HTTP.** A weekday name is
+Ways to write a date. **Everything below works at the command line wherever a
+date is asked for; all but the last also work in a captured line, and the ones
+marked (api) are accepted in a `due`, `starts`, `ends` or `snooze` field over
+HTTP.** The one exception is `plan`, which asks for a day and refuses a time
+of day — so a timestamp sets a deadline or a defer here and does not plan one.
+A weekday name is
 shorthand this tool resolves for you, so `subroutine plan 1 friday` works
 while `{{"due": "friday"}}` is refused — send `2026-07-31` or `end_of_week`
 there instead. /v1/meta publishes the exact list the API takes, under
@@ -108,6 +111,7 @@ grammars.relative_dates.
   today, tomorrow                                              (api)
   a date         2026-08-01                                    (api)
   a time         2026-08-01T17:00:00Z                          (api)
+                 — not to 'plan', which takes a day
   an expression  {keywords}                                    (api)
                  with offsets: now+7d, end_of_week-1d, today+1w
   an offset      +7d, +2w — the same, counted from today
