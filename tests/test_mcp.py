@@ -2476,6 +2476,90 @@ def test_the_adapter_says_what_the_grammar_declined_to_read (
 	assert "Left as written" not in read
 
 
+def test_an_agent_planning_a_timed_event_keeps_the_clock_it_captured (
+	session: sqlalchemy.orm.Session,
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1299` on the surface whose comment predicted this and was not reread.
+
+	``_updated`` said *"``defer`` reads a clock and ``plan`` does not... ``starts_at`` is
+	rendered by nothing at this scale yet, which is `SR#576`"*. That was true when it was
+	written, it named the item that would expire it, `SR#576` shipped an event with a real
+	start — and the truncation went on destroying a time the same tool had just captured one
+	call earlier.
+
+	**Read out of the store rather than off the confirmation line**, because no surface here
+	renders a time on ``starts_at`` (`SR#1298`), so the line is identical either way.
+	"""
+
+	text, failed = _called(
+		bound, "subroutine_add", text="Doctor's appointment on 2027-03-01 at 14:00"
+	)
+
+	assert not failed, text
+
+	found = re.search(r"#(\d+)", text)
+
+	assert found is not None, text
+
+	ref = int(found.group(1))
+	stored = sqlalchemy.select(subroutine.db.models.work.Task).where(
+		subroutine.db.models.work.Task.ref == ref
+	)
+	row = session.scalars(stored).one()
+
+	assert row.starts_at is not None
+	assert row.starts_is_all_day is False, "the fixture is not a timed event"
+
+	was = row.starts_at.timetz()
+
+	_answer, failed = _called(bound, "subroutine_update", ref=ref, plan="2027-03-02")
+
+	assert not failed
+	session.expire_all()
+
+	after = session.scalars(stored).one()
+
+	assert after.starts_at is not None
+	assert after.starts_at.date() == datetime.date(2027, 3, 2), "the day did not land"
+	assert after.starts_at.timetz() == was, "planning it destroyed the time it was created with"
+	assert after.starts_is_all_day is False, "a timed event was re-snapped to a whole day"
+
+
+def test_an_agent_is_told_a_day_argument_will_not_take_a_time (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1299`. A written time was converted to a day in silence on this surface too.
+
+	An agent has no way to notice: nothing renders a time on either column, so the call
+	succeeds, the confirmation reads correctly, and the value it wrote is gone. Refusing is
+	what turns that into something it can act on — and the message names the **column**, so it
+	names a field a caller can actually send (`SR#1311`).
+	"""
+
+	text, _failed = _called(bound, "subroutine_add", text="The conference")
+	found = re.search(r"#(\d+)", text)
+
+	assert found is not None, text
+
+	ref = int(found.group(1))
+
+	answered, failed = _called(
+		bound, "subroutine_update", ref=ref, until="2027-03-05T11:30:00"
+	)
+
+	assert failed, f"a time was taken by an argument that stores one and reports none:\n{answered}"
+	assert "11:30" in answered, f"the refusal has to quote what it will not take:\n{answered}"
+
+	# A day still works, so the refusal has not turned down the documented form. Both ends in
+	# one call, because an end cannot be set without a start.
+	_taken, failed = _called(
+		bound, "subroutine_update", ref=ref, plan="2027-03-01", until="2027-03-05"
+	)
+
+	assert not failed, _taken
+
+
 def test_a_planned_day_is_reported_where_a_deadline_is (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

@@ -2886,6 +2886,14 @@ def _account_zone (client: subroutine.clients.base.Client, workspace: str | None
 	return subroutine.config.system_timezone()
 
 
+#: Which stored column each of this tool's day arguments writes.
+#:
+#: **The argument names are the agent's vocabulary and the columns are the domain's**, and a
+#: refusal has to speak the second one so it names a field somebody can send (`#1311`). The map
+#: also decides which existing clock a named day must not destroy (`#1299`).
+_COLUMN_FOR = {"plan": "starts_at", "until": "ends_at", "defer": "snoozed_until"}
+
+
 def _day (given: typing.Any, *, field: str, timezone: str) -> datetime.date | None:
 	"""Read a day an agent named, or ``None`` to clear it.
 
@@ -2901,17 +2909,26 @@ def _day (given: typing.Any, *, field: str, timezone: str) -> datetime.date | No
 
 	An empty string clears, which is how §8.3's null reaches a schema whose property is a
 	string. Omitting the argument is what leaves the day alone.
+
+	**A written time is refused rather than dropped** (`#1299`), and this used to convert it to
+	a day in silence. ``starts_at`` and ``ends_at`` both store an instant, so a time an agent
+	wrote is something the field could have held — and no surface renders one, so nothing would
+	have told it otherwise. The refusal is the domain's, beside the two readings that keep a
+	clock and drop one, because which of the three is right depends on the destination.
 	"""
 
-	moment = _moment(given, field=field, timezone=timezone)
+	if not isinstance(given, str):
+		raise ValueError(f"{field!r} is a day, written like 'friday' or '2026-09-01'.")
 
-	if isinstance(moment, datetime.datetime):
-		# Back to a day in the zone the moment was read in — the same conversion
-		# `schedule.interpret_written_day` does, and for its reason: reading it in UTC would
-		# make a Friday evening into Saturday for anybody east of Greenwich.
-		return subroutine.domain.schedule.day_in(moment, timezone)
+	if not given.strip():
+		return None
 
-	return moment
+	return subroutine.domain.schedule.interpret_written_day_only(
+		given,
+		timezone=timezone,
+		now=subroutine.db.types.utcnow(),
+		field=_COLUMN_FOR.get(field, field),
+	)
 
 
 def _moment (
@@ -3149,9 +3166,16 @@ def _updated (
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
 
-	# **``defer`` reads a clock and ``plan`` does not** (`#858`). ``snoozed_until`` carries a
-	# time everywhere it is stored, so a surface that truncates is throwing away something the
-	# writer said; ``starts_at`` is rendered by nothing at this scale yet, which is `#576`.
+	# **``defer`` takes a clock and ``plan`` refuses one** (`#858`, then `#1299`). Both write a
+	# column that stores an instant, so a written time is never dropped on either — a defer
+	# honours it, and a plan says it cannot take one rather than discarding it.
+	#
+	# **This read *"`plan` does not [read a clock]... `starts_at` is rendered by nothing at this
+	# scale yet, which is `#576`"* until 2026-08-26**, and it was right when it was written. It
+	# named the item that would expire it, `#576` shipped an event with a real start, and
+	# nobody came back — so a truncation correct for the cases that existed went on destroying
+	# a time the product had just captured. A comment that predicts its own expiry is only as
+	# good as somebody rereading it.
 	#
 	# Both are here rather than in one branch because the alternative is worse than the bug:
 	# `#858` fixed ``subroutine defer`` at the terminal, and stopping there would have left
@@ -3164,6 +3188,7 @@ def _updated (
 	# connection — see :func:`_account_zone`. Asking here rather than in the helpers is what
 	# keeps a change with no dates in it from fetching an identity it has no use for.
 	days: dict[str, datetime.datetime | datetime.date | None] = {}
+	zone = ""
 
 	if any(field in arguments for field in ("plan", "until", "defer")):
 		zone = _account_zone(client, workspace)
@@ -3198,15 +3223,36 @@ def _updated (
 	)
 
 	if days:
+		# **A named day must not destroy a clock the column already carries** (`#1299`). A bare
+		# date means *the whole of that day* wherever it is stored, so planning a doctor's
+		# appointment for tomorrow re-snapped its 14:00 start to midnight — and the comment at
+		# the top of this function named `#576` as what would change that, which it has.
+		#
+		# ``defer`` is exempt because it reads a clock of its own: whatever the agent wrote is
+		# what the field should hold, and there is nothing to preserve.
+		sending: dict[str, datetime.datetime | datetime.date | None] = {}
+
+		for field, name in (("plan", "starts"), ("until", "ends"), ("defer", "snooze")):
+			if field not in days:
+				continue
+
+			when = days[field]
+			sending[name] = (
+				subroutine.domain.schedule.on_the_day(
+					when,
+					keeping=getattr(changed, _COLUMN_FOR[field]),
+					all_day=changed.starts_is_all_day,
+					timezone=zone,
+					field=_COLUMN_FOR[field],
+				)
+				if field != "defer"
+				and changed is not None
+				and type(when) is datetime.date
+				else when
+			)
+
 		changed = client.schedule(
-			ref=ref,
-			workspace=workspace,
-			applies_to=applies_to,
-			**{
-				name: days[field]
-				for field, name in (("plan", "starts"), ("until", "ends"), ("defer", "snooze"))
-				if field in days
-			},
+			ref=ref, workspace=workspace, applies_to=applies_to, **sending
 		)
 
 	if changed is None:

@@ -2102,14 +2102,24 @@ def _planned (
 		)
 		client = _require_connection(program, world, located.connection)
 
+		# **A plan names a day and never touches the clock** (`#1299`). It sent a bare date,
+		# which means *the whole of that day* wherever it is stored, so planning a doctor's
+		# appointment for tomorrow destroyed the 14:00 that ``add`` had just read.
+		zone = world.account_zone(located.connection, located.workspace)
+
 		changed = client.schedule(
 			ref=task.ref,
 			workspace=located.workspace,
-			starts=_day(world, _asked(when, "Which day?"), at=located),
+			starts=subroutine.domain.schedule.on_the_day(
+				_day(world, _asked(when, "Which day?"), at=located),
+				keeping=task.starts_at,
+				all_day=task.starts_is_all_day,
+				timezone=zone,
+			),
 			applies_to=_which_occurrences(
 				program, task, just_this_one=just_this_one, from_now_on=from_now_on
 			),
-			**_until(world, until, at=located),
+			**_until(world, until, at=located, task=task, timezone=zone),
 		)
 
 		# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is right in
@@ -2166,8 +2176,13 @@ def _hidden (
 
 
 def _until (
-	world: World, written: str, *, at: "Located"
-) -> dict[str, datetime.date | None]:
+	world: World,
+	written: str,
+	*,
+	at: "Located",
+	task: subroutine.views.Task,
+	timezone: str,
+) -> dict[str, datetime.date | datetime.datetime | None]:
 	"""Return what to pass a client for ``--until``: nothing, a day, or an explicit clear.
 
 	**Three states, and a flag can only carry two of them without this.** ``UNSET`` and
@@ -2178,16 +2193,37 @@ def _until (
 
 	Returned as keyword arguments rather than a sentinel because that is what makes the
 	first state expressible at the call site at all.
+
+	**The end keeps its own clock, exactly as the start does** (`#1299`) — ``ends_at`` shares
+	``starts_is_all_day``, because an end has none of its own (decision `#1235` §2).
 	"""
 
 	if written is UNGIVEN:
 		return {}
 
-	return {"ends": None if written == "" else _day(world, written, at=at)}
+	if written == "":
+		return {"ends": None}
+
+	return {
+		"ends": subroutine.domain.schedule.on_the_day(
+			_day(world, written, at=at, field="ends_at"),
+			keeping=task.ends_at,
+			all_day=task.starts_is_all_day,
+			timezone=timezone,
+			field="ends_at",
+		)
+	}
 
 
-def _day (world: World, written: str, *, at: "Located") -> datetime.date:
+def _day (
+	world: World, written: str, *, at: "Located", field: str = "starts_at"
+) -> datetime.date:
 	"""Read a day the user named, **in their account's zone** (`#1083`, decision `#1088`).
+
+	**A written time is refused rather than dropped** (`#1299`), which is
+	``interpret_written_day_only``'s whole subject: ``plan 1 tomorrow --until
+	'2026-08-27T11:30:00'`` used to keep the date, throw away the 11:30 and report success.
+	``field`` is the column being written, so the refusal names something a caller can send.
 
 	**A weekday name is resolved here rather than by the expression grammar** (`#167`).
 	``plan 1 friday`` is promised by ``explain dates``, by ``plan --help`` twice, by
@@ -2202,11 +2238,11 @@ def _day (world: World, written: str, *, at: "Located") -> datetime.date:
 	disagree, which is what `#1001` filed and `#1088` settled.
 	"""
 
-	resolved = subroutine.domain.schedule.interpret_written_day(
+	resolved = subroutine.domain.schedule.interpret_written_day_only(
 		written,
 		timezone=world.account_zone(at.connection, at.workspace),
 		now=subroutine.db.types.utcnow(),
-		field="when",
+		field=field,
 	)
 
 	if resolved is None:

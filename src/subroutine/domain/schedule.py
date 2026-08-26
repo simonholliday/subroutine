@@ -269,6 +269,93 @@ def interpret_written_day (
 	return moment
 
 
+def interpret_written_day_only (
+	value: str,
+	*,
+	timezone: str,
+	now: datetime.datetime,
+	field: str = "starts_at",
+) -> datetime.date | None:
+	"""Read a day, and **refuse** a written time rather than discarding it (`#1299`).
+
+	The third of these, and the axis the three differ on is what becomes of a clock:
+	:func:`interpret_written_moment` keeps one, :func:`interpret_written_day` drops one, and
+	this refuses one. **Which is right depends on the destination, not on the vocabulary.**
+
+	- Dropping is correct where the question *is* a day: ``GET /v1/agenda?date=`` names the day
+	  a page is about, so an instant sent there means that day and always has.
+	- Refusing is correct where the value lands in a column that carries a clock. ``plan`` and
+	  its ``--until`` write ``starts_at`` and ``ends_at``, and both store an instant — so a time
+	  somebody wrote is something the field could have held, and dropping it is §6.13 rule 1's
+	  exact forbidden outcome: a value read, discarded and not mentioned.
+
+	**It was silent in the worst possible place.** ``plan 1 tomorrow --until
+	'2026-08-27T11:30:00'`` kept the date, threw away the 11:30 and answered *"Starts Thu 27
+	Aug"* — and because no terminal surface renders a time on either column (`#1298`), the
+	output was identical to the one a working command would print.
+
+	``field`` is the **column**, so the refusal names something a caller can send — which is
+	`#1311`'s rule, met here at the first new refusal written after it.
+	"""
+
+	moment = interpret_written_moment(value, timezone=timezone, now=now, field=field)
+
+	if not isinstance(moment, datetime.datetime):
+		return moment
+
+	local = moment.astimezone(subroutine.domain.dates.zone(timezone, field))
+	name, _flag = DATE_FIELDS.get(field, (field, ""))
+
+	raise subroutine.errors.ValidationError(
+		f"{value!r} names a time of day, and this takes a day.",
+		code="invalid_field_value",
+		hint=(
+			f"Write just the day — {local.date().isoformat()}. Planning names days and keeps "
+			f"whatever time of day the item already carries."
+		),
+		errors=[
+			subroutine.errors.FieldError(
+				field=name,
+				code="invalid_field_value",
+				message=f"A time of day ({local:%H:%M}) was given where a day was expected.",
+			)
+		],
+	)
+
+
+def on_the_day (
+	day: datetime.date,
+	*,
+	keeping: datetime.datetime | None,
+	all_day: bool,
+	timezone: str,
+	field: str = "starts_at",
+) -> datetime.date | datetime.datetime:
+	"""Move a field to a named day, carrying the time of day it already held (`#1299`).
+
+	**``plan`` names days and must not touch the clock.** It sent a bare
+	:class:`datetime.date`, which means *the whole of that day* everywhere it is stored — so
+	planning a doctor's appointment for tomorrow re-snapped its 14:00 start to midnight and
+	flagged it all-day. The time was read by ``add``, stored correctly, and destroyed by the
+	obvious next command.
+
+	**A field that never had a clock still gets a whole day**, which is nearly everything: *plan
+	it for Tuesday* means the whole of Tuesday, and a version that simply stopped snapping would
+	leave every ordinary planned task sitting at midnight with its flag off.
+
+	**Returned without a zone on purpose.** ``interpret`` reads a naive datetime in the
+	account's timezone, which is what puts the same *wall clock* time on the landing day —
+	across a clock change, 09:00 stays 09:00 rather than becoming 08:00.
+	"""
+
+	if keeping is None or all_day:
+		return day
+
+	local = keeping.astimezone(subroutine.domain.dates.zone(timezone, field))
+
+	return datetime.datetime.combine(day, local.time())
+
+
 def interpret_written_moment (
 	value: str,
 	*,

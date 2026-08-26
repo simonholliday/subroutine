@@ -1034,6 +1034,139 @@ def test_a_defer_keeps_the_time_of_day_it_was_given (
 	assert stored["snoozed_is_all_day"] is False
 
 
+def test_planning_a_timed_event_keeps_the_clock_it_was_created_with (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1299`. Found trying to give a doctor's appointment its thirty minutes.
+
+	``plan`` says which *day*, and it re-snapped the whole field to a whole day — so the 11:00
+	that ``add`` had just read and stored was destroyed by the next command anybody would run.
+
+	**It is silent twice over.** ``plan`` echoes *"Starts Thu 27 Aug"*, which is what a working
+	command would print too; and no terminal surface renders a time on ``starts_at`` at all
+	(`SR#1298`), so the output before and after the damage is byte for byte identical. There is
+	nothing a person could look at to notice.
+
+	**The clock is compared to what was there rather than to a literal**, because the property
+	is *this command did not touch the time*, and a literal would also be asserting what the
+	capture grammar read.
+	"""
+
+	run("init")
+	run("add", "Doctor's appointment on 2026-12-01 at 14:00", "--type", "event")
+
+	before = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert before["starts_is_all_day"] is False, "the fixture is not a timed event"
+	assert before["starts_at"] is not None
+
+	run("plan", "1", "2026-12-02")
+
+	after = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert after["starts_at"] is not None
+	assert after["starts_at"][:10] == "2026-12-02", "the day the command was given did not land"
+	assert after["starts_at"][11:] == before["starts_at"][11:], (
+		"planning it destroyed the time it was created with"
+	)
+	assert after["starts_is_all_day"] is False, (
+		"a timed event was re-snapped to a whole day by a command that only names days"
+	)
+
+
+def test_planning_an_ordinary_task_still_makes_it_a_whole_day (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other side of `SR#1299`, and without it the fix passes by never snapping anything.
+
+	Nearly everything has no clock on ``starts_at``, and *plan it for Tuesday* means the whole
+	of Tuesday. The rule is *keep a clock the field already had*, which is silent on a field
+	that never had one — and a version that simply stopped snapping would leave every ordinary
+	planned task at midnight with its all-day flag off.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+	run("plan", "1", "2026-12-02")
+
+	planned = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert planned["starts_is_all_day"] is True, "an ordinary task is planned for a whole day"
+	assert planned["starts_at"] is not None
+	assert planned["starts_at"][:10] == "2026-12-02"
+
+
+def test_a_day_only_argument_refuses_a_time_rather_than_dropping_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1299`. ``--until`` is documented as *"The last day of it"* and did not refuse a time.
+
+	It accepted ``2026-12-03T11:30:00``, kept the date, dropped the time and reported success.
+	A written time is something somebody said, and §6.13 rule 1's whole subject is a value that
+	is read and then lost — so the choice is to honour it or to say so, never to discard it in
+	silence. Honouring it is an event's real span and is `SR#1238`.
+
+	**The refusal already existed for a phrase and not for a timestamp**, which is the asymmetry
+	underneath this: ``plan 1 "tomorrow at 11:00"`` is turned down because the grammar cannot
+	read it at all, so the one form that *parses* was the one that lost data.
+	"""
+
+	run("init")
+	run("add", "The conference")
+
+	refused = run("plan", "1", "2026-12-02", "--until", "2026-12-03T11:30:00", expect=1)
+
+	assert "11:30" in refused.output, (
+		"the refusal has to quote the time it will not take, or it reads as a bad date"
+	)
+
+	refused_day = run("plan", "1", "2026-12-02T09:00:00", expect=1)
+
+	assert "09:00" in refused_day.output, "the day argument drops a time as silently as --until"
+
+	# **A day still works**, because a refusal that also turned down the documented form would
+	# be a worse defect than the one it replaced.
+	run("plan", "1", "2026-12-02", "--until", "2026-12-05")
+
+
+def test_a_day_long_until_on_a_timed_event_is_refused_rather_than_flattening_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1299`'s deliberate remainder, pinned here so it is a decision rather than a surprise.
+
+	Keeping the start's clock means a span can no longer be half timed and half whole-day, and
+	an end named as a bare day *is* whole-day — so ``plan 1 <day> --until <day>`` on a timed
+	event now meets the shape refusal instead of silently flattening the start to midnight.
+
+	**That is a capability regression and it is the right trade.** What it replaces is a command
+	that succeeded by destroying the time somebody had just written, with output identical to
+	the working case. Nothing is written now: the assertion below reads the row back to say so,
+	because a refusal that had already half-applied would be worse than either.
+
+	Giving both ends a time is the fix and it is a feature — no terminal or agent surface can
+	set one today, which is what `SR#1320` is for. Until then ``PATCH /v1/tasks`` is the route,
+	and ``explain dates`` already marks the timestamp form ``(api)``.
+	"""
+
+	run("init")
+	run("add", "The conference on 2026-12-01 at 14:00", "--type", "event")
+
+	before = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert before["starts_is_all_day"] is False, "the fixture is not a timed event"
+
+	refused = run("plan", "1", "2026-12-02", "--until", "2026-12-05", expect=1)
+
+	assert "whole day" in refused.output, (
+		f"the refusal has to say what is inconsistent about the two ends:\n{refused.output}"
+	)
+
+	after = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert after["starts_at"] == before["starts_at"], "a refused command moved the start anyway"
+	assert after["ends_at"] == before["ends_at"], "a refused command set the end anyway"
+
+
 def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

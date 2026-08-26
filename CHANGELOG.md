@@ -179,6 +179,18 @@ upgrade involves.
 
 ### Fixed
 
+- **Planning something no longer destroys the time it was created with.** `subroutine add
+  "Doctor's appointment tomorrow at 11:00"` read the time and stored it; `subroutine plan 1
+  tomorrow` then re-snapped the whole thing to a whole day and threw the 11:00 away, reporting
+  success in words identical to the working case. `plan` and its `--until` name days and now
+  keep whatever time of day the item already carries. The same was true of an agent's `plan`
+  and `until`.
+
+  A day-only argument handed a *time* is now refused rather than quietly truncated — `--until
+  "2026-08-27T11:30:00"` used to keep the date, drop the 11:30 and say nothing. Setting a time
+  on a start or an end still needs `PATCH /v1/tasks`, and a repeat that starts at a time can no
+  longer be given a whole-day end in the same breath: it is refused instead of being flattened.
+
 - **A repeating task now carries the tags you gave it.** `subroutine add "Water the plants #home
   every monday"` answered *(read #home)* and then handed back a row without the tag: a repeat is
   two rows, and the tag was applied to the one that carries the rule, which is deliberately
