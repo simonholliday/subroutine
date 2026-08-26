@@ -201,7 +201,14 @@ Rules worth knowing:
   connection ordinarily files things.
 
   A repeat it cannot read stays in the title and says so, rather than being
-  guessed at: 'every fortnight' is left alone and 'every 14 days' is read."""
+  guessed at: 'every fortnight' is left alone and 'every 14 days' is read.
+
+  A title that starts with two hyphens needs '--' in front of it, because the
+  shell hands it over looking exactly like an option:
+
+    subroutine add -- '--json is the machine-readable form'
+
+  Everything after the '--' is the line, whatever it begins with."""
 
 
 def _estimates_body () -> str:

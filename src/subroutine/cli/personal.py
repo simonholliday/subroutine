@@ -4372,6 +4372,60 @@ def _projects_listed (program: Program, *, json_output: bool) -> None:
 			program.say(f"{shown}  {one.title}{marked}")
 
 
+def _written_back (document: typing.Any, *, without_body: bool) -> str:
+	"""Return a document write's JSON answer, with the text left out if it was not wanted.
+
+	**`#1360`.** Setting a 9 KB specification's status to ``active`` printed the whole
+	specification back. Context economy is a first-order cost for the agent client rather than
+	an optimisation, and a document is the one entity whose body is large by design.
+
+	**Opt-in omission and not a cap**, so `#849`'s rule — that a cap is only defensible together
+	with a way to read the rest — does not bind: the caller asked for less and knows it. The
+	default is unchanged, because the shape is published and somebody parses it.
+
+	One function for both writes, because two copies of *what a write answers* is how they come
+	to disagree a field at a time.
+	"""
+
+	shown = document.model_dump(mode="json")
+
+	if without_body:
+		shown.pop("body", None)
+
+	return json.dumps(shown, indent=2)
+
+
+def _workspaces_listed (program: Program, *, json_output: bool) -> None:
+	"""Print the workspaces this account can reach, by the name you type and what it is called.
+
+	**Rendered from the identity the client already holds** (`#1355`), never from a listing of
+	its own. ``GET /v1/me`` answers *which workspaces am I in*, which is the question somebody
+	typing this is asking — so this needs no round trip of its own and no client method, and
+	cannot drift from what ``whoami`` says on the line above it.
+
+	The role is deliberately not a column here. ``whoami`` states it, and on the ordinary
+	install every row would carry the same word — which §12.2a drops as saying nothing.
+	"""
+
+	with program.opened() as world:
+		found = world.writing_to().client.identity().workspaces
+
+		if json_output:
+			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
+
+			return
+
+		if not found:
+			program.say("No workspace here can be read with this credential.")
+
+			return
+
+		width = max(len(one.slug) for one in found)
+
+		for one in found:
+			program.say(f"{one.slug.ljust(width)}  {one.title}")
+
+
 def _ranked_by_priority (order: str | None) -> bool:
 	"""Report whether this listing is sorted by §6.3a's rank, in either direction.
 
@@ -4968,6 +5022,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+		without_body: bool = typer.Option(
+			False, "--no-body", help="Leave the document's text out of the result."
+		),
 	) -> None:
 		"""Write a document — a decision, a finding, a design, a dead end.
 
@@ -5005,7 +5062,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			)
 
 			if json_output:
-				program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+				program.say(_written_back(created, without_body=without_body))
 
 				return
 
@@ -5054,6 +5111,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			help="The document this one replaces, by its number.",
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+		without_body: bool = typer.Option(
+			False, "--no-body", help="Leave the document's text out of the result."
+		),
 	) -> None:
 		"""Revise a document you have already written.
 
@@ -5178,7 +5238,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			)
 
 			if json_output:
-				program.say(json.dumps(changed.model_dump(mode="json"), indent=2))
+				program.say(_written_back(changed, without_body=without_body))
 
 				return
 
@@ -5421,9 +5481,22 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 	# anybody would ever have was the Inbox (`#134`). A hidden command would have left that
 	# wall standing with the door merely painted over.
 	project_app = typer.Typer(
-		help="Group work into projects.", no_args_is_help=True
+		help="Group work into projects.", invoke_without_command=True
 	)
 	app.add_typer(project_app, name="project")
+
+	# **A bare `project` lists, because a bare `connections` already does** (`#1355`). The two
+	# surfaces disagreed: `subroutine_project` with no arguments lists the projects and this
+	# printed help, so an agent that learned one form had to learn the other separately. Help
+	# is still one keystroke away and is what an unrecognised subcommand gets.
+	@project_app.callback()
+	def project_group (context: typer.Context) -> None:
+		"""Group work into projects."""
+
+		if context.invoked_subcommand is not None:
+			return
+
+		_projects_listed(program, json_output=False)
 
 	@project_app.command("create")
 	def project_create (
@@ -6068,6 +6141,22 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		help="Look after the spaces work is kept in.", no_args_is_help=True
 	)
 	app.add_typer(workspace_app, name="workspace")
+
+	# **You could make one and rename one and never see one** (`#1355`). Every other verb here
+	# takes a slug, so the listing that tells you the slugs was the gap — and `/v1/meta` and the
+	# tools both answered it happily while the terminal had no word for the question.
+	@workspace_app.command("list")
+	def workspace_list (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show the workspaces you can reach, by the name you type and what it is called.
+
+		Examples:
+
+		  subroutine workspace list
+		"""
+
+		_workspaces_listed(program, json_output=json_output)
 
 	@workspace_app.command("create")
 	def workspace_create (

@@ -5,7 +5,7 @@
       "url": "${user_config.url}",
       "headers": {
         "Authorization": "Bearer ${user_config.token}",
-        "Subroutine-Plugin": "0.8.1"
+        "Subroutine-Plugin": "0.8.2"
       }
     }
   }

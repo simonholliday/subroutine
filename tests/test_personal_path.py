@@ -3793,6 +3793,116 @@ def test_the_project_listing_shows_what_is_inside_what (
 	assert where("outer") < where("inner"), printed
 
 
+def test_a_document_write_can_answer_without_repeating_the_document (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1360`. Setting a 9 KB specification's status printed the whole specification back.
+
+	**Both directions, because only one of them is the defect.** Omitting the body on request is
+	the new half; still carrying it by default is the half that must not have changed, since the
+	shape is published and a caller parses it. A guard asserting only the omission would pass on
+	a version that had quietly dropped the body for everybody.
+
+	And the answer must still say the text is *there* — ``size_bytes`` is what stops an omission
+	reading as an empty document.
+	"""
+
+	run("init")
+
+	made = run("doc", "create", "A conclusion", "--body", "the reasoning", "--json")
+	ref = json.loads(made.output)["ref"]
+
+	kept = json.loads(run("doc", "edit", str(ref), "--status", "active", "--json").output)
+	spared = json.loads(
+		run("doc", "edit", str(ref), "--status", "active", "--json", "--no-body").output
+	)
+
+	assert "body" in kept, "the default stopped carrying the body, which is a published shape"
+	assert "body" not in spared, "--no-body still returned the document's text"
+	assert spared["size_bytes"] == kept["size_bytes"], (
+		"the answer no longer says the text is there, so an omission reads as an empty document"
+	)
+
+
+def test_a_title_beginning_with_two_hyphens_survives_the_separator (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1359`. The separator worked and nothing said so, which is the whole of the item.
+
+	**Driven rather than asserted about**, because `#1263`'s rule is that a documented command
+	has to be one that works: the topic now prints this exact invocation, so the test's job is to
+	be the thing that fails if it ever stops being true.
+
+	The title must arrive **verbatim** — the failure this replaces was the writer changing their
+	wording to get past the parser, so a task that merely exists is not the outcome.
+	"""
+
+	run("init")
+
+	wanted = "--format json emits the documented schema"
+	run("add", "--", wanted)
+
+	printed = run("list").output
+
+	assert wanted in printed, f"the title did not survive the separator:\n{printed}"
+
+
+def test_the_capture_topic_names_the_separator_it_needs (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half: a reader has to be able to find it.
+
+	`SR#1359` was reported as *impossible*, by somebody who rewrote their title to work around
+	it. The behaviour was already right; only the sentence was missing.
+	"""
+
+	said = run("explain", "capture").output
+
+	assert "--" in said and "two hyphens" in said, said
+
+
+def test_a_bare_project_lists_rather_than_printing_help (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1355`. The terminal printed help where the tools list, so one verb had two answers.
+
+	**Driven against `project list` rather than against a remembered shape**, because the claim
+	is that the two forms agree — asserting on the text separately would let them drift apart
+	while both tests passed, which is the defect one level up.
+	"""
+
+	run("init")
+	run("project", "create", "outer", "Outer thing")
+
+	bare = run("project").output
+	named = run("project", "list").output
+
+	assert "Usage:" not in bare, f"a bare 'project' still printed help:\n{bare}"
+	assert bare == named, f"'project' and 'project list' answer differently:\n{bare}\n---\n{named}"
+
+
+def test_the_workspaces_a_listing_names_are_the_ones_whoami_names (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1355`. Every other workspace verb takes a slug and none of them printed one.
+
+	**The two are compared rather than each checked against a fixture.** They read one identity,
+	so the thing worth holding is that they cannot come apart — a guard that asserted the text
+	of each would pass on the day one of them started answering a different question.
+	"""
+
+	run("init")
+
+	listed = [line.split()[0] for line in run("workspace", "list").output.splitlines() if line.strip()]
+
+	assert listed, "the workspace listing named nothing at all"
+
+	said = run("whoami").output
+
+	for slug in listed:
+		assert slug in said, f"'workspace list' named {slug!r} and 'whoami' did not:\n{said}"
+
+
 def test_a_listing_marks_work_that_cannot_be_started_yet (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -8550,8 +8660,11 @@ def test_the_hint_for_an_empty_pipe_names_every_flag_that_command_takes () -> No
 		for name in getattr(parameter, "opts", ())
 		if name.startswith("--")
 	}
-	# The ref is an argument, and these two are about the output rather than the content.
-	options -= {"--json", "--help"}
+	# The ref is an argument, and these are about the *output* rather than the content — so
+	# offering them to somebody who piped nothing in would be answering a different question.
+	# `--no-body` joined them with `#1360`, and having to classify it here is this guard
+	# working: a flag that changes nothing must not be advertised as a way to change something.
+	options -= {"--json", "--no-body", "--help"}
 
 	assert len(options) >= 6, f"only {len(options)} options were found: {sorted(options)}"
 

@@ -435,9 +435,14 @@ address you were given and your token and you are working: no Python, no package
 `config.toml`. Your editor connects from *this* machine, so an instance on your own network or
 behind a VPN is as reachable as a public one.
 
-**Three things about installing that nothing else will tell you**, so they are said plainly
+**Four things about installing that nothing else will tell you**, so they are said plainly
 here:
 
+- **"3 userConfig options not yet set" is not work outstanding.** The install prints it, and all
+  three are optional: leave every one of them empty and the plugin works. They exist for a second
+  instance, a second workspace and an agent's own credential, none of which a first install has.
+  The count is your editor noting that three settings have no value, not Subroutine asking for
+  anything.
 - **claude.ai in a browser cannot run either plugin.** There is nothing on that side to start a
   program on. The install succeeds, the settings page opens, its fields are all there, and the
   only evidence of a problem is an absence.

@@ -22,6 +22,19 @@ upgrade involves.
 
 ### Changed
 
+- **A bare `subroutine project` lists your projects** instead of printing help, which is what
+  the agent tool of the same name has always done. Help is still `subroutine project --help`,
+  and an unrecognised subcommand still gets it.
+
+- **`subroutine explain capture` says how to write a title that starts with two hyphens.** Put
+  `--` in front of it. That always worked and nothing said so, so the one report of it came
+  from somebody who rewrote their title to get past the parser.
+
+- **The plugin's skill no longer implies a missing command means a stale page.** `use`, `claim`,
+  `release` and `connections` are deliberately absent from `subroutine --help` and are named by
+  `subroutine explain connecting`; the skill now says which, and says that silence about the
+  version numbers can mean *not comparable* rather than *in agreement*.
+
 - **The browser wears the real Subroutine mark.** A designed icon — four points and three
   edges forming a jagged S, the top-right point as the AI sparkle — in place of the blue
   placeholder square. It is on the app and on the sign-in page, and it is a proper set rather
@@ -70,6 +83,15 @@ upgrade involves.
   marked late: the marking follows the row instead of the section it happens to be in.
 
 ### Added
+
+- **`subroutine workspace list`.** You could create a workspace, rename one and delete one, and
+  never see one — while every other verb here takes the short name a listing would have told
+  you. It prints the workspaces this account can reach, with `--json`.
+
+- **`--no-body` on `doc create` and `doc edit`.** Setting a 9 KB specification's status printed
+  the whole specification back. The flag leaves the text out of the result and keeps
+  `size_bytes`, so an omission cannot be mistaken for an empty document. The default is
+  unchanged.
 
 - **Your agenda says what you are waiting on somebody else for.** A new section, *Waiting on
   somebody else*, directly under *Waiting on you*: work of yours that is held up by an item

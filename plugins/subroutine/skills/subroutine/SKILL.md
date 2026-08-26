@@ -136,6 +136,11 @@ setup interview is how a tool loses the person who just installed it.
    subroutine use --here --project web
    ```
 
+   **`use` is not listed by `subroutine --help`, and it does exist.** Neither are `claim`,
+   `release` or `connections`. They are held back from the first thing a newcomer reads, not
+   removed — `subroutine explain connecting` names them. Do not conclude from an absent line in
+   `--help` that a command in this page is gone; run it, or ask `explain`.
+
    **This one needs the command line**, so a session connected to a server by address cannot do
    it. Name the project on each call instead — `+web` in a captured line — and say that a
    marker is worth adding by somebody who has `subroutine` installed in this checkout.
@@ -197,8 +202,13 @@ do, not yours.
 
 **Three numbers that are not identical is normal, and there is deliberately no line about it.**
 The plugin's version moves whenever its own contents change, so it runs ahead of the program
-between releases by design. Only the mismatches above are said out loud — so if you see the
-numbers differ and no line beneath them, nothing is wrong and there is nothing to report.
+between releases by design. Only the mismatches above are said out loud.
+
+**But silence has two causes and only one of them is agreement.** A version this cannot put in
+order — a build from source, `0.8.2.dev45+g1234567` — is not compared at all, and prints nothing,
+exactly as agreement does. So no line means *either* nothing is wrong *or* the question could not
+be answered. If any of the three carries a `.dev` or a `+`, read the numbers yourself rather than
+taking the silence as an all-clear.
 
 Go back to the whole answer whenever a tool does something you did not expect: an argument
 refused, a field missing, a capability you have read about here that does not seem to be there.
