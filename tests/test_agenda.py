@@ -18,6 +18,7 @@ import typing
 import uuid
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.identity
@@ -28,6 +29,7 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.links
+import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.tasks
@@ -132,6 +134,97 @@ def _read_by_everybody (
 		zone: _bucket_of(world.agenda(timezone=zone, horizon_days=7, date=day), title)
 		for zone in READERS
 	}
+
+
+def test_the_day_a_row_is_scheduled_on_is_the_same_answer_in_all_three_spellings (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1321`. One rule, three necessary spellings, and nothing had compared them.
+
+	``scheduled_for`` has to exist as SQL for the query, as a reader over a **loaded row** for a
+	cursor, and as a reader over a **rendered view** for a merged listing. That is the shape
+	``priority_score`` already has, and the reason this file compares those too: three
+	expressions of one rule agree until somebody edits one, and the disagreement shows up as a
+	page boundary that skips or repeats rows.
+
+	**And it must agree with the rule stated elsewhere in the domain** —
+	:func:`subroutine.domain.tasks.grid_date` says *a deadline wins over a start* for a repeat's
+	slot, and this is that sentence again. A fourth copy is what this asserts against.
+
+	Three shapes, because each isolates one branch: a deadline only, a start only, and both.
+	"""
+
+	world = World(session)
+	rows = [
+		world.task("A deadline only", due=datetime.date(2026, 9, 4)),
+		world.task("A start only", starts=datetime.date(2026, 9, 2)),
+		world.task("Both", due=datetime.date(2026, 9, 6), starts=datetime.date(2026, 9, 1)),
+	]
+	session.flush()
+
+	field = subroutine.domain.ordering.scheduling(
+		subroutine.domain.ordering.TASK_FIELDS
+	)[subroutine.domain.ordering.SCHEDULED_FOR]
+
+	for row in rows:
+		in_sql = session.scalar(
+			sqlalchemy.select(field.expression).where(
+				subroutine.db.models.work.Task.id == row.id
+			)
+		)
+		off_the_row = field.read(row)
+		off_the_view = subroutine.domain.ordering.VIEW_READERS[
+			subroutine.domain.ordering.SCHEDULED_FOR
+		](row)
+
+		assert in_sql == off_the_row == off_the_view, (
+			f"{row.title!r}: the database says {in_sql}, a loaded row says {off_the_row} and a "
+			f"rendered view says {off_the_view}"
+		)
+		assert off_the_row == subroutine.domain.tasks.grid_date(row), (
+			f"{row.title!r} disagrees with the rule domain.tasks states for a repeat's slot"
+		)
+
+
+def test_the_look_ahead_is_one_run_of_dates_and_not_two (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1321`. *Next 7 days* listed everything with a deadline, then everything without.
+
+	Measured on a clean instance: **28 Aug, 31 Aug, 1 Sep, 27 Aug, 29 Aug, 2 Sep** — two
+	chronological runs under a heading that *is* a time window, with the date printed on every
+	row so the disagreement was on the page.
+
+	``ORDERS["upcoming"]`` was two keys. Everything carrying a deadline sorted by it; everything
+	with only a start had a null one, and ``clauses`` states ``NULLS LAST`` in both directions
+	deliberately (§10.3), so the whole start-only group sank below the whole deadline group.
+	**Neither key was wrong and the pair was.**
+
+	**The dates interleave on purpose.** A fixture whose starts all fall after its deadlines
+	would come out in the right order under either rule, and prove nothing.
+	"""
+
+	world = World(session)
+	made = {
+		1: ("A deadline on the 2nd", {"due": TODAY + datetime.timedelta(days=2)}),
+		2: ("A start on the 1st", {"starts": TODAY + datetime.timedelta(days=1)}),
+		3: ("A deadline on the 4th", {"due": TODAY + datetime.timedelta(days=4)}),
+		4: ("A start on the 3rd", {"starts": TODAY + datetime.timedelta(days=3)}),
+		5: ("A start on the 5th", {"starts": TODAY + datetime.timedelta(days=5)}),
+	}
+
+	for title, fields in made.values():
+		world.task(title, **fields)
+
+	shown = _titles(world.agenda(horizon_days=7).upcoming)
+
+	assert shown == [
+		"A start on the 1st",
+		"A deadline on the 2nd",
+		"A start on the 3rd",
+		"A deadline on the 4th",
+		"A start on the 5th",
+	], f"the look-ahead is not in date order: {shown}"
 
 
 def test_a_whole_day_row_is_in_the_same_section_whoever_is_reading (

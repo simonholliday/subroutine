@@ -1229,6 +1229,63 @@ def test_the_scripted_listing_row_says_whether_a_start_names_a_whole_day (
 	assert "snoozed_is_all_day" in rows[1], "the defer's own flag is still missing"
 
 
+def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1322`. Three commands, one ref, and one of them said the number was not real.
+
+	``SR#921`` made a template's ref resolve and ``SR#1247`` made the product print it, so
+	*from repeat #1* is on the screen precisely so somebody can act on that row. ``show`` read
+	it and ``done`` stopped the series — and ``delete`` answered *"There is no task #1"*, then
+	pointed at a listing that excludes templates by design, so following the advice confirmed
+	the false statement.
+
+	**The exclusion is not the defect and is not changed.** ``_in_the_trash_too`` declines a
+	template with its reasons written down: widening it would make a series a legal parent to
+	move work under, which is a decision about the model that nobody has taken. What was wrong
+	is a refusal asserting something untrue — worse than a vague one, because the reader has no
+	thread to pull.
+
+	**All three are driven in one test**, because that is what makes the contradiction visible:
+	each command alone is defensible and the set of them is not.
+	"""
+
+	run("init")
+	run("add", "Take the bins out every tuesday")
+
+	occurrence = run("show", "2").output
+
+	assert "from repeat #1" in occurrence, (
+		f"the fixture does not offer the number this is about:\n{occurrence}"
+	)
+
+	assert "the repeat itself" in run("show", "1").output, "show cannot read the template"
+
+	refused = run("delete", "1", expect=1)
+
+	assert "There is no" not in refused.output, (
+		f"delete denied a row show and done both reach:\n{refused.output}"
+	)
+	assert "repeat" in refused.output, (
+		f"the refusal has to say what the ref names:\n{refused.output}"
+	)
+	assert "done 1" in refused.output, (
+		f"the refusal has to name the command that does work:\n{refused.output}"
+	)
+
+	# **The ordinary refusal is unchanged**, and without this the fix could pass by calling
+	# every missing ref a repeat.
+	missing = run("delete", "99", expect=1)
+
+	assert "repeat" not in missing.output, (
+		f"a ref that names nothing was described as a repeat:\n{missing.output}"
+	)
+
+	# And the command the refusal names actually works, which is the half a message cannot
+	# promise on its own.
+	run("done", "1")
+
+
 def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -486,6 +486,51 @@ def ranking (
 	)
 
 
+#: What *the day this row is scheduled on* is called, for a listing that has to put two date
+#: columns in one order (`#1321`).
+#:
+#: **Per request rather than in :data:`TASK_FIELDS`**, which is the same argument
+#: :func:`prioritising`, :func:`searching` and :func:`sinking` make: that map is published in
+#: ``/v1/meta`` as the sorts a caller may ask for, and whether *order by whichever date this is
+#: scheduled on* should be offered is a decision about the API — `#851`'s — rather than
+#: something an agenda section may take on its own.
+SCHEDULED_FOR = "scheduled_for"
+
+
+def scheduled_on (row: typing.Any) -> typing.Any:
+	"""Return the one date a row is scheduled by: its deadline, or its start if it has none.
+
+	**A deadline wins over a start**, which is the rule
+	:func:`subroutine.domain.tasks.grid_field` states for a repeat's slot and ``series_start``
+	states for a series' anchor. It is spelled three times of necessity — as SQL for the query,
+	here for a loaded row, and in :data:`VIEW_READERS` for a rendered one — exactly as
+	``priority_score`` is, and ``tests/test_ordering.py`` compares them for the same reason.
+	"""
+
+	return row.due_at if getattr(row, "due_at", None) is not None else getattr(row, "starts_at", None)
+
+
+def scheduling (allowed: typing.Mapping[str, Sortable]) -> dict[str, Sortable]:
+	"""Return this vocabulary with :data:`SCHEDULED_FOR` in it.
+
+	The agenda's *Next 7 days* holds rows that are there for a deadline and rows that are there
+	for a start, and ordering by the two columns in turn sorted them in two runs: ``NULLS LAST``
+	is stated in both directions deliberately (§10.3), so everything without a deadline sank
+	below everything with one. Neither key was wrong and the pair was.
+	"""
+
+	return {
+		**allowed,
+		SCHEDULED_FOR: Derived(
+			expression=sqlalchemy.func.coalesce(
+				subroutine.db.models.work.Task.due_at,
+				subroutine.db.models.work.Task.starts_at,
+			),
+			read=scheduled_on,
+		),
+	}
+
+
 def prioritising (
 	allowed: typing.Mapping[str, Sortable],
 	*,
@@ -659,6 +704,11 @@ DEFAULT_PROJECT_ORDER = ("path",)
 #: fails if :data:`TASK_FIELDS` ever grows one, because a sort field the CLI silently ignores
 #: is worse than one it refuses.
 VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
+	# **A per-request field with a reader here** (`#1321`), which is what the guard on this map
+	# is for: it reads *everything a listing accepts* rather than :data:`TASK_FIELDS`, because
+	# the newest sort fields are added per request and a name a merged listing accepts and then
+	# ignores is worse than one it refuses.
+	SCHEDULED_FOR: scheduled_on,
 	"created_at": lambda item: item.created_at,
 	"updated_at": lambda item: item.updated_at,
 	"completed_at": lambda item: getattr(item, "completed_at", None),

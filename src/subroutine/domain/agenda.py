@@ -120,7 +120,17 @@ ORDERS: dict[str, tuple[str, ...]] = {
 	# Tuesday carrying no deadline is ordered by when it begins; without this it fell to the
 	# tiebreak and sorted by age, which reads as an arbitrary arrangement of things that have
 	# a very obvious one.
-	"upcoming": ("due_at", "starts_at"),
+	# **One key, because two of them sort in two runs** (`#1321`). This was
+	# ``("due_at", "starts_at")``: everything carrying a deadline sorted by it, and everything
+	# with only a start had a null deadline — and `clauses` states ``NULLS LAST`` in both
+	# directions deliberately (§10.3), so the whole start-only group sank below the whole
+	# deadline group. Measured on a clean instance: *Next 7 days* read 28 Aug, 31 Aug, 1 Sep,
+	# 27 Aug, 29 Aug, 2 Sep — two chronological runs under a heading that **is** a time window,
+	# with the date printed on every row.
+	#
+	# **Neither key was wrong and the pair was.** :data:`SCHEDULED_FOR` is the one date the row
+	# is actually about.
+	"upcoming": (subroutine.domain.ordering.SCHEDULED_FOR,),
 	"unscheduled": ("-priority_score",),
 }
 
@@ -193,7 +203,13 @@ def order_for (bucket: str) -> tuple[tuple[str, bool], ...]:
 	"""
 
 	keys = subroutine.domain.ordering.requested(
-		None, allowed=subroutine.domain.ordering.TASK_FIELDS, default=ORDERS[bucket]
+		None,
+		# **The same vocabulary :func:`build` sorts with**, or this half refuses a name the
+		# other half orders by — and this is the half that runs when a merged agenda is
+		# re-sorted in Python, so the two disagreeing would break exactly the multi-connection
+		# case nothing else exercises (`#1321`).
+		allowed=subroutine.domain.ordering.scheduling(subroutine.domain.ordering.TASK_FIELDS),
+		default=ORDERS[bucket],
 	)
 
 	return (*keys, (TIEBREAK, False))
@@ -354,6 +370,10 @@ def build (
 			session, principal, workspace_ids=workspace_ids
 		),
 	)
+	# **One entry wider, for the section that holds two kinds of date** (`#1321`) — see
+	# :func:`subroutine.domain.ordering.scheduling`. ``prioritising`` above returns a copy for
+	# the same reason, so nothing here is reaching around a rule.
+	sortable = subroutine.domain.ordering.scheduling(sortable)
 
 	scoped = _scoped(workspace_ids, principal=principal, sortable=sortable, project=project)
 

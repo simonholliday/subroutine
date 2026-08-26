@@ -179,6 +179,24 @@ upgrade involves.
 
 ### Fixed
 
+- **The next seven days are listed in date order.** Everything with a deadline was listed first
+  and everything with only a start after it, so the section read *28 Aug, 31 Aug, 1 Sep, 27 Aug,
+  29 Aug, 2 Sep* — two runs of dates under a heading that is a stretch of time. It is one run
+  now, ordered by whichever date the item is actually scheduled on.
+
+- **Writing a time after a date like `2026-09-02` no longer invents a second date.** `add "Pay
+  it by 2026-09-02 at 17:00"` set the deadline to the 2nd and then quietly added a *start* of
+  today at 17:00, which nobody asked for and which put the item on today's agenda. The time now
+  lands on the date beside it, as it always did when the date was written `2 September` or
+  `friday`. A line that names a day never gets an invented one; a line with no day at all — 
+  `Dentist at 3pm` — still means today.
+
+- **Deleting a repeat says what it is instead of saying it does not exist.** `subroutine delete`
+  on the row a repeat is defined by answered *"there is no task #1"* — about a number the
+  product itself prints, that `show` reads and that `done` acts on — and then pointed at a
+  listing that never shows it. It now names the row and points at `subroutine done`, which is
+  how a repeat is stopped.
+
 - **An all-day event is in the same part of your agenda whoever is reading it.** A whole day is
   a label, so *Get paid on 27 August* belongs to the 27th on every clock — and it was being
   compared as a moment, so the same event sat under *Next 7 days* for one person and *Happening*

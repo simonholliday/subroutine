@@ -1025,6 +1025,72 @@ def test_a_time_that_cannot_be_placed_stays_in_the_title_and_is_reported (
 	assert reported in captured.unparsed
 
 
+def test_a_written_date_takes_a_written_time_however_the_date_was_spelled () -> None:
+	"""`SR#1239`. The same sentence written two ways gave two different answers.
+
+	A weekday, ``today`` and ``tomorrow`` are resolved to a day before the clock is placed, so
+	the time landed on them. **An ISO date stays a string**, so it was skipped — and the clock
+	then fell all the way through to the fallback and invented a ``starts_at`` of *today*, on a
+	line whose only date was a deadline.
+
+	    by 2026-09-02 17:00      due 2 Sep at 17:00                    <- right
+	    by 2026-09-02 at 17:00   due 2 Sep, and a start today at 17:00  <- the word *at*
+
+	**Every preposition, because the fall-through was not particular about which field it
+	robbed** — a deferred line lost its clock the same way.
+	"""
+
+	for line, field in (
+		("Pay it by 2026-09-02 at 17:00", "due"),
+		("Start it on 2026-09-02 at 17:00", "starts_at"),
+		("Hide it from 2026-09-02 at 17:00", "snooze"),
+	):
+		captured = _parse(line)
+		wanted = datetime.datetime(2026, 9, 2, 17, 0)
+
+		assert getattr(captured, field) == wanted, (
+			f"{line!r}: {field} is {getattr(captured, field)!r}"
+		)
+
+		invented = [
+			name
+			for name in ("due", "starts_at", "snooze")
+			if name != field and getattr(captured, name) is not None
+		]
+
+		assert not invented, f"{line!r} also set {invented}, which nobody asked for"
+
+
+def test_a_time_beside_a_date_that_already_has_one_is_reported_not_used () -> None:
+	"""The half of `SR#1239` that keeps the old rule, and without it the fix over-reaches.
+
+	``2026-09-02T17:00`` has said its own time. A second clock beside it is not a correction
+	and not a range this grammar can hold, so it goes back into the title and is reported —
+	rule 1 — rather than overwriting what the writer already wrote.
+	"""
+
+	captured = _parse("Pay it by 2026-09-02T17:00 at 18:00")
+
+	assert captured.due == "2026-09-02T17:00", "the written instant was not left alone"
+	assert captured.starts_at is None, "a second clock invented a start"
+	assert "at 18:00" in captured.title, "a time this grammar will not use must stay where it was"
+
+
+def test_a_time_with_no_day_at_all_still_means_today () -> None:
+	"""`SR#797`'s behaviour, asserted because `SR#1239`'s fix runs directly past it.
+
+	*Dentist at 3pm* names no day, so today is the only thing the clock can mean and inventing
+	a start is right. What changed is that a line which **did** name a day never gets an
+	invented one — so this is the case that says the narrowing stopped where it should.
+	"""
+
+	captured = _parse("Dentist at 3pm")
+
+	assert captured.starts_at == datetime.datetime(2026, 7, 30, 15, 0)
+	assert captured.due is None
+	assert captured.title == "Dentist"
+
+
 def test_a_one_to_one_is_not_one_minute_past_one () -> None:
 	"""The case a looser pattern gets wrong, and it is how people write a recurring meeting.
 

@@ -568,6 +568,8 @@ def parse (
 		None if at is None else at[0],
 		today=today,
 		unread_day=bool(_UNREAD_DAY.search(_blanked(text, claimed))),
+		now=now,
+		timezone=timezone,
 	)
 
 	# **A time that is read and then not used has to go back into the title** (§6.13 rule 1).
@@ -786,12 +788,40 @@ def _collect_times (
 	return found
 
 
+def _named_day (value: typing.Any, *, now: datetime.datetime, timezone: str) -> datetime.date | None:
+	"""Return the day a still-unresolved date value names, or ``None`` if it names more.
+
+	**Only a value that names a day and no clock**, so a literal ``2026-08-20T17:00`` — which
+	has said its own time — comes back ``None`` and is left alone. Anything the grammar cannot
+	read at all does too, rather than raising: this is being asked *can a time go here*, and
+	*no* is a complete answer to that.
+	"""
+
+	if not isinstance(value, str):
+		return None
+
+	try:
+		named = subroutine.domain.schedule.interpret_written_moment(
+			value, timezone=timezone, now=now
+		)
+
+	except subroutine.errors.SubroutineError:
+		return None
+
+	if isinstance(named, datetime.datetime) or not isinstance(named, datetime.date):
+		return None
+
+	return named
+
+
 def _apply_time (
 	fields: dict[str, typing.Any],
 	at: datetime.time | None,
 	*,
 	today: datetime.date,
 	unread_day: bool,
+	now: datetime.datetime,
+	timezone: str,
 ) -> bool:
 	"""Attach a time of day to whichever date the line established, or to today.
 
@@ -821,13 +851,29 @@ def _apply_time (
 	records it as a genuine trade — it is how people write, and it would make ``Monday`` in an
 	ordinary title into a date nobody asked for.
 
-	Left alone where the field already carries an instant or an unresolved expression: a
-	literal ``2026-08-20T17:00`` has said its own time, and combining a clock with a keyword
-	string is a second grammar nobody asked for.
+	Left alone where the field already carries an instant: a literal ``2026-08-20T17:00`` has
+	said its own time.
+
+	**A value still held as a string is asked what it names** (`#1239`), which it was not, and
+	the cost was the sharpest kind of silence. A weekday, ``today`` and ``tomorrow`` are all
+	resolved to a day by the time this runs, so the clock landed on them — but an **ISO date
+	stays a string**, so ``by 2026-09-02 at 17:00`` fell past every field and invented a
+	``starts_at`` of *today at 17:00*, a date the writer never gave, on a line whose only date
+	was a deadline. Measured beside ``by 2026-09-02 17:00``, which was and is correct: the same
+	sentence written two ways gave two different answers, and the wrong one is the one with the
+	word *at* in it.
+
+	**And a line that established a date is never given an invented one** — the second half,
+	and the one that closes the shape rather than the instance. Falling through to *today*
+	is right for ``Dentist at 3pm``, which named no day at all; it is never right where a day
+	was named and the clock simply could not be attached to it. The time goes back into the
+	title instead, which is what the caller does with a ``False`` and is §6.13 rule 1's answer.
 	"""
 
 	if at is None:
 		return False
+
+	named_a_day = False
 
 	for field, flag in (
 		("due", "due_is_all_day"),
@@ -836,13 +882,24 @@ def _apply_time (
 	):
 		value = fields.get(field)
 
+		if value is not None:
+			named_a_day = True
+
 		if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
 			fields[field] = datetime.datetime.combine(value, at)
 			fields[flag] = False
 
 			return True
 
-	if unread_day:
+		day = _named_day(value, now=now, timezone=timezone)
+
+		if day is not None:
+			fields[field] = datetime.datetime.combine(day, at)
+			fields[flag] = False
+
+			return True
+
+	if unread_day or named_a_day:
 		return False
 
 	fields["starts_at"] = datetime.datetime.combine(today, at)
