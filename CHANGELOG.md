@@ -179,6 +179,22 @@ upgrade involves.
 
 ### Fixed
 
+- **A repeating event edited for every occurrence from now on no longer appears twice in your
+  calendar.** Each occurrence records the slot the repeat minted it for, and that slot follows
+  one date — the deadline where there is one, otherwise the start. It was being moved by
+  whichever date changed first, so lengthening a repeating meeting moved the slot by the *end*
+  and the row fell off its own grid: subscribed clients drew the meeting twice, once from the
+  rule and once beside it, with an exclusion pointing at a time the rule never produces. Moving
+  only the start of a repeat that also has a deadline had the same effect.
+
+- **Changing a repeating date from a time to a whole day, or back, no longer corrupts the
+  repeat.** The change was carried to the other row as a *distance* while its all-day flag was
+  copied across, so *due 2 September, all day* was stored on the repeat itself as `14:00` while
+  claiming to be a whole day. The repeat is the row nothing re-derives, so every future
+  occurrence inherited it — and a task due all day on Wednesday was then reported late from the
+  middle of Wednesday afternoon. A change of shape now carries as a number of days and the
+  correct edge of the day.
+
 - **An agent's agenda now says how many events have already gone by, and says when a day is
   clear.** Two gaps on the one surface. A day leaves out five kinds of thing, and an agent was
   told about three of them — so an event that had already happened simply vanished, with no sign

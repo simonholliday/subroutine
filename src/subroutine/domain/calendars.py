@@ -641,17 +641,19 @@ def _is_on_its_grid (row: subroutine.db.models.work.Task, gridded: set[uuid.UUID
 	date without touching it, so the two parting company is exactly *this has been moved*.
 
 	**The case it cannot see**, written down rather than left to be discovered: a series
-	carrying both a start and a deadline records one ``occurrence_at`` — ``due_at or
-	starts_at`` — so moving only the *start* of such a series is a move this reads as none. The
-	feed then shows the grid's start rather than the moved one. Narrow enough to accept and too
-	specific to guess at; what it wants is `RECURRENCE-ID` overrides, which need a per-field
-	original this schema does not keep.
+	carrying both a start and a deadline records one ``occurrence_at`` — the column
+	:func:`~subroutine.domain.tasks.grid_field` names — so moving only the *start* of such a
+	series is a move this reads as none. The feed then shows the grid's start rather than the
+	moved one. Narrow enough to accept and too specific to guess at; what it wants is
+	`RECURRENCE-ID` overrides, which need a per-field original this schema does not keep.
 	"""
 
 	if row.recurrence_template_id not in gridded:
 		return False
 
-	return row.occurrence_at is not None and row.occurrence_at == (row.due_at or row.starts_at)
+	return row.occurrence_at is not None and (
+		row.occurrence_at == subroutine.domain.tasks.grid_date(row)
+	)
 
 
 def _occasions_of (
@@ -664,7 +666,11 @@ def _occasions_of (
 	"""Return the dates one task puts on a calendar, which may be none, one or two.
 
 	``emptied`` is meaningful only for a template, and only on the field ``occurrence_at``
-	follows — see :func:`_own_grid_field`.
+	follows — see :func:`~subroutine.domain.tasks.grid_field`.
+
+	**A series with both dates has two grids and one recorded slot**, so only one of them can
+	be excluded honestly: its deadline grid is corrected and its start grid keeps the phantom.
+	The same limitation :func:`_is_on_its_grid` records, in the matching direction.
 	"""
 
 	# **A template is here only to carry a rule** (`#972` §1), and only a `schedule`-anchored
@@ -674,7 +680,7 @@ def _occasions_of (
 		if row.recurrence_anchor != "schedule" or not row.recurrence_rule:
 			return []
 
-		anchoring = _own_grid_field(row)
+		anchoring = subroutine.domain.tasks.grid_field(row)
 
 		return [
 			Occasion(
@@ -699,23 +705,6 @@ def _occasions_of (
 			found.append(Occasion(task=row, field=field))
 
 	return found
-
-
-def _own_grid_field (template: subroutine.db.models.work.Task) -> str:
-	"""Say which of a template's two dates ``occurrence_at`` is a slot on.
-
-	An occurrence records one ``occurrence_at`` — ``due_at or starts_at`` — so a series
-	carrying both dates has two grids and one recorded slot, and only one of them can be
-	excluded honestly. This names that one, rather than putting a date on a grid it is not a
-	point of.
-
-	**The same limitation :func:`_is_on_its_grid` records**, and it bites here in the matching
-	direction: a series with both dates gets its deadline grid corrected and its start grid
-	left showing the phantom. What removes both is `RECURRENCE-ID` overrides and a per-field
-	original this schema does not keep. Narrow enough to accept and too specific to guess at.
-	"""
-
-	return "due_at" if template.due_at is not None else "starts_at"
 
 
 def _unknown () -> subroutine.errors.NotFound:

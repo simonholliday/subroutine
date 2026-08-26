@@ -26,6 +26,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.capture
 import subroutine.domain.claims
+import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.hierarchy
@@ -301,6 +302,44 @@ def own_day_field (category: str) -> str:
 	return "due_at"
 
 
+def grid_field (row: subroutine.db.models.work.Task) -> str:
+	"""Say which of a row's two dates ``occurrence_at`` is a slot on.
+
+	:func:`materialise` mints an occurrence with ``occurrence_at`` equal to
+	``due_at or starts_at``, and :func:`~subroutine.domain.calendars._is_on_its_grid` reads
+	*has this been moved* off exactly that comparison. So the slot follows one column and the
+	other is free to move without it.
+
+	**One rule, because its two readers disagreed** (`#1302`, and `#1304` is the other half of
+	the same finding). This module carried the rule as *the first date column that moved*,
+	which is only the tracked one when a single date is set — so lengthening a repeating
+	meeting moved the slot by the **end's** delta, the row fell off its grid, and the feed drew
+	the event twice with an ``EXDATE`` pointing at a time the rule never emits. The calendar
+	carried the rule correctly, one module away, and had no way to say so.
+
+	**A series carrying both dates has two grids and one recorded slot**, which is the known
+	limitation this names rather than papers over: moving only the *start* of such a series is
+	a move nothing here can see, and the feed shows the grid's start rather than the moved one.
+	What removes it is ``RECURRENCE-ID`` overrides and a per-field original this schema does
+	not keep. Narrow enough to accept and too specific to guess at.
+	"""
+
+	return "due_at" if row.due_at is not None else "starts_at"
+
+
+def grid_date (row: subroutine.db.models.work.Task) -> datetime.datetime | None:
+	"""Return the date ``occurrence_at`` is a slot on, or ``None`` if the row carries neither.
+
+	The value half of :func:`grid_field`, for the callers that want the date rather than the
+	name. Written out because ``getattr`` on a column name returns :data:`typing.Any`, and an
+	``Any`` on the rule this many readers share is where the next defect would hide.
+	"""
+
+	held: datetime.datetime | None = getattr(row, grid_field(row))
+
+	return held
+
+
 def first_whole_day (
 	rule: str, *, timezone: str, now: datetime.datetime, field: str = "due_at"
 ) -> subroutine.domain.schedule.Moment:
@@ -340,31 +379,49 @@ def first_whole_day (
 	return whole_day_for(found[0], field=field, timezone=timezone, now=now)
 
 
+#: Which edge of a local day each date column stores when it holds a whole day (§6.5).
+#:
+#: **Written out because ``ends_at`` breaks the shortcut this used to be** (`#1303`). The rule
+#: was *the end of the day for a deadline, the beginning for anything else*, which is right for
+#: three columns and wrong for the fourth: an all-day span ending on Friday ends when Friday
+#: does, and :func:`~subroutine.domain.tasks.update` has always said so. Nothing had asked
+#: :func:`whole_day_for` about an end, so a function whose docstring claims to be the one
+#: pairing of column and edge was quietly incomplete — the shape a guard cannot see, because
+#: every existing caller passes a column the shortcut happens to get right.
+WHOLE_DAY_EDGE = {
+	"due_at": subroutine.domain.schedule.Boundary.END,
+	"starts_at": subroutine.domain.schedule.Boundary.START,
+	"ends_at": subroutine.domain.schedule.Boundary.END,
+	"snoozed_until": subroutine.domain.schedule.Boundary.START,
+}
+
+
 def whole_day_for (
-	moment: datetime.datetime, *, field: str, timezone: str, now: datetime.datetime
+	moment: datetime.datetime | datetime.date,
+	*,
+	field: str,
+	timezone: str,
+	now: datetime.datetime,
 ) -> subroutine.domain.schedule.Moment:
-	"""Snap a day a rule computed to the edge of it that ``field`` stores.
+	"""Snap a day to the edge of it that ``field`` stores.
 
-	**The pairing of column and edge, in one place** (`#1209`). §6.5 stores an all-day deadline
-	at the last microsecond of its day and an all-day start at the first, so the two travel
-	together — and they were two copies before this, one here and one inlined in
-	:func:`materialise`, agreeing only because both were hardcoded to ``due_at``. The moment the
-	column became a question they would have had to be changed twice, which is `#1156`'s shape
-	and the reason this codebase watches for it.
+	**The pairing of column and edge, in one place** (`#1209`), declared as
+	:data:`WHOLE_DAY_EDGE`. §6.5 stores an all-day deadline at the last microsecond of its day
+	and an all-day start at the first, so the two travel together — and they were two copies
+	before this, one here and one inlined in :func:`materialise`, agreeing only because both
+	were hardcoded to ``due_at``. The moment the column became a question they would have had
+	to be changed twice, which is `#1156`'s shape and the reason this codebase watches for it.
 
-	**A whole day, always, because these rules name days and never times.** The recurrence
-	grammar has no ``BYHOUR``: anchoring on the filing instant gave each slot that instant's time
-	of day, so a client drew a one-minute appointment at whatever o'clock somebody was at their
-	desk.
+	**A whole day, always.** A rule computed one — the recurrence grammar has no ``BYHOUR``, so
+	anchoring on the filing instant gave each slot that instant's time of day and a client drew
+	a one-minute appointment at whatever o'clock somebody was at their desk. A bare
+	:class:`datetime.date` is the other caller, `#1303`'s: a series carrying a date whose shape
+	changed, where the day is known and the edge is the whole question.
 	"""
 
 	return subroutine.domain.schedule.interpret(
 		moment,
-		boundary=(
-			subroutine.domain.schedule.Boundary.END
-			if field == "due_at"
-			else subroutine.domain.schedule.Boundary.START
-		),
+		boundary=WHOLE_DAY_EDGE[field],
 		timezone=timezone,
 		now=now,
 		all_day=True,
@@ -387,7 +444,10 @@ def series_start (
 	"""
 
 	rule = template.recurrence_rule or ""
-	anchor = template.due_at or template.starts_at
+	# **The same column the slot is on** (:func:`grid_field`), and it has to be: ``materialise``
+	# computes ``occurrence_at`` from this anchor and each date from its own column, so an
+	# anchor on one column and a slot on another would mint every occurrence off its own grid.
+	anchor = grid_date(template)
 
 	# **A rule that names its own day needs no date beside it** (`#94`, found by driving).
 	# "On the 30th of every month" was refused for not saying when, which is exactly what it
@@ -1896,6 +1956,134 @@ def _moved_by (
 	return datetime.timedelta(days=round(moved.total_seconds() / 86_400))
 
 
+def _changed_shape (
+	column: str, *, was: dict[str, typing.Any], now_holds: dict[str, typing.Any]
+) -> bool:
+	"""Say whether a date column went from a whole day to an instant, or back.
+
+	**A shape change is not a move, and no delta can express it** (`#1303`). §6.5 stores an
+	all-day deadline at the last microsecond of its day and an all-day start at the first, so
+	the difference between the two instants is the edge as much as the day — 09:00 becoming
+	*all day today* looks like a fourteen-hour move and is none.
+	"""
+
+	return bool(was.get(ALL_DAY_FLAG[column])) != bool(now_holds.get(ALL_DAY_FLAG[column]))
+
+
+def _deltas (
+	was: dict[str, typing.Any], now_holds: dict[str, typing.Any]
+) -> dict[str, datetime.timedelta]:
+	"""Return how far each date column moved, for the columns that moved by a knowable amount.
+
+	**One computation, because there were two and both were wrong the same way** (`#1304`).
+	:func:`_carried` built a dict and :func:`_applied_to_the_series` built a list from the same
+	comprehension, and the linked defect — `#1302` — was in the *use* of both. Two copies that
+	agree are invisible; two copies that agree about a mistake are invisible twice.
+
+	A column is absent for three different reasons and they are worth telling apart: it was
+	cleared or set from nothing, so there is a value rather than a move; it did not move; or
+	its **shape** changed, which :func:`_changed_shape` takes out because the arithmetic is
+	meaningless across it. Every caller has to say what it does with each.
+	"""
+
+	return {
+		column: moved
+		for column in MOVED_BY_DELTA
+		if was.get(column) is not None and now_holds.get(column) is not None
+		and not _changed_shape(column, was=was, now_holds=now_holds)
+		and (
+			moved := _moved_by(
+				was[column],
+				now_holds[column],
+				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
+			)
+		)
+	}
+
+
+def _reshaped (
+	held: datetime.datetime,
+	*,
+	was: datetime.datetime,
+	now_holds: datetime.datetime,
+	column: str,
+	whole_day: bool,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.datetime | None:
+	"""Carry a date whose shape changed onto the other row of a series (`#1303`).
+
+	The old code moved the date by a delta and copied the flag, so a shape change wrote a row
+	claiming to be all-day at 14:00 — and the row it wrote is the **template**, which nothing
+	re-derives, so ``materialise`` copied the broken instant into every future occurrence for
+	the life of the series. :func:`~subroutine.domain.schedule.is_overdue` compares the stored
+	instant and nothing else, so *due all day Wednesday* was then late from 15:00 on Wednesday.
+
+	**Days rather than a duration**, because that is the only part of a shape change that
+	survives it: the two rows are a whole number of local days apart, and rounding a timedelta
+	gets that wrong at exactly the edges §6.5 stores things at. What lands is the target's own
+	day moved by that many, wearing the new shape — the edge from :data:`WHOLE_DAY_EDGE` when
+	the date became a whole day, and the source's own time of day when it stopped being one.
+	"""
+
+	zone = subroutine.domain.dates.zone(timezone, column)
+	moved = now_holds.astimezone(zone).date() - was.astimezone(zone).date()
+	landing = held.astimezone(zone).date() + moved
+
+	if whole_day:
+		return whole_day_for(landing, field=column, timezone=timezone, now=now).instant
+
+	# **Naive on purpose**: ``interpret`` reads a datetime without a zone in ``timezone``, which
+	# is what puts the same wall-clock time on the landing day across a clock change.
+	return subroutine.domain.schedule.interpret(
+		datetime.datetime.combine(landing, now_holds.astimezone(zone).time()),
+		boundary=WHOLE_DAY_EDGE[column],
+		timezone=timezone,
+		now=now,
+		all_day=False,
+		field=column,
+	).instant
+
+
+def _kept_on_its_grid (
+	row: subroutine.db.models.work.Task,
+	*,
+	before: dict[str, typing.Any],
+	deltas: dict[str, datetime.timedelta],
+) -> None:
+	"""Move a row's slot with the one date column it is a slot on (`#1302`).
+
+	``occurrence_at`` follows :func:`grid_field` and nothing else. Moving it by whichever date
+	happened to change first put it on no grid at all: a repeating meeting lengthened *from now
+	on* moved its slot by the **end's** delta, and
+	:func:`~subroutine.domain.calendars._is_on_its_grid` then read a row nobody had touched as
+	one somebody had rescheduled by hand — so the feed drew the event twice and excluded a time
+	the rule never emits.
+
+	**A column that did not move leaves the slot alone**, which is the ordinary case for a
+	series carrying both a start and a deadline.
+
+	**A column whose shape changed has no delta**, so the only honest question left is whether
+	the slot was on the grid before: if it was, it still is, and it takes the column's new
+	value. A row somebody had already moved by hand stays moved.
+	"""
+
+	if row.occurrence_at is None:
+		return
+
+	tracked = grid_field(row)
+
+	if tracked in deltas:
+		row.occurrence_at += deltas[tracked]
+
+		return
+
+	held = grid_date(row)
+
+	if held is not None and row.occurrence_at == before.get(tracked):
+		row.occurrence_at = held
+
+
 def _carried (
 	session: sqlalchemy.orm.Session,
 	target: subroutine.db.models.work.Task,
@@ -1931,18 +2119,17 @@ def _carried (
 	"""
 
 	before = _snapshot(session, target)
-	deltas = {
-		column: moved
-		for column in MOVED_BY_DELTA
-		if was.get(column) is not None and now_holds.get(column) is not None
-		and (
-			moved := _moved_by(
-				was[column],
-				now_holds[column],
-				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
-			)
+	deltas = _deltas(was, now_holds)
+
+	# **Resolved only when something is going to be re-shaped**, which is rare: §6.5's chain
+	# reaches the workspace and the instance, and every other carried edit is a copy.
+	zone = (
+		_timezone(session, target.workspace_id, actor=actor, explicit=None)
+		if any(
+			_changed_shape(column, was=was, now_holds=now_holds) for column in MOVED_BY_DELTA
 		)
-	}
+		else ""
+	)
 
 	for column, value in now_holds.items():
 		if column in NEVER_CARRIED or was.get(column) == value:
@@ -1965,6 +2152,27 @@ def _carried (
 			# share is the shape of the move.
 			setattr(target, column, getattr(target, column) + deltas[column])
 
+		elif (
+			column in MOVED_BY_DELTA
+			and getattr(target, column) is not None
+			and was.get(column) is not None
+			and _changed_shape(column, was=was, now_holds=now_holds)
+		):
+			# **A shape change carries as days and a new edge, never as a delta** (`#1303`).
+			setattr(
+				target,
+				column,
+				_reshaped(
+					getattr(target, column),
+					was=was[column],
+					now_holds=value,
+					column=column,
+					whole_day=bool(now_holds.get(ALL_DAY_FLAG[column])),
+					timezone=zone,
+					now=instant,
+				),
+			)
+
 		elif column in MOVED_BY_DELTA:
 			# A date that was cleared, or set from nothing, has no delta to apply — the value
 			# is the only thing there is to say.
@@ -1973,12 +2181,12 @@ def _carried (
 		else:
 			setattr(target, column, value)
 
-	# **The slot moves with the dates it is a slot for.** `#1248` reads *has this been moved*
-	# off ``occurrence_at`` against the row's own date, so leaving it behind would make a series
-	# shifting an hour look like every occurrence being individually rescheduled — and the feed
-	# would emit an ``EXDATE`` for a slot nothing had left.
-	if target.occurrence_at is not None and deltas:
-		target.occurrence_at += next(iter(deltas.values()))
+	# **The slot moves with the one date it is a slot for, and never with the others** (`#1302`).
+	# `#1248` reads *has this been moved* off ``occurrence_at`` against the row's own date, so
+	# leaving it behind would make a series shifting an hour look like every occurrence being
+	# individually rescheduled — and the feed would emit an ``EXDATE`` for a slot nothing had
+	# left. Read after the loop, so the column asked about is the one the row holds *now*.
+	_kept_on_its_grid(target, before=before, deltas=deltas)
 
 	session.flush()
 
@@ -2039,22 +2247,10 @@ def _applied_to_the_series (
 	# series shifting an hour as every occurrence being moved by hand, and the feed excludes a
 	# slot nothing left. Applied to whichever row was addressed; the other gets it in
 	# :func:`_carried`.
-	moved = [
-		shifted
-		for column in MOVED_BY_DELTA
-		if was.get(column) is not None and now_holds.get(column) is not None
-		and (
-			shifted := _moved_by(
-				was[column],
-				now_holds[column],
-				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
-			)
-		)
-	]
-
-	if moved and task.occurrence_at is not None:
-		task.occurrence_at += moved[0]
-		session.flush()
+	#
+	# ``was`` is this row's own before, so it is the grid test :func:`_kept_on_its_grid` needs.
+	_kept_on_its_grid(task, before=was, deltas=_deltas(was, now_holds))
+	session.flush()
 
 	if task.is_template:
 		occurrence = live_occurrence(session, task)
@@ -2374,7 +2570,9 @@ def begin_repeating (
 	series_start(template)
 
 	task.recurrence_template_id = template.id
-	task.occurrence_at = task.due_at or task.starts_at
+	# **The slot this row was minted for**, on the one column :func:`grid_field` names — the
+	# rule was written out here too, and a copy that agrees is invisible (`#1302`).
+	task.occurrence_at = grid_date(task)
 
 	subroutine.domain.events.record(
 		session,

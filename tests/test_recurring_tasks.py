@@ -1289,6 +1289,198 @@ def test_from_now_on_moves_the_grid_rather_than_dragging_it_back (
 	)
 
 
+def test_lengthening_a_repeating_meeting_leaves_its_slot_where_the_start_is (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1302`, H-1 of the cold review, and the case its own guard could not see.
+
+	``occurrence_at`` is a slot on **one** column — the one
+	:func:`subroutine.domain.tasks.grid_field` names — and the code moved it by whichever date
+	changed first. A stand-up from 09:00 to 09:15, lengthened *from now on* moves only ``ends_at``, so
+	the slot moved by the **end's** delta and landed on nothing.
+
+	**Measured before the fix**: slot 09:00 → 09:15 while the start stayed at 09:00, so
+	``_is_on_its_grid`` read a row nobody had touched as one somebody had rescheduled by hand.
+
+	The guard that should have caught this uses a series with **only** a start, where the first
+	non-zero delta and the tracked column are the same value — so the defect was invisible to
+	the one test written over the line that held it.
+	"""
+
+	start = NOW + datetime.timedelta(days=1)
+	made = _repeating(
+		session,
+		recurrence="every day",
+		due=None,
+		starts=start,
+		ends=start + datetime.timedelta(minutes=15),
+	)
+	series = _template(session, made)
+
+	assert made.occurrence_at == made.starts_at, "the fixture is not on its grid to begin with"
+	assert made.ends_at is not None
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		ends=made.ends_at + datetime.timedelta(minutes=15),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.starts_at == start, "the start moved, and nobody asked for that"
+	assert made.ends_at == start + datetime.timedelta(minutes=30), "the edit did not land"
+	assert made.occurrence_at == made.starts_at, (
+		"the slot moved by the end's delta, so the feed draws this event twice"
+	)
+	assert series.occurrence_at is None or series.occurrence_at == series.starts_at
+
+
+def test_moving_only_the_start_of_a_series_that_has_a_deadline_leaves_its_slot (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1302`, and the commoner half: two dates, one recorded slot.
+
+	``occurrence_at`` follows the deadline when there is one. Moving the *start* is a real edit
+	and it is not a move of the grid — the row is still due when the rule says it is due.
+	"""
+
+	day = NOW + datetime.timedelta(days=1)
+	made = _repeating(
+		session,
+		recurrence="every week",
+		due=day.replace(hour=17, minute=0),
+		starts=day.replace(hour=9, minute=0),
+	)
+
+	assert made.occurrence_at == made.due_at, "the fixture is not on its deadline's grid"
+	assert made.starts_at is not None
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		starts=made.starts_at + datetime.timedelta(hours=2),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	assert made.starts_at == day.replace(hour=11, minute=0), "the edit did not land"
+	assert made.due_at == day.replace(hour=17, minute=0), "the deadline moved, unasked"
+	assert made.occurrence_at == made.due_at, (
+		"the slot left the grid of a column that did not move"
+	)
+
+
+def test_a_date_that_becomes_a_whole_day_carries_as_a_day_and_not_as_a_delta (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1303`, H-2, and the direction that matters is the one nothing re-derives.
+
+	:func:`~subroutine.domain.tasks._carried` moved a date by a delta and **copied** its
+	all-day flag, so a change of *shape* wrote a row claiming to be all-day at 14:00. §6.5
+	stores an all-day deadline at the last microsecond of its day, and nothing in the schema
+	enforces that — this was the write that broke it.
+
+	**The corrupted row is the template**, which nothing re-derives: ``materialise`` computes
+	``template.due_at + shift``, so every future occurrence inherits the broken instant for the
+	life of the series. :func:`subroutine.domain.schedule.is_overdue` compares the stored
+	instant and nothing else, so *due all day Wednesday* is then late from 15:00 **on**
+	Wednesday — the exact case that function's docstring says it asserts directly because the
+	implementation that gets it wrong looks identical from the outside.
+
+	Driven on the reviewer's own fixture: a weekly *Pay the rent* due 1 September at 14:00,
+	with the occurrence moved to *all day, 2 September*.
+	"""
+
+	made = _repeating(
+		session,
+		title="Pay the rent",
+		recurrence="every week",
+		due=datetime.datetime(2026, 9, 1, 14, 0, tzinfo=datetime.UTC),
+	)
+	series = _template(session, made)
+
+	# **Read out before it is asserted on**, for the reason ``test_schedule._instant`` gives one
+	# column along: ``assert series.due_is_all_day is False`` narrows the *attribute* to
+	# ``Literal[False]`` for the rest of the function, and everything past the assertion that it
+	# carried is then reported as unreachable.
+	shape_before = series.due_is_all_day
+
+	assert shape_before is False, "the fixture is not a timed deadline"
+
+	subroutine.domain.tasks.update(
+		session,
+		made,
+		due=datetime.date(2026, 9, 2),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	session.flush()
+
+	zone = zoneinfo.ZoneInfo(LONDON)
+
+	assert made.due_is_all_day and series.due_is_all_day, "the flag did not carry"
+
+	for row, which in ((made, "occurrence"), (series, "template")):
+		local = test_schedule._instant(row.due_at).astimezone(zone)
+
+		assert local.date() == datetime.date(2026, 9, 2), f"the {which} landed on {local.date()}"
+		assert (local.hour, local.minute, local.microsecond) == (23, 59, 999999), (
+			f"the {which} claims to be all day at {local.time()}, which §6.5 says it is not"
+		)
+
+	following = subroutine.domain.tasks.materialise(
+		session, series, now=NOW, after=test_schedule._instant(made.due_at)
+	)
+
+	assert following is not None
+	assert test_schedule._instant(following.due_at).astimezone(zone).time() == (
+		test_schedule._instant(made.due_at).astimezone(zone).time()
+	), "the next occurrence inherited the template's edge, which is the whole cost of this"
+
+
+def test_a_shape_change_carries_the_same_way_from_either_end_of_the_series (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1304`. One computation, because the two copies of it were wrong in the same way.
+
+	:func:`~subroutine.domain.tasks._carried` and
+	:func:`~subroutine.domain.tasks._applied_to_the_series` built the same deltas from the same
+	comprehension and used them the same way, so the linked defect was in both. Driving the
+	same edit from each end is the property that duplication threatened: a person does not know
+	there are two rows, so which one they were holding cannot change the answer.
+	"""
+
+	def _driven (edit_the_template: bool) -> tuple[datetime.datetime, datetime.datetime]:
+		"""Make an identical series, edit it from one end, and return both stored deadlines."""
+
+		made = _repeating(
+			session,
+			recurrence="every week",
+			due=datetime.datetime(2026, 9, 1, 14, 0, tzinfo=datetime.UTC),
+		)
+		series = _template(session, made)
+
+		subroutine.domain.tasks.update(
+			session,
+			series if edit_the_template else made,
+			due=datetime.date(2026, 9, 2),
+			applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+			now=NOW,
+		)
+		session.flush()
+
+		return (
+			test_schedule._instant(made.due_at), test_schedule._instant(series.due_at)
+		)
+
+	assert _driven(edit_the_template=False) == _driven(edit_the_template=True), (
+		"which row the person was holding changed what the edit did"
+	)
+
+
 def test_an_edit_to_the_series_reaches_the_row_a_person_is_looking_at (
 	session: sqlalchemy.orm.Session,
 ) -> None:

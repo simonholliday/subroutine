@@ -949,6 +949,67 @@ def test_an_occurrence_somebody_moved_is_still_on_the_calendar (
 	)
 
 
+def test_a_series_lengthened_from_now_on_is_drawn_once (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1302`, and the half a person actually sees.
+
+	Lengthening a repeating meeting *from now on* moves only ``ends_at``. The slot moved with
+	it, ``_is_on_its_grid`` read a row nobody had touched as one somebody had rescheduled, and
+	the feed emitted the occurrence as a standalone event **beside** the one the rule already
+	draws — with an ``EXDATE`` for a time no expansion of the rule produces, so the exclusion
+	removed nothing and **every subscribed client showed the meeting twice**.
+
+	This renders the thing under test rather than inspecting a column: a slot that is wrong by
+	a quarter of an hour and a slot that is right look identical in the database until somebody
+	expands the rule.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	start = NOW + datetime.timedelta(days=1)
+	created = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Standup",
+		starts=start,
+		ends=start + datetime.timedelta(minutes=15),
+		recurrence="every day",
+	)
+	session.flush()
+
+	assert created.ends_at is not None
+	subroutine.domain.tasks.update(
+		session,
+		created,
+		actor=actor,
+		ends=created.ends_at + datetime.timedelta(minutes=15),
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+	)
+	session.flush()
+
+	feed, _minted = _feed(session, workspace, owner)
+	drawn = subroutine.domain.calendars.occasions(session, feed, now=NOW)
+	standups = [one for one in drawn if one.task.title == "Standup"]
+
+	assert len(standups) == 1, (
+		f"the meeting is drawn {len(standups)} times: the rule, and the occurrence it was "
+		f"wrongly read as having left"
+	)
+
+	body = subroutine.domain.icalendar.render(
+		drawn, name="Mine", instance_id=uuid.uuid4(), now=NOW
+	)
+
+	assert "EXDATE" not in body, (
+		f"a slot nothing has left is excluded, which takes a real meeting out of a "
+		f"calendar:\n{body}"
+	)
+
+
 def test_a_task_with_both_dates_appears_under_both_and_they_are_told_apart (
 	session: sqlalchemy.orm.Session,
 ) -> None:
