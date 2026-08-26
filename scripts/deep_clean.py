@@ -31,6 +31,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -58,6 +59,11 @@ class Step:
 	subject: str
 	outcome: str
 	detail: str = ""
+
+	#: A command that can be pasted and will work, or nothing at all. **Never prose** (`#1342`):
+	#: a line labelled *by hand* that turns out to be advice, or that breaks on a path with a
+	#: space in it, is the defect `#1322` is about — following it confirms the false statement.
+	#: Anything explanatory belongs in :attr:`detail`, which is labelled *reason*.
 	by_hand: str = ""
 
 
@@ -128,7 +134,7 @@ def _remove (path: pathlib.Path, *, kind: str, dry_run: bool) -> Step:
 			path.unlink()
 	except OSError as reason:
 		return Step(
-			kind, str(path), "FAILED", detail=str(reason), by_hand=f"rm -rf {path}"
+			kind, str(path), "FAILED", detail=str(reason), by_hand=f"rm -rf {shlex.quote(str(path))}"
 		)
 
 	return Step(kind, str(path), "removed")
@@ -139,8 +145,8 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 	Three things can be sitting at that name and only one of them is ours to take. A **uv tool**
 	install puts a shim there and owns the tree behind it. A **symlink into a virtualenv** is a
-	developer's checkout wearing the real name — Simon's machine has exactly this, deliberately
-	— and removing it breaks a working tree rather than an install. Anything else is a stranger.
+	developer's checkout wearing the real name, which is an ordinary and deliberate setup — and
+	removing it breaks a working tree rather than an install. Anything else is a stranger.
 
 	**The tell is where it points**, not that it exists, which is why this reads the link rather
 	than trusting the name.
@@ -168,7 +174,7 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			str(binary),
 			"SKIPPED",
 			detail=f"points at {target}, which this tool did not install",
-			by_hand=f"rm {binary}",
+			by_hand=f"rm {shlex.quote(str(binary))}",
 		))
 
 	steps.append(_remove(tools, kind="uv tool", dry_run=dry_run))
@@ -222,10 +228,10 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 			"plugins and marketplace",
 			"SKIPPED",
 			detail="no 'claude' on PATH, and these files are its own bookkeeping",
-			by_hand=(
-				f"claude plugin uninstall <name>@{market} "
-				f"&& claude plugin marketplace remove {market}"
-			),
+			by_hand=" && ".join([
+				*(f"claude plugin uninstall {one}" for one in _published_plugins()),
+				f"claude plugin marketplace remove {market}",
+			]),
 		))
 
 		return steps
@@ -301,8 +307,10 @@ def _things_nobody_else_may_decide (
 				"database",
 				url.split("@")[-1],
 				"SKIPPED",
-				detail="not SQLite, so the data is in a server this tool does not administer",
-				by_hand="drop it yourself if it was only for this install",
+				detail=(
+					"not SQLite, so the data is in a server this tool does not administer — "
+					"drop it yourself if it was only for this install"
+				),
 			))
 		elif url and pathlib.Path(url.split("///")[-1]) != default:
 			steps.append(Step(
@@ -310,7 +318,7 @@ def _things_nobody_else_may_decide (
 				url,
 				"SKIPPED",
 				detail="a SQLite file somewhere this tool did not put one",
-				by_hand=f"rm {url.split('///')[-1]}",
+				by_hand=f"rm {shlex.quote(url.split('///')[-1])}",
 			))
 
 		configured = (getattr(settings, "backup_directory", "") or "").strip()
@@ -324,7 +332,7 @@ def _things_nobody_else_may_decide (
 					str(where),
 					"SKIPPED",
 					detail="outside the data directory, so it may be shared or a mount",
-					by_hand=f"rm -rf {where}",
+					by_hand=f"rm -rf {shlex.quote(str(where))}",
 				))
 
 	# **A connection that names a server is data this cannot reach** (§13.7). A basic install
@@ -349,8 +357,11 @@ def _things_nobody_else_may_decide (
 			"environment",
 			"SUBROUTINE_PROFILE",
 			"SKIPPED",
-			detail="set in the shell that started this, which no child process can unset",
-			by_hand="unset SUBROUTINE_PROFILE, and take it out of your shell profile",
+			detail=(
+				"set in the shell that started this, which no child process can unset; take "
+				"it out of your shell profile too"
+			),
+			by_hand="unset SUBROUTINE_PROFILE",
 		))
 
 	# **``SUBROUTINE_TEST_*`` configures the harness, not the product**, which is the same line
@@ -369,8 +380,11 @@ def _things_nobody_else_may_decide (
 			"environment",
 			name,
 			"SKIPPED",
-			detail="an override this install may have been relying on",
-			by_hand=f"unset {name}, and take it out of your shell profile",
+			detail=(
+				"an override this install may have been relying on; take it out of your "
+				"shell profile too"
+			),
+			by_hand=f"unset {name}",
 		))
 
 	return steps
@@ -426,7 +440,7 @@ def _markers (home: pathlib.Path) -> list[Step]:
 				"a checkout carrying one does not behave like a fresh one, and it is very "
 				"often committed"
 			),
-			by_hand=f"rm {one}",
+			by_hand=f"rm {shlex.quote(str(one))}",
 		)
 		for one in sorted(found)
 	]

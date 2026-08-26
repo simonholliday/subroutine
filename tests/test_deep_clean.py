@@ -12,6 +12,7 @@ one nobody runs again.
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -365,3 +366,106 @@ def test_a_clean_machine_reports_that_nothing_is_left (
 	assert "Run the commands above" not in printed, (
 		f"a clean run tells the operator to run commands that are not there:\n{printed}"
 	)
+
+
+def test_every_command_this_offers_survives_a_path_with_a_space_in_it (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#1342`. The advice was unquoted, and real directories have spaces in their names.
+
+	Driven on a real home, the report offered ``rm <a path with a space in it>/.subroutine`` —
+	which a shell reads as two arguments, neither of which exists, so pasting it removes nothing
+	and says so twice. That is `SR#1322`'s finding in the tool written to be careful about it: a
+	line labelled *by hand* that does not work is worse than no line, because following it
+	confirms the false statement.
+
+	**Every test before this used ``tmp_path``, which never has a space in it.** A fixture that
+	cannot contain the defect is the whole reason this shipped.
+
+	**The commands are parsed rather than matched.** ``shlex.split`` is what a shell does with
+	that string, so a quoting bug shows up as an argument list that names the wrong file — and
+	the assertion is that the argument is the path, which is the claim the line makes.
+	"""
+
+	awkward = tmp_path / "Dev" / "Two Words"
+	awkward.mkdir(parents=True)
+	marker = awkward / subroutine.directory.FILE_NAME
+	marker.write_text("project = 'sr'\n", encoding="utf-8")
+
+	venv = tmp_path / "my venvs" / "subroutine" / "bin"
+	venv.mkdir(parents=True)
+	(venv / subroutine.config.APPLICATION_NAME).write_text("#!/bin/sh\n", encoding="utf-8")
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	(binaries / subroutine.config.APPLICATION_NAME).symlink_to(
+		venv / subroutine.config.APPLICATION_NAME
+	)
+
+	_installed()
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	offered = [
+		one.split("by hand:", 1)[1].strip()
+		for one in capsys.readouterr().out.splitlines()
+		if "by hand:" in one
+	]
+
+	assert offered, "nothing was offered, so this guard is asserting about nothing"
+
+	removals = [shlex.split(one) for one in offered if one.startswith("rm ")]
+
+	assert removals, f"no removal was offered for a path with a space in it: {offered}"
+
+	for parsed in removals:
+		# **The command names one thing.** Unquoted, the space makes it two, and the second is
+		# a relative path that resolves against wherever the person happened to be standing.
+		targets = [one for one in parsed[1:] if not one.startswith("-")]
+
+		assert len(targets) == 1, (
+			f"a removal names {len(targets)} things, so a path was split on its space: {parsed}"
+		)
+		assert pathlib.Path(targets[0]).exists(), (
+			f"the command offered points at nothing: {' '.join(parsed)}"
+		)
+
+	assert str(marker) in [
+		one for parsed in removals for one in parsed[1:]
+	], "the marker with a space in its path was not among the commands offered"
+
+
+def test_a_by_hand_line_is_always_a_command_and_never_advice (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1342`. Two of them were prose, and one carried a ``<name>`` placeholder.
+
+	*"unset SUBROUTINE_PROFILE, and take it out of your shell profile"* and *"claude plugin
+	uninstall <name>@subroutine"* are both unpasteable, and they sat under the same label as
+	the ones that work. **One label, one meaning**: if it says *by hand* it is a command, and
+	the explanation goes under *reason*, which is what that field is for.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_PROFILE", "spare")
+	monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+	_installed()
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	offered = [
+		one.split("by hand:", 1)[1].strip()
+		for one in capsys.readouterr().out.splitlines()
+		if "by hand:" in one
+	]
+
+	assert offered, "nothing was offered, so this guard is asserting about nothing"
+
+	for line in offered:
+		assert "<" not in line and ">" not in line, (
+			f"a command carries a placeholder nobody can paste: {line}"
+		)
+		assert ", and " not in line, f"a command is carrying a sentence: {line}"
+
+		for word in shlex.split(line):
+			assert word == "&&" or not word.endswith(","), (
+				f"a command has prose punctuation in it: {line}"
+			)
