@@ -28,6 +28,7 @@ There is no undo. The database goes with everything else.
 
 import argparse
 import dataclasses
+import importlib.metadata
 import json
 import os
 import pathlib
@@ -163,10 +164,78 @@ def places (home: pathlib.Path) -> list[pathlib.Path]:
 	return [*inside, pathlib.Path("/usr/local/bin")]
 
 
+def installed_names () -> list[str]:
+	"""Return every command name this program installs itself under.
+
+	**There are two, and this script knew about one** (`#1348`). ``pyproject.toml`` declares
+	``subroutine`` and ``subr`` — one entry point under two names (`#752`) — so an ordinary
+	``uv tool install`` puts two executables on the machine. Removing one of them and then the
+	tree both point into leaves a dangling link, and the next install refuses rather than
+	overwriting it. Simon met that on the first command of a first-contact run.
+
+	**Read from the installed distribution rather than listed here**, because that is what
+	``pyproject.toml`` was compiled into and so cannot disagree with it. ``_published_plugins``
+	states the same rule for plugins: discovered, so a name added later is covered on the day it
+	ships rather than when somebody remembers this file.
+
+	Falling back to the application name is the honest answer when the package is reachable but
+	not installed — a checkout on ``PYTHONPATH``. It under-reports rather than guessing, and the
+	scan in :func:`_candidates` is what covers the gap.
+	"""
+
+	name = subroutine.config.APPLICATION_NAME
+
+	try:
+		found = importlib.metadata.distribution(name).entry_points
+	except importlib.metadata.PackageNotFoundError:
+		return [name]
+
+	scripts = sorted({one.name for one in found if one.group == "console_scripts"})
+
+	return scripts or [name]
+
+
+def _candidates (
+	directory: pathlib.Path, *, names: list[str], tools: pathlib.Path
+) -> list[pathlib.Path]:
+	"""Return everything in one directory that might be this program, in a stable order.
+
+	The declared names, and then **anything at all pointing into the uv tool tree** — which is
+	ours by construction, so a name this interpreter has never heard of is still ours to take.
+	That second half is what survives the two installs being different versions: the metadata
+	read above describes the package this script was run from, not the one on the machine.
+
+	The scan is deliberately limited to symlinks into that one tree. A real file cannot be
+	claimed this way, which is why the declared names still carry most of the weight.
+	"""
+
+	found = [directory / one for one in names]
+
+	if not directory.is_dir():
+		return found
+
+	for entry in sorted(directory.iterdir()):
+		if entry in found or not entry.is_symlink():
+			continue
+
+		try:
+			pointed = entry.resolve()
+		except OSError:
+			continue
+
+		if tools in pointed.parents:
+			found.append(entry)
+
+	return found
+
+
 def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	"""Remove the installed program, and refuse anything that is not one.
 
-	Three things can be sitting at that name and only one of them is ours to take. A **uv tool**
+	**Under every name it installs itself as**, which :func:`installed_names` answers and which
+	is two rather than one — the defect in `#1348`.
+
+	Three things can be sitting at each of those names and only one of them is ours to take. A **uv tool**
 	install puts a shim there and owns the tree behind it. A **symlink into a virtualenv** is a
 	developer's checkout wearing the real name, which is an ordinary and deliberate setup — and
 	removing it breaks a working tree rather than an install. Anything else is a stranger.
@@ -188,25 +257,24 @@ def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 	tools = home / ".local" / "share" / "uv" / "tools" / name
 
 	for directory in places(home):
-		binary = directory / name
+		for binary in _candidates(directory, names=installed_names(), tools=tools):
+			if not binary.exists() and not binary.is_symlink():
+				continue
 
-		if not binary.exists() and not binary.is_symlink():
-			continue
+			target = binary.resolve() if binary.is_symlink() else binary
 
-		target = binary.resolve() if binary.is_symlink() else binary
+			if tools in target.parents or target == binary:
+				steps.append(_remove(binary, kind="executable", dry_run=dry_run))
 
-		if tools in target.parents or target == binary:
-			steps.append(_remove(binary, kind="executable", dry_run=dry_run))
+				continue
 
-			continue
-
-		steps.append(Step(
-			"executable",
-			str(binary),
-			"SKIPPED",
-			detail=f"points at {target}, which this tool did not install",
-			by_hand=f"rm {shlex.quote(str(binary))}",
-		))
+			steps.append(Step(
+				"executable",
+				str(binary),
+				"SKIPPED",
+				detail=f"points at {target}, which this tool did not install",
+				by_hand=f"rm {shlex.quote(str(binary))}",
+			))
 
 	steps.append(_remove(tools, kind="uv tool", dry_run=dry_run))
 

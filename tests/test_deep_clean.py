@@ -9,6 +9,7 @@ leaves, and it *refuses* what it cannot prove is ours. A destructive tool that g
 one nobody runs again.
 """
 
+import importlib.metadata
 import json
 import os
 import pathlib
@@ -16,6 +17,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tomllib
 import typing
 
 import pytest
@@ -29,6 +31,20 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts
 # The line above is what makes this importable: `scripts/` is not a package and this is
 # the only test that reaches into it.
 import deep_clean
+
+
+def _declared_names () -> list[str]:
+	"""Return the command names ``pyproject.toml`` declares, read from the file itself.
+
+	**The authority for the scenario below, deliberately not** :func:`deep_clean.installed_names`.
+	A guard that asks the code under test what to check can only report that it agrees with
+	itself — and against the original defect it would have failed on a missing attribute rather
+	than on the executable left behind, which is a different claim.
+	"""
+
+	manifest = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
+
+	return sorted(tomllib.loads(manifest.read_text(encoding="utf-8"))["project"]["scripts"])
 
 
 def _installed () -> dict[str, pathlib.Path]:
@@ -613,3 +629,122 @@ def test_a_trace_left_with_no_claude_to_remove_it_is_still_reported (
 	assert "SKIPPED" in printed and "claude" in printed, (
 		f"a plugin left on the machine was not reported:\n{printed}"
 	)
+
+
+def test_a_deep_clean_removes_every_name_the_package_installs_under (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1348`. Two console scripts, and this removed one of them.
+
+	``pyproject.toml`` declares ``subroutine`` and ``subr`` — one entry point under two names
+	(`#752`) — so an ordinary ``uv tool install`` puts two executables on the machine. Taking one
+	and then the tree they both point into leaves the other dangling, and the next install
+	refuses rather than overwriting it. Simon met that on the first command of a first-contact
+	run, which is the only place it could have surfaced.
+
+	**The fixture is the finding.** Every test above this one built the executable itself, under
+	the single name the script looked for, so the input that would have shown the defect was the
+	one no fixture ever supplied. This builds what an install builds instead.
+	"""
+
+	_installed()
+
+	names = _declared_names()
+
+	assert len(names) > 1, (
+		f"this guard needs a package that installs under more than one name, and found {names}"
+	)
+
+	tools = tmp_path / ".local" / "share" / "uv" / "tools" / subroutine.config.APPLICATION_NAME
+	shims = tools / "bin"
+	shims.mkdir(parents=True)
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+
+	for one in names:
+		(shims / one).write_text("#!/bin/sh\n", encoding="utf-8")
+		(binaries / one).symlink_to(shims / one)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	left = [one for one in names if (binaries / one).is_symlink() or (binaries / one).exists()]
+
+	assert not left, f"the clean left {left} behind, and the next install will refuse"
+
+
+def test_the_names_a_clean_looks_for_come_from_the_package () -> None:
+	"""Derived rather than listed, so a third console script is covered on the day it ships.
+
+	**Two genuinely separate sources**: the declaration in ``pyproject.toml``, and what the
+	install compiled that into. They cannot be made to agree by a shared helper, which is what
+	makes this a cross-check rather than a guard normalising like its subject.
+
+	This is the half that is checkable on any machine (`#1345`'s lesson). The scenario above
+	needs a fixture; this needs only the package to be installed, so it fails on a laptop the
+	same way it fails on a runner.
+	"""
+
+	assert set(deep_clean.installed_names()) == set(_declared_names()), (
+		"the names the clean looks for and the names the package declares have parted company"
+	)
+
+
+def test_a_name_the_package_never_declared_is_still_taken_from_the_tool_tree (
+	tmp_path: pathlib.Path
+) -> None:
+	"""The scan beside the declared names, and it covers the case the metadata cannot.
+
+	:func:`installed_names` describes the package **this script was run from**, which need not be
+	the one on the machine — a checkout cleaning up after an older install declares fewer names
+	than that install created. Anything pointing into the uv tool tree is ours by construction,
+	so it is taken whether or not this interpreter has heard of it.
+
+	Without this the fix would be one release behind for ever: correct for the names we ship
+	today and blind to the ones already on somebody's disk.
+	"""
+
+	_installed()
+
+	tools = tmp_path / ".local" / "share" / "uv" / "tools" / subroutine.config.APPLICATION_NAME
+	shims = tools / "bin"
+	shims.mkdir(parents=True)
+
+	stranger = "subroutine-from-an-older-release"
+	(shims / stranger).write_text("#!/bin/sh\n", encoding="utf-8")
+
+	assert stranger not in deep_clean.installed_names(), "the fixture has to be a name we do not declare"
+
+	binaries = tmp_path / ".local" / "bin"
+	binaries.mkdir(parents=True)
+	left = binaries / stranger
+	left.symlink_to(shims / stranger)
+
+	deep_clean.main(["--yes"], home=tmp_path)
+
+	assert not left.is_symlink() and not left.exists(), (
+		"a shim into our own tool tree was left because its name was not declared"
+	)
+
+
+def test_a_package_that_is_reachable_but_not_installed_falls_back_to_the_one_name (
+	monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A checkout on ``PYTHONPATH`` has no distribution metadata, and must not raise.
+
+	The clean has to keep working on a machine whose install it cannot interrogate — that is the
+	machine most in need of it. It under-reports rather than guessing, and the tool-tree scan
+	above is what covers the gap.
+	"""
+
+	def _missing (name: str) -> typing.Any:
+		"""Answer as an interpreter that can import the package but has no metadata for it."""
+
+		raise importlib.metadata.PackageNotFoundError(name)
+
+	# Patched on the module itself rather than through ``deep_clean``, which reaches an
+	# attribute that module never declared — the shared module object is the same one either
+	# way, and only one of the two spellings type-checks.
+	monkeypatch.setattr(importlib.metadata, "distribution", _missing)
+
+	assert deep_clean.installed_names() == [subroutine.config.APPLICATION_NAME]
