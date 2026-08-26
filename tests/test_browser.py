@@ -421,17 +421,35 @@ NOWHERE: dict[str, typing.Any] = {
 }
 
 
-def _until (settled: typing.Callable[[], bool], seconds: float = 5.0) -> None:
+def _until (
+	page: typing.Any, settled: typing.Callable[[], bool], seconds: float = 5.0
+) -> None:
 	"""Give the page a moment to make the request a gesture set off.
 
 	A wait rather than a sleep, so a fast machine does not pay for a slow one — and bounded, so
 	the assertion that follows reports the claim rather than this timing out with nothing to say.
+
+	**The wait has to be a Playwright call, and a ``time.sleep`` is not one** (`SR#1341`).
+	Playwright's synchronous API has no background dispatcher: messages from the browser are
+	processed only while the main thread is *inside* one of its calls, switching to the
+	dispatcher fiber. A ``page.route`` handler — which is what fills the list every caller here
+	watches — therefore never runs during a plain sleep, however long it is.
+
+	So this spent its whole budget unable to observe anything, and passed only when the request
+	happened to be dispatched during the **preceding** Playwright call. Measured, on a page
+	asked to fetch after 800ms: three seconds of ``time.sleep`` left the list empty, and one
+	``wait_for_timeout(200)`` filled it immediately.
+
+	**That is why raising the five seconds was never going to help**, and why the 35x margin
+	`SR#1279` measured did not cover the failure: past the last Playwright call the budget is
+	not slow, it is inert. `SR#1279`'s page leak was real and worth removing, and it was not
+	this.
 	"""
 
 	deadline = time.monotonic() + seconds
 
 	while not settled() and time.monotonic() < deadline:
-		time.sleep(0.05)
+		page.wait_for_timeout(50)
 
 
 def _prioritised (
@@ -1669,6 +1687,27 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**And what it is worth is a whole surface.** The edit form sends every control it shows on
 	every save, so without the question a repeating item cannot be changed from the browser at
 	all — and the page would look entirely well until somebody pressed Save on one.
+
+	**Raised to thirty-seven for `SR#1341`, and this one is not about the product.** It is about
+	:func:`_until`, which four tests in this file rely on and which could not observe anything:
+	Playwright's synchronous API dispatches browser messages only inside its own calls, so the
+	``time.sleep`` loop ran no ``page.route`` handler and the list every one of those four
+	watches stayed empty. They passed only when the request happened to be dispatched during
+	the preceding call, and failed in CI when it was not — twice, across two items, with the
+	cause misattributed both times.
+
+	**Nothing cheaper reaches it, and this is the strongest form of that claim in the file**:
+	the subject *is* Playwright's dispatch, so it needs a real page, a real route handler and a
+	real request arriving after the gesture. ``tests/dom.js`` records what the app asks for and
+	has no dispatcher to be blind about.
+
+	**Read for fat**: one ``evaluate``, one call to the helper, one assertion. There is no
+	second gesture and no second shape, because one late request is the whole claim.
+
+	**What it is worth is the other four.** Without it they degrade in silence to *passes when
+	the request was early*, which is a guard that reports on the scheduler rather than on the
+	page — and the failure it produces is unexplainable from the log, which is what cost two
+	items and two wrong diagnoses.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1676,7 +1715,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 36, (
+	assert len(tests) <= 37, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -2521,7 +2560,7 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	# version and could not fail: `select_option` sets the DOM value itself, so it reads back
 	# whatever was chosen whether or not anything re-rendered. **Not the markup either**, since
 	# this fixture answers every listing with the same rows.
-	_until(lambda: any("project=websites%2Fhandouts" in one for one in reads))
+	_until(page, lambda: any("project=websites%2Fhandouts" in one for one in reads))
 
 	assert any("project=websites%2Fhandouts" in one for one in reads), (
 		f"nothing was asked for that project, so the address moved and the page did not: {reads}"
@@ -3008,7 +3047,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	# which is a fact about the page rather than about the defect it guards.
 	rows = ("v1/tasks", "v1/agenda")
 
-	_until(lambda: any(one.split("?")[0] in rows for one in reads))
+	_until(page, lambda: any(one.split("?")[0] in rows for one in reads))
 	listed = [one for one in reads if one.split("?")[0] in rows]
 
 	assert listed, f"nothing loaded any rows, so the address moved and the page did not: {reads}"
@@ -3030,7 +3069,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	reads.clear()
 	page.go_forward()
 	page.wait_for_selector(".detail", timeout=10_000)
-	_until(lambda: any(one.split("?")[0] in rows for one in reads))
+	_until(page, lambda: any(one.split("?")[0] in rows for one in reads))
 
 	stepped = [one for one in reads if one.split("?")[0] in rows]
 
@@ -3072,7 +3111,7 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	reads.clear()
 	page.fill("form.seeking input[name=q]", "cursor")
 	page.press("form.seeking input[name=q]", "Enter")
-	_until(lambda: any("q=cursor" in one for one in reads))
+	_until(page, lambda: any("q=cursor" in one for one in reads))
 
 	searched = [one for one in reads if "q=cursor" in one]
 
@@ -3704,3 +3743,45 @@ def test_every_colour_a_project_may_wear_is_legible_and_unlike_the_other_seven (
 			f"a row whose project has no colour is still drawing a bar: {one}. `no colour` is "
 			f"a real answer, and it has to look different from a colour nobody can see."
 		)
+
+
+def test_the_wait_helper_can_see_a_request_that_arrives_after_the_gesture (
+	running: typing.Any,
+) -> None:
+	"""`SR#1341`. The helper four tests here rely on could not observe anything.
+
+	Playwright's synchronous API dispatches browser messages only while the main thread is
+	inside one of its calls. :func:`_until` looped on ``time.sleep``, so no ``page.route``
+	handler ran while it waited — and the list it watches is filled by exactly such a handler.
+	It could therefore only ever confirm a request that had already been dispatched during the
+	*preceding* Playwright call, and nothing else, at any budget.
+
+	That is a flake with no margin to widen: on a loaded runner the page issues its request a
+	moment after ``wait_for_url`` returns, and from then on the wait is inert. It failed that
+	way in CI on 2026-08-26 with an empty list against a five-second budget, having passed the
+	thirty-five runs before it.
+
+	**Driven through the helper itself** (`SR#405`), with a request timed to arrive after the
+	gesture that set it off has finished — which is the shape the real failure has, and which a
+	sleeping wait cannot see by construction. The falsification is the helper's old body: with
+	``time.sleep`` here this fails with an empty list, exactly as CI did.
+	"""
+
+	opened, _written, _refusing, _roster, _missing, reads, *_ = running
+	page = opened("/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	reads.clear()
+
+	# **After the gesture, deliberately.** A fetch issued synchronously would be dispatched
+	# during `evaluate` itself and prove nothing about what happens afterwards.
+	page.evaluate("setTimeout(() => { fetch('/v1/tasks?arrives=late'); }, 800)")
+
+	_until(page, lambda: any("arrives=late" in one for one in reads))
+
+	assert any("arrives=late" in one for one in reads), (
+		f"a request made after the gesture was never seen, so every wait in this file is "
+		f"blind to exactly the case it exists for: {reads}"
+	)
+
+	page.close()
