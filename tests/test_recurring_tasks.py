@@ -26,6 +26,7 @@ import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.refs
 import subroutine.domain.scoping
+import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.versions
 import subroutine.errors
@@ -1478,6 +1479,111 @@ def test_a_shape_change_carries_the_same_way_from_either_end_of_the_series (
 
 	assert _driven(edit_the_template=False) == _driven(edit_the_template=True), (
 		"which row the person was holding changed what the edit did"
+	)
+
+
+def test_a_repeating_task_hands_back_a_row_carrying_the_tags_it_was_captured_with (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1307`, and what makes it bad is that the product says it read the tag.
+
+	``subroutine add "Water the plants #home every monday"`` answers *(read #home)* and hands
+	back a row without it. `create` applies tags to the row it built — which **is** the
+	template when a rule was given (§6.7) — and ``materialise`` copies twenty-nine columns, of
+	which the tag join is not one. The only row carrying the tag is excluded from every
+	listing, so ``search "#home"`` finds nothing.
+
+	Driven through the captured line rather than the structured field, because that is the
+	grammar `explain capture`, the README and the skill all tell people to use.
+	"""
+
+	workspace = test_schedule._workspace(session, timezone=LONDON)
+	made, captured = subroutine.domain.tasks.create_from_text(
+		session,
+		workspace=workspace,
+		text="Water the plants #home every monday",
+		now=NOW,
+	)
+	session.flush()
+
+	assert list(captured.tags) == ["home"], "the fixture did not capture the tag it is about"
+	assert subroutine.domain.tags.names_on(session, made) == ["home"], (
+		"the product said it read the tag and handed back a row without it"
+	)
+
+
+def test_every_occurrence_of_a_series_carries_the_tags_and_not_only_the_first (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1307`, and the reason the fix belongs in ``materialise`` rather than in ``create``.
+
+	Every turn of the wheel is minted by the same call, so a fix that only decorated the first
+	occurrence would put the tag back for one week and lose it again — which is worse than
+	losing it outright, because the listing would look right until nobody was watching.
+
+	**A tag is a property of the series**, the same argument the reminder beside it makes
+	(`SR#1211`): *#home* describes what the task is, not which turn of it you are on.
+	"""
+
+	workspace = test_schedule._workspace(session, timezone=LONDON)
+	made, _captured = subroutine.domain.tasks.create_from_text(
+		session,
+		workspace=workspace,
+		text="Water the plants #home #indoors every monday",
+		now=NOW,
+	)
+	session.flush()
+
+	series = _template(session, made)
+
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+	session.flush()
+
+	following = _next_live(session, series)
+
+	assert following.id != made.id, "the fixture did not advance the series"
+	assert subroutine.domain.tags.names_on(session, following) == ["home", "indoors"], (
+		"the next occurrence came round without the tags the series carries"
+	)
+
+
+def test_a_tag_taken_off_a_series_is_taken_off_the_occurrence_it_mints (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The other direction, and without it the fix passes by only ever adding.
+
+	``set_on`` replaces rather than merges, which is what §8.3 means by a field on a ``PATCH``.
+	An occurrence that accumulated every tag the series had ever carried would be the same
+	defect with the sign reversed and would read as correct on the day it was written.
+	"""
+
+	workspace = test_schedule._workspace(session, timezone=LONDON)
+	made, _captured = subroutine.domain.tasks.create_from_text(
+		session,
+		workspace=workspace,
+		text="Water the plants #home every monday",
+		now=NOW,
+	)
+	session.flush()
+
+	series = _template(session, made)
+
+	# **Every edit to a repeating item says which occurrences it is for** (decision `SR#1249`),
+	# and a tag is not one of the four that never ask.
+	subroutine.domain.tasks.update(
+		session,
+		series,
+		tags=[],
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+	)
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+	session.flush()
+
+	following = _next_live(session, series)
+
+	assert subroutine.domain.tags.names_on(session, following) == [], (
+		"the occurrence carries a tag the series no longer has"
 	)
 
 

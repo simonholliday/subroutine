@@ -179,6 +179,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A repeating task now carries the tags you gave it.** `subroutine add "Water the plants #home
+  every monday"` answered *(read #home)* and then handed back a row without the tag: a repeat is
+  two rows, and the tag was applied to the one that carries the rule, which is deliberately
+  excluded from every listing. Each occurrence now carries the tags the repeat carries, on the
+  first and on every one after it — and a tag taken off the repeat comes off the occurrences it
+  goes on to mint.
+
 - **A repeating event edited for every occurrence from now on no longer appears twice in your
   calendar.** Each occurrence records the slot the repeat minted it for, and that slot follows
   one date — the deadline where there is one, otherwise the start. It was being moved by

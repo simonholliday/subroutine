@@ -648,6 +648,26 @@ def materialise (
 	session.add(instance)
 	session.flush()
 
+	# **A tag belongs to the series, so every turn of the wheel carries it** (`#1307`). The
+	# columns above are copied one at a time and a join is not a column, so the tag somebody
+	# typed stayed on the template — which is excluded from every listing — and the row they
+	# were handed had none of it. ``subroutine add "Water the plants #home every monday"``
+	# answered *(read #home)* and then showed a row without it, and `search "#home"` found
+	# nothing at all.
+	#
+	# **Here rather than in `create`, because this is the call that mints every occurrence**
+	# and not only the first. Decorating the first would put the tag back for one week and
+	# lose it again, which reads as correct on the day it is written.
+	#
+	# **The same argument `reminder_minutes` makes above**, and the opposite of the snooze
+	# below it: *#home* says what the task is, where a defer says *not this one*.
+	#
+	# ``set_on`` replaces rather than merges, so a tag taken off the series is taken off the
+	# occurrences it goes on to mint.
+	subroutine.domain.tags.set_on(
+		session, instance, subroutine.domain.tags.on(session, template)
+	)
+
 	subroutine.domain.mentions.synchronize(
 		session,
 		workspace_id=instance.workspace_id,
