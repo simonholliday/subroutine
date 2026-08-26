@@ -142,6 +142,162 @@ def test_a_repeat_that_names_its_own_day_is_given_that_day (
 	)
 
 
+def test_a_repeating_deadline_and_its_series_are_minted_on_the_same_instant (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1291`, and this is the root cause rather than the symptom.**
+
+	§6.5 stores an all-day deadline at the last microsecond of its day, and ``dateutil.rrule``
+	builds its time set from ``dtstart``'s hour, minute and second and **keeps no microsecond**.
+	So every repeating deadline there has ever been is anchored on exactly the value that engine
+	rounds off — and ``materialise`` computes ``occurrence - anchor`` and moves the whole grid by
+	it, minting every occurrence 999999µs before its own template.
+
+	**Both rendered as the same date, which is why nobody ever saw it.** It only became visible
+	when a save turned that phantom offset into a real move and carried it to the series.
+
+	Asserted on the instants, because the dates agree while the instants do not — a test
+	comparing what a person sees passes against the defect.
+	"""
+
+	instance = _repeating(
+		session, title="Pay council tax", recurrence="every month on the 1st", due=None
+	)
+	template = _template(session, instance)
+
+	assert template.due_at is not None and instance.due_at is not None
+	assert instance.due_at == template.due_at, (
+		f"the occurrence was minted at {instance.due_at} and its series holds "
+		f"{template.due_at}. They render as the same day and differ by "
+		f"{template.due_at - instance.due_at}, which the next save that carries a date turns "
+		f"into a real move."
+	)
+	assert instance.occurrence_at == template.due_at, (
+		"the slot the row was minted for has to be the date it was minted on, or `#1248` reads "
+		"the series as individually rescheduled"
+	)
+
+
+def test_saving_a_repeating_deadline_without_changing_it_moves_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1291`, the symptom, measured the way Simon met it.**
+
+	He changed the capitalisation of a title in the browser and his council-tax bill moved from
+	the 1st to the 2nd in a real calendar. The browser's form *"sends every control it shows on
+	every save"* (`SR#1250`), so a title edit re-sends the date — and re-sending the date an
+	item already has was a move.
+
+	**Three saves, because the drift compounded**: feed back the date the product has just shown
+	you and it walks a day each time. One save would pass against a version that only drifted on
+	the second.
+	"""
+
+	instance = _repeating(
+		session, title="Pay council tax", recurrence="every month on the 1st", due=None
+	)
+	template = _template(session, instance)
+	settled = template.due_at
+
+	for attempt in range(3):
+		subroutine.domain.tasks.update(
+			session,
+			instance,
+			title=f"Pay Council Tax {attempt}",
+			due="2026-09-01",
+			applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+			now=NOW,
+			timezone=LONDON,
+		)
+		session.flush()
+
+		assert template.due_at == settled, (
+			f"save {attempt + 1} moved the series to {template.due_at}, from {settled}. "
+			f"The calendar feed draws the series, so this is the day the bill is shown on."
+		)
+
+
+def test_a_series_minted_before_the_fix_does_not_drift_on_its_next_save (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1291`, and this is the half the boundary fix does not reach.**
+
+	Every occurrence written before that fix is still stored 999999µs behind its template. The
+	next save carrying a date corrects the occurrence — a real move, of a fraction of a second —
+	and without this the series takes that move and lands a day out. The browser sends a date on
+	every save, so it would have happened to every existing repeating deadline, once, silently.
+
+	**A whole-day date has no sub-day meaning**, so a sub-day difference is not a move. That is
+	the rule, and this is it driven against the exact state the old code left behind.
+	"""
+
+	instance = _repeating(
+		session, title="Pay council tax", recurrence="every month on the 1st", due=None
+	)
+	template = _template(session, instance)
+	settled = template.due_at
+
+	assert instance.due_at is not None and instance.occurrence_at is not None
+
+	# **The state the old code wrote**, reproduced exactly: the occurrence a microsecond short
+	# of a second behind the series it belongs to.
+	behind = datetime.timedelta(microseconds=999_999)
+	instance.due_at -= behind
+	instance.occurrence_at -= behind
+	session.flush()
+
+	subroutine.domain.tasks.update(
+		session,
+		instance,
+		title="Pay Council Tax",
+		due="2026-09-01",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+		timezone=LONDON,
+	)
+	session.flush()
+
+	assert template.due_at == settled, (
+		f"a row written before the fix moved its series to {template.due_at}, from {settled}"
+	)
+	assert instance.due_at == settled, (
+		"and the save should have quietly put the occurrence back on the boundary it belongs on"
+	)
+
+
+def test_a_repeating_deadline_still_moves_when_somebody_really_moves_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1291`'s falsification, and without it the fix is "never carry a date".**
+
+	Ignoring a sub-day difference must not become ignoring a difference. A whole day moved is
+	still a whole day moved, and the series has to follow — that is what *every one from now on*
+	means.
+	"""
+
+	instance = _repeating(
+		session, title="Pay council tax", recurrence="every month on the 1st", due=None
+	)
+	template = _template(session, instance)
+	settled = template.due_at
+
+	assert settled is not None
+
+	subroutine.domain.tasks.update(
+		session,
+		instance,
+		due="2026-09-03",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+		timezone=LONDON,
+	)
+	session.flush()
+
+	assert template.due_at == settled + datetime.timedelta(days=2), (
+		f"the series stayed at {template.due_at} when its occurrence moved two days"
+	)
+
+
 def test_a_repeating_birthday_gets_a_day_it_happens_on_rather_than_a_deadline (
 	session: sqlalchemy.orm.Session,
 ) -> None:

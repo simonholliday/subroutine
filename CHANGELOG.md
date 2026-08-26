@@ -179,6 +179,20 @@ upgrade involves.
 
 ### Fixed
 
+- **A repeating deadline no longer moves a day forward every time you save it.** A bill due on
+  the 1st of the month became due on the 2nd, then the 3rd, then the 4th — once per save,
+  whatever you were actually editing, because the browser's edit form sends every field it
+  shows. The occurrence in your list stayed right and the *series* drifted, and the series is
+  what your calendar draws, so the two disagreed and only the calendar was wrong.
+
+  In a real client the effect was worse than a wrong date: a feed whose start date no longer
+  matches its own repeat rule can drop the item from the current month entirely.
+
+  Repeating **events** — a birthday, a booked fortnight — were never affected. Anything already
+  in your instance corrects itself on its next save. A series that has already drifted onto the
+  wrong day needs putting back by hand, since only you know which day it was meant to be.
+
+
 - **A parent in the browser said none of its sub-tasks were finished.** An item made of other
   items showed `0 of 13 done` with all thirteen closed, and drew none of them struck through —
   while the same item at the terminal said `13 of 13`. Both counts are right now, and a

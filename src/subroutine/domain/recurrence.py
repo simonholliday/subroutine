@@ -579,7 +579,31 @@ def occurrences (
 		# **Localised one at a time rather than by shifting the whole series**, because the
 		# offset is not constant across it: an hour that does not exist on the day the clocks
 		# go forward is what this per-occurrence conversion is for.
-		found.append(moment.replace(tzinfo=zone).astimezone(datetime.UTC))
+		#
+		# **And the anchor's microsecond is put back, because ``dateutil`` does not keep one**
+		# (`#1291`). It builds its time set from ``dtstart``'s hour, minute and second and
+		# discards anything below — so a series anchored at ``23:59:59.999999`` comes back at
+		# ``23:59:59``, silently, every time. §6.5 stores an all-day *deadline* at exactly that
+		# instant, so **every repeating deadline there has ever been is anchored on the one
+		# value this rounds off**.
+		#
+		# **Restored here rather than at the callers, because the loss is here.** A caller that
+		# compares what it asked for against what came back — ``materialise`` computes
+		# ``occurrence - anchor`` and moves a whole grid by it — reads the rounding as a
+		# deliberate move, which is how a bill due on the 1st walked a day forward on every
+		# save.
+		#
+		# **The anchor's own microsecond and not the moment's**, which is the whole of what was
+		# dropped: the rule grammar has no ``BYHOUR``/``BYMINUTE``/``BYSECOND``, so every slot
+		# a rule names is at the anchor's time of day and there is nothing else it could be.
+		#
+		# **After the cursor comparison above, deliberately.** ``after`` may be a row stored
+		# before this fix, a microsecond-truncated copy of the slot it names; restoring first
+		# would make that row compare as *earlier* than its own slot and mint it a second time.
+		found.append(
+			moment.replace(microsecond=anchor.microsecond, tzinfo=zone)
+			.astimezone(datetime.UTC)
+		)
 
 		if limit is not None and len(found) >= limit:
 			break

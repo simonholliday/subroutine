@@ -1855,6 +1855,46 @@ NEVER_CARRIED = frozenset({"status_id", "completed_at", "recurrence_template_id"
 #: calendar feed would emit an ``EXDATE`` for a slot nothing had left.
 MOVED_BY_DELTA = ("due_at", "starts_at", "ends_at", "snoozed_until")
 
+#: Which all-day flag decides whether a moved column is a whole day rather than an instant.
+#:
+#: ``ends_at`` has none of its own by design (decision `#1235` §2, amended while it was being
+#: built): a field constrained to equal another is not a field, so one flag describes both edges
+#: of a span.
+ALL_DAY_FLAG = {
+	"due_at": "due_is_all_day",
+	"starts_at": "starts_is_all_day",
+	"ends_at": "starts_is_all_day",
+	"snoozed_until": "snoozed_is_all_day",
+}
+
+
+def _moved_by (
+	was: datetime.datetime, now_holds: datetime.datetime, *, whole_days: bool
+) -> datetime.timedelta:
+	"""Return how far a date moved, in the units the date is actually written in.
+
+	**A whole-day date has no sub-day meaning, so a sub-day difference is not a move** (`#1291`).
+	It reads as one to arithmetic, and that is what walked a repeating deadline a day forward
+	on every save: §6.5 stores an all-day deadline at the last microsecond of its day,
+	``dateutil`` keeps no microsecond, and the 999999µs it dropped came back as a delta this
+	function's caller faithfully carried to the other row.
+
+	**Rounded rather than truncated**, so a day that is 23 or 25 hours long still counts as one:
+	the two ends are local day boundaries and a clock change moves one of them.
+
+	**This is the half that protects rows written before the fix.** Their occurrences are still
+	stored 999999µs behind their template, and without this the next save that carries a date —
+	which the browser's form does on every save — would move the series a day. With it, that
+	save quietly corrects the occurrence and carries nothing.
+	"""
+
+	moved = now_holds - was
+
+	if not whole_days:
+		return moved
+
+	return datetime.timedelta(days=round(moved.total_seconds() / 86_400))
+
 
 def _carried (
 	session: sqlalchemy.orm.Session,
@@ -1892,9 +1932,16 @@ def _carried (
 
 	before = _snapshot(session, target)
 	deltas = {
-		column: now_holds[column] - was[column]
+		column: moved
 		for column in MOVED_BY_DELTA
 		if was.get(column) is not None and now_holds.get(column) is not None
+		and (
+			moved := _moved_by(
+				was[column],
+				now_holds[column],
+				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
+			)
+		)
 	}
 
 	for column, value in now_holds.items():
@@ -1993,10 +2040,16 @@ def _applied_to_the_series (
 	# slot nothing left. Applied to whichever row was addressed; the other gets it in
 	# :func:`_carried`.
 	moved = [
-		now_holds[column] - was[column]
+		shifted
 		for column in MOVED_BY_DELTA
 		if was.get(column) is not None and now_holds.get(column) is not None
-		and was[column] != now_holds[column]
+		and (
+			shifted := _moved_by(
+				was[column],
+				now_holds[column],
+				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
+			)
+		)
 	]
 
 	if moved and task.occurrence_at is not None:
