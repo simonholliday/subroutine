@@ -459,7 +459,7 @@ def test_an_ipv6_loopback_is_bracketed_so_the_port_is_still_a_port () -> None:
 		"https://tasks.example.com:8471/subroutine",
 		"http://127.0.0.1:8471",
 		"https://[2001:db8::1]:8471",
-		"https://hpz2g9.tailnet-example.ts.net",
+		"https://desk.tailnet-example.ts.net",
 		"https://internal_host.example",
 		"https://xn--bcher-kva.example",
 	],
@@ -478,7 +478,7 @@ def test_a_usable_public_url_is_left_alone (address: str) -> None:
 @pytest.mark.parametrize(
 	("address", "because"),
 	[
-		("https://hpz2g9.<your-tailnet>.ts.net", "host"),
+		("https://desk.<your-tailnet>.ts.net", "host"),
 		("tasks.example.com", "http"),
 		("ftp://tasks.example.com", "http"),
 		("https://", "host"),

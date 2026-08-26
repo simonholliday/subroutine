@@ -31,7 +31,7 @@ import subroutine
 #: The editor tells a plugin's own processes where its cached copy lives, and the MCP server
 #: is one of those. **Measured rather than assumed** (2026-08-03): the environment of a
 #: running ``subroutine mcp`` launched by the Claude Code plugin carried
-#: ``CLAUDE_PLUGIN_ROOT=/home/si/.claude/plugins/cache/subroutine/subroutine/0.1.1`` — while
+#: ``CLAUDE_PLUGIN_ROOT=/home/you/.claude/plugins/cache/subroutine/subroutine/0.1.1`` — while
 #: the manifest in the tree said ``0.2.2`` and the program was a newer editable install, which
 #: is `#381`'s scenario in one line of ``/proc``.
 #:

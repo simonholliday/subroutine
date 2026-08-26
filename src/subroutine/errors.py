@@ -474,7 +474,7 @@ def no_instance_yet () -> "ServiceUnavailable":
 	false about itself.
 
 	**It opens in lower case deliberately.** The command line prints the connection's name in
-	front of it, and capitalising here would read *"hpz2g4: No Subroutine instance…"*.
+	front of it, and capitalising here would read *"workshop: No Subroutine instance…"*.
 	"""
 
 	return ServiceUnavailable(

@@ -5,7 +5,7 @@ was an hour after the first was understood and written down.
 
 ``/v1/me`` grew a client for the first time that morning (`#336`). Written as a subclass of
 ``views.User``, it inherited two fields the endpoint had never sent, and the new
-``subroutine whoami`` refused the served instance with *"hpz2g4 answered, but not as a
+``subroutine whoami`` refused the served instance with *"workshop answered, but not as a
 Subroutine instance"*. That was caught before it left the machine. The same afternoon, `#216`
 added ``project_scope_keys`` to the same model as a **required** field — and this time it
 reached a second machine, where `nuc14`'s freshly-installed CLI could not read the instance it
@@ -48,7 +48,7 @@ import subroutine.installations
 import subroutine.views
 
 #: ``GET /v1/me`` as served by 0.2.1.dev31 — the last shape before ``project_scope_keys``.
-#: Captured 2026-08-03 from the instance on `hpz2g4`, which was a commit behind the tree.
+#: Captured 2026-08-03 from a served instance that was a commit behind the tree.
 ME_BEFORE_PROJECT_SCOPE_KEYS: dict[str, typing.Any] = {
 	"api_version": "1.0",
 	"user": {
@@ -220,7 +220,7 @@ def _answering (body: dict[str, typing.Any]) -> subroutine.clients.http.Client:
 def test_a_version_skewed_instance_is_reported_as_skewed_rather_than_as_not_an_instance () -> None:
 	"""`#341`, which `#250` absorbed: the ordinary state was reported as a broken server.
 
-	An instance one release behind answered `whoami`, and the client said *"hpz2g4 answered,
+	An instance one release behind answered `whoami`, and the client said *"workshop answered,
 	but not as a Subroutine instance"* — about an instance it had been talking to all week —
 	and pointed the reader at proxies and captive portals. §13.7 makes several connections
 	normal and each may run a different release, so this is the fleet working as designed.

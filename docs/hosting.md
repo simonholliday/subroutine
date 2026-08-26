@@ -466,10 +466,10 @@ underneath the copy.
 
 ```console
 $ subroutine db backup
-  Backed up instance 'default' to /home/si/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+  Backed up instance 'default' to /home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
   540,672 bytes, schema 9c41d0b7ae52.
 
-$ TAKEN=/home/si/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+$ TAKEN=/home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
 $ sudo install -o subroutine -g subroutine -m 600 "$TAKEN" /var/lib/subroutine/from-my-account.db
 ```
 
@@ -1128,7 +1128,7 @@ a token is shown once and stored nowhere, so there is nothing to go back and loo
 ```console
 $ subroutine connections add work --url http://127.0.0.1:8471
 Token for work:
-Reached hpz2g4 as si, in acme.
+Reached workshop as si, in acme.
 Added work to …/config.toml
 Its token is in …/credentials.toml, readable only by you.
 ```
@@ -1209,7 +1209,7 @@ four places its token came from*, which is the question that actually bites:
 
 ```console
 $ subroutine connections
-  local  sqlite:////home/si/.local/share/subroutine/subroutine.db  …/credentials.toml  default
+  local  sqlite:////home/you/.local/share/subroutine/subroutine.db  …/credentials.toml  default
 ```
 
 No token is printed and none can be recovered from what is. If your new connection is missing

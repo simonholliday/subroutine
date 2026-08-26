@@ -3821,9 +3821,9 @@ def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
 
 	if item.identity.workspace(wanted) is None:
 		# **A bare connection name is the likely typo, and the program knows it is one**
-		# (`#270`). Told `use hpz2g4`, this looked for a *workspace* of that name on the
+		# (`#270`). Told `use workshop`, this looked for a *workspace* of that name on the
 		# current connection, did not find one, and reported about somewhere else
-		# entirely — while the roster listed `hpz2g4` on the line above.
+		# entirely — while the roster listed `workshop` on the line above.
 		named = world.connection(wanted)
 
 		if len(parts) == 1 and named is not None:

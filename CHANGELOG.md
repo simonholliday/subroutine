@@ -3915,7 +3915,7 @@ because that is what happened; there is no 0.6.2 to install and no release page 
   ```console
   $ subroutine connections add work --url https://tasks.example.com
   Token for work:
-  Reached hpz2g4 as si, in acme.
+  Reached workshop as si, in acme.
   ```
 
   It asks for the token, reaches the instance with it, and writes nothing until that works — so

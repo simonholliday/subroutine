@@ -7,7 +7,7 @@ defect through three times: `#345` twice on 2026-08-03, and again on 2026-08-04 
 without defaults. The suite was green — 2,677 passing on both backends — and the next command
 against the served instance said:
 
-    hpz2g4 answered, but not as a Subroutine instance:
+    workshop answered, but not as a Subroutine instance:
     Task could not be read from its response (assigned_by_id: Field required).
 
 **Captured bodies do not generalise.** One per view means capturing from a running older
@@ -382,7 +382,7 @@ def test_a_field_that_changed_model_did_not_gain_a_required_key (
 	release behind sends exactly that shape. `#1134` made its ``category`` required, the suite
 	stayed green, and the next command against the served instance said
 
-	    hpz2g4 answered, but not as a Subroutine instance:
+	    workshop answered, but not as a Subroutine instance:
 	    Meta could not be read from its response (item_types.document.0.category: Field required).
 
 	**The three cases, worked through, and only one is uncovered.** A *new* field that is

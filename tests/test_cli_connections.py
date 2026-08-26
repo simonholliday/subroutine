@@ -1104,7 +1104,7 @@ def test_serve_refuses_a_public_url_that_is_not_an_address (
 	"""
 
 	run("init")
-	declare(home, '\npublic_url = "https://hpz2g9.<your-tailnet>.ts.net"\n')
+	declare(home, '\npublic_url = "https://desk.<your-tailnet>.ts.net"\n')
 
 	result = run("serve", expect=1)
 

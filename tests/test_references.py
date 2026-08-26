@@ -551,3 +551,121 @@ def test_every_illustrative_ref_is_still_demonstrated () -> None:
 	)
 
 	assert used, "no published page names a ref at all, so this scan is reading nothing"
+
+
+#: What a tracked file may never carry: an identifier belonging to whoever happened to build it.
+#:
+#: **A public repository is the audience** (`#1344`). These are not credentials, and that is the
+#: reason they get written down without anybody pausing — a path makes a docstring vivid, a real
+#: hostname makes a test case feel real. What they are is a description of somebody's machine and
+#: network, published, permanently, to strangers.
+#:
+#: **No allow-list, deliberately.** Every one of these has a placeholder that reads better in
+#: documentation than the real value does — ``/home/you`` is what a reader has to substitute
+#: anyway — so an exception would only ever be somebody not wanting to make the substitution.
+#: An excuse register here would be a slow leak with a written reason beside it.
+PERSONAL = (
+	(
+		re.compile(r"tail[0-9]{4,}\.ts\.net"),
+		"an auto-assigned Tailscale tailnet, which names a private network",
+		"a made-up one: desk.tailnet-example.ts.net",
+	),
+	(
+		re.compile(r"/home/(?!you\b|user\b|runner\b)[a-z][a-z0-9._-]*"),
+		"a home directory naming whoever built this",
+		"/home/you",
+	),
+	(
+		re.compile(r"/Users/(?!you\b|user\b)[A-Za-z][A-Za-z0-9._-]*"),
+		"a macOS home directory naming whoever built this",
+		"/Users/you",
+	),
+)
+
+
+def test_no_tracked_file_names_somebody_s_machine () -> None:
+	"""`#1344`. A public repository carried a real tailnet identifier for a day.
+
+	It arrived the way all of these do: a test needed a Tailscale-shaped URL that the validator
+	must not refuse, and the nearest real one was to hand. Nothing checked, so it was pushed —
+	and separately a docstring recorded a home directory, a name and a private project, because
+	the real path made the account of a defect more vivid.
+
+	**Not a credential, which is exactly why it goes unnoticed.** Nothing here would fail a
+	secret scanner, and a reviewer reads past a path in a comment. What it publishes is a
+	description of somebody's machine and network, to strangers, permanently.
+
+	**Ignored files are out of scope by construction**, since :func:`tracked` reads
+	``git ls-files``: ``CLAUDE.md`` may say whatever it needs to, because nobody but this
+	checkout ever sees it. That is the line — what leaves the machine is what is checked.
+	"""
+
+	offences = []
+	read = 0
+
+	for path in tracked():
+		try:
+			# **Resolved against `ROOT`, never against the working directory** (`#1344`).
+			# `tests/conftest.py` chdirs every test into a scratch directory, so a relative
+			# read here raises, is swallowed by the `except` below, and leaves this guard
+			# passing having opened **nothing** — measured, with the real tailnet planted back
+			# in and this reporting clean.
+			text = (ROOT / path).read_text(encoding="utf-8")
+		except (OSError, UnicodeDecodeError):
+			continue
+
+		read += 1
+
+		for pattern, what, instead in PERSONAL:
+			# **No capture group in any pattern**, so `findall` yields whole matches. A group
+			# would make it yield the group instead and report a fragment, which is why the
+			# lookaheads above are all non-capturing.
+			for found in sorted(set(pattern.findall(text))):
+				offences.append(f"{path}: {found!r} is {what} — write {instead}")
+
+	# **The floor, and it is the reason this guard has one at all.** A scan that reads no files
+	# reports no offences, which is indistinguishable from a clean tree — and that is exactly
+	# what happened here for one revision. `test_the_scan_reaches_the_repository` above says the
+	# same thing about the other scanner in this file.
+	assert read > 150, (
+		f"only {read} tracked files could be read, so this checked almost nothing"
+	)
+
+	assert not offences, "\n".join(sorted(set(offences)))
+
+
+def test_the_personal_scanner_finds_a_planted_identifier (tmp_path: pathlib.Path) -> None:
+	"""Feed each rule a synthetic offender, because a pattern that matches nothing passes.
+
+	`#405`: driven through the real patterns rather than restated. Three rules and three
+	plants, so a pattern broken while the others hold cannot hide behind them — which is the
+	shape a parametrised guard cannot notice, since *no case failed* and *one case ran* read
+	identically.
+	"""
+
+	# **Assembled rather than written out**, because the guard above reads every tracked file
+	# and this is one of them — a plant spelled literally here is an offence in the very file
+	# that reports offences, so the suite fails on its own test data. Found by doing it.
+	tailnet = "tail" + "548270" + ".ts.net"
+	linux = "/home" + "/someone"
+	mac = "/Users" + "/someone"
+
+	planted = {
+		tailnet: f"https://box.{tailnet}",
+		linux: f"path = {linux}/.config",
+		mac: f"path = {mac}/Library",
+	}
+
+	for expected, line in planted.items():
+		hit = [
+			one for pattern, _what, _instead in PERSONAL for one in pattern.findall(line)
+		]
+
+		assert hit, f"no rule matched {line!r}, so that rule is checking nothing"
+		assert any(expected in one for one in hit), f"{line!r} matched as {hit}"
+
+	# **And the placeholders must pass**, or the rule is unusable and somebody will excuse it.
+	for allowed in ("/home" + "/you/.config", "/Users" + "/you/Library", "desk.tailnet-example.ts.net"):
+		assert not [
+			one for pattern, _what, _instead in PERSONAL for one in pattern.findall(allowed)
+		], f"{allowed!r} is the recommended form and the rule refuses it"
