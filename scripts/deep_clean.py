@@ -1,0 +1,535 @@
+"""Remove every trace of an ordinary Subroutine install, so first contact can be driven again.
+
+**A development tool, not a product command** (`#1342`). Testing what a stranger meets in their
+first hour needs a machine that has never met this program, and there are only so many fresh
+machines. This puts one back to that state.
+
+It is written for the install the README describes: ``uv tool install subroutine``, SQLite, one
+account, no service. **A systemd deployment is out of scope** and is said so rather than half
+handled — an operator's instance has a unit file, a service account, a database owned by a role
+this script cannot reach and probably backups somebody wants. Removing half of that would be
+worse than removing none of it.
+
+Every path comes from :mod:`subroutine.config`, so a directory that moves in the product moves
+here too. Nothing is spelled out twice.
+
+**What it will not do is the important half.** Anything it cannot prove belongs to Subroutine is
+listed with the command to remove it by hand rather than taken: a ``~/.local/bin/subroutine``
+that is a symlink into a virtualenv somebody manages, a backup directory pointed at a shared
+volume, a database that is not the default SQLite file. Each of those is somebody's, and a tool
+that guesses about them once is a tool nobody runs again.
+
+    python scripts/deep_clean.py            # ask first, then remove what it can prove
+    python scripts/deep_clean.py --dry-run  # say what it would do and touch nothing
+    python scripts/deep_clean.py --yes      # for a script; skips the question, not the report
+
+There is no undo. The database goes with everything else.
+"""
+
+import argparse
+import dataclasses
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import typing
+
+import subroutine.config
+
+#: The plugins this repository publishes, and the marketplace they come from. Read from the
+#: manifests rather than named here, so a third plugin is covered on the day it ships — the
+#: same rule ``tests/test_plugin.py`` and ``scripts/release.py`` both follow.
+MARKETPLACE_MANIFEST = ".claude-plugin/marketplace.json"
+
+#: Where Claude Code keeps what it has installed, under whichever home this is asked about.
+#: Removed through the ``claude`` CLI where that is available, because these files are its
+#: business and hand-editing them is how a plugin ends up half-registered.
+CLAUDE_PLUGINS = pathlib.PurePath(".claude") / "plugins"
+
+
+@dataclasses.dataclass
+class Step:
+	"""One thing the clean did, or refused to do, with enough to act on either way."""
+
+	kind: str
+	subject: str
+	outcome: str
+	detail: str = ""
+	by_hand: str = ""
+
+
+def _application_root (variable: str, *fallback: str) -> pathlib.Path:
+	"""Return one XDG root for this application, ignoring any profile.
+
+	**The unprofiled directory, which is the one that holds the profiles**, so removing these
+	three takes every disposable instance with them. Asking for a *profiled* path would return
+	one instance and leave its siblings behind — and a machine with a leftover profile is not
+	the machine a stranger has.
+	"""
+
+	base = os.environ.get(variable) or pathlib.Path.home().joinpath(*fallback)
+
+	return pathlib.Path(base) / subroutine.config.APPLICATION_NAME
+
+
+def _roots () -> list[tuple[str, pathlib.Path]]:
+	"""Return the three directories an install owns entirely, in a safe order.
+
+	Configuration first and data last, which is :func:`subroutine.config.profile_directories`'
+	own ordering and for its reason: an interrupted removal should leave something recognisable
+	rather than a database nothing points at.
+	"""
+
+	return [
+		("config", _application_root("XDG_CONFIG_HOME", ".config")),
+		("state", _application_root("XDG_STATE_HOME", ".local", "state")),
+		("data", _application_root("XDG_DATA_HOME", ".local", "share")),
+	]
+
+
+def _settings_before_removal () -> typing.Any:
+	"""Return the install's settings, or ``None`` if there is nothing to read.
+
+	**Read before anything is deleted**, because two of the questions this script has to ask —
+	where the backups go, and whether the database is really the default SQLite file — are
+	answered by a file it is about to remove. Asking afterwards would silently get the defaults
+	and report that everything was ordinary.
+	"""
+
+	if not subroutine.config.config_file_path().exists():
+		return None
+
+	try:
+		return subroutine.config.load_settings()
+	# **Broad on purpose**: a configuration file too broken to load is exactly the machine
+	# somebody wants to clean, so failing to read it must not stop the removal.
+	except Exception as reason:
+		print(f"  note     config          could not be read ({reason}); assuming defaults")
+
+		return None
+
+
+def _remove (path: pathlib.Path, *, kind: str, dry_run: bool) -> Step:
+	"""Remove one file or directory, saying what happened either way."""
+
+	if not path.exists() and not path.is_symlink():
+		return Step(kind, str(path), "absent")
+
+	if dry_run:
+		return Step(kind, str(path), "would remove")
+
+	try:
+		if path.is_dir() and not path.is_symlink():
+			shutil.rmtree(path)
+		else:
+			path.unlink()
+	except OSError as reason:
+		return Step(
+			kind, str(path), "FAILED", detail=str(reason), by_hand=f"rm -rf {path}"
+		)
+
+	return Step(kind, str(path), "removed")
+
+
+def _executable (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
+	"""Remove the installed program, and refuse anything that is not one.
+
+	Three things can be sitting at that name and only one of them is ours to take. A **uv tool**
+	install puts a shim there and owns the tree behind it. A **symlink into a virtualenv** is a
+	developer's checkout wearing the real name — Simon's machine has exactly this, deliberately
+	— and removing it breaks a working tree rather than an install. Anything else is a stranger.
+
+	**The tell is where it points**, not that it exists, which is why this reads the link rather
+	than trusting the name.
+	"""
+
+	name = subroutine.config.APPLICATION_NAME
+	steps: list[Step] = []
+	tools = home / ".local" / "share" / "uv" / "tools" / name
+
+	for directory in (home / ".local" / "bin", pathlib.Path("/usr/local/bin")):
+		binary = directory / name
+
+		if not binary.exists() and not binary.is_symlink():
+			continue
+
+		target = binary.resolve() if binary.is_symlink() else binary
+
+		if tools in target.parents or target == binary:
+			steps.append(_remove(binary, kind="executable", dry_run=dry_run))
+
+			continue
+
+		steps.append(Step(
+			"executable",
+			str(binary),
+			"SKIPPED",
+			detail=f"points at {target}, which this tool did not install",
+			by_hand=f"rm {binary}",
+		))
+
+	steps.append(_remove(tools, kind="uv tool", dry_run=dry_run))
+
+	return steps
+
+
+def _published_plugins () -> list[str]:
+	"""Return the plugin names this repository publishes, read from its marketplace manifest.
+
+	Discovered rather than listed, so a plugin added later is uninstalled without anybody
+	remembering this file — which is the rule ``tests/test_plugin.py`` already holds the
+	repository to.
+	"""
+
+	manifest = pathlib.Path(__file__).resolve().parent.parent / MARKETPLACE_MANIFEST
+
+	if not manifest.is_file():
+		return []
+
+	loaded = json.loads(manifest.read_text(encoding="utf-8"))
+	market = loaded.get("name", subroutine.config.APPLICATION_NAME)
+
+	return [f"{one['name']}@{market}" for one in loaded.get("plugins", []) if one.get("name")]
+
+
+def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
+	"""Uninstall the plugins and forget the marketplace, through Claude Code's own CLI.
+
+	**Its files, its commands.** ``installed_plugins.json``, ``known_marketplaces.json`` and the
+	version-keyed cache under ``plugins/cache`` are Claude Code's bookkeeping, and editing them
+	by hand is how a plugin ends up listed and absent — a state that reports success and starts
+	no server, which is `#236` exactly. So this drives ``claude`` where it can, and where it
+	cannot it says what is left rather than reaching in.
+	"""
+
+	steps: list[Step] = []
+	claude = shutil.which("claude")
+	market = subroutine.config.APPLICATION_NAME
+
+	# **``HOME`` is passed to the child, not inherited** (`SR#1342`). ``claude`` finds its
+	# registry under the home of whatever started it, so a run pointed at a scratch directory
+	# would still uninstall the *real* plugins — which is not a hypothetical: writing this
+	# file's tests did exactly that, and the machine had to be put back by hand. Injecting the
+	# path into the Python half and leaving the subprocess inheriting is isolation that covers
+	# the part you can see.
+
+	if claude is None:
+		steps.append(Step(
+			"claude",
+			"plugins and marketplace",
+			"SKIPPED",
+			detail="no 'claude' on PATH, and these files are its own bookkeeping",
+			by_hand=(
+				f"claude plugin uninstall <name>@{market} "
+				f"&& claude plugin marketplace remove {market}"
+			),
+		))
+
+		return steps
+
+	for plugin in _published_plugins():
+		if dry_run:
+			steps.append(Step("claude plugin", plugin, "would uninstall"))
+
+			continue
+
+		done = subprocess.run(
+			[claude, "plugin", "uninstall", plugin],
+			capture_output=True,
+			text=True,
+			check=False,
+			env={**os.environ, "HOME": str(home)},
+		)
+		# **Not installed is a success here**, because the outcome asked for is that it is gone.
+		steps.append(Step(
+			"claude plugin",
+			plugin,
+			"uninstalled" if done.returncode == 0 else "absent",
+			detail="" if done.returncode == 0 else (done.stderr or done.stdout).strip()[:120],
+		))
+
+	if dry_run:
+		steps.append(Step("claude marketplace", market, "would remove"))
+	else:
+		done = subprocess.run(
+			[claude, "plugin", "marketplace", "remove", market],
+			capture_output=True,
+			text=True,
+			check=False,
+			env={**os.environ, "HOME": str(home)},
+		)
+		steps.append(Step(
+			"claude marketplace",
+			market,
+			"removed" if done.returncode == 0 else "absent",
+			detail="" if done.returncode == 0 else (done.stderr or done.stdout).strip()[:120],
+		))
+
+	# **Then check, because uninstalling is not the same act as the cache being gone** — the
+	# copy is keyed by version and several can be behind one install (`#236`'s shape again).
+	plugins = home / CLAUDE_PLUGINS
+
+	for left in (plugins / "cache" / market, plugins / "marketplaces" / market):
+		if left.exists():
+			steps.append(_remove(left, kind="claude leftover", dry_run=dry_run))
+
+	return steps
+
+
+def _things_nobody_else_may_decide (
+	settings: typing.Any, connections: typing.Sequence[tuple[str, str]]
+) -> list[Step]:
+	"""Report what this will not touch, and say how to deal with each.
+
+	**A list rather than a decision.** Every entry here is something that is plausibly not ours:
+	a backup directory pointed at a shared volume, a database that is not the default file, a
+	profile selected by an environment variable this process cannot unset for the shell that
+	started it. Taking any of them on a guess is the failure mode that makes a destructive tool
+	untrustworthy, and being told is enough — the whole list is two or three commands.
+	"""
+
+	steps: list[Step] = []
+	default = subroutine.config.default_database_path()
+
+	if settings is not None:
+		url = (getattr(settings, "database_url", "") or "").strip()
+
+		if url and not url.startswith("sqlite"):
+			steps.append(Step(
+				"database",
+				url.split("@")[-1],
+				"SKIPPED",
+				detail="not SQLite, so the data is in a server this tool does not administer",
+				by_hand="drop it yourself if it was only for this install",
+			))
+		elif url and pathlib.Path(url.split("///")[-1]) != default:
+			steps.append(Step(
+				"database",
+				url,
+				"SKIPPED",
+				detail="a SQLite file somewhere this tool did not put one",
+				by_hand=f"rm {url.split('///')[-1]}",
+			))
+
+		configured = (getattr(settings, "backup_directory", "") or "").strip()
+
+		if configured:
+			where = pathlib.Path(configured).expanduser()
+
+			if not str(where).startswith(str(_application_root("XDG_DATA_HOME", ".local", "share"))):
+				steps.append(Step(
+					"backups",
+					str(where),
+					"SKIPPED",
+					detail="outside the data directory, so it may be shared or a mount",
+					by_hand=f"rm -rf {where}",
+				))
+
+	# **A connection that names a server is data this cannot reach** (§13.7). A basic install
+	# has none, which is the case this script is written for; a machine that has grown one is
+	# telling you that removing these directories does not remove the work.
+	#
+	# **A *local* connection is excluded and that is the whole subtlety.** It points at the
+	# SQLite file above, which this does remove — reporting it as *elsewhere* would be exactly
+	# backwards, and would say the one thing being destroyed is safe.
+	steps.extend(
+		Step(
+			"connection",
+			name,
+			"note",
+			detail=f"names {where}, which is not this machine's install",
+		)
+		for name, where in connections
+	)
+
+	if os.environ.get("SUBROUTINE_PROFILE"):
+		steps.append(Step(
+			"environment",
+			"SUBROUTINE_PROFILE",
+			"SKIPPED",
+			detail="set in the shell that started this, which no child process can unset",
+			by_hand="unset SUBROUTINE_PROFILE, and take it out of your shell profile",
+		))
+
+	for name in sorted(one for one in os.environ if one.startswith("SUBROUTINE_")):
+		if name == "SUBROUTINE_PROFILE":
+			continue
+
+		steps.append(Step(
+			"environment",
+			name,
+			"SKIPPED",
+			detail="an override this install may have been relying on",
+			by_hand=f"unset {name}, and take it out of your shell profile",
+		))
+
+	steps.append(Step(
+		"markers",
+		".subroutine files in your checkouts",
+		"SKIPPED",
+		detail="each names a project by id and belongs to that repository, not to the install",
+		by_hand="find ~ -name .subroutine -not -path '*/.git/*'",
+	))
+
+	return steps
+
+
+def _elsewhere () -> list[tuple[str, str]]:
+	"""Return each configured connection that points somewhere this script cannot reach.
+
+	Read from the configuration file rather than from a built roster, because a **disabled**
+	connection still names data and is exactly what somebody mid-migration has. A connection
+	with no URL, or a SQLite one, is this machine's own and is removed with the rest.
+	"""
+
+	try:
+		declared = subroutine.config.read_config_file().get("connections") or {}
+	except Exception:
+		return []
+
+	if not isinstance(declared, dict):
+		return []
+
+	found = []
+
+	for name, table in sorted(declared.items()):
+		url = (table or {}).get("url") if isinstance(table, dict) else None
+
+		if isinstance(url, str) and url.strip() and not url.strip().startswith("sqlite"):
+			found.append((name, url.strip().split("@")[-1]))
+
+	return found
+
+
+def _report (steps: typing.Sequence[Step]) -> int:
+	"""Print every step and return how many need the operator."""
+
+	width = max((len(one.kind) for one in steps), default=8)
+	# **Measured, not guessed.** A hardcoded column is one word away from running the outcome
+	# into the subject, which is how a report of a destructive operation becomes unreadable.
+	said = max((len(one.outcome) for one in steps), default=8)
+
+	for step in steps:
+		print(f"  {step.outcome:<{said}}  {step.kind:<{width}}  {step.subject}")
+
+		if step.detail:
+			print(f"  {'':<{said}}  {'':<{width}}  reason: {step.detail}")
+
+		if step.by_hand:
+			print(f"  {'':<{said}}  {'':<{width}}  by hand: {step.by_hand}")
+
+	# **A note is not an outstanding job.** It says the machine is bigger than this script's
+	# scope; nothing is left undone by it, and counting it would send somebody looking for a
+	# command that does not exist.
+	return sum(1 for one in steps if one.outcome in {"SKIPPED", "FAILED"})
+
+
+def _confirmed (roots: typing.Sequence[tuple[str, pathlib.Path]]) -> bool:
+	"""Say what is about to go, and require it to be typed back.
+
+	**Named before asked**, because *are you sure* is a question nobody can answer without being
+	told what about — and the thing most likely to be irreplaceable here is a database somebody
+	has been keeping real work in.
+	"""
+
+	database = subroutine.config.default_database_path()
+
+	print("This removes a Subroutine install and everything in it. There is no undo.\n")
+
+	for kind, path in roots:
+		print(f"  {kind:<8} {path}")
+
+	if database.exists():
+		size = database.stat().st_size
+		print(f"\n  The database is {size:,} bytes and it is not backed up by this.")
+
+	print("\nType 'remove' to go ahead: ", end="")
+
+	return input().strip() == "remove"
+
+
+def main (
+	argv: typing.Sequence[str] | None = None, *, home: pathlib.Path | None = None
+) -> int:
+	"""Run the clean, and return non-zero if anything is left for the operator.
+
+	**``home`` is a parameter because a test of a destructive tool must not be able to escape**
+	(`#405`: give the scanner the tree). ``tests/conftest.py`` gives every test its own XDG
+	roots and deliberately leaves ``HOME`` alone, so a test that only patched the environment
+	would still find — and delete — the developer's real Claude plugin cache. Passing the
+	directory in means the isolation is in the signature rather than in somebody remembering.
+	"""
+
+	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+	parser.add_argument(
+		"--dry-run", action="store_true", help="say what would happen and touch nothing"
+	)
+	parser.add_argument(
+		"--yes", action="store_true", help="do not ask; the report is printed either way"
+	)
+	options = parser.parse_args(argv)
+
+	home = home or pathlib.Path.home()
+	roots = _roots()
+
+	if not options.dry_run and not options.yes and not _confirmed(roots):
+		print("\nNothing was removed.")
+
+		return 1
+
+	print()
+
+	settings = _settings_before_removal()
+	# **Both read before anything is deleted, for the same reason.** `_settings_before_removal`
+	# says why; this is the same file, and asking after the removal returned an empty mapping
+	# and reported no connections at all — a machine mid-migration told that everything it had
+	# was local. Written as one line beside the other so the pairing is visible.
+	connections = _elsewhere()
+	steps: list[Step] = []
+
+	# **Named on its own line before the directory that contains it.** Removing the data root
+	# takes the database with it, and a report that only says *data* leaves the one
+	# irreplaceable thing in this whole operation unmentioned.
+	database = subroutine.config.default_database_path()
+
+	if database.exists():
+		steps.append(Step(
+			"database",
+			str(database),
+			"would remove" if options.dry_run else "removed",
+			detail=f"{database.stat().st_size:,} bytes, with the data directory below",
+		))
+
+	for kind, path in roots:
+		steps.append(_remove(path, kind=kind, dry_run=options.dry_run))
+
+	steps.extend(_executable(home, dry_run=options.dry_run))
+	steps.extend(_claude(home, dry_run=options.dry_run))
+	steps.extend(_things_nobody_else_may_decide(settings, connections))
+
+	outstanding = _report(steps)
+	removed = sum(
+		1 for one in steps if one.outcome in {"removed", "uninstalled", "would remove"}
+	)
+
+	# **A dry run has removed nothing and may not say it has.** The count is the same number
+	# either way and the verb is not, which is the whole difference between a rehearsal and the
+	# thing itself.
+	did = "would remove" if options.dry_run else "removed"
+
+	print(
+		f"\n{removed} {did}, {outstanding} left for you"
+		if outstanding
+		else f"\n{removed} {did}, nothing left for you."
+	)
+
+	if outstanding:
+		print("Run the commands above, then re-run this to check.")
+
+	return 0 if not outstanding else 2
+
+
+if __name__ == "__main__":
+	sys.exit(main())
