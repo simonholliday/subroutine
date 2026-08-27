@@ -33,6 +33,35 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts
 import deep_clean
 
 
+@pytest.fixture(autouse=True)
+def _one_seam (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Put this test's XDG roots under the same home it hands the script — `SR#1349`.
+
+	**Two seams was the defect, and these tests had it.** ``tests/conftest.py`` gives every test
+	XDG roots under a session directory, and every test here passes ``home=tmp_path`` — two
+	unrelated scratch trees, each isolated by something the other does not know about. That is
+	exactly the arrangement `SR#1349` is about: the ``home`` parameter looked like the sandbox
+	and covered the executable and marker halves, while the config, state and data halves were
+	isolated by the environment instead.
+
+	It was invisible from here for that reason. The script now refuses a named ``home`` the
+	environment escapes, so **this fixture is what these tests need in order to be about the
+	script rather than about the harness** — and its absence would fail them all, loudly, which
+	is the guard working.
+
+	Applied to the file rather than per test because every test in it drives ``main``, and one
+	that forgot would be the same silent second seam arriving in the tests written to prevent
+	it.
+	"""
+
+	for variable, parts in (
+		("XDG_CONFIG_HOME", (".config",)),
+		("XDG_STATE_HOME", (".local", "state")),
+		("XDG_DATA_HOME", (".local", "share")),
+	):
+		monkeypatch.setenv(variable, str(tmp_path.joinpath(*parts)))
+
+
 def _declared_names () -> list[str]:
 	"""Return the command names ``pyproject.toml`` declares, read from the file itself.
 
@@ -276,6 +305,112 @@ def test_the_clean_reads_its_paths_from_the_product (
 		assert not path.exists(), f"{what} survived when the roots were moved: {path}"
 
 
+
+
+def test_a_home_the_environment_escapes_is_refused_before_anything_is_removed (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`SR#1349`. The parameter is what persuades somebody it is safe to run.
+
+	``places()`` said in writing that *everything this touches is under the home it was given*.
+	That was false: the config, state and data roots came from :mod:`subroutine.config`, which
+	reads the environment and has never heard of ``home``. **Measured at real cost** — driving
+	``main(["--yes"], home=<scratch>)` from a plain interpreter removed this machine's own
+	`config.toml`, its credentials, its state and its data directory, including the rollback
+	copy of a migrated database and six disposable profiles.
+
+	Threading ``home`` into the XDG fallbacks fixes the *unset* case, which is the ordinary
+	state outside pytest and is the one that did the damage. **It cannot fix the set case**, and
+	must not: the environment is meant to win. So that one is refused.
+
+	**Nothing is removed**, which is the assertion that matters — a refusal that fires after the
+	first delete is a report rather than a guard.
+	"""
+
+	elsewhere = tmp_path / "not-under-the-home"
+	home = tmp_path / "home"
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+		monkeypatch.setenv(variable, str(elsewhere / variable.lower()))
+
+	made = elsewhere / "xdg_config_home" / subroutine.config.APPLICATION_NAME
+	made.mkdir(parents=True)
+	(made / "config.toml").write_text("[connections]\n", encoding="utf-8")
+
+	home.mkdir()
+
+	assert deep_clean.main(["--yes"], home=home) == 1
+
+	said = capsys.readouterr().out
+
+	assert "outside it" in said, said
+	assert "Nothing has been removed" in said, said
+	assert (made / "config.toml").exists(), (
+		"the refusal fired after something had already been deleted"
+	)
+
+	# **And the three variables are named**, because *set them under that directory* is only
+	# actionable if the reader knows which three.
+	for variable in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+		assert variable in said, said
+
+
+def test_a_run_with_no_home_is_not_second_guessed_about_its_own_environment (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1349`. The refusal is for a *named* home only, and that is the whole of its scope.
+
+	Somebody cleaning their own machine has roots wherever their environment says, which is what
+	XDG means. Refusing them would be this guard deciding it knows better — and it would refuse
+	every ordinary run on a machine that sets the variables at all, which is most of them.
+
+	Driven as a dry run, because the subject is whether it *proceeds* rather than what it
+	removes, and a real one here would delete the roots this test set up around it.
+	"""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "somewhere" / "config"))
+	monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "somewhere" / "state"))
+	monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "somewhere" / "data"))
+	# **`pathlib.Path` imported here, not reached through `deep_clean`** — mypy refuses the
+	# second because a module does not re-export what it imports, and `SR#1348` is the last
+	# time that was worked around rather than written properly.
+	monkeypatch.setattr(pathlib.Path, "home", classmethod(lambda _cls: tmp_path))
+
+	assert deep_clean.main(["--dry-run"]) in (0, 2)
+
+
+def test_the_roots_follow_the_home_when_the_environment_says_nothing (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1349`'s other half, and it is the case that did the damage.
+
+	With the XDG variables unset — the ordinary state outside pytest — the roots fell back to
+	``pathlib.Path.home()``, the *real* one, whatever ``home`` said. So a run pointed at a
+	scratch directory computed the real config, state and data roots and removed them.
+
+	**Asserted on the paths rather than on the outcome of a run**, and that is not only a
+	preference. The defect is what :func:`deep_clean._roots` returns, and a scenario that
+	deleted the right things could still be reading them from somewhere this parameter does not
+	control — but the deciding reason is that **the scenario cannot be written safely**. Driving
+	``main`` with the variables unset against the unfixed code deletes the developer's real
+	config, state and data directories, which is precisely what filed `SR#1349`.
+
+	So the falsification here is honest and weaker than usual, and it is worth saying which:
+	against `HEAD` this raises ``TypeError`` because ``_roots`` took no argument, rather than
+	failing on an escaped path. The escape test above is the one that reproduces the behaviour,
+	and it can only do so because it points the environment somewhere it is safe to lose.
+	"""
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME"):
+		monkeypatch.delenv(variable, raising=False)
+
+	scratch = tmp_path / "scratch"
+	found = dict(deep_clean._roots(scratch))
+
+	assert set(found) == {"config", "state", "data"}, found
+
+	for kind, path in found.items():
+		assert path.is_relative_to(scratch), f"the {kind} root escaped the home it was given: {path}"
 
 
 def test_the_clean_never_reaches_past_the_home_it_was_given (

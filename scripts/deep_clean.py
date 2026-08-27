@@ -68,21 +68,31 @@ class Step:
 	by_hand: str = ""
 
 
-def _application_root (variable: str, *fallback: str) -> pathlib.Path:
+def _application_root (home: pathlib.Path, variable: str, *fallback: str) -> pathlib.Path:
 	"""Return one XDG root for this application, ignoring any profile.
 
 	**The unprofiled directory, which is the one that holds the profiles**, so removing these
 	three takes every disposable instance with them. Asking for a *profiled* path would return
 	one instance and leave its siblings behind — and a machine with a leftover profile is not
 	the machine a stranger has.
+
+	**``home`` is the fallback, and it was ``pathlib.Path.home()``** (`#1349`). That is half of
+	why the ``home`` parameter isolated half of what this deletes: with the XDG variables unset,
+	which is the ordinary state outside pytest, a run pointed at a scratch directory computed
+	the *real* config, state and data roots and removed them. Measured at real cost — this
+	machine's own `config.toml`, its credentials and its rollback copy of the migrated database.
+
+	**The environment still wins where it is set**, which is correct — that is what XDG means —
+	and is why threading this is not the whole fix. :func:`_refuse_a_home_the_environment_
+	escapes` is the other half, and it covers the case this one cannot.
 	"""
 
-	base = os.environ.get(variable) or pathlib.Path.home().joinpath(*fallback)
+	base = os.environ.get(variable) or home.joinpath(*fallback)
 
 	return pathlib.Path(base) / subroutine.config.APPLICATION_NAME
 
 
-def _roots () -> list[tuple[str, pathlib.Path]]:
+def _roots (home: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
 	"""Return the three directories an install owns entirely, in a safe order.
 
 	Configuration first and data last, which is :func:`subroutine.config.profile_directories`'
@@ -91,10 +101,52 @@ def _roots () -> list[tuple[str, pathlib.Path]]:
 	"""
 
 	return [
-		("config", _application_root("XDG_CONFIG_HOME", ".config")),
-		("state", _application_root("XDG_STATE_HOME", ".local", "state")),
-		("data", _application_root("XDG_DATA_HOME", ".local", "share")),
+		("config", _application_root(home, "XDG_CONFIG_HOME", ".config")),
+		("state", _application_root(home, "XDG_STATE_HOME", ".local", "state")),
+		("data", _application_root(home, "XDG_DATA_HOME", ".local", "share")),
 	]
+
+
+def _refuse_a_home_the_environment_escapes (
+	home: pathlib.Path, roots: typing.Sequence[tuple[str, pathlib.Path]]
+) -> str | None:
+	"""Return why this run must not proceed, or ``None`` — `#1349`.
+
+	**A destructive tool whose isolation parameter covers part of its blast radius is worse
+	than one with no such parameter**, because the parameter is what persuades somebody it is
+	safe to run. :func:`places` said in writing that *everything this touches is under the home
+	it was given*; that sentence was false, and it is the sentence somebody reads before
+	pointing the thing at a scratch directory.
+
+	Threading ``home`` into the XDG fallbacks fixes the case where the variables are unset,
+	which is the ordinary state outside pytest and is the one that did the damage. **It cannot
+	fix the case where they are set and point elsewhere** — the environment is meant to win —
+	so that case is refused rather than obeyed.
+
+	**Only when a home was actually named.** A plain run with no ``home`` is somebody cleaning
+	their own machine, where the roots are wherever their environment says and that is the whole
+	point; refusing them would be this guard deciding it knows better than XDG.
+
+	**Compared by resolved path**, because a symlinked scratch directory under ``/tmp`` is the
+	ordinary shape of one and a string comparison would refuse it.
+	"""
+
+	inside = home.resolve()
+	outside = [
+		f"{kind} ({path})"
+		for kind, path in roots
+		if not path.resolve().is_relative_to(inside)
+	]
+
+	if not outside:
+		return None
+
+	return (
+		f"This run was pointed at {home}, and the environment puts "
+		+ ", ".join(outside)
+		+ " outside it. Nothing has been removed. Set XDG_CONFIG_HOME, XDG_STATE_HOME and "
+		"XDG_DATA_HOME under that directory, or unset them so they fall back to it."
+	)
 
 
 def _settings_before_removal () -> typing.Any:
@@ -145,9 +197,20 @@ def places (home: pathlib.Path) -> list[pathlib.Path]:
 	"""Return the directories an installed program may be sitting in, for this home.
 
 	**A function rather than a literal, so the contract can be asserted** (`#1345`). The rule is
-	that everything this touches is under the home it was given — which is what lets a test
-	point a destructive run at a scratch directory and know nothing can escape. A system
-	directory is outside that, so it is consulted only when there is no isolation to break.
+	that everything *this function* names is under the home it was given, apart from the system
+	directory below, which is consulted only when there is no isolation to break.
+
+	**That sentence used to be about the whole script and was false** (`#1349`). It read
+	*everything this touches is under the home it was given — which is what lets a test point a
+	destructive run at a scratch directory and know nothing can escape*, and it was the sentence
+	somebody read before pointing the thing at a scratch directory. The config, state and data
+	roots came from :mod:`subroutine.config`, which reads the environment; a run pointed at a
+	scratch home removed the real ones, and did.
+
+	**Two changes made it true rather than reworded.** :func:`_application_root` falls back to
+	the given home, and :func:`_refuse_a_home_the_environment_escapes` turns down a named home
+	the environment reaches outside. What a test can rely on is now a property of the code
+	rather than of the reader remembering to set three variables.
 
 	**Written this way because the obvious test could not fail here.** Asserting on the *report*
 	needs the program to actually be in ``/usr/local/bin``, and this machine has none — which is
@@ -426,7 +489,10 @@ def _claude (home: pathlib.Path, *, dry_run: bool) -> list[Step]:
 
 
 def _things_nobody_else_may_decide (
-	settings: typing.Any, connections: typing.Sequence[tuple[str, str]]
+	settings: typing.Any,
+	connections: typing.Sequence[tuple[str, str]],
+	*,
+	data: pathlib.Path,
 ) -> list[Step]:
 	"""Report what this will not touch, and say how to deal with each.
 
@@ -467,7 +533,11 @@ def _things_nobody_else_may_decide (
 		if configured:
 			where = pathlib.Path(configured).expanduser()
 
-			if not str(where).startswith(str(_application_root("XDG_DATA_HOME", ".local", "share"))):
+			# **Compared against the data root this run computed** (`#1349`), not against one
+			# read from the environment a second time: a run pointed at a scratch home would
+			# otherwise measure a backup directory against the *real* data root and report it
+			# as outside when it was inside, or the reverse.
+			if not str(where).startswith(str(data)):
 				steps.append(Step(
 					"backups",
 					str(where),
@@ -671,6 +741,16 @@ def main (
 	roots and deliberately leaves ``HOME`` alone, so a test that only patched the environment
 	would still find — and delete — the developer's real Claude plugin cache. Passing the
 	directory in means the isolation is in the signature rather than in somebody remembering.
+
+	**And it covered half of what this deletes until 2026-08-27** (`#1349`). The executable and
+	marker halves took it; the config, state and data halves came from :mod:`subroutine.config`,
+	which reads the environment. Two seams, one of them invisible from the signature — so a run
+	pointed at a scratch directory removed the real roots, and did.
+
+	**Naming a home is now a claim this checks.** The XDG lookups fall back to it, and a home
+	the environment reaches outside of is refused before anything is removed. A plain run with
+	no ``home`` is untouched: the roots are wherever the environment says, which is what XDG
+	means and what somebody cleaning their own machine is asking for.
 	"""
 
 	parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -682,8 +762,17 @@ def main (
 	)
 	options = parser.parse_args(argv)
 
+	named = home is not None
 	home = home or pathlib.Path.home()
-	roots = _roots()
+	roots = _roots(home)
+
+	# **Refused before the confirmation, not after it** (`#1349`). The prompt lists the three
+	# roots, so asking first would show somebody the real directories under a heading saying
+	# this run is confined to a scratch one — and a `--yes` run never sees the prompt at all.
+	if named and (escaped := _refuse_a_home_the_environment_escapes(home, roots)) is not None:
+		print(escaped)
+
+		return 1
 
 	if not options.dry_run and not options.yes and not _confirmed(roots):
 		print("\nNothing was removed.")
@@ -703,7 +792,13 @@ def main (
 	# **Named on its own line before the directory that contains it.** Removing the data root
 	# takes the database with it, and a report that only says *data* leaves the one
 	# irreplaceable thing in this whole operation unmentioned.
-	database = subroutine.config.default_database_path()
+	#
+	# **Derived from the data root above rather than from `config.default_database_path()`**
+	# (`#1349`). That function reads `data_home()`, which reads the environment and has never
+	# heard of `home` — so a run pointed at a scratch directory named the *real* database in
+	# its report while removing the scratch one, which is the one line of the report somebody
+	# reads most carefully. One root, two readers.
+	database = dict(roots)["data"] / f"{subroutine.config.APPLICATION_NAME}.db"
 
 	if database.exists():
 		steps.append(Step(
@@ -718,7 +813,9 @@ def main (
 
 	steps.extend(_executable(home, dry_run=options.dry_run))
 	steps.extend(_claude(home, dry_run=options.dry_run))
-	steps.extend(_things_nobody_else_may_decide(settings, connections))
+	steps.extend(
+		_things_nobody_else_may_decide(settings, connections, data=dict(roots)["data"])
+	)
 	steps.extend(_markers(home))
 
 	outstanding = _report(steps)
