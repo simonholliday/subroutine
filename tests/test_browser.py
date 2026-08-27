@@ -1708,6 +1708,27 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	the request was early*, which is a guard that reports on the scheduler rather than on the
 	page — and the failure it produces is unexplainable from the log, which is what cost two
 	items and two wrong diagnoses.
+
+	**Raised to thirty-nine for `SR#1424`, and four candidates became two.** Both are about the
+	*existence and geometry of a grid track*, which is `SR#748`'s named second scope.
+
+	**What earns the first is that the obvious test passes against the defect.** It asks whether
+	who-has-a-row begins at the same x on every row, and it was falsified two ways: restoring
+	the chip fails it, and — the one that matters — sizing the track `max-content` instead of
+	fixing its width leaves the markup byte-identical, the cell present and `SR#1414`'s wording
+	intact, and the edge ragged at 962px against 1120px. Every row is its own grid, so a
+	content-sized track resolves per row and rebuilds the very defect this replaces, one layer
+	down in CSS. Only the left edges can tell the two apart.
+
+	**The second is §12.2a's drop rule against the one column excepted from it**, and it is here
+	rather than in the fast suite for a mechanical reason: the claim is that a *class* is on an
+	element, and `flatten` carries `href` and a textarea's value and drops every other
+	attribute, so both of its pages read identically there.
+
+	**Two candidates did not earn it and are not here.** *A column absent when nobody has
+	anything* and *a column kept when one person has all of it* are two halves of one rule and
+	are now one test, not two; and *the board keeps its chip* is a call to a pure function,
+	which `_addressing` drives in `tests/test_web.py` in a millisecond.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1715,7 +1736,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 37, (
+	assert len(tests) <= 39, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -2388,6 +2409,169 @@ def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.A
 			f"the address {row['said']!r} touches the title beside it — its column is too "
 			f"narrow for it and a grid item overflows rather than wrapping: {measured}"
 		)
+
+
+#: Three rows that would put a chip in three places — `SR#1424`.
+#:
+#: **The marks before it differ on purpose.** An assignee drawn as a chip sits in a flow after
+#: however many marks precede it, so a fixture whose rows all carried the same marks would put
+#: the chip at one x on every row — and the test below would pass against the very thing it was
+#: written for. Two tags against three against none is the cheapest way to make the flow ragged.
+#:
+#: **One row with nobody on it**, because the track has to be there for the *titles* to line up
+#: too: a row that dropped the column would put its title where the others put their title and
+#: their holder.
+HANDED_OUT: dict[str, typing.Any] = {
+	"items": [
+		dict(CARD, ref=200, title="Nobody has this one", tags=["ops", "urgent"]),
+		dict(CARD, ref=201, title="A person has this one", assignee="si"),
+		dict(
+			CARD, ref=202, title="An agent has this one", tags=["ops", "urgent", "later"],
+			assignee="claude-super", assignee_is_agent=True, assignee_answers_to="si",
+		),
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
+
+def test_who_has_the_work_starts_at_the_same_x_on_every_row (running: typing.Any) -> None:
+	"""`SR#1424`, design `SR#1422`, and the claim is geometry rather than markup.
+
+	**The browser held this fact and could not be scanned for it.** Simon, 2026-08-27: *"The
+	information is already there perhaps, but in small text which cannot be scanned quickly."*
+	A chip sits in a flow after however many marks precede it, so down fifty rows it begins at
+	fifty different x-positions. `cli/personal._assignee_cell` is a column and never had the
+	problem, which is why the terminal was not the surface that prompted this.
+
+	**Measured, because *is it in a cell* is not the requirement.** A test asserting the markup
+	passes on a cell each row sizes for itself: every `.row` is its own grid, so a `max-content`
+	track resolves per row and would rebuild the ragged edge one layer down, in CSS, invisibly.
+	Only the left edges answer the question that was asked.
+
+	**And that it moved rather than being copied.** The same fact twice on one row is this
+	codebase's signature defect, and the chip is still the right answer on the board and the
+	agenda — so a change that added the column without taking the chip out would look correct
+	on both surfaces and be wrong on one.
+	"""
+
+	opened, *_ = running
+	page = opened("/projects?view=list", rows=HANDED_OUT)
+	page.wait_for_selector(".listing .row .assignee", timeout=10_000)
+
+	measured = page.eval_on_selector_all(
+		".listing .rows li",
+		"""rows => rows.map((row) => {
+			const holder = row.querySelector(".assignee");
+			const chips = [...row.querySelectorAll(".mark")];
+
+			return {
+				title: row.querySelector(".title").textContent.trim(),
+				at: holder ? Math.round(holder.getBoundingClientRect().left) : null,
+				said: holder ? holder.textContent.trim() : null,
+				/* **Where a chip would have begun**, which is the far edge of the last mark
+				   on the line — not `.meta`'s box, which is a flex container the width of the
+				   whole row and is therefore identical on every one of them. Measuring that
+				   made this check vacuous while every other assertion passed. */
+				before: chips.length
+					? Math.round(chips[chips.length - 1].getBoundingClientRect().right)
+					: null,
+				chips: chips.map((one) => one.textContent.trim()),
+			};
+		})""",
+	)
+
+	holding = [row for row in measured if row["at"] is not None]
+
+	assert len(holding) == 2, f"the fixture did not draw two holders: {measured}"
+	assert len({row["before"] for row in measured}) > 1, (
+		f"every row would have put a chip at the same x, so this fixture cannot tell a column "
+		f"from the flow it replaces: {measured}"
+	)
+
+	assert len({row["at"] for row in holding}) == 1, (
+		f"who has the work begins at a different x on each row, which is the ragged edge this "
+		f"replaces: {holding}"
+	)
+
+	agent = next(row for row in holding if "claude-super" in (row["said"] or ""))
+
+	assert agent["said"] == "@claude-super (agent, @si)", (
+		f"the column dropped what SR#1414 put in the name, so a reader is told an agent holds "
+		f"this and not who answers for it: {agent}"
+	)
+
+	for row in measured:
+		assert not any("claude-super" in chip for chip in row["chips"]), (
+			f"who has this is drawn as a chip *and* as a column, which is the same fact twice "
+			f"on one row: {row}"
+		)
+
+
+def test_the_column_for_who_has_it_follows_whether_anybody_has_anything (
+	running: typing.Any,
+) -> None:
+	"""§12.2a's drop rule and the one column excepted from it — `SR#511`, `SR#957` §4, `SR#1424`.
+
+	**Two opposite pages, because each alone passes against the other's mistake.**
+
+	*Nobody has anything*: there must be no column. `SR#511` exists because delegation was
+	invisible, and reserving width on every personal listing to report that nobody has been
+	given anything is the opposite mistake — on the surface with the least width to spare, for
+	a reader who has never handed anything to anybody. That is §1.4 falling out of a layout rule
+	rather than being enforced by one.
+
+	*One person has all of it*: the column must stay. §12.2a drops a column that says the same
+	thing on every row, and here that collapses two **opposite** facts — *nobody has any of
+	this* and *one person has all of it* are both a single distinct value, and the second reads
+	as the first. `cli/personal._column` carries the argument as ``drop_if_uniform=False``, and
+	decision `SR#957` §4 names this very column as the precedent for the browser half of it.
+
+	**So this is the rule a later reader would "fix"**, by applying §12.2a to the one column the
+	design excepts from it — and the failure is silent, because a page where everything has been
+	handed over then looks exactly like a page where nothing has.
+
+	**Only a browser can answer it.** The claim is that a *track exists*, which is a class and a
+	resolved grid. `tests/test_web.py` is a text harness by decision — `flatten` carries `href`
+	and a textarea's value and drops every other attribute — so a class is invisible there and
+	both of these pages would read identically.
+	"""
+
+	opened, *_ = running
+	envelope = {"has_more": False, "next_cursor": None, "total": None}
+
+	plain = opened("/projects?view=list", rows={
+		"items": [
+			dict(CARD, ref=300, title="Buy milk"),
+			dict(CARD, ref=301, title="Ring the dentist"),
+		],
+		"page": envelope,
+	})
+	plain.wait_for_selector(".listing .rows li", timeout=10_000)
+
+	assert plain.eval_on_selector_all(".listing .rows li .title", "f => f.length") == 2, (
+		"the plain page drew no rows, so an absent column would say nothing"
+	)
+	assert plain.eval_on_selector_all(".listing .row.with-assignee", "f => f.length") == 0, (
+		"a listing where nobody has been given anything still reserves a column to say so"
+	)
+
+	everyones = opened("/projects?view=list", rows={
+		"items": [
+			dict(CARD, ref=300, title="Buy milk", assignee="si"),
+			dict(CARD, ref=301, title="Ring the dentist", assignee="si"),
+		],
+		"page": envelope,
+	})
+	everyones.wait_for_selector(".listing .rows li", timeout=10_000)
+
+	drawn = everyones.eval_on_selector_all(
+		".listing .rows li .assignee", "found => found.map((one) => one.textContent.trim())"
+	)
+
+	assert drawn == ["@si", "@si"], (
+		f"a page where one person has all of it dropped the column as though nobody had any of "
+		f"it, which is the reading SR#511 was filed about: {drawn}"
+	)
 
 
 def test_the_agenda_names_a_workspace_even_where_they_all_agree (

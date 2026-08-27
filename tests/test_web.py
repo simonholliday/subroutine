@@ -5306,7 +5306,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 				argument.vocabulary, argument.kind, argument.category)
 			: name === "marks" ? app.marks(
 				argument.item, argument.showKind, argument.ordering, argument.place,
-				argument.linkable, argument.hideStatus)
+				argument.linkable, argument.hideStatus, argument.hideAssignee)
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 
@@ -11676,6 +11676,61 @@ def test_every_category_a_workspace_can_seed_has_a_glyph_to_fall_back_to () -> N
 	assert known <= drawn, (
 		f"{sorted(known - drawn)} are categories with no glyph, so a type this client does not "
 		f"recognise falls all the way through to the mark for unknown"
+	)
+
+
+def test_only_the_surface_with_a_column_for_it_drops_the_chip (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1424` moves who-has-a-row out of the flow on **one** surface, not out of `marks`.
+
+	**A board card is not a row and has no grid to line up against.** `.board .row` is
+	`display: block` deliberately: a 4.5rem address column inside a 260px column leaves a title
+	about 150px wide, which wraps into nonsense. So the chip is still the right answer there,
+	and arranging a board *by* who holds a card is `SR#1425` rather than this.
+
+	**Both directions, because either one alone passes against a mistake.** Defaulting the flag
+	the other way would take the fact off the board and the agenda and leave every test of the
+	column passing; never reading it would draw the same fact twice on every row of the list,
+	which is this codebase's signature defect and is the reason the flag exists at all.
+	"""
+
+	drawn, withheld = _addressing(tmp_path, [
+		("marks", {
+			"item": {
+				"ref": 1, "title": "Held by an agent", "assignee": "gizmo",
+				"assignee_is_agent": True, "assignee_answers_to": "morgan",
+			},
+			"showKind": False, "ordering": None, "place": None,
+			"linkable": False, "hideStatus": False, "hideAssignee": False,
+		}),
+		("marks", {
+			"item": {
+				"ref": 1, "title": "Held by an agent", "assignee": "gizmo",
+				"assignee_is_agent": True, "assignee_answers_to": "morgan",
+			},
+			"showKind": False, "ordering": None, "place": None,
+			"linkable": False, "hideStatus": False, "hideAssignee": True,
+		}),
+	])
+
+	def names_the_holder (marks: list[dict[str, typing.Any]]) -> list[str]:
+		"""Return every mark that says who has this."""
+
+		return [mark["text"] for mark in marks if "gizmo" in (mark.get("text") or "")]
+
+	assert names_the_holder(drawn) == ["@gizmo (agent, @morgan)"], (
+		f"a surface with no column for it stopped saying who holds the row: {drawn}"
+	)
+	assert names_the_holder(withheld) == [], (
+		f"the list draws who has this as a column *and* as a chip, which is the same fact "
+		f"twice on one row: {withheld}"
+	)
+
+	# **The rest of the row is untouched**, which is what says the flag is narrow. Without this
+	# a version that returned nothing at all when asked to withhold one mark would pass above.
+	assert len(withheld) == len(drawn) - 1, (
+		f"withholding the holder changed more than the holder: {drawn} against {withheld}"
 	)
 
 

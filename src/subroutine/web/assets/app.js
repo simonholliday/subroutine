@@ -3881,7 +3881,11 @@ export function Icon ({ name, decorative = true }) {
 }
 
 export function marks (
-	item, showKind, ordering = null, place = null, linkable = false, hideStatus = false
+	item, showKind, ordering = null, place = null, linkable = false, hideStatus = false,
+	/* **The list draws who has this as a column of its own** (`#1424`), so a chip here
+	   would be the same fact twice on the one surface that aligns it. Absent means draw it,
+	   which is the board, the agenda and an item's own links. */
+	hideAssignee = false
 ) {
 	/*
 		The small labels under a title.
@@ -4113,7 +4117,7 @@ export function marks (
 		address.push({ text: `#${tag}`, family: "address" });
 	}
 
-	if (item.assignee) {
+	if (item.assignee && !hideAssignee) {
 		address.push({
 			text: named(item.assignee, item.assignee_is_agent, item.assignee_answers_to),
 			family: "address",
@@ -4708,10 +4712,21 @@ export function Row ({
 	   an agenda have no columns, and the answer is about the workspace's vocabulary rather than
 	   about this item. */
 	hideStatus = false,
+	/*
+		**Whether the container has given who-has-this a column of its own** (`#1424`).
+
+		**The listing decides, because the answer is about the page rather than about this
+		item** — the same shape as `showKind`, one field along.
+
+		**A fixed track is the only thing that aligns.** Every row is its own grid, so
+		`max-content` is computed per row and would put the cell at a different x on each one
+		— which is the defect this item exists to fix, rebuilt in CSS.
+	*/
+	showAssignee = false,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering, place, !!onGo, hideStatus);
+	const badges = marks(item, showKind, ordering, place, !!onGo, hideStatus, showAssignee);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -4795,9 +4810,30 @@ export function Row ({
 	const date = when(item);
 	const acting = completable(item) && onComplete;
 
+	/*
+		**Who has this, as a cell rather than as a chip** (`#1424`, design `#1422`).
+
+		**The fact was already on the row and could not be scanned.** A chip sits in a flow
+		after however many marks precede it, so down fifty rows it begins at fifty different
+		x-positions. Nothing was missing from the data; the geometry is what failed — which is
+		why the terminal, whose `_assignee_cell` is a column, never had this problem.
+
+		**The word carries it and the glyph reinforces it** (`#102`, `#1421`). `named` has
+		already put *(agent)* and who answers for it into the text, so a reader in monochrome,
+		with images off, or through a screen reader loses the picture and no information.
+
+		**On the identity line rather than among the properties**, because that is what the
+		claim is: who has this is part of what the row *is*, not a small fact about it. It is
+		also the only line that is already a grid.
+	*/
+	const holder = showAssignee && item.assignee
+		? html`<span class="assignee"><${Icon} name=${item.assignee_is_agent ? MARK_ICONS.agent : MARK_ICONS.person} />${" "}${named(item.assignee, item.assignee_is_agent, item.assignee_answers_to)}</span>`
+		: null;
+
 	const identity = html`
 		<span class="ref">${where}#${item.ref}</span>
 		<span class="title">${item.title}</span>
+		${holder}
 	`;
 
 	/* **Nothing is rendered for an item with nothing to say**, which keeps a plain row one line
@@ -4833,11 +4869,16 @@ export function Row ({
 	*/
 	const hue = item.project_colour || null;
 
+	/* **Every row on the page carries this, including the ones with nobody on them.** The
+	   track is what aligns, so a row that dropped it would put its title where the others
+	   put their titles and their holder — which is the ragged edge this replaces. */
+	const shape = showAssignee ? "with-assignee" : "";
+
 	return html`
 		<li ...${lift} data-colour=${hue}>
 			${address
-				? html`<a class="row" href=${address} onClick=${open}>${identity}</a>`
-				: html`<button class="row inline" onClick=${open}>${identity}</button>`}
+				? html`<a class="row ${shape}" href=${address} onClick=${open}>${identity}</a>`
+				: html`<button class="row inline ${shape}" onClick=${open}>${identity}</button>`}
 			${meta}
 		</li>
 	`;
@@ -5950,6 +5991,30 @@ export function Listing ({
 	const showKind = new Set(items.map((item) => item.kind)).size > 1;
 
 	/*
+		**Who has the work gets a column of its own, and it is *not* dropped when uniform**
+		(`#1424`, design `#1422`).
+
+		**Any assignee at all, rather than more than one.** §12.2a's drop-if-uniform rule
+		collapses two opposite facts here — *nobody has been assigned any of this* and *one
+		person has been assigned all of it* are both a single distinct value, and the second
+		reads as the first. `#511` exists because delegation was invisible, so a rule that
+		hid it again exactly when everything is delegated would rebuild that defect at its
+		worst moment. `cli/personal` says the same thing as `drop_if_uniform=False`, and
+		decision `#957` §4 names this column as the precedent for it.
+
+		**So the two surfaces agree, and this item's own description said they could not.**
+		It read `#957` §4 as refusing drop-if-uniform in the browser outright. §4 refuses it
+		for the *project label*, whose reason is that the label is **clickable** — a control
+		moving under the cursor while the page polls. `showKind` above drops-if-uniform in
+		this very function and is not a control, which is why both have always been true.
+
+		**Empty everywhere still costs nothing**, because there is no column at all then —
+		which is §1.4 falling out of a layout rule rather than being enforced by one, and is
+		what keeps a shopping list looking exactly as it did before assignment existed.
+	*/
+	const showAssignee = items.some((item) => item.assignee);
+
+	/*
 		**A listing that had to stop says so.** It said nothing until `#646`, and a reader was
 		shown 100 of 142 with no way to tell — which is how an item they had written minutes
 		earlier became unfindable. The count is of what is *shown* rather than of what exists,
@@ -6028,6 +6093,7 @@ export function Listing ({
 							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
 								place=${{ workspace, project }} onGo=${onGo}
+								showAssignee=${showAssignee}
 								onComplete=${onComplete} />
 						`)}
 					</ul>

@@ -116,6 +116,20 @@ upgrade involves.
   carry `answers_to` beside `responsible_user_id` — a name rather than an id, resolved through
   the whole chain, so an agent answerable to an agent still reports the person.
 
+- **A list in the browser lines up who has each piece of work.** Who a row is assigned to
+  used to sit among the small labels beneath the title, so it started in a different place on
+  every row and a page of fifty could not be read down. It is a column now, at the same point
+  on every row, with the person-or-agent figure beside the name. The terminal has always done
+  this and is unchanged.
+
+  **The column appears when somebody has been given something and not before**, so a list
+  nobody has handed anything out on looks exactly as it did. It stays even when one person
+  has all of it — *everything is assigned to Jo* and *nothing is assigned to anybody* are
+  opposite facts and must not render the same way.
+
+  A board card is unchanged: a card has no column to line up against, and arranging a board
+  by who is doing the work is still to come.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

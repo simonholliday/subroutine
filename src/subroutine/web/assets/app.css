@@ -1278,6 +1278,34 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .row .ref { color: var(--ink-faint); font-size: var(--text-small); }
 .row .title { font-weight: 500; }
+
+/*
+	**Who has the work, aligned into a column** (`#1424`, design `#1422`).
+
+	The browser had this fact and could not be *scanned* for it: a chip sits in a flow after
+	however many marks precede it, so down fifty rows it begins at fifty different
+	x-positions. The terminal never had the problem because `_assignee_cell` is a column.
+
+	**A fixed track, because every row is its own grid.** `max-content` is resolved per
+	element, so a content-sized third column would sit wherever each row's own title ended —
+	which is the defect this replaces, rebuilt one layer down.
+
+	**Wide enough for the longest thing it can say**, which is not a username: `#1414` puts
+	the agent marker and the accountable person in the same string, so the cell has to hold
+	`@claude-super (agent, @si)`. It wraps rather than truncating — a name cut mid-word is a
+	worse answer than a two-line cell, and `align-items: baseline` keeps the first line on
+	the title's line either way.
+*/
+.row.with-assignee { grid-template-columns: minmax(4.5rem, max-content) 1fr 11rem; }
+
+.assignee {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+	overflow-wrap: break-word;
+}
 .meta .when { color: var(--ink-soft); font-size: var(--text-small); white-space: nowrap; }
 
 /* **Unscoped from `.meta` because there are two callers now** (`SR#970`). The `Marks` component
@@ -1769,6 +1797,13 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 @media (max-width: 620px) {
 	.row { grid-template-columns: 3.5rem 1fr; }
+
+	/* **Under the title rather than beside it.** An 11rem column on a 320px screen leaves
+	   the title about 90px, which wraps into nonsense — the measurement `.board .row` made
+	   for the same reason one screen size up. The cell auto-places onto a new grid line;
+	   naming column 2 puts it at the x every title starts at, so the sweep survives. */
+	.row.with-assignee { grid-template-columns: 3.5rem 1fr; }
+	.row.with-assignee .assignee { grid-column: 2; }
 	.facts { grid-template-columns: 1fr; gap: var(--space-1); }
 	.facts dd { margin-bottom: var(--space-4); }
 }
