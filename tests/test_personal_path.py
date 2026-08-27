@@ -7604,7 +7604,13 @@ REGISTER_CEILING = 1_626
 #: and the floor had been standing one under the count for a while, so it moves three. Both
 #: numbers moved the right way on a change that *added* behaviour, which is what this pair
 #: exists to make ordinary.
-MODULE_LEVEL_FLOOR = 150
+#: **150 → 169 on 2026-08-27, with the ceiling holding at 1,626** (`SR#1430`, `SR#1431`). A
+#: whole command arrived — ``subroutine journal`` — and the closure did not move, because the
+#: five functions it needed were written at module level from the first line and ``move``'s body
+#: left to pay for its declaration. **That is the arrangement working as designed rather than
+#: being worked around**: the bill for a new command is an extraction, so what is added is paid
+#: for instead of accumulated.
+MODULE_LEVEL_FLOOR = 169
 
 
 def _register_span () -> tuple[int, int]:

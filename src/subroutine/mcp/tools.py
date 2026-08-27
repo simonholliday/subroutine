@@ -1036,6 +1036,35 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
+			name="subroutine_journal",
+			title="What happened",
+			description=(
+				"What happened over a period, with what people wrote and who did each thing. "
+				"subroutine_changes says what *moved* and is what you resume from a seq; this "
+				"is the same events joined to the comments, the actor names and what a change "
+				"moved between. Ask it when somebody wants a period written up. Give it a "
+				"'filter' — without one you get the most recent."
+			),
+			schema={
+				"type": "object",
+				"properties": {
+					"filter": DATE_FILTER,
+					"by": {
+						"type": "string",
+						"description": "Only what one account did, by name. 'me' is you.",
+					},
+					"oldest": {
+						"type": "boolean",
+						"description": "Read the period forwards, in the order it happened.",
+					},
+					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
+					"workspace": WORKSPACE,
+				},
+			},
+			call=lambda arguments: _journal(client, arguments),
+			annotations=READS,
+		),
+		subroutine.mcp.protocol.Tool(
 			name="subroutine_claim",
 			title="Take a task",
 			description=(
@@ -1453,6 +1482,78 @@ def _changed (
 	return "\n".join([*lines, " ".join(filter(None, [footer, coverage]))])
 
 
+def _journal (
+	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
+) -> str:
+	"""Return what happened as one entry per line, with what was said beneath it.
+
+	**The three joins are the whole answer** — `#1430`, decision `#1429`. Without them an agent
+	asked *what did we do on Friday* can report that fourteen comments were written and not one
+	word of what any of them said, which is a list of things to go and look up rather than an
+	answer.
+	"""
+
+	given = arguments.get("limit")
+	asked_by = _text(arguments, "by")
+	entries = client.journal(
+		dated=_filters(arguments),
+		by=None if asked_by == "me" else asked_by,
+		mine=asked_by == "me",
+		oldest=bool(arguments.get("oldest")),
+		workspace=_text(arguments, "workspace"),
+		limit=DEFAULT_LIMIT if given is None else given,
+	)
+
+	coverage = (
+		f"This journal covers {_kinds_named(entries.covers)}." if entries.covers else ""
+	)
+
+	if not entries:
+		return " ".join(filter(None, ["Nothing happened in that time.", coverage]))
+
+	zone = subroutine.domain.dates.zone(
+		_account_zone(client, _text(arguments, "workspace"))
+	)
+	lines: list[str] = []
+
+	for entry in entries:
+		lines.append(
+			f"{entry.created_at.astimezone(zone):%d %b %H:%M}  "
+			f"{entry.actor or 'the instance'}  {entry.action}  {_named(entry)}"
+		)
+
+		# **Indented under the line rather than appended to it**, so a body of several hundred
+		# words does not make one line nobody can scan past. `MAX_ANSWER` still caps the whole
+		# answer, which is the backstop rather than the plan.
+		for detail in _journal_detail(entry):
+			lines.append(f"    {detail}")
+
+	return "\n".join([*lines, coverage] if coverage else lines)
+
+
+def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
+	"""Return what an entry adds beyond its headline — the values, and what was written.
+
+	**Only an update's changes.** Creating a task writes a change for every column it was born
+	with, so rendering those would put twenty lines under *created* and bury the rest.
+	"""
+
+	lines: list[str] = []
+
+	if entry.action == "updated":
+		lines.extend(
+			change.said
+			if change.before is None and change.after is None
+			else f"{change.said}: {change.before or 'nothing'} to {change.after or 'nothing'}"
+			for change in entry.changed
+		)
+
+	if entry.said:
+		lines.append(entry.said)
+
+	return lines
+
+
 def _kinds_named (kinds: typing.Sequence[str]) -> str:
 	"""Say which kinds a feed carries, in words rather than as a vocabulary — `#1085`.
 
@@ -1471,11 +1572,17 @@ def _kinds_named (kinds: typing.Sequence[str]) -> str:
 	return f"{', '.join(said[:-1])} and {said[-1]}"
 
 
-def _named (event: subroutine.views.Event) -> str:
-	"""Return the item an event is about, as short as it can be said.
+def _named (
+	event: subroutine.views.Event | subroutine.views.JournalEntry,
+) -> str:
+	"""Return the item an event or a journal entry is about, as short as it can be said.
 
 	``item_ref``/``item_title`` are on the view so that this, the CLI and any browser name a
 	row the same way rather than each resolving the id again.
+
+	**Both readings of the store, through one function** (`#1430`). They carry the same three
+	fields for the same reason, and a second copy here is how four renderings of a link line
+	came to disagree (`#583`, `#674`).
 	"""
 
 	if event.item_ref is None:

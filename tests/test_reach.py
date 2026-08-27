@@ -171,6 +171,8 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/projects/{id_or_key:path}/comments"): "comments",
 	("GET", "/v1/tasks/{id_or_ref}/events"): "history",
 	("GET", "/v1/changes"): "changes",
+	# The other reading of the same store — `SR#1430`, decision `SR#1429`.
+	("GET", "/v1/journal"): "journal",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
 	# **These two were swapped, and swapped consistently, so every check here passed** (`#336`).
 	# `identity()` calls `/v1/meta` and says so in writing; `/v1/me` was mapped to it and

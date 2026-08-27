@@ -33,6 +33,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import textwrap
 import typing
 import uuid
 
@@ -2373,6 +2374,69 @@ def _change_line (event: subroutine.views.Event) -> str:
 	return f"{verb:<12}  {named}{listed}"
 
 
+def _journal_line (entry: subroutine.views.JournalEntry, *, who_wide: int = 0) -> str:
+	"""Render the headline of one journal entry — who, what, and which item.
+
+	**Where `_change_line` names the fields, this names the actor**, which is the difference
+	the two readings exist for: a feed is *what moved* and a journal is *what happened*, and
+	what happened has somebody doing it.
+	"""
+
+	named = (
+		f"{subroutine.domain.refs.format_ref(entry.item_ref)} {entry.item_title}"
+		if entry.item_ref is not None and entry.item_title is not None
+		else entry.item_title or _in_this_persons_terms(entry.entity_type)
+	)
+	verb = entry.action.replace("_", " ")
+
+	if entry.entity_type == "comment":
+		verb = f"{verb} a comment on"
+
+	# **Not "nobody"**, which reads as an omission. `actor_user_id` is null exactly when the
+	# instance acted with no principal behind it — bootstrapping a workspace is the one such
+	# path — and naming that plainly is more use than a blank column.
+	who = entry.actor or "the instance"
+
+	# **Padded to the widest name on the page, which is `#1424`'s finding one surface along.**
+	# Without it the verb begins at a different column on every row — *the instance* is twelve
+	# characters and *@si* is three — and a reader scanning for what happened has to find where
+	# each line put it. The width is the caller's because it is a fact about the page.
+	return f"{who:<{who_wide}}  {verb:<20}  {named}"
+
+
+def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
+	"""Return the lines the change feed deliberately leaves out — `#1430`.
+
+	`_change_line`'s docstring states the feed's rule: *the changed field names, not their
+	values*, because a rewritten description is not worth four lines of a terminal and anybody
+	who wants the values has `show`. **A journal is the surface where that is the wrong answer**
+	— somebody asking what happened over a period cannot open fifty items — so this is where
+	the values and the words go.
+
+	**Only for an update.** Creating a task writes a change for every column it was born with,
+	so rendering those would put twenty lines under *filed it* and bury everything else.
+	"""
+
+	lines = []
+
+	if entry.action == "updated":
+		for change in entry.changed:
+			if change.before is None and change.after is None:
+				# Both sides unnameable — an id nobody has a lookup for. The phrase alone is
+				# the honest answer and is what `#1430` chose over rendering a UUID.
+				lines.append(change.said)
+
+			else:
+				lines.append(
+					f"{change.said}: {change.before or 'nothing'} to {change.after or 'nothing'}"
+				)
+
+	if entry.said:
+		lines.append(entry.said)
+
+	return lines
+
+
 def _in_this_persons_terms (entity_type: str) -> str:
 	"""Name the thing an event is about, for an event that is not about an item.
 
@@ -2760,6 +2824,83 @@ def _say_where_a_bare_number_goes (
 			style=DETAIL,
 		)
 	)
+
+
+def _say_journal (
+	world: World,
+	gathered: subroutine.fanout.Gathered[list[subroutine.views.JournalEntry]],
+	*,
+	console: rich.console.Console,
+	say: typing.Callable[[str], None],
+) -> None:
+	"""Print what happened, grouped by connection and then by day — `#1430`.
+
+	**The same grouping `_say_changes` uses and for a different reason.** There it is arithmetic:
+	a resume number belongs to one instance, so an interleaved list would carry two. Here it is
+	that a day is what somebody asked about — *what did we do on Friday* — so the day is the
+	heading whether or not more than one connection answered.
+
+	**No resume line**, which is the visible half of decision `#1429`. A journal is a statement
+	about a period and is not resumable; somebody wanting the entries before these narrows the
+	period rather than carrying a number forward.
+	"""
+
+	for answer in gathered.answers:
+		if world.qualifies_connection:
+			console.print(rich.text.Text(answer.connection.label, style=HEADING))
+
+		if not answer.value:
+			console.print(rich.text.Text("  Nothing happened in that time.", style=DETAIL))
+			say("")
+
+			continue
+
+		# **The account's zone, not this machine's** (`#1091`, decision `#1088`) — and it
+		# matters more here than on the feed, because the day is what was asked for rather than
+		# just how the answer is grouped.
+		named = world.account_zone(answer.connection.name, None)
+		zone = subroutine.domain.dates.zone(named)
+		day = None
+
+		# **Measured over the page, exactly as `shaping.aligned` measures a column.** A name is
+		# three characters or twelve depending on whether a person or the instance acted, and an
+		# unaligned one is what `#1424` was filed about in the browser.
+		who_wide = max(
+			(len(entry.actor or "the instance") for entry in answer.value), default=0
+		)
+
+		for entry in answer.value:
+			when = entry.created_at.astimezone(zone)
+			fell_on = subroutine.domain.schedule.day_in(entry.created_at, named)
+
+			if fell_on != day:
+				day = fell_on
+
+				console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
+
+			console.print(f"    {when:%H:%M}  {_journal_line(entry, who_wide=who_wide)}")
+
+			for detail in _journal_detail(entry):
+				# **Wrapped here rather than left to the console.** `overflow="fold"` on a
+				# `Text` was the first version and it *cut* the line instead — a comment ended
+				# mid-word with no ellipsis, which reads as a truncated body rather than as a
+				# wrapped one. Found by driving it; no test would have said anything, because
+				# every assertion about a comment's text was made against the API.
+				#
+				# **Indented to the same column the line above starts at**, so a body reads as
+				# belonging to its entry rather than as a new one.
+				for line in textwrap.wrap(
+					detail,
+					width=max(console.width - 14, 20),
+					initial_indent=" " * 12,
+					subsequent_indent=" " * 12,
+				) or [" " * 12]:
+					console.print(rich.text.Text(line, style=DETAIL))
+
+		say("")
+
+	for failure in gathered.failures:
+		console.print(rich.text.Text(failure.describe(), style=LATE))
 
 
 def _say_changes (
@@ -6767,6 +6908,58 @@ def register (
 		)
 
 	@app.command()
+	def journal (
+		dated: list[str] | None = typer.Option(
+			None,
+			"--filter",
+			help="Which period, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+		),
+		by: str = typer.Option(
+			"", "--by", help="Only what one account did, by name."
+		),
+		mine: bool = typer.Option(
+			False, "--mine", help="Only what this machine's own credential did."
+		),
+		oldest: bool = typer.Option(
+			False, "--oldest", help="Read the period forwards, in the order it happened."
+		),
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the entries as JSON."),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+	) -> None:
+		"""What happened over a period, with who did it and what they said.
+
+		'subroutine changes' says what *moved* and is what you resume from a number. This says
+		what *happened* — the same events, with the comments people wrote, the names of who
+		did each thing, and what a change moved between rather than which rows it touched.
+
+		Ask it for a period. It is the question to ask when somebody wants writing up.
+
+		Examples:
+
+		  subroutine journal --filter created_at.gte=yesterday
+
+		  subroutine journal --filter created_at.gte=2026-08-28 --filter created_at.lt=2026-08-29
+
+		  subroutine journal --by claude --filter created_at.gte=start_of_week
+
+		  subroutine journal --oldest --filter created_at.gte=today
+		"""
+
+		_read_journal(
+			program,
+			dated=dated,
+			by=by,
+			mine=mine,
+			oldest=oldest,
+			limit=limit,
+			json_output=json_output,
+			strict=strict,
+		)
+
+	@app.command()
 	def changes (
 		since: int | None = typer.Option(
 			None, "--since", help="Carry on from this number, printed by the last run."
@@ -7223,59 +7416,7 @@ def register (
 		  subroutine move 42 --top
 		"""
 
-		# **Neither, or both, is a refusal rather than a default**, which is `project move`'s
-		# rule and the endpoint's: an omitted destination that meant "move to the top" would
-		# flatten a tree by accident, and there is nothing that records where it was.
-		if bool(under) == top:
-			stop(
-				"Say where to move it.",
-				"'--under 7' makes it part of #7; '--top' makes it a top-level item.",
-			)
-
-		with program.opened() as world:
-			# Either kind, because one counter serves both (§6.2) and a document's sections
-			# are a tree exactly as a task's subtasks are — so refusing a document here would
-			# be turning down half the numbers a reader can see, which is `#44`'s worse half.
-			located = _locate(program,
-				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
-				kinds=ANY_ITEM,
-				verb="move",
-			)
-			client = _require_connection(program, world, located.connection)
-			kind = (
-				"document"
-				if isinstance(located.item, subroutine.views.Document)
-				else "task"
-			)
-
-			parent = None
-
-			if not top:
-				# Resolved through the same locator, so an unknown number is refused by the
-				# same words rather than by the service, and a document named as a task's
-				# parent is turned down for what it is.
-				beneath = _locate(program, world, under, kinds=ANY_ITEM, verb="move")
-
-				if isinstance(beneath.item, subroutine.views.Document) != (kind == "document"):
-					stop(
-						f"#{located.item.ref} and #{beneath.item.ref} are not the same kind "
-						f"of thing.",
-						"A task is part of a task, and a document is part of a document.",
-					)
-
-				parent = beneath.item.ref
-
-			changed = client.move(
-				ref=located.item.ref,
-				parent=parent,
-				entity_type=kind,
-				workspace=located.workspace,
-			)
-
-			where = "a top-level item" if top else f"part of #{parent}"
-
-			say(_acted(world, dataclasses.replace(located, item=changed), f"Now {where}"))
+		_moved_under(program, which=which, under=under, top=top)
 
 	@app.command()
 	def update (
@@ -8996,6 +9137,122 @@ def _sections (
 		),
 		asked_for_history=history,
 	)
+
+
+def _read_journal (
+	program: Program,
+	*,
+	dated: list[str] | None,
+	by: str,
+	mine: bool,
+	oldest: bool,
+	limit: int,
+	json_output: bool,
+	strict: bool,
+) -> None:
+	"""What happened over a period, with who did it and what they said — `#1430`.
+
+	**Module level from the first line**, which is `#943`'s ratchet applied before it fires
+	rather than after: a new command belongs in a function `register` calls.
+	"""
+
+	asked_about = _filters(program, dated)
+
+	with program.opened(strict=strict) as world:
+
+		def ask (
+			client: subroutine.clients.base.Client,
+		) -> list[subroutine.views.JournalEntry]:
+			"""Ask one connection what happened."""
+
+			return client.journal(
+				dated=asked_about,
+				by=by or None,
+				mine=mine,
+				oldest=oldest,
+				limit=limit,
+			)
+
+		gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
+
+		if json_output:
+			program.say(
+				json.dumps(
+					[
+						{"connection": name, **entry.model_dump(mode="json")}
+						for name, entry in _across(world, gathered, lambda entries: entries)
+					],
+					indent=2,
+				)
+			)
+
+			return
+
+		_say_journal(world, gathered, console=program.console, say=program.say)
+
+
+def _moved_under (program: Program, *, which: str, under: str, top: bool) -> None:
+	"""Make one item part of another, or a top-level item again.
+
+	**Out of `register`'s closure to pay for `subroutine journal`** (`#943`'s ratchet, `#1430`).
+	The ratchet's arrangement is that adding a command costs an extraction, so what is added is
+	paid for rather than accumulated — and this body needed nothing from the closure that
+	`Program` does not carry.
+	"""
+
+	# **Neither, or both, is a refusal rather than a default**, which is `project move`'s
+	# rule and the endpoint's: an omitted destination that meant "move to the top" would
+	# flatten a tree by accident, and there is nothing that records where it was.
+	if bool(under) == top:
+		program.stop(
+			"Say where to move it.",
+			"'--under 7' makes it part of #7; '--top' makes it a top-level item.",
+		)
+
+	with program.opened() as world:
+		# Either kind, because one counter serves both (§6.2) and a document's sections
+		# are a tree exactly as a task's subtasks are — so refusing a document here would
+		# be turning down half the numbers a reader can see, which is `#44`'s worse half.
+		located = _locate(program,
+			world,
+			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			kinds=ANY_ITEM,
+			verb="move",
+		)
+		client = _require_connection(program, world, located.connection)
+		kind = (
+			"document"
+			if isinstance(located.item, subroutine.views.Document)
+			else "task"
+		)
+
+		parent = None
+
+		if not top:
+			# Resolved through the same locator, so an unknown number is refused by the
+			# same words rather than by the service, and a document named as a task's
+			# parent is turned down for what it is.
+			beneath = _locate(program, world, under, kinds=ANY_ITEM, verb="move")
+
+			if isinstance(beneath.item, subroutine.views.Document) != (kind == "document"):
+				program.stop(
+					f"#{located.item.ref} and #{beneath.item.ref} are not the same kind "
+					f"of thing.",
+					"A task is part of a task, and a document is part of a document.",
+				)
+
+			parent = beneath.item.ref
+
+		changed = client.move(
+			ref=located.item.ref,
+			parent=parent,
+			entity_type=kind,
+			workspace=located.workspace,
+		)
+
+		where = "a top-level item" if top else f"part of #{parent}"
+
+		program.say(_acted(world, dataclasses.replace(located, item=changed), f"Now {where}"))
 
 
 def _what_moved (

@@ -170,6 +170,26 @@ Keep the `seq` it prints last and pass it back as `since` next time. It is inclu
 will see that one again; ignore what you already have. `mine=true` narrows it to what your own
 credential did, which is how you pick up your own unfinished work rather than everybody's.
 
+**When somebody asks what happened, use the journal instead.** These are two readings of one
+store and they answer different questions:
+
+```
+subroutine_journal(filter={"created_at.gte": "yesterday"})
+```
+
+`subroutine_changes` says what **moved**. It is cheap, it resumes from a number, and it is what
+to poll — but it reports only that a comment was created, never what it said, and it renders a
+status change as two identifiers. Measured on a real day here: 130 of 450 events were comments
+carrying no text at all.
+
+`subroutine_journal` says what **happened**. Same events, with the comment bodies joined on, the
+actors named — an agent shows as `@name (agent, @person)`, exactly as it does on a row — and a
+change rendered as *how it is going: open to done*. Ask it for a period rather than a cursor.
+
+**So: `changes` to pick up where you left off, `journal` to tell somebody what a day contained.**
+Reaching for `changes` when you were asked to summarise a week means reporting that fourteen
+comments exist without one word of what any of them said.
+
 **Know whose credential you are writing with, before you write anything.** Ask once at the
 start of a session:
 

@@ -772,6 +772,38 @@ class Client:
 			wanted=limit,
 		)
 
+	def journal (
+		self,
+		*,
+		dated: typing.Mapping[str, str] | None = None,
+		by: str | None = None,
+		mine: bool = False,
+		oldest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> subroutine.clients.base.Listing[subroutine.views.JournalEntry]:
+		"""Return what happened, newest first, with who did it and what they said."""
+
+		asking = _given(
+			actor="me" if mine else by,
+			oldest=True if oldest else None,
+			workspace_id=workspace,
+			limit=limit,
+		)
+
+		# The dotted names cannot go through `_given`'s keyword form, and arrive already
+		# written the way the route reads them — so this client holds no copy of the spelling.
+		asking.update(dated or {})
+
+		return self._collected(
+			subroutine.views.JournalEntry,
+			self._json("GET", "/v1/journal", params=asking),
+			endpoint="journal",
+			path="/v1/journal",
+			params=asking,
+			wanted=limit,
+		)
+
 	def changes (
 		self,
 		*,

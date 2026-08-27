@@ -144,6 +144,23 @@ upgrade involves.
   Dates are read in your own timezone, then the instance's. A feed spans every workspace you can
   read, so unlike a listing there is no single workspace whose zone could be used.
 
+- **A journal, for when you need to say what a period contained.** `subroutine journal
+  --filter created_at.gte=yesterday`, `GET /v1/journal`, and `subroutine_journal` for an agent.
+
+  **It is the change feed with three things joined on**, and those three are the difference
+  between a record and a report: what each comment actually said, the name of whoever did each
+  thing, and what a change moved *between* rather than which rows it touched. A status change
+  reads `how it is going: open to done` where the feed says two identifiers, and an agent is
+  named as one with the person accountable for it, exactly as it is on a row.
+
+  `subroutine changes` is unchanged and is still the right thing to poll: it resumes from a
+  number and stays cheap. The journal is what you ask when somebody wants writing up — it takes
+  a period rather than a cursor, and reads newest first because it is a report about a stretch
+  of time rather than a queue.
+
+  Nothing is stored differently. A deleted comment's text is not quoted, though the fact that
+  it was written and withdrawn still appears.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

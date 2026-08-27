@@ -1107,6 +1107,29 @@ def test_the_whole_tool_surface_stays_small (
 
 	  **Fat was read for first and none was taken, for the fourth time running.**
 
+	* ``subroutine_journal`` (`SR#1430`, decision `SR#1429`), 2026-08-27 — the fourteenth, and
+	  the case is that the tool beside it answers a different question badly.
+
+	  **Measured before it was asked for.** One real day on this instance is 450 events, of
+	  which **130 are `comment.created` carrying no body at all**; 51 field-changes are bare
+	  UUIDs, and `actor_user_id` is a UUID on every row. So an agent asked *what did we do on
+	  Friday* and holding only `subroutine_changes` can report that fourteen comments were
+	  written and not one word of what any said — a list of things to go and look up, produced
+	  confidently.
+
+	  **Not an argument on `subroutine_changes`, and that is Simon's decision**: an agent has
+	  to be able to *discover* the distinction, and a flag on an existing tool is something you
+	  have to already know exists. This is `SR#367`'s lesson pointing the other way — a
+	  capability parked in another tool's argument is undiscoverable because a model reads tool
+	  *names* — and here the two also want different defaults, since the feed resumes forwards
+	  from a cursor and this reads a past period back.
+
+	  **What it costs is smaller than a new capability**, because the schema is almost entirely
+	  shared: `DATE_FILTER` and `WORKSPACE` are the same objects the listing already declares,
+	  so what is new is a description, a `by` and an `oldest`.
+
+	  **Fat was read for first and none was taken, for the fifth time running.**
+
 	* **`#367`, to 8,500** — a `project` argument on `list`, `search` and `document`, which is
 	  a *capability* rather than a tool: `subroutine list --project` has always existed and no
 	  agent could ask, so one that wanted to spend its context on a single project had to read
@@ -1388,7 +1411,7 @@ def test_the_whole_tool_surface_stays_small (
 	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 	tools = answered[0]["result"]["tools"]
 
-	assert len(tools) <= 14, "the surface has grown; is each new tool worth every session?"
+	assert len(tools) <= 15, "the surface has grown; is each new tool worth every session?"
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant
@@ -4326,6 +4349,7 @@ def test_a_tool_that_says_it_only_reads_only_reads (
 			"subroutine_search": {"q": "read back"},
 			"subroutine_show": {"ref": ref},
 			"subroutine_changes": {},
+			"subroutine_journal": {},
 			"subroutine_whoami": {},
 		}
 		declared = {

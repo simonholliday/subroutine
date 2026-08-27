@@ -53,6 +53,7 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.instances
+import subroutine.domain.journal
 import subroutine.domain.links
 import subroutine.domain.projects
 import subroutine.domain.readiness
@@ -964,6 +965,87 @@ class Event(pydantic.BaseModel):
 
 
 
+class Change(pydantic.BaseModel):
+	"""One field moving, said in words a person reads — `#1430`, decision `#1429`.
+
+	**The column is kept beside the phrase, deliberately.** ``field`` is what a program matches
+	on and ``said`` is what a person reads; dropping the first would make this the one place a
+	caller cannot tell *the deadline* from *when it starts* without parsing English, and
+	dropping the second is the defect this exists to fix.
+	"""
+
+	#: The column that moved, exactly as `Event.changes` keys it.
+	field: str
+
+	#: What that column means, from the map every surface already renders changes through.
+	said: str
+
+	#: What it moved from and to, named where the value is an id and rendered plainly where it
+	#: is not.
+	#:
+	#: **Null means *nothing*, and an unresolvable id is null too.** A UUID in a journal is
+	#: noise a reader has to learn to skip, and the phrase alone — *changed how it repeats* —
+	#: is both shorter and honest. `#1430` records that choice; the guard is that no entry ever
+	#: renders an identifier.
+	before: str | None = None
+	after: str | None = None
+
+
+class JournalEntry(pydantic.BaseModel):
+	"""One thing that happened, with who did it and what they said — `#1430`.
+
+	**The audit log's row is unchanged and this is a second reading of it** (decision `#1429`).
+	:class:`Event` answers *what changed* and is what a client polling should read; this answers
+	*what happened*, which needs three joins the feed deliberately does not carry: the comment's
+	body, the actor's name, and the values inside ``changes``.
+	"""
+
+	#: The same sequence number the audit log uses, so the two readings can be lined up.
+	seq: int
+	id: uuid.UUID
+
+	#: Which item this is about, as `Event` names it.
+	item_ref: int | None = None
+	item_title: str | None = None
+
+	#: Who did it, through `principal_named` — so an agent reads here exactly as it reads on a
+	#: row: `@claude-super (agent, @si)`. **Null where the instance itself acted**, which is a
+	#: real state and not a failure to look: `event.actor_user_id` is nullable precisely so a
+	#: system action can say it had no person behind it.
+	actor: str | None = None
+
+	#: What kind of thing happened — `created`, `updated`, `claimed`. The feed's own word.
+	action: str
+	entity_type: str
+
+	#: What was written, where this entry is somebody writing something. **Null for every other
+	#: kind of entry, and null for a comment that has since been deleted**: deletion is soft, so
+	#: the body is still in the table, and showing it would make the journal the one surface
+	#: where a retracted paragraph is still readable.
+	said: str | None = None
+
+	#: What moved, in words. Empty where nothing did — a claim, a comment, a link.
+	changed: list[Change] = pydantic.Field(default_factory=list)
+
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — its sequence number."""
+
+		return str(self.seq)
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return this entry as the cells of one compact line, dated where the caller is."""
+
+		return (
+			str(self.seq),
+			moment_day(self.created_at, reader),
+			self.actor or "",
+			self.action,
+			"" if self.item_ref is None else f"#{self.item_ref}",
+		)
+
+
 class Changes(Collection[Event]):
 	"""The change feed, and which kinds of thing it is able to tell you about — `#1085`.
 
@@ -984,6 +1066,26 @@ class Changes(Collection[Event]):
 	"""
 
 	covers: list[str]
+
+
+class Journal(Collection[JournalEntry]):
+	"""What happened over a period, joined — `#1430`, decision `#1429`.
+
+	**It carries `covers` for the same reason the feed does** (`#1085`). A journal reads the
+	same store through the same scoping, so a credential narrowed away from a kind gets a
+	journal of what it may read — and without this, *nothing happened on Friday* and *I am not
+	shown that* are the same sentence. Said positively and always, per Simon's decision of
+	2026-08-22.
+
+	**Declared here rather than beside `JournalEntry`, and that is not tidiness.** pydantic's
+	mypy plugin crashes on `Collection[JournalEntry]` when the item model is the class
+	immediately above it — *unresolved placeholder type*, because the generic base is
+	serialised before the plugin has finished the model it names. Anything in between is
+	enough. `Changes` never met it only because `Event` is four hundred lines further up.
+	"""
+
+	covers: list[str]
+
 
 class Beneath(pydantic.BaseModel):
 	"""One item in a dependency walk, and how far under the item asked about it sits — `#1358`.
@@ -2744,6 +2846,231 @@ def document (
 		updated_by=row.updated_by,
 		version=row.version,
 	)
+
+
+def _side_of_a_change (
+	value: typing.Any, *, lookup: str | None, vocabulary: Vocabulary
+) -> str | None:
+	"""Return one side of a change as words, or ``None`` where there is nothing worth saying.
+
+	**An identifier is never rendered, whether or not we can name it** — `#1430`, decision
+	`#1429`. A UUID in a journal is noise a reader has to learn to skip, and the phrase alone —
+	*changed how it repeats* — is shorter and just as honest. So a column nobody has declared a
+	lookup for degrades to silence rather than to sixteen bytes of hex, and a column added
+	tomorrow is unhelpful here rather than wrong.
+
+	**Whether it is an id is decided by parsing, not by the column's name.** ``event.changes``
+	is JSON, so both backends hand back a string; a name ending ``_id`` is a hint about which
+	table to ask and never about what the value is.
+	"""
+
+	if value is None:
+		return None
+
+	found = subroutine.domain.journal.identifier(value)
+
+	if found is None:
+		# A date, a number, a flag, a piece of text. What was stored is already the answer —
+		# except for an instant, which is stored to the microsecond and reads as machine
+		# output: *whether it is done: nothing to 2026-08-27T17:03:27.771155+00:00*.
+		#
+		# **Truncated rather than converted**, and the offset is kept. This layer has no reader
+		# zone — a change's value is not a column any surface passes a timezone for — and
+		# inventing one here is the defect `#773` and `#1296` were both filed for. Shorter and
+		# still unambiguous is the whole of the improvement being claimed.
+		return _to_the_minute(value)
+
+	if lookup == subroutine.domain.journal.USER:
+		username = _username(vocabulary, found)
+
+		return None if username is None else principal_named(
+			username,
+			is_agent=_is_agent(vocabulary, found),
+			answers_to=_answers_to(vocabulary, found),
+		)
+
+	if lookup == subroutine.domain.journal.STATUS:
+		return _key_of(vocabulary.statuses, found)
+
+	if lookup == subroutine.domain.journal.TYPE:
+		return _key_of(vocabulary.types, found)
+
+	if lookup == subroutine.domain.journal.PROJECT:
+		# **The path rather than the key**, because a key stopped naming one project with
+		# `#957` — `dist` no longer says where an item lives. Falls back to the key for a row
+		# whose path could not be composed, which is what `Task` does one field along.
+		return vocabulary.project_paths.get(found) or _key_of(vocabulary.projects, found)
+
+	if lookup == subroutine.domain.journal.TASK:
+		ref = vocabulary.parents.get(found, {}).get("ref")
+
+		return None if ref is None else f"#{ref}"
+
+	return None
+
+
+def _to_the_minute (value: typing.Any) -> str:
+	"""Return a stored value as text, cutting an instant back to the minute it names.
+
+	Anything that is not an instant comes back untouched, so this is safe to call on every
+	value rather than on the ones somebody remembered were dates.
+	"""
+
+	text = str(value)
+
+	try:
+		moment = datetime.datetime.fromisoformat(text)
+
+	except ValueError:
+		return text
+
+	# `isoformat` with a minutes cap keeps the offset and drops the seconds and microseconds,
+	# so `2026-08-27T17:03:27.771155+00:00` becomes `2026-08-27 17:03+00:00`.
+	return moment.isoformat(sep=" ", timespec="minutes")
+
+
+def _key_of (loaded: dict[uuid.UUID, dict[str, typing.Any]], which: uuid.UUID) -> str | None:
+	"""Return a vocabulary row's key, or ``None`` when it was not in the batch."""
+
+	key = loaded.get(which, {}).get("key")
+
+	return None if key is None else str(key)
+
+
+def journal_entry (
+	row: subroutine.db.models.activity.Event,
+	*,
+	vocabulary: Vocabulary,
+	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
+	bodies: dict[uuid.UUID, str] | None = None,
+) -> JournalEntry:
+	"""Render one thing that happened — `#1430`, decision `#1429`.
+
+	Three joins the audit log deliberately does not carry: what a comment said, who the actor
+	was, and what the values inside ``changes`` mean. **All three arrive as batches** loaded
+	once for the page, because a renderer that queried per row is `#39`'s N+1 in the one place
+	that pages fifty rows at a time — which is the mistake :func:`event` next door records not
+	making.
+
+	``described`` and ``bodies`` are optional and absent means null rather than a lookup, for
+	that same reason. ``vocabulary`` is required: an actor's name is the one thing every reader
+	of a journal wants, and a defaulted argument here would let a call site forget and answer
+	null silently — which is `#986`'s rule that passing null when you have not looked is a lie
+	rather than an omission.
+	"""
+
+	about = None
+
+	if described is not None:
+		about = described.get(row.subject_id or row.entity_id)
+
+	changed = []
+
+	if isinstance(row.changes, dict):
+		for field, moved in row.changes.items():
+			if not isinstance(moved, dict):
+				continue
+
+			lookup = subroutine.domain.journal.NAMED_BY.get(field)
+
+			changed.append(
+				Change(
+					field=field,
+					said=field_in_words(field),
+					before=_side_of_a_change(
+						moved.get("from"), lookup=lookup, vocabulary=vocabulary
+					),
+					after=_side_of_a_change(
+						moved.get("to"), lookup=lookup, vocabulary=vocabulary
+					),
+				)
+			)
+
+	# **Two changes can share a phrase, and then the phrase is the wrong word to use.**
+	# `field_in_words` maps `importance` and `urgency` both to *how it is ranked*, which is
+	# right for the feed — it prints field names deduped through a set — and wrong here, where
+	# the values are shown and *how it is ranked: nothing to 4* twice is a riddle. Found by
+	# driving it rather than by any test.
+	#
+	# **Only where it actually collides**, so the good phrasing survives everywhere else.
+	said_twice = {
+		change.said
+		for change in changed
+		if sum(1 for other in changed if other.said == change.said) > 1
+	}
+
+	for change in changed:
+		if change.said in said_twice:
+			change.said = change.field.removesuffix("_id").removesuffix("_at").replace("_", " ")
+
+	return JournalEntry(
+		seq=row.seq,
+		id=row.id,
+		item_ref=None if about is None else about.ref,
+		item_title=None if about is None else about.title,
+		actor=(
+			None
+			if row.actor_user_id is None
+			else _side_of_a_change(
+				row.actor_user_id,
+				lookup=subroutine.domain.journal.USER,
+				vocabulary=vocabulary,
+			)
+		),
+		action=row.action,
+		entity_type=row.entity_type,
+		# **Only where this entry *is* somebody writing something.** A body keyed on the entity
+		# id would otherwise attach a comment's text to the task event that followed it.
+		said=(
+			None
+			if bodies is None or row.entity_type != "comment" or row.entity_id is None
+			else bodies.get(row.entity_id)
+		),
+		changed=changed,
+		created_at=row.created_at,
+	)
+
+
+def journal_entries (
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[subroutine.db.models.activity.Event],
+) -> list[JournalEntry]:
+	"""Render a page of events as a journal, with all three joins loaded once — `#1430`.
+
+	**The one place the join happens, so two transports cannot answer differently.** This is
+	`clients/local` and the HTTP route both, for the reason `subroutine/views.py` sits outside
+	the `api` package at all: a journal assembled twice is two renderings of one question, and
+	this codebase has already shipped four of those for a link line.
+
+	**Four queries for a page of any size** — the descriptions, the comment bodies, and the
+	vocabulary's own batches — rather than one per row per join, which at fifty rows and three
+	joins is `#39` arriving three times over.
+
+	**The vocabulary is asked only for what this page names.** A journal of claims and links
+	touches no status and no project, and the batches are empty rather than fetching a
+	workspace's whole vocabulary to render nothing.
+	"""
+
+	described = subroutine.domain.events.descriptions(session, rows)
+	bodies = subroutine.domain.journal.said(session, rows)
+	needed = subroutine.domain.journal.wanted(rows)
+
+	vocabulary = Vocabulary(
+		session,
+		user_ids=needed[subroutine.domain.journal.USER],
+		status_ids=needed[subroutine.domain.journal.STATUS],
+		type_ids=needed[subroutine.domain.journal.TYPE],
+		project_ids=needed[subroutine.domain.journal.PROJECT],
+		# **Under `parent_ids`, which is the batch that carries a task's ref and title.**
+		# `task_ids` is for readiness — it decides what is blocked — and would fetch the rows
+		# and answer a different question about them.
+		parent_ids=needed[subroutine.domain.journal.TASK],
+	)
+
+	return [
+		journal_entry(row, vocabulary=vocabulary, described=described, bodies=bodies)
+		for row in rows
+	]
 
 
 def comment (

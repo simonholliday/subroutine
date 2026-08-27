@@ -1630,6 +1630,72 @@ class Client:
 				has_more=len(rows) > size,
 			)
 
+	def journal (
+		self,
+		*,
+		dated: typing.Mapping[str, str] | None = None,
+		by: str | None = None,
+		mine: bool = False,
+		oldest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> subroutine.clients.base.Listing[subroutine.views.JournalEntry]:
+		"""Return what happened, newest first, with who did it and what they said.
+
+		**Everything that decides *which* rows is `domain.events`', exactly as `changes` is** —
+		the watermark, the scoping, the period. A journal that narrowed differently from the
+		feed could show an event the feed withheld, and the transport is the last place anybody
+		would look for it.
+
+		**And the join is `views.journal_entries`**, which the HTTP route calls too. Two
+		assemblies of one answer is what `subroutine/views.py` sits outside the `api` package to
+		prevent.
+		"""
+
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			if workspace is None:
+				chosen = subroutine.domain.workspaces.readable(session, actor)
+
+			else:
+				chosen = [
+					subroutine.domain.selection.workspace(session, actor, requested=workspace)
+				]
+
+			workspace_ids = [each.id for each in chosen]
+
+			rows, more = subroutine.domain.events.page(
+				session,
+				actor,
+				workspace_ids=workspace_ids,
+				size=size,
+				mine=mine,
+				by=(
+					None
+					if by is None
+					else subroutine.domain.selection.user(session, by, caller=actor.user).id
+				),
+				newest=not oldest,
+				narrowing=subroutine.domain.filtering.asked(
+					(dated or {}).items(),
+					entity="event",
+					now=subroutine.db.types.utcnow(),
+					timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
+					session=session,
+					caller=actor.user,
+					workspace_ids=workspace_ids,
+				),
+			)
+
+			return subroutine.clients.base.Listing(
+				subroutine.views.journal_entries(session, rows),
+				has_more=more,
+				# The same function the route answers with, so the two transports cannot say
+				# different things about one credential (`#1085`).
+				covers=subroutine.domain.scoping.readable_event_kinds(actor),
+			)
+
 	def changes (
 		self,
 		*,

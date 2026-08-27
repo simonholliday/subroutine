@@ -773,6 +773,33 @@ class Client(typing.Protocol):
 		resumable. Somebody asking *what did we do on Friday* has no cursor to offer.
 		"""
 
+	def journal (
+		self,
+		*,
+		dated: typing.Mapping[str, str] | None = None,
+		by: str | None = None,
+		mine: bool = False,
+		oldest: bool = False,
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> Listing[subroutine.views.JournalEntry]:
+		"""Return what happened, newest first, with who did it and what they said.
+
+		**The counterpart to :meth:`changes`, and the difference is entirely a join** — item
+		`#1430`, decision `#1429`. That one answers *what changed*: raw, resumable from a
+		cursor, and what a client polling for work should read. This answers *what happened*,
+		which is what somebody asked to say what a stretch of time contained needs — the
+		comment bodies, the actor's name, and the meaning of the values inside a change.
+
+		``dated`` is the period, in the same spelling every listing takes. Without one you get
+		the most recent entries.
+
+		**Newest first, where the feed runs forwards.** A feed is read forwards because it
+		resumes; a journal is a report about a past period and the recent end is usually what
+		was meant. ``oldest`` reads a period in the order it happened, which is what you want
+		when writing it up.
+		"""
+
 	def projects (
 		self,
 		*,
