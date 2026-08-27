@@ -2050,7 +2050,13 @@ def _line (
 		# The username rather than the id, for the reason the comment renderer gives below: a
 		# UUID is thirty-six characters a model cannot resolve without another call.
 		if item.assignee:
-			cells.append(f"@{item.assignee}")
+			cells.append(
+				subroutine.views.principal_named(
+					item.assignee,
+					is_agent=item.assignee_is_agent,
+					answers_to=item.assignee_answers_to,
+				)
+			)
 
 	# **How much prose it carries, where it is large enough to matter** (`#595`). One document
 	# on this instance is 128,083 characters — about 32,000 tokens — and its row here was the

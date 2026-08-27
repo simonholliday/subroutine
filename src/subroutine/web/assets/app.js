@@ -102,6 +102,12 @@ const TASK_FIELDS = [
 	   and this client holds no copy of the inheritance rule (`#925`). */
 	"project_colour",
 	"assignee",
+	/* **What the name beside a row actually is, and who is on the hook for it** (`#1414`).
+	   A name is a claim by whoever created the account: somebody may call an agent
+	   `claude-super` and point a different model at the same credential. Resolved on the
+	   server because walking an accountability chain is a rule, and this client holding a
+	   copy of it is `#925`'s argument against exactly that. */
+	"assignee_is_agent", "assignee_answers_to",
 	/* The other end of a `blocks` link (`#861`). `blocked` says you cannot start this;
 	   this says something else cannot start until you do, and a row can be both. */
 	"blocking",
@@ -3507,6 +3513,29 @@ export function completable (item) {
 	return item.kind === "task" && !FINISHED.has(item.status_category);
 }
 
+export function named (username, isAgent = false, answersTo = null) {
+	/*
+		How one principal is written wherever this page names one — `#1414`.
+
+		**The twin of `views.principal_named`, and the duplication is unavoidable**: this is the
+		one renderer that is not in Python, so the rule cannot be shared the way `views.py`
+		shares it between the two clients. `tests/test_assignee_surfaces.py` is what holds the
+		two to the same answer, which is `#1266`'s arrangement extended rather than a new one.
+
+		    @si                         a person
+		    @claude-super (agent, @si)  an agent, and who answers for it
+		    @claude-super (agent)       an agent whose chain does not reach a person
+
+		**The word, not a glyph** — `#102`, and the roster below already made this call in
+		writing. An icon may sit beside this and never instead of it.
+	*/
+	if (!username) return "";
+
+	if (!isAgent) return `@${username}`;
+
+	return answersTo ? `@${username} (agent, @${answersTo})` : `@${username} (agent)`;
+}
+
 export function holding (item, now = null) {
 	/*
 		Who is holding this item, and whether the lease still means anything — `#726`.
@@ -4062,7 +4091,12 @@ export function marks (
 		address.push({ text: `#${tag}`, family: "address" });
 	}
 
-	if (item.assignee) address.push({ text: `@${item.assignee}`, family: "address" });
+	if (item.assignee) {
+		address.push({
+			text: named(item.assignee, item.assignee_is_agent, item.assignee_answers_to),
+			family: "address",
+		});
+	}
 
 	/*
 		**The status, and the two things that silence it** — `#1019`, both Simon's.

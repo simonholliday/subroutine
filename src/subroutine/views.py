@@ -45,6 +45,7 @@ import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.authorization
@@ -146,6 +147,15 @@ class LinkEnd(pydantic.BaseModel):
 	claimed_by_id: uuid.UUID | None = None
 	claimed_by: str | None = None
 	claim_expires_at: datetime.datetime | None = None
+
+	#: **Copied from the rendered task by name**, like every field above — `_end` builds this
+	#: model out of `LinkEnd.model_fields`, so declaring them here is the whole of the work.
+	#: A link line that named an agent as though it were a colleague while the row above it
+	#: said otherwise is `#674`'s subject exactly (`#1414`).
+	assignee_is_agent: bool = False
+	assignee_answers_to: str | None = None
+	claimed_by_is_agent: bool = False
+	claimed_by_answers_to: str | None = None
 
 	#: When, with the zone that stored it. ``timezone`` is not decoration: a day-scale date
 	#: rendered in the reader's zone rather than the one it was written in is `#773`, which
@@ -451,6 +461,15 @@ class Task(pydantic.BaseModel):
 	#: already make. Defaulted for `#345`'s reason, like the three above it.
 	claimed_by: str | None = None
 
+	#: The same two facts about the holder as about the assignee (`#1414`) — see them there.
+	#:
+	#: **Both, because Simon named both**: *"when we see an agent listed on a ticket — as the
+	#: assignee, the claimant, or in a drop-down"*. A lease and an assignment are different
+	#: facts (`#726`) and a reader wants the same of each: is this a person, and who is on the
+	#: hook. They cost nothing extra — the holder is already in the same query.
+	claimed_by_is_agent: bool = False
+	claimed_by_answers_to: str | None = None
+
 	#: Whether something unfinished is blocking this — item `#425`, and **one query for the
 	#: page** rather than one per row (`#39`'s N+1, which is what kept it unreported).
 	#:
@@ -531,6 +550,21 @@ class Task(pydantic.BaseModel):
 	#:
 	#: **Defaulted because it was added after this model shipped** (`#345`, guarded by `#482`).
 	assignee: str | None = None
+
+	#: Whether the assignee is an agent, and who is accountable for it (`#1414`, spec `#1368`).
+	#:
+	#: **A name is a claim by whoever created the account and is not evidence.** Somebody may
+	#: name an agent `claude-super` and point a different model at the same credential, so the
+	#: name says what it was called and these two say what it *is* and who answers for it. The
+	#: chain is enforced on every authenticated request and was surfaced nowhere, which is
+	#: `#1367`'s measurement of four superpowers built and unused.
+	#:
+	#: **``answers_to`` is null for a person** rather than their own username: *si (@si)* says
+	#: nothing, and a parenthesis on every row of an instance with no agents is noise. Null on
+	#: an agent means the chain could not be walked, which is a misconfiguration a listing
+	#: reports by saying less rather than by refusing to draw.
+	assignee_is_agent: bool = False
+	assignee_answers_to: str | None = None
 
 	#: Who put it in that person's queue (`#477`). Derived from whoever made the change, so it
 	#: is reported and never accepted — an assigner a caller could type would be a claim rather
@@ -749,7 +783,11 @@ class Task(pydantic.BaseModel):
 			"—" if self.due_at is None else _day_cell(self.due_at, self.timezone),
 			"" if self.starts_at is None else f"→{_day_cell(self.starts_at, self.timezone)}",
 			subroutine.domain.text.truncated(self.title),
-			"" if self.assignee is None else f"@{self.assignee}",
+			principal_named(
+				self.assignee,
+				is_agent=self.assignee_is_agent,
+				answers_to=self.assignee_answers_to,
+			),
 			" ".join(f"#{name}" for name in self.tags),
 		)
 
@@ -2378,8 +2416,20 @@ class Vocabulary:
 		# above gives: a username is how a person is addressed, so a view reporting only
 		# `assignee_id` makes every surface resolve a UUID before it can print anything.
 		self.users = _by_id(
-			session, subroutine.db.models.identity.User, user_ids, ("username",)
+			session,
+			subroutine.db.models.identity.User,
+			user_ids,
+			# **`is_service_account` rides along free** (`#1414`): the row is already being
+			# fetched, and *is this a person* is what tells a reader whether the name beside a
+			# task is a colleague or something somebody else set running.
+			("username", "is_service_account"),
 		)
+
+		# **Who answers for each of them**, by level rather than by row (`#1414`). The chain is
+		# walked in `domain.accountability` because that module owns the rule; here it is one
+		# more statement for a whole page, and none at all when nothing on the page is held by
+		# an agent — the loader returns early on an empty set.
+		self.answerable = subroutine.domain.accountability.answerable_for_many(session, user_ids)
 
 	@classmethod
 	def for_tasks (
@@ -2546,9 +2596,13 @@ def task (
 		type_id=row.type_id,
 		assignee_id=row.assignee_id,
 		assignee=_username(vocabulary, row.assignee_id),
+		assignee_is_agent=_is_agent(vocabulary, row.assignee_id),
+		assignee_answers_to=_answers_to(vocabulary, row.assignee_id),
 		assigned_by_id=row.assigned_by_id,
 		claimed_by_id=row.claimed_by_id,
 		claimed_by=_username(vocabulary, row.claimed_by_id),
+		claimed_by_is_agent=_is_agent(vocabulary, row.claimed_by_id),
+		claimed_by_answers_to=_answers_to(vocabulary, row.claimed_by_id),
 		claimed_at=row.claimed_at,
 		claim_expires_at=row.claim_expires_at,
 		blocked=row.id in vocabulary.blocked,
@@ -4233,6 +4287,72 @@ def _username (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:
 	name = vocabulary.users.get(user_id, {}).get("username")
 
 	return None if name is None else str(name)
+
+
+def _is_agent (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> bool:
+	"""Whether the account named here is something somebody set running rather than a person.
+
+	**False when nobody is named and false when the row could not be loaded**, which is
+	:func:`_username`'s rule and for its reason: this is a fact *about* a named account, so an
+	absent one has no claim to make either way. A default of true would put *(agent)* beside a
+	blank.
+	"""
+
+	if user_id is None:
+		return False
+
+	return bool(vocabulary.users.get(user_id, {}).get("is_service_account"))
+
+
+def _answers_to (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | None:
+	"""Return the person accountable for this account, or ``None`` for a person's own row.
+
+	**Null for a person**, deliberately, rather than their own username: *si (@si)* says nothing
+	and would put a parenthesis on every row of an instance that has no agents at all. The
+	question this answers is *who is on the hook for this*, and for a person the name beside it
+	already is.
+	"""
+
+	if not _is_agent(vocabulary, user_id) or user_id is None:
+		return None
+
+	return vocabulary.answerable.get(user_id)
+
+
+def principal_named (
+	username: str | None, *, is_agent: bool = False, answers_to: str | None = None
+) -> str:
+	"""Return how one principal is written wherever a surface names one — `#1414`.
+
+	**The rule in one place, so the surfaces cannot each invent their own.** Four renderers
+	already had to be held to agreement about the bare username (`#1266`), and this adds two
+	facts to what each of them draws; a rule spelled at four sites is this codebase's most
+	expensive recurring defect.
+
+	    @si                         a person
+	    @claude-super (agent, @si)  an agent, and who answers for it
+	    @claude-super (agent)       an agent whose chain does not reach a person
+
+	**The word `agent` stays** and is not replaced by a glyph. `#102` is binding — nothing may
+	be information only in how it looks — and the browser's roster already made this call in
+	writing, choosing *(agent)* over *(bot)* because agent is the word this product uses in the
+	specification, the skill and `subroutine agent create`. Simon asked for an icon; an icon may
+	be added *beside* this, never instead of it.
+
+	**Empty for nobody**, so §12.2a can drop a column that says nothing on every row — which is
+	what keeps a personal to-do list free of a column about delegation nobody does.
+	"""
+
+	if not username:
+		return ""
+
+	if not is_agent:
+		return f"@{username}"
+
+	if answers_to is None:
+		return f"@{username} (agent)"
+
+	return f"@{username} (agent, @{answers_to})"
 
 
 def _by_id (

@@ -94,6 +94,18 @@ upgrade involves.
   hand-over is refused, the dropdown goes back to what the item really says instead of keeping
   the choice on screen beside a message reporting that nothing changed.
 
+- **An agent is named as one, with the person who answers for it.** Where a surface used to
+  show `@claude-super` it now shows `@claude-super (agent, @si)` — on a listing, on an item, in
+  an agent's own reading of a row, in the browser and on a link line. A person is unchanged.
+
+  The name on a credential is chosen by whoever made it, so it says what an account was called
+  and never what it is: the same token can be handed to a different program without anything
+  being renamed. These two facts are not the account holder's to assert — the accountable
+  person is walked from the chain the instance already enforces on every request.
+
+  `subroutine list --json` carries `assignee_is_agent` and `assignee_answers_to` beside
+  `assignee`, so a script can route on them rather than parse a phrase.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

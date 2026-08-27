@@ -1289,7 +1289,11 @@ def _assignee_cell (item: Item) -> str:
 	if not isinstance(item, subroutine.views.Task) or not item.assignee:
 		return ""
 
-	return f"@{item.assignee}"
+	return subroutine.views.principal_named(
+		item.assignee,
+		is_agent=item.assignee_is_agent,
+		answers_to=item.assignee_answers_to,
+	)
 
 
 #: A page with nothing worth putting in a column, which is what a bare row looks like.
@@ -9701,7 +9705,13 @@ def _facts (located: Located) -> list[str]:
 		# answered "Changed" and then `show` printed the priority, the deadline and the tags
 		# and never mentioned jo. `#168`'s defect exactly, three lines below `#168`'s comment.
 		if item.assignee:
-			facts.append(f"@{item.assignee}")
+			facts.append(
+				subroutine.views.principal_named(
+					item.assignee,
+					is_agent=item.assignee_is_agent,
+					answers_to=item.assignee_answers_to,
+				)
+			)
 
 		# **The fact that is not a choice, and the one that changes what the others mean**
 		# (`#921`). A series and its occurrence carry the same title, so once `#921` made the
@@ -10106,6 +10116,14 @@ def _as_json (
 		# there, so the one reader most likely to be automating a handover — a script, or an
 		# agent reading this listing — could not see that anything had been handed over.
 		"assignee": task.assignee,
+		# **And what that name is** (`#1414`). The terminal row says *(agent, @si)* beside a
+		# name, and a script reading the same listing saw a bare username — so the reader most
+		# likely to be routing work automatically was the one that could not tell a colleague
+		# from something somebody set running. Two facts rather than the rendered phrase: a
+		# script wants to branch on them, and `views.principal_named` is where the wording
+		# lives for anything that prints.
+		"assignee_is_agent": task.assignee_is_agent,
+		"assignee_answers_to": task.assignee_answers_to,
 		# **Whether it can be started** (`#425`). A default listing puts a blocked item above
 		# the thing blocking it, and the terminal marks it; a script sorting the same rows
 		# had no way to tell, so it would confidently recommend starting the one that cannot

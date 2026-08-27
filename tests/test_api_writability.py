@@ -145,6 +145,17 @@ DERIVED: dict[str, str] = {
 	"last_login_at": "when this account last signed in; the sign-in writes it, never a caller.",
 	"depth": "how far down the tree this sits, counted from the path.",
 
+	#: **`SR#1414`, spec `SR#1368`.** What the named account *is*, and who is accountable for
+	#: it. Neither is the caller's to assert: `is_service_account` is decided when the account
+	#: is made, and the accountable person is walked from `responsible_user_id` — the chain
+	#: `domain/accountability.py` enforces on every authenticated request. **A settable
+	#: `answers_to` on a task would be a claim about a credential written from a row**, which
+	#: is the whole thing the chain exists to stop.
+	"assignee_is_agent": "whether the assignee is an agent; the account says so, not a task.",
+	"assignee_answers_to": "the person accountable for the assignee, walked from the chain.",
+	"claimed_by_is_agent": "whether the holder is an agent; the account says so, not a task.",
+	"claimed_by_answers_to": "the person accountable for the holder, walked from the chain.",
+
 	#: **`SR#1281`.** ``completed_at is not None``, derived on the server so that nothing has to
 	#: work it out again. It was a link end's field and nowhere else, so four renderings of one
 	#: fact existed and the fourth — the browser — asked a *task* for it and got nothing: a

@@ -26,6 +26,7 @@ A **person** with ``instance:user_create`` may name somebody else, because that 
 taking responsibility for a delegation, which is the thing this models.
 """
 
+import typing
 import uuid
 
 import sqlalchemy
@@ -139,6 +140,82 @@ def agents_answering_to (
 		frontier = [row.id for row in fresh]
 
 	return sorted(found.values(), key=lambda row: row.username)
+
+
+def answerable_for_many (
+	session: sqlalchemy.orm.Session, user_ids: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+	"""Return, for each id, the username of the person who answers for it (`#1414`).
+
+	:func:`answers_for` one row at a time is an N+1 the moment a page renders it, and a page is
+	exactly where this is wanted: every row naming an agent has to say who is accountable for
+	it. So this walks **by level rather than by row** — one query per step of the chain, not one
+	per user — which makes the cost a fact about how deeply agents are nested and not about how
+	many rows are on the page.
+
+	**In practice that is one query.** An agent answerable to a person resolves in a single
+	step, and the person is usually already among the ids asked for, since they hold work on the
+	same page. :data:`MAX_DEPTH` bounds the loop for :func:`chain`'s reason.
+
+	A person answers for themselves, so their own username comes back. **An agent whose chain
+	does not reach a person is absent from the result** rather than raising: this renders a
+	listing, and refusing to draw a page because one account is misconfigured would take the
+	whole view away to report something only an administrator can fix. :func:`chain` still
+	refuses it at the point where it matters, which is authentication.
+	"""
+
+	model = subroutine.db.models.identity.User
+	wanted = {identifier for identifier in user_ids if identifier is not None}
+
+	if not wanted:
+		return {}
+
+	# Every account met on the way, so a second level costs nothing for somebody already loaded
+	# and a cycle cannot be walked twice.
+	known: dict[uuid.UUID, tuple[str, bool, uuid.UUID | None]] = {}
+	frontier = set(wanted)
+
+	for _step in range(MAX_DEPTH):
+		fresh = frontier - set(known)
+
+		if not fresh:
+			break
+
+		rows = session.execute(
+			sqlalchemy.select(
+				model.id, model.username, model.is_service_account, model.responsible_user_id
+			).where(model.id.in_(fresh))
+		).all()
+
+		for identifier, username, is_agent, responsible in rows:
+			known[identifier] = (username, is_agent, responsible)
+
+		frontier = {
+			responsible
+			for _username, is_agent, responsible in (known[found] for found in fresh if found in known)
+			if is_agent and responsible is not None
+		}
+
+	answers: dict[uuid.UUID, str] = {}
+
+	for identifier in wanted:
+		walked: set[uuid.UUID] = set()
+		current = identifier
+
+		while current in known and current not in walked:
+			username, is_agent, responsible = known[current]
+			walked.add(current)
+
+			if not is_agent:
+				answers[identifier] = username
+				break
+
+			if responsible is None:
+				break
+
+			current = responsible
+
+	return answers
 
 
 def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:

@@ -58,6 +58,12 @@ import test_web
 #: below pass on a surface that had dropped the label entirely.
 HOLDER = "jo"
 
+#: An agent holding work, and the person it answers to. `AGENT` is deliberately not a substring
+#: of `RESPONSIBLE` or the other way about, so an assertion cannot pass by finding one where the
+#: other was meant — which is `HOLDER`'s rule above applied to a pair.
+AGENT = "gizmo"
+RESPONSIBLE = "morgan"
+
 #: One instant, fixed. A surface that renders a date is not what is under test, and a real
 #: clock is how `#1245` put a green gate two hours from red.
 NOW = datetime.datetime(2026, 8, 26, 9, 0, tzinfo=datetime.UTC)
@@ -72,6 +78,10 @@ class Instance(typing.NamedTuple):
 	token: str
 	assigned: int
 	unassigned: int
+	#: Work held by an agent, so a surface can be asked whether it says what the name *is* and
+	#: who answers for it (`#1414`). A third row rather than reusing `assigned`, because the
+	#: person's row is what proves a surface has not simply learned to print a parenthesis.
+	held_by_agent: int
 
 
 @pytest.fixture
@@ -106,6 +116,26 @@ def instance (session: sqlalchemy.orm.Session) -> typing.Iterator[Instance]:
 		session, setup.workspace, holder, role_key="member", actor=actor
 	)
 
+	# **A person who is not the operator**, so *who answers for this agent* cannot pass by
+	# naming whoever happens to be looking. `si` is the reader throughout this file.
+	responsible = subroutine.domain.users.create(
+		session, actor=actor, username=RESPONSIBLE
+	)
+	subroutine.domain.workspaces.add_member(
+		session, setup.workspace, responsible, role_key="member", actor=actor
+	)
+
+	agent = subroutine.domain.users.create(
+		session,
+		actor=actor,
+		username=AGENT,
+		is_service_account=True,
+		responsible_user_id=responsible.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, setup.workspace, agent, role_key="member", actor=actor
+	)
+
 	assigned = subroutine.domain.tasks.create(
 		session,
 		project=setup.inbox,
@@ -116,6 +146,14 @@ def instance (session: sqlalchemy.orm.Session) -> typing.Iterator[Instance]:
 	)
 	unassigned = subroutine.domain.tasks.create(
 		session, project=setup.inbox, actor=actor, title="Order more coffee", starts=NOW
+	)
+	held_by_agent = subroutine.domain.tasks.create(
+		session,
+		project=setup.inbox,
+		actor=actor,
+		title="Sweep the changelog",
+		assignee_id=agent.id,
+		starts=NOW,
 	)
 	session.flush()
 
@@ -140,6 +178,7 @@ def instance (session: sqlalchemy.orm.Session) -> typing.Iterator[Instance]:
 			token=issued.value.get_secret_value(),
 			assigned=assigned.ref,
 			unassigned=unassigned.ref,
+			held_by_agent=held_by_agent.ref,
 		)
 
 
@@ -302,6 +341,60 @@ def test_no_surface_puts_an_assignee_on_work_nobody_has (
 	assert "@" not in row, f"{surface} put an assignee on work nobody has: {row!r}"
 
 
+@pytest.mark.parametrize("surface", sorted(RENDERERS))
+def test_every_surface_says_an_agent_is_one_and_who_answers_for_it (
+	instance: Instance, tmp_path: pathlib.Path, surface: str
+) -> None:
+	"""`#1414`, spec `#1368`: a name is a claim by whoever created the account.
+
+	**Somebody may call an agent `claude-super` and point a different model at the credential**,
+	so the name says what it was called and never what it is. The two facts that are not the
+	account holder's to choose are *is this a person* and *who is accountable for it* — the
+	second enforced on every authenticated request by `domain/accountability.py` and, until
+	this, surfaced nowhere.
+
+	**Both halves in one assertion on purpose.** A surface that said *(agent)* and not who
+	answers for it would pass a test for either alone, and the pair is what the reader needs:
+	*this was not a colleague, and here is who is on the hook.*
+	"""
+
+	shown = RENDERERS[surface](instance, tmp_path)
+	row = shown.get(instance.held_by_agent)
+
+	assert row is not None, f"{surface} did not render the agent's item at all: {shown}"
+	assert f"@{AGENT}" in row, f"{surface} does not say who has this: {row!r}"
+	assert "agent" in row, (
+		f"{surface} names {AGENT} without saying it is an agent, so it reads as a colleague: "
+		f"{row!r}"
+	)
+	assert f"@{RESPONSIBLE}" in row, (
+		f"{surface} says an agent holds this and not who answers for it, which is the half "
+		f"nobody can look up: {row!r}"
+	)
+
+
+@pytest.mark.parametrize("surface", sorted(RENDERERS))
+def test_no_surface_calls_a_person_an_agent (
+	instance: Instance, tmp_path: pathlib.Path, surface: str
+) -> None:
+	"""The other direction, and without it the test above passes on a surface that marks every row.
+
+	**A person is the ordinary case** and gains nothing from a parenthesis: *jo (agent, @jo)*
+	is noise on an instance with no agents at all, which is every instance until somebody
+	creates one. So the marker has to be absent here for the presence above to mean anything.
+	"""
+
+	shown = RENDERERS[surface](instance, tmp_path)
+	row = shown.get(instance.assigned)
+
+	assert row is not None, f"{surface} did not render the assigned item at all: {shown}"
+	assert f"@{HOLDER}" in row, f"{surface} does not say who has this: {row!r}"
+	assert "agent" not in row, (
+		f"{surface} calls the person {HOLDER} an agent, so the marker says nothing where it "
+		f"appears on every row: {row!r}"
+	)
+
+
 def test_every_named_surface_still_renders_something (
 	instance: Instance, tmp_path: pathlib.Path
 ) -> None:
@@ -313,7 +406,10 @@ def test_every_named_surface_still_renders_something (
 	reported as a driver that returns nothing.
 	"""
 
-	wanted = {instance.assigned, instance.unassigned}
+	# **All three**, so a driver that renders the two original rows and drops the agent's is
+	# reported here as a driver that returned less rather than in `#1414`'s guards as a surface
+	# that stopped saying what a name is.
+	wanted = {instance.assigned, instance.unassigned, instance.held_by_agent}
 	short = {
 		name: sorted(RENDERERS[name](instance, tmp_path))
 		for name in sorted(RENDERERS)
