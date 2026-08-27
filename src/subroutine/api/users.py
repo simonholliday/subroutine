@@ -30,6 +30,7 @@ import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
+import subroutine.domain.accountability
 import subroutine.domain.users
 import subroutine.views
 
@@ -98,7 +99,10 @@ def create (
 		actor=actor,
 	)
 
-	return subroutine.views.user(created)
+	return subroutine.views.user(
+		created,
+		answers_to=subroutine.domain.accountability.answerable_name(session, created),
+	)
 
 
 class Update(subroutine.api.schemas.RequestModel):
@@ -180,7 +184,10 @@ def update (
 			session, account, timezone=body.timezone, actor=actor
 		)
 
-	return subroutine.views.user(account)
+	return subroutine.views.user(
+		account,
+		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+	)
 
 
 @router.get(
@@ -214,9 +221,17 @@ def listing (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 	found = subroutine.domain.users.listed(session, actor=actor)
+	# **One walk for the whole page** (`#1420`). Resolving a chain per row is §8.4's N+1
+	# wearing a rendering hat, and this listing is where a fleet of agents shows up.
+	answerable = subroutine.domain.accountability.answerable_for_many(
+		session, [row.id for row in found]
+	)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.user(row) for row in found],
+		[
+			subroutine.views.user(row, answers_to=answerable.get(row.id))
+			for row in found
+		],
 		subroutine.views.Page(limit=len(found), has_more=False, next_cursor=None, total=None),
 		shape,
 	)

@@ -218,6 +218,24 @@ def answerable_for_many (
 	return answers
 
 
+def answerable_name (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> str | None:
+	"""Return the name of the person answerable for one account, or ``None`` (`#1420`).
+
+	**The single-account form of :func:`answerable_for_many`, and it is a call to that** rather
+	than a second walk: a rule with two implementations is this codebase's most expensive
+	recurring defect, and the difference between one account and a page is a list literal.
+
+	For a renderer, so it says ``None`` where :func:`answers_for` raises. A listing that refused
+	to draw because one account is misconfigured would take the page away to report something
+	only an administrator can fix; :func:`chain` still refuses it where it matters, which is
+	authentication.
+	"""
+
+	return answerable_for_many(session, [user.id]).get(user.id)
+
+
 def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
 	"""Return who a *new* account created by ``actor`` must be answerable to: ``actor`` itself.
 

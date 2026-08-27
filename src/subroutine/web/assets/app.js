@@ -1867,9 +1867,16 @@ export function people (roster) {
 		   username, so the only way to say who spoke is to resolve it against this. */
 		id: row.user.id,
 		username: row.user.username,
-		label: row.user.is_service_account
-			? `${row.user.username} (agent)`
-			: row.user.username,
+		/* **`named` rather than a second wording** (`#1420`). This control said
+		   `claude-nuc14 (agent)` while a row beside it said `@claude-nuc14 (agent, @si)` —
+		   two vocabularies for one roster, which is the thing the paragraph above objects to
+		   about *(bot)*, one field along. The accountable person is resolved on the server and
+		   arrives as `answers_to`; the browser holds no copy of the chain rule (`#925`).
+
+		   **The sigil comes with it**, which this control did not carry before. A reader picks
+		   a name here and reads it back off the item, and `#515`'s shape is that every step
+		   works while the confirmation does not match the choice. */
+		label: named(row.user.username, row.user.is_service_account, row.user.answers_to, ""),
 	}));
 }
 
@@ -3513,7 +3520,7 @@ export function completable (item) {
 	return item.kind === "task" && !FINISHED.has(item.status_category);
 }
 
-export function named (username, isAgent = false, answersTo = null) {
+export function named (username, isAgent = false, answersTo = null, sigil = "@") {
 	/*
 		How one principal is written wherever this page names one — `#1414`.
 
@@ -3528,12 +3535,21 @@ export function named (username, isAgent = false, answersTo = null) {
 
 		**The word, not a glyph** — `#102`, and the roster below already made this call in
 		writing. An icon may sit beside this and never instead of it.
+
+		**`sigil` is the caller's** (`#1420`). On a row `@si` sits beside `#ops` and a project
+		path, and the sigil is what makes three addresses tell themselves apart (`#1019`). In a
+		control whose every option is an account it distinguishes nothing, and a marker on every
+		row of a list is §12.2a's column that says the same thing everywhere. **The accountable
+		person keeps its `@` either way**, because that one is a reference to a *different*
+		account inside the text rather than the label's own opening.
 	*/
 	if (!username) return "";
 
-	if (!isAgent) return `@${username}`;
+	const who = `${sigil}${username}`;
 
-	return answersTo ? `@${username} (agent, @${answersTo})` : `@${username} (agent)`;
+	if (!isAgent) return who;
+
+	return answersTo ? `${who} (agent, @${answersTo})` : `${who} (agent)`;
 }
 
 export function holding (item, now = null) {

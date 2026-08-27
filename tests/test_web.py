@@ -4409,6 +4409,55 @@ def test_the_priority_scale_says_which_way_it_runs (tmp_path: pathlib.Path) -> N
 	assert [int(value) for value, _label in rungs] == sorted(int(v) for v, _ in rungs)
 
 
+def test_the_control_and_the_row_say_the_same_thing_about_an_agent (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1420`. **Two vocabularies for one roster is what this control's own comment objects to.**
+
+	`SR#1414` put *(agent, @si)* on a row and this control went on saying *(agent)* — so a
+	reader picking somebody to hand work to was told less about them than the row they had just
+	come from. `SR#674` is the shape and `SR#1266` is the guard family.
+
+	**The sigil is the one thing that differs, and deliberately.** On a row `@si` sits beside
+	`#ops` and a project path, and the sigil is what makes three addresses tell themselves
+	apart; in a control whose every option is an account it distinguishes nothing, and a marker
+	on every row is §12.2a's column that says the same thing everywhere. So the assertion is
+	that everything *after* the name agrees.
+	"""
+
+	[people] = _views(tmp_path, [("people", {"roster": [
+		{"user": {
+			"username": "gizmo", "is_service_account": True,
+			"display_name": None, "answers_to": "morgan",
+		}},
+	]})])
+
+	[row] = _addressing(tmp_path, [
+		("marks", {
+			"item": {
+				"ref": 1, "title": "Held", "assignee": "gizmo",
+				"assignee_is_agent": True, "assignee_answers_to": "morgan",
+			},
+			"showKind": False, "ordering": None, "place": None,
+			"linkable": False, "hideStatus": False,
+		}),
+	])
+
+	offered = people[0]["label"]
+	drawn = next(
+		mark["text"] for mark in row if "gizmo" in (mark.get("text") or "")
+	)
+
+	assert offered == "gizmo (agent, @morgan)", (
+		f"the control offers {offered!r}, which does not say who is accountable for the agent "
+		f"a reader is about to hand work to"
+	)
+	assert drawn == f"@{offered}", (
+		f"the control says {offered!r} and the row says {drawn!r} — two vocabularies for one "
+		f"roster, which is the thing this control's own comment objects to about '(bot)'"
+	)
+
+
 def test_an_agent_is_not_offered_as_though_it_were_a_colleague (
 	tmp_path: pathlib.Path,
 ) -> None:

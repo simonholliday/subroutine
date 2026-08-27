@@ -28,6 +28,7 @@ import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.db.models.identity
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.paging
 import subroutine.domain.projects
@@ -490,10 +491,17 @@ def members (
 	rows = subroutine.domain.workspaces.members(session, found, actor=actor)
 	focus = _focus(session, actor, found)
 
+	# **One walk for the whole roster** (`#1420`). This is the list the browser's assignee
+	# control is built from, so it is where a fleet of agents is densest.
+	answerable = subroutine.domain.accountability.answerable_for_many(
+		session, [account.id for _row, account, _role in rows]
+	)
+
 	return subroutine.api.shaping.response(
 		[
 			subroutine.views.member(
-				row, account=account, role=role, within=found, prioritised=focus
+				row, account=account, role=role, within=found, prioritised=focus,
+				answers_to=answerable.get(account.id),
 			)
 			for row, account, role in rows
 		],
@@ -533,6 +541,7 @@ def join (
 		role=role,
 		within=found,
 		prioritised=_focus(session, actor, found),
+		answers_to=subroutine.domain.accountability.answerable_name(session, account),
 	)
 
 

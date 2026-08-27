@@ -110,6 +110,12 @@ upgrade involves.
   beside the name in the browser — a person, or a robot for an agent. The words are unchanged
   and still carry it: with images off, in a screen reader, or in the terminal, nothing is lost.
 
+- **The assignee control says who an agent answers to.** Picking somebody to hand work to now
+  shows `gizmo (agent, @morgan)` where it showed `gizmo (agent)`, so the control tells a reader
+  what the row they came from already told them. `GET /v1/users` and a workspace's members both
+  carry `answers_to` beside `responsible_user_id` — a name rather than an id, resolved through
+  the whole chain, so an agent answerable to an agent still reports the person.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

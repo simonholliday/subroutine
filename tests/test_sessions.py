@@ -124,7 +124,9 @@ def test_a_service_account_never_reports_a_login (
 
 	agent = _make_user(session, is_service_account=True)
 
-	assert subroutine.views.user(agent).last_login_at is None
+	# `answers_to` is required and this test is about a different field, so it says so rather
+	# than defaulting — which is the whole point of the argument being required (`SR#1420`).
+	assert subroutine.views.user(agent, answers_to=None).last_login_at is None
 
 
 def test_a_link_works_once (session: sqlalchemy.orm.Session) -> None:

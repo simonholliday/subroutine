@@ -151,6 +151,12 @@ DERIVED: dict[str, str] = {
 	#: `domain/accountability.py` enforces on every authenticated request. **A settable
 	#: `answers_to` on a task would be a claim about a credential written from a row**, which
 	#: is the whole thing the chain exists to stop.
+	#: **`SR#1420`.** The same fact about an *account* rather than about a task: the person at
+	#: the end of the accountability chain, resolved from `responsible_user_id`. That column is
+	#: settable at creation and is what a caller uses; this is the walk's answer, and a caller
+	#: sending it would be asserting a chain rather than declaring a link in one.
+	"answers_to": "the person accountable for this account, walked from responsible_user_id.",
+
 	"assignee_is_agent": "whether the assignee is an agent; the account says so, not a task.",
 	"assignee_answers_to": "the person accountable for the assignee, walked from the chain.",
 	"claimed_by_is_agent": "whether the holder is an agent; the account says so, not a task.",

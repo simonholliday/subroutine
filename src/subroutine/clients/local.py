@@ -42,6 +42,7 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.session
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.calendars
@@ -2044,9 +2045,16 @@ class Client:
 		"""List the accounts on this instance."""
 
 		with self._opened() as (session, actor):
+			found = subroutine.domain.users.listed(session, actor=actor)
+			# **One walk for the whole page**, as the HTTP listing does (`#1420`) — the two
+			# transports answer this identically or they are two products.
+			answerable = subroutine.domain.accountability.answerable_for_many(
+				session, [row.id for row in found]
+			)
+
 			return [
-				subroutine.views.user(row)
-				for row in subroutine.domain.users.listed(session, actor=actor)
+				subroutine.views.user(row, answers_to=answerable.get(row.id))
+				for row in found
 			]
 
 	def create_user (
@@ -2075,7 +2083,10 @@ class Client:
 				actor=actor,
 			)
 
-			return subroutine.views.user(created)
+			return subroutine.views.user(
+				created,
+				answers_to=subroutine.domain.accountability.answerable_name(session, created),
+			)
 
 	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
 		"""List who belongs to one workspace."""
@@ -2089,13 +2100,20 @@ class Client:
 				session, actor, workspace_ids=[chosen.id]
 			).get(chosen.id)
 
+			roster = list(
+				subroutine.domain.workspaces.members(session, chosen, actor=actor)
+			)
+			# **One walk for the whole roster**, as the HTTP listing does (`#1420`).
+			answerable = subroutine.domain.accountability.answerable_for_many(
+				session, [account.id for _row, account, _role in roster]
+			)
+
 			return [
 				subroutine.views.member(
-					row, account=account, role=role, within=chosen, prioritised=focus
+					row, account=account, role=role, within=chosen, prioritised=focus,
+					answers_to=answerable.get(account.id),
 				)
-				for row, account, role in subroutine.domain.workspaces.members(
-					session, chosen, actor=actor
-				)
+				for row, account, role in roster
 			]
 
 	def add_member (
@@ -2123,6 +2141,7 @@ class Client:
 				prioritised=subroutine.domain.projects.prioritised_addresses(
 					session, actor, workspace_ids=[chosen.id]
 				).get(chosen.id),
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
 			)
 
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
@@ -2137,7 +2156,10 @@ class Client:
 				session, account, active=active, actor=actor
 			)
 
-			return subroutine.views.user(account)
+			return subroutine.views.user(
+				account,
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+			)
 
 	def set_timezone (
 		self, *, username: str, timezone: str | None
@@ -2153,7 +2175,10 @@ class Client:
 				session, account, timezone=timezone, actor=actor
 			)
 
-			return subroutine.views.user(account)
+			return subroutine.views.user(
+				account,
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+			)
 
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
 		"""Hand an agent to somebody else, who becomes answerable for it."""
@@ -2170,7 +2195,10 @@ class Client:
 				actor=actor,
 			)
 
-			return subroutine.views.user(agent)
+			return subroutine.views.user(
+				agent,
+				answers_to=subroutine.domain.accountability.answerable_name(session, agent),
+			)
 
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
 		"""Take somebody out of a workspace."""

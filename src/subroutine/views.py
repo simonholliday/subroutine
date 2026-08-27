@@ -1277,6 +1277,19 @@ class User(pydantic.BaseModel):
 	#: body must still parse.
 	responsible_user_id: uuid.UUID | None = None
 
+	#: The **name** of the person accountable for this agent, resolved from the chain (`#1420`).
+	#:
+	#: `responsible_user_id` above is one link; this is the end of the walk, so an agent
+	#: answerable to an agent still reports the *person*. Null on a person, who answers for
+	#: themselves, and null on an agent whose chain does not reach one.
+	#:
+	#: **Enrichment rather than a second representation**, exactly as `Task.assignee` sits
+	#: beside `assignee_id`: an id makes every surface resolve a UUID before it can print
+	#: anything, which is review dimension 4's second call multiplied by the page.
+	#:
+	#: **Defaulted for `#345`'s reason**, like the field above it.
+	answers_to: str | None = None
+
 	#: Null means "not stated", so the workspace's zone and then the instance's show through
 	#: (§12.3). It is not a missing value to be helpfully defaulted.
 	timezone: str | None
@@ -3264,8 +3277,22 @@ def instance (row: subroutine.db.models.system.Instance) -> Instance:
 	return Instance(id=row.id, name=row.name, timezone=row.timezone)
 
 
-def user (row: subroutine.db.models.identity.User) -> User:
-	"""Render one account, without its email address or its password hash."""
+def user (
+	row: subroutine.db.models.identity.User, *, answers_to: str | None
+) -> User:
+	"""Render one account, without its email address or its password hash.
+
+	**``answers_to`` is required rather than defaulted, and that is `#986`'s rule** (`#1420`).
+	A caller that had not looked would report *nobody is accountable for this agent* — a
+	plausible, complete, wrong answer, and indistinguishable from the true one. Making it
+	required means every call site decides, and mypy lists them rather than a reader hoping to
+	spot one.
+
+	**Resolved by the caller, never here**, for the reason :func:`member` gives about the rows
+	it is handed: a listing walks every chain in one pass through
+	:func:`subroutine.domain.accountability.answerable_for_many`, and a lookup inside this
+	function would be §8.4's N+1 wearing a rendering hat.
+	"""
 
 	return User(
 		id=row.id,
@@ -3275,6 +3302,7 @@ def user (row: subroutine.db.models.identity.User) -> User:
 		is_superuser=row.is_superuser,
 		is_active=row.is_active,
 		responsible_user_id=row.responsible_user_id,
+		answers_to=answers_to,
 		timezone=row.timezone,
 		created_at=row.created_at,
 		last_login_at=row.last_login_at,
@@ -4094,6 +4122,7 @@ def member (
 	role: subroutine.db.models.identity.Role,
 	within: subroutine.db.models.identity.Workspace,
 	prioritised: str | None,
+	answers_to: str | None,
 ) -> Member:
 	"""Render one membership, with the four things it joins already resolved.
 
@@ -4109,7 +4138,7 @@ def member (
 	"""
 
 	return Member(
-		user=user(account),
+		user=user(account, answers_to=answers_to),
 		role=role.key,
 		workspace=workspace_ref(within, prioritised=prioritised),
 		created_at=row.created_at,
