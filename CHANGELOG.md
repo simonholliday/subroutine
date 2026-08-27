@@ -14,6 +14,22 @@ upgrade involves.
 
 ## Unreleased
 
+### Fixed
+
+- **An agent is told where its work was filed when nothing chose.** `subroutine_add` and
+  `subroutine_document` say `filed in <project>` when the caller named no project and no
+  `.subroutine` marker was read — the one case where the answer named the ref and nothing
+  else. It stays silent when you did name one, because the echo already says so.
+
+  **This is half of the defect it came from.** Over a connection made by address, these run on
+  the server, so the marker they look for is the server's and not yours. Name the project until
+  that is fixed.
+
+- **The echo of what a capture line read stays beside the title.** It attached to whatever line
+  came last, so a capture with a parent answered `part of #7  (read !4/2 ~2h)` — the
+  parenthesis two lines away from the words it describes, on the line the agent guide names as
+  the one to check.
+
 ### Changed
 
 - **A new instance's first workspace is called `Projects`.** It was `Personal`. `subroutine

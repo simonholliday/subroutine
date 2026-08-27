@@ -2894,15 +2894,26 @@ def test_a_listing_that_is_everything_says_nothing_extra (
 	)
 
 
-def test_an_ordinary_capture_carries_no_extra_line (
+def test_an_ordinary_capture_carries_only_the_line_that_is_news (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
-	"""Context economy: a caption for the empty case would be paid on every capture."""
+	"""Context economy: a caption for the empty case would be paid on every capture.
+
+	**Still the rule, and it decided `#1438`.** Where the caller wrote ``+web`` the echo
+	already says where the work went; repeating it would be the wallpaper §12.2a warns about,
+	on the surface that pays by the byte. So the destination is said only where **nobody**
+	chose — which is not the empty case, it is the one fact the caller cannot otherwise get.
+
+	**Asserted as an exact count rather than as an absence**, so a fourth line is an act
+	somebody takes rather than one that accumulates. This used to read ``"\n" not in text``,
+	which was broader than the sentence above it and would have refused any line at all.
+	"""
 
 	text, failed = _called(bound, "subroutine_add", text="Fix the boiler by friday")
 
 	assert not failed
-	assert "\n" not in text
+	assert text.count("\n") == 1, text
+	assert text.endswith("filed in inbox"), text
 
 
 def test_both_surfaces_word_it_the_same_way () -> None:
@@ -2999,11 +3010,14 @@ def test_add_tells_the_agent_what_the_grammar_read (
 	assert "!4/2" in answered
 	assert "~2h" in answered
 
-	# And an ordinary line stays a single unadorned sentence, so the common case pays nothing.
+	# And an ordinary line carries no echo at all, so a caller who wrote nothing structural is
+	# told nothing about structure. The destination line beneath it is `#1438` and is a
+	# different fact — see `test_an_ordinary_capture_carries_only_the_line_that_is_news`.
 	plain, failed = _called(bound, "subroutine_add", text="Buy milk")
 
 	assert not failed, plain
-	assert plain.count("\n") == 0, plain
+	assert "(read " not in plain, plain
+	assert plain.split("\n")[0].endswith("Buy milk"), plain
 
 
 def test_listing_ready_work_leaves_documents_out_of_it (
@@ -3227,7 +3241,11 @@ def test_the_echo_is_told_apart_from_the_rank_beside_it (
 
 	assert not failed, made
 
-	head, separator, echoed = made.partition("  (read ")
+	# **The first line.** `#1438` added a line beneath it, and partitioning the whole answer
+	# would swallow that into the echo — which is a property of this test's fixture rather than
+	# of the rule. `test_the_echo_stays_beside_the_title_when_another_line_is_added` is the
+	# half that checks the adjacency when there is something after it.
+	head, separator, echoed = made.split("\n")[0].partition("  (read ")
 
 	assert separator, f"the echo is not marked off at all: {made}"
 	assert echoed == "!4/2 ~2h)", made
@@ -6891,3 +6909,93 @@ def test_a_version_that_is_not_a_number_is_refused_rather_than_dropped (
 
 	assert failed, f"an unreadable version was dropped rather than refused:\n{nonsense}"
 	assert "version" in nonsense.lower(), nonsense
+
+
+def test_a_write_says_where_it_landed_even_with_no_marker_to_read (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""`#1438`: the one case that needed telling was the one case that said nothing.
+
+	``_checkout`` reports which project a **marker** chose, so with no marker there was nothing
+	to append and the answer named the ref and not the project. Reported by Simon on
+	2026-08-27, on two decision documents in the workspace Inbox.
+
+	**The transport it was found on cannot read a marker at all.** Over ``subroutine-remote``
+	these handlers run on the *server*, so ``directory.find()`` reads the server's working
+	directory and the caller's checkout is on a machine this code has never seen. `#1219` cured
+	the same symptom for stdio and could not reach that door — which is why this is asserted of
+	the **outcome**, off the created item, rather than of the marker.
+	"""
+
+	os.chdir(tmp_path)
+
+	added, failed = _called(bound, "subroutine_add", text="Something to do")
+
+	assert not failed, added
+	assert "filed in inbox" in added
+
+	wrote, failed = _called(
+		bound, "subroutine_document", title="What we concluded", body="Because."
+	)
+
+	assert not failed, wrote
+	assert "filed in inbox" in wrote
+
+
+def test_a_write_says_nothing_about_where_when_the_caller_chose (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""The other half of `#1438`, and a guard is what decided it.
+
+	``test_an_ordinary_capture_carries_no_extra_line`` says a caption for the empty case is
+	*paid on every capture*, which is §13's rule that response size is a first-order cost
+	here. So the destination is said only where **nobody** chose it. Where the caller wrote
+	``+web``, the ``(read +web)`` echo already says where this went, and repeating it is the
+	wallpaper §12.2a warns about on the surface that pays for it by the byte.
+	"""
+
+	os.chdir(tmp_path)
+	_called(bound, "subroutine_project", key="web", title="Web")
+
+	added, failed = _called(bound, "subroutine_add", text="Something to do +web")
+
+	assert not failed, added
+	assert "filed in" not in added
+
+
+def test_the_echo_stays_beside_the_title_when_another_line_is_added (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""`#426`'s rule, which was held by a fixture that had nothing else to say.
+
+	The echo is appended with two spaces to whatever the answer currently ends with, and both
+	``part of #7`` and the marker's line are added *before* it. So on a capture that has either,
+	``(read !4/2 ~2h)`` attached itself to that line instead of to the title — the exact
+	adjacency `#426` exists to control, on the one surface whose skill names this line as *the*
+	check.
+
+	**Pre-existing and found by `#1438`**, which adds a third such line and so made the guard
+	fire. Asserted with a parent rather than with the new line, because the defect is older
+	than the new line and would outlive removing it.
+	"""
+
+	os.chdir(tmp_path)
+	parent, failed = _called(bound, "subroutine_add", text="Parent item")
+
+	assert not failed, parent
+
+	ref = int(parent.split("#")[1].split()[0])
+	made, failed = _called(
+		bound, "subroutine_add", text="Fix the header !4/2 ~2h", parent=ref
+	)
+
+	assert not failed, made
+
+	# **The first line, because there are others now** — which is the whole point: `#426`'s own
+	# test can partition the whole answer only because its fixture produces nothing after the
+	# echo, and that is exactly the blindness this test exists to cover.
+	head, separator, echoed = made.split("\n")[0].partition("  (read ")
+
+	assert separator, f"the echo is not marked off at all: {made}"
+	assert echoed == "!4/2 ~2h)", made
+	assert head.endswith("Fix the header"), head

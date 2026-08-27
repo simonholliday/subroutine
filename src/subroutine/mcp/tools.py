@@ -2006,6 +2006,50 @@ def _moment_of (
 	return f"{day}T{local:%H:%M}"
 
 
+def _where_it_landed (
+	item: subroutine.views.Task | subroutine.views.Document, *, chosen: bool
+) -> str | None:
+	"""Say which project this was filed in, where nobody chose it — item `#1438`.
+
+	**The outcome, not the input.** ``_checkout`` reports which project a *marker* chose, and
+	says nothing where there was no marker to consult — so the one case a caller most needs to
+	be told about is the one case that was silent. That is *an install reports on itself, not
+	on the outcome*: every step succeeded, and nothing was positioned to say where the work had
+	actually gone.
+
+	**The case it was found on cannot be fixed by reading a marker at all.** Over
+	``subroutine-remote`` these handlers run **on the server**, so ``directory.find()`` reads
+	the server's working directory and the caller's checkout is on a machine this code has
+	never seen. `#1219` cured the same symptom for stdio and could not reach that door. Two
+	decision documents went to the workspace Inbox on 2026-08-27 and the answers named the ref
+	and not the project, exactly as five had before them.
+
+	**Read off the created entity**, so it is true whatever the cause — no marker, a marker for
+	another instance, an overriding argument, or a transport that can never see one.
+
+	**Only where nothing chose, and a guard is what settled that.**
+	``test_an_ordinary_capture_carries_no_extra_line`` says a caption for the empty case is
+	*paid on every capture*, which is §13's rule that response size is a first-order cost on
+	this surface. It is right, and the answer is not to overrule it: where the caller wrote
+	``+web`` the ``(read +web)`` echo already says where this went, and where a marker chose,
+	``_checkout`` says so in its own words. Repeating either would be the wallpaper §12.2a
+	warns about, on the one surface that pays for it by the byte.
+
+	What is left is the case where **nobody** decided — no ``+key``, no ``project`` argument,
+	no marker — and the default answered. That is news by construction, and it is the case
+	that was silent.
+
+	Not in :func:`_line`, which every listing row goes through: a project on every row of every
+	page is a cost §14 weighs, and §12.2a's question about a column that says the same thing on
+	every row is a real one there. On a *write* there is exactly one row.
+	"""
+
+	if chosen:
+		return None
+
+	return f"filed in {item.project_path or item.project_key}"
+
+
 def _line (
 	item: subroutine.views.Task | subroutine.views.Document,
 	*,
@@ -2824,6 +2868,24 @@ def _added (
 	)
 	answer = "Added " + _line(captured.task, now=subroutine.db.types.utcnow())
 
+	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
+	# the caller most likely to have written something it believes was understood, and telling
+	# it only what was *left* answers the rarer question.
+	# **And parenthesised, because this line already carries a rank** (`#426`). `!4/3` appeared
+	# twice with two meanings — the item's priority and the token that set it — with nothing but
+	# a double space between the title and either of them.
+	#
+	# **Attached here, before anything else is appended** (`#1441`). It joins with two spaces
+	# rather than a newline, so it lands on whatever line came last — and `part of #N` and the
+	# marker's line each add one. A capture with either put `(read !4/2 ~2h)` beside *that*
+	# line instead of beside the title, which is the exact adjacency `#426` exists to control,
+	# on the surface whose skill calls this line *the* check. `#426`'s own test could not see
+	# it: its fixture has neither, and `part of #N` was written after it.
+	echoed = subroutine.domain.capture.read_back(captured.summary)
+
+	if echoed is not None:
+		answer = f"{answer}  {echoed}"
+
 	# **A parent is an argument rather than a token, which is how it slipped past the rule
 	# written for the grammar** (`#1191`). This function's whole argument is that a caller who
 	# cannot see the parse cannot tell a deadline that was read from one that stayed in the
@@ -2840,16 +2902,16 @@ def _added (
 	if checkout.said is not None:
 		answer = f"{answer}\n  {checkout.said}"
 
-	# Both halves of §6.13's obligation, and `#135` is why the second one is here: an agent is
-	# the caller most likely to have written something it believes was understood, and telling
-	# it only what was *left* answers the rarer question.
-	# **And parenthesised, because this line already carries a rank** (`#426`). `!4/3` appeared
-	# twice with two meanings — the item's priority and the token that set it — with nothing but
-	# a double space between the title and either of them.
-	echoed = subroutine.domain.capture.read_back(captured.summary)
+	# **Chosen** is the caller's `+key` or a marker that resolved — not `checkout.said`, which
+	# is also written when a marker was found and *ignored*. Ignored means nothing chose.
+	landed = _where_it_landed(
+		captured.task,
+		chosen=subroutine.domain.capture.names_a_project(line)
+		or checkout.project is not None,
+	)
 
-	if echoed is not None:
-		answer = f"{answer}  {echoed}"
+	if landed is not None:
+		answer = f"{answer}\n  {landed}"
 
 	left = subroutine.domain.capture.explain(captured.unparsed)
 
@@ -2917,7 +2979,15 @@ def _wrote (
 
 		answer = "Wrote " + _line(document, now=subroutine.db.types.utcnow())
 
-		return answer if checkout.said is None else f"{answer}\n  {checkout.said}"
+		if checkout.said is not None:
+			answer = f"{answer}\n  {checkout.said}"
+
+		landed = _where_it_landed(
+			document,
+			chosen=_text(arguments, "project") is not None or checkout.project is not None,
+		)
+
+		return answer if landed is None else f"{answer}\n  {landed}"
 
 	# **Omitted is unchanged, and that is the whole reason this is worth a ref** (§8.3). An
 	# agent correcting one paragraph sends the body; the type, the project and the tags it
