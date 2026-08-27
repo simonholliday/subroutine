@@ -73,6 +73,12 @@ upgrade involves.
   reached twice is drawn once and says where the rest of it is, because the shape is a graph
   and pretending otherwise would double the plan.
 
+- **A deleted item no longer holds a milestone open.** A blocker in the trash was still counted,
+  so a milestone with one among its parts read `0 of 6` and could never reach `6 of 6` — with
+  nothing on the page saying why. It leaves the count now, on the terminal, in the browser and
+  through an agent, and the row stays with a **deleted** mark beside it so restoring it is still
+  obvious. What was startable never changed; only the count was wrong.
+
 - **A refusal that names `workspace_id` says where to put it.** On an endpoint that takes it in
   the query, the field is reported as `query.workspace_id`, which is how this API already
   reports a query parameter. Following the old message put it in the body and got you refused a

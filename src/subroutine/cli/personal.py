@@ -9224,11 +9224,17 @@ def _render_tree (
 	if not walked:
 		return
 
-	done = sum(1 for one in walked if one.item.is_complete)
+	# **A deleted part is out of the count and stays on the page** (`#1403`), which is the rule
+	# the links section above follows: the total has to be one a reader can reconcile, and an
+	# absence they would have to infer is worse than a mark.
+	counted = [one for one in walked if one.item.deleted_at is None]
+	done = sum(1 for one in counted if one.item.is_complete)
 
 	console.print("")
 	console.print(
-		rich.text.Text(f"What has to happen first ({done} of {len(walked)} done)", style=HEADING)
+		rich.text.Text(
+			f"What has to happen first ({done} of {len(counted)} done)", style=HEADING
+		)
 	)
 
 	for one in walked:
@@ -9237,7 +9243,13 @@ def _render_tree (
 		line.append(
 			f"{subroutine.domain.refs.format_ref(one.item.ref):>4}  ", style=POSITION
 		)
-		line.append(one.item.title, style=DETAIL if one.item.is_complete else "")
+		line.append(
+			one.item.title,
+			style=DETAIL if one.item.is_complete or one.item.deleted_at else "",
+		)
+
+		if one.item.deleted_at is not None:
+			line.append("  (deleted)", style=DETAIL)
 
 		# **What is not drawn is said**, and the two reasons are different questions. *again*
 		# means it is above and its parts are drawn there; *deeper* means the walk stopped and
@@ -9381,6 +9393,11 @@ def _render_item (
 			# **The category, never the key** — what a relation *is*, never what it is called (decision `#1157`). Comparing `link_type` to the literal `blocks` kept working while `#1156` broke: a workspace that renames the key keeps every label and loses every count.
 			if link.link_category == subroutine.domain.readiness.GATING
 			and link.direction == "incoming"
+			# **A blocker in the trash is not one** (`#1403`). It held a milestone at `0 of 6`
+			# with one of the six deleted, so the milestone could never reach 6 of 6 and
+			# nothing on the page said why. `readiness.unblocked` has excluded a deleted
+			# blocker since it was written; this is the count catching up with the rule.
+			and link.other.deleted_at is None
 		]
 		done = sum(1 for link in blockers if link.other.is_complete)
 		rollup = f"  ({done} of {len(blockers)} blockers done)" if blockers else ""
@@ -9400,7 +9417,18 @@ def _render_item (
 			# Dimmed rather than removed or ticked, exactly as a finished part is above: the
 			# rollup carries the count, and what this line is for is seeing what the thing at
 			# the other end *is*. Removing it would hide the contents of a finished milestone.
-			line.append(link.other.title, style=DETAIL if link.other.is_complete else "")
+			line.append(
+				link.other.title,
+				style=DETAIL if link.other.is_complete or link.other.deleted_at else "",
+			)
+
+			# **Said rather than left to be inferred** (`#1403`, §12.2a). A deleted blocker is
+			# out of the count above, and a row that is simply absent from a total nobody can
+			# reconcile is the thing that made this unfindable. `restore` puts it back, which
+			# is why the row stays.
+			if link.other.deleted_at is not None:
+				line.append("  (deleted)", style=DETAIL)
+
 			console.print(line)
 
 	if referring:

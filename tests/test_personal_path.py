@@ -4437,6 +4437,56 @@ def test_saying_one_thing_blocks_another_changes_what_is_ready (
 	assert "Build the endpoint" in run("list", "--ready").output
 
 
+def test_a_deleted_blocker_leaves_the_count_and_stays_on_the_page (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1403`. A milestone counting a deleted blocker can never reach N of N.
+
+	Met on 2026-08-27 building the roadmap: SR#1400 was deleted and the milestone it blocked went
+	on reading `0 of 6` with a trashed row among the six. **It was quietly unfinishable**, and
+	the reader's natural move is to go looking for work that is not there.
+
+	**`readiness.unblocked` has excluded a deleted blocker since it was written** — the row was
+    never actually held up — so this is the display catching up with the rule rather than a
+	change to what is startable.
+
+	**The row stays and says so**, which is §12.2a: delete here is reversible and `restore` is
+	offered in the confirmation, so removing the line would lose the record that the link exists
+	and leave an absence somebody has to infer.
+	"""
+
+	run("init")
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "PHASE 3"):
+		run("add", title)
+
+	run("link", "2,3,4", "blocks", "1")
+	run("done", "2")
+
+	assert "(1 of 3 blockers done)" in run("show", "1").output
+
+	run("delete", "3")
+
+	shown = run("show", "1", "--tree").output
+
+	assert "(1 of 2 blockers done)" in shown, shown
+	assert "What has to happen first (1 of 2 done)" in shown, shown
+	assert shown.count("(deleted)") == 2, (
+		f"the deleted row is marked in the links section and in the tree:\n{shown}"
+	)
+	assert shown.count("PHASE 2") == 2, "and it is still on the page in both"
+
+	# **The property the count exists for**: finishing what is left finishes the milestone.
+	run("done", "4")
+
+	assert "(2 of 2 blockers done)" in run("show", "1").output
+
+	# **And restoring reverses it**, which is why the link was kept rather than dropped.
+	run("restore", "3")
+
+	assert "(2 of 3 blockers done)" in run("show", "1").output
+
+
 def test_a_plan_can_be_read_in_one_call_rather_than_one_per_item (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

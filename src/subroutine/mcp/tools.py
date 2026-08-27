@@ -2353,6 +2353,9 @@ def _shown (
 			for link in links
 			if link.link_category == subroutine.domain.readiness.GATING
 			and link.direction == "incoming"
+			# **A blocker in the trash is not one** (`#1403`), which is the terminal's rule and
+			# `readiness.unblocked`'s, arriving on the third surface that counts.
+			and link.other.deleted_at is None
 		]
 		finished = sum(1 for link in blockers if link.other.is_complete)
 
@@ -2363,7 +2366,13 @@ def _shown (
 
 		parts.extend(
 			f"{link.label}  #{link.other.ref}  {link.other.title}"
-			+ ("  (over)" if link.other.is_complete else "")
+			+ (
+				"  (deleted)"
+				if link.other.deleted_at is not None
+				else "  (over)"
+				if link.other.is_complete
+				else ""
+			)
 			for link in links
 		)
 
@@ -2381,14 +2390,21 @@ def _shown (
 		walked = client.beneath(ref=ref, entity_type=kind, workspace=workspace)
 
 		if walked:
-			done = sum(1 for one in walked if one.item.is_complete)
+			counted = [one for one in walked if one.item.deleted_at is None]
+			done = sum(1 for one in counted if one.item.is_complete)
 
 			parts.append("")
-			parts.append(f"What has to happen first ({done} of {len(walked)} done)")
+			parts.append(f"What has to happen first ({done} of {len(counted)} done)")
 			parts.extend(
 				"  " * one.depth
 				+ f"#{one.item.ref}  {one.item.title}"
-				+ ("  (over)" if one.item.is_complete else "")
+				+ (
+					"  (deleted)"
+					if one.item.deleted_at is not None
+					else "  (over)"
+					if one.item.is_complete
+					else ""
+				)
 				# **What is not drawn is said.** *shown above* means its parts are drawn
 				# elsewhere on this page; *more below this* means the walk stopped and there may
 				# be more. A tree silently truncated tells an agent the plan is smaller than it

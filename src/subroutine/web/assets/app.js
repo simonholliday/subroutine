@@ -4521,7 +4521,15 @@ export function blockersDone (links) {
 		   `blocks`, which kept working while the behaviour behind it broke: a workspace that
 		   renames the key keeps every label on this page and loses the count beside them
 		   (`#1156`). `gating` is what the server calls a relation that holds work up. */
-		(link) => link.link_category === "gating" && link.direction === "incoming"
+		(link) =>
+			link.link_category === "gating"
+			&& link.direction === "incoming"
+			/* **A blocker in the trash is not one** (`#1403`). It held a milestone at `0 of 6`
+			   with one of the six deleted, so the milestone could never reach 6 of 6 and
+			   nothing on the page said why. `readiness.unblocked` has excluded a deleted
+			   blocker since it was written; this is the count catching up with the rule, on
+			   the third of the three surfaces that keep one. */
+			&& !(link.other || {}).deleted_at
 	);
 
 	if (held.length === 0) return "";
@@ -6572,7 +6580,26 @@ export function Detail ({
 							axis that is not colour.
 						*/
 						const end = { ...link.other, kind: link.other.entity_type };
-						const badges = marks(end, true, null, { workspace, project }, !!onGo);
+						/*
+							**The trash chip is added here rather than inside `marks`**
+							(`#1403`). `marks` is shared by the list, the board and the agenda,
+							and `test_a_listing_asks_for_every_field_its_rows_render` requires
+							every field it reads to be asked for by every listing — so a read
+							there would put `deleted_at` on every row of every page to serve a
+							chip no listing can ever draw, since none of them shows a deleted
+							item at all. §13's context economy, met by a guard doing its job.
+
+							**A word, because `#102` forbids saying it in styling alone.** The
+							row is dimmed *and* reads `Deleted`, and it stays on the page
+							because delete here is reversible and an absence somebody has to
+							infer is worse than a mark.
+						*/
+						const badges = [
+							...(link.other.deleted_at
+								? [{ text: "Deleted", family: "state", tone: "blocked" }]
+								: []),
+							...marks(end, true, null, { workspace, project }, !!onGo),
+						];
 
 						return html`
 							<li key=${link.id}>

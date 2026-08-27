@@ -6464,6 +6464,46 @@ def test_the_two_surfaces_name_a_changed_field_identically () -> None:
 	assert subroutine.views.field_in_words("title") == "title"
 
 
+def test_a_deleted_blocker_leaves_an_agents_count_too (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1403` on the third surface that keeps a count.
+
+	The terminal, this and the browser each derive `N of M` from the same links, and a rule
+	applied to one of three is this codebase's signature defect. `readiness.unblocked` already
+	excluded a deleted blocker; the counts did not.
+	"""
+
+	refs = []
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2"):
+		written, failed = _called(bound, "subroutine_add", text=title)
+
+		assert not failed, written
+
+		numbered = re.search(r"#(\d+)", written)
+
+		assert numbered is not None, written
+
+		refs.append(int(numbered.group(1)))
+
+	_called(bound, "subroutine_link", ref=[refs[1], refs[2]], other=refs[0])
+
+	before, _failed = _called(bound, "subroutine_show", ref=refs[0])
+
+	assert "0 of 2 blockers done" in before, before
+
+	_called(bound, "subroutine_call_api", method="DELETE", path=f"/v1/tasks/{refs[2]}")
+
+	after, _failed = _called(bound, "subroutine_show", ref=refs[0], tree=True)
+
+	assert "0 of 1 blockers done" in after, after
+	assert "What has to happen first (0 of 1 done)" in after, after
+	assert after.count("(deleted)") == 2, (
+		f"the row is marked in the links section and in the tree:\n{after}"
+	)
+
+
 def test_an_agent_can_read_a_whole_plan_in_one_call (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

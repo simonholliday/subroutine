@@ -178,6 +178,24 @@ class LinkEnd(pydantic.BaseModel):
 	#: as incomplete rather than judged by a status it does not have.
 	is_complete: bool = False
 
+	#: Whether the thing at this end is in the trash (`#1403`).
+	#:
+	#: **A milestone counting a deleted blocker can never reach N of N.** SR#1400 was deleted and
+	#: the milestone it blocked went on reading `0 of 6` with a trashed row among the six — so it
+	#: was quietly unfinishable, and the reader's natural move is to go looking for work that is
+	#: not there.
+	#:
+	#: **Reported rather than dropped**, which is §12.2a's rule: delete here is reversible and
+	#: `restore` is offered in the confirmation, so removing the row would lose the record that
+	#: the link exists and leave an absence somebody has to infer. `readiness.unblocked` has
+	#: excluded a deleted blocker since it was written — this is the display catching up with
+	#: the rule, not a change to what is startable.
+	#:
+	#: **Defaulted for the reason every field added to this model after it shipped is** (`#345`,
+	#: `#1155`): an instance one release behind sends a link without it, and a required field
+	#: would make a newer client refuse the whole instance.
+	deleted_at: datetime.datetime | None = None
+
 
 class Edge(pydantic.BaseModel):
 	"""A link among a page's items, named by both its ends (docs/design.md §5.7, §8.4).
