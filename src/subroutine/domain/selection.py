@@ -335,8 +335,12 @@ def addressed (
 			found = _by_name(session, statement, segments[0], wanted, workspace, field=field)
 
 	if found is None:
+		misread = _a_workspace_read_as_a_project(
+			session, actor, workspace, statement, segments if identifier is None else []
+		)
+
 		raise subroutine.errors.NotFound(
-			f"There is no project {wanted!r} here.",
+			misread or f"There is no project {wanted!r} here.",
 			errors=[
 				subroutine.errors.FieldError(
 					field=field,
@@ -348,6 +352,74 @@ def addressed (
 		)
 
 	return found
+
+
+def _a_workspace_read_as_a_project (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	workspace: subroutine.db.models.identity.Workspace,
+	statement: typing.Any,
+	segments: typing.Sequence[str],
+) -> str | None:
+	"""Say that an address begins with a workspace, if that is what went wrong — item `#1417`.
+
+	**An address is absolute *within* a workspace**, which :func:`addressed` states and nothing
+	says at the moment somebody gets it wrong. So ``+projects/ui`` answers *there is no project
+	'projects/ui' here* and lists ``inbox, ui`` — every word of it true, and the reader has to
+	notice for themselves that their first segment is the name of the workspace they are in.
+
+	**It became worth answering when `#1436` made ``projects`` the workspace a fresh instance
+	starts with.** A workspace named after a first-class entity stops being one instance's
+	quirk: the mistake is now the obvious thing to type, on every new installation.
+
+	Two different mistakes and they need different sentences. **This** workspace as the first
+	segment is a reader writing out something the address form leaves implicit; **another**
+	workspace is a reader who thinks an address spans them, which it does not — items are
+	numbered per workspace and a project cannot move between them (`#297`).
+
+	``None`` when the first segment names no workspace, which is every ordinary typo — the
+	existing refusal is right for those and is not replaced.
+
+	**Only on the refusal path**, so the second query costs nothing anybody is waiting on, and
+	only where the caller wrote more than one segment: a bare ``+projects`` is somebody naming a
+	project that does not exist, and telling them it is a workspace would be answering a
+	question they did not ask.
+	"""
+
+	if len(segments) < 2:
+		return None
+
+	first, rest = segments[0], subroutine.domain.projects.PATH_SEPARATOR.join(segments[1:])
+
+	if first == workspace.slug:
+		# **Named only when it resolves.** Suggesting `+ui` for an address whose remainder is
+		# also wrong would replace one refusal with another, and the reader would have learned
+		# nothing about which half they got wrong.
+		instead = _walked(session, statement, segments[1:])
+		advice = f" — write {rest!r} instead" if instead is not None else ""
+
+		return (
+			f"{first!r} is the workspace you are in, not a project in it{advice}. An address "
+			f"is absolute within a workspace, so it never begins with one."
+		)
+
+	if actor is None:
+		return None
+
+	elsewhere = [
+		candidate
+		for candidate in subroutine.domain.workspaces.readable(session, actor)
+		if candidate.slug == first
+	]
+
+	if not elsewhere:
+		return None
+
+	return (
+		f"{first!r} is another workspace, not a project in {workspace.slug}. An address is "
+		f"absolute within one workspace, so reach it with '-w {first}' or 'subroutine use "
+		f"{first}' instead."
+	)
 
 
 def _alternative_projects (session: sqlalchemy.orm.Session, statement: typing.Any) -> str:

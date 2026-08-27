@@ -2193,7 +2193,7 @@ def test_a_project_can_say_it_offers_every_status (
 	run("project", "create", "web", "Web")
 
 	# The workspace hides one, which is the only arrangement where the three states differ.
-	run("workspace", "update", "personal", "--hide-status", "blocked")
+	run("workspace", "update", "projects", "--hide-status", "blocked")
 
 	def offered () -> list[str]:
 		"""What the listing says this project does not offer."""

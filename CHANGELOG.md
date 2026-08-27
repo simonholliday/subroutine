@@ -16,6 +16,19 @@ upgrade involves.
 
 ### Changed
 
+- **A new instance's first workspace is called `Projects`.** It was `Personal`. `subroutine
+  init --workspace "<anything>"` is unchanged and still names it whatever you like; this is
+  only what you get when you say nothing. An instance that already exists is untouched, and
+  `subroutine workspace rename` moves a short name if you want the old one.
+
+- **An address that begins with a workspace says so.** `+projects/ui` used to answer *there is
+  no project 'projects/ui' here* and list the projects there are — every word of it true, and
+  the reader had to spot that their first segment was the workspace they were already in. It
+  now names the mistake, and where the rest of the address resolves it names what to write
+  instead. Another workspace's name gets a different sentence, because that is a different
+  mistake: an address is absolute within one workspace, so the remedy is going there rather
+  than editing the address.
+
 - **Adding a person is one command.** `subroutine user create thomas` now makes the account,
   puts them in a workspace and gives them a role, where before it made an account that could
   see nothing until a second command was remembered. The role is `member` unless you say

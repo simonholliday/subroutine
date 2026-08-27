@@ -73,8 +73,11 @@ def test_initialising_creates_everything_a_first_task_needs (
 	# (§13.7), so `init --workspace Acme` has to produce something `subroutine use acme`
 	# accepts — it produced the login name until 2026-07-30, which nothing printed and so
 	# nobody noticed.
-	assert result.workspace.title == "Personal"
-	assert result.workspace.slug == "personal"
+	# **`Projects`, and that is a decision rather than a value** (`#1436`, Simon 2026-08-27).
+	# The audience is developers working with coding agents; somebody who wants a personal list
+	# makes one, which is the cheaper direction. Asserted here so changing it is an act.
+	assert result.workspace.title == "Projects"
+	assert result.workspace.slug == "projects"
 	assert result.inbox.key == "inbox"
 	assert result.inbox.is_inbox
 	assert result.inbox.template == "personal"

@@ -519,7 +519,7 @@ def init (
 		"", "--username", help="Who you are. Defaults to your system username."
 	),
 	workspace: str = typer.Option(
-		"Personal", "--workspace", help="What to call your first workspace."
+		"Projects", "--workspace", help="What to call your first workspace."
 	),
 	instance_name: str = typer.Option(
 		"", "--instance-name", help="What to call this installation. Defaults to the hostname."

@@ -61,7 +61,15 @@ def initialise (
 	*,
 	username: str,
 	instance_name: str,
-	workspace_title: str = "Personal",
+	# **`Projects`, not `Personal`** (`#1436`, Simon's decision of 2026-08-27). The audience is
+	# developers working with coding agents, and their first workspace holds projects; somebody
+	# who wants a personal list makes one, which is the cheaper direction of the two. His own
+	# instance is the evidence — created with `Personal`, given a `Projects` beside it, and
+	# `Personal` deleted once the work moved in.
+	#
+	# **One seeded workspace and not two**, which §1.4 settles: two at `init` makes every `add`
+	# a choice on the first day, and it is what every comparable tool does.
+	workspace_title: str = "Projects",
 	workspace_slug: str | None = None,
 	password: str | None = None,
 	timezone: str = "UTC",

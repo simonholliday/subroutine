@@ -692,3 +692,125 @@ def test_bringing_a_project_back_offers_its_work_again (
 	]
 
 	assert held in listed
+
+
+def test_an_address_beginning_with_this_workspace_says_so (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1417`: the reader wrote out the part the address form leaves implicit.
+
+	Every word of the old refusal was true — *there is no project 'ws/substation' here*, and a
+	list of what there is — and the reader had to notice for themselves that their **first**
+	segment was the workspace they were already in. It became worth answering when `#1436` made
+	``projects`` the workspace a fresh instance starts with: the mistake is now the obvious
+	thing to type, on every new installation.
+
+	The remainder resolves here, so the replacement is named. That is the whole value of the
+	sentence — *write 'substation' instead* is one edit away from working.
+	"""
+
+	_tree(world)
+
+	refused = world.call("GET", f"/v1/projects/{world.workspace.slug}/substation")
+
+	assert refused.status_code == 404, refused.text
+	assert "is the workspace you are in" in refused.text
+	assert "'substation'" in refused.text
+
+
+def test_an_address_beginning_with_this_workspace_says_so_without_naming_a_replacement (
+	world: test_api_tasks.World,
+) -> None:
+	"""The other half of `#1417`, and it is where a naive version would mislead.
+
+	When the remainder does not resolve either, suggesting it would replace one refusal with
+	another and teach nothing about which half was wrong. So the workspace is still named and
+	no replacement is.
+	"""
+
+	_tree(world)
+
+	refused = world.call("GET", f"/v1/projects/{world.workspace.slug}/nope")
+
+	assert refused.status_code == 404, refused.text
+	assert "is the workspace you are in" in refused.text
+	assert "write" not in refused.json()["detail"]
+
+
+def test_an_address_beginning_with_another_workspace_is_a_different_sentence (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#1417`, and the two mistakes are not the same mistake.
+
+	Writing *this* workspace is a reader spelling out what the form leaves implicit. Writing
+	*another* is a reader who thinks an address spans workspaces, which it does not — items are
+	numbered per workspace and a project cannot move between them (`#297`). So the remedy is
+	not an edit to the address, it is going there.
+	"""
+
+	_tree(world)
+	second = subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Other", owner=world.user
+	)
+	# **Flushed, never committed**, which is what the neighbouring second-workspace test does
+	# and is the rule this suite runs on: a test that commits owns every row it wrote, and this
+	# one would leave a workspace behind for teardown to trip over.
+	session.flush()
+
+	# **The workspace has to be named, and that is the shape of the mistake rather than an
+	# awkwardness of the test.** With two reachable workspaces and none named, the request is
+	# refused as ambiguous long before any project is looked up — a cheaper refusal shadowing
+	# the specific one. So this branch is reached exactly when the caller has already said
+	# where they are, which at a terminal is `-w` or `subroutine use`.
+	refused = world.call(
+		"GET",
+		f"/v1/projects/{second.slug}/substation?workspace_id={world.workspace.slug}",
+	)
+
+	assert refused.status_code == 404, refused.text
+	assert "is another workspace" in refused.text
+	assert f"-w {second.slug}" in refused.text
+
+
+def test_an_ordinary_address_that_misses_is_refused_as_it_always_was (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1417` must not widen. A first segment naming no workspace is an ordinary typo.
+
+	Here because the guard above matches on a *slug*, and a check that fired for anything with a
+	separator in it would relabel every mistyped address as a workspace confusion — which is a
+	plausible, complete, wrong answer of exactly the kind this module keeps refusing to give.
+	"""
+
+	_tree(world)
+
+	refused = world.call("GET", "/v1/projects/nope/deeper")
+
+	assert refused.status_code == 404, refused.text
+	assert "There is no project 'nope/deeper' here." in refused.text
+	assert "workspace you are in" not in refused.text
+	assert "another workspace" not in refused.text
+
+
+def test_a_bare_workspace_name_is_an_ordinary_missing_project (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1417` deliberately says nothing when the workspace is the *whole* of what was written.
+
+	**Found by mutation**: loosening the guard from *more than one segment* to *any segment*
+	broke no test, so the rule its docstring states was carried by nothing.
+
+	The reasoning is that a bare name is the form that already works — ``+web`` resolves a
+	project keyed ``web`` — so nothing about the address form is implicated, and somebody who
+	typed one word meant a project. The existing refusal lists what there is, which answers
+	them. Saying *that is a workspace* would be a guess about intent, and the sentence would
+	have no replacement to offer: there is no remainder to name.
+	"""
+
+	_tree(world)
+
+	refused = world.call("GET", f"/v1/projects/{world.workspace.slug}")
+
+	assert refused.status_code == 404, refused.text
+	assert "workspace you are in" not in refused.text
+	assert "another workspace" not in refused.text
