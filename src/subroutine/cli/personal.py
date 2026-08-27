@@ -6777,6 +6777,11 @@ def register (
 		by: str = typer.Option(
 			"", "--by", help="Only what one account did, by name. Try it with an agent's name."
 		),
+		dated: list[str] | None = typer.Option(
+			None,
+			"--filter",
+			help="Narrow to a period, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+		),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the events as JSON."),
 		strict: bool = typer.Option(
@@ -6791,60 +6796,32 @@ def register (
 		'--by' is how you find out what somebody else has been doing, which is usually an
 		agent you handed work to. '--mine' is the same question about this machine.
 
+		'--since' resumes where you left off; '--filter' asks about a period. They are
+		different questions — you have no number to offer for 'what happened yesterday'.
+
 		Examples:
 
 		  subroutine changes
 
 		  subroutine changes --since 412
 
+		  subroutine changes --filter created_at.gte=yesterday
+
 		  subroutine changes --mine
 
 		  subroutine changes --by claude
 		"""
 
-		with program.opened(strict=strict) as world:
-			# **A number belongs to one instance.** Every connection counts its own events from
-			# one, so resuming from 412 against two of them would mean two different places in
-			# two different histories — and the half that was wrong would look like an ordinary
-			# quiet week rather than an error.
-			if since is not None and len(world.reached) > 1:
-				stop(
-					"'--since' needs one connection, and this machine can reach "
-					f"{len(world.reached)}.",
-					"Each one counts its changes separately, so a number means nothing to "
-					"the others. Run it against one at a time.",
-				)
-
-			def ask (client: subroutine.clients.base.Client) -> list[subroutine.views.Event]:
-				"""Ask one connection what has moved."""
-
-				# **The newest page unless resuming.** Somebody typing this for the first
-				# time against a long history wants this morning, not the instance's first
-				# afternoon — and `--since` is what says they have a place already.
-				return client.changes(
-					since=since,
-					mine=mine,
-					by=by or None,
-					newest=since is None,
-					limit=limit,
-				)
-
-			gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
-
-			if json_output:
-				say(
-					json.dumps(
-						[
-							{"connection": name, **event.model_dump(mode="json")}
-							for name, event in _across(world, gathered, lambda events: events)
-						],
-						indent=2,
-					)
-				)
-
-				return
-
-			_say_changes(world, gathered, console=console, say=say)
+		_what_moved(
+			program,
+			since=since,
+			mine=mine,
+			by=by,
+			dated=dated,
+			limit=limit,
+			json_output=json_output,
+			strict=strict,
+		)
 
 	@app.command("ls", hidden=True, cls=_Listing)
 	def list_tasks (
@@ -9019,6 +8996,77 @@ def _sections (
 		),
 		asked_for_history=history,
 	)
+
+
+def _what_moved (
+	program: Program,
+	*,
+	since: int | None,
+	mine: bool,
+	by: str,
+	dated: list[str] | None,
+	limit: int,
+	json_output: bool,
+	strict: bool,
+) -> None:
+	"""What has moved, across every connection this machine can reach.
+
+	**Out of `register`'s closure to pay for `--filter`** (`#943`'s ratchet, `#1431`). That
+	ratchet's rule is that a new command belongs in a function `register` calls rather than in
+	the closure, and an option on an existing command is the same bill arriving in instalments
+	— sixteen lines here took it sixteen over. Extracting the body rather than the option is
+	what makes the next one free.
+	"""
+
+	# **Read before the connections are opened**, like every other command that takes one:
+	# a misspelt filter is a refusal about what somebody typed, and making them wait for a
+	# network round trip to hear it would be answering a local question remotely.
+	asked_about = _filters(program, dated)
+
+	with program.opened(strict=strict) as world:
+		# **A number belongs to one instance.** Every connection counts its own events from
+		# one, so resuming from 412 against two of them would mean two different places in
+		# two different histories — and the half that was wrong would look like an ordinary
+		# quiet week rather than an error.
+		if since is not None and len(world.reached) > 1:
+			program.stop(
+				"'--since' needs one connection, and this machine can reach "
+				f"{len(world.reached)}.",
+				"Each one counts its changes separately, so a number means nothing to "
+				"the others. Run it against one at a time.",
+			)
+
+		def ask (client: subroutine.clients.base.Client) -> list[subroutine.views.Event]:
+			"""Ask one connection what has moved."""
+
+			# **The newest page unless resuming.** Somebody typing this for the first
+			# time against a long history wants this morning, not the instance's first
+			# afternoon — and `--since` is what says they have a place already.
+			return client.changes(
+				since=since,
+				mine=mine,
+				by=by or None,
+				newest=since is None,
+				limit=limit,
+				dated=asked_about,
+			)
+
+		gathered = subroutine.fanout.gather(world.clients, ask, strict=strict)
+
+		if json_output:
+			program.say(
+				json.dumps(
+					[
+						{"connection": name, **event.model_dump(mode="json")}
+						for name, event in _across(world, gathered, lambda events: events)
+					],
+					indent=2,
+				)
+			)
+
+			return
+
+		_say_changes(world, gathered, console=program.console, say=program.say)
 
 
 def _shown_item (

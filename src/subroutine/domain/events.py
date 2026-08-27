@@ -279,6 +279,7 @@ def selected (
 	since: int | None = None,
 	visible: sqlalchemy.ColumnElement[bool] | None = None,
 	actor_token_id: uuid.UUID | None = None,
+	narrowing: typing.Sequence[typing.Any] = (),
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
 	"""Return the statement both readers of this table are built on (docs/design.md §5.11a).
 
@@ -315,6 +316,16 @@ def selected (
 	* ``actor_token_id`` answers "what did *I* do" (`#158`) — **the credential, not the user**.
 	  An agent with its own service-account token wants what it did, not what the person who
 	  issued it did from a laptop.
+	* ``narrowing`` is §9.6's dotted filters already compiled — `#1431`, decision `#1429`.
+	  Compiled by :mod:`subroutine.domain.filtering` rather than here, because the grammar,
+	  the refusals and what `/v1/meta` publishes are one thing and a feed must not grow a
+	  second copy of them. **It arrives already read**, so this stays a builder and never
+	  needs a clock or a timezone of its own.
+
+	  **``since`` and a date range answer different questions and both are kept.** A cursor
+	  resumes and is inclusive-with-dedupe; a range is a statement about a period and is not
+	  resumable. A caller asking *what did we do on Friday* has no cursor to offer, and one
+	  polling has no date in mind.
 
 	**Naming an entity asks for what happened *to* it, which is not the same as what was
 	recorded *against* it.** Commenting on ``#42`` writes an event whose entity is the comment,
@@ -355,6 +366,10 @@ def selected (
 	if actor_token_id is not None:
 		statement = statement.where(model.actor_token_id == actor_token_id)
 
+	# Unconditional: an empty sequence narrows by nothing, so every caller passes whatever it
+	# was asked without testing first — the same shape `api.filters.narrowed` already has.
+	statement = statement.where(*narrowing)
+
 	return statement
 
 
@@ -382,6 +397,7 @@ def feed (
 	mine: bool = False,
 	by: uuid.UUID | None = None,
 	newest: bool = False,
+	narrowing: typing.Sequence[typing.Any] = (),
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
 	"""Return the change feed's statement — ordered, watermarked and narrowed (§5.11a).
 
@@ -414,6 +430,7 @@ def feed (
 			principal, workspace_ids=workspace_ids
 		),
 		actor_token_id=token_id if mine else None,
+		narrowing=narrowing,
 	)
 
 	if mine and token_id is None:
@@ -440,6 +457,7 @@ def page (
 	mine: bool = False,
 	by: uuid.UUID | None = None,
 	newest: bool = False,
+	narrowing: typing.Sequence[typing.Any] = (),
 ) -> tuple[list[subroutine.db.models.activity.Event], bool]:
 	"""Return one page of the feed, **always oldest first**, and whether more follow.
 
@@ -463,7 +481,13 @@ def page (
 	newest = newest and since is None
 
 	statement = feed(
-		principal, workspace_ids=workspace_ids, since=since, mine=mine, by=by, newest=newest
+		principal,
+		workspace_ids=workspace_ids,
+		since=since,
+		mine=mine,
+		by=by,
+		newest=newest,
+		narrowing=narrowing,
 	)
 	rows = list(session.scalars(statement.limit(size + 1)))
 	has_more = len(rows) > size

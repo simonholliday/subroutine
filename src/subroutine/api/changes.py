@@ -41,6 +41,7 @@ import fastapi
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
+import subroutine.api.filters
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -81,6 +82,10 @@ def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
+	# **Declared rather than read in the handler** — `#815`'s split, and the reason this
+	# route cannot quietly ignore `creatd_at.gte`: a dotted name a route declares no reader
+	# for is refused as an unknown parameter, and one it does declare is resolved here.
+	dated: subroutine.api.filters.EventFilters,
 	since: int | None = fastapi.Query(
 		None,
 		description="Resume from this seq, inclusive. Send back the seq of the last event "
@@ -105,6 +110,12 @@ def listing (
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
 	"""Return what has happened, oldest first, that this caller is entitled to know about.
+
+	**A period is `?created_at.gte=`, and it is a different question from `?since=`.** A cursor
+	resumes where you left off and is inclusive-with-dedupe, so it is what a client that polls
+	should send; a period is a statement about a stretch of time and is not resumable. Somebody
+	asking what happened on a particular day has no cursor to offer, and a client polling has no
+	date in mind. Both are accepted and they compose.
 
 	**Resuming is `?since=`, not a cursor.** Take the `seq` of the last event you dealt with
 	and send it back; you will receive it again and everything after it. `has_more` says
@@ -149,6 +160,12 @@ def listing (
 		settings,
 		actor,
 		workspace_ids=workspace_ids,
+		# **The zone is the reader's own, because a feed spans workspaces** — see
+		# `filters.across`. Read here rather than in `_page` so the per-item histories, which
+		# have a workspace and do not take a period, are not handed a decision they never make.
+		narrowing=subroutine.api.filters.across(
+			dated, session=session, actor=actor, workspace_ids=workspace_ids
+		),
 		since=since,
 		mine=actor_filter == ACTOR_ME,
 		by=by,
@@ -176,6 +193,7 @@ def _page (
 	newest: bool,
 	limit: int | None,
 	shape: typing.Any,
+	narrowing: typing.Sequence[typing.Any] = (),
 ) -> typing.Any:
 	"""Return one page of the feed."""
 
@@ -189,6 +207,7 @@ def _page (
 		mine=mine,
 		by=by,
 		newest=newest,
+		narrowing=narrowing,
 	)
 	described = subroutine.domain.events.descriptions(session, shown)
 

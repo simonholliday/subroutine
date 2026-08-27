@@ -781,6 +781,7 @@ class Client:
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
+		dated: typing.Mapping[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see."""
 
@@ -794,6 +795,12 @@ class Client:
 			workspace_id=workspace,
 			limit=limit,
 		)
+
+		# **Merged rather than passed through `_given`** (`#1431`). Its keyword form cannot
+		# express a name with a dot in it, and these arrive already written the way the route
+		# reads them — so this client holds no copy of §9.6's spelling and a name it has never
+		# heard of reaches the instance to be refused there, by the grammar that owns it.
+		asking.update(dated or {})
 
 		return self._collected(
 			subroutine.views.Event,

@@ -130,6 +130,20 @@ upgrade involves.
   A board card is unchanged: a card has no column to line up against, and arranging a board
   by who is doing the work is still to come.
 
+### Added
+
+- **The change feed can be asked about a period.** `subroutine changes --filter
+  created_at.gte=yesterday`, `GET /v1/changes?created_at.gte=yesterday`, and `filter` on
+  `subroutine_changes` for an agent. Two entries make a range, and the words `/v1/meta` publishes
+  under `relative_dates` all work — so *what happened on Friday* is a question you can ask.
+
+  **This is not another way of writing `--since`.** A cursor resumes where you left off and is
+  the right thing for a client that polls; a period is a statement about a stretch of time, and
+  somebody asking what happened yesterday has no number to offer. Both work, and they combine.
+
+  Dates are read in your own timezone, then the instance's. A feed spans every workspace you can
+  read, so unlike a listing there is no single workspace whose zone could be used.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

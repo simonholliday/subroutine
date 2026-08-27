@@ -20,7 +20,9 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
+import subroutine.api.app
 import subroutine.api.filters
+import subroutine.api.meta
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.system
@@ -268,8 +270,63 @@ def test_equality_on_a_timestamp_is_refused_over_the_wire (world: World) -> None
 	assert "created_at.gte" in answer.text, "the refusal did not say what to write instead"
 
 
+def _readerless () -> list[str]:
+	"""Return every `/v1` collection this application serves that declares no filter reader.
+
+	**Derived rather than named, because the first version named one and outlived it**
+	(`#1431`). It drove `/v1/changes`, which was the obvious example of a listing that could not
+	filter on dates — and then `/v1/changes` grew a reader, so the guard was asserting the
+	opposite of what the route now does. A test that names its subject is orphaned the day
+	somebody changes it, and this one would have failed loudly rather than silently only by
+	luck.
+
+	**Walking the routers rather than the built application**, which is `#37`'s recorded trap:
+	`include_router` leaves a private wrapper in `app.routes` with no path at all, so a check
+	that walks the running app sees nothing and reports clean.
+	"""
+
+	found = []
+
+	for prefix, router in subroutine.api.app.ROUTERS:
+		for route in router.routes:
+			path = prefix + getattr(route, "path", "")
+
+			if "GET" not in (getattr(route, "methods", set()) or set()):
+				continue
+
+			# Collections only: a path parameter needs a real id to drive, and a single-entity
+			# read is deliberately outside this seam anyway.
+			if "{" in path or not path.startswith("/v1"):
+				continue
+
+			if subroutine.api.filters.declared_by(route) is None:
+				found.append(path)
+
+	return sorted(found)
+
+
+def test_the_routes_that_declare_a_reader_are_the_ones_that_should (world: World) -> None:
+	"""The population the guard below reads, checked for being neither empty nor everything.
+
+	**A floor, because a derivation that returns nothing passes every test built on it** — and
+	the walk above has a recorded way of returning nothing, since `include_router` hides its
+	routes behind a wrapper. Without this, breaking the walk would make the seam look policed
+	when nothing was being driven at all.
+	"""
+
+	readerless = _readerless()
+
+	assert len(readerless) > 3, f"the walk found almost nothing, so it is probably broken: {readerless}"
+	assert "/v1/tasks" not in readerless, "the task listing lost its date filters"
+	assert "/v1/changes" not in readerless, (
+		"the change feed lost its date filters — SR#1431 gave it one, and the guard below "
+		"used to name it as the example of a route without"
+	)
+
+
+@pytest.mark.parametrize("path", _readerless())
 def test_a_listing_that_declares_no_reader_still_refuses_a_dotted_name (
-	world: World,
+	world: World, path: str
 ) -> None:
 	"""**The other half of the seam, and the one that could fail silently.**
 
@@ -277,12 +334,15 @@ def test_a_listing_that_declares_no_reader_still_refuses_a_dotted_name (
 	stopped policing them everywhere, a date filter sent to a listing that cannot honour one
 	would be ignored and answered `200` — a complete, plausible, wrong answer, which is exactly
 	the failure that module was written to prevent.
+
+	**Every such route rather than one**, so this cannot be aimed at a route that later gains a
+	reader and quietly stop testing the property.
 	"""
 
-	answer = world.call("GET", "/v1/changes?created_at.gte=2026-08-01")
+	answer = world.call("GET", f"{path}?created_at.gte=2026-08-01")
 
-	assert answer.status_code == 422, answer.text
-	assert "created_at.gte" in answer.text
+	assert answer.status_code == 422, f"{path} did not refuse a filter it cannot honour: {answer.text}"
+	assert "created_at.gte" in answer.text, f"{path} refused without naming what it refused"
 
 
 def test_documents_answer_the_same_question (world: World) -> None:
@@ -363,11 +423,22 @@ def _sample (kind: subroutine.domain.filtering.Kind, world: World) -> str:
 
 
 def published_path (published: list[str], entity: str) -> str:
-	"""Return the listing path for an entity, so the case above reads as one question."""
+	"""Return the listing path for an entity, so the case above reads as one question.
 
-	return {"task": "/v1/tasks", "document": "/v1/documents", "project": "/v1/projects"}[
-		entity
-	]
+	**Read off `meta.LISTINGS` rather than spelled here** (`#1431`). This was a literal of three
+	entities and went stale the moment a fourth was published — which made the guard fail with a
+	`KeyError` about its own map rather than a statement about the route, and the obvious repair
+	was to add a line to a second copy of a list the application already declares.
+	"""
+
+	for published_entity, path, _sortable, _selectable in subroutine.api.meta.LISTINGS:
+		if published_entity == entity:
+			return path
+
+	raise AssertionError(
+		f"{entity!r} publishes filters and `meta.LISTINGS` does not name it, which should be "
+		f"impossible: this parametrisation reads that same table."
+	)
 
 
 def test_asking_when_something_was_completed_reaches_finished_work (

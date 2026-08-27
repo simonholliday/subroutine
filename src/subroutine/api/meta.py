@@ -32,6 +32,7 @@ import sqlalchemy.orm
 import starlette.requests
 
 import subroutine
+import subroutine.api.changes
 import subroutine.api.dependencies
 import subroutine.api.documents
 import subroutine.api.projects
@@ -112,6 +113,20 @@ LISTINGS: tuple[tuple[str, str, dict[str, typing.Any], frozenset[str]], ...] = (
 		"/v1/projects",
 		subroutine.api.projects.SORTABLE,
 		subroutine.api.projects.SELECTABLE,
+	),
+	# **The change feed, so an agent can discover it takes a period** — `#1431`, decision
+	# `#1429`. It is here because this is where a caller reads what it may send, and a filter
+	# the route accepts and nothing advertises is the same defect as one advertised and
+	# refused, wearing the other face.
+	#
+	# **No sort fields, and that is a statement rather than a gap.** A feed always runs
+	# forwards and the caller does not choose (`domain.events.feed`); `newest` picks which
+	# end to start from and is a flat parameter, which this already reads off the route.
+	(
+		"event",
+		"/v1/changes",
+		{},
+		subroutine.api.changes.SELECTABLE,
 	),
 )
 

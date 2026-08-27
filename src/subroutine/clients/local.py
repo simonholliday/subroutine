@@ -1639,6 +1639,7 @@ class Client:
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
+		dated: typing.Mapping[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
@@ -1680,6 +1681,22 @@ class Client:
 				size=size,
 				since=since,
 				mine=mine,
+				# §9.6's date comparisons, compiled by the domain rather than approximated here
+				# (`#1431`) — the same seam the listings above use, so both transports narrow by
+				# the same predicate and refuse an unknown name the same way.
+				#
+				# **No workspace in the zone chain, deliberately.** A feed spans every readable
+				# workspace, so there is no one whose zone is the right one to read *yesterday*
+				# in; `api.filters.across` says the same thing at the other transport.
+				narrowing=subroutine.domain.filtering.asked(
+					(dated or {}).items(),
+					entity="event",
+					now=subroutine.db.types.utcnow(),
+					timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
+					session=session,
+					caller=actor.user,
+					workspace_ids=workspace_ids,
+				),
 				# Resolved here rather than passed as a name, for the reason every other "who"
 				# in this file is: a username that names nobody is refused with the members
 				# listed, and the refusal is the domain's rather than one written twice.

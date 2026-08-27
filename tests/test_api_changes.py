@@ -81,6 +81,92 @@ def _feed (world: test_api_tasks.World, **query: typing.Any) -> list[dict[str, t
 	return items
 
 
+#: A day far enough back that nothing here depends on the hour the suite runs at, and old enough
+#: that the feed's one-second watermark is never the reason a row is missing.
+LONG_AGO = datetime.datetime(2026, 8, 1, 9, 0, tzinfo=datetime.UTC)
+
+
+def _titled (world: test_api_tasks.World, **query: typing.Any) -> set[str]:
+	"""Return the titles the feed names, so a case reads as the question it asks."""
+
+	return {row["item_title"] for row in _feed(world, **query) if row["item_title"]}
+
+
+def test_the_feed_can_be_asked_for_a_period_rather_than_only_a_cursor (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1431`, decision `SR#1429` — the question a cursor cannot express.
+
+	**A period and a cursor are different questions, and this is not a second spelling of one.**
+	`?since=` resumes and is inclusive-with-dedupe (§5.11); a date range is a statement about a
+	period and is not resumable. Somebody asking *what did we do on Friday* has no cursor to
+	offer, and a client polling has no date in mind. Both are accepted and they compose.
+
+	**Driven in both directions**, because a filter that narrowed to nothing would pass a test
+	that only checked the old row was gone — and a listing that silently ignored the parameter
+	would pass one that only checked the recent row was there. Neither half is the claim on its
+	own.
+	"""
+
+	old = world.call("POST", "/v1/tasks", json={"title": "Filed long ago"})
+
+	assert old.status_code == 201, old.text
+
+	# **The event, not the task.** A feed reads this table and nothing else, so backdating the
+	# row would leave the event stamped now and the filter would look like it was never applied
+	# — which is the mistake `tests/test_api_filtering.py`'s fixture records making.
+	session.execute(
+		sqlalchemy.update(subroutine.db.models.activity.Event)
+		.where(subroutine.db.models.activity.Event.entity_id == uuid.UUID(old.json()["id"]))
+		.values(created_at=LONG_AGO)
+	)
+
+	recent = world.call("POST", "/v1/tasks", json={"title": "Filed just now"})
+
+	assert recent.status_code == 201, recent.text
+
+	session.flush()
+	_settled(session)
+
+	everything = _titled(world, limit=200)
+
+	assert {"Filed long ago", "Filed just now"} <= everything, (
+		f"the unfiltered feed does not carry both rows, so neither case below means anything: "
+		f"{sorted(everything)}"
+	)
+
+	since_then = _titled(world, limit=200, **{"created_at.gte": "2026-08-02"})
+
+	assert "Filed just now" in since_then, f"a period dropped a row inside it: {sorted(since_then)}"
+	assert "Filed long ago" not in since_then, (
+		f"a period kept a row before it, so the filter reached the route and narrowed nothing: "
+		f"{sorted(since_then)}"
+	)
+
+	before_then = _titled(world, limit=200, **{"created_at.lt": "2026-08-02"})
+
+	assert "Filed long ago" in before_then, f"the other bound dropped its row: {sorted(before_then)}"
+	assert "Filed just now" not in before_then, (
+		f"the other bound kept a row after it: {sorted(before_then)}"
+	)
+
+
+def test_the_feed_refuses_a_period_it_cannot_honour (world: test_api_tasks.World) -> None:
+	"""The operator the grammar refuses by name, driven over the wire — `SR#1431`.
+
+	`created_at.eq` is refused for every entity because a timestamp is stored to the microsecond
+	(`SR#815`, Simon's decision of 2026-08-11), and a feed inherits that rather than restating
+	it. **Worth driving here anyway**: the feed reached the grammar through a new seam, and a
+	seam that accepted everything would look identical to one that worked until somebody sent a
+	combination the compiler cannot read.
+	"""
+
+	answered = world.call("GET", "/v1/changes", params={"created_at.eq": "2026-08-02"})
+
+	assert answered.status_code == 422, answered.text
+	assert "created_at" in answered.text
+
+
 def test_the_feed_says_which_kinds_it_covers_and_narrows_rather_than_refusing (
 	session: sqlalchemy.orm.Session,
 ) -> None:

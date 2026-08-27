@@ -18,6 +18,7 @@ is the right answer for a listing that cannot filter on dates.
 """
 
 import typing
+import uuid
 
 import fastapi
 import sqlalchemy.orm
@@ -149,9 +150,49 @@ def narrowed (
 	)
 
 
+def across (
+	asked: Asked,
+	*,
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> list[typing.Any]:
+	"""Return what to narrow a *feed* by, for a request that spans workspaces — `#1431`.
+
+	**Predicates rather than a narrowed statement, which is where this differs from**
+	:func:`narrowed`. A feed's statement is built by :func:`subroutine.domain.events.selected`,
+	the one builder both readers of that table share (§5.11a). Handing it what to apply keeps it
+	the one builder; narrowing here would make this a second place a feed's statement is
+	assembled, and the two would agree until somebody changed one.
+
+	**And no workspace in the chain, which is the substantive difference.** A listing is always
+	inside one workspace and reads its dates in that workspace's zone. `/v1/changes` answers
+	across every workspace a caller can read, so there is no one workspace whose zone is the
+	right one — and taking whichever sorted first would read *yesterday* in a colleague's zone
+	without saying so. ``timezone_for`` takes ``None`` and the chain becomes user to instance.
+
+	A request that asked nothing narrows by nothing, so a caller passes the result on without
+	testing it first.
+	"""
+
+	return asked.narrowing(
+		subroutine.domain.filtering.Where(
+			now=subroutine.db.types.utcnow(),
+			timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
+			session=session,
+			caller=actor.user,
+			workspace_ids=workspace_ids,
+		)
+	)
+
+
 #: Declared on the listing rather than passed to it, so that a route accepting dotted names and
 #: a route refusing them differ by a line in the signature and nothing else. Each is its own
 #: alias because the entity is what decides which fields exist.
 TaskFilters = typing.Annotated[Asked, fastapi.Depends(Reader("task"))]
 DocumentFilters = typing.Annotated[Asked, fastapi.Depends(Reader("document"))]
 ProjectFilters = typing.Annotated[Asked, fastapi.Depends(Reader("project"))]
+
+#: What the change feed and the journal accept — `#1431`, decision `#1429`. Both routes declare
+#: it, because a period is the same question whichever of the two readings answers it.
+EventFilters = typing.Annotated[Asked, fastapi.Depends(Reader("event"))]

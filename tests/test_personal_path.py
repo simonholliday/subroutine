@@ -7570,7 +7570,15 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`~subroutine.cli.personal._shown_item`. **The ratchet fired first and named the
 #: remedy** — the closure was 22 lines over before any of them moved, and the message said
 #: where a command's body belongs.
-REGISTER_CEILING = 1_649
+#:
+#: **And an eighth, on an option rather than a command** (`SR#1431`). ``changes`` grew
+#: ``--filter``, which is sixteen lines and took the closure sixteen over — so the bill a
+#: ratchet sends for a *new command* arrives for an option on an existing one too, in smaller
+#: instalments and just as certainly. Its body left as
+#: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
+#: ratchet fired before anything moved**; extracting the body rather than trimming the option is
+#: what makes the next option on that command free.
+REGISTER_CEILING = 1_626
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.

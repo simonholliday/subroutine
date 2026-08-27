@@ -145,7 +145,12 @@ def test_every_filter_it_publishes_is_one_the_endpoint_accepts (
 
 	listings = world.call("GET", "/v1/meta").json()["listings"]
 
-	assert set(listings) == {"task", "document", "project"}
+	# **Which entities, read off the table that publishes them.** This was a literal of three
+	# and the fourth broke it — reporting a set difference rather than anything about whether
+	# the endpoint accepts what it advertises, which is what this test is for. A second copy of
+	# a list the application already declares is the defect this codebase meets most.
+	assert set(listings) == {entity for entity, *_rest in subroutine.api.meta.LISTINGS}
+	assert len(listings) > 3, "the published table shrank; is a listing no longer discoverable?"
 	assert listings["task"]["path"] == "/v1/tasks"
 	assert {"project", "status", "q", "include_completed"} <= set(listings["task"]["filters"])
 

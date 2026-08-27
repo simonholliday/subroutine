@@ -749,6 +749,7 @@ class Client(typing.Protocol):
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
+		dated: typing.Mapping[str, str] | None = None,
 	) -> Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
@@ -764,6 +765,12 @@ class Client(typing.Protocol):
 		and this is not a defect to be worked around: a sequence number becomes visible at
 		commit rather than at insert, so reporting the newest instantly is how a change ends up
 		behind a cursor that has already passed it.
+
+		``dated`` is §9.6's dotted filters as somebody wrote them — ``created_at.gte`` against
+		``yesterday`` — and answers the question a cursor cannot (`#1431`, decision `#1429`).
+		**A period and a cursor are different questions and both are kept**: ``since`` resumes
+		and is inclusive-with-dedupe, a range is a statement about a period and is not
+		resumable. Somebody asking *what did we do on Friday* has no cursor to offer.
 		"""
 
 	def projects (

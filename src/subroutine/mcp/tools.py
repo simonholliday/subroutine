@@ -1009,7 +1009,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"What has changed since you last looked, oldest first. Ask at the start of a "
 				"session: nothing here tells you when your own knowledge went stale. Pass the "
 				"seq of the last event you saw back as 'since' — it is inclusive, so you will "
-				"see that one again."
+				"see that one again. For a period rather than a resume, use 'filter'."
 			),
 			schema={
 				"type": "object",
@@ -1022,6 +1022,12 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"type": "boolean",
 						"description": "Only what this credential itself did.",
 					},
+					# **A period, which `since` cannot express** (`#1431`). A cursor resumes; a
+					# range is a statement about a time and is not resumable, so an agent asked
+					# *what happened yesterday* has no number to offer. Same object as the
+					# listing's, because it is the same grammar and a second spelling here would
+					# be one an agent has to learn twice.
+					"filter": DATE_FILTER,
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
 					"workspace": WORKSPACE,
 				},
@@ -1412,6 +1418,9 @@ def _changed (
 		newest=since is None,
 		workspace=_text(arguments, "workspace"),
 		limit=DEFAULT_LIMIT if given is None else given,
+		# Read by the same function the listing uses, so a value of the wrong shape is
+		# refused once and the field names stay the instance's to know (`#1431`).
+		dated=_filters(arguments),
 	)
 
 	# **Said whether or not anything changed, and that is the point** (`#1085`). A credential

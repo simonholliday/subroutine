@@ -357,12 +357,33 @@ PROJECT_FILTERS: dict[str, Filterable] = _instants(
 	updated_at=subroutine.db.models.project.Project.updated_at,
 )
 
+#: What the change feed and the journal can be asked about — `#1431`, decision `#1429`.
+#:
+#: **One field, and it is the only one an event has of its own.** Everything else a reader
+#: wants to narrow by — which project, which item — is a property of the thing the event is
+#: *about*, and reaching it means a join this registry has no way to express. That is filed
+#: separately rather than bent into a `Filterable`.
+#:
+#: **The index this registry's head demands already exists.** `ix_event_workspace_id_created_at`
+#: was added by `#815` for `touched_at`, whose `EXISTS` asks this table the same question from
+#: the other side — so a date range over the feed reaches a real index on the day it ships,
+#: which is rarer here than it should be.
+#:
+#: **`seq` is deliberately not filterable.** `?since=` already takes one and means something
+#: stronger: it is a *resumable cursor* with inclusive-with-dedupe semantics (§5.11), where a
+#: filter would be an ordinary comparison. Two spellings of one number, one of which quietly
+#: loses the resume guarantee, is the shape `#1017` warns about.
+EVENT_FILTERS: dict[str, Filterable] = _instants(
+	created_at=subroutine.db.models.activity.Event.created_at,
+)
+
 #: Every registry, by the entity name a refusal uses. Named here so `/v1/meta` publishes them
 #: from the same place the listings read them, rather than from a second list that agrees today.
 FILTERS: dict[str, dict[str, Filterable]] = {
 	"task": TASK_FILTERS,
 	"document": DOCUMENT_FILTERS,
 	"project": PROJECT_FILTERS,
+	"event": EVENT_FILTERS,
 }
 
 def names (entity: str) -> frozenset[str]:
@@ -404,14 +425,22 @@ def about (names: typing.Iterable[str], field: str) -> bool:
 def timezone_for (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,
-	workspace: subroutine.db.models.identity.Workspace,
+	workspace: subroutine.db.models.identity.Workspace | None,
 ) -> str:
 	"""Return the zone a listing's dates are read in: §6.5's chain, assembled once.
 
-	**One function because there are three callers and being wrong is invisible.** A day read
+	**One function because there are five callers and being wrong is invisible.** A day read
 	in the wrong zone is right in winter and wrong in summer (`#773`), and the HTTP listing,
 	the local client's tasks and its documents would otherwise each assemble this — which is
 	this codebase's signature defect on the one rule with no visible symptom.
+
+	**``None`` is for a feed, and it is a step omitted rather than a step guessed at** (`#1431`).
+	A listing is always inside one workspace; `/v1/changes` deliberately answers across every
+	workspace a caller can read, so there is no workspace whose zone would be the right one —
+	and taking whichever happened to be in hand would read *yesterday* in a colleague's zone
+	depending on which workspace sorted first. The chain is then user to instance, which is
+	`#1091`'s reasoning for `views.reader_zone` reached through the function that already owns
+	the chain rather than by a second assembly of it.
 	"""
 
 	return subroutine.domain.schedule.zone_for(
