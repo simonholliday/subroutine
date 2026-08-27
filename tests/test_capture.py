@@ -20,6 +20,7 @@ import pytest
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.projects
+import subroutine.domain.recurrence
 
 #: Thursday 30 July 2026. Sunday is the 2nd of August; next Friday is the 7th.
 NOW = datetime.datetime(2026, 7, 30, 14, 0, tzinfo=datetime.UTC)
@@ -684,6 +685,81 @@ def test_a_bare_day_plans_only_at_the_end_of_the_line (
 	"""
 
 	assert _parse(text).starts_at == planned
+
+
+@pytest.mark.parametrize(
+	("text", "repeat"),
+	[
+		# **The line that produced the defect**, filed on 2026-08-27 while building the
+		# roadmap. It became a daily repeating task due today, in two rows, with the words
+		# gone from the title.
+		("A view somebody uses every day can be saved and shared", None),
+		("Ask whether every month is too often", None),
+		("Water the plants every 14 days on friday, then rest", None),
+		# **And everything that must go on working.** Nothing unclaimed follows any of these:
+		# a sigil, a deadline phrase and a time are all on their way out of the title, which
+		# is `_BARE_DAY`'s own argument about a trailing `!3`.
+		("Buy milk every day", "every day"),
+		("Pay the rent every month !3 #home", "every month"),
+		("Water the plants every 14 days by friday", "every 14 days"),
+		("Water the plants every 14 days on friday", "every 14 days"),
+		("Review every month on the 30th", "every month on the 30th"),
+		# **A sentence that ends**, which is the reason the allowance is punctuation and not
+		# only whitespace — measured, because `every 14 days.` is never read as a repeat at
+		# all and the obvious probe cannot reach this.
+		("Water the plants every 14 days on friday.", "every 14 days"),
+	],
+)
+def test_a_repeat_is_read_only_where_nothing_unclaimed_follows_it (
+	text: str, repeat: str | None
+) -> None:
+	"""`SR#1401`: §6.13's rule for a bare day, applied to the grammar that shipped after it.
+
+	That rule is settled and written down — *a bare ``today``/``tomorrow`` plans only as the
+	last token of the line, measured after the sigils are removed* — and its reason is this
+	one exactly: *mid-sentence these words are almost always prose, and reading one as a field
+	both sets a date nobody asked for and takes a word out of the title*. ``every …`` was M7
+	and never inherited it.
+
+	**Worse than a mangled title, because a repeat is two rows** (`SR#1247`). One careless
+	line made two items, the one shown was not the one that governs, and undoing it took two
+	deletes in an order `SR#1294` decides.
+
+	**The claimed/unclaimed distinction is the whole of it**, which is why the check runs
+	after every other rule rather than beside the repeat pass: a deadline, a time and a sigil
+	all follow a repeat legitimately, and a rule written earlier would have refused all three.
+	"""
+
+	assert _parse(text).recurrence_text == repeat
+
+
+def test_a_repeat_left_mid_sentence_is_not_reported_as_unreadable () -> None:
+	"""And the reason is told apart from the other one — `SR#1401`.
+
+	A phrase this grammar cannot read and one it read out of the middle of a sentence are
+	**textually identical**, so nothing about the token separates them. Offering *try 'every
+	day', 'every 14 days'…* to somebody who never wanted a repeat is a refusal asserting a
+	cause it has not established — and that hint is the whole content of the other message.
+
+	:func:`subroutine.domain.capture.explain` asks :func:`_repeat_in`, which is the function
+	:func:`parse` used to decide, so this is one description of what a repeat looks like
+	rather than two.
+	"""
+
+	mid = _parse("A view somebody uses every day can be saved and shared")
+	unreadable = _parse("Review the logs every fortnight")
+
+	assert mid.unparsed == ("every day",)
+	assert unreadable.unparsed == ("every fortnight",)
+
+	said = subroutine.domain.capture.explain(mid.unparsed) or ""
+	other = subroutine.domain.capture.explain(unreadable.unparsed) or ""
+
+	assert "words follow it" in said, said
+	assert subroutine.domain.recurrence.PHRASE_HINT not in said, (
+		f"a writer who never wanted a repeat is told how to phrase one:\n{said}"
+	)
+	assert subroutine.domain.recurrence.PHRASE_HINT in other, other
 
 
 def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> None:

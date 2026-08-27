@@ -2426,9 +2426,23 @@ def test_whoami_says_when_this_machine_is_not_where_your_days_are_read (
 
 	answer = run("whoami").output
 
-	assert "Your days are read in Pacific/Auckland" in answer, answer
+	assert "Days for si are read in Pacific/Auckland" in answer, answer
 	assert "this machine is set to" in answer, answer
 	assert "subroutine user timezone" in answer, "the remedy is named rather than implied"
+
+	# **The account, never a pronoun** (`SR#1297`). This read *"Your days are read in …"*, and
+	# on a machine whose credential belongs to an agent that sentence is about the agent while
+	# the person reading it takes it as being about themselves. Measured on the served
+	# instance: `user timezone Europe/London` was run twice, reported as succeeding twice, and
+	# set an agent's account both times — the reader's own still said `Etc/UTC`.
+	assert "Your days" not in answer, (
+		f"a surface saying 'you' on the strength of a credential confirms the wrong "
+		f"account:\n{answer}"
+	)
+	assert "sets it for si" in answer, (
+		f"and the remedy has to say whose zone it will set, because that is the half that "
+		f"was believed:\n{answer}"
+	)
 
 
 def test_whoami_reports_the_plugin_that_started_it (

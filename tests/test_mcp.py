@@ -2883,10 +2883,27 @@ def test_both_surfaces_word_it_the_same_way () -> None:
 	assert only is not None
 	assert "every monday" in only
 
-	several = subroutine.domain.capture.explain(("every monday", "every 3rd"))
+	# **Tokens sharing a reason are joined into one clause.** Both of these are phrases the
+	# grammar cannot read at all, which is what puts them in the same sentence.
+	several = subroutine.domain.capture.explain(("every fortnight", "every 3rd"))
 
 	assert several is not None
-	assert "every monday, every 3rd" in several
+	assert "every fortnight, every 3rd" in several
+
+	# **And two reasons are two clauses, which this pair used to hide** (`SR#1401`). It was
+	# `("every monday", "every 3rd")` — one phrase the grammar reads and one it does not, so
+	# once *read out of the middle of a sentence* became a separate reason they stopped
+	# belonging in one sentence. Offering *try 'every day', 'every 14 days'…* to somebody who
+	# never wanted a repeat is a refusal asserting a cause it has not established, so the two
+	# must not be merged back to keep this shape.
+	mixed = subroutine.domain.capture.explain(("every monday", "every 3rd"))
+
+	assert mixed is not None
+	assert "every monday" in mixed
+	assert "every 3rd" in mixed
+	assert "every monday, every 3rd" not in mixed, (
+		f"one clause for two different reasons, so one of them is wrong:\n{mixed}"
+	)
 
 
 def test_a_page_of_nothing_is_refused_rather_than_answered_with_twenty (
@@ -6534,3 +6551,112 @@ def test_changing_a_task_says_what_changed_not_only_what_it_now_is (
 	assert day in shown, (
 		f"the echo said {day!r} and the item does not agree:\n{shown}"
 	)
+
+
+def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#842`, §8.9, on the surface where the other writer is not in the room.
+
+	**A revision is a whole-body replace**, so a lost update here takes every paragraph
+	somebody else added rather than one field — and nothing afterwards records that they
+	existed. The browser has sent `expected_version` on a revision since `SR#761`, arguing in
+	its own comment that *it matters more here than on a task*; the terminal and this surface
+	were the two that could not.
+
+	**It was blocked on a byte cap that no longer exists.** `SR#842` was filed on 2026-08-12
+	reading *"roughly 90 bytes against 55 of headroom — so it needs the cap raised"*, and Simon
+	retired the byte cap on 2026-08-23 (`SR#1124` Q3). What survives is a cap on the *count* of
+	tools, which an argument on an existing one does not touch. An open ticket is a claim about
+	the world, and this one's stated prerequisite had expired.
+
+	**The ratchet's test, answered** (§21.2): not *is there room* but *what would an agent get
+	wrong without it?* Without it, an agent revising a document it read two calls ago destroys
+	whatever landed in between, is told the write succeeded, and has no way to find out.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="A conclusion", body="First thoughts."
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	ref = int(numbered.group(1))
+
+	# What the agent read, and the version it read it at.
+	first, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, first
+
+	# Somebody else revises it in between — unguarded, because they read it after the agent did.
+	between, failed = _called(
+		bound, "subroutine_document", ref=ref, body="Their careful paragraphs."
+	)
+
+	assert not failed, between
+
+	stale, failed = _called(
+		bound,
+		"subroutine_document",
+		ref=ref,
+		body="Mine, written from the old text.",
+		expected_version=1,
+	)
+
+	assert failed, f"the agent's stale revision was accepted:\n{stale}"
+
+	kept, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert "Their careful paragraphs." in kept, kept
+
+	# **And the guard is opt-in, which §8.9 requires**: `None` means *did not ask*, never
+	# *asked and passed*. An agent that omits it writes exactly as it did before, so nothing
+	# that has been calling this tool since `SR#822` starts failing.
+	current, failed = _called(
+		bound, "subroutine_document", ref=ref, body="Sent without a version."
+	)
+
+	assert not failed, current
+
+
+def test_a_version_that_is_not_a_number_is_refused_rather_than_dropped (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#842`. Dropping it silently is the failure §8.9 exists to prevent.
+
+	A caller that sends a version and has it ignored believes the write was guarded when it was
+	not — worse than never offering the guard, because it converts a real protection into a
+	false one. And the schema saying ``integer`` is not enough on its own: over HTTP pydantic
+	coerces, where the local client is handed the value as it stands, so the two transports
+	would otherwise disagree about which values count.
+	"""
+
+	written, failed = _called(
+		bound, "subroutine_document", title="A conclusion", body="First thoughts."
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	ref = int(numbered.group(1))
+
+	# **The spelling a model actually sends**, which is the string form of what it just read.
+	guarded, failed = _called(
+		bound, "subroutine_document", ref=ref, body="Stale.", expected_version="1"
+	)
+
+	assert failed, f"'1' was dropped rather than read as a version:\n{guarded}"
+
+	nonsense, failed = _called(
+		bound, "subroutine_document", ref=ref, body="Stale.", expected_version="soon"
+	)
+
+	assert failed, f"an unreadable version was dropped rather than refused:\n{nonsense}"
+	assert "version" in nonsense.lower(), nonsense

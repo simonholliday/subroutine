@@ -11,10 +11,12 @@ is. The error classes themselves stay ignorant of frameworks so the CLI can repo
 same failures without one.
 """
 
+import dataclasses
 import logging
 import typing
 
 import fastapi
+import fastapi.dependencies.utils
 import fastapi.exceptions
 import sqlalchemy.exc
 import starlette.exceptions
@@ -80,6 +82,12 @@ def respond (
 			hint="Send less in one request — a listing takes 'limit', and a document's body "
 			"is the one field that is meant to be long.",
 		)
+
+	# **Said here because this is the one place every problem document is built** (`#1315`).
+	# A field error can be raised by the domain, which does not know a transport, or by
+	# Pydantic, which has already named the location it read — and both arrive through this
+	# function with the matched route in hand.
+	error.errors = _where_it_goes(request, error.errors)
 
 	response = starlette.responses.JSONResponse(
 		status_code=error.status,
@@ -432,6 +440,78 @@ def body_fields (route: typing.Any) -> tuple[str, ...]:
 		return ()
 
 	return tuple(sorted(str(name) for name in fields))
+
+
+def query_parameters (route: typing.Any) -> tuple[str, ...]:
+	"""Return the names a route reads from the query string.
+
+	Read the same way :func:`body_fields` reads the other half, and from the same resolved
+	route, so the two answers are about one endpoint and cannot describe different ones.
+
+	The dependency tree is flattened first, because a name declared inside a shared
+	dependency is still a name the caller writes in the query string — and every listing
+	here gets its filters that way.
+	"""
+
+	dependant = getattr(route, "dependant", None)
+
+	if dependant is None:
+		return ()
+
+	return tuple(
+		sorted(str(parameter.name) for parameter in fastapi.dependencies.utils.get_flat_params(dependant))
+	)
+
+
+def _where_it_goes (
+	request: starlette.requests.Request, fields: typing.Sequence[subroutine.errors.FieldError]
+) -> tuple[subroutine.errors.FieldError, ...]:
+	"""Qualify a refused field name that names a query parameter rather than a body field.
+
+	`#1315`. ``workspace_id`` is a query parameter on 55 routes and a body field on three, and
+	the domain that raises the ambiguous-workspace refusal knows neither — it is raised below
+	the transport and read on two of them (`#547`). So it names the field bare, which in this
+	API is the spelling for *a field of the body*: a caller who did what it said was refused a
+	second time by ``unknown_field``, having spent a round trip finding out.
+
+	``query.limit`` is already what a caller sees when Pydantic refuses a query parameter, so
+	this applies one existing convention to the other source of field errors rather than
+	inventing a second. It is **derived per route** and never a rename of one word: on ``POST
+	/v1/tasks`` the same refusal about the same parameter must stay bare, because that endpoint
+	takes ``workspace_id`` in the body and takes no query parameters at all.
+
+	**An endpoint with no body at all is left alone, and that is the whole of the
+	narrowing.** A bare name is ambiguous only where there is somewhere else to put it: on
+	``GET /v1/tasks?include=nonsense`` a caller cannot misfile ``include`` into a body,
+	because there is not one. Measured — it reaches 15 routes of 103 and changes no refusal
+	any test had pinned. Widening it further would rename fifteen more published refusals
+	that nobody has been misled by, and three readers match on these names to translate them:
+	``TERMINAL_FIELD_NAMES``, ``TERMINAL_REMEDIES`` and MCP's ``_as_this_tool_calls_it``.
+	That is `#1404`, filed rather than taken in a release week.
+
+	A name already carrying a location is left alone, so a refusal that has been through
+	:func:`_field_name` cannot come out ``query.query.limit``. A name the route takes *both*
+	ways is left alone too — there is no such parameter today, and guessing which half a
+	caller meant would be the mistake this exists to stop.
+	"""
+
+	route = request.scope.get("route")
+	body = set(body_fields(route))
+
+	if not body:
+		return tuple(fields)
+
+	in_query = set(query_parameters(route)) - body
+
+	if not in_query:
+		return tuple(fields)
+
+	return tuple(
+		dataclasses.replace(field, field=f"query.{field.field}")
+		if field.field in in_query
+		else field
+		for field in fields
+	)
 
 
 def _accepted_field_names (request: starlette.requests.Request) -> tuple[str, ...]:

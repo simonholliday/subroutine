@@ -5235,6 +5235,22 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					if supersedes == UNGIVEN_NUMBER
 					else supersedes
 				),
+				# **Sent only when this command is replacing the body, and that is the whole
+				# of the rule** (`#842`, §8.9). A revision is a whole-body replace, so a lost
+				# update here takes every paragraph the other writer added, with no record
+				# that they existed — where a lost update on a task takes one field.
+				#
+				# **The version is one this invocation genuinely showed somebody.** It was
+				# read seconds or minutes ago by `_a_document` above, and in the editor path
+				# it is the id of the exact text they have been editing. §8.9 is opt-in
+				# because `None` means *did not ask* rather than *asked and passed*, and
+				# refusing somebody for a version they never saw would be `#755`'s
+				# quick-status argument in reverse — which is why a field-only edit is not
+				# guarded. `subroutine doc edit 42 --title "…"` changes a title and puts no
+				# body at stake, so it goes on working while somebody else is writing.
+				expected_version=(
+					document.version if revised is not subroutine.clients.base.UNSET else None
+				),
 			)
 
 			if json_output:
@@ -8473,6 +8489,10 @@ def _render (
 	# **What simply went by** (decision `#1235` §3), summed for `later`'s reason. Not a decision
 	# anybody took and not an edge of the window: a day that has been.
 	gone = sum(answer.value.passed_total for answer in gathered.answers)
+	# **Somebody else's work**, summed for `later`'s reason (`#1265`). The only exclusion here
+	# that is about a person rather than a date, and the only one whose remedy is a
+	# conversation rather than a command.
+	theirs = sum(answer.value.assigned_elsewhere_total for answer in gathered.answers)
 	# **The second capped bucket, counted for the first one's reason** (`#1285`). A cap must
 	# say it is one, count what is hidden and offer a way to see it all.
 	held_up = sum(
@@ -8613,6 +8633,15 @@ def _render (
 	if gone > 0:
 		console.print(
 			rich.text.Text(f"      and {gone} already past", style=DETAIL)
+		)
+
+	# **Last of the six, because it is the one the reader cannot act on alone** (`#1265`,
+	# decision `#1267` §1). Every line above names work that is the reader's, held back by a
+	# date or a decision they took; this names work that is somebody else's, and it is here so
+	# that an empty agenda on a team instance can be told from an idle one.
+	if theirs > 0:
+		console.print(
+			rich.text.Text(f"      and {theirs} assigned to somebody else", style=DETAIL)
 		)
 
 	if first is None:

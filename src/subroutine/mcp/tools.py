@@ -849,6 +849,13 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"items": {"type": "string"},
 						"description": "Labels, without the '#'. The same tags tasks use.",
 					},
+					"expected_version": {
+						"type": "integer",
+						"description": (
+							"Refuse the revision if the document has changed since you read "
+							"it. Send the version subroutine_show gave you."
+						),
+					},
 					"workspace": WORKSPACE,
 				},
 			},
@@ -1600,6 +1607,21 @@ def _listed (
 			rows = [
 				*rows,
 				f"{agenda.paused_total} in projects nobody is running.",
+			]
+
+		# **The sixth, and the one an agent most needs told** (`#1265`, decision `#1267` §1).
+		# An agenda is one person's, so an agent reading its own sees only work assigned to it,
+		# unassigned work, and what it holds — and *nothing on today* would otherwise be
+		# indistinguishable from *the whole backlog belongs to somebody else*. §14.1's rule
+		# again: an agent that cannot see the gap picks up the wrong thing.
+		#
+		# **It names the way to see them**, which is the filter this project already publishes
+		# (`#518`) rather than an invented one.
+		if agenda.assigned_elsewhere_total > 0:
+			rows = [
+				*rows,
+				f"{agenda.assigned_elsewhere_total} assigned to somebody else. "
+				f"List with assignee set to their username.",
 			]
 
 		# **Emptiness is decided from the buckets, not from what has accumulated** (`#1306`).
@@ -2725,6 +2747,18 @@ def _wrote (
 		project=said("project"),
 		tags=subroutine.clients.base.UNSET if tags is None else tags,
 		workspace=workspace,
+		# **The one surface where a lost update takes a whole document** (`#842`, §8.9).
+		# A revision is a whole-body replace, so what is lost is not a field — it is every
+		# paragraph the other writer added, with no record that they existed. The browser
+		# has sent this since `#761` and said in its own comment that *it matters more here
+		# than on a task*; this surface is the one where the other writer is not in the
+		# room and nothing is visible afterwards, which is what `#598` and `#705` are about.
+		#
+		# **Opt-in, and that is not a weakness here** (§8.9): ``None`` means *did not ask*,
+		# never *asked and passed*. An agent that read the document has the version in the
+		# same answer and loses nothing by sending it; one that did not is writing a
+		# document it never read, which is a different mistake.
+		expected_version=_version(arguments),
 	)
 
 	# **A revision consults no marker, deliberately.** Omitted means unchanged (§8.3), so a
@@ -2884,6 +2918,34 @@ def _ref (arguments: dict[str, typing.Any], *, field: str = "ref") -> int:
 		raise ValueError(f"{given!r} is not an item number.")
 
 	return found
+
+
+def _version (arguments: dict[str, typing.Any]) -> int | None:
+	"""Return the version a caller is writing against, or ``None`` for *did not ask* — `#842`.
+
+	**Coerced rather than trusted, for :func:`_ref`'s reason.** The schema says ``integer`` and
+	a model that has just read ``version: 3`` off a listing may still send ``"3"`` — this
+	surface has been shown to send back the notation it was given. Over HTTP pydantic would
+	coerce it; the local client is handed the value as it stands, so the two transports would
+	otherwise disagree about a guard whose whole job is to be reliable.
+
+	**A value that is not a number is refused rather than dropped**, because dropping it
+	silently is precisely the failure §8.9 exists to prevent: the caller believes the write was
+	guarded and it was not.
+	"""
+
+	given = arguments.get("expected_version")
+
+	if given is None or isinstance(given, bool):
+		return None
+
+	try:
+		return int(given)
+
+	except (TypeError, ValueError):
+		raise ValueError(
+			f"{given!r} is not a version. Send the number 'version' in what you read."
+		) from None
 
 
 def _account_zone (client: subroutine.clients.base.Client, workspace: str | None) -> str:

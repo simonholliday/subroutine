@@ -389,10 +389,30 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# place, rather than by a second description of what a repeat looks like.
 	said = [one for one in unparsed if one.startswith("+")]
 	rest = [one for one in unparsed if not one.startswith("+")]
-	repeats = [one for one in rest if _EVERY.match(one)]
+	every = [one for one in rest if _EVERY.match(one)]
 	timed = [one for one in rest if not _EVERY.match(one)]
 
+	# **Two reasons a repeat is left as written, told apart by asking the function that
+	# decided** (`#1401`). A phrase this grammar cannot read and one it read out of the middle
+	# of a sentence are textually identical, so nothing about the token separates them — and
+	# offering the *phrase this* hint for a sentence that was never meant as a repeat is a
+	# refusal asserting a cause it has not established.
+	#
+	# **Read back off the token rather than carried in a second field**, which is the rule
+	# this module already states about ``unparsed``: a second field would have to be widened
+	# through ``clients.base.Captured`` and both transports before either reporting surface
+	# could see it. :func:`_repeat_in` is the same function :func:`parse` used, so this is
+	# one description of what a repeat looks like rather than two.
+	mid = [one for one in every if _repeat_in(one) is not None]
+	repeats = [one for one in every if _repeat_in(one) is None]
+
 	clauses = []
+
+	if mid:
+		clauses.append(
+			f"Left as written: {', '.join(mid)} — read as part of the sentence rather than "
+			f"as a repeat, because words follow it. Put it at the end to make it one."
+		)
 
 	if repeats:
 		# **The reason changed when the feature landed** (`#94`). It said *"recurring tasks are
@@ -519,6 +539,10 @@ def parse (
 	# 30th` being read as one — and since `#94` the phrase is *read* rather than only reserved,
 	# so the words leave the title when they became a rule and stay in it when they did not.
 	reserved: list[tuple[int, int]] = []
+	#: Where each repeat that *was* read landed, so :func:`_mid_sentence` can ask afterwards
+	#: whether anything unclaimed follows it. Recorded here because this is the only place
+	#: those spans exist, and a second list built later would be a second copy to keep in step.
+	repeated: list[tuple[int, int]] = []
 
 	for match in _EVERY.finditer(text):
 		read = _repeat_in(match.group(0))
@@ -542,6 +566,7 @@ def parse (
 		# its deadline.
 		start, _end = match.span()
 		claimed.append((start, start + len(words)))
+		repeated.append((start, start + len(words)))
 
 	before = len(claimed)
 
@@ -581,6 +606,18 @@ def parse (
 	if at is not None and not used:
 		claimed.remove(at[1])
 		unparsed.append(text[at[1][0]:at[1][1]])
+
+	# **A repeat is read only where nothing unclaimed follows it** (`#1401`), which is §6.13's
+	# existing rule for a bare ``today`` applied to the grammar that shipped after it — see
+	# :func:`_mid_sentence`. Run here because *unclaimed* is only knowable once every other
+	# rule has taken what it wanted: `every 14 days by friday` keeps both.
+	for span in _mid_sentence(text, claimed, repeated):
+		claimed.remove(span)
+		unparsed.append(text[span[0]:span[1]])
+
+		if fields.get("recurrence_text") == text[span[0]:span[1]]:
+			fields.pop("recurrence", None)
+			fields.pop("recurrence_text", None)
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
@@ -1023,6 +1060,52 @@ def _repeat_in (phrase: str) -> tuple[str, str] | None:
 		return read, candidate
 
 	return None
+
+
+#: What may sit between a repeat and the end of the line without making it mid-sentence.
+#: Whitespace, and the punctuation somebody ends a sentence with — the same allowance
+#: :data:`_BARE_DAY` makes with ``[.!?]*\s*$``, written as a set here because this checks a
+#: slice rather than matching a pattern. A comma is **not** in it: *every day, and bread* has
+#: prose after the repeat, which is exactly what this is looking for.
+_ENDS_A_LINE = " \t\r\n.!?"
+
+
+def _mid_sentence (
+	text: str,
+	claimed: typing.Sequence[tuple[int, int]],
+	repeated: typing.Sequence[tuple[int, int]],
+) -> list[tuple[int, int]]:
+	"""Return the repeats that were read out of the middle of a sentence — `#1401`.
+
+	**§6.13's rule for a bare day, applied to the grammar that shipped after it.** That rule
+	is written down and settled: *a bare ``today``/``tomorrow`` plans only as the last token
+	of the line, measured after the sigils are removed* — because *mid-sentence these words
+	are almost always prose, and reading one as a field both sets a date nobody asked for and
+	takes a word out of the title*. ``every …`` was M7 and did not inherit it, so filing *"A
+	view somebody uses every day can be saved and shared"* produced a **daily repeating task
+	due today** with the words gone from the title, in two rows because a repeat is two rows
+	(`#1247`).
+
+	**Not a narrowing of the grammar.** *Buy milk every day* goes on working, and so does
+	every phrase with only claimed text after it: `every 14 days by friday` keeps its
+	deadline, `every month +home !3` keeps its sigils, and `Standup every weekday at 9am`
+	keeps its time. That is the whole reason this runs last rather than beside the repeat
+	pass — *unclaimed* is not knowable until every other rule has taken what it wanted, and a
+	check written earlier would have refused all three.
+
+	**Blanking rather than slicing, for :func:`_collect_bare_days`' reason**: every span
+	recorded addresses the original text, so the offsets have to survive.
+
+	The asymmetry with a leading *Every day, buy milk* is inherited rather than chosen —
+	``_BARE_DAY`` has read *Buy milk tomorrow* and not *Tomorrow buy milk* since the grammar
+	existed, and one rule reading both ways would be two rules.
+	"""
+
+	blanked = _blanked(text, claimed)
+
+	return [
+		span for span in repeated if blanked[span[1]:].strip(_ENDS_A_LINE)
+	]
 
 
 def _as_date (

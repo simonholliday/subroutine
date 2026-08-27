@@ -207,6 +207,10 @@ AGENT_SAYS_EACH_TOTAL = {
 	# their remedy is the same one, so two lines would be a distinction an agent cannot act on.
 	"unscheduled_total": "more not shown",
 	"blocked_by_others_total": "more not shown",
+	# **The sixth, and the only exclusion that is about a person** (`SR#1265`, decision
+	# `SR#1267` §1). An agenda is one person's; every other view of the same place answers
+	# everybody the same, so a listing beside it holds these rows and this page does not.
+	"assigned_elsewhere_total": "assigned to somebody else",
 }
 
 #: Which totals count a bucket that is *on the page*, and the bucket each of them caps.

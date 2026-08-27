@@ -4756,7 +4756,7 @@ export function Row ({
 }
 
 export function Agenda ({
-	buckets, more, heldUp = 0, later = 0, deferred = 0, paused = 0, gone = 0,
+	buckets, more, heldUp = 0, later = 0, deferred = 0, paused = 0, gone = 0, theirs = 0,
 	where, onAdd, onOpen,
 	onComplete, busy,
 	adding,
@@ -4852,6 +4852,11 @@ export function Agenda ({
 		   scope still shows a passed event, because it is not *completed*, so the difference
 		   between the two views is said rather than left to be found. */
 		{ count: gone, said: `${gone} already past` },
+		/* **The sixth, and the only one about a person rather than a date** — `#1265`,
+		   decision `#1267` §1. An agenda is one person's and no other view here is, so a
+		   listing at this scope still draws every one of these rows. Last, because it is the
+		   one line a reader cannot act on alone. */
+		{ count: theirs, said: `${theirs} assigned to somebody else` },
 	].filter((one) => one.count > 0);
 
 	/*
@@ -7027,6 +7032,9 @@ export function App () {
 	const [deferred, setDeferred] = useState(0);
 	const [paused, setPaused] = useState(0);
 	const [gone, setGone] = useState(0);
+	/* Work of somebody else's, which this page is narrowed away from and a list is not
+	   (`#1265`). */
+	const [theirs, setTheirs] = useState(0);
 	/*
 		The add form: whether it is open, and the two answers it needs to draw its dropdowns
 		(`#756`).
@@ -7187,6 +7195,7 @@ export function App () {
 		setDeferred(answered.deferred_total || 0);
 		setPaused(answered.paused_total || 0);
 		setGone(answered.passed_total || 0);
+		setTheirs(answered.assigned_elsewhere_total || 0);
 	}, []);
 
 	const load = useCallback(async (slug, key = null, after = null) => {
@@ -9172,7 +9181,7 @@ export function App () {
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} heldUp=${heldUp}
 						later=${later}
-						deferred=${deferred} paused=${paused} gone=${gone}
+						deferred=${deferred} paused=${paused} gone=${gone} theirs=${theirs}
 						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
 						onGo=${narrow}
 						${/* **What the address already said** (`#957` §4, `#1215`). The merged

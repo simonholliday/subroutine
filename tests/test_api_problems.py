@@ -21,6 +21,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.domain.versions
 import subroutine.errors
+import test_api_tasks
 
 
 class _Body(subroutine.api.schemas.RequestModel):
@@ -28,6 +29,13 @@ class _Body(subroutine.api.schemas.RequestModel):
 
 	title: str
 	importance: int | None = None
+
+
+@pytest.fixture
+def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
+	"""An installation reachable over HTTP, sharing the test's transaction."""
+
+	return test_api_tasks._world(session)
 
 
 @pytest.fixture
@@ -274,3 +282,50 @@ def test_the_local_client_calls_a_lost_update_a_conflict_too (
 	# And the broad clause still answers for everything else, which is what it is there for.
 	with pytest.raises(subroutine.errors.ServiceUnavailable), client._reported():
 		raise sqlalchemy.exc.OperationalError("SELECT 1", {}, Exception("gone away"))
+
+
+def test_the_ambiguous_workspace_refusal_says_where_the_parameter_goes (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#1315`. ``workspace_id`` is a query parameter on 55 routes and a body field on three.
+
+	The refusal named it bare, which is this API's spelling for *a field of the body* — so a
+	caller who did exactly what it said was refused a second time, by ``unknown_field``, and
+	had spent a round trip finding out. The field name is the only part of the message that
+	can carry this: `#547` establishes that the prose cannot, because the same refusal is
+	read on two transports that call the parameter two different names.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	refused = world.call("PATCH", "/v1/tasks/1", json={"title": "Renamed"})
+
+	assert refused.status_code == 422, refused.text
+
+	field = refused.json()["errors"][0]
+
+	assert field["code"] == "missing_field"
+	assert field["field"] == "query.workspace_id", refused.text
+
+
+def test_a_body_field_is_still_named_bare_where_the_endpoint_takes_one (
+	world: test_api_tasks.World,
+) -> None:
+	"""The other half, and the reason the fix is derived rather than a rename.
+
+	``POST /v1/tasks`` takes ``workspace_id`` in the body and takes **no query parameters at
+	all**, so a ``query.`` prefix there would send a caller somewhere the endpoint does not
+	read. Same refusal, same code, opposite answer — which is what makes the distinction a
+	property of the matched route rather than of the word.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	refused = world.call("POST", "/v1/tasks", json={"text": "Buy milk"})
+
+	assert refused.status_code == 422, refused.text
+
+	field = refused.json()["errors"][0]
+
+	assert field["code"] == "missing_field"
+	assert field["field"] == "workspace_id", refused.text

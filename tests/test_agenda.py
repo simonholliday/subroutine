@@ -571,6 +571,13 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 			+ agenda.deferred_total
 			+ agenda.paused_total
 			+ agenda.passed_total
+			# **The sixth, and this guard is what demanded it exist** (`SR#1265`, decision
+			# `SR#1267` §1). The assignee narrowing landed in `_scoped` and seven readable
+			# rows left the page with nothing saying so — 15 accounted against 22 listed,
+			# reported here before any surface had drawn it. The alternative on offer was to
+			# narrow `listed` by assignee too, which would have made the guard agree with
+			# the change by definition and blinded it to the next silent exclusion.
+			+ agenda.assigned_elsewhere_total
 		)
 
 		assert accounted == len(listed), (
@@ -1237,8 +1244,17 @@ def test_work_held_up_by_somebody_elses_item_gets_its_own_section (
 	agenda = world.agenda()
 
 	assert _titles(agenda.blocked_by_others) == ["My bit"]
-	assert _titles(agenda.unscheduled) == ["Their bit"], (
-		"the blocker is somebody else's work and belongs in the ordinary pile, not here"
+
+	# **The blocker is on nobody's agenda but its own assignee's** (`SR#1265`, decision
+	# `SR#1267` §1). Until the assignee rule landed this asserted `["Their bit"]` — the
+	# blocker sat in the reader's *Next* pile, ranked among the work they could pick up,
+	# which is the opposite of what this section says about it two lines above. One row,
+	# described two ways on one page.
+	assert _titles(agenda.unscheduled) == [], (
+		"somebody else's work is not offered to this reader as something to start"
+	)
+	assert agenda.assigned_elsewhere_total == 1, (
+		"and it is not silently gone either — a listing at this scope still holds it"
 	)
 
 

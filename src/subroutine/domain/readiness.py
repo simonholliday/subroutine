@@ -560,6 +560,48 @@ def unclaimed (
 	return sqlalchemy.or_(sqlalchemy.not_(live), model.claimed_by_id == by)
 
 
+def yours_to_act_on (
+	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching work one person's agenda is about — decision `#1267` §1.
+
+	Simon's rule, taken 2026-08-26 before a second human was added: **assigned to you, or
+	assigned to nobody, or held by you**. Named from the decision's own sentence — *a row
+	belongs on your agenda when it is yours to act on* — so the code and the decision cannot
+	drift into two vocabularies for one rule.
+
+	**The third clause is not optional and is the reason this is three clauses rather than
+	two.** The agenda's first bucket is *In progress* (`#1243`), so a rule keyed on the
+	assignee alone makes something you have already started vanish from your own agenda
+	because it carries somebody else's name — the one state where an agenda is most obviously
+	wrong. :func:`unclaimed` is the same argument one axis along: *your own claim does not
+	hide your own work*.
+
+	**The two axes stay separate** (`#726`): a claim and a status are two different facts and
+	neither is derived from the other. This joins them with ``or``; it does not conflate them.
+
+	**This is not ``assigned_to_me``, and the difference is deliberate** (decision `#1267`
+	§2). A calendar feed's ``audience`` already carries that word for ``assignee_id ==
+	owner_id`` — strictly assigned, and *not* including the unassigned pool. The two answer
+	different questions: a calendar asks *what am I on the hook for*, where two hundred
+	unassigned backlog items are not that; an agenda asks *what could I pick up*, where they
+	are exactly what it is for. One word covering both is this codebase's signature defect
+	arriving in vocabulary rather than in code, so they keep two.
+
+	**An expired lease does not count**, because :func:`held` is what *holding* means here and
+	nothing else in this module reads a claim any other way.
+
+	``user_id`` is required rather than defaulted, for :func:`ready`'s reason: a caller that
+	forgot it would silently hand somebody a different person's agenda.
+	"""
+
+	return sqlalchemy.or_(
+		model.assignee_id == user_id,
+		model.assignee_id.is_(None),
+		sqlalchemy.and_(held(model, now=now), model.claimed_by_id == user_id),
+	)
+
+
 def in_a_running_project (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching items whose project is actually running — `#983`.
 

@@ -288,10 +288,17 @@ def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
 	*and* the page must still get one: an implementation that stopped looking on reaching this
 	section would pass the first assertion and lose the tip on every day the section appears.
 
-	**The blocker itself is on this page**, which reads oddly and is correct today: the agenda
-	is not narrowed by assignee (`#1265` is that, and it is not built), so somebody else's item
-	is ordinary work here. What this refuses is `done` on the row the heading has just said
-	nobody can start.
+	**The blocker itself is no longer on this page, and that sentence used to say the
+	opposite** (`SR#1265`, decision `SR#1267` §1). It read *"the agenda is not narrowed by
+	assignee — `#1265` is that, and it is not built"*, which was true when it was written and
+	is a comment naming the item that would expire it. It has: an agenda is one person's now,
+	so Bob's row is off this page and counted as *assigned to somebody else* instead of
+	offered under *Next* as work to pick up.
+
+	**Which is why there is a third row.** The tip has to come from work the reader can
+	actually do, and with the blocker gone the fixture had none — so this would have passed
+	the first assertion and lost the second for a reason that has nothing to do with what it
+	guards.
 	"""
 
 	run("init")
@@ -300,6 +307,7 @@ def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
 
 	run("add", "Ship the release")
 	run("add", "Sign off the copy")
+	run("add", "Water the plants")
 	run("update", "2", "--assignee", "bob")
 	run("link", "2", "blocks", "1")
 
@@ -312,9 +320,17 @@ def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
 	assert "Tip: subroutine done 1" not in shown, (
 		f"the agenda advises finishing the one row it has just said nobody can start:\n{shown}"
 	)
-	assert "Tip: subroutine done 2" in shown, (
+	assert "Tip: subroutine done 3" in shown, (
 		f"it gave up at the blocked section instead of reading past it, so a day whose work "
 		f"sits below that heading loses the tip entirely:\n{shown}"
+	)
+	assert "Sign off the copy" not in shown, (
+		f"Bob's row is on this reader's agenda, which decision `SR#1267` §1 says it is "
+		f"not:\n{shown}"
+	)
+	assert "1 assigned to somebody else" in shown, (
+		f"and it left with nothing saying so, which is what `SR#649`'s amendment "
+		f"forbids:\n{shown}"
 	)
 
 
@@ -5700,6 +5716,87 @@ def test_a_document_can_be_revised_from_the_command_line (
 
 	assert "What we settled, and why" in shown
 	assert "First thoughts." in shown, "a title change must not touch the body"
+
+
+def test_a_revision_that_would_lose_somebody_elses_paragraphs_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#842`, §8.9, and the stakes are what make it a document rather than a task.
+
+	**`doc edit` is a whole-body replace**, so a lost update here does not take a field — it
+	takes every paragraph the other writer added, and leaves no record that they existed. The
+	browser has sent `expected_version` on a revision since `SR#761` and argued in its own
+	comment that *it matters more here than on a task*; the terminal was the surface that never
+	did, and an agent was the second.
+
+	**The version this sends is one the command genuinely showed somebody.** It is read
+	seconds or minutes before the write, and on the editor path it is the id of the exact text
+	they have been editing — so this is not §8.9 being turned on for a version nobody saw.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "First thoughts.")
+
+	# **The other writer arrives *inside* the editor session, which is the only window there
+	# is.** `doc edit --body` reads and writes in the same breath, so a second invocation
+	# after the first has finished is not a lost update at all — it is two writes in order,
+	# and a test built that way passes against unguarded code. What makes this the real thing
+	# is that the interleaving happens between the read and the write of one invocation.
+	#
+	# **The editor is stubbed here and is a real `sed` subprocess two tests below.** That one
+	# owns the round trip — text written out, result read back; this one owns the ordering,
+	# and a real editor cannot be made to revise a document halfway through.
+	terminal = _NoInput()
+	terminal.stdin = _ATerminal()
+	monkeypatch.setattr(subroutine.cli.personal, "sys", terminal)
+
+	def meanwhile (_program: typing.Any, _text: str) -> str:
+		"""Stand in for the editor, and let somebody else save first.
+
+		``--body`` rather than a pipe for the inner write: the outer command has already been
+		given a terminal for stdin, and reaching for one here would be the harness arguing
+		with itself rather than anything about the product.
+		"""
+
+		run("doc", "edit", "1", "--body", "Their careful paragraphs.")
+
+		return "Mine, written from the old text."
+
+	monkeypatch.setattr(subroutine.cli.personal, "_in_an_editor", meanwhile)
+
+	stale = run("doc", "edit", "1", expect=1)
+
+	assert "changed" in stale.output.lower() or "version" in stale.output.lower(), stale.output
+	assert "Their careful paragraphs." in run("show", "1").output, (
+		f"the other writer's text was replaced anyway:\n{run('show', '1').output}"
+	)
+
+
+def test_changing_a_documents_title_is_not_guarded_by_a_version (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, and it is why the rule is *replacing the body* rather than *revising*.
+
+	§8.9 is opt-in because `None` means *did not ask* and never *asked and passed*. Somebody
+	running `doc edit 42 --title "…"` has not read the body, is not replacing it, and puts
+	none of it at stake — refusing them for a change they did not make would be `SR#755`'s
+	quick-status-control argument in reverse, and it would fire on the ordinary act of
+	retitling something while a colleague is writing in it.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "First thoughts.")
+	run("doc", "edit", "1", input="Somebody else's revision.\n")
+
+	retitled = run("doc", "edit", "1", "--title", "What we settled, and why")
+
+	assert retitled.exit_code == 0, retitled.output
+
+	shown = run("show", "1").output
+
+	assert "What we settled, and why" in shown
+	assert "Somebody else's revision." in shown, "a title change must not touch the body"
 
 
 def test_revising_a_document_reads_a_pipe_like_writing_one_does (

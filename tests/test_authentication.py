@@ -16,10 +16,12 @@ import sqlalchemy.orm
 import subroutine.auth
 import subroutine.cli.main
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.projects
+import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.permissions
 import subroutine.views
@@ -621,3 +623,180 @@ def test_a_credential_narrowed_only_by_a_write_set_still_says_something (
 	assert credential is not None
 	assert credential.narrows, "the flag has always counted the write set"
 	assert subroutine.views.narrowing(credential) == f"writing in {setup.inbox.key}"
+
+
+def _tree (
+	session: sqlalchemy.orm.Session,
+) -> tuple[
+	subroutine.db.models.project.Project,
+	subroutine.db.models.project.Project,
+	subroutine.db.models.project.Project,
+]:
+	"""Return a parent, a child filed under it, and an unrelated project beside them."""
+
+	# **Stocked rather than bare** — ``_make_workspace`` above inserts a row and nothing else,
+	# which is enough for a pin and not enough for a project: ``projects.create`` needs the
+	# seeded default status. `SR#301`'s argument, met from the test side.
+	workspace = subroutine.domain.workspaces.create(
+		session,
+		slug=f"ws-{uuid.uuid4().hex[:8]}",
+		title="A tree of projects",
+		owner=_make_user(session),
+	)
+	parent = subroutine.domain.projects.create(
+		session, workspace_id=workspace.id, key="parent", title="Parent"
+	)
+	child = subroutine.domain.projects.create(
+		session, workspace_id=workspace.id, key="child", title="Child", parent=parent
+	)
+	elsewhere = subroutine.domain.projects.create(
+		session, workspace_id=workspace.id, key="elsewhere", title="Elsewhere"
+	)
+
+	return parent, child, elsewhere
+
+
+def test_a_credential_can_delegate_inside_its_own_project_subtree (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#344`. Two rules about one thing, and they disagreed.
+
+	``authorization._within_project_scope`` decides what a credential may *reach* and honours
+	the subtree, saying so in its own words: *restricting an agent to a project and then
+	refusing it the sub-projects underneath would make the restriction useless for any tree
+	deeper than one level*. ``_refuse_amplification`` decides what it may *hand on* and
+	compared ids by flat set membership — so the same credential read ``child`` perfectly well
+	and could not delegate it.
+
+	**This codebase's signature defect in the security layer**, where both copies read as
+	correct on their own. It errs safe, which is why it waited: the failure is a refusal rather
+	than an escalation. What it blocks is the ordinary act of week one.
+	"""
+
+	parent, child, elsewhere = _tree(session)
+	user = _make_user(session)
+	agent = _presenting(session, user, project_scope=[str(parent.id)])
+
+	narrower, _issued = subroutine.domain.authentication.issue_token(
+		session, user=user, title="A sub-agent", project_scope=[str(child.id)], actor=agent
+	)
+
+	assert narrower.project_scope == [str(child.id)]
+
+	# **And the direction that must still be refused**, because a guard that permits
+	# everything passes the test above by accident.
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=user,
+			title="Somewhere else entirely",
+			project_scope=[str(elsewhere.id)],
+			actor=agent,
+		)
+
+	assert refused.value.errors[0].field == "project_scope"
+
+
+def test_a_write_set_inside_the_reach_can_be_delegated_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#423`, and it is `SR#344`'s defect two clauses down.
+
+	A second flat ``set(...) <= allowed``, on ``project_write_scope`` this time, added with
+	`SR#371` and never given `SR#413`'s predicate. Filed separately from `SR#344` deliberately —
+	*a different pair of lists* — and fixed with it, because one function now answers *is this
+	inside those bounds* for both.
+	"""
+
+	parent, child, elsewhere = _tree(session)
+	user = _make_user(session)
+	agent = _presenting(
+		session,
+		user,
+		project_scope=[str(parent.id)],
+		project_write_scope=[str(parent.id)],
+	)
+
+	narrower, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=user,
+		title="Writes in the child only",
+		project_scope=[str(child.id)],
+		project_write_scope=[str(child.id)],
+		actor=agent,
+	)
+
+	assert narrower.project_write_scope == [str(child.id)]
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=user,
+			title="Writes elsewhere",
+			project_scope=[str(parent.id), str(elsewhere.id)],
+			project_write_scope=[str(elsewhere.id)],
+			actor=agent,
+		)
+
+	assert refused.value.errors[0].field == "project_scope"
+
+
+def test_the_refusal_names_projects_by_key_rather_than_by_id (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#344`'s second half, and `SR#203`'s rule.
+
+	Every other surface here resolves a project id to its key. This sentence was the one place
+	a person was shown a raw UUID and asked to work out which project it meant — met while they
+	are still holding the command they meant to type, so reading it back as an id sends them to
+	look up what they had just written.
+	"""
+
+	parent, _child, elsewhere = _tree(session)
+	user = _make_user(session)
+	agent = _presenting(session, user, project_scope=[str(parent.id)])
+
+	with pytest.raises(subroutine.errors.Forbidden) as refused:
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=user,
+			title="Somewhere else entirely",
+			project_scope=[str(elsewhere.id)],
+			actor=agent,
+		)
+
+	said = str(refused.value.errors[0].message)
+
+	assert "parent" in said, said
+	assert str(parent.id) not in said, said
+
+
+def test_a_project_the_issuer_cannot_place_is_covered_only_by_being_named (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Unknown means unplaceable, never unwelcome — the rule `SR#413` already settled.
+
+	A credential may name a project its issuer cannot see, or one created later, so an id with
+	no row cannot be put in a tree. Naming it outright still delegates it; asking for it under
+	a subtree bound does not, which is the conservative direction and keeps this from becoming
+	a question about what exists.
+	"""
+
+	user = _make_user(session)
+	unknown = str(uuid.uuid4())
+	agent = _presenting(session, user, project_scope=[unknown])
+
+	same, _issued = subroutine.domain.authentication.issue_token(
+		session, user=user, title="The same one", project_scope=[unknown], actor=agent
+	)
+
+	assert same.project_scope == [unknown]
+
+	with pytest.raises(subroutine.errors.Forbidden):
+		subroutine.domain.authentication.issue_token(
+			session,
+			user=user,
+			title="A different unknown",
+			project_scope=[str(uuid.uuid4())],
+			actor=agent,
+		)

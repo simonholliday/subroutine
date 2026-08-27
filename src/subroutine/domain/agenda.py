@@ -299,6 +299,25 @@ class Agenda:
 	#: stop being true.
 	paused_total: int = 0
 
+	#: How much readable work this agenda leaves out because it belongs to somebody else —
+	#: `#1265`, decision `#1267` §1.
+	#:
+	#: **The sixth exclusion, and the first that is about a person rather than a date.** An
+	#: agenda is one person's, so work explicitly assigned to somebody who is not the reader is
+	#: in no bucket at all — while ``?view=list`` at the same address still shows every row of
+	#: it, because no other view is narrowed this way (§4 of the same decision). That is exactly
+	#: the unexplained difference `#649`'s amendment forbids.
+	#:
+	#: **What it answers is a question only a team instance can ask**: *is my agenda empty
+	#: because there is nothing to do, or because it is all somebody else's?* Those read
+	#: identically without this, and the second is the ordinary state of a new joiner's first
+	#: morning.
+	#:
+	#: **Counted on the scope before the assignee rule, and nothing else is** — every other
+	#: total here is computed on rows that already survived it, so the six partition rather than
+	#: overlap. A row of somebody else's that is *also* deferred is counted once, here.
+	assigned_elsewhere_total: int = 0
+
 	#: How many *dated* tasks this agenda does not show — further out than the look-ahead, or
 	#: past today where no look-ahead was asked for (`#997`). The same job
 	#: :attr:`unscheduled_total` does for the other pile: the window has an edge on every
@@ -371,7 +390,9 @@ def build (
 	# the same reason, so nothing here is reaching around a rule.
 	sortable = subroutine.domain.ordering.scheduling(sortable)
 
-	scoped = _scoped(workspace_ids, principal=principal, sortable=sortable, project=project)
+	scoped = _scoped(
+		workspace_ids, principal=principal, sortable=sortable, now=now, project=project
+	)
 
 	# **Which zones the whole-day rows in scope were dated in** (`#1296`), so each of them can
 	# be compared as a *date* rather than as an instant read against somebody else's clock.
@@ -709,6 +730,7 @@ def build (
 		# exactly what that dropped. Two spellings of one boundary is what broke it.
 		until=edge("snoozed_until", on=day, reader=day_end),
 		sortable=sortable,
+		now=now,
 		project=project,
 	)
 	put_down = base.where(
@@ -716,6 +738,34 @@ def build (
 		model.due_at.is_(None),
 		sqlalchemy.not_(subroutine.domain.readiness.in_a_running_project(model)),
 		model.id.not_in(seen),
+	)
+
+	# **The sixth exclusion, and the one that had to be counted outside the agenda's own
+	# scope** (`#1265`). Everything above narrows :func:`_scoped`, which now carries the
+	# assignee rule — so a count of what that rule hid cannot be taken from it, and asking
+	# `_scoped` for rows it has already dropped returns nothing, correctly and uselessly.
+	# The same shape as `_deferred`, for the same reason and written out here because it is
+	# one clause rather than a select somebody else also builds.
+	#
+	# **The negation is explicit rather than `not_(yours_to_act_on(...))`**, because that
+	# predicate's third clause reads a live lease: a row assigned to somebody else *and*
+	# claimed by the reader is on their agenda, so counting it as absent would be wrong by
+	# exactly the case `#1267` §1's third clause exists for.
+	elsewhere = (
+		subroutine.domain.scoping.readable_tasks(
+			principal, workspace_ids=workspace_ids, include_completed=False
+		)
+		.where(*(
+			[] if project is None
+			else [subroutine.domain.scoping.within_project(project)]
+		))
+		.where(
+			sqlalchemy.not_(
+				subroutine.domain.readiness.yours_to_act_on(
+					model, now=now, user_id=principal.user.id
+				)
+			)
+		)
 	)
 
 	return Agenda(
@@ -732,6 +782,9 @@ def build (
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],
 		later_total=beyond or 0,
+		assigned_elsewhere_total=session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(elsewhere.subquery())
+		) or 0,
 		deferred_total=session.scalar(
 			sqlalchemy.select(sqlalchemy.func.count()).select_from(held.subquery())
 		) or 0,
@@ -751,6 +804,7 @@ def _deferred (
 	*,
 	until: datetime.datetime | sqlalchemy.ColumnElement[datetime.datetime],
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
+	now: datetime.datetime,
 	project: subroutine.db.models.project.Project | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the work this day is hiding because somebody deferred it past the end of it.
@@ -777,7 +831,7 @@ def _deferred (
 	# second time asks for rows that are both deferred and not, which is nothing at all — written
 	# that way first, and it returned zero against data holding nine.
 	return _scoped(
-		workspace_ids, principal=principal, sortable=sortable, project=project
+		workspace_ids, principal=principal, sortable=sortable, now=now, project=project
 	).where(
 		sqlalchemy.not_(subroutine.domain.readiness.undeferred(model, now=until))
 	)
@@ -788,6 +842,7 @@ def _scoped (
 	*,
 	principal: subroutine.domain.authentication.Principal,
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
+	now: datetime.datetime,
 	project: subroutine.db.models.project.Project | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the live, unfinished, visible work this agenda is about, before any of its rules.
@@ -807,6 +862,18 @@ def _scoped (
 	bucket narrows this, so one clause covers all seven and a bucket added later is scoped
 	without anybody remembering.
 
+	**And so does the assignee, for the same reason** (`#1265`, decision `#1267` §1). An
+	agenda is one person's, which every bucket has to obey — including the ones nobody has
+	written. The rule itself is :func:`subroutine.domain.readiness.yours_to_act_on`, in the
+	domain and never restated here, because the CLI, the API and the browser all read this
+	one select and eleven copies of one rule were all correct while they agreed (`#508`).
+
+	**This is the only view that narrows by assignee, and that is a decision rather than an
+	oversight** (decision `#1267` §4). ``list``, ``search``, the board and every API listing
+	answer everybody the same, scoped by :func:`subroutine.domain.scoping.readable_tasks` and
+	by nothing else; the deliberate filter is ``--assignee``/``?assignee=`` (`#518`), which a
+	caller asks for.
+
 	**``within_project`` rather than an id comparison**, so a named project means that area of
 	work and not that one node (`#320`). An agenda for a parent project that excluded its own
 	sub-projects would answer *nothing due today* about a tree full of deadlines.
@@ -816,6 +883,12 @@ def _scoped (
 		[]
 		if project is None
 		else [subroutine.domain.scoping.within_project(project)]
+	)
+
+	narrowed.append(
+		subroutine.domain.readiness.yours_to_act_on(
+			subroutine.db.models.work.Task, now=now, user_id=principal.user.id
+		)
 	)
 
 	return (

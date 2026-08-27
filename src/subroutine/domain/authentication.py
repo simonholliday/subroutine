@@ -298,6 +298,7 @@ def issue_token (
 
 	if actor is not None:
 		_refuse_amplification(
+			session,
 			actor,
 			user=user,
 			workspace_id=workspace_id,
@@ -393,6 +394,7 @@ def narrowing (
 
 
 def _refuse_amplification (
+	session: sqlalchemy.orm.Session,
 	actor: Principal,
 	*,
 	user: subroutine.db.models.identity.User,
@@ -470,15 +472,21 @@ def _refuse_amplification (
 
 	if actor.project_scope is not None:
 		allowed = set(actor.project_scope)
+		asked_reach = (
+			None if project_scope is None else _canonical_project_scope(project_scope)
+		)
 
-		if project_scope is None or not set(_canonical_project_scope(project_scope)) <= allowed:
+		if asked_reach is None or _outside(session, allowed, asked_reach):
 			raise subroutine.errors.Forbidden(
 				"A token cannot reach more projects than the one that asked for it.",
 				errors=[
 					subroutine.errors.FieldError(
 						field="project_scope",
 						code="forbidden",
-						message=f"The credential you presented reaches: {', '.join(sorted(allowed))}.",
+						message="The credential you presented reaches: "
+						f"{_named(session, allowed)}.",
+						hint="Issue a token reaching the same projects or fewer — each one "
+						"named there, or filed under something that is.",
 					)
 				],
 			)
@@ -512,15 +520,17 @@ def _refuse_amplification (
 		)
 		allowed = set(bounds)
 
-		if asked is None or not set(_canonical_project_scope(asked)) <= allowed:
+		if asked is None or _outside(session, allowed, _canonical_project_scope(asked)):
 			raise subroutine.errors.Forbidden(
 				"A token cannot write in more projects than the one that asked for it.",
 				errors=[
 					subroutine.errors.FieldError(
 						field="project_write_scope",
 						code="forbidden",
-						message=f"The credential you presented writes in: "
-						f"{', '.join(sorted(allowed))}.",
+						message="The credential you presented writes in: "
+						f"{_named(session, allowed)}.",
+						hint="Issue a token writing in the same projects or fewer — each one "
+						"named there, or filed under something that is.",
 					)
 				],
 			)
@@ -816,6 +826,72 @@ def _projects_by_id (
 	)
 
 	return {str(row.id): row for row in found}
+
+
+def _outside (
+	session: sqlalchemy.orm.Session,
+	allowed: typing.Collection[str],
+	asked: typing.Sequence[str],
+) -> bool:
+	"""Report whether anything asked for falls outside a credential's own bounds — `#344`.
+
+	**Two rules about one thing, and they disagreed.** ``authorization._within_project_scope``
+	decides what a credential may *reach* and honours the subtree, in its own words because
+	*"restricting an agent to a project and then refusing it the sub-projects underneath would
+	make the restriction useless for any tree deeper than one level"*. This one decides what it
+	may *hand on*, and compared ids by flat set membership — so a credential restricted to a
+	parent could read a child perfectly well and could not delegate it. This codebase's
+	signature defect, in the security layer, where both copies read as correct on their own.
+
+	**It errs safe, which is why it waited**: the failure is a refusal rather than an
+	escalation. What it blocks is the ordinary act of week one — granting a teammate or a
+	sub-agent access inside a project subtree.
+
+	**`#413` had already put the predicate in the tree** and this is the third caller of it, so
+	*"this project and everything under it"* is one implementation rather than three opinions.
+	`#423` is the same fix on ``project_write_scope``, which was a second flat comparison two
+	clauses down and is why this takes the bounds as an argument rather than reading a
+	principal.
+
+	A project with no row is covered only by being named outright, exactly as in
+	:func:`_refuse_a_write_set_outside_the_reach`: unknown means unplaceable, never unwelcome.
+	The lookup is deliberately not narrowed by visibility — this is a question about the shape
+	of the tree rather than about who may look at it.
+	"""
+
+	placed = _projects_by_id(session, asked)
+
+	return any(
+		not subroutine.domain.hierarchy.within(
+			allowed,
+			identifier=identifier,
+			path=None if placed.get(identifier) is None else placed[identifier].path,
+		)
+		for identifier in asked
+	)
+
+
+def _named (session: sqlalchemy.orm.Session, identifiers: typing.Collection[str]) -> str:
+	"""Render a set of project ids as the keys somebody typed — `#344`, `#203`.
+
+	**The one place in this API a person was shown a raw UUID and asked to work out what it
+	was.** Every other surface resolves an id to its key, and this sentence is met while
+	somebody is still holding the command they meant to run — so reading it back as a UUID
+	sends them to look up what they had just written.
+
+	An id with no row is printed as it stands rather than dropped. A credential may name a
+	project its issuer cannot see or one created later, and a bound that quietly omitted such
+	a project would understate what the credential actually carries.
+	"""
+
+	placed = _projects_by_id(session, list(identifiers))
+
+	return ", ".join(
+		sorted(
+			identifier if placed.get(identifier) is None else placed[identifier].key
+			for identifier in identifiers
+		)
+	)
 
 
 def _mint_unused_token (session: sqlalchemy.orm.Session) -> subroutine.auth.IssuedToken:

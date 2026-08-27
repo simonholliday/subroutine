@@ -12,6 +12,48 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **Your agenda holds your work.** It now shows what is assigned to you, what is assigned to
+  nobody, and what you are holding — where before every reader of an instance saw the same
+  page. **This is the only view that narrows this way**: a list, a search and the board answer
+  everybody the same, and `--assignee` is still how you ask for one person's work anywhere
+  else. A calendar feed's `assigned_to_me` is unchanged and still means strictly assigned.
+
+  Work that leaves the page is counted rather than dropped: the terminal says *and 3 assigned
+  to somebody else*, and so do the browser and an agent. Nothing is hidden without a number
+  beside it.
+
+- **A repeat is read only where nothing else follows it.** *Buy milk every day* still repeats;
+  *A view somebody uses every day can be saved and shared* no longer becomes a daily task due
+  today with the words taken out of its title. A deadline, a time and a `+project` still follow
+  a repeat perfectly well — what stops one being read is ordinary prose after it. When that
+  happens the words stay in the title and you are told why.
+
+  This is the rule `today` and `tomorrow` have always followed, which repeats never inherited.
+
+- **Revising a document can refuse to overwrite somebody else's paragraphs.** `subroutine doc
+  edit 42` with no arguments opens your editor and now writes back only if nobody saved in the
+  meantime; if somebody did, it stops and says so rather than replacing their text. Changing
+  only a title, a type or a tag is not affected. An agent can ask for the same guard by sending
+  `expected_version` to `subroutine_document`.
+
+- **A credential can delegate inside its own project subtree.** A token restricted to a project
+  could always *read* the projects under it and could not issue a narrower token for one. It
+  can now, in both the reach and the write set — and the refusal, when it does refuse, names
+  projects by their keys instead of by their ids.
+
+- **`subroutine whoami` says whose timezone it is reporting.** It said *"Your days are read
+  in …"*, which is about whichever account the credential belongs to — not necessarily the
+  person reading it. It names the account now, and so does the line offering the remedy.
+
+- **A refusal that names `workspace_id` says where to put it.** On an endpoint that takes it in
+  the query, the field is reported as `query.workspace_id`, which is how this API already
+  reports a query parameter. Following the old message put it in the body and got you refused a
+  second time.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

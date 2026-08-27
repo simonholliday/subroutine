@@ -2009,6 +2009,14 @@ class Agenda(pydantic.BaseModel):
 	#: **Defaulted for the reason above.**
 	blocked_by_others_total: int = 0
 
+	#: How much readable work this agenda leaves out because somebody else is assigned to it
+	#: (`#1265`, decision `#1267` §1). An agenda is one person's; every other view of the same
+	#: place answers everybody the same, so a listing beside it still shows every one of these
+	#: rows and the difference is said rather than left to be noticed.
+	#:
+	#: **Defaulted for the reason above.**
+	assigned_elsewhere_total: int = 0
+
 
 #: The agenda's buckets, in the order a day is read (docs/design.md §8.6).
 #:
@@ -3611,9 +3619,23 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 	if not differing:
 		return []
 
+	# **The account, never a pronoun** (`#1297`). This said *"Your days are read in …"* and
+	# *"Set your account's zone"*, and on a machine whose credential belongs to an agent both
+	# sentences are about the agent while the reader takes them as being about themselves.
+	# Measured on `hpz2g4`: Simon ran `user timezone Europe/London`, was told his days were read
+	# in Europe/London, and his own account still said `Etc/UTC` — the same command reported as
+	# succeeding, twice, about an account that was not his. Every step said success about the
+	# thing it owned while the person asked about the result.
+	#
+	# **`user timezone` acting on the authenticated account is right and is not what changes**:
+	# you know which zone you are in better than anybody else does, so there is no permission
+	# that lets somebody set it for you. What was wrong is a sentence that would not say who it
+	# was speaking for.
 	return [
-		f"Your days are read in {', '.join(differing)}; this machine is set to {machine}.",
-		f"Set your account's zone with 'subroutine user timezone {machine}' if that is wrong.",
+		f"Days for {me.user.username} are read in {', '.join(differing)}; this machine is set "
+		f"to {machine}.",
+		f"'subroutine user timezone {machine}' sets it for {me.user.username}, which is the "
+		f"account this credential is for — and no other.",
 	]
 
 
