@@ -954,7 +954,11 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						# (§5.5), so the list belongs where it is per workspace.
 						"description": "A link type key; subroutine://meta lists this workspace's.",
 					},
-					"other": {"type": A_REF, "description": "The other item's number."},
+					"other": {
+						"type": [*A_REF, "array"],
+						"items": {"type": A_REF},
+						"description": "The other item's number, or several of them.",
+					},
 					"remove": {"type": "boolean", "description": "Withdraw it instead."},
 					"workspace": WORKSPACE,
 				},
@@ -2948,6 +2952,56 @@ def _version (arguments: dict[str, typing.Any]) -> int | None:
 		) from None
 
 
+def _refs (arguments: dict[str, typing.Any], *, field: str) -> list[int]:
+	"""Return the refs an argument names, accepting one or several — `#1352`.
+
+	:func:`_ref`'s plural, and it reads the same four spellings the terminal does because
+	``domain.refs.parse_refs`` is the one reader: ``9``, ``"#9"``, ``[9, 11]`` and
+	``"9,11"``. A model sends back the notation it was shown, and this API prints ``#42``
+	everywhere — so the string forms are not a courtesy, they are what arrives.
+
+	**Refuses with the value in it**, exactly as :func:`_ref` does, rather than passing an
+	unreadable entry on as a lookup that comes back *there is no such item* about something
+	that was never one.
+	"""
+
+	given = arguments.get(field)
+
+	if isinstance(given, bool) or given is None:
+		raise ValueError(f"Which item? Pass {field!r}, the number in the listing.")
+
+	written = given if isinstance(given, (list, tuple)) else str(given)
+	found = subroutine.domain.refs.parse_refs(written)
+
+	if found is None:
+		# **The entry, not the list** — the CLI's rule at `_several`, and for its reason:
+		# `[2, 'nope', 3] is not a list of item numbers` sends the caller to check all three.
+		# `parse_refs` decides; this walks the same values afterwards only to say which failed.
+		entries = (
+			[str(one) for one in written]
+			if isinstance(written, (list, tuple))
+			else written.split(subroutine.domain.refs.LIST_SEPARATOR)
+		)
+		bad = [
+			one
+			for one in entries
+			if one.strip() and subroutine.domain.refs.parse_ref(one) is None
+		]
+
+		raise ValueError(
+			f"{', '.join(repr(one) for one in bad) or repr(given)} is not an item number. "
+			f"Pass one, or a list of them."
+		)
+
+	return found
+
+
+def _said (made: typing.Any, *, ref: int) -> str:
+	"""Render one link the way `#1190` settled — both ends, from the near item's side."""
+
+	return f"#{ref} {made.label} #{made.other.ref}  {made.other.title}"
+
+
 def _account_zone (client: subroutine.clients.base.Client, workspace: str | None) -> str:
 	"""Return the account's zone here — §6.5 resolved by the instance, not by this process.
 
@@ -3090,28 +3144,23 @@ def _linked (
 
 	ref = _ref(arguments)
 	workspace = _text(arguments, "workspace")
-	other = _ref(arguments, field="other")
+	others = _refs(arguments, field="other")
 
 	_, kind = _item(client, ref, workspace)
 
 	if not arguments.get("remove"):
 		link_type = _text(arguments, "type") or "blocks"
 
+		# **Every end is resolved before any link is written** (`#1352`), which is the CLI's
+		# rule and `project rename`'s precedent: nothing here spans a transaction, so a bad ref
+		# in the fourth of five would otherwise leave three made and no statement of which.
+		#
 		# **Both ends are looked up, not just the near one** (`#491`). A ref names a task *or* a
 		# document (§6.2), and `client.link` defaults `target_type` to "task" — so naming a
 		# document here reported that there was no such task, about an item the caller had just
 		# listed. The CLI passes `target_type=far.entity_type` and this did not: one rule carried
 		# to one side of a pair, which `#412` found three times in one review.
-		_, other_kind = _item(client, other, workspace)
-
-		made = client.link(
-			ref=ref,
-			link_type=link_type,
-			target=other,
-			entity_type=kind,
-			target_type=other_kind,
-			workspace=workspace,
-		)
+		kinds = [_item(client, one, workspace)[1] for one in others]
 
 		# **Both ends, because a reversed call answers just as plausibly as a correct one**
 		# (`#1190`). Direction is the most confusable thing here — the skill spends a paragraph
@@ -3121,21 +3170,43 @@ def _linked (
 		#
 		# `made.label` is the relation as seen from `ref`, so an inverse link reads
 		# `#4 Blocked by #3` and stays true rather than needing the forward name.
-		return f"#{ref} {made.label} #{made.other.ref}  {made.other.title}"
+		#
+		# **One line each rather than a count**, even at twenty (`#1352`). The confusable thing
+		# is direction, and a count cannot disconfirm it — *made 20 links* reads identically
+		# whichever way round they went.
+		return "\n".join(
+			_said(
+				client.link(
+					ref=ref,
+					link_type=link_type,
+					target=one,
+					entity_type=kind,
+					target_type=other_kind,
+					workspace=workspace,
+				),
+				ref=ref,
+			)
+			for one, other_kind in zip(others, kinds, strict=True)
+		)
 
-	joins = [
-		one
-		for one in client.links(ref=ref, entity_type=kind, workspace=workspace)
-		if one.other.ref == other
-	]
+	said = []
 
-	if not joins:
-		raise LookupError(f"#{ref} is not joined to #{other}.")
+	for one in others:
+		joins = [
+			found
+			for found in client.links(ref=ref, entity_type=kind, workspace=workspace)
+			if found.other.ref == one
+		]
 
-	for join in joins:
-		client.unlink(ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace)
+		if not joins:
+			raise LookupError(f"#{ref} is not joined to #{one}.")
 
-	return f"Withdrew the link between #{ref} and #{other}."
+		for join in joins:
+			client.unlink(ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace)
+
+		said.append(f"Withdrew the link between #{ref} and #{one}.")
+
+	return "\n".join(said)
 
 
 def _projected (
@@ -3187,11 +3258,16 @@ def _text (arguments: dict[str, typing.Any], name: str) -> str | None:
 def _words (arguments: dict[str, typing.Any], name: str) -> list[str] | None:
 	"""Return one array-of-strings argument, refusing anything the schema does not allow.
 
-	**Both halves are this function's, and that is unlike every other argument here.**
-	``protocol._mistyped`` refuses a value whose type does not match the schema — but its
-	``_ACCEPTS`` deliberately knows nothing about ``array``, and its own comment says why: a
-	schema growing one should be a rule somebody adds rather than something that quietly starts
-	being rejected. So a bare string reaches here, and so does a list carrying a number.
+	**One half is this function's, and it was both until 2026-08-27** (`#1352`). This said
+	``protocol._mistyped``'s ``_ACCEPTS`` *"deliberately knows nothing about ``array``"*, which
+	was true and was the reason a bare string reached here. That comment's own invitation — *a
+	schema growing an array is a thing somebody adds a rule for* — was taken when
+	``subroutine_link.other`` grew one, so the protocol refuses a bare string now and this no
+	longer sees one.
+
+	**What still reaches here is a list carrying something that is not a word**, because
+	``_mistyped`` does not recurse into ``items`` — so this is the only place that can turn
+	``["design", 5]`` down, and it is why both branches below remain.
 
 	Returning ``None`` for either would be `#379` exactly — an argument swallowed, with the
 	caller told nothing and the write proceeding as though they had asked for it.

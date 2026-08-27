@@ -4437,6 +4437,158 @@ def test_saying_one_thing_blocks_another_changes_what_is_ready (
 	assert "Build the endpoint" in run("list", "--ready").output
 
 
+def test_one_call_makes_a_link_to_each_of_several_items (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1352`, and SR#1290's headline finding.
+
+	*"Filing one task is delightful; filing twenty-two tasks and forty-two links is the same
+	delightful interaction repeated sixty-four times."* One realistic project cost 23 creates
+	and 37 `blocks` links — a loop in a shell, and sixty round trips through the agent tools,
+	where there is no shell to fall back on.
+
+	**One line each rather than a count**, even at twenty. The confusable thing about a link is
+	direction, and *made 4 links* reads identically whichever way round they went.
+	"""
+
+	run("init")
+
+	for title in ("Ship it", "Changelog", "Tag it", "Announce it"):
+		run("add", title)
+
+	made = run("link", "1", "blocks", "2,3,4")
+
+	assert made.output.count("Blocks:") == 3, made.output
+	assert "Changelog" in made.output and "Announce it" in made.output, made.output
+
+	shown = run("show", "1").output
+
+	for title in ("Changelog", "Tag it", "Announce it"):
+		assert title in shown, f"{title} was not joined:\n{shown}"
+
+
+def test_a_bad_number_among_several_writes_none_of_them (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1352`. Nothing here spans a transaction, so the resolving happens first.
+
+	Each link is its own call — its own HTTP request on a served instance — so a typo in the
+	fourth of five would otherwise leave three made, one refused, and no statement of which.
+	That is `project rename`'s precedent: count what will happen and name what will break
+	before doing any of it.
+
+	**The offending entry is named**, because *'2,nope,4' is not a list of item numbers* sends
+	somebody to check all three.
+	"""
+
+	run("init")
+
+	for title in ("Ship it", "Changelog", "Tag it"):
+		run("add", title)
+
+	refused = run("link", "1", "blocks", "2,nope,3", expect=1)
+
+	assert "'nope'" in refused.output, refused.output
+	assert "commas" in refused.output, "the separator is named, since that is what was wrong"
+
+	assert "Blocks" not in run("show", "1").output, (
+		"a link was written before the whole list had been read"
+	)
+
+	# **And a ref that parses but names nothing is caught in the same pass**, which is the
+	# commoner mistake — a number copied from the wrong listing.
+	missing = run("link", "1", "blocks", "2,999", expect=1)
+
+	assert "999" in missing.output, missing.output
+	assert "Blocks" not in run("show", "1").output, (
+		"the readable half of the list was written before the unreadable half was checked"
+	)
+
+
+def test_a_single_number_and_an_address_reach_link_unchanged (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The plural form must accept everything the singular did — `SR#1352`.
+
+	An argument with no comma in it is handed to the resolver **untouched**, so whatever it took
+	before it still takes. Written that way rather than routed through the ref parser, which
+	reads numbers: a single argument may not be one.
+
+	**A trailing comma is tolerated**, because that is what a list copied out of prose or out of
+	an editor's selection carries and it cannot mean anything else.
+	"""
+
+	run("init")
+
+	for title in ("Ship it", "Changelog", "Tag it"):
+		run("add", title)
+
+	assert "Blocks:" in run("link", "1", "blocks", "2").output
+	assert "Blocks:" in run("link", "1", "blocks", "3,").output
+
+	shown = run("show", "1").output
+
+	assert "Changelog" in shown and "Tag it" in shown, shown
+
+
+def test_one_call_withdraws_a_link_to_each_of_several_items (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1352`'s other half, and the surfaces have to agree about it.
+
+	The agent tool takes several either way round — it is one argument on one tool — so a
+	terminal that took several to make and two to undo would be one product disagreeing with
+	itself about the same pair of numbers.
+
+	**Undoing a batch is when this is most needed**: a plan laid out the wrong way round is the
+	case that produces forty links nobody wants, and one command per link to undo them is the
+	friction SR#1290 measured arriving on the way back out.
+	"""
+
+	run("init")
+
+	for title in ("Ship it", "Changelog", "Tag it", "Announce"):
+		run("add", title)
+
+	run("link", "1", "blocks", "2,3,4")
+
+	undone = run("unlink", "1", "2,3")
+
+	assert undone.output.count("Unlinked:") == 2, undone.output
+
+	shown = run("show", "1").output
+
+	assert "Announce" in shown, "the one not named was withdrawn too"
+	assert "Changelog" not in shown and "Tag it" not in shown, shown
+
+
+def test_withdrawing_a_link_that_is_not_there_leaves_the_others_alone (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1352`. The whole list is checked before any of it is withdrawn.
+
+	**And every missing one is named at once.** Undoing a mistaken batch is exactly when more
+	than one of them will already be gone, and a refusal that names the first is a command
+	somebody runs five times to learn five things.
+	"""
+
+	run("init")
+
+	for title in ("Ship it", "Changelog", "Tag it", "Announce"):
+		run("add", title)
+
+	run("link", "1", "blocks", "4")
+
+	refused = run("unlink", "1", "2,3,4", expect=1)
+
+	assert "#2" in refused.output and "#3" in refused.output, (
+		f"only some of the missing ones were named:\n{refused.output}"
+	)
+	assert "Announce" in run("show", "1").output, (
+		"the link that was there was withdrawn before the list had been read"
+	)
+
+
 def test_a_link_is_withdrawn_by_naming_the_two_items (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

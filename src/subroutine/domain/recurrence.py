@@ -281,6 +281,16 @@ def _yearly_qualifier (qualifier: str, value: str, field: str) -> list[str]:
 
 #: The longest each month gets, February counted as a leap year so that "every year on 29
 #: february" is accepted — it is a real birthday, and RFC 5545 skips the years without one.
+#:
+#: **Declared twice until 2026-08-27** (`#1409`), 167 lines apart, with two comments saying
+#: this in different words and **identical values** — so the second silently replaced the
+#: first with itself and nothing ever behaved differently. Two copies that agree are
+#: invisible, which is why this needed a guard rather than a reading: `tests/test_imports.py`
+#: refuses a module-level name assigned twice now.
+#:
+#: Both readers are below it — the phrase grammar and
+#: :func:`_refuse_a_day_that_never_comes` — and each was reading whichever copy Python had
+#: last bound.
 _DAYS_IN: dict[int, int] = {
 	1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
 	7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
@@ -444,11 +454,6 @@ def _checked (value: str, *, field: str) -> str:
 	# Safe to upper-case whole: an ``RRULE``'s values are keywords, integers and a UTC
 	# timestamp, none of which carries meaning in its case.
 	return written.upper()
-
-
-#: The most days each month can have. February's 29 is a leap year, which is rare and real —
-#: "every 29 February" is a birthday somebody has.
-_DAYS_IN = {1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30, 7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
 
 
 def _refuse_a_day_that_never_comes (

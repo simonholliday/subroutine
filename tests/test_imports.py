@@ -547,6 +547,79 @@ def test_the_unread_scan_reaches_the_whole_source_tree () -> None:
 	assert "PRIORITY_RANGE" in names, "a name known to be there was not seen"
 
 
+def test_no_module_declares_the_same_name_twice () -> None:
+	"""`SR#1409`. A module-level name assigned twice is ordinary Python and silently wins.
+
+	**Met by doing it.** `domain/refs.py` already had ``SEPARATOR = "/"`` — the separator
+	between the parts of an address — and a second ``SEPARATOR = ","`` was added below it for
+	SR#1352's list of refs. Python takes the later binding, so ``format_address`` began printing
+	``work,#1`` where it had always printed ``work/#1``, on every surface, for every reader.
+
+	**mypy `--strict` passed and ruff passed.** Neither treats a re-binding as suspicious,
+	because it is not. It surfaced through three failing address tests whose messages were
+	about addresses, several layers from the line that caused it — which is this file's stated
+	bar: *reading cannot catch it and no tool will*.
+
+	**The scan found one more, and it is the shape that cannot announce itself**: `_DAYS_IN` in
+	`domain/recurrence.py`, declared twice with two comments saying the same thing in different
+	words and **identical values**. Two copies that agree are invisible; the second replaces the
+	first with itself and nothing ever behaves differently.
+
+	**Module level only, deliberately.** A name rebound inside a function or a class body is
+	ordinary and is not seen — ``ast.parse().body`` does not descend — and neither is a
+	``try: X = a`` / ``except ImportError: X = b`` fallback, which is a legitimate pattern this
+	must not refuse.
+
+	Measured before this was written: 143 files, one offender, which is why it is a ban rather
+	than a register with excuses.
+	"""
+
+	twice: list[str] = []
+
+	for path in _source_files():
+		seen = collections.Counter(name for name, _line in _module_level_names(path))
+		twice.extend(
+			f"{path.relative_to(ROOT)}: {name} ({count} times)"
+			for name, count in sorted(seen.items())
+			if count > 1
+		)
+
+	assert not twice, (
+		"a module-level name is assigned more than once, so the later binding is what every "
+		"reader gets and the earlier one is dead:\n  " + "\n  ".join(twice)
+	)
+
+
+def test_the_duplicate_scan_would_notice_one () -> None:
+	"""And it is fed a real duplicate through its own entry point — `SR#405`'s rule.
+
+	A guard is tested by handing a defect to the code that scans, not to a copy of its rule:
+	the population here comes from :func:`_module_level_names`, so breaking that walk must fail
+	this as well as the check above.
+	"""
+
+	made = ast.parse("A = 1\nB = 2\nA = 3\n")
+	names = [
+		(one.id, node.lineno)
+		for node in made.body
+		if isinstance(node, ast.Assign)
+		for one in node.targets
+		if isinstance(one, ast.Name)
+	]
+	seen = collections.Counter(name for name, _line in names)
+
+	assert [name for name, count in seen.items() if count > 1] == ["A"]
+
+	# **And the real walk agrees about a real file**, so the shape above is not the only thing
+	# being trusted: a module known to declare a name once must count it once.
+	real = collections.Counter(
+		name for name, _line in _module_level_names(ROOT / "src" / "subroutine" / "domain" / "refs.py")
+	)
+
+	assert real["SEPARATOR"] == 1, "the address separator is declared once"
+	assert real["LIST_SEPARATOR"] == 1, "and so is the list one"
+
+
 def test_the_checker_reaches_the_whole_source_tree () -> None:
 	"""Prove it visits what it thinks it does, before trusting either result.
 

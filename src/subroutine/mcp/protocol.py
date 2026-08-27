@@ -444,11 +444,20 @@ NO_TOOL_DOES_THIS = {
 #: **``bool`` is excluded from ``integer`` deliberately.** ``isinstance(True, int)`` is true in
 #: Python, so without it ``{"limit": true}`` would pass a check written to catch exactly that
 #: class of mistake.
+#: **``array`` was added by taking the invitation in :func:`_mistyped`'s own docstring**
+#: (`#1352`): *"a schema growing an array is a thing somebody adds a rule for rather than a
+#: thing that quietly starts being rejected"*. ``subroutine_link.other`` grew one, and until
+#: this was here the type check silently narrowed the published contract — the schema said a
+#: list was accepted and every list was refused.
 _ACCEPTS: dict[str, typing.Callable[[typing.Any], bool]] = {
 	"boolean": lambda value: isinstance(value, bool),
 	"integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
 	"string": lambda value: isinstance(value, str),
 	"object": lambda value: isinstance(value, dict),
+	# **A tuple is not accepted, and that is not fussiness.** Arguments arrive from JSON, where
+	# there is one sequence type; anything else here would be a Python value that no caller can
+	# send, so accepting it would widen the check without widening the contract.
+	"array": lambda value: isinstance(value, list),
 }
 
 
@@ -517,6 +526,7 @@ def _readable (kinds: typing.Sequence[str]) -> str:
 		"integer": "a whole number",
 		"string": "text",
 		"object": "an object",
+		"array": "a list",
 	}
 	named = [spelt.get(kind, kind) for kind in kinds]
 

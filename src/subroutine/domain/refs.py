@@ -19,6 +19,7 @@ short, stable and unambiguous. Three properties follow, and each costs something
 
 import dataclasses
 import re
+import typing
 import uuid
 
 import sqlalchemy
@@ -124,6 +125,71 @@ def parse_ref (text: str) -> int | None:
 	ref = int(match.group(1))
 
 	return None if ref > MAX_REF else ref
+
+
+#: What separates one ref from the next when several are written as one argument — `#1352`.
+#:
+#: **A comma, and nothing else is accepted.** A space would be ambiguous at a command line,
+#: where the shell has already decided where the arguments are; a semicolon reads as a shell
+#: operator; and offering two spellings would make a listing's own output the wrong thing to
+#: paste back. Surrounding whitespace is trimmed, so ``9, 11, 12`` works — somebody copying
+#: from prose writes it that way and refusing them would be pedantry with no reader benefit.
+#:
+#: **Named apart from :data:`SEPARATOR`, which is the address one and is ``/``.** This was
+#: written as a second ``SEPARATOR`` and Python took the later binding, so ``format_address``
+#: silently started printing ``work,#1`` where it had always printed ``work/#1`` — legal
+#: Python, invisible to mypy and to ruff, and caught only because three address tests failed.
+#: `tests/test_imports.py` refuses a module-level name assigned twice now.
+#:
+#: The two cannot collide even so: a workspace slug must start with a letter (§5.4), so no
+#: address component is ever all digits, and no list entry is ever anything else.
+LIST_SEPARATOR = ","
+
+
+def parse_refs (given: str | typing.Sequence[object]) -> list[int] | None:
+	"""Read one ref or several, or ``None`` if any of them is not one — `#1352`.
+
+	**One reader for two surfaces.** A terminal has one argument and writes ``9,11,12``; an
+	agent has JSON and sends ``[9, 11, 12]`` — or, since this API prints ``#42`` everywhere and
+	a model sends back what it read, ``"9,11,12"`` or ``["#9", "#11"]``. All four mean the same
+	thing and a second parser would be a second opinion about which of them are allowed.
+
+	**All or nothing, deliberately.** Returning the readable ones and dropping the rest would
+	silently do part of what was asked — and the caller's evidence that it happened is a count
+	they would have to compare against something they no longer have. :func:`parse_ref` already
+	answers ``None`` for anything that cannot *be* a ref; this inherits that and applies it to
+	the set.
+
+	**Duplicates are kept in the order they were written.** Deciding they are a mistake belongs
+	to whoever is acting on them: ``link 8 blocks 9,9`` is one link made twice, which the link
+	service already has an answer for, and inventing a second answer here would put the rule in
+	the place least able to say what it means.
+
+	**An empty entry is dropped rather than refused**, so ``9,11,`` works. A trailing comma is
+	what a list copied out of prose or out of an editor's selection carries, it cannot mean
+	anything else, and refusing it would be pedantry with no reader benefit — the same
+	judgement the whitespace trim above makes.
+
+	An empty list is ``None`` rather than an empty result, because *nothing* is not something
+	anybody types on purpose — and a caller handed ``[]`` would go on to do nothing and report
+	success. That covers ``","`` and ``""`` alike, since dropping the empties leaves nothing.
+	"""
+
+	written = [
+		one
+		for one in (
+			given.split(LIST_SEPARATOR)
+			if isinstance(given, str)
+			else [str(one) for one in given]
+		)
+		if one.strip()
+	]
+	found = [parse_ref(str(one)) for one in written]
+
+	if not found or any(ref is None for ref in found):
+		return None
+
+	return [ref for ref in found if ref is not None]
 
 
 @dataclasses.dataclass(frozen=True)

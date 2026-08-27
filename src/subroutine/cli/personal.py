@@ -2940,6 +2940,52 @@ def _settled (
 	return current
 
 
+def _several (program: Program, given: str) -> list[str]:
+	"""Split one argument into the refs it names, refusing anything that is not one — `#1352`.
+
+	**The refusal is here rather than at :func:`_locate`**, because the two say different
+	things. *There is no #9 in projects* is a question about what exists; this is a question
+	about what was typed, and a caller who wrote ``9;11`` needs to be told about the separator
+	rather than sent looking for an item.
+
+	**An argument with no comma in it is handed straight back, untouched**, so this cannot
+	narrow the command it is widening: whatever :func:`_locate` accepted before, it still gets,
+	unexamined. Written that way rather than routed through :func:`parse_refs` because that
+	reads numbers and a single argument may not be one — measured, and what it refuses is not
+	what I first assumed, which is why this says *unchanged* rather than naming a form.
+
+	**The offending entry is named, and finding it is a report rather than a second rule.**
+	:func:`parse_refs` decides; this walks the same values afterwards only to say which one
+	failed, because *'3,nope,4' is not a list of item numbers* sends somebody to check all
+	three.
+	"""
+
+	if subroutine.domain.refs.LIST_SEPARATOR not in given:
+		return [given]
+
+	written = [one.strip() for one in given.split(subroutine.domain.refs.LIST_SEPARATOR) if one.strip()]
+
+	if subroutine.domain.refs.parse_refs(given) is None:
+		bad = [one for one in written if subroutine.domain.refs.parse_ref(one) is None]
+		# **Built before the message rather than inside it.** Written as
+		# `f"{', '.join(...) or given!r} …"` first, where `!r` applies to the whole `or`
+		# expression rather than to its right-hand side — so a single bad entry was quoted
+		# twice and printed as `"'nope'"`. Found by running it.
+		named = ", ".join(repr(one) for one in bad) or repr(given)
+
+		program.fail(
+			subroutine.errors.ValidationError(
+				f"{named} is not an item number."
+				if len(bad) < 2
+				else f"{named} are not item numbers.",
+				hint="Every one has to be a number 'subroutine list' prints, separated by "
+				"commas — as in '9,11,12'.",
+			)
+		)
+
+	return written
+
+
 def _locate (
 	program: Program,
 	world: World,
@@ -5293,13 +5339,15 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		relation: str = typer.Argument(
 			"", help="blocks, relates-to, duplicates, derives-from, documents."
 		),
-		other: str = typer.Argument("", help="The other item, by its number."),
+		other: str = typer.Argument("", help="The other item, by its number. Or several: 9,11,12."),
 	) -> None:
 		"""Say how two items are related.
 
 		Examples:
 
 		  subroutine link 42 blocks 43
+
+		  subroutine link 42 blocks 43,44,45
 
 		  subroutine link 42 relates-to 12
 
@@ -5313,6 +5361,10 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		Those are the five a new workspace is given. A workspace can rename them or add its
 		own, and naming one this workspace does not have lists the ones it does.
+
+		Several numbers separated by commas make one link each, all of the same kind and all
+		from the same item. Laying out a plan is the moment this is most heavily used, and it
+		is the moment one link per command costs most.
 		"""
 
 		# Hyphens read better than underscores at a command line and the seeded keys use
@@ -5321,19 +5373,33 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		with program.opened() as world:
 			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
-			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="link")
+			# **Every one is resolved before any of them is written** (`#1352`), which is
+			# `project rename`'s precedent: count what will happen and name what will break
+			# before doing any of it. Nothing here spans a transaction — each link is its own
+			# call, and over HTTP its own request — so a typo in the fourth of five would
+			# otherwise leave three made, one refused and no statement of which.
+			#
+			# The commonest failure is a ref that does not resolve, and this catches all of
+			# those. What it cannot catch is a link the service refuses for a reason only it
+			# knows, which is why the report below says what was made rather than assuming.
+			far = [
+				_locate(program, world, one, kinds=ANY_ITEM, verb="link")
+				for one in _several(program, _asked(other, "And the other one?"))
+			]
 			where = world.writing_to()
 
-			made = where.client.link(
-				ref=near.ref,
-				link_type=wanted,
-				target=far.ref,
-				entity_type=near.entity_type,
-				target_type=far.entity_type,
-				workspace=near.workspace,
-			)
+			for target in far:
+				made = where.client.link(
+					ref=near.ref,
+					link_type=wanted,
+					target=target.ref,
+					entity_type=near.entity_type,
+					target_type=target.entity_type,
+					workspace=near.workspace,
+				)
 
-			program.say(f"{made.label}: {made.other.title}")
+				program.say(f"{made.label}: {made.other.title}")
+
 			_suggest(
 				program.console,
 				f"subroutine show {_typeable(world, near.connection, near.item)}",
@@ -5343,7 +5409,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 	@app.command("unlink")
 	def unlink_items (
 		which: str = typer.Argument("", help="Which item, by its number."),
-		other: str = typer.Argument("", help="The item it is joined to, by its number."),
+		other: str = typer.Argument("", help="The item it is joined to. Or several: 9,11,12."),
 	) -> None:
 		"""Undo a link between two items.
 
@@ -5351,49 +5417,71 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		  subroutine unlink 42 43
 
+		  subroutine unlink 42 43,44,45
+
 		Worth having beside 'link' rather than later. A link added by mistake blocks work that
 		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
 		one, because it narrows what looks startable and says nothing about doing so.
+
+		Several numbers separated by commas undo one link each, which is what a plan laid out
+		the wrong way round needs.
 		"""
 
 		with program.opened() as world:
 			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
-			far = _locate(program, world, _asked(other, "And the other one?"), kinds=ANY_ITEM, verb="unlink")
+			# **Every end resolved before any link is withdrawn** (`#1352`), the same rule
+			# `link` above follows and for the same reason: nothing here spans a transaction.
+			far = [
+				_locate(program, world, one, kinds=ANY_ITEM, verb="unlink")
+				for one in _several(program, _asked(other, "And the other one?"))
+			]
 			where = world.writing_to()
 
 			# **Found by the pair rather than asked for by id.** A link's id is a UUID that
 			# appears in no listing a person reads, so requiring one would make this a command
 			# only a script could run — and `show` prints the two refs, which is what somebody
 			# actually has in front of them.
-			joins = [
-				one
-				for one in where.client.links(
-					ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
-				)
-				if one.other.ref == far.ref
-			]
+			#
+			# **Asked once and matched against every target**, rather than once per target: the
+			# answer is the same list each time, and re-fetching it would turn one call into N
+			# for a command whose whole subject is that N calls are too many.
+			held = where.client.links(
+				ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
+			)
+			joins = {
+				target.ref: [one for one in held if one.other.ref == target.ref]
+				for target in far
+			}
+			missing = [target for target in far if not joins[target.ref]]
 
-			if not joins:
+			if missing:
 				# **The shortest address that resolves, not the absolute one.** A refusal is
 				# written when something has already gone wrong and is the last output anybody
 				# re-reads for stray vocabulary — printing `personal/#1` at somebody with one
 				# workspace introduces the word in an error message, about a to-do list. Same
 				# §1.4 leak `_in_place` exists for.
+				#
+				# **Named all at once**, because undoing a mistaken batch is exactly when more
+				# than one of them will already be gone, and one refusal per run is a command
+				# somebody has to run five times to learn five things.
 				program.stop(
 					f"{world.address_of_located(near)} is not joined to "
-					f"{world.address_of_located(far)}.",
+					+ ", ".join(world.address_of_located(one) for one in missing)
+					+ ".",
 					f"Run 'subroutine show {near.ref}' to see what it is joined to.",
 				)
 
-			for one in joins:
-				where.client.unlink(
-					ref=near.ref,
-					link_id=str(one.id),
-					entity_type=near.entity_type,
-					workspace=near.workspace,
-				)
+			for target in far:
+				for one in joins[target.ref]:
+					where.client.unlink(
+						ref=near.ref,
+						link_id=str(one.id),
+						entity_type=near.entity_type,
+						workspace=near.workspace,
+					)
 
-			program.say(f"Unlinked: {joins[0].other.title}")
+				program.say(f"Unlinked: {joins[target.ref][0].other.title}")
+
 			_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
 

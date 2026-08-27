@@ -503,6 +503,11 @@ and asks first — which a tool call cannot do here yet. The refusal names the c
   43*, so 43 is the one that disappears from `ready`. Read it as the sentence it spells: "42
   blocks 43". If what you have in mind is "this work depends on that work", the thing it depends
   *on* goes in `ref`.
+  **`other` takes several.** `subroutine_link(ref=42, type="blocks", other=[43, 44, 45])` makes
+  three links in one call — same `ref`, same type, one per target. Laying out a plan is when
+  this matters: one measured project needed 37 links, which is 37 round trips one at a time.
+  Every number is read before any link is written, so a bad one leaves nothing half-made.
+
 - **Waiting on something outside the system is a deferral with a reason**:
   `subroutine_update(ref=42, defer="now+7d")` and a comment saying what you are waiting for.
   The link above resolves itself; an external wait does not, so it needs the reason in prose

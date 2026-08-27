@@ -49,6 +49,16 @@ upgrade involves.
   in …"*, which is about whichever account the credential belongs to — not necessarily the
   person reading it. It names the account now, and so does the line offering the remedy.
 
+- **One call can join an item to several others.** `subroutine link 8 blocks 9,11,12` makes
+  three links, and an agent can send `other` a list. Laying out one modest project was measured
+  at 23 items and 37 links — sixty round trips through the agent tools, where there is no shell
+  to loop in. Every number is checked before any link is written, so a typo in the middle leaves
+  nothing half-done, and the refusal names the entry that was wrong.
+
+  **`subroutine unlink 8 9,11,12` undoes several the same way**, which is what a plan laid out
+  the wrong way round needs. If any of them is not joined, none is withdrawn and all of the
+  missing ones are named at once.
+
 - **A refusal that names `workspace_id` says where to put it.** On an endpoint that takes it in
   the query, the field is reported as `query.workspace_id`, which is how this API already
   reports a query parameter. Following the old message put it in the body and got you refused a

@@ -2064,10 +2064,16 @@ def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_o
 
 	for tool in bound.tools.values():
 		properties = tool.schema.get("properties", {})
+		# **Every property whose declared types *include* the ref pair, not only those equal to
+		# it** (`SR#1352`). This read `== A_REF`, and the moment `subroutine_link.other` grew
+		# `"array"` beside the two it dropped out of this guard's population entirely —
+		# silently, because a parametrised walk cannot tell *no case failed* from *one case
+		# fewer ran*. The floor below catches a walk that reads nothing and could not have
+		# caught a walk that read one thing less.
 		refs = [
 			name
 			for name, declared in properties.items()
-			if declared.get("type") == subroutine.mcp.tools.A_REF
+			if set(subroutine.mcp.tools.A_REF) <= set(_types(declared))
 		]
 
 		for under_test in refs:
@@ -2093,6 +2099,14 @@ def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_o
 		"These published a ref and did not read one written the way every listing prints it: "
 		+ "; ".join(unread)
 	)
+
+
+def _types (declared: dict[str, typing.Any]) -> list[str]:
+	"""Return the JSON Schema types a property declares, however it spells them."""
+
+	kind = declared.get("type")
+
+	return [kind] if isinstance(kind, str) else list(kind or ())
 
 
 def test_reading_one_very_large_item_does_not_spend_the_whole_context (
@@ -5474,15 +5488,22 @@ def test_a_tag_that_is_not_a_word_is_refused_by_the_tool (
 	``protocol._mistyped`` refuses a bare string here, because ``tags`` declares ``array``.
 	It does not recurse into ``items``, so an array carrying a number reaches the tool — and
 	this is the only place that can turn it down.
+
+	**That first sentence was aspirational until 2026-08-27 and the body said so** (`SR#1352`).
+	This docstring described the design; the comment three lines down described what actually
+	happened, which was that ``_ACCEPTS`` knew nothing about ``array`` and every bare string
+	sailed past the protocol into ``_words``. A published contract nothing enforced — with the
+	documentation of it split across one function, saying both things.
+
+	``array`` is in ``_ACCEPTS`` now, taking the invitation ``_mistyped``'s own docstring
+	offers, so the docstring is true and the split is where `#549` says it is.
 	"""
 
-	# **Refused by the tool, not by the protocol.** `_ACCEPTS` knows `string`, `integer`,
-	# `boolean` and `object` and deliberately not `array`, so this one reaches `_words` — and
-	# returning `None` for it would be `#379`: an argument swallowed and the write proceeding.
+	# **Refused by the protocol, because `tags` declares `array` and `_ACCEPTS` knows it.**
 	answered, failed = _called(bound, "subroutine_document", title="x", tags="design")
 
 	assert failed
-	assert "list of words" in answered
+	assert "tags" in answered and "a list" in answered, answered
 
 	# Refused by the tool, because nothing else looks inside.
 	answered, failed = _called(
@@ -6441,6 +6462,95 @@ def test_the_two_surfaces_name_a_changed_field_identically () -> None:
 	# A column nobody has mapped still loses its internal suffix rather than reaching a reader.
 	assert subroutine.views.field_in_words("some_new_column_id") == "some new column"
 	assert subroutine.views.field_in_words("title") == "title"
+
+
+def test_one_call_joins_an_item_to_several_others (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1352`, on the surface SR#1290 measured as worst.
+
+	*"An agent on a remote instance has no shell to fall back on — so the surface this product
+	is named for is the one where it is worst."* Twenty-three creates and thirty-seven links for
+	one modest project is sixty round trips.
+
+	**An argument on the existing tool rather than a fourteenth**, which is what SR#1352 asked
+	for and what §21.2's count cap requires: the byte cap was retired on 2026-08-23 and the
+	count one was not.
+
+    **All four spellings**, because a model sends back the notation it was shown and this API
+	prints `#42` everywhere: a bare number, a list of them, a list of strings, and a
+	comma-separated string.
+	"""
+
+	refs = []
+
+	for title in ("Ship it", "Changelog", "Tag it", "Announce it", "Update the docs"):
+		written, failed = _called(bound, "subroutine_add", text=title)
+
+		assert not failed, written
+
+		numbered = re.search(r"#(\d+)", written)
+
+		assert numbered is not None, written
+
+		refs.append(int(numbered.group(1)))
+
+	said, failed = _called(bound, "subroutine_link", ref=refs[0], other=refs[1:4])
+
+	assert not failed, said
+	assert said.count("\n") == 2, f"one line per link, both ends named:\n{said}"
+
+	for one in refs[1:4]:
+		assert f"#{one}" in said, said
+
+	# **The string form too**, which is what arrives when a model writes a list the way it read
+	# one rather than as JSON.
+	also, failed = _called(bound, "subroutine_link", ref=refs[0], other=f"#{refs[4]}")
+
+	assert not failed, also
+	assert f"#{refs[4]}" in also, also
+
+
+def test_a_bad_ref_among_several_joins_nothing (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1352`. The refusal names the value, and no link is written before the list is read.
+
+	Nothing here spans a transaction — each link is its own call — so resolving every end first
+	is what stops a typo in the fourth of five leaving three made and no statement of which.
+	"""
+
+	refs = []
+
+	for title in ("Ship it", "Changelog", "Tag it"):
+		written, _failed = _called(bound, "subroutine_add", text=title)
+		numbered = re.search(r"#(\d+)", written)
+
+		assert numbered is not None, written
+
+		refs.append(int(numbered.group(1)))
+
+	# **A good list first, so this cannot pass by the whole call being refused.** Without it,
+	# a version that rejects *every* list satisfies both assertions below — the call fails and
+	# nothing is written — which is exactly what the unfixed code does. Measured: this test
+	# passed against `HEAD` until this line existed.
+	made, failed = _called(bound, "subroutine_link", ref=refs[0], other=[refs[1]])
+
+	assert not failed, made
+
+	refused, failed = _called(
+		bound, "subroutine_link", ref=refs[0], other=[refs[2], "nope"]
+	)
+
+	assert failed, refused
+	assert "'nope'" in refused, f"the entry is named rather than the whole list:\n{refused}"
+
+	shown, _failed = _called(bound, "subroutine_show", ref=refs[0])
+
+	assert "Tag it" not in shown, (
+		f"a link was written before the whole list had been read:\n{shown}"
+	)
+	assert "Changelog" in shown, "and the good list before it is still there"
 
 
 def test_a_link_echo_names_which_item_gates_which (
