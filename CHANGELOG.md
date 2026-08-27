@@ -85,6 +85,15 @@ upgrade involves.
   reports a query parameter. Following the old message put it in the body and got you refused a
   second time.
 
+- **A document's status can be changed from the browser.** The Status control on a document
+  offered *Draft*, *Active*, *Superseded* and *Archived* correctly, and every one of them was
+  refused — the control wrote to the endpoint for tasks whatever it was looking at. Choosing one
+  now does what it says.
+
+- **A control no longer shows a value the instance turned down.** When a status change or a
+  hand-over is refused, the dropdown goes back to what the item really says instead of keeping
+  the choice on screen beside a message reporting that nothing changed.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.

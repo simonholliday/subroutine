@@ -6357,7 +6357,22 @@ class Instance(typing.NamedTuple):
 	#: A link the fixture made, so removing one can be driven — a DELETE needs an id that
 	#: exists, and the ids the calls above create are not threaded back into this list.
 	link: str
+	#: A link whose *source* is a document, so removing one can be driven from that end too.
+	#: `unlinkRequest` branches on the kind exactly as `commentRequest` does, and was driven
+	#: from one end only — the coverage gap that let `SR#1419` sit in `statusRequest`.
+	document_link: str
 	document: int
+	#: A second document that nothing else in `_calls` revises, for `spare`'s reason one entity
+	#: along: `statusRequest` carries no `expected_version` (`SR#758`) but still moves the
+	#: version, and `documentRequest`'s revise below sends the one it was told. Driving a
+	#: document's status against `document` would bump it out from under that call, and the
+	#: 409 would name the revise rather than the status change that caused it.
+	spare_document: int
+	#: A document status that is **not** the seeded default, so moving to it is a real move
+	#: rather than a write that happens to change nothing. ``archived`` deliberately: it is the
+	#: one Simon selected when he met `SR#1419`, so this guard asks the instance the question
+	#: the report asked it.
+	document_status: str
 	username: str
 	status: str
 	cursor: str
@@ -6442,11 +6457,24 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	)
 	assert document.status_code == 201, document.text
 
+	spare_document = call(
+		"POST",
+		"/v1/documents",
+		json={"title": "A second note", "body": "More prose.", "workspace_id": slug},
+	)
+	assert spare_document.status_code == 201, spare_document.text
+
 	joined = call(
 		"POST", f"/v1/tasks/{refs[0]['ref']}/links{scope}",
 		json={"target": refs[1]["ref"], "link_type": "relates_to", "target_type": "task"},
 	)
 	assert joined.status_code == 201, joined.text
+
+	from_document = call(
+		"POST", f"/v1/documents/{spare_document.json()['ref']}/links{scope}",
+		json={"target": refs[1]["ref"], "link_type": "relates_to", "target_type": "task"},
+	)
+	assert from_document.status_code == 201, from_document.text
 
 	# **Fetched in the order the browser asks for, which is not the default** (`SR#877`). A
 	# cursor encodes the keys of the order that produced it, so one minted from an unordered
@@ -6481,7 +6509,10 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		repeating=repeating.json()["ref"],
 		repeating_version=repeating.json()["version"],
 		link=joined.json()["id"],
+		document_link=from_document.json()["id"],
 		document=document.json()["ref"],
+		spare_document=spare_document.json()["ref"],
+		document_status="archived",
 		username=setup.user.username,
 		status=refs[0]["status"],
 		cursor=page.json()["page"]["next_cursor"],
@@ -6728,7 +6759,21 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# **The quick path** (`SR#758`): one field and no `expected_version`, which is right
 		# here and wrong for the form — a single control read and written in one gesture cannot
 		# be refused for a field somebody else moved and this reader never saw.
-		("statusRequest", [{"ref": place.task}, place.status, place.slug]),
+		("statusRequest", [{"ref": place.task, "kind": "task"}, place.status, place.slug]),
+		# **And on a document, which is what `SR#1419` was** — reported from the browser against
+		# a real note: the Status control offers *Archive*, pressing it answers *"is a document,
+		# not a task"*, and nothing changes. The vocabulary above the control asks `item.kind`
+		# and the builder did not, so every press of it on a document had always been refused.
+		#
+		# **This entry fails against the code as shipped**, with the instance's own words, which
+		# is what makes it a guard rather than a copy of the fix.
+		(
+			"statusRequest",
+			[
+				{"ref": place.spare_document, "kind": "document"},
+				place.document_status, place.slug,
+			],
+		),
 		# **Both kinds** (`SR#759`): a document is commented on exactly as a task is, and the
 		# collection in the path is the only difference — which is the sort of thing that is
 		# right for one and wrong for the other until something drives both.
@@ -6750,6 +6795,12 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 			place.slug,
 		]),
 		("unlinkRequest", [{"ref": place.task, "kind": "task"}, place.link, place.slug]),
+		# **From the document end as well**, for the reason two entries above: this builder
+		# chooses its collection from the kind, and driving one end says nothing about the other.
+		(
+			"unlinkRequest",
+			[{"ref": place.spare_document, "kind": "document"}, place.document_link, place.slug],
+		),
 		# **Writing one and revising one** (`SR#761`), which are one builder and two methods.
 		# The revision carries `expected_version`, and `doc edit` is a whole-body replace — so
 		# what is at stake is the entire document rather than one field.
@@ -6920,6 +6971,118 @@ def test_every_request_the_browser_makes_is_one_the_instance_accepts (
 		)
 
 
+#: Builders that name an entity and are right to always name a task's, with the reason each is.
+#:
+#: **Read together with `test_a_task_only_builder_really_is_one`**, which drives every one of
+#: these with a document and fails if the path moved. So an entry stops being true the moment
+#: somebody teaches one of these to branch, rather than sitting here looking considered — which
+#: is the stale-excuse half `SR#405` requires of every allow-list in this repository.
+_ALWAYS_A_TASK = {
+	"completeRequest": (
+		"§6.14 gives a document no `completed_at`, and `completable` hides the control that "
+		"calls this from one. There is nothing on a document for this to write."
+	),
+	"assignRequest": (
+		"§6.14 gives a document no assignee — it lists the fields a document deliberately "
+		"lacks, and `assignee_id` is among them. Nobody is 'working on' a document."
+	),
+	"updateRequest": (
+		"The task edit form. `documentRequest` is the document one, and they are two builders "
+		"on purpose: the field lists do not overlap enough for one to serve both."
+	),
+	"restoreRequest": (
+		"Reachable only from `complete`'s undo, and `complete` is gated by `completable`, "
+		"which is `kind === 'task'`. A document can never reach this."
+	),
+}
+
+
+def test_every_builder_that_names_an_entity_is_driven_with_both_kinds (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""`SR#1419`: a builder driven with one kind is a path checked for one kind.
+
+	**The coverage test below is a floor and this is the other direction.** It asks whether
+	every builder is driven *at all*; this asks whether the ones that name an entity are driven
+	with **both** — which is the question that was not being asked when `statusRequest` shipped
+	choosing `/tasks/` for everything. It was driven, once, with a task, and a floor cannot tell
+	*no case failed* from *one case fewer ran*.
+
+	**The population is derived from what the builders actually emit**, never from a list of
+	names: a path is classified by the collection it came out with, so a builder written
+	tomorrow is in scope the day it produces one.
+
+	`itemRequests` is the precedent worth knowing — its own comment records that it was
+	*"written the other way first and caught by the guard that drives every request against a
+	real instance"*. It was caught because it is a **read** and the page builds both kinds. A
+	write is built only when somebody presses something, so nothing drove the other half.
+	"""
+
+	seen: dict[str, set[str]] = {}
+
+	for request in _built(tmp_path, _calls(instance)):
+		found = re.match(r"^/(tasks|documents)/", request["path"])
+
+		if found is not None:
+			seen.setdefault(request["from"], set()).add(found.group(1))
+
+	assert seen, "no builder produced an entity path, so this is checking nothing"
+
+	thin = {
+		name for name, kinds in seen.items()
+		if kinds == {"tasks"} and name not in _ALWAYS_A_TASK
+	}
+
+	assert not thin, (
+		f"{sorted(thin)} names an entity and is only ever driven with a task, so nothing has "
+		f"asked what it writes to when the item is a document — which is exactly how SR#1419 "
+		f"shipped. Drive it with both, or record in `_ALWAYS_A_TASK` why a document can never "
+		f"reach it."
+	)
+
+
+def test_a_task_only_builder_really_is_one (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""An excuse that has stopped being true must fail, not sit there reading as a decision.
+
+	Each entry above claims a builder can only ever address a task. **Driven, rather than
+	believed**: the builder is handed a document and the path it returns must still be a task's.
+	Teach one of them to branch and its entry fails here, which is what makes deleting the entry
+	the act that closes it.
+
+	**The requests built here are never sent.** The claim is about which collection the path
+	names, and half of them would be refused against a real document by design — which is the
+	very thing being asserted.
+	"""
+
+	assert _ALWAYS_A_TASK, "nothing is excused, so this is checking nothing"
+
+	document = {"ref": instance.spare_document, "kind": "document"}
+	probes: list[tuple[str, list[typing.Any]]] = [
+		("completeRequest", [document, instance.slug]),
+		("assignRequest", [document, instance.username, instance.slug]),
+		("restoreRequest", [{**document, "status": instance.document_status}, instance.slug]),
+		("updateRequest", [{
+			"title": "Driven at a document", "description": "", "project": instance.project,
+			"type": "task", "status": instance.status, "assignee": "",
+			"importance": "", "urgency": "", "estimate": "",
+			"starts": "", "snooze": "", "due": "", "tags": "",
+		}, {**document, "version": 1}, instance.slug]),
+	]
+
+	assert {name for name, _arguments in probes} == set(_ALWAYS_A_TASK), (
+		"every excused builder must be probed here, or an entry is excused and unchecked"
+	)
+
+	for request in _built(tmp_path, probes):
+		assert request["path"].startswith("/tasks/"), (
+			f"{request['from']} is recorded in `_ALWAYS_A_TASK` as never addressing a document, "
+			f"and handed one it built {request['path']} — so the entry is out of date and the "
+			f"reason beside it no longer holds"
+		)
+
+
 def test_every_request_builder_is_driven_against_the_instance () -> None:
 	"""A builder nobody exercises is a request nobody checked.
 
@@ -6932,7 +7095,8 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 	place = Instance(
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
-		document=2, username="si", status="open", cursor="c", since=1,
+		document=2, spare_document=5, document_status="archived", document_link="dl",
+		username="si", status="open", cursor="c", since=1,
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 

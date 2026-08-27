@@ -1737,9 +1737,22 @@ export function statusRequest (row, where, slug) {
 		for a form somebody has been typing into while the world moved — `#757`. This is a single
 		control read and written in one gesture, and refusing it because an unrelated field
 		changed would be a conflict a person cannot act on and did not cause.
+
+		**Both kinds, because a document has a status too** (`#1419`). `db/seed._STATUSES` gives
+		a document `draft`, `active`, `superseded` and `archived`, and the control above is
+		deliberately outside `completable`'s gate so that a reader can move one — a status is
+		the only thing on this component a document *does* have. This builder hardcoded
+		`/tasks/` and every press of it on a document was refused by name, which is the whole of
+		`#1419`: the vocabulary lookup asked `item.kind` and the write did not.
+
+		**Six sites in this file already branch on `item.kind`** — both comment builders, both
+		link builders, the vocabulary above and the save path — and each is correct. *N copies
+		that agree hide the one that does not ask*, which is `#1281` with its halves swapped.
 	*/
+	const collection = row.kind === "document" ? "documents" : "tasks";
+
 	return {
-		path: scoped(`/tasks/${row.ref}`, slug),
+		path: scoped(`/${collection}/${row.ref}`, slug),
 		method: "PATCH",
 		body: { status: where },
 	};
@@ -6270,8 +6283,15 @@ export function Doing ({
 	/*
 		The two things a reader can do to an item from here.
 
-		**Only for a task, and only while it is open.** A document has neither, and a completed
-		task offering "Complete" is a control whose only outcome is a refusal.
+		**Complete and Assign are for a task and only while it is open**, because a completed
+		task offering "Complete" is a control whose only outcome is a refusal, and §6.14 gives a
+		document no `completed_at` and no assignee to hand it to.
+
+		**The status control is not one of those and this paragraph said it was** (`#1419`). It
+		moved outside `completable`'s gate with `#758` — see the note above the return — and a
+		document has had a status all along, so it is drawn on one deliberately. The sentence
+		here went on describing the arrangement before that change, which is how `statusRequest`
+		came to be the one builder in this file that never asked what it was writing to.
 
 		**This wrote the rule out by hand and got it three-quarters right** (`#724`): it asked
 		whether the category was `done`, so a **cancelled** task — equally over — was offered both
@@ -6324,9 +6344,17 @@ export function Doing ({
 				     is renameable and an installation may add one, so a control carrying its
 				     own three words is wrong on the first instance that does either — and
 				     wrong silently, because it still looks complete. */ null}
+				${/* **`value` rather than the options' `selected` alone, so a refused write cannot
+				     be left on screen** (`#1419`). `wrote` re-reads only when the instance
+				     accepted; after a refusal the note says *was not changed* while the control
+				     still shows what the reader picked. A `<select>` keeps whatever the browser
+				     put in it, and `selected` on an option only decides the *first* paint — so
+				     the value has to be stated on the element that holds it, which the failure
+				     path's re-render then restores. `offered` guarantees `item.status` is one
+				     of these, which is what makes this safe to assert. */ null}
 				<label class="assign">
 					<span>Status</span>
-					<select disabled=${busy}
+					<select disabled=${busy} value=${item.status}
 						onChange=${(event) => onStatus(item, event.target.value)}>
 						${where.map((one) => html`
 							<option key=${one.key} value=${one.key}
@@ -6337,9 +6365,13 @@ export function Doing ({
 			`}
 
 			${completable(item) && members.length > 0 && html`
+				${/* **The sibling of the status control above, fixed with it** (`#1419`). It is
+				     the same gesture through the same `wrote`, so a refused hand-over left the
+				     new name on screen for the same reason. Fixing one and leaving the other is
+				     how two controls beside each other come to behave differently. */ null}
 				<label class="assign">
 					<span>Assigned to</span>
-					<select disabled=${busy}
+					<select disabled=${busy} value=${item.assignee || ""}
 						onChange=${(event) => onAssign(item, event.target.value || null)}>
 						<option value="" selected=${!item.assignee}>Nobody</option>
 						${/* **The same answer the add form gets** (`#770`): four of this workspace's
