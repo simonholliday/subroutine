@@ -173,10 +173,15 @@ for development anyway: the plugin's copy is cached and lags until you refresh i
 marketplace add` clones it, so without a `git` binary that step refuses before anything of ours
 runs. A machine already set up to install Python packages nearly always has it.
 
-**This one runs a program on your machine, so it does not work in a browser.** Claude Code and
-the desktop apps can start it; claude.ai cannot, because there is nothing on that side to start
-anything on. The plugin still installs and still reports success, and the only sign of a problem
-is an absence — so it is worth knowing in advance rather than diagnosing.
+**This one runs a program on your machine, so it does not work in a browser.** claude.ai cannot
+start it, because there is nothing on that side to start anything on. The plugin still installs
+and still reports success, and the only sign of a problem is an absence — so it is worth knowing
+in advance rather than diagnosing.
+
+**Claude Code is tested; a desktop app that can start a local program is not.** We have not
+driven that combination, and this page used to say we had. It is the only route we know of for
+somebody who will not use a terminal, so it is worth trying and worth telling us about — but do
+not plan an afternoon around it on our word.
 
 **You know it worked** when `claude mcp list` shows the server connected, or when you ask the
 agent to run `subroutine_whoami` and it answers. Installing a plugin and starting its server are
@@ -274,9 +279,11 @@ simply has no Subroutine tools, so it can be installed before anybody has told y
 point it. A wrong token or a wrong address both report clearly in the editor; a token is not
 something to edit around, so ask for a new one rather than guessing.
 
-**Like every Claude Code plugin, this one runs in the editor and the desktop apps and not on
-the web.** The transport is different from the section above — this one needs nothing installed
-— but that particular limit is the same.
+**This one is tested in Claude Code and nowhere else.** The transport is different from the
+section above — this one needs nothing installed — but the same caution applies to where it
+runs. It does not run on the web, which is structural. Whether a desktop app will take an HTTP
+plugin configured with a pasted token we have not driven, and the section on
+[Claude on the web](#claude-on-the-web) is why we doubt it.
 
 ### Another MCP client
 
@@ -289,8 +296,9 @@ install on either side.
 well, which ships with the plugin rather than with the instance. The instance offers four
 documents as MCP resources instead: a guide written for an agent arriving with nothing, worked
 examples, this installation's own vocabulary, and the decisions this workspace has taken. Those
-are enough to work from. The skill is the part that says how to work *well*, and it reaches
-Claude Code and the desktop apps only.
+are enough to work from. The skill is the part that says how to work *well*, and it ships with
+the plugin — so it reaches wherever the plugin does, which is Claude Code for certain and the
+desktop apps untested (above).
 
 ## Claude on the web
 
@@ -308,9 +316,25 @@ comes *from Anthropic's servers* rather than from your machine, so:
 That makes it an authorisation flow rather than a field in a settings box, which is why it is
 its own piece of work rather than a variation on the section above.
 
-**Until then**, the plugin in [An agent, with nothing installed](#an-agent-with-nothing-installed)
-reaches exactly the same instance from Claude Code and the desktop apps, with the same token, and
-needs nothing installed either.
+**Until then, there is one route and it is not the one that looks easiest.** The two plugins
+work differently, they are not interchangeable, and only one of them has been driven end to end
+by us:
+
+| | what it is | where it is known to work |
+| --- | --- | --- |
+| [An agent, with nothing installed](#an-agent-with-nothing-installed) | an HTTP server, reached with a token you paste | **Claude Code — tested.** Not the desktop apps: a connector there wants an authorisation flow rather than a pasted token, which is the whole of what is unbuilt above. |
+| [An agent, on the machine holding the work](#an-agent-on-the-machine-holding-the-work) | a program started on your own machine | **Claude Code — tested.** A desktop app that can start a local program, **untested by us** — if you try it, we would like to know. |
+
+**So somebody who does not use a terminal has one path**: install `uv`, then the local one. It
+is a real path and it is not a nothing-to-install path, and this page said otherwise until
+2026-08-27 — which is the sentence somebody would have spent an afternoon on. A plugin that
+cannot connect reports success and shows no tools, so the failure is an absence rather than an
+error and nothing would have said what went wrong.
+
+**Marked as untested rather than quietly asserted.** Everything else on this page is a command
+somebody ran; a claim about what another program can do is the same promise one step out, and
+this page has no way to keep it. Saying which half we have driven is worth more than a sentence
+that is confidently wrong.
 
 ## Your work in your calendar
 

@@ -16,6 +16,14 @@ upgrade involves.
 
 ### Fixed
 
+- **The connecting guide says which of its claims we have actually driven.** It said the
+  no-install plugin *"reaches exactly the same instance from Claude Code and the desktop apps,
+  with the same token"* — the sentence somebody choosing the easiest path acts on, and a
+  desktop app wants an authorisation flow rather than a pasted token. The two plugins are two
+  mechanisms and the page now separates them, marks the desktop combination as untested, and
+  says plainly that somebody who will not use a terminal has one route and it involves
+  installing `uv`.
+
 - **An agent is told where its work was filed when nothing chose.** `subroutine_add` and
   `subroutine_document` say `filed in <project>` when the caller named no project and no
   `.subroutine` marker was read — the one case where the answer named the ref and nothing

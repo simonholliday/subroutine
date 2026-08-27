@@ -1153,3 +1153,72 @@ def test_a_manifest_that_announces_its_version_announces_its_own () -> None:
 		f"a manifest announces a version that is not its own: {wrong} — the header and "
 		f"plugin.json move together, and scripts/release.py writes both"
 	)
+
+
+#: The page a reader is sent to when somebody hands them an address and a token.
+CONNECTING = ROOT / "docs" / "connecting.md"
+
+
+def test_the_connecting_guide_does_not_treat_the_two_plugins_as_interchangeable () -> None:
+	"""`#1434`: the page said one plugin reached everywhere the other did, and it does not.
+
+	It closed the *Claude on the web* section with *"the plugin in An agent, with nothing
+	installed reaches exactly the same instance from Claude Code and the desktop apps, with the
+	same token, and needs nothing installed either"* — which is the sentence somebody choosing
+	the easy path acts on, and Simon measured the opposite: a desktop app wants an
+	authorisation flow rather than a pasted token.
+
+	**Only the checkable half is guarded here, and knowing which half that is matters.**
+	*Whether a desktop app can start a local program* is a claim about somebody else's program
+	and no test of ours can settle it — that is `#1433`, a five-minute try on a Mac. What a test
+	*can* hold is that the two plugins really are two mechanisms, so a page distinguishing them
+	is distinguishing something real: if both became HTTP, or both stdio, the distinction the
+	prose now leans on would be false and nothing else would say so.
+
+	Derived from the manifests rather than from a list, so a third plugin is in scope the day
+	it ships.
+	"""
+
+	transports = {
+		path.parent.name: _read(path)["mcpServers"]["tools"]
+		for path in sorted((ROOT / "plugins").glob("*/.mcp.json"))
+	}
+
+	assert transports["subroutine-remote"].get("type") == "http", (
+		"the guide says this one is reached by address with a pasted token; if it stopped "
+		"being an HTTP server that sentence would be wrong and nothing else would say so"
+	)
+	assert "command" in transports["subroutine"], (
+		"the guide says this one starts a program on your machine, which is why it is the "
+		"only route for somebody without a terminal-based editor"
+	)
+
+	# **Every plugin is one or the other, never both and never neither**, so the page's two
+	# rows cover the whole population rather than the two somebody happened to write about.
+	for name, server in transports.items():
+		assert ("command" in server) != (server.get("type") == "http"), (
+			f"{name} is neither a local program nor an HTTP server, or is somehow both — "
+			f"docs/connecting.md sorts every plugin into exactly those two"
+		)
+
+
+def test_the_connecting_guide_says_which_claims_it_has_driven () -> None:
+	"""`#1434`'s other half, and it is a promise about the page rather than about a plugin.
+
+	`#189` established that a quoted output promises the command above it produced it. A claim
+	about what *another program* can do is the same promise one step out, and this page has no
+	way to keep it — so the answer is to say which half has been driven rather than to assert
+	both. A page that says *we have not tried this* is worth more than one that is confidently
+	wrong, which is `#594`'s finding arriving from the other direction.
+
+	Deliberately a weak check: it holds that the words are there, not that they are true. It
+	exists so that removing the caveat is an act somebody takes rather than a tidy-up — the way
+	the false sentence arrived in the first place.
+	"""
+
+	page = CONNECTING.read_text(encoding="utf-8")
+
+	assert "untested by us" in page, (
+		"docs/connecting.md must mark what nobody here has driven; it claimed the desktop "
+		"apps worked until 2026-08-27 and somebody would have spent an afternoon on it"
+	)
