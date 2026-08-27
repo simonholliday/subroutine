@@ -7,7 +7,7 @@
 	and copying it fourteen times would be fourteen places for it to drift. `Icon` in `app.js`
 	draws the wrapper; this is what goes inside it.
 
-	**Only what is used.** The set ships 1,512 icons per weight and this is eighteen: an item
+	**Only what is used.** The set ships 1,512 icons per weight and this is twenty: an item
 	type each, one for a type this client does not recognise, two for the ends of a `blocks`
 	link, one for a task that comes back (`#925`), and two for what a *control* does — a caret
 	for something that reveals more and a tick for finishing (`#1046`). Adding one is a `curl`
@@ -16,6 +16,9 @@
 	**The calendar is the eighteenth** (`#1236`, decision `#1235`). It is the one type whose
 	*category* borrows it as well, because `occasion` is what `--ready` and the agenda read and
 	a workspace may put its own `holiday` under it.
+
+	**The nineteenth and twentieth are a person and an agent** (`#1421`), which are the
+	first two here that illustrate *who* rather than *what*.
 
 	MIT, and `phosphor.LICENSE` beside this file is the notice travelling with the code.
 */
@@ -43,6 +46,14 @@ export const PATHS = {
 	"lock-simple": "M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z",
 	"repeat": "M24,128A72.08,72.08,0,0,1,96,56H204.69L194.34,45.66a8,8,0,0,1,11.32-11.32l24,24a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L204.69,72H96a56.06,56.06,0,0,0-56,56,8,8,0,0,1-16,0Zm200-8a8,8,0,0,0-8,8,56.06,56.06,0,0,1-56,56H51.31l10.35-10.34a8,8,0,0,0-11.32-11.32l-24,24a8,8,0,0,0,0,11.32l24,24a8,8,0,0,0,11.32-11.32L51.31,200H160a72.08,72.08,0,0,0,72-72A8,8,0,0,0,224,120Z",
 	"key": "M216.57,39.43A80,80,0,0,0,83.91,120.78L28.69,176A15.86,15.86,0,0,0,24,187.31V216a16,16,0,0,0,16,16H72a8,8,0,0,0,8-8V208H96a8,8,0,0,0,8-8V184h16a8,8,0,0,0,5.66-2.34l9.56-9.57A79.73,79.73,0,0,0,160,176h.1A80,80,0,0,0,216.57,39.43ZM224,98.1c-1.09,34.09-29.75,61.86-63.89,61.9H160a63.7,63.7,0,0,1-23.65-4.51,8,8,0,0,0-8.84,1.68L116.69,168H96a8,8,0,0,0-8,8v16H72a8,8,0,0,0-8,8v16H40V187.31l58.83-58.82a8,8,0,0,0,1.68-8.84A63.72,63.72,0,0,1,96,95.92c0-34.14,27.81-62.8,61.9-63.89A64,64,0,0,1,224,98.1ZM192,76a12,12,0,1,1-12-12A12,12,0,0,1,192,76Z",
+
+	/* **A person and an agent, and the pair is the point** (`#1414`, `#1421`). A row says
+	   `@claude-super (agent, @si)` and the word is what carries it; these reinforce it for
+	   somebody scanning fifty rows, which `#1422` found is the thing the word alone cannot do.
+	   **Both, never only the agent** — marking one kind makes the *absence* of a mark do the
+	   work, and an absence does not catch an eye the way a difference does. */
+	"user": "M230.92,212c-15.23-26.33-38.7-45.21-66.09-54.16a72,72,0,1,0-73.66,0C63.78,166.78,40.31,185.66,25.08,212a8,8,0,1,0,13.85,8c18.84-32.56,52.14-52,89.07-52s70.23,19.44,89.07,52a8,8,0,1,0,13.85-8ZM72,96a56,56,0,1,1,56,56A56.06,56.06,0,0,1,72,96Z",
+	"robot": "M200,48H136V16a8,8,0,0,0-16,0V48H56A32,32,0,0,0,24,80V192a32,32,0,0,0,32,32H200a32,32,0,0,0,32-32V80A32,32,0,0,0,200,48Zm16,144a16,16,0,0,1-16,16H56a16,16,0,0,1-16-16V80A16,16,0,0,1,56,64H200a16,16,0,0,1,16,16Zm-52-56H92a28,28,0,0,0,0,56h72a28,28,0,0,0,0-56Zm-24,16v24H116V152ZM80,164a12,12,0,0,1,12-12h8v24H92A12,12,0,0,1,80,164Zm84,12h-8V152h8a12,12,0,0,1,0,24ZM72,108a12,12,0,1,1,12,12A12,12,0,0,1,72,108Zm88,0a12,12,0,1,1,12,12A12,12,0,0,1,160,108Z",
 };
 
 //: What every one of these is drawn in. Here rather than in `Icon` so a future weight or set

@@ -3827,6 +3827,12 @@ export const MARK_ICONS = {
 	blocked: "lock-simple",
 	blocker: "key",
 	repeats: "repeat",
+	/* **Who the name on a row belongs to** (`#1421`, design `#1422`). Not a *state* — an
+	   assignee is an address, and these ride the address mark rather than making it a chip:
+	   `#1019`'s families are what stop a boxed `@si` reading as the same kind of thing as a
+	   boxed status, which is the confusion those families were introduced to end. */
+	person: "user",
+	agent: "robot",
 };
 
 /* What an item type this client does not recognise is drawn as. */
@@ -4095,6 +4101,17 @@ export function marks (
 		address.push({
 			text: named(item.assignee, item.assignee_is_agent, item.assignee_answers_to),
 			family: "address",
+			/* **The glyph reinforces the word and never replaces it** — `#102` as the
+			   stylesheet states it: *nothing may be said in colour alone, and nothing may be
+			   said in a shape alone either*. `named` above has already put *(agent)* in the
+			   text, so a reader in monochrome, with images off, or through a screen reader
+			   loses the picture and no information — which is what `Icon`'s `aria-hidden`
+			   default is for.
+
+			   **Both kinds, because the scanning problem is a difference and not a presence**
+			   (`#1422`). Marking only agents makes the *absence* of a mark carry the other
+			   half, and an absence does not catch an eye on a page of fifty rows. */
+			icon: item.assignee_is_agent ? MARK_ICONS.agent : MARK_ICONS.person,
 		});
 	}
 

@@ -11630,6 +11630,61 @@ def test_every_category_a_workspace_can_seed_has_a_glyph_to_fall_back_to () -> N
 	)
 
 
+def test_a_row_draws_a_different_glyph_for_a_person_and_for_an_agent (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1421`, design `SR#1422`. **The word says it; this is what makes it scannable.**
+
+	`SR#1414` put *(agent, @si)* on the row and Simon's objection was that the information is
+	there and cannot be *scanned* — a reader sees a name and has to read to tell a colleague
+	from something somebody set running.
+
+	**Both kinds carry one, and that is the assertion that matters.** Marking only agents makes
+	the **absence** of a glyph carry the other half, and an absence does not catch an eye on a
+	page of fifty rows — so a version that drew a robot and left a person bare would look
+	correct in a screenshot of one row and fail at the thing this is for.
+
+	**The glyph never carries it alone** — `SR#102`, and
+	`test_every_surface_says_an_agent_is_one_and_who_answers_for_it` is the half that holds the
+	*word*. Together they say: the text is sufficient, and the picture is what makes it quick.
+	"""
+
+	person, agent = _addressing(tmp_path, [
+		("marks", {
+			"item": {"ref": 1, "title": "Ordinary", "assignee": "jo"},
+			"showKind": False, "ordering": None, "place": None,
+			"linkable": False, "hideStatus": False,
+		}),
+		("marks", {
+			"item": {
+				"ref": 2, "title": "Held by an agent", "assignee": "gizmo",
+				"assignee_is_agent": True, "assignee_answers_to": "morgan",
+			},
+			"showKind": False, "ordering": None, "place": None,
+			"linkable": False, "hideStatus": False,
+		}),
+	])
+
+	def icon_beside (marks: list[dict[str, typing.Any]], who: str) -> str | None:
+		"""Return the glyph on the mark that names this account, or None if it has none."""
+
+		for mark in marks:
+			if who in (mark.get("text") or ""):
+				return mark.get("icon")
+
+		raise AssertionError(f"no mark named {who!r} at all, so this test asks nothing: {marks}")
+
+	for_person = icon_beside(person, "@jo")
+	for_agent = icon_beside(agent, "@gizmo")
+
+	assert for_person, f"a person's row carries no glyph, so an agent's is an absence: {person}"
+	assert for_agent, f"an agent's row carries no glyph: {agent}"
+	assert for_person != for_agent, (
+		f"a person and an agent draw the same glyph {for_person!r}, so the picture says nothing "
+		f"and only the word tells them apart — which is the thing SR#1421 was for"
+	)
+
+
 def test_every_glyph_this_client_names_is_one_that_was_vendored () -> None:
 	"""`SR#925`. **A name with no path data draws nothing, and says nothing about it.**
 

@@ -106,6 +106,10 @@ upgrade involves.
   `subroutine list --json` carries `assignee_is_agent` and `assignee_answers_to` beside
   `assignee`, so a script can route on them rather than parse a phrase.
 
+- **A row shows at a glance whether the name on it is a person or an agent.** A small figure
+  beside the name in the browser — a person, or a robot for an agent. The words are unchanged
+  and still carry it: with images off, in a screen reader, or in the terminal, nothing is lost.
+
 ## 0.8.2 — 2026-08-26
 
 > **This release changes the database schema**, to `9c41d0b7ae52`.
