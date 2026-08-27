@@ -673,6 +673,54 @@ def _links_for (entity_type: str) -> typing.Any:
 			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
 		)
 
+	def tree (
+		id_or_ref: subroutine.api.schemas.ItemAddress,
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
+		depth: int = fastapi.Query(
+			subroutine.domain.links.MAX_DEPTH,
+			ge=1,
+			le=subroutine.domain.links.MAX_DEPTH,
+			description="How many levels to walk.",
+		),
+	) -> subroutine.views.Collection[subroutine.views.Beneath]:
+		"""Return what has to happen before this item can, as a walk in reading order.
+
+		The links above answer one level; this walks them, so a plan of twenty-eight items and
+		forty-two links can be read in one call rather than reconstructed from twenty-eight.
+
+		Prerequisites rather than dependents, which is what a milestone's contents are: an item
+		whose blockers are its parts. Only the sequencing link types are followed — *relates
+		to* and *documents* order nothing, and a tree drawn through them would put a decision
+		under a phase as though the phase were waiting on it.
+
+		Flat, with a `depth` per row, because the shape is a graph rather than a tree: an item
+		reached twice is drawn once and says `stopped: "again"` the second time, and one left
+		unwalked at the limit says `stopped: "deeper"`. A row that says neither has everything
+		below it on the page.
+		"""
+
+		workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+		near = _near(session, actor, workspace, entity_type, id_or_ref)
+
+		found = subroutine.views.beneath(
+			session,
+			subroutine.domain.links.beneath(
+				session,
+				actor,
+				workspace_id=workspace.id,
+				entity_type=entity_type,
+				identifier=near.id,
+				depth=depth,
+			),
+		)
+
+		return subroutine.views.Collection(
+			items=found,
+			page=subroutine.views.Page(limit=len(found), has_more=False, total=len(found)),
+		)
+
 	def create (
 		id_or_ref: subroutine.api.schemas.ItemAddress,
 		body: LinkRequest,
@@ -765,7 +813,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		return fastapi.Response(status_code=204)
 
-	return listing, create, remove
+	return listing, tree, create, remove
 
 
 def _backlinks_for (entity_type: str) -> typing.Any:
@@ -921,7 +969,7 @@ def _proposed_links_for (entity_type: str) -> typing.Any:
 def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 	"""Mount the link endpoints for one entity type."""
 
-	listing, create, remove = _links_for(entity_type)
+	listing, tree, create, remove = _links_for(entity_type)
 	noun = "task" if entity_type == "task" else "document"
 
 	target.add_api_route(
@@ -930,6 +978,13 @@ def _register (target: fastapi.APIRouter, entity_type: str) -> None:
 		methods=["GET"],
 		name=f"{noun}_links",
 		summary=f"List a {noun}'s links",
+	)
+	target.add_api_route(
+		"/{id_or_ref}/tree",
+		tree,
+		methods=["GET"],
+		name=f"{noun}_tree",
+		summary=f"Walk what has to happen before a {noun}",
 	)
 	target.add_api_route(
 		"/{id_or_ref}/links",

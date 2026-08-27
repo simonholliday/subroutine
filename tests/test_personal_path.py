@@ -4437,6 +4437,145 @@ def test_saying_one_thing_blocks_another_changes_what_is_ready (
 	assert "Build the endpoint" in run("list", "--ready").output
 
 
+def test_a_plan_can_be_read_in_one_call_rather_than_one_per_item (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1358`, from SR#1290. `show` answered one node at a time.
+
+	The reviewer built 42 links across 28 items and then had no way to look at them — checking
+	the order of work would have meant 28 calls to reconstruct what they had just written, so
+	**they verified it by reasoning instead**, which is the part worth worrying about.
+
+	**Prerequisites, not dependents**, which is `SR#84`'s model read the way somebody asks it: a
+	milestone is an item whose blockers are its contents, so this renders a roadmap as its
+	phases and a task as what must happen before it.
+
+	**Indented, and the order is depth-first** — a flat list carrying a depth only reads as a
+	tree if the rows arrive in the order somebody looks at them. Written breadth-first first,
+	where every level came out together and the indentation described nothing.
+	"""
+
+	run("init")
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "Fix the agenda", "Fix the capture", "Tag it"):
+		run("add", title)
+
+	run("link", "2,3", "blocks", "1")
+	run("link", "4,5", "blocks", "2")
+	run("link", "6", "blocks", "3")
+
+	shown = run("show", "1", "--tree").output
+
+	assert "What has to happen first (0 of 5 done)" in shown, shown
+
+	# **Read from the heading down**, because the page also carries the item's own line and a
+	# one-level `Links` section — taking every line with a `#` in it measured those too, which
+	# is a harness reading the wrong thing rather than a product doing it.
+	after = shown.split("What has to happen first")[1]
+	walked = [
+		line for line in after.splitlines() if line.strip().startswith("#")
+	]
+
+	# **The order is the reading order**, so a phase's own parts follow it rather than every
+	# phase arriving before any of their contents.
+	titles = [line.split("  ")[-1].strip() for line in walked]
+
+	assert titles == [
+		"PHASE 1", "Fix the agenda", "Fix the capture", "PHASE 2", "Tag it"
+	], f"the walk is not in reading order:\n{shown}"
+
+	# **And the depth is in the indentation**, which is what makes the shape visible at all.
+	def indent (title: str) -> int:
+		"""Return how far in a row was drawn."""
+
+		line = next(one for one in walked if one.rstrip().endswith(title))
+
+		return len(line) - len(line.lstrip())
+
+	assert indent("PHASE 1") < indent("Fix the agenda"), shown
+	assert indent("PHASE 1") == indent("PHASE 2"), shown
+
+
+def test_a_finished_part_of_a_plan_is_counted_rather_than_hidden (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1358`. The rollup carries the count and the row stays — the links section's rule.
+
+	Removing a finished row would hide the contents of a finished milestone, which is what
+	somebody opened it to see. Decision `SR#102` besides: no information exists only in a
+	colour, so the heading says how many.
+	"""
+
+	run("init")
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2"):
+		run("add", title)
+
+	run("link", "2,3", "blocks", "1")
+	run("done", "2")
+
+	shown = run("show", "1", "--tree").output
+
+	assert "What has to happen first (1 of 2 done)" in shown, shown
+	assert "PHASE 1" in shown, "a finished part was removed rather than counted"
+
+
+def test_an_item_reached_twice_is_drawn_once_and_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1358`. The shape is a graph, and pretending otherwise doubles the plan.
+
+	Two phases sharing a blocker is ordinary. Drawing its whole subtree under both would say
+	there are two of them — and the count on the heading would say so too.
+	"""
+
+	run("init")
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "Shared groundwork"):
+		run("add", title)
+
+	run("link", "2,3", "blocks", "1")
+	run("link", "4", "blocks", "2")
+	run("link", "4", "blocks", "3")
+
+	shown = run("show", "1", "--tree").output
+
+	assert shown.count("Shared groundwork") == 2, (
+		f"a shared blocker is drawn under each thing waiting on it:\n{shown}"
+	)
+	assert "(shown above)" in shown, (
+		f"the second sighting does not say its parts are drawn elsewhere:\n{shown}"
+	)
+
+
+def test_the_tree_is_absent_from_the_scripted_output_until_it_is_asked_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#349`'s decision one section along — ``null`` for *not asked*, a list for *asked*.
+
+	``[]`` is also what *asked, and nothing blocks this* produces, and a reader of one
+	invocation's output cannot tell which flags made it. So the distinction lives in the value
+	where they can see it, rather than in the key's presence, which only a reader of the source
+	could reason about.
+	"""
+
+	run("init")
+	run("add", "ROADMAP")
+	run("add", "PHASE 1")
+	run("link", "2", "blocks", "1")
+
+	assert json.loads(run("show", "1", "--json").output)["tree"] is None
+
+	walked = json.loads(run("show", "1", "--tree", "--json").output)["tree"]
+
+	assert [one["item"]["title"] for one in walked] == ["PHASE 1"]
+	assert walked[0]["depth"] == 1
+
+	# **And an item with nothing under it answers with a list**, which is the half that makes
+	# the distinction worth having: this is *asked, and nothing blocks it*.
+	assert json.loads(run("show", "2", "--tree", "--json").output)["tree"] == []
+
+
 def test_one_call_makes_a_link_to_each_of_several_items (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -4465,6 +4604,45 @@ def test_one_call_makes_a_link_to_each_of_several_items (
 
 	for title in ("Changelog", "Tag it", "Announce it"):
 		assert title in shown, f"{title} was not joined:\n{shown}"
+
+
+def test_several_items_can_block_one_in_a_single_call (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1352`, the side its own example did not cover — and it is the one a plan needs.
+
+	A milestone is an item whose blockers are its contents (`SR#84`), so laying one out is N
+	things blocking **one**, which is the *first* position. There is no inverse verb — measured,
+	`link 1 blocked-by 2` is refused with *no link type with key 'blocked_by'* — so before this
+	a six-part milestone cost six commands.
+
+	**Both sides at once is the cross product**, which is what *each of these blocks each of
+	those* says and the only thing it could say. It is what an edge list on one call means,
+	which is `SR#1352`'s own second suggestion.
+	"""
+
+	run("init")
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "PHASE 3"):
+		run("add", title)
+
+	made = run("link", "2,3,4", "blocks", "1")
+
+	assert made.output.count("Blocks") == 3, made.output
+
+	# **Both ends named once there is more than one source**, because `Blocks: ROADMAP` three
+	# times says nothing about which of the three it came from.
+	for ref in ("#2", "#3", "#4"):
+		assert ref in made.output, made.output
+
+	shown = run("show", "1").output
+
+	assert shown.count("Blocked by") == 3, shown
+
+	# **And a single source still reads as it always did**, which is the ordinary call.
+	run("add", "Something else")
+
+	assert run("link", "1", "relates-to", "5").output.startswith("Relates to:")
 
 
 def test_a_bad_number_among_several_writes_none_of_them (
@@ -7318,7 +7496,14 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: command. Its whole body left as :func:`subroutine.cli.personal._finished`, which is thirty-
 #: five. Six payments, none of them raised, and the pattern has not varied once: the closure is
 #: where a command's body is easiest to write and hardest to reach from anywhere else.
-REGISTER_CEILING = 1_664
+#:
+#: **And a seventh, on three commands at once** (`SR#1352`, `SR#1358`). ``link`` and ``unlink``
+#: grew a second list each and ``show`` grew ``--tree``; the three bodies left as
+#: :func:`subroutine.cli.personal._joined`, :func:`~subroutine.cli.personal._unjoined` and
+#: :func:`~subroutine.cli.personal._shown_item`. **The ratchet fired first and named the
+#: remedy** — the closure was 22 lines over before any of them moved, and the message said
+#: where a command's body belongs.
+REGISTER_CEILING = 1_649
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.

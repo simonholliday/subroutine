@@ -480,6 +480,24 @@ class Client(typing.Protocol):
 	) -> list[subroutine.views.Link]:
 		"""Return every link touching one item, labelled from that item's point of view."""
 
+	def beneath (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		depth: int | None = None,
+	) -> list[subroutine.views.Beneath]:
+		"""Return what has to happen before one item can, as a walk in reading order — `#1358`.
+
+		:meth:`links` answers one level. This walks them, so a plan of twenty-eight items and
+		forty-two links is one call rather than twenty-eight — and the reviewer who measured
+		that verified their plan by *reasoning* instead, which is the part worth worrying about.
+
+		Flat, each row carrying its depth, because the shape is a graph: an item reached twice
+		is drawn once and says so, and one left unwalked at the limit says so too.
+		"""
+
 	def backlinks (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Backlink]:

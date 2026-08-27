@@ -741,6 +741,13 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"properties": {
 					"ref": {"type": A_REF, "description": "The item's number."},
 					"history": {"type": "boolean", "description": "Every change, newest first."},
+					"tree": {
+						"type": "boolean",
+						"description": (
+							"What has to happen before this can, all the way down. On a "
+							"milestone that is its contents."
+						),
+					},
 					# **`#849`. A cap is only defensible together with a way to read the rest.**
 					# The note this tool prints when it cuts says which character it stopped at,
 					# so continuing is copying a number rather than computing one.
@@ -944,7 +951,11 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"ref": {"type": A_REF, "description": "The item's number."},
+					"ref": {
+						"type": [*A_REF, "array"],
+						"items": {"type": A_REF},
+						"description": "The item's number, or several of them.",
+					},
 					"type": {
 						"type": "string",
 						# **Not a list of keys** (`#821`). Five are seeded, this named three, and
@@ -2356,6 +2367,42 @@ def _shown (
 			for link in links
 		)
 
+	# **The whole plan under this item, and only when asked** (`#1358`). The links above answer
+	# one level, so reading a plan of twenty-eight items and forty-two links meant twenty-eight
+	# calls — and the reviewer who measured that verified their plan by *reasoning* instead.
+	#
+	# **Opt-in because it is a walk**, three queries per level against nothing at all for a
+	# caller who did not ask, and because §13's context economy makes a tree of thirty rows a
+	# real cost on every `show` that did not want one.
+	#
+	# **Indented by depth**, which is the same rendering the terminal uses and for the same
+	# reason: the order is the tree, so the indentation is the relationship.
+	if arguments.get("tree"):
+		walked = client.beneath(ref=ref, entity_type=kind, workspace=workspace)
+
+		if walked:
+			done = sum(1 for one in walked if one.item.is_complete)
+
+			parts.append("")
+			parts.append(f"What has to happen first ({done} of {len(walked)} done)")
+			parts.extend(
+				"  " * one.depth
+				+ f"#{one.item.ref}  {one.item.title}"
+				+ ("  (over)" if one.item.is_complete else "")
+				# **What is not drawn is said.** *shown above* means its parts are drawn
+				# elsewhere on this page; *more below this* means the walk stopped and there may
+				# be more. A tree silently truncated tells an agent the plan is smaller than it
+				# is, which is the one thing this must not do.
+				+ (
+					""
+					if one.stopped is None
+					else "  (shown above)"
+					if one.stopped == "again"
+					else "  (more below this)"
+				)
+				for one in walked
+			)
+
 	# **What refers to this** (`#144`), and it is not the same question as what it is linked
 	# to. A link is an assertion somebody made; a mention only records that one piece of
 	# writing talks about another (§6.15) — so an agent deciding whether something is safe to
@@ -3142,11 +3189,15 @@ def _linked (
 	numbers.
 	"""
 
-	ref = _ref(arguments)
+	# **Both sides take several** (`#1352`), because a plan is written from both ends: *these
+	# six make up the roadmap* is six things blocking one, and *this has to happen before those
+	# three* is one blocking three. Both at once means every one of the first joined to every
+	# one of the second, which is the only thing it could mean.
+	refs = _refs(arguments, field="ref")
 	workspace = _text(arguments, "workspace")
 	others = _refs(arguments, field="other")
 
-	_, kind = _item(client, ref, workspace)
+	kinds_near = [_item(client, one, workspace)[1] for one in refs]
 
 	if not arguments.get("remove"):
 		link_type = _text(arguments, "type") or "blocks"
@@ -3186,25 +3237,29 @@ def _linked (
 				),
 				ref=ref,
 			)
+			for ref, kind in zip(refs, kinds_near, strict=True)
 			for one, other_kind in zip(others, kinds, strict=True)
 		)
 
 	said = []
 
-	for one in others:
-		joins = [
-			found
-			for found in client.links(ref=ref, entity_type=kind, workspace=workspace)
-			if found.other.ref == one
-		]
+	for ref, kind in zip(refs, kinds_near, strict=True):
+		for one in others:
+			joins = [
+				found
+				for found in client.links(ref=ref, entity_type=kind, workspace=workspace)
+				if found.other.ref == one
+			]
 
-		if not joins:
-			raise LookupError(f"#{ref} is not joined to #{one}.")
+			if not joins:
+				raise LookupError(f"#{ref} is not joined to #{one}.")
 
-		for join in joins:
-			client.unlink(ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace)
+			for join in joins:
+				client.unlink(
+					ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace
+				)
 
-		said.append(f"Withdrew the link between #{ref} and #{one}.")
+			said.append(f"Withdrew the link between #{ref} and #{one}.")
 
 	return "\n".join(said)
 

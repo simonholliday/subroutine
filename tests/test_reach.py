@@ -154,6 +154,8 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/tasks/{id_or_ref}/occurrences"): "occurrences",
 	("GET", "/v1/tasks/{id_or_ref}/comments"): "comments",
 	("GET", "/v1/tasks/{id_or_ref}/links"): "links",
+	("GET", "/v1/tasks/{id_or_ref}/tree"): "beneath",
+	("GET", "/v1/documents/{id_or_ref}/tree"): "beneath",
 	("GET", "/v1/tasks/{id_or_ref}/backlinks"): "backlinks",
 	("GET", "/v1/tasks/{id_or_ref}/proposed-links"): "proposed_links",
 	("GET", "/v1/tasks/{id_or_ref}/governing"): "governing",

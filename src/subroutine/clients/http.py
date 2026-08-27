@@ -568,6 +568,24 @@ class Client:
 
 		return self._collected(subroutine.views.Link, body, endpoint="links")
 
+	def beneath (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		depth: int | None = None,
+	) -> list[subroutine.views.Beneath]:
+		"""Return what has to happen before one item can, as a walk in reading order."""
+
+		body = self._json(
+			"GET",
+			f"/v1/{_plural(entity_type)}/{ref}/tree",
+			params=_given(workspace_id=workspace, depth=depth),
+		)
+
+		return self._collected(subroutine.views.Beneath, body, endpoint="tree")
+
 	def backlinks (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Backlink]:

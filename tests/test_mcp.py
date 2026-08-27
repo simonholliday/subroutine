@@ -6464,6 +6464,63 @@ def test_the_two_surfaces_name_a_changed_field_identically () -> None:
 	assert subroutine.views.field_in_words("title") == "title"
 
 
+def test_an_agent_can_read_a_whole_plan_in_one_call (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1358`, on the surface it was measured on.
+
+	SR#1290's reviewer built 42 links across 28 items and had no way to look at them: `show`
+	answers one node at a time, so checking the order of work would have meant 28 calls to
+	reconstruct what they had just written. **They verified it by reasoning instead**, which is
+	the part worth worrying about.
+
+	**Opt-in**, because it is a walk — three queries per level against nothing at all for a
+	caller that did not ask — and because §13's context economy makes a tree of thirty rows a
+	real cost on every `show` that did not want one.
+	"""
+
+	refs = []
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "Fix the agenda", "Tag it"):
+		written, failed = _called(bound, "subroutine_add", text=title)
+
+		assert not failed, written
+
+		numbered = re.search(r"#(\d+)", written)
+
+		assert numbered is not None, written
+
+		refs.append(int(numbered.group(1)))
+
+	_called(bound, "subroutine_link", ref=[refs[1], refs[2]], other=refs[0])
+	_called(bound, "subroutine_link", ref=refs[3], other=refs[1])
+	_called(bound, "subroutine_link", ref=refs[4], other=refs[2])
+
+	plain, failed = _called(bound, "subroutine_show", ref=refs[0])
+
+	assert not failed, plain
+	assert "What has to happen first" not in plain, (
+		f"a walk was paid for by a caller that did not ask:\n{plain}"
+	)
+
+	walked, failed = _called(bound, "subroutine_show", ref=refs[0], tree=True)
+
+	assert not failed, walked
+	assert "What has to happen first (0 of 4 done)" in walked, walked
+
+	# **Depth-first, and indented by depth** — a flat list carrying a depth only reads as a
+	# tree if the rows arrive in the order somebody looks at them.
+	rows = walked.split("What has to happen first")[1].splitlines()[1:]
+	order = [line.strip().split("  ", 1)[1] for line in rows if line.strip().startswith("#")]
+
+	assert order == ["PHASE 1", "Fix the agenda", "PHASE 2", "Tag it"], walked
+
+	deep = next(line for line in rows if "Fix the agenda" in line)
+	shallow = next(line for line in rows if "PHASE 1" in line)
+
+	assert len(deep) - len(deep.lstrip()) > len(shallow) - len(shallow.lstrip()), walked
+
+
 def test_one_call_joins_an_item_to_several_others (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

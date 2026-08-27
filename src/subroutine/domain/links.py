@@ -175,10 +175,17 @@ class Edge:
 	So ``label`` is the forward title only. A client wanting "blocked by" reads it from the
 	target's side, which is the same inversion the link type already carries and not a second
 	place to get it wrong.
+
+	**``category`` is here for `#1156`'s reason and `views.Link.link_category` is the same
+	field one layer out.** A workspace renames its link types (§5.5), so ``link_type`` is a
+	label and the category is the thing rules are written against — :data:`SEQUENCING` holds
+	categories, and :func:`beneath` compared it against a *key* until this existed, which is
+	the mistake `#1156` measured and `#1157` decided.
 	"""
 
 	id: uuid.UUID
 	link_type: str
+	category: str
 	label: str
 	source: End
 	target: End
@@ -708,6 +715,7 @@ def edges (
 			Edge(
 				id=link.id,
 				link_type=kind.key,
+				category=kind.category,
 				label=kind.title,
 				source=source,
 				target=target,
@@ -746,6 +754,144 @@ _BECAUSE = {
 	("incoming", False): "it names this",
 	("incoming", True): "a comment there names this",
 }
+
+
+#: How deep :func:`beneath` walks before it stops — `#1352`'s neighbour, `#1358`.
+#:
+#: **Six, and it is a rendering bound rather than a claim about graphs.** The roadmap this was
+#: built to read is four levels deep (roadmap → phase → item → sub-task) and the deepest
+#: transitive `blocks` reach measured on this instance was 3. Six leaves room for both and keeps
+#: the output something a person looks at rather than scrolls.
+#:
+#: **A walk that stopped here says so**, because a tree silently truncated is a tree that
+#: answers *is this the order I meant* with a yes it has not earned.
+MAX_DEPTH = 6
+
+
+@dataclasses.dataclass(frozen=True)
+class Beneath:
+	"""One item in a dependency walk, and how far under the root it sits."""
+
+	end: End
+	depth: int
+
+	#: Whether this row's own prerequisites were left unwalked, and why. ``None`` when it has
+	#: none or they are all drawn below it.
+	#:
+	#: ``"deeper"`` means :data:`MAX_DEPTH` stopped the walk; ``"again"`` means this item has
+	#: already been drawn somewhere above, which a graph that is not a tree produces honestly —
+	#: two milestones can share a blocker, and drawing its whole subtree twice would say there
+	#: are two of them.
+	stopped: str | None = None
+
+
+def beneath (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	identifier: uuid.UUID,
+	depth: int = MAX_DEPTH,
+) -> list[Beneath]:
+	"""Return what has to happen first, in reading order, as a flat list carrying its depth.
+
+	**`#1358`.** ``show`` answers one node at a time, so reading a plan of 28 items and 42
+	links meant 28 calls to reconstruct what somebody had just written — and the reviewer who
+	measured it verified their plan by *reasoning* instead, which is the part worth worrying
+	about.
+
+	**Prerequisites, not dependents**, which is `#84`'s model read the way somebody asks it: a
+	milestone is an item whose blockers are its contents, so walking *what blocks this* renders
+	a roadmap as its phases and a task as what must happen before it. The other direction is a
+	different question — *what am I holding up* — and ``show`` already answers it one level
+	deep for both.
+
+	**Only the sequencing types** (:data:`SEQUENCING`), because *relates to* and *documents* do
+	not order anything: a tree drawn through them would put a decision document under a phase
+	as though the phase were waiting on it.
+
+	**One query per level, not one per node**, which is :func:`_blocks_reaching`'s measured
+	shape — a plan six deep costs six statements however wide it is. Flat with a ``depth``
+	rather than nested, so the renderer is a loop and the wire format is a list: a nested shape
+	would need a recursive model on three surfaces to say the same thing.
+
+	**An end the caller cannot see is dropped**, inherited from :func:`edges` rather than
+	re-decided, so a private project's work does not leak through somebody else's roadmap.
+	"""
+
+	# **Gathered breadth-first and emitted depth-first, which are two different orders and both
+	# are needed.** Asking level by level is what keeps this one query per level rather than one
+	# per node (:func:`_blocks_reaching`'s measured shape); reading it out depth-first is what
+	# makes a flat list with a ``depth`` render as an indented tree at all. Written the other way
+	# first, where every level came out together and the indentation described nothing.
+	children: dict[uuid.UUID, list[End]] = {}
+	stopped: dict[uuid.UUID, str] = {}
+	seen = {identifier}
+	frontier = [identifier]
+	level = 0
+
+	while frontier:
+		level += 1
+		links = edges(
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type=entity_type,
+			identifiers=frontier,
+		)
+		# **Grouped by the item that is blocked**, which is the *target* of a `blocks` edge:
+		# `#12 blocks #13` means 13 waits for 12, so what sits under 13 is the sources pointing
+		# at it.
+		under: dict[uuid.UUID, list[End]] = {one: [] for one in frontier}
+
+		for edge in links:
+			if edge.category in SEQUENCING and edge.target.id in under:
+				under[edge.target.id].append(edge.source)
+
+		frontier = []
+
+		for one, ends in under.items():
+			children[one] = ends
+
+			for end in ends:
+				if end.id in seen:
+					stopped[end.id] = "again"
+
+					continue
+
+				seen.add(end.id)
+
+				if level >= depth:
+					stopped[end.id] = "deeper"
+
+					continue
+
+				frontier.append(end.id)
+
+	found: list[Beneath] = []
+	drawn: set[uuid.UUID] = set()
+
+	def emit (one: uuid.UUID, at: int) -> None:
+		"""Read the gathered map out in the order somebody looks at it."""
+
+		for end in children.get(one, ()):
+			why = stopped.get(end.id)
+
+			# **Drawn once, and the second sighting says so rather than repeating the
+			# subtree.** Two milestones sharing a blocker is ordinary; rendering its whole
+			# subtree under both would say there are two of them.
+			found.append(Beneath(end=end, depth=at, stopped="again" if end.id in drawn else why))
+
+			if end.id in drawn:
+				continue
+
+			drawn.add(end.id)
+			emit(end.id, at + 1)
+
+	emit(identifier, 1)
+
+	return found
 
 
 def _citations (

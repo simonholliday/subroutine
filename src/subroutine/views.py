@@ -929,6 +929,28 @@ class Changes(Collection[Event]):
 
 	covers: list[str]
 
+class Beneath(pydantic.BaseModel):
+	"""One item in a dependency walk, and how far under the item asked about it sits — `#1358`.
+
+	**Flat with a ``depth``, not nested.** A nested model would need a recursive type on the
+	wire and a recursive renderer on three surfaces to say the same thing; a flat list in
+	reading order is a loop everywhere, and the indentation is a multiplication.
+
+	The rows are what has to happen *first*, which is `#84`'s model read the way somebody asks
+	it: a milestone is an item whose blockers are its contents.
+	"""
+
+	depth: int
+	item: LinkEnd
+
+	#: Why this row's own prerequisites are not drawn under it, or ``None`` when they are.
+	#:
+	#: ``"deeper"`` means the walk hit its depth limit; ``"again"`` means this item is drawn
+	#: somewhere above and its subtree is not repeated. **Said rather than left out**, because a
+	#: tree silently truncated answers *is this the order I meant* with a yes it has not earned.
+	stopped: str | None = None
+
+
 class Link(pydantic.BaseModel):
 	"""One link, seen from the item that was asked about (docs/design.md §5.7).
 
@@ -2801,6 +2823,25 @@ def links (
 	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in related])
 
 	return [link(one, vocabulary) for one in related]
+
+
+def beneath (
+	session: sqlalchemy.orm.Session,
+	found: typing.Sequence[subroutine.domain.links.Beneath],
+) -> list[Beneath]:
+	"""Render a dependency walk, with one vocabulary across every item in it — `#1358`.
+
+	:func:`links`' rule at a different width: a tree of thirty items resolving its own status,
+	project address and usernames per row would be `#39`'s N+1 on the one surface built to save
+	a reader from opening thirty items.
+	"""
+
+	vocabulary = Vocabulary.for_link_ends(session, [one.end for one in found])
+
+	return [
+		Beneath(depth=one.depth, item=_end(one.end, vocabulary), stopped=one.stopped)
+		for one in found
+	]
 
 
 def verification (

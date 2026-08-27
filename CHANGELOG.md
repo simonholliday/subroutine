@@ -55,9 +55,23 @@ upgrade involves.
   to loop in. Every number is checked before any link is written, so a typo in the middle leaves
   nothing half-done, and the refusal names the entry that was wrong.
 
+  **Both sides take several.** `subroutine link 43,44,45 blocks 42` is how a milestone gets its
+  contents in one command — there is no inverse verb, so before this a six-part milestone cost
+  six. Both sides at once joins each of the first to each of the second.
+
   **`subroutine unlink 8 9,11,12` undoes several the same way**, which is what a plan laid out
   the wrong way round needs. If any of them is not joined, none is withdrawn and all of the
   missing ones are named at once.
+
+- **`subroutine show 42 --tree` reads a whole plan in one call.** It walks what has to happen
+  before an item can, indented by how deep it sits — so a milestone shows its contents, and
+  theirs, all the way down. `show` answered one level, which meant reconstructing a
+  twenty-eight-item plan from twenty-eight calls. An agent asks for the same thing with
+  `tree: true` on `subroutine_show`.
+
+  Finished parts stay on the page and are counted in the heading rather than hidden. An item
+  reached twice is drawn once and says where the rest of it is, because the shape is a graph
+  and pretending otherwise would double the plan.
 
 - **A refusal that names `workspace_id` says where to put it.** On an endpoint that takes it in
   the query, the field is reported as `query.workspace_id`, which is how this API already

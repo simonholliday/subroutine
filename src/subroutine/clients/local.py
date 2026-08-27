@@ -1301,6 +1301,32 @@ class Client:
 				),
 			)
 
+	def beneath (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		depth: int | None = None,
+	) -> list[subroutine.views.Beneath]:
+		"""Return what has to happen before one item can, as a walk in reading order."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+
+			return subroutine.views.beneath(
+				session,
+				subroutine.domain.links.beneath(
+					session,
+					actor,
+					workspace_id=chosen.id,
+					entity_type=entity_type,
+					identifier=subject,
+					depth=subroutine.domain.links.MAX_DEPTH if depth is None else depth,
+				),
+			)
+
 	def governing (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
 	) -> list[subroutine.views.Governing]:

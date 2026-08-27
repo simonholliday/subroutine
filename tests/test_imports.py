@@ -388,6 +388,36 @@ def _module_level_names (path: pathlib.Path) -> list[tuple[str, int]]:
 	return found
 
 
+def _module_level_bindings (path: pathlib.Path) -> list[str]:
+	"""Return every name this module binds at the top level, assignment or definition.
+
+	**Not :func:`_module_level_names`, and the split is deliberate** (`SR#1409`). That one
+	answers *what did this module declare and never read*, where a function name is meaningless
+	— a helper is called from elsewhere in the file and reading it as an unread declaration
+	flags forty of them. This one answers *what did this module bind twice*, where a ``def`` is
+	exactly as much a binding as an assignment.
+
+	One walk serving both was written first and made the unread scan report every helper in the
+	tree. Two questions, two populations; sharing the walk made them one and neither was right.
+
+	**A ``def`` and a ``class`` are included because the defect is identical**: a second
+	``def _withdrawn`` was written into `cli/personal.py` 778 lines below the first, and the
+	later one silently replaced a helper the comment command still called. mypy names that one
+	— ``no-redef`` — where it says nothing at all about a re-assigned constant, so this is one
+	rule covering both halves rather than a tool for one and nothing for the other.
+	"""
+
+	found = [name for name, _line in _module_level_names(path)]
+
+	found.extend(
+		node.name
+		for node in ast.parse(path.read_text(encoding="utf-8")).body
+		if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+	)
+
+	return found
+
+
 @functools.cache
 def _names_read (path: pathlib.Path) -> frozenset[str]:
 	"""Return every name one module reads, ignoring prose and its own declarations.
@@ -577,7 +607,7 @@ def test_no_module_declares_the_same_name_twice () -> None:
 	twice: list[str] = []
 
 	for path in _source_files():
-		seen = collections.Counter(name for name, _line in _module_level_names(path))
+		seen = collections.Counter(_module_level_bindings(path))
 		twice.extend(
 			f"{path.relative_to(ROOT)}: {name} ({count} times)"
 			for name, count in sorted(seen.items())
@@ -611,13 +641,14 @@ def test_the_duplicate_scan_would_notice_one () -> None:
 	assert [name for name, count in seen.items() if count > 1] == ["A"]
 
 	# **And the real walk agrees about a real file**, so the shape above is not the only thing
-	# being trusted: a module known to declare a name once must count it once.
+	# being trusted: a module known to declare each of these once must count each once.
 	real = collections.Counter(
-		name for name, _line in _module_level_names(ROOT / "src" / "subroutine" / "domain" / "refs.py")
+		_module_level_bindings(ROOT / "src" / "subroutine" / "domain" / "refs.py")
 	)
 
 	assert real["SEPARATOR"] == 1, "the address separator is declared once"
 	assert real["LIST_SEPARATOR"] == 1, "and so is the list one"
+	assert real["parse_refs"] == 1, "and a function is counted at all, which is the other half"
 
 
 def test_the_checker_reaches_the_whole_source_tree () -> None:

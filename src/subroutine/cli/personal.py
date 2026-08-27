@@ -5335,7 +5335,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 	@app.command("link")
 	def link_items (
-		which: str = typer.Argument("", help="Which item, by its number."),
+		which: str = typer.Argument("", help="Which item, by its number. Or several: 9,11,12."),
 		relation: str = typer.Argument(
 			"", help="blocks, relates-to, duplicates, derives-from, documents."
 		),
@@ -5348,6 +5348,8 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		  subroutine link 42 blocks 43
 
 		  subroutine link 42 blocks 43,44,45
+
+		  subroutine link 43,44,45 blocks 42
 
 		  subroutine link 42 relates-to 12
 
@@ -5362,9 +5364,15 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		Those are the five a new workspace is given. A workspace can rename them or add its
 		own, and naming one this workspace does not have lists the ones it does.
 
-		Several numbers separated by commas make one link each, all of the same kind and all
-		from the same item. Laying out a plan is the moment this is most heavily used, and it
-		is the moment one link per command costs most.
+		Several numbers separated by commas make one link each, all of the same kind. Either
+		side takes them, and both sides at once means every one of the first joined to every
+		one of the second — which is what 'each of these blocks each of those' says and is the
+		only thing it could say.
+
+		Both sides matter because a plan is written from both ends: 'these six make up the
+		roadmap' is six things blocking one, and 'this has to happen before those three' is one
+		blocking three. Laying out a plan is the moment this is most heavily used, and it is
+		the moment one link per command costs most.
 		"""
 
 		# Hyphens read better than underscores at a command line and the seeded keys use
@@ -5372,38 +5380,12 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		wanted = _asked(relation, "How are they related?").strip().replace("-", "_")
 
 		with program.opened() as world:
-			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="link")
-			# **Every one is resolved before any of them is written** (`#1352`), which is
-			# `project rename`'s precedent: count what will happen and name what will break
-			# before doing any of it. Nothing here spans a transaction — each link is its own
-			# call, and over HTTP its own request — so a typo in the fourth of five would
-			# otherwise leave three made, one refused and no statement of which.
-			#
-			# The commonest failure is a ref that does not resolve, and this catches all of
-			# those. What it cannot catch is a link the service refuses for a reason only it
-			# knows, which is why the report below says what was made rather than assuming.
-			far = [
-				_locate(program, world, one, kinds=ANY_ITEM, verb="link")
-				for one in _several(program, _asked(other, "And the other one?"))
-			]
-			where = world.writing_to()
-
-			for target in far:
-				made = where.client.link(
-					ref=near.ref,
-					link_type=wanted,
-					target=target.ref,
-					entity_type=near.entity_type,
-					target_type=target.entity_type,
-					workspace=near.workspace,
-				)
-
-				program.say(f"{made.label}: {made.other.title}")
-
-			_suggest(
-				program.console,
-				f"subroutine show {_typeable(world, near.connection, near.item)}",
-				"see everything it is joined to",
+			_joined(
+				program,
+				world,
+				which=_asked(which, "Which one?"),
+				other=_asked(other, "And the other one?"),
+				relation=wanted,
 			)
 
 	@app.command("unlink")
@@ -5428,61 +5410,12 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		"""
 
 		with program.opened() as world:
-			near = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="unlink")
-			# **Every end resolved before any link is withdrawn** (`#1352`), the same rule
-			# `link` above follows and for the same reason: nothing here spans a transaction.
-			far = [
-				_locate(program, world, one, kinds=ANY_ITEM, verb="unlink")
-				for one in _several(program, _asked(other, "And the other one?"))
-			]
-			where = world.writing_to()
-
-			# **Found by the pair rather than asked for by id.** A link's id is a UUID that
-			# appears in no listing a person reads, so requiring one would make this a command
-			# only a script could run — and `show` prints the two refs, which is what somebody
-			# actually has in front of them.
-			#
-			# **Asked once and matched against every target**, rather than once per target: the
-			# answer is the same list each time, and re-fetching it would turn one call into N
-			# for a command whose whole subject is that N calls are too many.
-			held = where.client.links(
-				ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
+			_unjoined(
+				program,
+				world,
+				which=_asked(which, "Which one?"),
+				other=_asked(other, "And the other one?"),
 			)
-			joins = {
-				target.ref: [one for one in held if one.other.ref == target.ref]
-				for target in far
-			}
-			missing = [target for target in far if not joins[target.ref]]
-
-			if missing:
-				# **The shortest address that resolves, not the absolute one.** A refusal is
-				# written when something has already gone wrong and is the last output anybody
-				# re-reads for stray vocabulary — printing `personal/#1` at somebody with one
-				# workspace introduces the word in an error message, about a to-do list. Same
-				# §1.4 leak `_in_place` exists for.
-				#
-				# **Named all at once**, because undoing a mistaken batch is exactly when more
-				# than one of them will already be gone, and one refusal per run is a command
-				# somebody has to run five times to learn five things.
-				program.stop(
-					f"{world.address_of_located(near)} is not joined to "
-					+ ", ".join(world.address_of_located(one) for one in missing)
-					+ ".",
-					f"Run 'subroutine show {near.ref}' to see what it is joined to.",
-				)
-
-			for target in far:
-				for one in joins[target.ref]:
-					where.client.unlink(
-						ref=near.ref,
-						link_id=str(one.id),
-						entity_type=near.entity_type,
-						workspace=near.workspace,
-					)
-
-				program.say(f"Unlinked: {joins[target.ref][0].other.title}")
-
-			_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
 
 
@@ -6988,6 +6921,9 @@ def register (
 	def show (
 		which: str = typer.Argument("", help="An item number, as shown by 'subroutine list'."),
 		history: bool = typer.Option(False, "--history", help="Every change, newest first."),
+		tree: bool = typer.Option(
+			False, "--tree", help="What has to happen first, all the way down."
+		),
 		json_output: bool = typer.Option(False, "--json", help="Print as JSON."),
 	) -> None:
 		"""Read one item — what it is, what it is joined to, and what happened to it.
@@ -7002,6 +6938,12 @@ def register (
 		  subroutine show 42 --json
 
 		  subroutine show 42 --history
+
+		  subroutine show 42 --tree
+
+		'--tree' walks what has to happen before this can, indented by how deep it sits. On a
+		milestone that is its contents, since a milestone is an item whose blockers are its
+		parts — so it is how you read a plan without opening every item in it.
 		"""
 
 		# One address resolved in one context, so there is nothing to combine (`#327`).
@@ -7016,34 +6958,14 @@ def register (
 
 			gathered = _sections(client, located, history=history)
 
-			if json_output:
-				say(
-					json.dumps(
-						_shown_as_json(world, located, gathered),
-						indent=2,
-					)
-				)
-
-				return
-
-			_render_item(world, located, gathered, console=console)
-			say("")
-
-			# **What to do next depends on where it is** (`#700`). Inviting somebody to comment
-			# on something in the trash offers the one act that changes nothing anybody will
-			# read; `restore` is the question they actually have, and it is the same command
-			# `list --trash` already ends with, so the two agree about what a deleted row is
-			# for.
-			addressed = world.address_of_located(located).replace(
-				subroutine.domain.refs.SIGIL, ""
-			)
-
-			_suggest(
-				console,
-				f"subroutine restore {addressed}"
-				if located.item.deleted_at is not None
-				else f'subroutine comment {addressed} "what happened"',
-				"put it back" if located.item.deleted_at is not None else None,
+			_shown_item(
+				program,
+				world,
+				located,
+				gathered,
+				client=client,
+				tree=tree,
+				json_output=json_output,
 			)
 
 	# **Named `start_item`/`stop_item`, not `start`/`stop`.** `stop` is the refusal helper this
@@ -9095,6 +9017,241 @@ def _sections (
 	)
 
 
+def _shown_item (
+	program: Program,
+	world: World,
+	located: Located,
+	gathered: Sections,
+	*,
+	client: subroutine.clients.base.Client,
+	tree: bool,
+	json_output: bool,
+) -> None:
+	"""Write one item out, on whichever of the two paths was asked for.
+
+	**Out of `register`'s closure to pay for `--tree`** (`#943`'s ratchet, `#1358`). The rule
+	that ratchet enforces is that a command's body belongs in a function it calls, and the
+	pattern has not varied: what a feature pays is the cost of noticing.
+	"""
+
+	# **Asked only when wanted**, because it is a walk: three queries per level against nothing
+	# at all for a reader who did not ask. `history` is fetched the same way and for the same
+	# reason.
+	walked = (
+		client.beneath(
+			ref=located.ref,
+			entity_type=located.entity_type,
+			workspace=located.workspace,
+		)
+		if tree
+		else []
+	)
+
+	if json_output:
+		program.say(
+			json.dumps(
+				_shown_as_json(world, located, gathered, walked=walked if tree else None),
+				indent=2,
+			)
+		)
+
+		return
+
+	_render_item(world, located, gathered, console=program.console)
+
+	if tree:
+		_render_tree(program.console, walked)
+
+	program.say("")
+
+	# **What to do next depends on where it is** (`#700`). Inviting somebody to comment on
+	# something in the trash offers the one act that changes nothing anybody will read;
+	# `restore` is the question they actually have, and it is the same command `list --trash`
+	# already ends with, so the two agree about what a deleted row is for.
+	addressed = world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, "")
+
+	_suggest(
+		program.console,
+		f"subroutine restore {addressed}"
+		if located.item.deleted_at is not None
+		else f'subroutine comment {addressed} "what happened"',
+		"put it back" if located.item.deleted_at is not None else None,
+	)
+
+
+def _joined (
+	program: Program,
+	world: World,
+	*,
+	which: str,
+	other: str,
+	relation: str,
+) -> None:
+	"""Join every item named on the left to every one named on the right — `#1352`.
+
+	**Every one on both sides is resolved before any of them is written**, which is `project
+	rename`'s precedent: count what will happen and name what will break before doing any of
+	it. Nothing here spans a transaction — each link is its own call, and over HTTP its own
+	request — so a typo in the fourth of five would otherwise leave three made, one refused
+	and no statement of which.
+
+	The commonest failure is a ref that does not resolve, and this catches all of those. What
+	it cannot catch is a link the service refuses for a reason only it knows, which is why the
+	report says what was made rather than assuming.
+
+	**Outside `register` because that closure only shrinks**, which is the ratchet's own
+	instruction: a command's body belongs in a function it calls.
+	"""
+
+	near = [
+		_locate(program, world, one, kinds=ANY_ITEM, verb="link")
+		for one in _several(program, which)
+	]
+	far = [
+		_locate(program, world, one, kinds=ANY_ITEM, verb="link")
+		for one in _several(program, other)
+	]
+	where = world.writing_to()
+
+	for source in near:
+		for target in far:
+			made = where.client.link(
+				ref=source.ref,
+				link_type=relation,
+				target=target.ref,
+				entity_type=source.entity_type,
+				target_type=target.entity_type,
+				workspace=source.workspace,
+			)
+
+			# **Both ends named once there is more than one source** (`#1190`'s argument at
+			# width): `Blocks: Tag it` is unambiguous from one item and says nothing about
+			# which of six it came from.
+			program.say(
+				f"{made.label}: {made.other.title}"
+				if len(near) == 1
+				else f"#{source.ref} {made.label} #{made.other.ref}  {made.other.title}"
+			)
+
+	_suggest(
+		program.console,
+		f"subroutine show {_typeable(world, near[0].connection, near[0].item)}",
+		"see everything it is joined to",
+	)
+
+
+def _unjoined (program: Program, world: World, *, which: str, other: str) -> None:
+	"""Undo the links between one item and each of the items named — `#1352`.
+
+	**Found by the pair rather than asked for by id.** A link's id is a UUID that appears in no
+	listing a person reads, so requiring one would make this a command only a script could run
+	— and `show` prints the two refs, which is what somebody actually has in front of them.
+
+	**Asked once and matched against every target**, rather than once per target: the answer is
+	the same list each time, and re-fetching it would turn one call into N for a command whose
+	whole subject is that N calls are too many.
+
+	**Every end resolved before any link is withdrawn**, the same rule :func:`_joined` follows
+	and for the same reason.
+	"""
+
+	near = _locate(program, world, which, kinds=ANY_ITEM, verb="unlink")
+	far = [
+		_locate(program, world, one, kinds=ANY_ITEM, verb="unlink")
+		for one in _several(program, other)
+	]
+	where = world.writing_to()
+
+	held = where.client.links(
+		ref=near.ref, entity_type=near.entity_type, workspace=near.workspace
+	)
+	joins = {
+		target.ref: [one for one in held if one.other.ref == target.ref] for target in far
+	}
+	missing = [target for target in far if not joins[target.ref]]
+
+	if missing:
+		# **The shortest address that resolves, not the absolute one.** A refusal is written
+		# when something has already gone wrong and is the last output anybody re-reads for
+		# stray vocabulary — printing `personal/#1` at somebody with one workspace introduces
+		# the word in an error message, about a to-do list. Same §1.4 leak `_in_place` exists
+		# for.
+		#
+		# **Named all at once**, because undoing a mistaken batch is exactly when more than one
+		# of them will already be gone, and one refusal per run is a command somebody has to
+		# run five times to learn five things.
+		program.stop(
+			f"{world.address_of_located(near)} is not joined to "
+			+ ", ".join(world.address_of_located(one) for one in missing)
+			+ ".",
+			f"Run 'subroutine show {near.ref}' to see what it is joined to.",
+		)
+
+	for target in far:
+		for one in joins[target.ref]:
+			where.client.unlink(
+				ref=near.ref,
+				link_id=str(one.id),
+				entity_type=near.entity_type,
+				workspace=near.workspace,
+			)
+
+		program.say(f"Unlinked: {joins[target.ref][0].other.title}")
+
+	_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
+
+
+def _render_tree (
+	console: rich.console.Console,
+	walked: typing.Sequence[subroutine.views.Beneath],
+) -> None:
+	"""Draw what has to happen first, indented by how deep it sits — `#1358`.
+
+	**Indentation rather than box-drawing**, which is `#63`'s decision read for the case it
+	excluded. That rule refuses ``└─`` under a *listing*, because a listing is ordered by
+	recency or by priority so a child is rarely next to its parent and the glyph would state a
+	relationship that is not there. This is ordered by the tree, so the indentation is the
+	relationship — the same reasoning ``project list`` already follows.
+
+	**Dimmed rather than removed or ticked**, exactly as a finished blocker is in the links
+	section above: the point of the line is seeing what the thing *is*, and hiding a finished
+	one hides the contents of a finished milestone. Decision `#102` besides — no information
+	exists only in a colour, and the count on the heading carries it.
+
+	**Silent when there is nothing**, like every other section here (§12.2c).
+	"""
+
+	if not walked:
+		return
+
+	done = sum(1 for one in walked if one.item.is_complete)
+
+	console.print("")
+	console.print(
+		rich.text.Text(f"What has to happen first ({done} of {len(walked)} done)", style=HEADING)
+	)
+
+	for one in walked:
+		line = rich.text.Text()
+		line.append("  " + "  " * one.depth, style=DETAIL)
+		line.append(
+			f"{subroutine.domain.refs.format_ref(one.item.ref):>4}  ", style=POSITION
+		)
+		line.append(one.item.title, style=DETAIL if one.item.is_complete else "")
+
+		# **What is not drawn is said**, and the two reasons are different questions. *again*
+		# means it is above and its parts are drawn there; *deeper* means the walk stopped and
+		# there may be more. A tree silently truncated answers *is this the order I meant* with
+		# a yes it has not earned.
+		if one.stopped is not None:
+			line.append(
+				"  (shown above)" if one.stopped == "again" else "  (more below this)",
+				style=DETAIL,
+			)
+
+		console.print(line)
+
+
 def _render_item (
 	world: World,
 	located: Located,
@@ -9933,7 +10090,11 @@ def _as_json (
 
 
 def _shown_as_json (
-	world: World, located: Located, gathered: Sections
+	world: World,
+	located: Located,
+	gathered: Sections,
+	*,
+	walked: typing.Sequence[subroutine.views.Beneath] | None = None,
 ) -> dict[str, typing.Any]:
 	"""Return one item, its links and its record, as the scripted path sees it.
 
@@ -9986,6 +10147,13 @@ def _shown_as_json (
 			[event.model_dump(mode="json") for event in events]
 			if gathered.asked_for_history
 			else None
+		),
+		# **`null` for *not asked*, and a list for *asked***, which is `#349`'s decision one
+		# section along and for its exact reason: `[]` is also what *asked, and nothing blocks
+		# this* produces, and a reader of one invocation's output cannot tell which flags made
+		# it. The distinction lives in the value, where they can see it.
+		"tree": (
+			None if walked is None else [one.model_dump(mode="json") for one in walked]
 		),
 	}
 
