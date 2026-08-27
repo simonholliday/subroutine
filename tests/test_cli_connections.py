@@ -1913,7 +1913,6 @@ def test_a_credential_for_a_person_and_one_for_a_machine_are_different_commands 
 
 	run("init")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")
-	run("user", "add", "thomas", "--role", "member")
 
 	issued = run("token", "create", "--username", "thomas", "--title", "Thomas's laptop").output
 
@@ -1952,7 +1951,6 @@ def test_a_credential_is_never_issued_for_an_account_that_could_not_use_it (
 
 	run("init")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")
-	run("user", "add", "thomas", "--role", "member")
 
 	_deactivate(home, "thomas")
 
@@ -3127,7 +3125,6 @@ def test_whoami_lists_permissions_for_a_role_that_does_not_hold_everything (
 
 	run("init")
 	run("user", "create", "colleague")
-	run("user", "add", "colleague", "--workspace", "personal", "--role", "member")
 
 	# **No `--workspace` and no `--scope`**, which is the whole point: those pin and narrow the
 	# credential, and a narrowed one was already being served. This is the shape that was not.

@@ -602,6 +602,51 @@ def record_seeding (
 	)
 
 
+def _refuse_a_second_membership (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	user: subroutine.db.models.identity.User,
+) -> None:
+	"""Refuse adding somebody who is already in this workspace, by name — item `#1439`.
+
+	**Because the unique index decided it until now, and a constraint is not a sentence.** The
+	insert answered ``UNIQUE constraint failed: workspace_member.workspace_id,
+	workspace_member.user_id``, wrapped by the client into *"the database could not be read"*
+	with a hint to check ``database_url`` — a message about our internals, a false claim about
+	what failed, and a remedy pointing at a setting that is correct.
+
+	**Here rather than in the CLI**, so the API and MCP inherit it: three surfaces each growing
+	their own check is the defect this codebase keeps finding, and this is the one function all
+	of them pass through.
+
+	**It says who they already are**, which is the fact the reader needs and is one query the
+	insert was about to make anyway. Nothing here *changes* the role — that is `#1440`, and
+	doing it quietly would be a permission moved by a command whose own docstring says a role
+	is named rather than assumed.
+	"""
+
+	# **The role's key, not the membership row**, because the row carries an id and the reader
+	# needs the word. One join rather than a second query: the answer is a sentence about what
+	# they may already do, and fetching the membership only to look the role up afterwards
+	# would be two questions where the database can answer one.
+	member = subroutine.db.models.identity.WorkspaceMember
+	held = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Role.key)
+		.join(member, member.role_id == subroutine.db.models.identity.Role.id)
+		.where(member.workspace_id == workspace.id, member.user_id == user.id)
+	).one_or_none()
+
+	if held is None:
+		return
+
+	raise subroutine.errors.Conflict(
+		f"{user.username} is already {held} in {workspace.slug}.",
+		hint=f"Nothing to do, unless you meant to change what they may do there — which "
+		f"nothing does yet. Remove them with 'subroutine user remove {user.username}' and "
+		f"add them again to move them to another role.",
+	)
+
+
 def add_member (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
@@ -641,6 +686,8 @@ def add_member (
 			subroutine.permissions.USER_ADMIN,
 			workspace_id=workspace.id,
 		)
+
+	_refuse_a_second_membership(session, workspace, user)
 
 	role = find_role(session, workspace.id, role_key)
 

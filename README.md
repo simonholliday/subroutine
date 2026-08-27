@@ -510,18 +510,20 @@ One thing is not optional, and the program enforces it rather than mentioning it
 beyond this machine unless TLS is handled — either a proxy in front with `public_url` pointing
 at its `https://` address, or an explicit `--insecure` for a network you genuinely trust.
 
-Adding a person is two commands, and they are deliberately two: creating an account says
-somebody exists, and giving them a role says where they may work. Roles belong to a workspace,
-so `member` in one is not `member` in another, and the last account able to administer a
-workspace cannot be removed from it.
+Adding a person is one command, and it can hand them the way in too. The role is `member`
+unless you say otherwise, and the workspace can be left out while there is only one. Roles
+belong to a workspace, so `member` in one is not `member` in another, and the last account able
+to administer a workspace cannot be removed from it.
 
 ```console
 $ subroutine user create thomas --name "Thomas Anderson"
-$ subroutine user add thomas --role member --workspace acme
+$ subroutine user create tim --browser --terminal
 ```
 
-There is no password: what Thomas needs next is `subroutine token create --username thomas`, or
-`subroutine login link --username thomas` if they are going to use the browser.
+There is no password. `--browser` prints a sign-in link and `--terminal` prints a credential
+with the line that connects to this instance; they are not alternatives, because somebody who
+uses the web interface and has a colleague setting their machine up needs both. Name neither
+and the account is still real — the two commands that hand it over are printed.
 
 **Their agents are one command**, and it is the one to reach for rather than assembling an
 account, a role and a token by hand:

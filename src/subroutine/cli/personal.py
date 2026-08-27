@@ -1426,6 +1426,303 @@ def _writing_workspace (world: World) -> str:
 	)
 
 
+#: What a new account may do in the workspace it is put into, when nobody said. `#587`
+#: decision 1: the ordinary case is the shortest thing to type (§1.4). ``--role`` still
+#: narrows to ``viewer`` or widens to ``admin``, and both are unchanged.
+#:
+#: Not defaulted on ``user add``, deliberately, and the two are not in disagreement. There
+#: the role *is* the decision being taken — somebody already has an account and is being
+#: given a second workspace — so a default would take it quietly. Here it is one clause of
+#: onboarding a colleague, and the ordinary answer is the only one most instances ever use.
+ONBOARDING_ROLE = "member"
+
+
+def _onboarding_workspace (where: Reached, named: str) -> str:
+	"""Return the workspace a newly created account joins, or refuse — item `#587`.
+
+	**Decision 2: it defaults when there is exactly one and is required when there are
+	several.** Do not ask a question with one answer — :func:`_in_place` already applies that
+	rule when it says nothing about *where* if there is only one place it could be.
+
+	**The rule self-adjusts across eras**, which is why it needs no setting and no revisiting:
+	silent on a fresh instance, because a workspace nobody chose is not a choice; insistent on
+	an instance with several, because by then somebody made the others deliberately. The
+	instance grows into it.
+
+	**The population is what this credential can reach, not what exists** (`#1418`). That is
+	correct behaviour today and is inherited rather than chosen: while a superuser does not
+	reach a workspace they are not a member of, *how many workspaces are there* is answered
+	per caller. Worth knowing before reading the refusal as a complete list.
+	"""
+
+	wanted = named.strip()
+
+	if wanted:
+		return wanted
+
+	reachable = [workspace.slug for workspace in where.identity.workspaces]
+
+	if len(reachable) == 1:
+		return reachable[0]
+
+	if not reachable:
+		raise subroutine.errors.ValidationError(
+			"This credential does not reach any workspace, so there is none to put them in.",
+			code="missing_field",
+			hint="Whoever administers this instance can add you to one; until then there is "
+			"nowhere for a new account to work.",
+		)
+
+	raise subroutine.errors.ValidationError(
+		f"There are {len(reachable)} workspaces here, so say which one they work in.",
+		code="missing_field",
+		errors=[
+			subroutine.errors.FieldError(
+				field="workspace",
+				code="missing_field",
+				message=f"Workspaces you can reach: {', '.join(reachable)}.",
+			)
+		],
+		hint=f"For example: --workspace {reachable[0]}. They can be added to the others "
+		f"afterwards with 'subroutine user add'.",
+	)
+
+
+def _handover_address (where: Reached, settings: subroutine.config.Settings) -> str | None:
+	"""Return the address to give somebody else for this instance, or ``None`` — item `#587`.
+
+	Two sources and they answer for two different operators. Over a **remote** connection the
+	address is the one this machine is already reaching, which is by construction an address
+	that works from somewhere other than the server. On a **local** connection the operator is
+	on the server itself, and the only thing there that speaks for anybody else is
+	``public_url`` — the operator saying *this is where people reach me*.
+
+	**Deliberately not :func:`subroutine.config.browsable_url`, and the difference is the whole
+	of this function.** That one answers *where can a browser reach this instance*, and its
+	middle branch returns the bind when the bind is loopback — correct, because nothing off the
+	machine can reach a loopback socket, so the address it listens on is the entire set of
+	places the reader can browse. **A handover asks a different question**: where can *somebody
+	else* reach it. On that question a loopback address is not merely unhelpful, it is wrong in
+	the worst way — it resolves on the colleague's own machine, where it either fails or, on a
+	laptop that also runs one, quietly reaches their instance instead of this one.
+
+	``None`` is a real answer and is said out loud rather than papered over. An instance nobody
+	else can reach has been set up perfectly well; what is missing is one setting.
+	"""
+
+	told = (where.client.connection.url or "").strip()
+
+	if told:
+		return told.rstrip("/")
+
+	published = (settings.public_url or "").strip()
+
+	return published.rstrip("/") if published else None
+
+
+def _connection_suggestion (where: Reached) -> str:
+	"""Return a nickname for this instance that somebody could type — item `#587`.
+
+	**The name is the reader's and nobody else's**, which is what ``connections add`` says
+	about it: it becomes the first segment of every address they write, and two people
+	reaching one server may call it different things. So this is an example to adapt rather
+	than a value to copy, and the instance's own label is the best guess available.
+
+	Checked against the real rule rather than a second copy of it, so a server whose label has
+	a space or begins with a digit falls back instead of producing a line that would be
+	refused when it was run.
+	"""
+
+	instance = where.identity.instance
+	label = (instance.name if instance is not None else "").strip().lower().replace(" ", "-")
+
+	try:
+		return subroutine.connections.check_name(label)
+
+	except subroutine.errors.SubroutineError:
+		return "work"
+
+
+def _terminal_handover (secret: str, *, address: str | None, nickname: str) -> list[str]:
+	"""Return what to print when a colleague's own credential has just been made — `#587`.
+
+	**Not ``token create``'s closing line, and the difference is who is holding the token.**
+	That one is written for the operator's own machine and offers the environment variable and
+	the credentials file. This one is written to be *forwarded*: the reader is about to send
+	both halves to somebody who has to set an instance up they have never seen.
+
+	The secret comes first and the instruction second. If a terminal scrolls, the half that
+	cannot be recovered is the half worth having at the top.
+	"""
+
+	said = [
+		"",
+		secret,
+		"",
+		"That is the only time it is shown. Nothing recovers it afterwards.",
+		"",
+	]
+
+	if address is None:
+		# **Refusing to guess, rather than printing the bind.** A loopback address in a
+		# handover resolves on the colleague's own machine, where it either fails or — far
+		# worse on a laptop that also runs one — reaches their instance instead of this one.
+		said.append(
+			"This instance has no address anybody else can reach, so there is no line to "
+			"send with it. Set public_url and it will have one."
+		)
+
+		return said
+
+	said.extend(
+		[
+			"Send it with this, which they run on their own machine:",
+			"",
+			f"  subroutine connections add {nickname} --url {address}",
+			"",
+			f"It asks for the credential, so {nickname} is theirs to change — it becomes the "
+			f"first part of every address they write.",
+		]
+	)
+
+	return said
+
+
+def _what_is_still_needed (username: str) -> list[str]:
+	"""Return the two commands that hand a new account over — item `#587`.
+
+	**Decision 3: naming no path succeeds and signposts.** The account and the role are real
+	work and it succeeded, so this is ``init``'s shape — do the thing, then say what to try
+	next — rather than ``db restore``'s refusal, which is right when both defaults are wrong
+	and is answering a question nobody asked once the two options are not exclusive.
+
+	Both are named, never one. Decision 4 is that the paths are additive because somebody may
+	genuinely need both: a link for the browser, and a credential for whoever is configuring
+	their machine.
+	"""
+
+	return [
+		"",
+		"They cannot get in yet. Either of these hands it over, and both is fine:",
+		"",
+		f"  subroutine login link --username {username}      a sign-in link for the browser",
+		f"  subroutine token create --username {username}    a credential for the terminal",
+		"",
+		"Both are what --browser and --terminal would have done here.",
+	]
+
+
+def _a_superuser_joins_nothing () -> subroutine.errors.ValidationError:
+	"""Return the refusal for a superuser given a workspace or a role — item `#587`.
+
+	**Refused rather than resolved**, which is `agent create`'s rule for a profile combined
+	with a flag that means something else: a combination meaning two things at once is turned
+	down by name instead of one half being picked silently.
+
+	Decision 1 special-cases ``--superuser`` to join no workspace, because an instance owner
+	needs no workspace role and granting one quietly would be a permission taken by default.
+	So a role or a workspace beside it is not a narrower superuser — it is somebody asking for
+	two different accounts in one command.
+	"""
+
+	return subroutine.errors.ValidationError(
+		"--superuser administers the whole instance, so it joins no workspace and takes no "
+		"role.",
+		code="invalid_field_value",
+		hint="Make the account with --superuser, then 'subroutine user add' if they should "
+		"also work in a particular workspace.",
+	)
+
+
+def _an_agent_has_no_browser () -> subroutine.errors.ValidationError:
+	"""Return the refusal for a machine identity asked for a sign-in link — item `#587`.
+
+	**The rule belongs to the domain and this is not a second copy of it.**
+	:mod:`subroutine.domain.sessions` refuses a session for a service account because a
+	credential carries a scope and a reach and a session carries neither — that is a fact
+	about an account, checked where it is stored. This is a fact about two *flags*, checked
+	before anything is written, and the two answer different questions.
+
+	**Which matters because of when the domain's refusal arrives.** Driven: without this the
+	account is created, joined to a workspace, and *then* turned down for the link — leaving a
+	half-made identity and a command that refuses on the retry because the name is taken. The
+	rule was right and it fired one step too late to be acted on.
+	"""
+
+	return subroutine.errors.ValidationError(
+		"An agent cannot sign in to a browser, so --agent and --browser mean two different "
+		"things.",
+		code="invalid_field_value",
+		hint="Use --terminal for a credential it can present, or 'subroutine agent create', "
+		"which issues one and says how to hand it over.",
+	)
+
+
+def _handed_over (
+	where: Reached,
+	settings: subroutine.config.Settings,
+	username: str,
+	*,
+	browser: bool,
+	terminal: bool,
+	workspace: str | None,
+) -> list[str]:
+	"""Mint whatever was asked for and return what to say about it — item `#587`.
+
+	**Decision 4: the two are additive rather than exclusive**, and a real person forced it.
+	Somebody who uses the web interface *and* has a colleague configuring their machine needs
+	a link and a credential; a command framed as either/or refuses the one person who needs
+	both.
+
+	**Minted inside the caller's open connection, and printed outside it.** A secret that
+	exists and was never shown cannot be recovered — only a hash is kept (§7.4) — so nothing
+	here is allowed to fail between the mint and the line that carries it.
+	"""
+
+	if not (browser or terminal):
+		return _what_is_still_needed(username)
+
+	said: list[str] = []
+
+	if browser:
+		link = where.client.create_login_link(username=username)
+		said.append("")
+		said.extend(
+			subroutine.cli.output.sign_in_lines(
+				username=link.username,
+				url=link.url,
+				minutes=subroutine.cli.output.minutes_until(
+					link.expires_at, subroutine.db.types.utcnow()
+				),
+				address_assumed=link.address_assumed,
+			)
+		)
+
+	if terminal:
+		# **Pinned to the workspace they were just put in, and that is not a narrowing.** On
+		# the day it is issued the pin reaches everything the account reaches, because this
+		# command put them in exactly one workspace. What it buys is `#571`: on a credential
+		# reaching more than one workspace with no pin, `subroutine://meta` and
+		# `subroutine://conventions` answer with an explanation instead of content — so an
+		# agent told that a document binds it cannot read it. `#1386`'s pre-flight list says
+		# to pin every issued connection by hand, and a step somebody has to remember is one
+		# they will not.
+		#
+		# A superuser has no workspace, and passing ``None`` correctly leaves the credential
+		# reaching all of them.
+		minted = where.client.issue_token(
+			username=username, title=f"{username} at the terminal", workspace=workspace
+		)
+		said.extend(
+			_terminal_handover(
+				minted.token,
+				address=_handover_address(where, settings),
+				nickname=_connection_suggestion(where),
+			)
+		)
+
+	return said
+
 def _kept (held: int) -> str:
 	"""Say how many items survive a rename, with the verb and the possessive agreeing.
 
@@ -1626,6 +1923,13 @@ def _keep_the_operators_own_list (
 	would be a worse version of the problem being fixed.
 
 	Returns ``None`` when nothing needed doing, which is every case after the first.
+
+	**Written to the file *and* to the settings this process is holding** (`#587`). They are
+	one fact and the client reads the in-memory one on every call — measured, the object a
+	client holds is the object the world holds — so storing only the file left the repair
+	true for the next command and false for the rest of this one. That cost nothing while
+	``user create`` did one thing; the moment it also grants a role, the very next call
+	resolves an operator and finds the ambiguity this function had just written the cure for.
 	"""
 
 	people = [account for account in before if not account.is_service_account]
@@ -1634,6 +1938,7 @@ def _keep_the_operators_own_list (
 		return None
 
 	subroutine.config.store_setting("local_user", people[0].username)
+	world.settings.local_user = people[0].username
 
 	return people[0].username
 
@@ -6013,6 +6318,21 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		username: str = typer.Argument(..., help="What they will be called here."),
 		display_name: str = typer.Option("", "--name", help="Their full name."),
 		email: str = typer.Option("", "--email", help="Their email address."),
+		role: str = typer.Option(
+			"",
+			"--role",
+			help=f"What they may do — 'member', 'admin', 'viewer'. Unset means "
+			f"'{ONBOARDING_ROLE}'.",
+		),
+		workspace: str = typer.Option(
+			"", "--workspace", help="Which workspace they work in. Needed if there are several."
+		),
+		browser: bool = typer.Option(
+			False, "--browser", help="Also make them a sign-in link for the web interface."
+		),
+		terminal: bool = typer.Option(
+			False, "--terminal", help="Also make them a credential for the command line."
+		),
 		agent: bool = typer.Option(
 			False, "--agent", help="A machine identity rather than a person."
 		),
@@ -6023,30 +6343,60 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
-		"""Add somebody to this instance.
+		"""Add somebody to this instance, and hand them the way in.
 
 		Examples:
 
 		  subroutine user create thomas --name "Thomas Anderson"
 
-		  subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
+		  subroutine user create thomas --terminal
+
+		  subroutine user create thomas --browser --terminal --workspace acme
 
 		  subroutine user create sam --superuser
 
-		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
-		way to grant that — no role carries it. Until '#701' there was exactly one, made by
-		'init', and no way to a second, which left an instance with nobody to hand over to.
+		One command rather than five. It makes the account, puts them in a workspace with a
+		role, and — if you say how they will reach this instance — produces the sign-in link
+		or the credential in the same breath. An account with no membership authenticates and
+		can see nothing, which reads as a broken token rather than as a missing role.
 
-		A new account belongs to no workspace yet, and until it does there is nothing it can
-		see. 'subroutine user add' is the second half, and this command says so when it is
-		done rather than leaving somebody with an account that appears not to work.
+		'--role' is 'member' unless you say otherwise: enough to do the work, not to
+		administer the place. '--workspace' can be left out when there is only one, and is
+		asked for when there are several.
+
+		'--browser' and '--terminal' are not alternatives. Somebody who uses the web interface
+		and has a colleague setting their machine up needs both, so both may be given. Naming
+		neither is fine too — the account is real, and the two commands that hand it over are
+		printed.
+
+		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
+		way to grant that — no role carries it. It joins no workspace: an instance owner needs
+		no workspace role, and granting one quietly would be a permission taken by default.
 
 		There is no password. Subroutine authenticates with tokens, so what a new person needs
-		next is one of those.
+		next is one of those, or a link.
 		"""
+
+		if superuser and (role.strip() or workspace.strip()):
+			program.fail(_a_superuser_joins_nothing())
+
+		if agent and browser:
+			program.fail(_an_agent_has_no_browser())
 
 		with program.opened() as world:
 			where = world.writing_to()
+
+			# **Resolved before anything is written, and that ordering is not a tidiness.**
+			# It is `token create`'s own rule — *checked before anything is issued, so a
+			# credential is never minted and then stranded* — and the failure without it is
+			# worse here: an ambiguous workspace refused *after* the account exists leaves a
+			# person with no membership, and the same command re-run then refuses again
+			# because the username is taken. Driven, and it left one behind.
+			#
+			# **Resolved once and carried**, because the workspace decides two things: where
+			# they are a member, and what a credential issued here is pinned to. Asking twice
+			# would let a second reading of "which workspace" disagree with the first.
+			joining = None if superuser else _onboarding_workspace(where, workspace)
 
 			# Read *before* creating, because the question is how many accounts there were —
 			# see `_keep_the_operators_own_list` for why that is the one that matters.
@@ -6060,22 +6410,49 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 				is_superuser=superuser,
 			)
 
+			# **Before anything else that needs an actor, and that ordering is the second of
+			# `#587`'s two.** Local mode picks an account by there being exactly one (§12.1a),
+			# so the account created one line above has just made that ambiguous — and every
+			# call after it resolves an operator. Until this command did a second thing, the
+			# repair could sit at the end and nothing noticed.
 			settled = _keep_the_operators_own_list(world, before)
 
-			if json_output:
-				program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+			joined = (
+				None
+				if joining is None
+				else where.client.add_member(
+					username=created.username,
+					role=role.strip() or ONBOARDING_ROLE,
+					workspace=joining,
+				)
+			)
 
-				return
+			handed = _handed_over(
+				where,
+				world.settings,
+				created.username,
+				browser=browser,
+				terminal=terminal,
+				workspace=joining,
+			)
 
-			program.say(f"Created {created.username}")
+		if json_output:
+			program.say(json.dumps(created.model_dump(mode="json"), indent=2))
 
-			if settled is not None:
-				program.say(f"Local commands will go on acting as {settled}.")
+			return
 
-			# **The next command is the one that makes the account useful.** An account with
-			# no membership can see nothing at all, so stopping at "Created" would leave
-			# somebody with a person who appears to be broken.
-			_suggest(program.console, f"subroutine user add {created.username} --role member")
+		program.say(f"Created {created.username}")
+
+		if joined is not None:
+			program.say(
+				f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}"
+			)
+
+		if settled is not None:
+			program.say(f"Local commands will go on acting as {settled}.")
+
+		for line in handed:
+			program.say(line)
 
 	@user_app.command("list")
 	def user_list (

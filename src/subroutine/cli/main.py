@@ -2348,32 +2348,19 @@ def login_link (
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
-	# Said as a duration rather than a clock time, deliberately. Half an hour is short enough
-	# that "until 14:12" makes a reader work out what that means from now, in a timezone they
-	# then have to be sure about — and the answer they want is how long they have.
-	left = round((minted.expires_at - subroutine.db.types.utcnow()).total_seconds() / 60)
-
-	_say(
-		f"A sign-in link for {minted.username}, good for the next "
-		f"{left} {'minute' if left == 1 else 'minutes'}."
-	)
-	_say("")
-	_say(minted.url)
-	_say("")
-	_say("That is the only time it is shown, and it works once.")
-
-	# **Said, not asked** (`#1007`). The assumption is the bind this instance listens on, which
-	# is a fact the program holds and the reader does not — so a prompt would ask somebody to
-	# confirm a value they have less evidence about than the program does, break every script
-	# and agent that runs this, and grow the one path §1.4 wants shortest. A wrong address
-	# costs one re-run, because the host in a link is navigation rather than authority.
-	if minted.address_assumed:
-		_say("")
-		_say(
-			"Nobody has set public_url, so that address is where this instance listens. "
-			"It works in a browser on this machine; if you reach it another way — a proxy, "
-			"another machine — set public_url and make a fresh link."
-		)
+	# **Rendered where `user create --browser` renders it** (`#587`). Both mint a link and
+	# both have to say the same four things about it; the wording, the duration and the
+	# `public_url` note live in one function so a change reaches whichever command the reader
+	# happened to run.
+	for line in subroutine.cli.output.sign_in_lines(
+		username=minted.username,
+		url=minted.url,
+		minutes=subroutine.cli.output.minutes_until(
+			minted.expires_at, subroutine.db.types.utcnow()
+		),
+		address_assumed=minted.address_assumed,
+	):
+		_say(line)
 
 
 @login_app.command("revoke")

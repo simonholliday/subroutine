@@ -85,8 +85,9 @@ def test_a_second_person_can_be_added_and_given_a_role (
 
 	assert "thomas" in run("user", "list").output
 
-	run("user", "add", "thomas", "--role", "member")
-
+	# **No second command, since `#587`.** `user create` puts them in the only workspace with
+	# the ordinary role, so what a reader of the README does is one line — and this test says
+	# so by asserting the membership without ever having asked for it.
 	members = run("user", "list", "--workspace", "acme").output
 
 	assert "thomas" in members
@@ -143,7 +144,6 @@ def test_somebody_added_by_mistake_can_be_removed (
 
 	run("init", "--workspace", "Acme")
 	run("user", "create", "thomas")
-	run("user", "add", "thomas", "--role", "member")
 
 	run("user", "remove", "thomas")
 
@@ -238,7 +238,6 @@ def test_an_instance_administrator_is_not_called_by_a_workspace_role_name (
 
 	run("init", "--workspace", "Acme")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")
-	run("user", "add", "thomas", "--role", "member")
 
 	instance = run("user", "list").output
 	workspace = run("user", "list", "--workspace", "acme").output
@@ -312,3 +311,210 @@ def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
 	assert "username" not in offered.lower(), (
 		"a username argument would be a way to set somebody else's, which no permission grants"
 	)
+def test_a_new_account_joins_the_only_workspace_without_being_asked (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decision 2: do not ask a question with exactly one answer.
+
+	The rule this stands for is that it **self-adjusts**: silent here, insistent in
+	:func:`test_a_new_account_needs_a_named_workspace_when_there_are_several`, with no setting
+	and nothing to revisit. A fresh instance has one workspace because nobody chose it; an
+	instance with several has them because somebody did.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	created = run("user", "create", "thomas").output
+
+	assert "thomas is now member in acme" in created
+
+
+def test_a_new_account_takes_the_ordinary_role_unless_one_is_named (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decision 1, both halves — the default and that it is still overridable."""
+
+	run("init", "--workspace", "Acme")
+
+	assert "is now member in acme" in run("user", "create", "thomas").output
+	assert "is now viewer in acme" in run("user", "create", "kim", "--role", "viewer").output
+
+
+def test_a_new_account_needs_a_named_workspace_when_there_are_several (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decision 2's other half, and the refusal names what the caller can see."""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "clients", "Clients")
+
+	refused = run("user", "create", "thomas", expect=1).output
+
+	assert "say which one they work in" in refused
+	assert "acme" in refused and "clients" in refused
+
+
+def test_an_ambiguous_workspace_is_refused_before_the_account_is_made (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**Found by driving `#587`, and it is the worst failure this command can have.**
+
+	The refusal used to arrive *after* ``create_user``, leaving a person with an account and no
+	membership — and the same command re-run then refused again, because the username was
+	taken. There was no way forward from either.
+
+	It is ``token create``'s own rule one command along: *checked before anything is issued, so
+	a credential is never minted and then stranded.* Asserted on the roster rather than on the
+	refusal, because the message was always right; what was wrong was what had already happened
+	when it printed.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "clients", "Clients")
+	run("user", "create", "thomas", expect=1)
+
+	assert "thomas" not in run("user", "list").output
+
+
+def test_a_second_thing_in_one_command_still_knows_who_is_asking (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**The other ordering bug driving `#587` found, and it could not exist before.**
+
+	Local mode identifies the operator by there being exactly one account (§12.1a). Creating a
+	colleague makes that ambiguous *within the running command*, so everything after it — the
+	membership, a credential, a link — resolves an operator and finds two.
+
+	``_keep_the_operators_own_list`` already cured it in the configuration file and not in the
+	settings this process is holding, which was invisible while ``user create`` did one thing
+	and nothing afterwards. The membership below is what proves the second call went through;
+	the assertion after it is that the operator's own list still works.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	assert "is now member in acme" in run("user", "create", "thomas").output
+	assert "acme" in run("whoami").output
+
+
+def test_a_superuser_joins_no_workspace_and_says_so_rather_than_guessing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decision 1's special case, and the refusal beside it.
+
+	An instance owner needs no workspace role, and granting one quietly would be a permission
+	taken by default. A role or a workspace named beside ``--superuser`` is therefore not a
+	narrower superuser — it is two different accounts asked for in one command, which
+	``agent create`` refuses in the same words about a profile.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	made = run("user", "create", "sam", "--superuser").output
+
+	assert "Created sam" in made
+	assert "is now" not in made
+
+	refused = run("user", "create", "kim", "--superuser", "--role", "admin", expect=1).output
+
+	assert "joins no workspace and takes no role" in refused
+
+
+def test_naming_no_way_in_succeeds_and_names_both (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decisions 3 and 4, which are one sentence apart and are one idea.
+
+	The account and the role are real work that succeeded, so this is ``init``'s shape rather
+	than ``db restore``'s refusal — and **both** commands are named, never one, because the
+	paths are additive: somebody may need a link for the browser and a credential for whoever
+	is configuring their machine.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	said = run("user", "create", "thomas").output
+
+	assert "login link --username thomas" in said
+	assert "token create --username thomas" in said
+
+
+def test_a_way_in_is_produced_in_the_same_command (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587` decision 4: both may be asked for, and both arrive.
+
+	Driven by Tim, who needs a sign-in link *and* a credential — the link for the web
+	interface, the credential for the colleague setting his machine up. A command framed as
+	either/or refuses the one person who needs both.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	said = run("user", "create", "tim", "--browser", "--terminal").output
+
+	assert "A sign-in link for tim" in said
+	assert "/signin?link=" in said
+	assert said.count("That is the only time it is shown") == 2
+
+
+def test_a_machine_identity_is_refused_a_browser_before_anything_is_written (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**The third ordering fault driving found**, and the rule behind it was never wrong.
+
+	``domain/sessions`` has always refused a browser session for a service account, because a
+	credential carries a scope and a reach and a session carries neither. It fired *after* the
+	account was created and joined, so a correct rule left a half-made identity behind.
+
+	Refused from the flags now, which is a different question — *these two arguments mean two
+	things* — asked before anything is written.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	refused = run("user", "create", "bot", "--agent", "--browser", expect=1).output
+
+	assert "--agent and --browser mean two different things" in refused
+	assert "bot" not in run("user", "list").output
+
+
+def test_adding_somebody_to_a_workspace_they_are_in_says_who_they_already_are (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1439`: a unique index is not a sentence, and it used to be the whole answer.
+
+	The insert let the database decide, which reached the reader as *"the database could not be
+	read"* with a hint to check ``database_url`` — a message about our internals, a false claim
+	about what failed, and a remedy pointing at a setting that was correct.
+
+	**Rare until `#587`**, because the documented flow ran ``user create`` and then ``user add``
+	exactly once. Now the second step is a duplicate, so every habit and every older transcript
+	lands here.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas")
+
+	refused = run("user", "add", "thomas", "--role", "member", expect=1).output
+
+	assert "thomas is already member in acme" in refused
+	assert "UNIQUE" not in refused and "database_url" not in refused
+
+
+def test_user_add_still_puts_somebody_in_a_second_workspace (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""What ``user add`` is *for* once `#587` folded the first membership into ``user create``.
+
+	Here rather than assumed, because the two changes above delete every existing exercise of
+	this command and a verb nothing drives is a verb nobody notices breaking.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("workspace", "create", "clients", "Clients")
+	run("user", "create", "thomas", "--workspace", "acme")
+
+	joined = run("user", "add", "thomas", "--role", "viewer", "--workspace", "clients").output
+
+	assert "thomas is now viewer in clients" in joined

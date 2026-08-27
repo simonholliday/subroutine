@@ -5,6 +5,7 @@ registered *by* ``main`` — so anything they share has to sit beside them rathe
 either one.
 """
 
+import datetime
 import re
 import typing
 
@@ -80,3 +81,62 @@ def _shown (item: typing.Any) -> typing.Any:
 		return item if cleaned == item.plain else rich.text.Text(cleaned, style=item.style)
 
 	return item
+
+
+def sign_in_lines (
+	*, username: str, url: str, minutes: int, address_assumed: bool
+) -> list[str]:
+	"""Return what to print when a sign-in link has just been made — item `#587`.
+
+	**Here rather than in either command, because two of them mint one now.** ``login link``
+	has printed this since `#248`; ``user create --browser`` prints it as the last step of
+	onboarding somebody. A second copy is this codebase's signature defect, and the half that
+	would have rotted is the ``public_url`` note — it was added by `#1007` to one caller, and a
+	caller written afterwards would not have known to carry it.
+
+	**Said as a duration rather than a clock time, deliberately.** Half an hour is short
+	enough that "until 14:12" makes a reader work out what that means from now, in a timezone
+	they then have to be sure about — and the answer they want is how long they have.
+
+	Takes plain values rather than the view, so this module goes on importing nothing but the
+	terminal: its own first paragraph is that it sits beside ``cli/main`` and ``cli/personal``
+	rather than inside either, and that only holds while it is cheap to import.
+	"""
+
+	said = [
+		f"A sign-in link for {username}, good for the next "
+		f"{minutes} {'minute' if minutes == 1 else 'minutes'}.",
+		"",
+		url,
+		"",
+		"That is the only time it is shown, and it works once.",
+	]
+
+	# **Said, not asked** (`#1007`). The assumption is the bind this instance listens on, which
+	# is a fact the program holds and the reader does not — so a prompt would ask somebody to
+	# confirm a value they have less evidence about than the program does, break every script
+	# and agent that runs this, and grow the one path §1.4 wants shortest. A wrong address
+	# costs one re-run, because the host in a link is navigation rather than authority.
+	if address_assumed:
+		said.extend(
+			[
+				"",
+				"Nobody has set public_url, so that address is where this instance listens. "
+				"It works in a browser on this machine; if you reach it another way — a "
+				"proxy, another machine — set public_url and make a fresh link.",
+			]
+		)
+
+	return said
+
+
+def minutes_until (moment: datetime.datetime, now: datetime.datetime) -> int:
+	"""Return how many whole minutes are left before this instant — item `#587`.
+
+	Beside :func:`sign_in_lines` because it is the number that sentence reads, and rounding it
+	somewhere else would let two callers of one rendering disagree about *the same link* by a
+	minute. Rounded rather than truncated: a link with 29 minutes and 40 seconds left has half
+	an hour on it in every sense a reader cares about.
+	"""
+
+	return round((moment - now).total_seconds() / 60)

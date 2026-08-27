@@ -795,9 +795,9 @@ answering an origin you did not intend to name.
 ## Adding the people
 
 An instance starts with one account — whoever ran `init`, who is its administrator. Everybody
-else is two commands, and they are two on purpose: creating an account says somebody exists,
-and giving them a role says where they may work. Those are different decisions and often
-different people.
+else is **one command**. It makes the account, puts them in a workspace with a role, and — if
+you say how they will reach this instance — hands you the link or the credential in the same
+breath.
 
 ```console
 # sudo -u subroutine env \
@@ -806,14 +806,15 @@ different people.
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
   Created thomas
+  thomas is now member in acme
   Local commands will go on acting as si.
 
-# sudo -u subroutine env \
-    XDG_CONFIG_HOME=/var/lib/subroutine/config \
-    XDG_DATA_HOME=/var/lib/subroutine/data \
-    XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine user add thomas --role member --workspace acme
-  thomas is now member in acme
+  They cannot get in yet. Either of these hands it over, and both is fine:
+
+    subroutine login link --username thomas      a sign-in link for the browser
+    subroutine token create --username thomas    a credential for the terminal
+
+  Both are what --browser and --terminal would have done here.
 
 # sudo -u subroutine env \
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
@@ -824,10 +825,19 @@ different people.
   thomas  member  Thomas Anderson
 ```
 
-A new account belongs to no workspace and can see nothing until it is given a role, which is
-why `user create` tells you the next command rather than stopping at "Created".
+**The role is `member` unless you say otherwise**, and `--workspace` can be left out when there
+is only one. Both defaults do the same thing: they stop the ordinary case being a decision, and
+they still get out of the way — `--role viewer` narrows, `--role admin` widens, and once there
+is more than one workspace the command asks which rather than choosing.
 
-**There is no password**, so what Thomas needs next depends on what they are going to use.
+An account with no workspace can see nothing at all, which reads as a broken credential rather
+than a missing role. That is why the membership arrives with the account instead of waiting for
+a second command somebody has to remember.
+
+`subroutine user add` is still how somebody already here joins a **second** workspace.
+
+**There is no password**, so what Thomas needs next depends on what they are going to use — and
+`--browser` and `--terminal` produce it without a second command at all.
 
 **If they are going to open the web interface, hand them a sign-in link.** It signs in as
 whoever it names, once, and stops working after half an hour — so it is handed over the way
@@ -892,7 +902,7 @@ the service. The route follows the connection precisely so that both remain true
 
 **Roles belong to a workspace.** `member` in one is not `member` in another; each workspace is
 seeded with its own, and `subroutine user list --workspace <slug>` says who holds which.
-Deciding membership needs `workspace:admin`, which is a different thing from being able to work
+Deciding membership needs `user:admin`, which is a different thing from being able to work
 there.
 
 Somebody added by mistake can be removed with `subroutine user remove`. That takes away the

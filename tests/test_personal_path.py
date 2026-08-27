@@ -303,7 +303,6 @@ def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
 
 	run("init")
 	run("user", "create", "bob")
-	run("user", "add", "bob", "--role", "member")
 
 	run("add", "Ship the release")
 	run("add", "Sign off the copy")

@@ -16,6 +16,25 @@ upgrade involves.
 
 ### Changed
 
+- **Adding a person is one command.** `subroutine user create thomas` now makes the account,
+  puts them in a workspace and gives them a role, where before it made an account that could
+  see nothing until a second command was remembered. The role is `member` unless you say
+  otherwise; the workspace can be left out while there is only one and is asked for once there
+  are several.
+
+  It can hand them the way in too. `--browser` prints a sign-in link for the web interface and
+  `--terminal` prints a credential together with the line that connects to this instance — and
+  they are **not** alternatives, because somebody who uses the browser and has a colleague
+  setting their machine up needs both. Naming neither still works: the account is real, and the
+  two commands that hand it over are printed.
+
+  `subroutine user add` is unchanged and is how somebody already here joins a *second*
+  workspace. **Running it straight after `user create` is now a duplicate** and says so by
+  name — it used to answer with a database constraint and advise checking `database_url`.
+
+  `--superuser` joins no workspace, as it always has, and now refuses a `--role` or a
+  `--workspace` beside it rather than quietly ignoring one.
+
 - **Your agenda holds your work.** It now shows what is assigned to you, what is assigned to
   nobody, and what you are holding — where before every reader of an instance saw the same
   page. **This is the only view that narrows this way**: a list, a search and the board answer
