@@ -16,6 +16,12 @@ upgrade involves.
 
 ### Fixed
 
+- **Onboarding somebody with both a link and a credential says which is which.** The sign-in
+  link has always announced itself; the credential arrived as a bare string, so a reader handing
+  both over had to tell them apart from context — and both are shown once, so there is no
+  reading back to check. The two notes about `public_url` no longer read as contradicting each
+  other either.
+
 - **The connecting guide says which of its claims we have actually driven.** It said the
   no-install plugin *"reaches exactly the same instance from Claude Code and the desktop apps,
   with the same token"* — the sentence somebody choosing the easiest path acts on, and a

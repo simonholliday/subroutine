@@ -518,3 +518,70 @@ def test_user_add_still_puts_somebody_in_a_second_workspace (
 	joined = run("user", "add", "thomas", "--role", "viewer", "--workspace", "clients").output
 
 	assert "thomas is now viewer in clients" in joined
+
+
+def test_both_secrets_say_which_they_are (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1442`, found by driving next week's setup rather than by reading.
+
+	A sign-in link and a credential in one stream are **not** interchangeable — one goes in a
+	browser, one goes in a configuration file — and both are shown once, so there is no reading
+	back later to check. The link has always said what it is; the credential arrived as a bare
+	string after a blank line, and a reader handing both over had to tell them apart from
+	context.
+
+	It could not appear before `#587`, because ``login link`` and ``token create`` are separate
+	commands and nobody ever saw the two outputs together.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	said = run("user", "create", "tim", "--browser", "--terminal").output
+
+	assert "A sign-in link for tim" in said
+	assert "A credential for tim, for the command line." in said
+
+
+def test_a_credential_is_pinned_to_the_workspace_they_were_put_in (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#587`, and it is the piece the specification did not name.
+
+	**Not a narrowing on the day it is issued**: this command puts them in exactly one
+	workspace, so the pin reaches everything the account reaches. What it buys is `#571` — on a
+	credential reaching more than one workspace with no pin, ``subroutine://meta`` and
+	``subroutine://conventions`` answer with an explanation instead of content, so an agent told
+	that a document binds it cannot read it.
+
+	`#1386`'s pre-flight list asks an operator to pin every issued connection **by hand**, and a
+	step somebody has to remember is one they will not.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "oli", "--terminal")
+
+	listed = run("token", "list").output
+
+	assert "oli" in listed
+	assert "in acme only" in listed, listed
+
+
+def test_a_superuser_credential_is_pinned_to_nothing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, and it falls out rather than being special-cased.
+
+	``--superuser`` joins no workspace, so there is no workspace to pin to and the credential
+	correctly reaches all of them. Here because *the pin follows the membership* is the rule,
+	and a later reader tempted to pin unconditionally would break the one account that
+	administers the instance.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "sam", "--superuser", "--terminal")
+
+	listed = run("token", "list").output
+
+	assert "sam" in listed
+	assert "in acme only" not in listed, listed

@@ -1543,7 +1543,9 @@ def _connection_suggestion (where: Reached) -> str:
 		return "work"
 
 
-def _terminal_handover (secret: str, *, address: str | None, nickname: str) -> list[str]:
+def _terminal_handover (
+	secret: str, *, username: str, address: str | None, nickname: str
+) -> list[str]:
 	"""Return what to print when a colleague's own credential has just been made — `#587`.
 
 	**Not ``token create``'s closing line, and the difference is who is holding the token.**
@@ -1555,7 +1557,14 @@ def _terminal_handover (secret: str, *, address: str | None, nickname: str) -> l
 	cannot be recovered is the half worth having at the top.
 	"""
 
+	# **Announced, because it is shown once and it may not be the only secret on screen**
+	# (`#1442`). With ``--browser --terminal`` a sign-in link and a credential arrive in one
+	# stream; the link says what it is and this did not, so a reader handing both over had to
+	# tell them apart from context. They are not interchangeable — one goes in a browser and
+	# one goes in a configuration file — and there is no reading it back later to check.
 	said = [
+		"",
+		f"A credential for {username}, for the command line.",
 		"",
 		secret,
 		"",
@@ -1567,9 +1576,16 @@ def _terminal_handover (secret: str, *, address: str | None, nickname: str) -> l
 		# **Refusing to guess, rather than printing the bind.** A loopback address in a
 		# handover resolves on the colleague's own machine, where it either fails or — far
 		# worse on a laptop that also runs one — reaches their instance instead of this one.
+		#
+		# **Named on ``public_url`` rather than on the absence** (`#1442`). A sign-in link
+		# printed moments earlier says *nobody has set public_url, so that address is where
+		# this instance listens*, and this used to open *this instance has no address anybody
+		# else can reach* — one installation described as having an address and not having
+		# one, in two paragraphs. Both were true and they answer different questions; naming
+		# the same cause is what lets a reader see that.
 		said.append(
-			"This instance has no address anybody else can reach, so there is no line to "
-			"send with it. Set public_url and it will have one."
+			"There is no line to send with it: nobody has set public_url, so this instance "
+			"has no address anybody else can use. Setting it gives both a real one."
 		)
 
 		return said
@@ -1716,6 +1732,7 @@ def _handed_over (
 		said.extend(
 			_terminal_handover(
 				minted.token,
+				username=username,
 				address=_handover_address(where, settings),
 				nickname=_connection_suggestion(where),
 			)
