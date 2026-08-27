@@ -2390,7 +2390,15 @@ def _shown (
 		walked = client.beneath(ref=ref, entity_type=kind, workspace=workspace)
 
 		if walked:
-			counted = [one for one in walked if one.item.deleted_at is None]
+			# **A deleted part and a second drawing are both out of the count** (`#1403`,
+			# `#1410`), and both stay on the page with a mark that explains the difference: the
+			# heading answers *how much of this is left*, and one item finished once is
+			# finished.
+			counted = [
+				one
+				for one in walked
+				if one.item.deleted_at is None and one.stopped != "again"
+			]
 			done = sum(1 for one in counted if one.item.is_complete)
 
 			parts.append("")

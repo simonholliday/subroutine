@@ -70,8 +70,9 @@ upgrade involves.
   `tree: true` on `subroutine_show`.
 
   Finished parts stay on the page and are counted in the heading rather than hidden. An item
-  reached twice is drawn once and says where the rest of it is, because the shape is a graph
-  and pretending otherwise would double the plan.
+  that several things wait on is drawn under each of them, and every drawing after the first
+  says **shown above** and is left out of the count — because one item finished once is
+  finished, and counting it twice would overstate what is left.
 
 - **A deleted item no longer holds a milestone open.** A blocker in the trash was still counted,
   so a milestone with one among its parts read `0 of 6` and could never reach `6 of 6` — with

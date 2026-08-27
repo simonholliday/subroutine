@@ -4585,17 +4585,34 @@ def test_an_item_reached_twice_is_drawn_once_and_says_so (
 		run("add", title)
 
 	run("link", "2,3", "blocks", "1")
-	run("link", "4", "blocks", "2")
-	run("link", "4", "blocks", "3")
+	run("link", "4", "blocks", "2,3")
 
 	shown = run("show", "1", "--tree").output
+	rows = [
+		line for line in shown.split("What has to happen first")[1].splitlines()
+		if line.strip().startswith("#")
+	]
 
-	assert shown.count("Shared groundwork") == 2, (
+	assert len([one for one in rows if "Shared groundwork" in one]) == 2, (
 		f"a shared blocker is drawn under each thing waiting on it:\n{shown}"
 	)
-	assert "(shown above)" in shown, (
-		f"the second sighting does not say its parts are drawn elsewhere:\n{shown}"
-	)
+
+	# **The first drawing carries no mark, and asserting only that the mark *appears* is what
+	# let `SR#1410` ship**: `stopped` was keyed by item where *again* is a property of an
+	# appearance, so an item at two depths had **both** its drawings marked — including the
+	# first. On the real roadmap the very first row read *(shown above)* with nothing above it,
+	# and this test was green.
+	first, second = [one for one in rows if "Shared groundwork" in one]
+
+	assert "(shown above)" not in first, f"the first drawing claims to be a repeat:\n{shown}"
+	assert "(shown above)" in second, f"the second drawing does not say so:\n{shown}"
+
+	# **And a repeat is out of the count**, which is the deleted rows' bargain applied again
+	# (`SR#1403`, `SR#1410`): the heading answers *how much of this is left*, one item finished
+	# once is finished, and the mark on the row explains the difference between the count and
+	# what is drawn. Three distinct items, four drawings.
+	assert "What has to happen first (0 of 3 done)" in shown, shown
+	assert len(rows) == 4, f"four rows are drawn:\n{shown}"
 
 
 def test_the_tree_is_absent_from_the_scripted_output_until_it_is_asked_for (

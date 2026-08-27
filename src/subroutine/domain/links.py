@@ -855,9 +855,13 @@ def beneath (
 			children[one] = ends
 
 			for end in ends:
+				# **Seen means *do not walk it twice*, and nothing more** (`#1410`). Recording
+				# *again* here was wrong because ``stopped`` is keyed by item and *again* is a
+				# property of an **appearance**: an item that turns up at two levels was marked
+				# once, and the mark reached its **first** drawing as well as its second. Met on
+				# the real roadmap, where the very first row read *(shown above)* with nothing
+				# above it. :func:`emit` decides it from ``drawn``, which is per drawing.
 				if end.id in seen:
-					stopped[end.id] = "again"
-
 					continue
 
 				seen.add(end.id)

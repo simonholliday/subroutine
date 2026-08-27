@@ -9227,7 +9227,15 @@ def _render_tree (
 	# **A deleted part is out of the count and stays on the page** (`#1403`), which is the rule
 	# the links section above follows: the total has to be one a reader can reconcile, and an
 	# absence they would have to infer is worse than a mark.
-	counted = [one for one in walked if one.item.deleted_at is None]
+	#
+	# **And so is a second drawing of something already above** (`#1410`). The question the
+	# heading answers is *how much of this is left*, and one item finished once is finished —
+	# counting a shared blocker twice inflates the plan. Measured on the real roadmap: 56
+	# drawings, 29 of them repeats. The mark on the row is what explains the difference, which
+	# is the same bargain the deleted rows make.
+	counted = [
+		one for one in walked if one.item.deleted_at is None and one.stopped != "again"
+	]
 	done = sum(1 for one in counted if one.item.is_complete)
 
 	console.print("")
