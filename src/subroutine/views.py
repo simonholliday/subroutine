@@ -5068,6 +5068,35 @@ class Meta(pydantic.BaseModel):
 	linkable_types: list[str]
 	tags: Tags
 
+	#: Why the four sections above are empty, when they are empty because nobody said which
+	#: workspace this is about — `#627`.
+	#:
+	#: **Nothing related the two facts, and a reader drew the wrong one.** With several
+	#: workspaces reachable and none named, this response answers `200` with a populated
+	#: ``workspaces`` list and four empty maps — which is deliberate and stays: a client's first
+	#: call is often this one, before it knows what workspaces exist, so answering *which
+	#: workspace?* to the request that would have told it is a loop. But ``statuses: {}`` is
+	#: exactly what a fresh single-workspace installation says, so an agent read it as *this
+	#: instance has no custom vocabulary* and acted on it — from the one endpoint whose whole
+	#: purpose is preventing a guess.
+	#:
+	#: **The name is `#496`'s, not a new one.** The MCP resource for the same vocabulary already
+	#: meets this and already calls it this, so a caller reading both channels meets one word.
+	#: `#345`'s rule is to weigh a field's word against what it already means in the document
+	#: somebody reads, and this one is taken.
+	#:
+	#: **Presence is the flag and the value is the sentence**, which is `#102`'s requirement
+	#: rather than a way round it: a client branches on ``is not None`` without parsing prose,
+	#: and a person or an agent reading the raw response is told what happened and what to do.
+	#: A boolean beside a sentence that is null under identical conditions would be two fields
+	#: carrying one bit.
+	#:
+	#: **Defaulted, like everything added to a response model after it shipped** (`#345`,
+	#: `#482`). An instance older than this field sends no such key and must keep working —
+	#: which is also why ``mcp.tools._unbound`` goes on deriving the same condition for itself
+	#: rather than reading this, and why a guard drives the two against one instance.
+	vocabulary_not_shown: str | None = None
+
 	listings: dict[str, Listing]
 	grammars: dict[str, Grammar]
 	limits: Limits

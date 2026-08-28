@@ -24,6 +24,8 @@ import subroutine.domain.dates
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.installations
+import subroutine.mcp.tools
+import subroutine.views
 import test_api_tasks
 
 
@@ -256,6 +258,100 @@ def test_meta_does_not_demand_a_workspace_it_is_about_to_report (
 
 	assert narrowed["workspace"] == str(second.id)
 	assert narrowed["statuses"]["task"]
+
+
+def test_an_empty_vocabulary_says_why_it_is_empty (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> None:
+	"""`SR#627`, Simon's decision of 2026-08-28: a flag and a sentence, in one field.
+
+	The leniency the test above pins is right and stays. What was wrong is that nothing in the
+	answer related *the maps are empty* to *no workspace was named* — and ``statuses: {}`` is
+	exactly what a fresh single-workspace installation says, so the agent in `SR#615` read it as
+	*this instance has no custom vocabulary* and acted on it. From the one endpoint whose whole
+	purpose is preventing a guess.
+
+	**Presence is the flag and the value is the sentence.** A client branches on ``is not None``
+	without parsing prose; a person or an agent reading the raw response is told what happened
+	and what to do about it. A boolean beside a sentence that is null under identical conditions
+	would be two fields carrying one bit.
+
+	Three cases, and the first and last are what stop this becoming a line on every answer.
+	"""
+
+	alone = world.call("GET", "/v1/meta").json()
+
+	assert alone["statuses"]["task"], "one workspace resolves, so nothing is withheld"
+	assert alone["vocabulary_not_shown"] is None, (
+		"an installation with one workspace has no choice to make and must never see this"
+	)
+
+	second = subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Other", owner=world.user
+	)
+	session.flush()
+
+	bare = world.call("GET", "/v1/meta").json()
+
+	assert bare["statuses"] == {}, "the fixture is not the case this is about"
+
+	said = bare["vocabulary_not_shown"]
+
+	assert said is not None, f"empty sections with nothing saying why:\n{bare['workspaces']}"
+	assert "workspace_id" in said, (
+		f"the remedy has to be one this caller can act on:\n{said}"
+	)
+	assert world.workspace.slug in said or second.slug in said, (
+		f"it has to name a workspace that can be asked for:\n{said}"
+	)
+
+	# **And it goes away when the question is answered**, or it is a permanent apology rather
+	# than a statement about this request.
+	narrowed = world.call("GET", f"/v1/meta?workspace_id={second.slug}").json()
+
+	assert narrowed["statuses"]["task"]
+	assert narrowed["vocabulary_not_shown"] is None
+
+	# **And a credential reaching nothing says nothing**, which is a different fact and one
+	# this sentence would misdescribe — there is no workspace to pick from. Asserted directly
+	# because reaching it through the endpoint needs an account in no workspace, and the branch
+	# it guards would otherwise index an empty list and answer 500.
+	assert subroutine.api.meta._why_the_vocabulary_is_empty([]) is None
+
+
+def test_both_channels_agree_about_when_a_vocabulary_is_withheld (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> None:
+	"""`SR#627`: one fact, two remedies, and the condition derived twice on purpose.
+
+	``mcp.tools._unbound`` reads ``workspace`` and ``workspaces`` off the response, which works
+	against **any** instance; the field is sent only by one new enough to have it. Making the
+	resource read the field would make it stop withholding against an older server, so both
+	derivations stay — and `SR#303`'s rule applies: the list was never the control, the guard is.
+
+	The *sentences* differ and that is not drift. A resource takes no arguments, so its reader is
+	told to bind the plugin's workspace setting; a caller here has the query parameter and is
+	shown it. What must never differ is when either fires.
+	"""
+
+	bound = subroutine.views.Meta.model_validate(world.call("GET", "/v1/meta").json())
+
+	assert bound.vocabulary_not_shown is None
+	assert subroutine.mcp.tools._unbound(bound) == [], (
+		"the resource would withhold a vocabulary this endpoint is publishing"
+	)
+
+	subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Other", owner=world.user
+	)
+	session.flush()
+
+	unbound = subroutine.views.Meta.model_validate(world.call("GET", "/v1/meta").json())
+
+	assert unbound.vocabulary_not_shown is not None
+	assert subroutine.mcp.tools._unbound(unbound), (
+		"this endpoint says it withheld a vocabulary and the resource would publish it empty"
+	)
 
 
 def test_meta_needs_a_credential (world: test_api_tasks.World) -> None:

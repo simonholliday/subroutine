@@ -42,6 +42,7 @@ import subroutine.api.shaping
 import subroutine.api.tasks
 import subroutine.cli.topics
 import subroutine.config
+import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
@@ -251,6 +252,7 @@ def document (
 		link_types=[] if chosen is None else _link_types(session, chosen.id),
 		linkable_types=list(subroutine.domain.links.LINKABLE),
 		tags=_tags(session, actor, chosen),
+		vocabulary_not_shown=_why_the_vocabulary_is_empty(reachable) if chosen is None else None,
 		listings=_listings(
 			application,
 			ranked=subroutine.domain.search.chosen(session, settings=settings)
@@ -554,6 +556,37 @@ def _operators () -> str:
 	return ", ".join(
 		f"`{operator}`"
 		for operator in sorted(subroutine.domain.filtering.INSTANT.operators)
+	)
+
+
+def _why_the_vocabulary_is_empty (
+	reachable: typing.Sequence[subroutine.db.models.identity.Workspace],
+) -> str | None:
+	"""Say why the four per-workspace sections are empty, or ``None`` when they are not — `#627`.
+
+	**The leniency above is right and the shape of its answer was not.** Nothing in the response
+	related *the maps are empty* to *no workspace was named*, so a reader had to infer it — and
+	the agent in `#615` did not: ``statuses: {}`` is what a fresh single-workspace installation
+	says, so it read *this instance has no custom vocabulary* and went on to act on it.
+
+	**Only where there was a choice to make.** With nothing reachable at all the sections are
+	empty because there is nothing to put in them, which is a different fact and one this
+	sentence would misdescribe; the credential reaching nothing is what ``workspaces`` says and
+	what ``/v1/me`` is for.
+
+	**The remedy is the one this caller can act on**, which is why it is not the wording the MCP
+	resource uses for the same condition. A resource takes no arguments, so its reader is told to
+	bind the plugin's workspace setting; a caller here has the query parameter and is shown it.
+	One fact, two remedies, because the two callers can do different things about it.
+	"""
+
+	if len(reachable) < 2:
+		return None
+
+	return (
+		"No workspace was named, so the statuses, item types, link types and tags above are "
+		"empty for that reason rather than because this installation has none. Pick one from "
+		f"'workspaces' and ask again — GET /v1/meta?workspace_id={reachable[0].slug}."
 	)
 
 

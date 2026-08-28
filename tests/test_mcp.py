@@ -4642,7 +4642,12 @@ def test_a_bound_session_still_gets_the_whole_vocabulary (
 	published = json.loads(answered[0]["result"]["contents"][0]["text"])
 
 	assert published["statuses"], "a session that named a workspace must get its keys"
-	assert "vocabulary_not_shown" not in published
+
+	# **Null rather than absent since `SR#627`**, which gave the field to
+	# :class:`subroutine.views.Meta` so `/v1/meta` could answer the same question. It is
+	# serialised with the rest of the model now, so a bound session carries the key with nothing
+	# in it — and both spellings mean the same thing, which is that nothing was withheld.
+	assert published["vocabulary_not_shown"] is None
 
 
 def test_an_agent_can_reach_a_route_no_tool_covers (

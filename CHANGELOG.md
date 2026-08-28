@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Fixed
 
+- **An empty vocabulary says why it is empty.** `GET /v1/meta` with no workspace named
+  answers `200` with a populated `workspaces` list and four empty maps — `statuses`,
+  `item_types`, `link_types` and `tags`. That is deliberate and unchanged: a client's first
+  call is often this one, before it knows what workspaces exist, so refusing it is a loop.
+
+  What was missing is that nothing related the two facts. `statuses: {}` is exactly what a
+  fresh single-workspace installation says, so a reader took it to mean this instance has no
+  custom vocabulary and acted on it — from the one endpoint whose purpose is preventing that
+  guess. The response now carries `vocabulary_not_shown`: null when nothing was withheld, and
+  otherwise a sentence saying why and how to ask again. A client can branch on it without
+  parsing prose, and it is absent on any installation with one workspace.
+
+  The name is the one the MCP resource has used for this since 0.6.x, so the two channels
+  answer one question with one word.
+
 - **Adopting a checkout works out the workspace from the project it was given.**
   `subroutine use --here --project web` refused for want of a workspace on any connection
   reaching more than one, with no stored context and no marker — on an instance where the
