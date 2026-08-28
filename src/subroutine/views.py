@@ -93,8 +93,8 @@ class LinkEnd(pydantic.BaseModel):
 	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
 	than this model's.
 
-	**What changed with `#970` is what *enough* means, not the rule.** It was five fields,
-	which identify a thing; Simon, reading `#94`'s own links: *"I cannot look at a task and
+	**What changed when this widened is what *enough* means, not the rule.** It was five fields,
+	which identify a thing; Simon, reading a milestone's own links: *"I cannot look at a task and
 	see whether all of its blockers are complete, without looking at each blocker
 	individually."* Identifying an end is not judging one, and a list of blockers nobody can
 	judge is a list that has to be clicked through one item at a time.
@@ -108,7 +108,7 @@ class LinkEnd(pydantic.BaseModel):
 	:func:`_end` is about: sixteen of :class:`Task`'s fifty-nine, resolved by the code that
 	resolves them for a row. The one field deliberately not taken is ``description`` — the
 	whole body of every item this one touches, which is what the paragraph above refuses and
-	what `#595` measured as a first-order cost.
+	what measurement made a first-order cost.
 	"""
 
 	entity_type: str
@@ -346,7 +346,7 @@ class Reading(pydantic.BaseModel):
 class Occurrences(pydantic.BaseModel):
 	"""When a repeating task comes round, over a stretch of time.
 
-	§6.7 reserved this for a calendar, and decision `#915` is why it is computed rather than
+	§6.7 reserved this for a calendar, and a decision taken since is why it is computed rather than
 	stored: **one occurrence is real and the rest are arithmetic**. A birthday is one row for
 	ever rather than one row per year since 1974, and *show me every occurrence* turns out to
 	be a question about a **view** rather than about the backlog.
@@ -794,7 +794,7 @@ class Task(pydantic.BaseModel):
 
 
 class Backlink(pydantic.BaseModel):
-	"""One piece of prose that refers to an item — `#144`.
+	"""One piece of prose that refers to an item.
 
 	**The mention table has been written by every title, description, body and comment since
 	M1 and read by nothing.** `domain/mentions.backlinks` had no caller and §8.5's
@@ -802,7 +802,7 @@ class Backlink(pydantic.BaseModel):
 	whole table exists for — was answerable on no surface at all.
 
 	**It names something a reader can open**, which is what makes the list worth having: a ref
-	and a title, the same argument `#970` makes for a link's far end. A comment has no ref, so
+	and a title, the same argument that settled a link's far end. A comment has no ref, so
 	it resolves to the item it is on and says ``via`` so nobody goes looking for the sentence
 	in that item's own prose.
 	"""
@@ -966,7 +966,7 @@ class Event(pydantic.BaseModel):
 
 
 class Change(pydantic.BaseModel):
-	"""One field moving, said in words a person reads — `#1430`, decision `#1429`.
+	"""One field moving, said in words a person reads.
 
 	**The column is kept beside the phrase, deliberately.** ``field`` is what a program matches
 	on and ``said`` is what a person reads; dropping the first would make this the one place a
@@ -992,9 +992,9 @@ class Change(pydantic.BaseModel):
 
 
 class JournalEntry(pydantic.BaseModel):
-	"""One thing that happened, with who did it and what they said — `#1430`.
+	"""One thing that happened, with who did it and what they said.
 
-	**The audit log's row is unchanged and this is a second reading of it** (decision `#1429`).
+	**The audit log's row is unchanged and this is a second reading of it.**
 	:class:`Event` answers *what changed* and is what a client polling should read; this answers
 	*what happened*, which needs three joins the feed deliberately does not carry: the comment's
 	body, the actor's name, and the values inside ``changes``.
@@ -1047,7 +1047,7 @@ class JournalEntry(pydantic.BaseModel):
 
 
 class Changes(Collection[Event]):
-	"""The change feed, and which kinds of thing it is able to tell you about — `#1085`.
+	"""The change feed, and which kinds of thing it is able to tell you about.
 
 	**Stated positively, and always**, which is Simon's refinement of 2026-08-22 on the
 	obvious alternative. Naming what was *left out* would need the reader to know which kinds
@@ -1069,9 +1069,9 @@ class Changes(Collection[Event]):
 
 
 class Journal(Collection[JournalEntry]):
-	"""What happened over a period, joined — `#1430`, decision `#1429`.
+	"""What happened over a period, joined.
 
-	**It carries `covers` for the same reason the feed does** (`#1085`). A journal reads the
+	**It carries `covers` for the same reason the feed does.** A journal reads the
 	same store through the same scoping, so a credential narrowed away from a kind gets a
 	journal of what it may read — and without this, *nothing happened on Friday* and *I am not
 	shown that* are the same sentence. Said positively and always, per Simon's decision of
@@ -1088,13 +1088,13 @@ class Journal(Collection[JournalEntry]):
 
 
 class Beneath(pydantic.BaseModel):
-	"""One item in a dependency walk, and how far under the item asked about it sits — `#1358`.
+	"""One item in a dependency walk, and how far under the item asked about it sits.
 
 	**Flat with a ``depth``, not nested.** A nested model would need a recursive type on the
 	wire and a recursive renderer on three surfaces to say the same thing; a flat list in
 	reading order is a loop everywhere, and the indentation is a multiplication.
 
-	The rows are what has to happen *first*, which is `#84`'s model read the way somebody asks
+	The rows are what has to happen *first*, which is the milestone model read the way somebody asks
 	it: a milestone is an item whose blockers are its contents.
 	"""
 
@@ -1186,7 +1186,7 @@ class Link(pydantic.BaseModel):
 
 
 class Governing(pydantic.BaseModel):
-	"""A document in force that a typed link says binds this item (`#1119`).
+	"""A document in force that a typed link says binds this item.
 
 	``subroutine://conventions`` narrowed to one item: that resource says what binds anybody
 	working in this workspace, and this says what binds whoever picks *this* up.
@@ -1219,7 +1219,7 @@ class Governing(pydantic.BaseModel):
 
 
 class Proposal(pydantic.BaseModel):
-	"""A link the writing already implies and nobody has confirmed (`#1137`).
+	"""A link the writing already implies and nobody has confirmed.
 
 	**Deliberately not a :class:`Link`.** It carries no ``id`` because there is no row, and a
 	client that could not tell the two apart would report a suggestion as a fact. What it is
@@ -1253,11 +1253,11 @@ class Proposal(pydantic.BaseModel):
 
 
 class Verification(pydantic.BaseModel):
-	"""What was checked against a task, and which tree it was checked on (`#1121`).
+	"""What was checked against a task, and which tree it was checked on.
 
 	**A record, not a proof.** An agent can post an exit code of zero without having run
 	anything, so what this is worth is being durable, attributable and invalidatable — never
-	*verified work*. `#593` settled that sentence and nothing built on this model may soften it.
+	*verified work*. That sentence is settled and nothing built on this model may soften it.
 
 	``is_stale`` is deliberately absent: it is derived from the tree the *reader* is standing
 	on, which is not on this row and is not on the instance either. What is published is
@@ -1350,13 +1350,13 @@ class Workspace(pydantic.BaseModel):
 
 
 class User(pydantic.BaseModel):
-	"""An account as the API reports it — item ``#174``.
+	"""An account as the API reports it.
 
 	**No email address, deliberately.** Everything here is an *identifier* or a fact about what
 	the account can do, both of which somebody adding a colleague to a workspace needs. An email
 	is personal data, it is needed for none of that, and a directory that hands one to every
 	authenticated caller is a directory that leaks by default rather than on purpose. Decision
-	``#161``'s line is the one being followed: identifiers are unique and public, content is
+	The privacy line is the one being followed: identifiers are unique and public, content is
 	neither.
 
 	``is_service_account`` is reported because it changes what a name *means*. A list mixing
@@ -1439,9 +1439,9 @@ class User(pydantic.BaseModel):
 
 
 class Caller(pydantic.BaseModel):
-	"""The account somebody is acting as, told to that somebody — item ``#336``.
+	"""The account somebody is acting as, told to that somebody.
 
-	**Not :class:`User`, and it was written as a subclass of one first.** Decision ``#161``'s
+	**Not :class:`User`, and it was written as a subclass of one first.** The privacy
 	line is where the two part: an email is personal data that no caller needs a colleague's,
 	and everybody is entitled to their own — so this carries one and a directory entry does
 	not. What a directory carries and this does not is ``is_active`` and ``created_at``, facts
@@ -1558,7 +1558,7 @@ class Me(pydantic.BaseModel):
 
 	The answer :func:`me` assembles, reported by ``GET /v1/me`` and by the local client alike.
 	An agent should not have to discover its own authority by being refused things (§13.1),
-	and — since ``#336`` — should not have to infer its own *identity* from a side effect
+	and should not have to infer its own *identity* from a side effect
 	either.
 	"""
 
@@ -1605,7 +1605,7 @@ class Me(pydantic.BaseModel):
 
 
 class SignInLink(pydantic.BaseModel):
-	"""A sign-in link, at the one moment it can be read — item `#248`.
+	"""A sign-in link, at the one moment it can be read.
 
 	**The secret is in the URL and nowhere else in this object.** Two fields carrying one
 	credential would be two places for it to be logged, and a caller that wants the parts has
@@ -1636,7 +1636,7 @@ class SignInLink(pydantic.BaseModel):
 
 
 class SignedOut(pydantic.BaseModel):
-	"""What signing somebody out of everything actually did — item `#248`.
+	"""What signing somebody out of everything actually did.
 
 	The count is here because the alternative is a 204 that looks identical whether it ended
 	four sessions or none, and "none" is the answer somebody needs to see when they have
@@ -1648,7 +1648,7 @@ class SignedOut(pydantic.BaseModel):
 
 
 class Token(pydantic.BaseModel):
-	"""A credential as it can safely be described — item ``#208``.
+	"""A credential as it can safely be described.
 
 	**Everything but the secret, and nothing from which it could be rebuilt.** Only a
 	``sha256`` of the secret is stored (§7.4), so there is nothing here to leak; ``prefix`` is
@@ -1751,7 +1751,7 @@ class IssuedToken(Token):
 
 
 class Calendar(pydantic.BaseModel):
-	"""A calendar feed as it can safely be described — item `#916`, docs/design.md §20.3.
+	"""A calendar feed as it can safely be described — docs/design.md §20.3.
 
 	**Everything but the secret**, exactly as :class:`Token` is: only a hash of it is stored,
 	so there is nothing here to rebuild one from. ``prefix`` is the public half, and is what a
@@ -1822,7 +1822,7 @@ class Calendar(pydantic.BaseModel):
 
 
 class IssuedCalendar(Calendar):
-	"""A feed at the one moment its URL exists in readable form — item `#916`.
+	"""A feed at the one moment its URL exists in readable form.
 
 	Returned by creating one and by resetting one, and by nothing else. A separate type rather
 	than an optional field, for :class:`IssuedToken`'s reason: a field that is usually absent
@@ -1837,7 +1837,7 @@ class IssuedCalendar(Calendar):
 
 
 class Member(pydantic.BaseModel):
-	"""One person's role in one workspace — item ``#174``.
+	"""One person's role in one workspace.
 
 	The join is reported as a thing in its own right rather than as a field on either side,
 	because that is what it is: §7.3a grants sight of a private project to holders of a
@@ -4784,14 +4784,14 @@ class Status(Named):
 
 
 class ItemType(Named):
-	"""An item type, with the fixed category a client may branch on (`#1134`).
+	"""An item type, with the fixed category a client may branch on.
 
 	**A sibling of :class:`Status` rather than a field on :class:`Named`**, and for its reason:
 	a link type is a ``Named`` too and has no category, so putting one on the base would publish
 	a field that is empty for one of the three vocabularies — §12.2a's column that says nothing,
 	one layer up.
 
-	The category exists for exactly one branch, decision `#1133`: a client draws by key when it
+	The category exists for exactly one branch: a client draws by key when it
 	recognises the key and by category when it does not. It is not a second way of asking what a
 	document binds or when it was true.
 	"""
@@ -4842,12 +4842,12 @@ class Tag(pydantic.BaseModel):
 
 
 class TagEntry(pydantic.BaseModel):
-	"""A tag as something to *curate*, rather than as something being used — `#826`.
+	"""A tag as something to *curate*, rather than as something being used.
 
 	**A second view of one row, deliberately.** :class:`Tag` answers *what labels are in use
 	and how much*, and its usage count is narrowed to the tasks the caller can see, because a
 	tag list is a small disclosure. This answers *what labels does this workspace have and what
-	do they mean*, which needs an id to change one and a description to read one (`#905`), and
+	do they mean*, which needs an id to change one and a description to read one, and
 	needs no count at all. Folding the two together would either put a scoped aggregate on
 	every write response or a meaningless zero.
 	"""

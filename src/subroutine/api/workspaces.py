@@ -80,10 +80,10 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/workspaces/{id_or_slug}`` accepts.
 
-	``slug`` **may be changed** as of `#295`. It was absent on the grounds that it lives "in
+	``slug`` **may be changed**. It was absent on the grounds that it lives "in
 	other people's notes, in shell history and in ``config.toml`` on other machines" — and the
 	last of those is not true: no connection and no setting names a workspace. What is left is
-	the same exposure a project key has, which `#176` decided is acceptable when the caller is
+	the same exposure a project key has, which is acceptable when the caller is
 	told what stops working first.
 
 	Validated exactly as creation validates one, so a rename cannot arrive at a short name

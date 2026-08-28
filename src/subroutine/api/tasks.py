@@ -992,7 +992,7 @@ class RecordVerification(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tasks/{id_or_ref}/verifications`` accepts.
 
 	**No ``ran_at``, deliberately.** The service stamps it, and a field the route accepted and
-	no client passed would be `#303`'s inert control — declared, documented and read by
+	no client passed would be an inert control — declared, documented and read by
 	nothing. What a caller would use it for is backdating a check that ran before the record
 	was posted, which is seconds in the one producer there is: a post-commit hook runs
 	immediately after the gate it is recording. When something needs longer, that is a

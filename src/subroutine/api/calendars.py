@@ -76,7 +76,7 @@ class Create(subroutine.api.schemas.RequestModel):
 
 	**There is no owner field, deliberately.** A feed renders with its owner's sight (§20.1),
 	so naming somebody else would mint a URL that reads their work and hand it to whoever
-	asked — the escalation `#829` found on sign-in links, and worse here because a feed has no
+	asked — the escalation already found on sign-in links, and worse here because a feed has no
 	session to end and nothing to audit. The owner is the caller, structurally.
 	"""
 

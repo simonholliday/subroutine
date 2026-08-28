@@ -75,7 +75,7 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/projects/{id_or_key}`` accepts.
 
-	``key`` **may be changed** as of `#176`. It was absent here on the grounds that it is "the
+	``key`` **may be changed**. It was absent here on the grounds that it is "the
 	first half of every ref the project has minted" — which stopped being true on 2026-07-29,
 	when §6.2 made a ref a bare workspace-scoped integer. A project key is in no ref.
 

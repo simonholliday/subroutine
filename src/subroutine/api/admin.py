@@ -34,7 +34,7 @@ router = fastapi.APIRouter(
 class Backup(pydantic.BaseModel):
 	"""One copy of the database, described well enough to choose between several.
 
-	**The name identifies it and the server's path is deliberately not reported** (`#186`).
+	**The name identifies it and the server's path is deliberately not reported.**
 	A caller over HTTP is somewhere else: they cannot open the file, and there is no endpoint
 	that takes a path — §12.4 gives restore none on purpose, so the one thing a reader might
 	do with it is the one thing they cannot. What it does say is where this instance keeps its

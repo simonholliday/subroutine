@@ -38,11 +38,13 @@ direction, relative *links* on the published pages, and the two do not overlap: 
 ``](target)`` on three pages, a mention is bare prose anywhere.
 """
 
-import ast
 import pathlib
 import re
 import subprocess
 import typing
+
+import subroutine.api.app
+import subroutine.config
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -436,30 +438,75 @@ ILLUSTRATIVE: dict[int, str] = {
 }
 
 
-def _published_docstrings () -> list[tuple[str, str, str]]:
-	"""Return every docstring FastAPI publishes, as ``(path, function, text)``.
+def _published_document () -> dict[str, typing.Any]:
+	"""Return the OpenAPI document this application actually serves.
 
-	Read from the decorators rather than from a list of files, because the property that
-	matters is *this is served to a caller* and that is what ``@router.get`` and its siblings
-	decide. A list would fall behind the first router somebody adds.
+	**Built, not read.** The first version of this walked the source for ``@router.get`` and
+	its siblings, on the reasoning that *this is served to a caller* is what a decorator
+	decides. The property was right and the scan did not implement it: it matched the literal
+	string ``router.``, so four routes registered on a differently-named router were invisible,
+	and it walked ``ast.FunctionDef`` only, so **no response model was ever scanned at all** —
+	FastAPI publishes a pydantic class docstring as ``components.schemas.<Name>.description``,
+	and 24 of them cited items. Measured against the built document, a guard reporting zero was
+	standing over 35 citing lines reaching an unauthenticated caller (`#1204`).
+
+	Nothing about the document's *shape* is assumed here beyond the three places a description
+	can appear, so a fifth kind of published prose is in scope the day FastAPI emits one.
+
+	No database: ``openapi()`` reflects over the routes and models, and the session factory is
+	never called.
 	"""
 
-	found = []
+	application = subroutine.api.app.create_app(
+		settings=subroutine.config.Settings(dev_mode=True), session_factory=None
+	)
 
-	for relative in tracked():
-		if not (relative.startswith("src/") and relative.endswith(".py")):
-			continue
+	return dict(application.openapi())
 
-		tree = ast.parse(ROOT.joinpath(relative).read_text(encoding="utf-8"))
 
-		for node in ast.walk(tree):
-			if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+def _published_prose () -> list[tuple[str, str, str]]:
+	"""Return every line of prose the document publishes, as ``(kind, where, line)``.
+
+	Three kinds, because two of them answer to different rules below: ``route`` and ``schema``
+	are prose *about* the API, and ``parameter`` is where the product's own syntax has to be
+	demonstrated to somebody about to type a value.
+	"""
+
+	document = _published_document()
+	found: list[tuple[str, str, str]] = []
+
+	def take (kind: str, where: str, text: str | None) -> None:
+		"""Record every non-empty line of one description.
+
+		**Every line, not only the ones naming a ref**, so that the floor below can count what
+		this actually read. A scan that returns only offenders reports the same empty list when
+		it is clean and when it is blind, and the first version of that floor here measured the
+		*document* rather than the scan — so blinding this function to schemas left it green,
+		which is `#1204`'s own defect one layer in.
+		"""
+
+		for line in (text or "").splitlines():
+			if line.strip():
+				found.append((kind, where, line.strip()))
+
+	for path, item in document.get("paths", {}).items():
+		for method, operation in item.items():
+			if not isinstance(operation, dict):
 				continue
 
-			decorated = " ".join(ast.unparse(one) for one in node.decorator_list)
+			where = f"{method.upper()} {path}"
 
-			if "router." in decorated and ast.get_docstring(node):
-				found.append((relative, node.name, ast.get_docstring(node) or ""))
+			take("route", where, operation.get("summary"))
+			take("route", where, operation.get("description"))
+
+			for parameter in operation.get("parameters") or []:
+				take("parameter", f"{where} ?{parameter.get('name')}", parameter.get("description"))
+
+	for name, schema in document.get("components", {}).get("schemas", {}).items():
+		take("schema", f"schemas.{name}", schema.get("description"))
+
+		for field, property in (schema.get("properties") or {}).items():
+			take("schema", f"schemas.{name}.{field}", property.get("description"))
 
 	return found
 
@@ -475,28 +522,87 @@ def test_nothing_the_api_publishes_cites_an_item () -> None:
 	**Measured on the served instance rather than reasoned about** (`#944`):
 	``GET /v1/openapi.json`` answers with no credential at all and carried 51 citations, so
 	``PATCH /v1/tasks/{id_or_ref}`` told a stranger to consult ``SPEC.md`` and
-	``POST /v1/login-links`` cited ``#248``. A generated client, a documentation browser and
+	``POST /v1/login-links`` cited an item. A generated client, a documentation browser and
 	anybody reading the schema got a pointer into a tracker they have no account on.
 
-	**Zero, with no register**, unlike the pages below. Nothing an endpoint needs to say about
-	itself requires an example ref: the path parameter is called ``id_or_ref`` and the grammar
-	is explained where somebody is typing one, not in a schema.
+	**Zero, with no register**, unlike the pages below and unlike the parameter descriptions in
+	the test after this one. Nothing an endpoint or a response model needs to say about itself
+	requires an example ref: the path parameter is called ``id_or_ref`` and the grammar is
+	explained where somebody is typing one.
+
+	**A response model's class docstring is published too**, which is how this stood at zero
+	over 41 citing lines across 24 schemas (`#1204`) — a stranger reading the schema was handed
+	*"One person's role in one workspace — item #174"* and several paragraphs of our own design
+	argument. Those are the same rule as an endpoint's, and they are covered by the same
+	assertion rather than by a second one, because a reader of the document cannot tell which
+	kind of prose they are looking at.
 	"""
 
 	offenders = [
-		(path, name, line.strip())
-		for path, name, doc in _published_docstrings()
-		for line in doc.splitlines()
-		if _REF.search(line)
+		(where, line)
+		for kind, where, line in _published_prose()
+		if kind in ("route", "schema") and _REF.search(line)
 	]
 
 	assert not offenders, (
-		"an endpoint docstring cites an item, and FastAPI publishes it as the route's "
-		"description in /v1/openapi.json — which answers without a credential. Say the thing "
-		"rather than pointing at it; the item stays in the commit message, which is where the "
-		"trail from code to decision lives.\n"
-		+ "\n".join(f"  {p} {n}: {line}" for p, n, line in offenders)
+		"the API publishes a citation in /v1/openapi.json, which answers without a credential. "
+		"Say the thing rather than pointing at it; the item stays in the commit message, which "
+		"is where the trail from code to decision lives.\n"
+		+ "\n".join(f"  {where}: {line}" for where, line in offenders)
 	)
+
+
+def test_a_published_parameter_names_a_ref_only_to_demonstrate_one () -> None:
+	"""A parameter description is the one published place where a ref is the subject.
+
+	``id_or_ref`` has to say *write `#42` in prose, never in a URL* — the reader is about to
+	type a value and the sentence is about how one is written, so the number has to look like a
+	real ref for the sentence to work. That is exactly what ``ILLUSTRATIVE`` is for, and it is
+	why this is a register rather than the hard zero above.
+
+	**The split is not tidiness.** Prose *about* an operation never needs an example; prose
+	*about a value somebody is about to send* sometimes is one. Only reading tells a
+	demonstration from a dead pointer, which is why the register carries reasons.
+	"""
+
+	offenders = [
+		(where, line)
+		for kind, where, line in _published_prose()
+		if kind == "parameter"
+		for found in _REF.finditer(line)
+		if int(found.group(1)) not in ILLUSTRATIVE
+	]
+
+	assert not offenders, (
+		"a published parameter description cites an item a caller cannot look up. Say the "
+		"thing rather than pointing at it — or, if the number really is an example of what a "
+		"ref looks like, add it to ILLUSTRATIVE with the reason.\n"
+		+ "\n".join(f"  {where}: {line}" for where, line in offenders)
+	)
+
+
+def test_the_scan_of_the_published_document_reads_all_three_kinds () -> None:
+	"""A floor, because the two tests above are satisfied by a scan that reads nothing.
+
+	`#1204` is the case for it: the scan it replaced reported zero while 35 citing lines were
+	being served, and every check over it passed. A count is what tells *nothing to report*
+	apart from *nothing was looked at* — and it is per kind, because the hole that mattered was
+	one whole kind of prose being invisible while the others were read correctly.
+	"""
+
+	read: dict[str, int] = {}
+
+	for kind, _where, _line in _published_prose():
+		read[kind] = read.get(kind, 0) + 1
+
+	assert read.keys() == {"route", "schema", "parameter"}, read
+
+	# Floors well under what is there — 800-odd route lines, 400-odd schema lines and 30-odd
+	# parameter lines today. They are here to catch a *kind* going dark, which is the failure
+	# that happened, not to pin a number nobody would maintain.
+	assert read["route"] > 300, read
+	assert read["schema"] > 150, read
+	assert read["parameter"] > 20, read
 
 
 def test_no_published_page_cites_an_item_it_is_not_demonstrating () -> None:

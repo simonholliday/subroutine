@@ -108,10 +108,10 @@ def create (
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/users/{username}`` accepts.
 
-	The two halves of somebody leaving, and they belong together: `#475` records that they have
-	gone, `#478` keeps the agents that would otherwise stop with them. Either alone is a control
-	people work around — losing an agent is a price nobody pays willingly, so a leaver simply
-	does not get marked as one.
+	The two halves of somebody leaving, and they belong together: one records that they have
+	gone, the other keeps the agents that would otherwise stop with them. Either alone is a
+	control people work around — losing an agent is a price nobody pays willingly, so a leaver
+	simply does not get marked as one.
 	"""
 
 	#: False marks somebody as having left. Every agent answerable to them stops working, which

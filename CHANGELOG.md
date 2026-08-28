@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Fixed
 
+- **`/v1/openapi.json` no longer hands a stranger pointers into a private tracker.** That
+  document answers with no credential, and a rule has forbidden item citations in it since
+  0.7.x — but the check walked the source for `@router.<method>` decorators, so it matched
+  the literal text `router.` (missing four routes registered on a differently-named router)
+  and read function definitions only (missing **every response model**, whose class
+  docstring FastAPI publishes as the schema's `description`). Measured against the built
+  document, a guard reporting zero was standing over **35 citing lines**, including several
+  paragraphs of internal design argument attached to 24 schemas.
+
+  The descriptions are rewritten to state the reasoning without the citation, and the check
+  now reads the document the application actually serves — so routes, models and anything
+  else it publishes are in scope, and a decorator's name cannot defeat it. A parameter
+  description may still show `#42`, because `id_or_ref`'s own text is about how a ref is
+  written.
+
 - **An agent asking what projects exist is told where each one sits.** `subroutine_project`
   answered with a flat `key  title` list, so a workspace whose projects are a tree looked
   like fifteen peers and there was no way to tell a sub-project from a top-level one. The

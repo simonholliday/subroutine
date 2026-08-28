@@ -503,7 +503,7 @@ def sign_out_everywhere (
 	"""Revoke every live session and unspent link belonging to one account.
 
 	This is what a lost laptop needs, and revocation being a row rather than a wait is the
-	property `#364` chose an opaque cookie for — a self-describing signed credential would
+	property an opaque cookie was chosen for — a self-describing signed credential would
 	have kept working until it expired, whatever anybody did about it.
 
 	**Unspent links go too.** A link is a session that has not happened yet, so stopping the
