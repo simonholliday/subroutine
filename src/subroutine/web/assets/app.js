@@ -2939,6 +2939,27 @@ export function chips (behind, showing) {
 //: What the browser tab says this application is, after whatever the page is.
 export const PRODUCT = "Subroutine";
 
+export function shortVersion (version) {
+	/*
+		The build, as short as it can be and still name itself — `#1536`.
+
+		**Everything after `+` is PEP 440's *local version*, and it is the sha.** Dropping it
+		turns `0.8.3.dev36+g7fad4af9d` into `0.8.3.dev36` and leaves a tagged release exactly
+		as it was, because a tag has no local segment at all — so one rule gives both forms
+		and neither is a special case.
+
+		**Display only.** `instance_version` itself is untouched: `releaseMoved` orders it and
+		`installations.ordered` refuses to compare anything it cannot, and a version shortened
+		before either of them saw it would be answering a different question. The full string
+		is on the element's `title`, so the sha is one hover away rather than gone.
+	*/
+	if (!version) return null;
+
+	const [release] = version.split("+");
+
+	return release || null;
+}
+
 export function titlesByPath (projects) {
 	/*
 		Every project's whole path against its title — `#1214`.
@@ -6223,19 +6244,59 @@ export function Theme ({ chosen, onChoose }) {
 	`;
 }
 
-export function Foot ({ count, version, theme, onTheme }) {
+export function Wordmark ({ version, onHome }) {
 	/*
-		What is on screen, which instance served it, and the two ways out.
+		The masthead: what this is, which build it is, and the way home.
 
-		**Which instance is `#784`, and it is Simon's.** This browser has one reader and he is
-		on another machine, so every defect he finds arrives as prose — and whether the page he
-		is describing is the code in this tree was unknowable to either of us. `whoami` ends
-		with the same sentence for a terminal (`#381`); this is it for the fourth surface.
+		**A component for the reason `Foot` is one** (`#640`). `App` uses hooks, so the render
+		harness cannot call it and nothing checks anything written inside it — which is why the
+		version had to leave `App`'s markup to be guarded at all rather than merely to be tidy.
 
-		**The instance's version, never the page's**, because the page has none: §22.3 forbids
-		a build step, which is the thing that would put one there. It rides in on `/v1/me`,
-		which has carried `instance_version` all along and is already the first request this
-		app makes — so it costs nothing on the wire. `#785` is the half that notices it moved.
+		**The masthead goes home** (`#868`), and `/` is the right destination by decision `#649`
+		rather than by convention alone: it is the agenda across every workspace, because a bare
+		`subroutine` prints the agenda and one product answers one question the same way on both
+		surfaces. **A real anchor**, never a click handler, which is what makes *open in a new
+		tab*, *copy link address* and middle-click work and what makes a screen reader announce
+		a link at all.
+
+		**The build is inside the heading and outside the link** (`#1536`). The anchor means *go
+		to the agenda*, and a build number read out as part of that names a worse destination
+		than the one it goes to. As a sibling it is still inside the heading.
+
+		**Which build served this page is what a trial user cannot otherwise answer**, and until
+		now answering it meant scrolling to the footer. `#784` put it there for exactly this
+		reason — its reader is on another machine and every defect arrives as prose — and this
+		supersedes that placement rather than joining it, so the fact stays in one place.
+
+		**Absent is *not answered yet*, never *no version*.** `/v1/me` is the first request this
+		app makes and this renders before it lands, so an empty element here would report the
+		absence of a fact as though it were one.
+
+		The mark is drawn by the stylesheet rather than by markup, so there is nothing here to
+		give a text alternative to: `#102` forbids saying anything in a shape alone, the word
+		beside it carries the whole meaning, and a decorative `::before` is what says so.
+	*/
+	return html`
+		<h1>
+			<a href="/" onClick=${onHome}>${PRODUCT}</a>
+			${version ? html`
+				<span class="build" title=${version}>${shortVersion(version)}</span>
+			` : null}
+		</h1>
+	`;
+}
+
+export function Foot ({ count, theme, onTheme }) {
+	/*
+		What is on screen, and the two ways out.
+
+		**Which instance served the page moved to the masthead** (`#1536`), and this no longer
+		reports it. `#784` put it here because Simon reads this browser from another machine
+		and every defect he finds arrives as prose, so *which build* had to be answerable —
+		that reason is unchanged and is better served above the fold, by a reader who should
+		not have to scroll to answer it. One fact, in one place; the version is still the
+		instance's rather than the page's, because §22.3 forbids the build step that would
+		give a page one.
 
 		A component rather than markup inside `App` for the reason every component here is one:
 		`App` uses hooks, so the render harness cannot call it and nothing checks what it says
@@ -6245,7 +6306,6 @@ export function Foot ({ count, version, theme, onTheme }) {
 		<footer class="foot">
 			${/* **Counts what is on screen, not what was last fetched** (`#652`). */ null}
 			<span>${count} items</span>
-			${version ? html`<span title="This instance's version">${version}</span>` : null}
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
 			<${Theme} chosen=${theme} onChoose=${onTheme} />
@@ -9177,11 +9237,8 @@ export function App () {
 					what makes a screen reader announce a link — the rule `opens` states and
 					every other navigation here already obeys.
 				*/ null}
-				<h1>
-					<a href="/" onClick=${(event) => followed(event, home)}>
-						Subroutine
-					</a>
-				</h1>
+				<${Wordmark} version=${me ? me.instance_version : null}
+					onHome=${(event) => followed(event, home)} />
 				<div class="who">
 					${me && html`<strong>${me.user.username}</strong>`}
 					${me && html`
@@ -9473,7 +9530,6 @@ export function App () {
 			${/* `items` is the listing's state and is empty while the agenda is showing, so
 			     counting it unconditionally put "0 items" under a full day (`#652`). */ null}
 			<${Foot} count=${agenda !== null ? counted(agenda) : items.length}
-				version=${me ? me.instance_version : null}
 				theme=${theme}
 				onTheme=${(chosen) => setTheme(
 					applyTheme(chosen, globalThis.localStorage, document.documentElement)

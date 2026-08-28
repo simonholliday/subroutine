@@ -214,6 +214,19 @@ upgrade involves.
 
 ### Changed
 
+- **The browser's masthead names the version, and wears the mark.** Which build served a page
+  was answerable only by scrolling to the footer, which is a poor arrangement for the moment it
+  matters — somebody describing a problem in a message, to a person who cannot see their
+  screen. It sits beside the product name now and the footer no longer repeats it, so there is
+  one place to read it rather than two that could disagree.
+
+  The commit is dropped from what is drawn: `0.8.3.dev36+g7fad4af9d` reads as `0.8.3.dev36`,
+  and a tagged release is unchanged because a tag has no such suffix. The whole string,
+  commit included, is on the element's `title`.
+
+  `instance_version` in `GET /v1/me` is untouched — this is what the page draws, not what the
+  instance reports.
+
 - **An item's links are read in an order the rows themselves explain.** They came out in the
   order the links were *made*, and no surface renders a link's creation time — so the sequence
   could not be checked against anything on the page, and on a well-connected item it read as

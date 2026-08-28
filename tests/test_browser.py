@@ -1999,6 +1999,18 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	Also asserts the attribute is on `<html>` after a reload, which is the inline shell script
 	having run: `app.js` writes it only when the control is used, so on a fresh load it is the
 	only thing that could have.
+
+	**The mark rides on this test rather than earning a new one** (`#1536`). It is painted by a
+	`mask` filled with `currentColor`, so *what colour is the mark* is the same question this
+	test already asks — `light-dark()` resolved against a cascaded `color-scheme` — and asking
+	it twice would be two tests measuring one engine. This file's bound is counted in tests for
+	exactly that reason.
+
+	**Its two assertions are not removable.** The mark must equal the heading it sits beside,
+	which is the whole of what `currentColor` buys and the thing a hardcoded fill would break in
+	one theme while looking correct in the other. And the mask must resolve to something: a
+	`::before` whose image 404s paints nothing, and an invisible element satisfies every colour
+	comparison above it perfectly.
 	"""
 
 	opened, _written, _refusing, *_ = running
@@ -2011,12 +2023,49 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 		)
 		return str(painted)
 
+	def mark (page: typing.Any) -> tuple[str, str, str]:
+		"""Return what the mark is painted in, what it is painted from, and the words beside it."""
+
+		measured = page.eval_on_selector(
+			".top h1",
+			"""node => {
+				const drawn = getComputedStyle(node, "::before");
+				return [
+					drawn.backgroundColor,
+					drawn.maskImage || drawn.webkitMaskImage,
+					getComputedStyle(node).color,
+				];
+			}""",
+		)
+		return (str(measured[0]), str(measured[1]), str(measured[2]))
+
 	page = opened("/projects")
+
+	# **Waited for, because the masthead is rendered and the body is not.** The colours below
+	# read off `body`, which exists before `app.js` has drawn anything — so without this the
+	# first read of the mark races the first paint rather than measuring it.
+	page.wait_for_selector(".top h1", timeout=10_000)
+
 	page.emulate_media(color_scheme="light")
 	light = background(page)
+	pale, drawn_from, heading = mark(page)
 
 	page.emulate_media(color_scheme="dark")
 	followed = background(page)
+	deep, _from, dark_heading = mark(page)
+
+	assert drawn_from not in ("none", "None", ""), (
+		f"the mark is painted from nothing, so its colour below means nothing: {drawn_from!r}"
+	)
+
+	assert (pale, deep) == (heading, dark_heading), (
+		f"the mark does not take the heading's colour — it paints {pale} beside {heading} on a "
+		f"light system and {deep} beside {dark_heading} on a dark one"
+	)
+
+	assert pale != deep, (
+		f"the mark is the same colour in both themes ({pale}), so it cannot be following one"
+	)
 
 	page.evaluate("localStorage.setItem('theme', 'light')")
 	page.reload()

@@ -305,7 +305,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"undo": {"ref": 42, "kind": "task", "title": "Fix it", "status": "open"},
 		}
 	},
-	"Foot": {"count": 7, "version": "0.6.7", "theme": "system"},
+	"Foot": {"count": 7, "theme": "system"},
+	"Wordmark": {"version": "0.6.7"},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
 }
@@ -1943,6 +1944,52 @@ def test_the_page_asks_for_nothing_this_instance_does_not_serve () -> None:
 
 	for name in sorted(wanted):
 		assert name in subroutine.api.web.FILES, f"index.html asks for /app/{name}"
+
+
+def test_every_asset_the_stylesheet_reaches_for_is_one_this_instance_serves () -> None:
+	"""`SR#1536`. A stylesheet that names a file nobody serves fails in silence.
+
+	The masthead's mark is a `mask` over an exported SVG, which is the first `url()` this
+	stylesheet has ever contained — so there was no precedent for checking that what it asks
+	for arrives. **A 404 here paints nothing and reports nothing**: the rule still applies, the
+	computed `mask-image` still reads back as the URL that failed, and the only symptom is a
+	mark that is not there. The browser test beside it catches the rule being *removed* and
+	cannot catch this, because from inside a cascade the two look the same.
+
+	**Relative, so it is checked as the browser would resolve it.** The stylesheet is served
+	from `/app/app.css`, so a bare `favicon.svg` in it means `/app/favicon.svg` — and a name
+	with a path in it would mean something this check should not quietly approve, so anything
+	that is not a bare filename fails here rather than being normalised into passing.
+
+	Written over the whole file rather than over the one rule, so the next asset somebody
+	reaches for is covered on the day it is added.
+	"""
+
+	# **Comments stripped first, because this guard's own explanation contains the thing it
+	# scans for.** The rule it was written for is documented in the stylesheet, that prose
+	# says the words `url()`, and the first version of this read them as an asset named by
+	# the empty string. A scan over text counting its own reason is this project's recorded
+	# shape, and it arrived here within a minute of the scan being written.
+	stylesheet = re.sub(
+		r"/\*.*?\*/", "", (ASSETS / "app.css").read_text(encoding="utf-8"), flags=re.S
+	)
+	wanted = {
+		part.split(")")[0].strip().strip("\"'")
+		for part in stylesheet.split("url(")[1:]
+	}
+
+	assert wanted, "the stylesheet names no assets, so this is checking nothing"
+
+	for name in sorted(wanted):
+		assert "/" not in name, (
+			f"the stylesheet asks for {name!r}, which is not a bare filename — assets are "
+			f"served flat at /app/<name> and a path cannot be resolved against that"
+		)
+
+		assert name in subroutine.api.web.FILES, (
+			f"app.css asks for /app/{name} and nothing serves it, so whatever it draws is "
+			f"invisible with no error anywhere"
+		)
 
 
 def test_every_page_this_instance_serves_wears_the_same_mark () -> None:
@@ -10888,31 +10935,65 @@ def test_an_ordinary_link_still_renders (tmp_path: pathlib.Path) -> None:
 	assert "the docs" in rendered
 
 
-def test_the_footer_says_which_instance_served_the_page (tmp_path: pathlib.Path) -> None:
-	"""`#784`, Simon's, and the argument is about who reads this page.
+def test_the_masthead_says_which_instance_served_the_page (tmp_path: pathlib.Path) -> None:
+	"""`#784`, moved to where it is read from by `#1536`.
 
-	It has one reader and he is on another machine, so every defect arrives as prose — *the
-	dropdown is top-right*, *the column populates after ten seconds* — and whether the page he
-	is describing is the code in this tree was unknowable to both of us. I push, he pulls, he
-	restarts the service, and nothing on screen said which of those had happened.
+	The argument is about who reads this page. It has one reader per instance and they are on
+	another machine, so every defect arrives as prose — *the dropdown is top-right*, *the
+	column populates after ten seconds* — and whether the page being described is the code in
+	this tree was unknowable to both ends. I push, they pull, they restart the service, and
+	nothing on screen said which of those had happened.
 
 	`#380`/`#393` are the same shape one layer up: a cached plugin predating the feature it was
 	installed for, reporting success and changing nothing. A page has every one of those
 	properties.
+
+	**It was in the footer until `#1536` and the reason it moved is the same reason it exists.**
+	A trial user asked which version they are on should not have to scroll to answer, and the
+	answer must be quotable in the message they are already writing.
 	"""
 
-	rendered = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
+	rendered = _rendered(tmp_path, {"Wordmark": SAMPLES["Wordmark"]})["Wordmark"]
 
 	assert "0.6.7" in rendered, "the page does not say which instance answered it"
-	assert "7 items" in rendered
+
+	# **The name too, because a version alone is not a masthead.** A mutation that dropped the
+	# wordmark and kept the build would satisfy the line above.
+	assert "Subroutine" in rendered
 
 
-def test_the_footer_says_nothing_about_a_version_it_has_not_been_given (
+def test_the_masthead_drops_the_commit_from_the_version_and_not_the_release (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1536`. Simon asked for `0.8.3.dev33`, not `0.8.3.dev33+g7fad4af9d`.
+
+	**Both halves, because either alone passes on a version that says nothing.** Truncating to
+	the first three components would satisfy *the sha is gone* while destroying `dev36`, which
+	is the part that says how far past the tag this is — and returning the string untouched
+	satisfies *the release survives*.
+
+	**A tagged release is asserted to be unchanged rather than special-cased**, which is the
+	whole reason this rule is `split("+")` and not a pattern: a tag has no local segment, so
+	one rule produces both of the forms asked for and neither is a branch anybody has to
+	remember.
+	"""
+
+	built = _rendered(tmp_path, {"Wordmark": {"version": "0.8.3.dev36+g7fad4af9d"}})["Wordmark"]
+
+	assert "0.8.3.dev36" in built
+	assert "g7fad4af9d" not in built, "the commit is on the title, not on the page"
+
+	tagged = _rendered(tmp_path, {"Wordmark": {"version": "0.8.2"}})["Wordmark"]
+
+	assert "0.8.2" in tagged
+
+
+def test_the_masthead_says_nothing_about_a_version_it_has_not_been_given (
 	tmp_path: pathlib.Path,
 ) -> None:
 	"""An instance that has not answered yet is not an instance with no version.
 
-	``/v1/me`` is the first request this app makes and the footer renders before it lands, so
+	``/v1/me`` is the first request this app makes and the masthead renders before it lands, so
 	the honest reading of a missing value is *not known yet*. Printing an empty pair of
 	parentheses, or the word ``undefined``, would be this project's own defect of reporting the
 	absence of a fact as though it were one.
@@ -10925,19 +11006,32 @@ def test_the_footer_says_nothing_about_a_version_it_has_not_been_given (
 	passed against the mutation before this one was counted.
 	"""
 
-	silent = _rendered(tmp_path, {"Foot": {"count": 0, "version": None}})["Foot"]
-	told = _rendered(tmp_path, {"Foot": {"count": 0, "version": "9.9.9"}})["Foot"]
+	silent = _rendered(tmp_path, {"Wordmark": {"version": None}})["Wordmark"]
+	told = _rendered(tmp_path, {"Wordmark": {"version": "9.9.9"}})["Wordmark"]
 
-	assert "0 items" in silent
 	assert "9.9.9" in told, "the version is not being rendered at all"
 
-	# **Differential rather than an absolute count** (`#908`). This asserted `== 1` span, which
-	# was right until the footer gained a second one — the theme control's label — and then
-	# failed for a reason that had nothing to do with versions. What the test means is *a version
-	# adds an element and no version adds none*, and comparing the two says exactly that whatever
-	# else the footer grows.
+	# **Differential rather than an absolute count**, so this keeps meaning what it means
+	# whatever else the masthead grows. What it says is *a version adds an element and no
+	# version adds none*.
 	assert told.count("<span") == silent.count("<span") + 1, (
 		f"an empty element is still a claim that there is a version: {silent}"
+	)
+
+
+def test_the_footer_no_longer_carries_the_version (tmp_path: pathlib.Path) -> None:
+	"""`#1536` moved it to the masthead, and one fact belongs in one place.
+
+	**The count is asserted beside it**, because *no version in the footer* is equally true of
+	a footer that failed to render at all — which is this project's recorded shape for a
+	negative assertion that proves nothing.
+	"""
+
+	rendered = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
+
+	assert "7 items" in rendered
+	assert "0.6.7" not in rendered, (
+		"the version is in the masthead and the footer, so two places can disagree about it"
 	)
 
 

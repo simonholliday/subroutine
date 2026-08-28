@@ -480,6 +480,56 @@ fieldset {
 	font-weight: 600;
 	margin: 0;
 	letter-spacing: -0.01em;
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-3);
+}
+
+/*
+	**The mark, painted rather than loaded as a picture** (`#1536`).
+
+	`mask` takes the shape out of the exported file and `background: currentColor` fills it
+	with whatever colour the heading resolved to — so it is right in all three theme states
+	with no theme rule of its own. That matters more than it sounds: `#908` gives the reader
+	`system`, pinned light and pinned dark, and anything keyed on `prefers-color-scheme`
+	alone gets the two pinned states wrong, which is where the obvious approach fails.
+
+	**One asset, and it is Simon's export unmodified.** `favicon.svg` is authored black on
+	transparent and `favicon-inverted.svg` is its white twin; both are in the tree and neither
+	is referenced here, because painting one is what makes the other unnecessary. Inlining the
+	path data in `app.js` was the alternative and is refused: it would put a second copy of the
+	drawing in the repository and stop `favicon.md` being the one place the mark is defined.
+
+	**Relative, so it resolves against this stylesheet** rather than against a mount point.
+	Assets are served at `/app/<name>` today and this is the first `url()` in the file, so
+	there was no precedent to follow; a bare name cannot be wrong if the app is ever mounted
+	somewhere else.
+
+	**Decorative, and it must stay that way.** `#102` forbids anything being said in a shape
+	alone — the word *Subroutine* is beside it and carries the whole meaning, which is what
+	lets this be a `::before` with no text alternative at all.
+*/
+.top h1::before {
+	content: "";
+	flex: none;
+	align-self: center;
+	width: 1.05em;
+	height: 1.05em;
+	background: currentColor;
+	-webkit-mask: url("favicon.svg") center / contain no-repeat;
+	mask: url("favicon.svg") center / contain no-repeat;
+}
+
+/*
+	The build, beside the name rather than under the fold (`#1536`). Quieter than the wordmark
+	because it is what you look up rather than what you read: `#102`'s family, where the
+	exception is what is drawn and the ordinary case recedes.
+*/
+.top h1 .build {
+	font-size: var(--text-small);
+	font-weight: 400;
+	letter-spacing: 0;
+	color: var(--ink-soft);
 }
 
 .who {
