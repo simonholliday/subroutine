@@ -214,6 +214,18 @@ upgrade involves.
 
 ### Changed
 
+- **An item's links are read in an order the rows themselves explain.** They came out in the
+  order the links were *made*, and no surface renders a link's creation time — so the sequence
+  could not be checked against anything on the page, and on a well-connected item it read as
+  ascending by number just often enough to look deliberate and then stop being it. The one
+  outgoing link on a milestone with thirty-three blockers sat sixth, identical to all of them.
+
+  Links now sort by what the relation binds, then prerequisites before dependents, then like
+  with like, then outstanding before finished, then by number — the same order in `show`, in
+  the agent tools, in the browser and in `show --tree`, which all four already took from one
+  place. Nothing about which links exist has changed, only the order they arrive in, so a
+  client that sorts them itself is unaffected.
+
 - **A refusal about a date names the field you can send, not the column it is stored in.**
   `PATCH /v1/tasks/1` with an unreadable `due` answered `{"field": "due_at"}` — a column, and
   not one that endpoint accepts, so a caller who did what the refusal said was refused a

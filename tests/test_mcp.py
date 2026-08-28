@@ -6703,6 +6703,64 @@ def test_an_agent_can_read_a_whole_plan_in_one_call (
 	assert len(deep) - len(deep.lstrip()) > len(shallow) - len(shallow.lstrip()), walked
 
 
+def test_a_plans_siblings_are_read_outstanding_first_and_then_by_number (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1535` on the tree, which is the fourth surface reading one link order.
+
+	The walk took whatever order the links were *made* in, which for a roadmap built over
+	several sittings is the order somebody happened to think of them — and a tree of a
+	milestone's contents is exactly where that is least readable, because the rows carry a
+	number and an indent and nothing that could explain the sequence.
+
+	**Three phases, and the three orders are all different**, so neither of the two wrong
+	answers can pass: they were linked ``P3, P1, P2``, they are numbered ``P1, P2, P3``, and
+	with ``P1`` finished they should read ``P2, P3, P1``.
+	"""
+
+	refs = []
+
+	for title in ("ROADMAP", "PHASE 1", "PHASE 2", "PHASE 3"):
+		written, failed = _called(bound, "subroutine_add", text=title)
+
+		assert not failed, written
+
+		numbered = re.search(r"#(\d+)", written)
+
+		assert numbered is not None, written
+
+		refs.append(int(numbered.group(1)))
+
+	roadmap, one, two, three = refs
+
+	# Made in an order that is neither the numbering nor the reading order.
+	for phase in (three, one, two):
+		_called(bound, "subroutine_link", ref=phase, other=roadmap)
+
+	finished, failed = _called(bound, "subroutine_done", ref=one)
+
+	assert not failed, finished
+
+	walked, failed = _called(bound, "subroutine_show", ref=roadmap, tree=True)
+
+	assert not failed, walked
+	assert "What has to happen first (1 of 3 done)" in walked, walked
+
+	rows = walked.split("What has to happen first")[1].splitlines()[1:]
+	order = [
+		int(found.group(1))
+		for found in (re.match(r"#(\d+)", line.strip()) for line in rows)
+		if found is not None
+	]
+
+	# **The floor, because two rows in the right order is also what a truncated walk gives.**
+	assert len(order) == 3, f"the walk did not draw every phase:\n{walked}"
+
+	# By number rather than by title, because the finished row carries an `(over)` marker and
+	# a comparison that had to strip it would be measuring the renderer as well as the order.
+	assert order == [two, three, one], walked
+
+
 def test_one_call_joins_an_item_to_several_others (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

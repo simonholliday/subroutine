@@ -44,6 +44,7 @@ import subroutine.domain.projects
 import subroutine.domain.refs
 import subroutine.domain.tasks
 import subroutine.domain.users
+import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -2363,3 +2364,129 @@ def test_making_a_start_a_whole_day_is_recorded_even_though_the_instant_is_the_s
 
 	assert len(recorded) == before + 1, "flipping only the all-day flag wrote no event"
 	assert "starts_is_all_day" in (recorded[-1].changes or {})
+
+
+def test_an_items_links_are_read_in_an_order_the_row_itself_explains (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""What `SR#1535` decided, driven against a set built to defeat every key separately.
+
+	Links came out by ``created_at`` ascending, and **no surface renders a link's creation
+	time**, so the sequence could not be checked against anything on the page.
+
+	**The first version of this test passed with three of the five keys deleted**, and that is
+	the finding rather than an accident of fixture-writing: the *seeded* labels happen to sort
+	into the same sequence the categories do — ``Blocked by`` < ``Blocks`` < ``Derives from``
+	< ``Documents`` < ``Relates to`` — so an order built on nothing but the words agreed with
+	the right one, and would go on agreeing until somebody reworded a type. Which §5.5 lets
+	them do, and which is exactly `#1156`.
+
+	So this rewords ``blocks`` to ``Allows``/``Waits for``, the way a workspace may, and adds
+	an **incoming** governing link. Between them every key now decides something no other key
+	decides, verified by deleting each of the five in turn and watching this fail five times.
+
+	================  ==========  =========  ==============  ===========  ===
+	made              binds       direction  label           outstanding  ref
+	================  ==========  =========  ==============  ===========  ===
+	1. ``r1``         describing  outgoing   Relates to      yes          8
+	2. ``g1``         governing   outgoing   Documents       yes          6
+	3. ``df1``        governing   outgoing   Derives from    yes          7
+	4. ``g2``         governing   incoming   Documented by   yes          9
+	5. ``d1``         gating      outgoing   Allows          yes          5
+	6. ``b_done``     gating      incoming   Waits for       **no**       2
+	7. ``b_second``   gating      incoming   Waits for       yes          4
+	8. ``b_first``    gating      incoming   Waits for       yes          3
+	================  ==========  =========  ==============  ===========  ===
+
+	What each key is the only thing deciding, in that table: ``g2`` sits under the gating rows
+	although its label sorts above theirs (**binds**); ``d1`` sits below them although its
+	label sorts above theirs too (**direction**); ``b_done`` sits below two rows it was
+	numbered before (**outstanding**); ``df1`` sits above ``g1`` although it was numbered
+	after (**label**); and ``b_first`` sits above ``b_second`` although its link was made
+	second (**ref**, which a stable sort would otherwise leave in creation order).
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	reader = _reader(session, workspace)
+
+	def task (title: str) -> subroutine.db.models.work.Task:
+		"""Make a task, minting refs in the order they are asked for."""
+
+		return subroutine.domain.tasks.create(session, project=project, title=title)
+
+	def end (row: subroutine.db.models.work.Task) -> subroutine.domain.links.End:
+		"""Resolve one side of a link to the shape :func:`create` takes."""
+
+		found = subroutine.domain.links.resolve(
+			session, reader, workspace_id=workspace.id, entity_type="task", identifier=row.id
+		)
+
+		assert found is not None
+
+		return found
+
+	def join (
+		source: subroutine.db.models.work.Task,
+		kind: str,
+		target: subroutine.db.models.work.Task,
+	) -> None:
+		"""Make one link, stamped in the order this is called."""
+
+		subroutine.domain.links.create(
+			session,
+			workspace_id=workspace.id,
+			source=end(source),
+			target=end(target),
+			link_type_key=kind,
+		)
+
+	# Refs are minted in creation order, so the numbers are settled here and every link below
+	# is made in an order that disagrees with the one they should be read in.
+	subject = task("The milestone")
+	b_done, b_first, b_second = task("Finished first"), task("Earliest"), task("Later")
+	d1, g1, df1 = task("Waits on it"), task("The spec"), task("A finding")
+	r1, g2 = task("Nearby"), task("The decision behind it")
+
+	subroutine.domain.tasks.complete(session, b_done)
+
+	# **Reworded the way §5.5 permits**, so that the words on the row no longer happen to
+	# agree with what the relation is. `#1156` is what a renamed vocabulary costs when a rule
+	# reads the name; this is the same hazard one layer out, in an ordering.
+	subroutine.domain.vocabulary.update_link_type(
+		session,
+		session.scalars(
+			sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
+				subroutine.db.models.vocabulary.LinkType.workspace_id == workspace.id,
+				subroutine.db.models.vocabulary.LinkType.key == "blocks",
+			)
+		).one(),
+		title="Allows",
+		inverse_title="Waits for",
+	)
+
+	join(subject, "relates_to", r1)
+	join(subject, "documents", g1)
+	join(subject, "derives_from", df1)
+	join(g2, "documents", subject)
+	join(subject, "blocks", d1)
+
+	for blocker in (b_done, b_second, b_first):
+		join(blocker, "blocks", subject)
+
+	read = subroutine.domain.links.around(
+		session,
+		reader,
+		workspace_id=workspace.id,
+		entity_type="task",
+		identifier=subject.id,
+	)
+
+	# **The floor, because a shorter list would satisfy the sequence below by omission.** An
+	# end this reader cannot see is dropped in silence, which is the one way this could read
+	# as correctly ordered while being incomplete.
+	assert len(read) == 8, "not every link came back, so the order below proves nothing"
+
+	assert [one.other.ref for one in read] == [
+		b_first.ref, b_second.ref, b_done.ref, d1.ref, g2.ref, df1.ref, g1.ref, r1.ref
+	]

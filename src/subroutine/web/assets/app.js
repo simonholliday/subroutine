@@ -6733,9 +6733,17 @@ export function Detail ({
 							row it opens — and `marks` reads it, so an end arriving under the
 							wire's name would be silent about the one thing no other field says.
 
-							**No ordering, because a link list has none.** Nothing sorted these;
-							they are one item's links in the order the domain reports them, so
-							the sort-value mark has nothing true to say and is not asked for.
+							**No sort-value mark, because the reader is not choosing this
+							order.** These arrive in `domain.links.reading_order` — what the
+							relation binds, then prerequisites before dependents, then like
+							with like, then outstanding before settled, then by number — which
+							is the same sequence `show` and the tools draw. A mark says *this
+							is the column you sorted by*, and nothing here offered a choice.
+
+							**This said "nothing sorted these" until `#1535`, and something
+							always had**: `_touching` has ordered by `created_at` since it was
+							written. The sentence was the reason nobody looked at an order no
+							surface renders the key of.
 
 							**`place` is what the address already said**, exactly as a row's is,
 							which is decision `#957` §4 — so a link inside the project you are

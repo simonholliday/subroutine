@@ -24,6 +24,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -106,6 +107,74 @@ BEFORE_CATEGORIES: dict[str, str] = {
 #: **built from that module's own name for it**, so the nesting is structural rather than two
 #: literals that happen to agree. `#1156` is the record of what two agreeing literals cost.
 SEQUENCING = frozenset({subroutine.domain.readiness.GATING, ORDERING})
+
+
+def settled (end: "End") -> bool:
+	"""Whether the thing at this end is over, either way it can be.
+
+	**Completed *or* deleted, which is the rollup's own rule rather than a second one.** The
+	``N of M blockers done`` count on three surfaces takes a deleted blocker out of the
+	denominator (`#1403`) and a finished one into the numerator, so *outstanding* is what is
+	in neither — and a reading order that sorted on completion alone would leave a deleted row
+	sitting among the live work it is no longer part of.
+	"""
+
+	return end.is_complete or (end.row is not None and end.row.deleted_at is not None)
+
+
+def binds (category: str) -> int:
+	"""Return how much a relation of this category constrains, lowest first.
+
+	**The scale is :data:`~subroutine.db.mixins.LINK_TYPE_CATEGORIES` itself, read rather than
+	restated.** Decision `#1157` §2 declares those four values *nested rather than parallel* —
+	"anything that gates also orders; nothing that governs or describes does either" — so the
+	tuple is already an ordering by how much a relation binds, and writing a second one beside
+	it is the pair that comes to disagree.
+
+	**An unrecognised category sorts last**, which is `#1157` §4's rule about the same unknown:
+	a relation somebody invented is treated as claiming least, because nothing here can know
+	what it means and guessing from its name is the key deciding behaviour again.
+	"""
+
+	catalogue = subroutine.db.mixins.LINK_TYPE_CATEGORIES
+
+	return catalogue.index(category) if category in catalogue else len(catalogue)
+
+
+def reading_order (link: "Related") -> tuple[int, int, str, int, int]:
+	"""Return the sort key that decides what order somebody reads an item's links in.
+
+	Five keys, each of which a reader can check against what is on the row — which is the
+	whole of what the previous order lacked rather than a complaint about its choice. Links
+	came out by ``created_at`` ascending, and **nothing renders a link's creation time on any
+	surface**, so the sequence was unverifiable by construction. Worse than arbitrary, met on
+	`#1212`: the refs read 1207, 1213, 1219, 1250, 1182, 1263, 1286, 1244 — ascending often
+	enough to look numeric and then not, which sets an expectation and breaks it.
+
+	1. **How much the relation binds**, from :func:`binds`.
+	2. **What must happen before this, before what waits on it.** Incoming first — the
+	   direction the ``N of M blockers done`` rollup counts, and the one :func:`beneath`
+	   already states as *prerequisites, not dependents*. Without it the single ``Blocks`` row
+	   on `#1212` sat sixth among thirty-three ``Blocked by``, identical to all of them.
+	3. **Like with like, by the words the row shows.** The label rather than the key, because
+	   two types can share a category — ``documents`` and ``derives_from`` both govern — and
+	   the reader can see a grouping made from what is printed. A key would group as well and
+	   be invisible doing it.
+	4. **Outstanding before settled** (Simon, 2026-08-28). Taken against a recommendation of
+	   ref order alone: a row that moves when somebody finishes it moves under a cursor on a
+	   page that polls, which is `#957` §4's objection. His reason is that on a milestone of
+	   thirty-three the few that are left are the answer, and that is worth the movement.
+	5. **By number**, the only key of the five that is printed beside every row, and the only
+	   one that does not move when an item is renamed or re-categorised.
+	"""
+
+	return (
+		binds(link.link_category),
+		0 if link.direction == "incoming" else 1,
+		link.label,
+		1 if settled(link.other) else 0,
+		link.other.ref,
+	)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -664,6 +733,12 @@ def around (
 			)
 		)
 
+	# **Sorted here so that every surface inherits it** (`#1535`). Four render this list —
+	# `subroutine show`, `subroutine_show`, the browser's item panel and `show --tree` — and
+	# each of them already took the domain's order without adding one, which is why the four
+	# agreed while the order meant nothing. :func:`reading_order` says what the five keys are.
+	found.sort(key=reading_order)
+
 	return found
 
 
@@ -691,6 +766,13 @@ def edges (
 
 	``label`` is the forward title only. There is no inverse here because there is no vantage
 	point to invert for; a client that wants "blocked by" reads it off the target.
+
+	**Deliberately not given :func:`reading_order`, for the same reason it has no inverse**
+	(`#1535`). Three of that order's five keys need an *other* end — the direction to read it
+	from, its number, and whether it is settled — and here there is no single item to be
+	looking from. The two callers do not want one either: a listing embeds these as a graph
+	for a whole page, and :func:`beneath` orders its own siblings once it knows which item
+	each one hangs under.
 	"""
 
 	if not identifiers:
@@ -852,6 +934,16 @@ def beneath (
 		frontier = []
 
 		for one, ends in under.items():
+			# **The same two keys the reading order ends on, and only those two** (`#1535`).
+			# Every edge walked here is :data:`SEQUENCING` by the filter above, so the category
+			# and the label cannot separate two siblings, and a tree has no vantage point to
+			# take a direction from — the walk fixes that, always downwards.
+			#
+			# **This changes which appearance of a repeated item is its first** — `#1410`'s
+			# ``again`` is a property of a drawing rather than of an item, so re-ordering
+			# siblings moves the mark to whichever drawing now comes first. Still correct, and
+			# the output moves.
+			ends.sort(key=lambda end: (1 if settled(end) else 0, end.ref))
 			children[one] = ends
 
 			for end in ends:
