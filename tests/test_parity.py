@@ -19,6 +19,7 @@ paragraph, and `SR#146` is what a paragraph costs: it stated the same four numbe
 import pathlib
 import shutil
 import sys
+import typing
 
 import pytest
 
@@ -131,7 +132,7 @@ def test_the_browser_is_measured_even_though_it_is_not_yet_enforced () -> None:
 	and is `SR#1539`'s after-the-review work. What this holds is that the number is *known* —
 	the state that lets somebody decide, rather than rediscover.
 
-    **Executed, not scanned**, so it needs Node — required in CI for the reason
+	**Executed, not scanned**, so it needs Node — required in CI for the reason
 	``tests/test_web.py`` states, since a surface silently unmeasured is what this whole file
 	exists to prevent.
 	"""
@@ -303,3 +304,71 @@ def test_the_spelling_scan_can_see_an_offender_through_its_own_entry_point (
 		f"in their own prose, and a register that forbids it will be argued down instead of "
 		f"grown"
 	)
+
+
+def test_a_built_path_collapses_the_values_it_was_built_from () -> None:
+	"""`SR#1550`, and the mutation that passed is why this exists.
+
+	`_shape` turns one built request into the route it names, so five rows of `/tasks/{x}` count
+	once. It recognises a segment by *being one of the values the builders were handed* — and
+	the first version listed those values a second time by hand, twenty lines from where they
+	are constructed. Two copies that agree until one moves, in the script written to find that.
+
+	**Blinding the derivation did not fail anything.** `test_the_browser_is_measured_…` bounds
+	the count between ten and the number of routes, and a shaping that stops collapsing pushes
+	31 to somewhere still inside that range. So the report would have been quietly wrong — the
+	browser reading as reaching more than it does — which is the one outcome `SR#1540` exists to
+	prevent.
+
+	**The digit and the word are asserted apart**, because `isdigit()` alone covers most
+	placeholders and would make the derived set look load-bearing when it was not: the third
+	assertion is the one that fails when `_stood_in` returns nothing.
+	"""
+
+	assert parity._shape("/tasks/1/comments", set()) == "/tasks/{x}/comments"
+
+	assert parity._shape("/workspaces/w/members", {"w"}) == "/workspaces/{x}/members"
+
+	assert parity._shape("/workspaces/w/members", set()) == "/workspaces/w/members", (
+		"a non-numeric placeholder collapsed without being recognised, so the derived set is "
+		"not what decides it and this test cannot see it go blind"
+	)
+
+	# **Nothing else moves.** A shaping that collapsed real path words would report every
+	# surface reaching one route, which passes a bound written the other way up.
+	assert parity._shape("/tasks", {"tasks"}) == "/{x}", "the set is consulted for every segment"
+	assert parity._shape("/agenda", set()) == "/agenda"
+
+
+class _Placeholders(typing.NamedTuple):
+	"""A stand-in for the instance the builders are handed, so the derivation can be driven."""
+
+	application: str
+	slug: str
+	task: int
+	blank: str
+
+
+def test_the_values_a_path_is_shaped_against_come_from_the_instance_that_built_it () -> None:
+	"""`SR#1550`. The half the test above cannot see, and it is the half that drifted.
+
+	`_shape` is handed a set, so driving it directly says nothing about **where that set comes
+	from** — blinding the derivation left every assertion up there green, which is how the
+	hand-written copy went unnoticed in the first place.
+
+	Driven against a synthetic instance rather than the real one, which is `SR#405`'s rule and
+	also keeps this test off `fastapi`: what is being checked is the rule for turning an object's
+	fields into path segments, and any ``NamedTuple`` exercises it.
+
+	Three properties, and each has cost something somewhere in this repository: the values are
+	**found**, the application is **not** one (it is an object, never a path segment), and an
+	**empty** value is not an identifier — an empty segment would otherwise collapse every double
+	slash and every trailing one into `{x}`.
+	"""
+
+	derived = parity._stood_in(_Placeholders(application="app", slug="w", task=1, blank=""))
+
+	assert "w" in derived, "the derivation found no values, so nothing shapes a path"
+	assert "1" in derived, "a numeric value was dropped before it could be stringified"
+	assert "app" not in derived, "the application is not a value a path could carry"
+	assert "" not in derived, "an empty value would collapse every empty segment"

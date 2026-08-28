@@ -223,7 +223,7 @@ def browser_routes () -> tuple[int | None, str | None]:
 		return None, f"the builders could not be executed ({failed})"
 
 	shapes = {
-		(str(request.get("method", "GET")).upper(), _shape(str(request["path"])))
+		(str(request.get("method", "GET")).upper(), _shape(str(request["path"]), _stood_in(place)))
 		for request in built
 		if request.get("path")
 	}
@@ -231,14 +231,45 @@ def browser_routes () -> tuple[int | None, str | None]:
 	return len(shapes), None
 
 
-def _shape (path: str) -> str:
-	"""Return a built path with its identifiers replaced, so two rows of one route are one."""
+def _stood_in (place: typing.Any) -> set[str]:
+	"""Return every value the builders were handed, as it would appear in a path.
+
+	**Read off the instance rather than written out beside it** (`SR#1550`). These are what
+	:func:`_shape` has to recognise in a built path in order to collapse ``/tasks/1`` to
+	``/tasks/{x}``, and the first version listed them a second time by hand — the pair that
+	comes to disagree, in the script whose whole purpose is finding that shape.
+
+	**What the drift would have cost is a wrong number rather than a failure.** New placeholders
+	would simply stop being recognised, paths would stop collapsing, and the browser's route
+	count would inflate — the report reading as the browser reaching more than it does, with
+	nothing anywhere failing.
+
+	The empty ones are dropped because an empty segment is not an identifier, and ``application``
+	is not a value a path could carry.
+
+	``_asdict`` rather than ``vars``, because :class:`test_web.Instance` is a ``NamedTuple`` and
+	has no ``__dict__`` at all — which is the sort of thing that is only found by running it.
+	"""
+
+	return {
+		str(value)
+		for name, value in place._asdict().items()
+		if name != "application" and isinstance(value, str | int) and str(value)
+	}
+
+
+def _shape (path: str, stood_in: set[str]) -> str:
+	"""Return a built path with its identifiers replaced, so two rows of one route are one.
+
+	Takes what to recognise as an argument for `SR#405`'s reason: a scanner that cannot be
+	handed its subject can only ever be tested against itself.
+	"""
 
 	segments = []
 
 	for segment in path.split("?")[0].split("/"):
-		known = {"w", "p", "l", "dl", "si", "c", "archived", "open"}
-		segments.append("{x}" if segment and (segment.isdigit() or segment in known) else segment)
+		stands_for_one = segment and (segment.isdigit() or segment in stood_in)
+		segments.append("{x}" if stands_for_one else segment)
 
 	return "/".join(segments)
 
@@ -332,7 +363,7 @@ def misspelled (root: pathlib.Path) -> tuple[list[tuple[str, str, str]], int]:
 			read += 1
 
 			for variant, (word, _reason) in TERMS.items():
-				if re.search(rf"\b{variant}s?\b", text, re.I):
+				if re.search(rf"\b{re.escape(variant)}s?\b", text, re.I):
 					found.append((f"{path}:{line}", variant, word))
 
 	return found, read
