@@ -5651,7 +5651,19 @@ export function Reading ({ reading }) {
 	ternary (`#761`), and a guard reading the first `placeholder="` in a component would find
 	whichever branch happened to be written first.
 */
-export const CAPTURE_HINT = "Add something — try: call the dentist tomorrow +work !4/3";
+//: What the capture box suggests, and it is a line a new installation can actually run.
+//:
+//: **`+work` named a project nothing ships** (`SR#1545`). A fresh `init` gives one workspace and
+//: one project — the Inbox — so the product's own first example was refused by the product,
+//: which is a poor first screen however good the refusal is. `+inbox` is the one project that
+//: is always there, so this succeeds verbatim; `tests/test_personal_path.py` drives it against
+//: a real fresh install so it cannot go stale the way `+work` did.
+//:
+//: **A single key rather than a path, deliberately.** `capture.py`'s own refusal teaches the
+//: same shape — *"a project is named like `+web`"* — as do the agent tool, `/v1/meta`'s
+//: examples and the README. And a `+a/b` here would teach addressing inside the one box whose
+//: workspace is chosen silently, which is `SR#1544`.
+export const CAPTURE_HINT = "Add something — try: Book a dentist appointment tomorrow +inbox !4/3";
 
 //: What the same box asks for when a document is being written. A title, not a captured line:
 //: the grammar is deliberately not applied to it (`#761`).

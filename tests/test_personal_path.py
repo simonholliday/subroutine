@@ -9703,3 +9703,57 @@ def test_an_ordinary_project_says_nothing_about_who_can_see_it (
 
 	assert "Only you can see it" not in said
 	assert "Created web" in said
+
+
+def test_the_line_the_browser_suggests_is_one_a_new_installation_can_run (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1545`. The capture box's own example was a line the product refused.
+
+	`+work` named a project nothing ships. A fresh `init` gives one workspace and one project —
+	the Inbox — so *"try: call the dentist tomorrow +work !4/3"* answered *"There is no project
+	'work' here"*, on the first screen a new user meets. The refusal is good; being handed a
+	failing example by the product itself is not.
+
+	**Driven through the terminal rather than the browser, and that is the point.** Both reach
+	one capture grammar, so a fresh install is the cheapest honest place to ask *does this line
+	work*. What is being guarded is the **suggestion**, and the suggestion is a string in
+	`app.js` — so it is read from there rather than copied, or this becomes two constants that
+	agree until one moves.
+
+	**Two assertions, because acceptance is not enough.** Anything the grammar cannot read stays
+	in the title verbatim (§6.13 rule 1), so a `+inbox` that stopped resolving would still be
+	*added* — with the sigil sitting in the title and nothing failing. The echo is what says the
+	project was read, and `SR#1438` is why the echo says it at all.
+	"""
+
+	source = (
+		pathlib.Path(__file__).resolve().parent.parent
+		/ "src" / "subroutine" / "web" / "assets" / "app.js"
+	).read_text(encoding="utf-8")
+
+	declared = re.search(r'export const CAPTURE_HINT = "([^"]+)";', source)
+
+	assert declared is not None, "the capture box no longer says what can be typed into it"
+
+	hint = declared.group(1)
+	_, _, suggested = hint.partition("try: ")
+
+	assert suggested, f"the placeholder {hint!r} no longer suggests a line to try"
+
+	run("init")
+
+	added = run("add", suggested)
+
+	assert "Added" in added.output, (
+		f"the browser suggests {suggested!r} and a fresh installation refuses it:\n"
+		f"{added.output}"
+	)
+
+	# **The project was read, not merely tolerated.** `(read +inbox …)` is the echo naming what
+	# the grammar took; without it the sigil would be sitting in the title of a task that filed
+	# perfectly well into the Inbox by default, which looks identical from the exit code.
+	assert "read +inbox" in added.output, (
+		f"'{suggested}' was accepted but '+inbox' was not read as the project — it is in the "
+		f"title instead:\n{added.output}"
+	)
