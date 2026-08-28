@@ -737,7 +737,7 @@ def create (
 
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
-			"A subtask belongs to the same project as its parent.",
+			"A sub-task belongs to the same project as its parent.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="parent_task_id",
@@ -1351,7 +1351,7 @@ def update (
 			# from its parent, so moving a child alone would break it from the other side.
 			# Naming the parent is what makes this actionable rather than a wall.
 			raise subroutine.errors.ValidationError(
-				"A subtask belongs to the same project as its parent.",
+				"A sub-task belongs to the same project as its parent.",
 				errors=[
 					subroutine.errors.FieldError(
 						field="project",
@@ -1727,7 +1727,7 @@ def move (
 		there = None if destination is None else destination.key
 
 		raise subroutine.errors.ValidationError(
-			"A subtask belongs to the same project as its parent.",
+			"A sub-task belongs to the same project as its parent.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="parent",

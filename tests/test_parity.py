@@ -1,8 +1,10 @@
-"""What `SR#1539` asserts about the four surfaces, held rather than printed.
+"""What `SR#1539` and `SR#1547` assert about the four surfaces, held rather than printed.
 
-The decision is that a surface may lack a capability and may never leave somebody stuck — **no
-dead ends rather than no differences**, because §21.2's tool budget, §1.4's progressive
-disclosure and §12.4's recovery property each make "everything everywhere" the wrong rule.
+**Two decisions, one question.** `SR#1539`: a surface may lack a capability and may never leave
+somebody stuck — *no dead ends rather than no differences*, because §21.2's tool budget, §1.4's
+progressive disclosure and §12.4's recovery property each make "everything everywhere" the wrong
+rule. `SR#1547`: whatever a surface *does* offer, it calls by the same word as the others — no
+dead ends, and nobody learns this product twice.
 
 **Nothing here has to be perfect for this to be worth having**, which is the whole reason it is
 a ratchet. Simon's words on 2026-08-28: *"We might not be perfect on these criteria yet. But we
@@ -175,3 +177,129 @@ def test_the_report_names_every_surface_it_measured () -> None:
 		assert name in rendered, f"the report does not mention {name}"
 
 	assert "SR#1539" in rendered, "the report does not say which decision it is measuring"
+
+
+def test_every_agent_tool_is_named_as_a_command_or_excused () -> None:
+	"""`SR#1547`: an agent dropping to a shell types the word it already knows.
+
+	Thirteen of fifteen already match exactly — `add`, `update`, `done`, `claim`, `link`,
+	`list`, `search`, `show`, `comment`, `project`, `changes`, `journal`, `whoami`. That is the
+	state worth protecting, and it is `tests/test_reach.py`'s rule applied to **words** rather
+	than to capabilities: a name reaches both surfaces unless somebody wrote down why not.
+
+	**It found `document` on its first run.** The terminal calls that group `doc`, so
+	`subroutine document` is refused with *Did you mean 'comment'?* — a suggestion pointing at
+	a different kind of record, which is `SR#1547`'s *"now means something different"* arriving
+	as help. `SR#1549`.
+	"""
+
+	report = parity.measured()
+	named = set(report.matched_tools) | set(report.unmatched_tools)
+
+	assert len(named) > 10, f"only {len(named)} tools were read, so this is checking nothing"
+
+	unexplained = [one for one in report.unmatched_tools if one not in parity.NOT_A_COMMAND]
+
+	assert not unexplained, (
+		f"these agent tools have no terminal command of the same name and no written reason: "
+		f"{unexplained}. A word that exists on one surface and not the other is somebody "
+		f"learning this product twice."
+	)
+
+
+def test_no_tool_is_both_named_as_a_command_and_excused_from_being_one () -> None:
+	"""An excuse that has quietly become true reads as a considered decision and is not.
+
+	`tests/test_reach.py` learned this the expensive way — three entries stayed after the gap
+	they described was closed, still naming an item, still reading as deliberate. Every
+	register in this repository owes the same question: **what makes the entry go away?**
+	"""
+
+	report = parity.measured()
+	matched = set(report.matched_tools)
+	stale = sorted(name for name in parity.NOT_A_COMMAND if name in matched)
+
+	assert not stale, (
+		f"{stale} are excused from having a terminal command and now have one — delete the "
+		f"entries, which is what closes whatever they name"
+	)
+
+	gone = sorted(
+		name for name in parity.NOT_A_COMMAND
+		if name not in matched and name not in report.unmatched_tools
+	)
+
+	assert not gone, f"{gone} are excused and are not tools any more"
+
+
+def test_no_user_facing_string_spells_a_term_the_other_way () -> None:
+	"""`SR#1547`, and the register is deliberately small.
+
+	**Docstrings are excluded and that is the whole trick.** A comment explaining the parent
+	rule may say ``subtask``; a refusal may not. What a developer reads about the product and
+	what somebody using it reads are different corpora, and only the second is scanned.
+
+	**A word that is also a published identifier cannot be in the register.** ``todo`` returns
+	eight hits of which seven are the status category *key* — which callers send — so flagging
+	them would be guarding a spelling instead of a thing and correcting them would break the
+	contract. Growing the register is a judgement per term, deferred by `SR#1547`.
+	"""
+
+	report = parity.measured()
+
+	# **The floor first.** Every count below is of things found, so a scan that read nothing
+	# would report perfect consistency — which is this project's most-repeated failure.
+	assert report.spoken > 5_000, (
+		f"only {report.spoken} user-facing strings were read, so the scan is blind"
+	)
+
+	assert not report.misspellings, (
+		"a user meets two spellings of one word:\n"
+		+ "\n".join(
+			f"  {where}  says {variant!r} where this product says {word!r}"
+			for where, variant, word in report.misspellings
+		)
+	)
+
+
+def test_the_spelling_scan_can_see_an_offender_through_its_own_entry_point (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#405`: a guard is tested by feeding it a defect the way the real code arrives.
+
+	Both halves, and they fail differently. **The variant in a string** has to be found — that
+	is the check. **The same word in a docstring** must not be, because a scan that cannot tell
+	the two apart is one that either misses refusals or forbids developers their own prose, and
+	the register would then be argued down rather than grown.
+	"""
+
+	assert parity.TERMS, "the register is empty, so there is nothing this could find"
+
+	variant = sorted(parity.TERMS)[0]
+	word, _reason = parity.TERMS[variant]
+
+	(tmp_path / "offender.py").write_text(
+		f'"""A docstring saying {variant} freely, which is allowed."""\n'
+		f'MESSAGE = "A {variant} belongs to the same project as its parent."\n',
+		encoding="utf-8",
+	)
+
+	found, read = parity.misspelled(tmp_path)
+
+	assert read == 1, f"the scan read {read} strings where the docstring is not one of them"
+	assert [(one[1], one[2]) for one in found] == [(variant, word)], (
+		f"the scan did not find {variant!r} in a refusal, so it is not checking anything"
+	)
+
+	(tmp_path / "offender.py").write_text(
+		f'"""Only a docstring saying {variant}, which a developer may write."""\n',
+		encoding="utf-8",
+	)
+
+	clean, _read = parity.misspelled(tmp_path)
+
+	assert not clean, (
+		f"the scan flagged {variant!r} in a docstring — developers may write about the thing "
+		f"in their own prose, and a register that forbids it will be argued down instead of "
+		f"grown"
+	)
