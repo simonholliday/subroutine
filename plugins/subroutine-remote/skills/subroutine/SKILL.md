@@ -241,16 +241,27 @@ uses what the command line finds, and nothing reconciles them. So run this as we
 subroutine whoami
 ```
 
-**Two different answers is a real and common misconfiguration.** It has been measured: one
-agent, one session, one connection, writing as a bounded service account through its tools and
-as a superuser through its shell. It is worse than plainly acting as the operator, because it
-is partial — anyone spot-checking finds the agent's own name on the half that went through the
-tools, and concludes the setup worked.
+**Two different answers is worth reporting, and it is not always wrong.** It has been measured
+both ways.
 
-If the two disagree, say so rather than picking one. The fix is the person's and it is one
-line — a `SUBROUTINE_TOKEN_<CONNECTION>` in the environment their editor starts from, which
-both halves read — but they cannot fix a split nobody has told them about, and you are the only
-one positioned to see it.
+One agent writing as a bounded service account through its tools and as a superuser through its
+shell is a misconfiguration, and a bad one: it is partial, so anyone spot-checking finds the
+agent's own name on the half that went through the tools and concludes the setup worked. But a
+split is also what you get on a machine somebody deliberately set up so that their own terminal
+is theirs and the editor's tools are the agent's — where every alternative is worse, and the only
+thing wrong is that a shell command still records the person.
+
+**You cannot tell those two apart from in here**, and neither is simply correct. Which credential
+is meant to be where is a fact about how that machine was set up. So name both accounts, say
+which surface each came from, and leave the judgement to the person: they cannot act on a split
+nobody has told them about, and you are the only one positioned to see it.
+
+**Do not offer `SUBROUTINE_TOKEN_<CONNECTION>` as the remedy, and do not set it.** It is read
+*before* the token a plugin sets for itself, and an MCP server inherits the environment its
+editor started in — so exporting it does not reconcile two identities, it replaces the agent's
+credential with whatever that variable holds. Where the shell holds a person's token, that
+silently makes the agent that person, with everything they are allowed to do. Both `whoami`
+calls then agree, which reads exactly like the fix having worked.
 
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:

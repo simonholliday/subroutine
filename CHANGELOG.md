@@ -16,6 +16,33 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine init` no longer builds a database nothing on the machine can reach.** On an
+  installation whose `config.toml` turns the `local` connection off, `init` created the
+  database, seeded it, reported *"Ready"*, and then the very command it suggested wrote to a
+  remote instead — because a turned-off connection is dropped from the roster, so nothing could
+  address what had just been made. It refuses now, before anything is created, naming the file
+  and the line to change. Leaving `local` off is a perfectly good arrangement for a machine that
+  reaches a server and keeps no list of its own; what was wrong was building a list for it
+  anyway.
+
+- **The skill no longer tells an agent to reconcile two identities with an environment
+  variable.** Where the tools and the shell resolve different accounts, it offered
+  `SUBROUTINE_TOKEN_<CONNECTION>` as the fix. That variable is read *before* a plugin's own
+  token and an MCP server inherits its editor's environment, so on a machine whose shell holds
+  a person's credential the advice replaced the agent's identity with theirs — and both
+  `whoami` calls then agreed, which reads exactly like it having worked. It now reports the two
+  accounts and leaves the judgement, saying that a split is sometimes the arrangement somebody
+  chose.
+
+- **A timezone mismatch no longer offers the wrong zone as the remedy.** `whoami` says when your
+  account's zone and the machine's differ; the command it printed had *the machine's* filled in,
+  so the only action it named was the one that is wrong for a person working away from their
+  server. It names no zone now.
+
+- **An agent is told what `private` means at the moment it makes a private project.**
+  `subroutine_project` said *"Only members can see it"* — the same wording corrected on the
+  command line — and its reply said nothing at all. It is the surface most likely to create one.
+
 - **An agent can say a document is still a draft, and change its mind.** `subroutine_document`
   takes a `status` now, on writing one and on revising it — the underlying calls have accepted
   it for months and this tool offered it on neither, so an agent that wanted to hold something

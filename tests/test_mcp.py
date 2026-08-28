@@ -928,6 +928,55 @@ def test_an_agent_can_make_and_list_a_project (
 	assert "Website redesign" in listed
 
 
+def test_making_a_project_private_says_so_on_the_agent_surface (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1450`, which is `#1444`'s fix reaching the surface that can create the trap.
+
+	**The CLI has said this since `e98a848` and this surface said nothing at all.** A private
+	project is visible to its owner and to nobody else, permanently — §7.3a grants sight to
+	holders of a ``project_member`` row and no route, command or tool writes a second one. The
+	caller most able to walk into that is an agent, because ``subroutine_project`` accepts
+	``private`` and is often the first thing a session does in a new codebase.
+
+	**Said in the reply and not only in the schema.** A property description is read once when
+	the tool list loads, by a model that has not yet decided anything; this is read by the
+	caller who has just done it.
+
+	**The way back is an API call rather than this tool**, because this tool lists and creates
+	and cannot update — naming ``private: false`` here would offer a remedy that does not
+	exist, which is the same defect one turn later.
+	"""
+
+	made, failed = _called(
+		bound, "subroutine_project", key="secret", title="Secret", private=True
+	)
+
+	assert not failed, made
+	assert "Only you can see it" in made, made
+	assert "subroutine_call_api" in made, (
+		f"the way back has to be reachable from here, and this tool cannot take it:\n{made}"
+	)
+
+
+def test_an_ordinary_project_says_nothing_about_who_can_see_it_to_an_agent (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The other half, and §13 is why it is a test rather than an obvious omission.
+
+	Public is what nearly every project is, so a sentence about visibility on it is a line paid
+	on the ordinary case — on the surface where response size is a first-order cost. The CLI
+	half of this rule is `#1444`'s, argued from §1.4; here the argument is the byte budget, and
+	both land on the same behaviour.
+	"""
+
+	made, failed = _called(bound, "subroutine_project", key="web", title="Website")
+
+	assert not failed, made
+	assert "Only you can see it" not in made, made
+	assert "web" in made
+
+
 def test_a_project_named_without_a_title_is_refused (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

@@ -268,6 +268,26 @@ def declared_names () -> frozenset[str]:
 	return frozenset(_declared_tables())
 
 
+def turned_off (name: str) -> bool:
+	"""Report whether the file declares this connection and turns it off — `#1470`.
+
+	**Three states, and only this one is interesting**: not declared at all, declared and on,
+	declared and off. :func:`roster` cannot answer it, because it drops the third and the first
+	is indistinguishable from it there — which is exactly how ``init`` came to build a database
+	nothing on the machine could reach and report *"Ready"*.
+
+	Beside :func:`declared_names` for its reason: both exist because the roster deliberately
+	hides a turned-off connection, and both are for callers who need to see one anyway.
+	"""
+
+	table = _declared_tables().get(name)
+
+	if table is None:
+		return False
+
+	return not _flag(name, table, "enabled", default=True)
+
+
 def _valid_name (name: str) -> str:
 	"""Return a connection name, refusing one that could not be typed in an address."""
 

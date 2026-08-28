@@ -1007,7 +1007,15 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"key": {"type": "string", "description": "Its permanent short name."},
 					"title": {"type": "string", "description": "What it is called."},
 					"parent": {"type": "string", "description": "Put it inside this project."},
-					"private": {"type": "boolean", "description": "Only members can see it."},
+					"private": {
+						"type": "boolean",
+						# **Not "only its members can see it"** (`#1450`). That was true and named
+						# a set that cannot grow — no route, command or tool writes a second
+						# `project_member` row — so it read as an invitation to add somebody.
+						# `#1444` corrected the same sentence on the CLI in `e98a848` and left
+						# this surface carrying it, which is the caller that can *create* one.
+						"description": "Only you can see it, and nothing can share it yet.",
+					},
 					"workspace": WORKSPACE,
 				},
 			},
@@ -3569,7 +3577,25 @@ def _projected (
 		workspace=workspace,
 	)
 
-	return f"Made {made.key}  {made.title}"
+	made_line = f"Made {made.key}  {made.title}"
+
+	# **Said at the moment it is chosen, not only in the schema** (`#1450`). A property
+	# description is read once when the tool list loads; this is read by the caller who just
+	# did it. The CLI has said it since `e98a848` and this surface said nothing at all.
+	#
+	# **The remedy is an API call rather than this tool**, because this tool lists and creates
+	# and cannot update — so naming `private: false` here would name a way back that does not
+	# exist, which is the defect one turn later.
+	if made.visibility == "private":
+		return (
+			f"{made_line}\n"
+			"Only you can see it. Nothing can add somebody else to a private project yet, "
+			"and this tool cannot undo it: subroutine_call_api with PATCH "
+			f"/v1/projects/{made.key} and {{\"visibility\": \"public\"}} opens it to the "
+			"workspace."
+		)
+
+	return made_line
 
 
 def _text (arguments: dict[str, typing.Any], name: str) -> str | None:

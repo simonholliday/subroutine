@@ -536,6 +536,8 @@ def init (
 
 	settings = _settings()
 
+	_refuse_a_local_connection_that_is_off()
+
 	_refuse_unusable_storage(settings)
 
 	_warn_an_earlier_instance_is_elsewhere(settings)
@@ -3060,6 +3062,43 @@ def _database_is_absent (settings: subroutine.config.Settings) -> bool:
 	"""
 
 	return settings.has_no_instance_yet()
+
+
+def _refuse_a_local_connection_that_is_off () -> None:
+	"""Stop before building a database nothing on this machine could reach — `#1470`.
+
+	``connections.roster`` drops anything declared with ``enabled = false``, so on a machine
+	whose ``config.toml`` turns ``local`` off there is no route to a local database at all —
+	``subroutine connections`` does not list it, and every write goes to whichever remote is
+	the default.
+
+	**Driven before this was written**: ``init`` migrated the schema, seeded the workspace,
+	printed *"Ready. Try: subroutine add …"*, and the 569 KB it had just created was
+	unreachable — the command in its own closing line wrote to the server instead. Every step
+	reported success about the thing it owned while the person asked about the result.
+
+	**Refused rather than turned back on**, and the difference matters because nothing tells
+	the two apart: a setting this program wrote for somebody, and one a person wrote by hand
+	with a comment explaining why. `hpz2g4`'s own configuration is the second kind. Reversing
+	it silently would be the larger mistake, and the step this costs is one line in a file the
+	reader is being sent to anyway.
+
+	**Before ``_refuse_unusable_storage``**, so nothing is created and no directory is made:
+	`#587`'s lesson is that a correct rule firing after the thing it should have prevented
+	leaves somebody with no way forward.
+	"""
+
+	if not subroutine.connections.turned_off(subroutine.connections.LOCAL_NAME):
+		return
+
+	_stop(
+		f"{subroutine.connections.LOCAL_NAME!r} is turned off in "
+		f"{subroutine.config.config_file_path()}, so a database created here could not be "
+		f"reached.",
+		f"Set 'enabled = true' under [connections.{subroutine.connections.LOCAL_NAME}] and "
+		f"run this again — or leave it off, if this machine is meant to reach a server and "
+		f"keep no list of its own.",
+	)
 
 
 def _refuse_unusable_storage (settings: subroutine.config.Settings) -> None:

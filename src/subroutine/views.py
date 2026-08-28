@@ -4099,10 +4099,17 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 	# you know which zone you are in better than anybody else does, so there is no permission
 	# that lets somebody set it for you. What was wrong is a sentence that would not say who it
 	# was speaking for.
+	# **The command names no zone, and that is the whole of `#1456`.** It carried `machine`,
+	# so the only action it offered was *make your account match this machine* — which is the
+	# wrong one in every case this line exists for: a person in London reading a UTC server, or
+	# anybody working from another country, was handed the value that is wrong for them. An
+	# agent acted on it hours after `#1297` was closed by setting the account correctly, and
+	# recommended undoing it. `#1088` §8 says this line states the two zones and leaves the
+	# judgement; a filled-in value is not leaving the judgement.
 	return [
 		f"Days for {me.user.username} are read in {', '.join(differing)}; this machine is set "
 		f"to {machine}.",
-		f"'subroutine user timezone {machine}' sets it for {me.user.username}, which is the "
+		f"'subroutine user timezone <zone>' sets it for {me.user.username}, which is the "
 		f"account this credential is for — and no other.",
 	]
 

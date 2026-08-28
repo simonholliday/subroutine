@@ -924,6 +924,67 @@ def test_a_connection_that_is_turned_off_still_holds_its_name (
 	assert _configured(home).count("[connections.work]") == 1
 
 
+def test_init_refuses_to_build_a_database_that_local_being_off_would_hide (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1470`. Every step reported success while the result was unreachable.
+
+	``connections.roster`` drops anything declared ``enabled = false``, so with ``local`` turned
+	off there is no route to a local database at all. Driven before the fix, in an isolated
+	profile: ``init`` migrated the schema, seeded the workspace, printed *"Ready. Try:
+	subroutine add …"*, and the 569 KB it had just created could not be reached — the command in
+	its own closing line wrote to the remote instead.
+
+	**Asserted of the database rather than only of the message**, because "it refused" and "it
+	refused before creating anything" are different claims and only the second is `SR#587`'s
+	lesson: a correct rule firing after the thing it should have prevented leaves somebody with
+	no way forward.
+
+	**Refused rather than turned back on**: nothing distinguishes a setting this program wrote
+	from one a person wrote by hand with a comment explaining why, and reversing the second
+	silently is the larger mistake.
+	"""
+
+	declare(
+		home,
+		'\n[connections.work]\nurl = "https://tasks.example.com"\n'
+		"\n[connections.local]\nenabled = false\n",
+	)
+
+	refused = run("init", expect=1)
+
+	assert "'local' is turned off" in refused.output
+	assert "enabled = true" in refused.output, (
+		f"the remedy has to be the line they will type into the file this names:"
+		f"\n{refused.output}"
+	)
+
+	databases = sorted(path.name for path in tmp_path.rglob("*.db"))
+
+	assert not databases, (
+		f"refused after building the thing it was refusing, which is the defect one step "
+		f"along: {databases}"
+	)
+
+
+def test_init_is_unaffected_when_local_is_declared_and_left_on (
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The control, and it is not the same as declaring nothing.
+
+	``turned_off`` answers three states and only one refuses — absent, present and on, present
+	and off. A check that read the table's presence rather than its flag would fail here, and
+	an installation that names ``local`` in order to set something else on it is ordinary.
+	"""
+
+	declare(home, "\n[connections.local]\nenabled = true\n")
+
+	assert 'Ready. Try: subroutine add "something to do"' in run("init").output
+
+
 def test_a_machine_with_no_list_of_its_own_starts_filing_to_the_connection (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
@@ -2440,6 +2501,24 @@ def test_whoami_says_when_this_machine_is_not_where_your_days_are_read (
 	assert "sets it for si" in answer, (
 		f"and the remedy has to say whose zone it will set, because that is the half that "
 		f"was believed:\n{answer}"
+	)
+
+	# **The remedy names no zone** (`SR#1456`). It carried the *machine's*, so the only action
+	# it offered was *make your account match this machine* — wrong in every case this line
+	# exists for. Driven: an agent read it on a UTC machine hours after `SR#1297` was closed by
+	# setting the account to Europe/London, and recommended setting it back to UTC.
+	#
+	# Asserted of the sentence rather than of a constant, because the defect is which of two
+	# real zones is offered and both are present in the output a line above.
+	remedy = next(line for line in answer.splitlines() if "user timezone" in line)
+
+	assert "Etc/UTC" not in remedy, (
+		f"the remedy offers the machine's zone, which is the value the reader must not "
+		f"take:\n{remedy}"
+	)
+	assert "Pacific/Auckland" not in remedy, (
+		f"and it must not offer the account's own either — that is a command that changes "
+		f"nothing, presented as a fix:\n{remedy}"
 	)
 
 
