@@ -1,0 +1,177 @@
+"""What `SR#1539` asserts about the four surfaces, held rather than printed.
+
+The decision is that a surface may lack a capability and may never leave somebody stuck — **no
+dead ends rather than no differences**, because §21.2's tool budget, §1.4's progressive
+disclosure and §12.4's recovery property each make "everything everywhere" the wrong rule.
+
+**Nothing here has to be perfect for this to be worth having**, which is the whole reason it is
+a ratchet. Simon's words on 2026-08-28: *"We might not be perfect on these criteria yet. But we
+should be able to measure where we are."* So the assertions below say *this cannot get worse*,
+not *this is finished*.
+
+**And `scripts/parity.py` is imported rather than described.** A report nobody executes is a
+paragraph, and `SR#146` is what a paragraph costs: it stated the same four numbers on
+2026-08-01 and every one of them was wrong three weeks later, silently.
+"""
+
+import pathlib
+import shutil
+import sys
+
+import pytest
+
+import conftest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+
+import parity
+
+#: What `SR#1539`'s no-dead-ends clause currently costs, measured 2026-08-28.
+#:
+#: **A ceiling, never a target.** Twenty of the forty-six excuses that owe a signpost name no
+#: way through, and the population is genuinely mixed: some are missing a signpost and some are
+#: boundaries wearing the wrong label — ``create_workspace`` is an instance-tier permission no
+#: role carries, and ``calendars`` is refused because a feed URL is an unauditable bearer
+#: credential. Splitting `budget` and `disclosure` into those two meanings is a decision per
+#: entry, deferred by `SR#1539` to after the code review.
+#:
+#: **Lower it when one is answered; never raise it.** Raising it is adding a surface somebody
+#: can be stuck on, which is the one thing the decision forbids.
+SILENT_CEILING = 20
+
+
+def test_the_report_reads_every_surface_it_claims_to () -> None:
+	"""A scan that reads nothing reports perfect parity, and this project has met that four times.
+
+	**Floors before comparisons**, because every number below is a count of things found: a
+	broken enumerator returns zero, zero is not more than zero, and a guard built on that would
+	go green at exactly the moment it stopped looking. The four here are independent — the
+	routers, the client protocol, the Typer app's package and the MCP catalogue's — so one
+	failing is caught by its own floor rather than by the others agreeing.
+	"""
+
+	report = parity.measured()
+
+	assert report.routes > 50, f"only {report.routes} routes were found, so nothing was read"
+	assert report.protocol > 50, f"only {report.protocol} client methods were found"
+
+	for edge in report.edges:
+		assert edge.reaches > 0, f"{edge.name} was measured as reaching nothing at all"
+		assert edge.total > 50, f"{edge.name} classified only {edge.total} capabilities"
+
+
+def test_no_surface_has_a_capability_that_is_neither_reached_nor_excused () -> None:
+	"""`SR#146`'s rule, stated where the report can see it.
+
+	``tests/test_reach.py`` already holds this on all three of its edges and holds it per
+	capability, which is the version that names the offender. This says the same thing about
+	the **totals**, so a register that stopped being consulted — rather than an entry that went
+	missing from one — is caught here.
+
+	**Not a second copy of that guard.** It compares what was *enumerated* against what was
+	*classified*; the file it reports on compares each subject against each register.
+	"""
+
+	report = parity.measured()
+
+	assert report.edges[0].total == report.routes, (
+		f"{report.routes} routes are mounted and {report.edges[0].total} are accounted for, so "
+		f"some route is neither reached by a client nor excused in writing"
+	)
+
+	for edge in report.edges[1:]:
+		assert edge.total == report.protocol, (
+			f"{report.protocol} client methods exist and {edge.name} accounts for {edge.total}"
+		)
+
+
+def test_no_new_excuse_leaves_somebody_with_nowhere_to_go () -> None:
+	"""`SR#1539`'s no-dead-ends clause, enforced in the only direction that is honest today.
+
+	An excuse of a kind that owes a signpost — the capability exists, this surface simply does
+	not foreground it — has to name where the reader goes instead. Twenty currently do not, and
+	fixing those is deferred; **adding a twenty-first is not**.
+
+	**The detector under-reports on purpose.** It looks for a citable destination — a command, a
+	tool, the escape hatch, or a route — rather than for prose, because checking for wording
+	would be a spelling test on somebody's sentence. So an excuse that signposts in words it
+	cannot cite counts as silent, which makes this a ceiling on the work and never a claim that
+	a gap has been closed.
+	"""
+
+	report = parity.measured()
+
+	assert len(report.silent) <= SILENT_CEILING, (
+		f"{len(report.silent)} excuses owe a signpost and give none, against a ceiling of "
+		f"{SILENT_CEILING}. A capability nobody can reach from a surface, with nothing saying "
+		f"where to go instead, is the second-class user SR#1539 exists to refuse:\n"
+		+ "\n".join(f"  {register}[{subject}]" for register, subject in report.silent)
+	)
+
+	# **The floor beside the ceiling**, because a detector that started matching everything
+	# would satisfy the line above perfectly and report that every excuse signposts.
+	assert report.silent, (
+		"every excuse now names a way through, which is either the work being finished — in "
+		"which case lower SILENT_CEILING to nought and delete this — or the detector matching "
+		"anything at all"
+	)
+
+
+def test_the_browser_is_measured_even_though_it_is_not_yet_enforced () -> None:
+	"""The surface `SR#1539` names as the gap, counted so that it cannot be forgotten.
+
+	`tests/test_reach.py` guards three edges and the browser is not one of them — it appears
+	there only as an *excuse* for the routes that serve it. So the surface built for the
+	audience `SR#1382` is expanding to is the one the equality guard cannot see.
+
+	**Reported and deliberately not asserted.** Making it a fourth edge means classifying every
+	route it does not reach with a written reason each, which is judgement rather than typing
+	and is `SR#1539`'s after-the-review work. What this holds is that the number is *known* —
+	the state that lets somebody decide, rather than rediscover.
+
+    **Executed, not scanned**, so it needs Node — required in CI for the reason
+	``tests/test_web.py`` states, since a surface silently unmeasured is what this whole file
+	exists to prevent.
+	"""
+
+	if shutil.which("node") is None:
+		if conftest.required("SUBROUTINE_TEST_REQUIRE_NODE"):
+			pytest.fail(
+				"no JavaScript runtime on PATH, so the browser's reach cannot be executed.\n\n"
+				"SUBROUTINE_TEST_REQUIRE_NODE is set, so a missing runtime fails the run rather "
+				"than leaving the one surface SR#1539 names as the gap unmeasured."
+			)
+
+		pytest.skip("no JavaScript runtime on PATH, so the browser's reach cannot be executed")
+
+	report = parity.measured()
+
+	assert report.browser is not None, (
+		f"the browser's builders could not be executed: {report.browser_absent}"
+	)
+
+	assert report.browser > 10, (
+		f"the browser was measured as building {report.browser} route shapes, which is fewer "
+		f"than it has controls — the enumeration read almost nothing"
+	)
+
+	assert report.browser < report.routes, (
+		"the browser reaches at least as many route shapes as the API has routes, which would "
+		"mean the shaping has stopped collapsing identifiers and every row counts as a route"
+	)
+
+
+def test_the_report_names_every_surface_it_measured () -> None:
+	"""The rendering, because a report that prints nothing passes every check above.
+
+	`SR#1540`'s whole argument is that somebody runs this and reads it. The counts can be
+	perfect while :func:`parity.render` drops a row, and the numbers are gathered by a function
+	no reader ever calls.
+	"""
+
+	rendered = parity.render(parity.measured())
+
+	for name in ("client protocol", "terminal", "agent tools", "browser"):
+		assert name in rendered, f"the report does not mention {name}"
+
+	assert "SR#1539" in rendered, "the report does not say which decision it is measuring"
