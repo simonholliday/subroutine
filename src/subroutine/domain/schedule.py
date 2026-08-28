@@ -70,6 +70,34 @@ DATE_FIELDS: dict[str, tuple[str, str]] = {
 }
 
 
+def as_written (field: str) -> str:
+	"""Return the name a caller can send for a date column — `#1317`.
+
+	**A refusal has to name something the reader may type.** ``PATCH /v1/tasks/1`` with a bad
+	``due`` answered ``{"field": "due_at"}``: a column, and not one that endpoint accepts — so a
+	caller who did what it said was refused a second time by ``unknown_field``, having spent a
+	round trip finding out. That is `#1315`'s defect one layer down and across every date field
+	rather than one.
+
+	**:data:`DATE_FIELDS` already held the whole mapping** and its docstring is about exactly
+	this failure; it was read in one place (:func:`check_span`, `#1311`) and every other
+	refusal formatted the column it was handed.
+
+	**Unmapped names fall through unchanged, deliberately.** A column with no entry is one
+	nobody has decided a caller-facing name for, and inventing one by pattern — stripping
+	``_at``, say — would produce ``expires`` for a field the endpoint calls something else. A
+	name that is merely internal is better than a name that is wrong, because the second sends
+	somebody looking for a parameter that does not exist.
+
+	**Only where the name is *reported*, never where it is looked up.** `field` is a key into
+	this map and into :data:`WHOLE_DAY_EDGE`; translating at those sites would break both.
+	"""
+
+	written, _flag = DATE_FIELDS.get(field, (field, ""))
+
+	return written
+
+
 class Boundary(enum.StrEnum):
 	"""Which end of the day an all-day value means.
 
@@ -329,7 +357,7 @@ def interpret_written_day_only (
 		return moment
 
 	local = moment.astimezone(subroutine.domain.dates.zone(timezone, field))
-	name, _flag = DATE_FIELDS.get(field, (field, ""))
+	name = as_written(field)
 
 	raise subroutine.errors.ValidationError(
 		f"{value!r} names a time of day, and this takes a day.",
@@ -432,7 +460,7 @@ def interpret_written_moment (
 			f"{value!r} is not a day this understands.",
 			errors=[
 				subroutine.errors.FieldError(
-					field=field,
+					field=as_written(field),
 					code="invalid_field_value",
 					message=f"{value!r} is not a day this understands.",
 					hint=WRITTEN_DAY_HINT,
@@ -505,9 +533,12 @@ def check_order (
 		hint=hint,
 		errors=[
 			subroutine.errors.FieldError(
-				field=field,
+				field=as_written(field),
 				code="invalid_field_value",
-				message=f"`{field}` must not be later than `due_at`.",
+				# **Both names, not one** (`#1317`). The sentence had two columns in it and
+				# `due_at` is as unsendable as the field being refused.
+				message=f"`{as_written(field)}` must not be later than "
+				f"`{as_written('due_at')}`.",
 			)
 		],
 	)
@@ -704,7 +735,7 @@ def _parse (
 
 	if _is_expression(written):
 		resolved = subroutine.domain.dates.resolve(
-			written, now=now, timezone=timezone, field=field
+			written, now=now, timezone=timezone, field=as_written(field)
 		)
 
 		# **A word naming a day is day-scale; a word naming a moment is an instant**
@@ -769,7 +800,12 @@ def _is_expression (written: str) -> bool:
 
 
 def _invalid (value: object, field: str, message: str) -> subroutine.errors.ValidationError:
-	"""Build the refusal, naming the field and the forms that would have worked."""
+	"""Build the refusal, naming the field and the forms that would have worked.
+
+	``field`` arrives as the **column**, because that is what every caller in the domain has to
+	pass — and what is *named* is :func:`as_written`'s answer, which is the thing the reader can
+	send (`#1317`).
+	"""
 
 	return subroutine.errors.ValidationError(
 		f"{value!r} is not a date this understands.",
@@ -777,7 +813,7 @@ def _invalid (value: object, field: str, message: str) -> subroutine.errors.Vali
 		hint=message,
 		errors=[
 			subroutine.errors.FieldError(
-				field=field, code="invalid_field_value", message=message
+				field=as_written(field), code="invalid_field_value", message=message
 			)
 		],
 	)

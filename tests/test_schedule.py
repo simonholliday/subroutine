@@ -234,7 +234,9 @@ def test_a_defer_after_the_deadline_is_refused (session: sqlalchemy.orm.Session)
 		_task(session, due=datetime.date(2026, 8, 1), snooze=datetime.date(2026, 8, 5))
 
 	assert raised.value.status == 422
-	assert raised.value.errors[0].field == "snoozed_until"
+	# **The word a caller sends, not the column** — `SR#1317`. `snoozed_until` is not a field
+	# any endpoint accepts, so a reader who acted on it was refused a second time.
+	assert raised.value.errors[0].field == "snooze"
 
 
 def test_a_defer_and_a_deadline_on_the_same_day_are_allowed (
@@ -383,7 +385,7 @@ def test_a_date_that_is_not_in_any_accepted_form_is_refused (
 		_task(session, due=written)
 
 	assert raised.value.status == 422
-	assert raised.value.errors[0].field == "due_at"
+	assert raised.value.errors[0].field == "due", "SR#1317: the word a caller sends"
 
 
 def test_the_timezone_chain_runs_user_workspace_instance (

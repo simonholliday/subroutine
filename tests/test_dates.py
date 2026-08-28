@@ -287,11 +287,15 @@ def test_an_expression_outside_the_grammar_is_refused (expression: str) -> None:
 	"""Refused with the valid keywords named, rather than guessed at."""
 
 	with pytest.raises(subroutine.errors.ValidationError) as raised:
-		subroutine.domain.dates.resolve(expression, now=WEDNESDAY, timezone=LONDON, field="due_at")
+		subroutine.domain.dates.resolve(expression, now=WEDNESDAY, timezone=LONDON, field="due")
 
 	assert raised.value.status == 422
 	assert raised.value.code == "invalid_field_value"
-	assert raised.value.errors[0].field == "due_at"
+	# **Named back exactly as it was given, and it is given the *sendable* name** — `SR#1317`.
+	# This module holds no mapping and needs none: `field` reaches it for messages alone, so
+	# `schedule` translates the column before it crosses the boundary. Passing a column here
+	# would test an input production no longer supplies.
+	assert raised.value.errors[0].field == "due"
 
 
 def test_minutes_and_months_are_distinguished_by_case () -> None:

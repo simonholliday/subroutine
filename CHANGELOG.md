@@ -214,6 +214,17 @@ upgrade involves.
 
 ### Changed
 
+- **A refusal about a date names the field you can send, not the column it is stored in.**
+  `PATCH /v1/tasks/1` with an unreadable `due` answered `{"field": "due_at"}` — a column, and
+  not one that endpoint accepts, so a caller who did what the refusal said was refused a
+  second time by `unknown_field`. The same held for `starts`, `ends` and `snooze`, and for
+  the sentence saying one date must not be later than another, which named two columns.
+
+  The mapping already existed and was read in one place; every date refusal reads it now. A
+  column with no caller-facing name is still reported as it is, deliberately — a name that is
+  merely internal is better than one invented by pattern, which would send somebody looking
+  for a parameter that does not exist.
+
 - **A filter given twice is refused rather than silently halved.** `subroutine list --type
   finding --type note` kept only the last and answered about notes alone — and on a project
   holding none it printed *"Nothing on your list"*, which reads as *nothing has ever been

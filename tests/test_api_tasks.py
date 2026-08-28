@@ -3729,7 +3729,7 @@ def test_a_title_is_stored_on_one_line_and_a_comment_is_not (world: World) -> No
 	assert commented.json()["body"] == planted, "a comment's paragraphs were run together"
 
 
-def test_every_field_a_span_refusal_names_is_one_a_caller_can_send (
+def test_every_field_a_date_refusal_names_is_one_a_caller_can_send (
 	world: World,
 ) -> None:
 	"""`SR#1311`: a refusal naming a field the endpoint refuses is `SR#1259`'s defect.
@@ -3744,21 +3744,41 @@ def test_every_field_a_span_refusal_names_is_one_a_caller_can_send (
 	``Update.model_fields`` so a renamed request field fails here rather than in somebody's
 	client.
 
-	**This covers ``check_span``'s three refusals and no others, deliberately.** Driving the
-	same probe at an unparseable date shows ``field: "due_at"`` where the accepted field is
-	``due`` — every ``schedule.interpret`` caller passes a column name, across four modules.
-	That is `SR#1317`, and it is said here rather than left to a green test to imply this
-	endpoint's refusals are all correct.
+	**It covered ``check_span``'s three refusals alone until `SR#1317`**, and said so, because
+	the same probe at an unparseable date showed ``field: "due_at"`` where the accepted field is
+	``due`` — every ``schedule.interpret`` caller passes a column name. It now drives **every**
+	date field this endpoint accepts, which is that item's own stated *done when*.
+
+	**The population is derived twice over and neither half is a list.** The columns come off
+	``schedule.DATE_FIELDS``, so a fifth date column is covered the day it is added; the accepted
+	names come off ``Update.model_fields``, so a renamed request field fails here rather than in
+	somebody's client. A hand-written pair would be the maintained list this project keeps
+	finding wrong.
 	"""
 
 	accepted = set(subroutine.api.tasks.Update.model_fields)
 	ref = world.call("POST", "/v1/tasks", json={"title": "A span to argue with"}).json()["ref"]
 
-	bodies = (
+	# The three span refusals, and then one unreadable value per date field — the two ways a
+	# refusal about a date is raised, from the two functions that raise them.
+	bodies = [
 		{"ends": "2026-08-28"},
 		{"starts": "2026-08-28", "ends": "2026-08-14"},
 		{"starts": "2026-08-14", "ends": "2026-08-28T15:00:00Z"},
+	]
+
+	dated = [
+		written
+		for written, _flag in subroutine.domain.schedule.DATE_FIELDS.values()
+		if written in accepted
+	]
+
+	assert len(dated) >= 4, (
+		f"the date fields this endpoint accepts came back as {dated}, which is fewer than "
+		"`DATE_FIELDS` holds — so this walk is reading less than it did rather than passing"
 	)
+
+	bodies.extend({written: "the twelfth of neveruary"} for written in dated)
 
 	named = []
 
@@ -3770,7 +3790,7 @@ def test_every_field_a_span_refusal_names_is_one_a_caller_can_send (
 		for error in answer.json()["errors"]:
 			named.append(error["field"])
 
-	assert named, "the three refusals have to name something"
+	assert len(named) >= len(bodies), "every one of these refusals has to name something"
 
 	unsendable = sorted({field for field in named if field not in accepted})
 
