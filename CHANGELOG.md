@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent can say a document is still a draft, and change its mind.** `subroutine_document`
+  takes a `status` now, on writing one and on revising it — the underlying calls have accepted
+  it for months and this tool offered it on neither, so an agent that wanted to hold something
+  back had to fall through to a raw API call. What you write is in force at once, which is what
+  `subroutine://conventions` delivers; a status held back is not. The answer says which state
+  you got, when you asked for one.
+
 - **Making a project private says what that means.** A private project is visible to whoever
   made it and to nobody else, permanently — nothing in the product adds a second person to one.
   `--private` said *"Only its members can see it"*, which is true and reads as an invitation to

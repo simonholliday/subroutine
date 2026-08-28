@@ -836,7 +836,9 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			description=(
 				"Record a conclusion the next session needs — a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
-				"concluded. A '#42' in the body is a reference, not a link — "
+				"concluded. What you write is in force at once, and what is in force is what "
+				"subroutine://conventions delivers — give it a status to hold it back while "
+				"you are still thinking. A '#42' in the body is a reference, not a link — "
 				"subroutine_show offers the link where one fits. Pass ref to revise one "
 				"rather than writing a second."
 			),
@@ -851,6 +853,20 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 						"description": "note, spec, design, decision, finding or dead_end.",
 					},
 					"project": {"type": "string", "description": "Project key."},
+					"status": {
+						"type": "string",
+						# **A key as an example here, and none in the description above.**
+						# `#1076`'s guard scans tool descriptions, the resources and the
+						# session instructions, because a status key is renameable (§5.5) and
+						# an installation that renamed `active` got *no index at all*. A
+						# schema property is where an argument's values are documented and
+						# `subroutine_update` already names one this way; the marker is that
+						# it says *e.g.* rather than promising the word exists.
+						"description": (
+							"A document status key, e.g. draft — subroutine://meta lists this "
+							"workspace's own. Omitted puts it in force."
+						),
+					},
 					"tags": {
 						"type": "array",
 						"items": {"type": "string"},
@@ -2972,12 +2988,36 @@ def _wrote (
 			title=_text(arguments, "title") or "",
 			body=_text(arguments, "body"),
 			type=_text(arguments, "type"),
+			# **Reachable at last** (`#1188`). ``create_document`` has taken this since `#506`
+			# and this tool never offered it, so an agent writing a specification got a draft,
+			# was not told, and had no tool to change it — first contact reached for
+			# ``subroutine_call_api(method="PATCH", …)``, the most context-expensive call on
+			# the surface.
+			status=_text(arguments, "status"),
 			project=_text(arguments, "project") or checkout.project,
 			tags=_words(arguments, "tags"),
 			workspace=workspace,
 		)
 
 		answer = "Wrote " + _line(document, now=subroutine.db.types.utcnow())
+
+		# **Named only when the caller asked** (`#1188`, §12.2a). `#1188` was filed saying a
+		# specification starts as a draft; measured while building it,
+		# ``IN_FORCE_WHEN_WRITTEN`` is derived from ``SEEDED_ITEM_TYPES`` and now holds
+		# **every** document type — so `#537` was answered, everything starts in force, and
+		# the status is a constant. A line that says the same thing every time says nothing.
+		#
+		# **``status_is_default`` looked like the field for this and answers a different
+		# question**, which a test caught: it means *this is the workspace's default status*,
+		# and a decision written into force is ``active`` where the default is ``draft``. So it
+		# is false on the ordinary case, which is the opposite of what is wanted. What is
+		# actually being asked is whether the caller said anything, and that is knowable here.
+		#
+		# **Not in :func:`_line`** either way, which is measured the other way round: a status
+		# cell on a *document* row would appear on 111 of this instance's 122. On a write there
+		# is one row, which is the same distinction `#1438` drew for the project below.
+		if _text(arguments, "status") is not None:
+			answer = f"{answer}\n  {document.status}"
 
 		if checkout.said is not None:
 			answer = f"{answer}\n  {checkout.said}"
@@ -3011,6 +3051,12 @@ def _wrote (
 		title=said("title"),
 		body=said("body"),
 		type=said("type"),
+		# **Both halves, because one without the other leaves the complaint standing**
+		# (`#1188`). Offering ``status`` only at creation would let an agent choose but never
+		# correct — and the case the item was filed from is exactly a correction: something
+		# written as a draft that turns out to bind the next session. `#506` made
+		# ``status_key`` reachable from a client for this reason and only one caller used it.
+		status=said("status"),
 		project=said("project"),
 		tags=subroutine.clients.base.UNSET if tags is None else tags,
 		workspace=workspace,
@@ -3031,7 +3077,15 @@ def _wrote (
 	# **A revision consults no marker, deliberately.** Omitted means unchanged (§8.3), so a
 	# document keeps the project it was filed under; letting the checkout speak here would move
 	# somebody else's document because of where the editor happened to be standing.
-	return "Revised " + _line(revised, now=subroutine.db.types.utcnow())
+	#
+	# **The status is named on a revision whichever way it went** (`#1188`), which is the one
+	# place this differs from a write. The single thing an agent does with this argument is
+	# move a document between draft and in force, and *it is in force now* and *it is still a
+	# draft* are equally the answer to that — so the default is news here in a way it is not
+	# when nobody asked.
+	said_status = "" if _text(arguments, "status") is None else f"\n  {revised.status}"
+
+	return "Revised " + _line(revised, now=subroutine.db.types.utcnow()) + said_status
 
 
 def _remarked (

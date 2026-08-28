@@ -6999,3 +6999,103 @@ def test_the_echo_stays_beside_the_title_when_another_line_is_added (
 	assert separator, f"the echo is not marked off at all: {made}"
 	assert echoed == "!4/2 ~2h)", made
 	assert head.endswith("Fix the header"), head
+
+
+def test_a_written_document_says_its_state_only_when_it_is_not_the_ordinary_one (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""`#1188`, **and the item's own premise had expired when I came to build it.**
+
+	It says a specification starts as a draft. Measured while writing this test, which is how
+	it was caught: ``documents.IN_FORCE_WHEN_WRITTEN`` is derived from ``SEEDED_ITEM_TYPES``
+	and now holds **every** document type, so `#537` was answered and everything starts in
+	force. The first version of this test asserted ``draft`` for a ``spec`` and failed against
+	correct code.
+
+	So the status is a constant unless somebody asked for something else, and §12.2a decides
+	the rest: a line that says the same thing every time says nothing.
+
+	**``status_is_default`` looked like the field for it and answers a different question**,
+	which this test caught: it means *this is the workspace's default status*, and a decision
+	written into force is ``active`` where the default is ``draft`` — so it is false on the
+	ordinary case, which is the opposite of what is wanted.
+	"""
+
+	os.chdir(tmp_path)
+
+	ordinary, failed = _called(
+		bound, "subroutine_document", title="What we decided", body="Because.", type="decision"
+	)
+
+	assert not failed, ordinary
+	assert "active" not in ordinary, ordinary
+
+	asked, failed = _called(
+		bound, "subroutine_document", title="Still working", body="Later.", type="spec",
+		status="draft",
+	)
+
+	assert not failed, asked
+	assert "draft" in asked
+
+
+def test_an_agent_can_put_a_document_in_force_and_take_it_back (
+	bound: subroutine.mcp.protocol.Server, tmp_path: pathlib.Path
+) -> None:
+	"""`#1188`'s other half, and one without it leaves the complaint standing.
+
+	``create_document`` and ``update_document`` have both taken ``status`` since `#506` and
+	this tool offered it on neither — so an agent writing a specification got a draft, was not
+	told, and had no tool to change it. First contact reached for
+	``subroutine_call_api(method="PATCH", …)``, the most context-expensive call on the surface.
+
+	**The revision half is the one the item was filed from**: the case is a correction —
+	something written as a draft that turns out to bind the next session.
+	"""
+
+	os.chdir(tmp_path)
+
+	written, failed = _called(
+		bound, "subroutine_document", title="Still thinking", body="Maybe.", type="decision",
+		status="draft",
+	)
+
+	assert not failed, written
+	assert "draft" in written
+
+	ref = int(written.split("#")[1].split()[0])
+	promoted, failed = _called(bound, "subroutine_document", ref=ref, status="active")
+
+	assert not failed, promoted
+	assert "active" in promoted
+
+
+def test_the_document_tool_says_which_kinds_start_in_force (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1188`'s third part: the rule is explained on the terminal and was absent here.
+
+	``subroutine doc create --help`` states it. This is the surface **told to read the
+	conventions index before its first write**, and it is the surface that could not see why a
+	draft of its own never appeared there.
+
+	`#499`'s rule, one level down: the guaranteed channel has to name what the optional ones
+	carry, and a tool description is the only thing every session is certain to read.
+
+	**And it may not name the status key**, which `#1076`'s guard caught in the first version
+	of this sentence. A key is renameable (§5.5) and an installation that renamed ``active``
+	got *no index at all* — so a tool description states the behaviour and the schema property
+	beneath it carries the example, which is the shape ``subroutine_update`` already uses.
+	"""
+
+	# **Through ``tools/list``, which is how a client actually learns what exists.** Reading
+	# the objects would test the catalogue and not the contract, and this assertion is about
+	# what reaches a session.
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	described = {
+		tool["name"]: tool["description"] for tool in answered[0]["result"]["tools"]
+	}["subroutine_document"]
+
+	assert "in force" in described
+	assert "hold it back" in described
+	assert "subroutine://conventions" in described
