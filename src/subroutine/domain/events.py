@@ -277,6 +277,7 @@ def selected (
 	entity_id: uuid.UUID | None = None,
 	upper_bound: datetime.datetime | None = None,
 	since: int | None = None,
+	before: int | None = None,
 	visible: sqlalchemy.ColumnElement[bool] | None = None,
 	actor_token_id: uuid.UUID | None = None,
 	narrowing: typing.Sequence[typing.Any] = (),
@@ -310,6 +311,11 @@ def selected (
 	  "inclusive-with-dedupe" because a client that persists its cursor before it has finished
 	  processing a page must not lose the page — one duplicated row per poll buys that, and
 	  every event carries a stable ``id`` to dedupe on.
+	* ``before`` is a ``seq`` and is **exclusive**, which is the opposite and is deliberate
+	  (`#1097`). It is not a cursor a client persists between polls: it is how the page just
+	  read is resumed *backwards*, inside one call, from a row already in hand — so re-asking
+	  for that row would return a duplicate rather than protect against a lost one. The two
+	  bounds compose, and together they are a range.
 	* ``visible`` is :func:`subroutine.domain.scoping.visible_events`. It is a *parameter* so
 	  that this stays a builder rather than a policy — :func:`feed` is the one place that
 	  decides a feed always narrows, and a history always does not.
@@ -360,6 +366,9 @@ def selected (
 	if since is not None:
 		statement = statement.where(model.seq >= since)
 
+	if before is not None:
+		statement = statement.where(model.seq < before)
+
 	if visible is not None:
 		statement = statement.where(visible)
 
@@ -394,6 +403,7 @@ def feed (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	since: int | None = None,
+	before: int | None = None,
 	mine: bool = False,
 	by: uuid.UUID | None = None,
 	newest: bool = False,
@@ -426,6 +436,7 @@ def feed (
 		workspace_ids=workspace_ids,
 		upper_bound=subroutine.db.types.utcnow() - WATERMARK,
 		since=since,
+		before=before,
 		visible=subroutine.domain.scoping.visible_events(
 			principal, workspace_ids=workspace_ids
 		),
@@ -444,6 +455,13 @@ def feed (
 	# long history the *first* call lands on. Without it somebody meeting an instance with
 	# thousands of events is shown its first afternoon and has to page to reach this morning,
 	# which is not what "what has changed" asks.
+	#
+	# **And since `#1097` a `newest` feed is walkable backwards, which that sentence used to
+	# rule out.** Simon's decision of 2026-08-28. It had to be: with `newest` set `has_more`
+	# means there are *earlier* events, and `since` is a floor, so a client holding the newest
+	# page had no way to ask for the rest — a caller asking for 500 got one page over HTTP and
+	# 500 locally, from the same command. `before` is that way, and every answer still reads
+	# forwards; what is no longer true is that the feed can only be *asked* forwards.
 	return statement.order_by(model.seq.desc() if newest else model.seq.asc())
 
 
@@ -454,6 +472,7 @@ def page (
 	workspace_ids: typing.Sequence[uuid.UUID],
 	size: int,
 	since: int | None = None,
+	before: int | None = None,
 	mine: bool = False,
 	by: uuid.UUID | None = None,
 	newest: bool = False,
@@ -467,6 +486,12 @@ def page (
 	``has_more`` means "there is another page in the direction you are reading" — later events
 	on an ordinary call, *earlier* ones when ``newest`` is set. Either way the page itself
 	reads forwards, and its last row is the number to resume from.
+
+	**Which is what ``before`` is for** (`#1097`). Reading backwards, the number to resume from
+	is the *first* row rather than the last, and it is exclusive rather than inclusive — the
+	page is already in hand, so there is nothing to protect against losing. ``since`` still
+	overrules ``newest`` below; ``before`` does not, because it is the bound a backwards walk
+	moves rather than a statement about where the caller has got to.
 
 	**And the one place ``since`` overrules ``newest``** (`#310`). Both transports worked that
 	rule out for themselves — ``newest=newest and since is None``, written twice — which is the
@@ -484,6 +509,7 @@ def page (
 		principal,
 		workspace_ids=workspace_ids,
 		since=since,
+		before=before,
 		mine=mine,
 		by=by,
 		newest=newest,
@@ -497,6 +523,39 @@ def page (
 		rows.reverse()
 
 	return rows, has_more
+
+
+def refuse_a_bound_that_names_nothing (before: int | None) -> None:
+	"""Refuse an upper bound below the first ``seq`` there could ever be — `#1097`.
+
+	**The same reasoning as ``since``'s first refusal and not the second.** ``before`` is
+	exclusive, so ``before=1`` asks for everything earlier than the first event there has ever
+	been: an empty feed, correctly, and one that reads exactly like *nothing has happened*.
+	Zero — the ordinary uninitialised default in most languages — is the same answer arrived at
+	by accident, and a feed's one unforgivable failure is looking empty when it is not.
+
+	**There is no expiry half.** Nothing is being resumed from here, so an old bound is not a
+	lost page; it is a caller asking about the past, which is what a bound is for.
+
+	Here rather than in either caller for §5.11a's reason: a feed must not answer differently
+	over two transports, and ``since=0`` is the recorded case of exactly that (`#309`).
+	"""
+
+	if before is None or before > FIRST_SEQ:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"'before' is a seq and the first one is {FIRST_SEQ}, so {before} names nothing.",
+		code="invalid_field_value",
+		errors=[
+			subroutine.errors.FieldError(
+				field="before",
+				code="invalid_field_value",
+				message="Send the seq of the earliest event you already have, or omit "
+				"'before' to read from the newest end.",
+			)
+		],
+	)
 
 
 def refuse_unusable_cursor (

@@ -50,6 +50,13 @@ Parsed = typing.TypeVar("Parsed", bound=pydantic.BaseModel)
 BY_CURSOR = "cursor"
 BY_SEQ = "since"
 
+#: The same cursor read the other way — `#1097`. A ``newest`` page holds the *latest* events,
+#: so its ``has_more`` is about earlier ones and the number to resume from is its **first** row
+#: rather than its last. Exclusive, where ``since`` is inclusive: that rule protects a client
+#: that persists a cursor between polls from losing a page it had not finished, and inside one
+#: call the page is already in hand, so including it would only produce a duplicate to drop.
+BY_SEQ_BACKWARDS = "before"
+
 #: What a problem document is served as. Anything else with a failing status is a proxy, a
 #: load balancer or a captive portal answering instead of the instance — worth saying so,
 #: because "not found" from nginx and "not found" from Subroutine mean very different things.
@@ -808,6 +815,7 @@ class Client:
 		self,
 		*,
 		since: int | None = None,
+		before: int | None = None,
 		mine: bool = False,
 		by: str | None = None,
 		newest: bool = False,
@@ -819,6 +827,7 @@ class Client:
 
 		asking = _given(
 			since=since,
+			before=before,
 			# **One parameter, two grains** (`#1120`). `me` is this credential and a username
 			# is that account, which is why the endpoint took a word rather than a flag: the
 			# widening needed no second parameter and no deprecation.
@@ -838,16 +847,17 @@ class Client:
 			subroutine.views.Event,
 			self._json("GET", "/v1/changes", params=asking),
 			endpoint="changes",
-			# **Followed forwards, and `newest` is the one call that is not** (`#1086`). With
-			# `newest` set, `has_more` means there are *earlier* events — `domain.events.page`
-			# says so — and a feed runs forwards by definition, so there is no way to ask for
-			# them. Following anyway would request whatever came after the newest event, find
-			# nothing, and turn a correct `has_more=True` into `False`: a worse answer than the
-			# short page, because it claims to be complete.
-			path=None if newest else "/v1/changes",
-			params=None if newest else asking,
+			# **Followed both ways since `#1097`, and it used to be followed one way** (`#1086`).
+			# With `newest` set, `has_more` means there are *earlier* events, and `since` is a
+			# floor — so this stopped rather than following forwards into nothing and turning a
+			# correct `has_more=True` into `False`. It stopped honestly and it stopped short:
+			# `changes --limit 500` returned one page here and 500 rows locally, from one
+			# command against one instance. `before` is the way back, so both transports now
+			# read to the depth they were asked for.
+			path="/v1/changes",
+			params=asking,
 			wanted=limit,
-			resume=BY_SEQ,
+			resume=BY_SEQ_BACKWARDS if newest else BY_SEQ,
 		)
 
 	def projects (
@@ -1898,6 +1908,13 @@ class Client:
 		one page of the feed, and a caller asking for 500 changes got ``max_page_size`` — the
 		defect `#1037` removed everywhere else, surviving in the one place the cursor was
 		already in the caller's hands.
+
+		**And one call was still short after that, for a different reason** (`#1097`). A
+		``newest`` page is the *latest* events, so its ``has_more`` is about earlier ones and
+		following it forwards would have claimed completeness falsely — so it was not followed
+		at all, and ``changes --limit 500`` returned one page here against 500 locally. It is
+		followed backwards now, with the page prepended so what the caller receives still reads
+		forwards.
 		"""
 
 		if not isinstance(body, dict) or "items" not in body:
@@ -1941,7 +1958,19 @@ class Client:
 			if not isinstance(body, dict) or "items" not in body:
 				raise self._not_an_instance(f"its /v1/…/{endpoint} response has no 'items'")
 
-			collected.extend(self._parsed(model, item) for item in body["items"])
+			fresh = [self._parsed(model, item) for item in body["items"]]
+
+			# **Prepended when reading backwards** (`#1097`). Every page reads oldest first,
+			# including a `newest` one, so a page fetched with `before` sits entirely *earlier*
+			# than everything already held. Appending it would hand the caller a list that runs
+			# forwards within each page and jumps backwards between them — and this client's
+			# whole promise is that a feed reads forwards whatever it took to assemble it.
+			if resume == BY_SEQ_BACKWARDS:
+				collected[0:0] = fresh
+
+			else:
+				collected.extend(fresh)
+
 			page = body.get("page") or {}
 			has_more = bool(page.get("has_more"))
 			cursor = page.get("next_cursor")
@@ -2229,16 +2258,27 @@ def _resumed (
 	integer sequence, so ``+ 1`` skips nothing: any later event still satisfies ``>=``.
 	"""
 
-	if how == BY_SEQ:
+	if how in (BY_SEQ, BY_SEQ_BACKWARDS):
 		if not collected:
 			return None
+
+		# **The end of the run that moves is the end being read towards.** Forwards that is the
+		# last row; backwards it is the first, because a backwards page is prepended and the
+		# earliest thing held is what the next bound has to sit below.
+		edge = collected[-1] if how == BY_SEQ else collected[0]
 
 		# `seq` rather than an attribute this can name in a type: only the event model is ever
 		# followed this way, and asking for it structurally is what stops a second model being
 		# given this resume rule without anybody noticing it has no sequence.
-		last = getattr(collected[-1], "seq", None)
+		found = getattr(edge, "seq", None)
 
-		return None if last is None else {"since": last + 1}
+		if found is None:
+			return None
+
+		# **Inclusive one way and exclusive the other**, which is why the offset is here and
+		# not one of them: `since` is `>=` so it needs `+ 1` to skip the row in hand, and
+		# `before` is `<` so the row in hand is already excluded.
+		return {"since": found + 1} if how == BY_SEQ else {"before": found}
 
 	return None if cursor is None else {"cursor": cursor}
 

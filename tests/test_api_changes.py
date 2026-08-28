@@ -279,6 +279,68 @@ def test_a_since_below_the_first_seq_is_refused (world: test_api_tasks.World) ->
 	assert answered.json()["errors"][0]["field"] == "since"
 
 
+def test_before_is_exclusive_and_composes_with_since (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1097`: the bound the feed had no way to express, and the two are a range together.
+
+	``since`` is a floor and is inclusive; ``before`` is a ceiling and is **exclusive**, which
+	is not an inconsistency. The floor's inclusiveness protects a client that persists its
+	cursor between polls from losing a page it had not finished; the ceiling is how a page
+	already in hand is walked back from inside one call, so including its edge would only
+	return a duplicate for the caller to drop.
+	"""
+
+	for title in ("First", "Second", "Third", "Fourth"):
+		world.call("POST", "/v1/tasks", json={"title": title})
+
+	_settled(world.session)
+
+	everything = _feed(world)
+
+	assert len(everything) >= 4, "the fixture is too small to have a middle"
+
+	edge = everything[-1]["seq"]
+	earlier = _feed(world, before=edge)
+
+	assert [row["seq"] for row in earlier] == [
+		row["seq"] for row in everything if row["seq"] < edge
+	], "'before' is exclusive, so the row it names must not come back"
+
+	# **And the two compose**, which is what makes a period expressible as a pair of cursors
+	# rather than only as a date range.
+	floor = everything[1]["seq"]
+	between = _feed(world, since=floor, before=edge)
+
+	assert [row["seq"] for row in between] == [
+		row["seq"] for row in everything if floor <= row["seq"] < edge
+	]
+
+
+def test_a_before_below_the_first_seq_is_refused (world: test_api_tasks.World) -> None:
+	"""`SR#1097`, and it is ``since``'s first refusal rather than its second.
+
+	``before`` is exclusive, so ``before=1`` asks for everything earlier than the first event
+	there has ever been — an empty feed, correctly, and one that reads exactly like *nothing
+	has happened*. Zero, the ordinary uninitialised default in most languages, is the same
+	answer arrived at by accident, and a feed looking empty when it is not is the one failure
+	§5.11 exists to prevent.
+
+	**There is no expiry half**, unlike ``since``: nothing is being resumed from, so an old
+	bound is a question about the past rather than a lost page.
+	"""
+
+	for value in (0, 1):
+		answered = world.call("GET", "/v1/changes", params={"before": value})
+
+		assert answered.status_code == 422, value
+		assert answered.json()["errors"][0]["field"] == "before", value
+
+	# **And two is accepted**, or this is a check that the parameter was rejected rather than
+	# that a bound naming nothing was.
+	assert world.call("GET", "/v1/changes", params={"before": 2}).status_code == 200
+
+
 def test_the_feed_refuses_a_parameter_it_does_not_declare (
 	world: test_api_tasks.World,
 ) -> None:

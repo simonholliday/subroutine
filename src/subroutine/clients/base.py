@@ -744,6 +744,7 @@ class Client(typing.Protocol):
 		self,
 		*,
 		since: int | None = None,
+		before: int | None = None,
 		mine: bool = False,
 		by: str | None = None,
 		newest: bool = False,
@@ -765,6 +766,13 @@ class Client(typing.Protocol):
 		and this is not a defect to be worked around: a sequence number becomes visible at
 		commit rather than at insert, so reporting the newest instantly is how a change ends up
 		behind a cursor that has already passed it.
+
+		``before`` is the other direction and is **exclusive** (`#1097`). With ``newest`` set,
+		``has_more`` means there are *earlier* events, and ``since`` is a floor — so this is how
+		a long history is walked back through: send the ``seq`` of the earliest event you hold.
+		It is not a cursor to persist between polls, which is why it excludes rather than
+		includes: the row is already in hand. The two bounds compose, and together they are a
+		range.
 
 		``dated`` is §9.6's dotted filters as somebody wrote them — ``created_at.gte`` against
 		``yesterday`` — and answers the question a cursor cannot (`#1431`, decision `#1429`).

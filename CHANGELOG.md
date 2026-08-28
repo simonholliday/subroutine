@@ -16,6 +16,18 @@ upgrade involves.
 
 ### Fixed
 
+- **A feed read from its newest end goes as deep as it was asked to, over HTTP as well as
+  locally.** `subroutine changes --limit 500` returned 200 rows on a connection made by
+  address and 500 on a local one, from the same command against the same instance. The CLI
+  sets *start at the newest* whenever no `--since` was given, so this was the first-look
+  call rather than an exotic one.
+
+  It was short for a real reason: reading from the newest end, `has_more` means there are
+  *earlier* events, and `since` is a floor — so there was no way to ask for them, and
+  following forwards anyway would have found nothing and turned a correct `has_more: true`
+  into `false`. `GET /v1/changes` takes `?before=<seq>` now, an exclusive upper bound that
+  composes with `since`; together they are a range.
+
 - **An empty vocabulary says why it is empty.** `GET /v1/meta` with no workspace named
   answers `200` with a populated `workspaces` list and four empty maps — `statuses`,
   `item_types`, `link_types` and `tags`. That is deliberate and unchanged: a client's first
@@ -349,6 +361,13 @@ upgrade involves.
   by who is doing the work is still to come.
 
 ### Added
+
+- **`GET /v1/changes` accepts `?before=<seq>`**, an exclusive upper bound that makes the
+  change feed walkable backwards. Until now the feed was defined forwards in every sense,
+  including which way it could be *asked* — so a caller holding its newest page had
+  `has_more: true` and no way to act on it. Every answer still reads oldest first; what is
+  new is the direction you may ask in. `since` and `before` compose, and together they are
+  a range.
 
 - **`subroutine user role <username> <role>` moves somebody already in a workspace to
   another role**, with `PATCH /v1/workspaces/{id_or_slug}/members/{username}` behind it.

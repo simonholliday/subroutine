@@ -1700,6 +1700,7 @@ class Client:
 		self,
 		*,
 		since: int | None = None,
+		before: int | None = None,
 		mine: bool = False,
 		by: str | None = None,
 		newest: bool = False,
@@ -1739,6 +1740,7 @@ class Client:
 			subroutine.domain.events.refuse_unusable_cursor(
 				session, since=since, workspace_ids=workspace_ids
 			)
+			subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 			rows, more = subroutine.domain.events.page(
 				session,
@@ -1746,6 +1748,7 @@ class Client:
 				workspace_ids=workspace_ids,
 				size=size,
 				since=since,
+				before=before,
 				mine=mine,
 				# §9.6's date comparisons, compiled by the domain rather than approximated here
 				# (`#1431`) — the same seam the listings above use, so both transports narrow by

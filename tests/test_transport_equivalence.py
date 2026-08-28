@@ -3086,7 +3086,8 @@ def test_both_read_past_the_first_page_of_the_feed (pair: Pair) -> None:
 	then sees, measured at 152 against 158 across three runs. *Did you give me the number I
 	asked for* is exact whatever else has happened since.
 
-	``newest`` is deliberately not driven here — see `SR#1097`.
+	``newest`` is driven by the test below since `SR#1097` gave the feed a way back. It was
+	deliberately left out here for as long as there was none.
 	"""
 
 	settings = subroutine.config.Settings(dev_mode=True)
@@ -3190,6 +3191,85 @@ def test_both_resume_from_the_same_point (pair: Pair) -> None:
 
 	assert local.changes(since=middle) == remote.changes(since=middle)
 	assert local.changes(since=middle)[0].seq == middle
+
+
+def test_both_read_past_the_first_page_from_the_newest_end (pair: Pair) -> None:
+	"""`SR#1097`, Simon's decision of 2026-08-28: a feed positioned at its tail is walkable back.
+
+	The half `SR#1086` could not reach. With ``newest`` set, ``has_more`` means there are
+	*earlier* events and ``since`` is a floor, so the remote client had nothing to resume with
+	and stopped — honestly, and short: ``changes --limit 500`` answered one page here and 500
+	locally, from one command against one instance. And the CLI sets ``newest`` whenever no
+	``--since`` was given, so this was the *first-look* call rather than an exotic one.
+
+	**Following forwards would have been worse than stopping**, which is why it stopped: it
+	would have asked for whatever came after the newest event, found nothing, and turned a
+	correct ``has_more=True`` into ``False`` — a complete-looking answer that is not.
+
+	``?before=`` is the way back, exclusive where ``since`` is inclusive, and the pages are
+	prepended so that what the caller receives still reads forwards however many requests it
+	took. That last part is what the ordering assertion below is for: appending them would give
+	a list that runs forwards inside each page and jumps backwards between them.
+	"""
+
+	settings = subroutine.config.Settings(dev_mode=True)
+	beyond = settings.max_page_size + 5
+
+	for index in range(beyond):
+		make(pair, f"Task number {index}")
+
+	# The feed withholds the last second (§5.11), so without this every one of these is too
+	# young to be reported and both clients agree on a page of nothing.
+	time.sleep(subroutine.domain.events.WATERMARK.total_seconds() + 0.3)
+
+	local, remote = pair.both()
+
+	assert len(local.changes(newest=True, limit=beyond)) >= beyond, (
+		"the seed did not produce more events than one page holds, so this asserts nothing "
+		"about paging"
+	)
+
+	for named, client in (("local", local), ("remote", remote)):
+		got = client.changes(newest=True, limit=beyond)
+
+		assert len(got) == beyond, (
+			f"the {named} client answered {len(got)} events to a request for {beyond} from the "
+			f"newest end, and `max_page_size` is {settings.max_page_size} — which is the whole "
+			f"of `SR#1097` and was true of one transport only"
+		)
+
+		assert [event.seq for event in got] == sorted(event.seq for event in got), (
+			f"the {named} client returned the feed out of order across a page boundary, which "
+			"is what a backwards page appended rather than prepended looks like"
+		)
+
+		assert len({event.seq for event in got}) == len(got), (
+			f"the {named} client returned the same event twice, so the backwards bound was "
+			"inclusive where it has to exclude the row already in hand"
+		)
+
+		# **It really is the newest end**, or the depth above could be satisfied by reading
+		# forwards and the word `newest` would mean nothing.
+		assert got[-1].seq > client.changes(limit=3)[-1].seq, (
+			f"the {named} client's `newest` page ends no later than a forwards page of three"
+		)
+
+	# **The bound is then driven in its own right, and in a second pass on purpose.** Both
+	# transports have to have cleared the depth assertion above before anything here runs — a
+	# failure on the argument would otherwise be raised while the defect this test is about is
+	# still unproved, and a `TypeError` from the first client is a weaker demonstration than
+	# the count from both. (`SR#149`'s lesson: a guard per method cannot see an argument. And
+	# a local client that cannot express what the endpoint accepts is `SR#1316`'s shape.)
+	for named, client in (("local", local), ("remote", remote)):
+		held = client.changes(newest=True, limit=beyond)
+		edge = held[len(held) // 2].seq
+		earlier = client.changes(newest=True, before=edge, limit=5)
+
+		assert earlier, f"the {named} client found nothing before seq {edge}"
+		assert all(event.seq < edge for event in earlier), (
+			f"the {named} client returned an event at or after an exclusive bound: "
+			f"{[event.seq for event in earlier]} against {edge}"
+		)
 
 
 def test_both_read_the_newest_page_the_same_way (pair: Pair) -> None:

@@ -91,6 +91,12 @@ def listing (
 		description="Resume from this seq, inclusive. Send back the seq of the last event "
 		"you processed; you will see it again and should ignore what you already have.",
 	),
+	before: int | None = fastapi.Query(
+		None,
+		description="Read only events earlier than this seq, exclusive. With 'newest' it is "
+		"how you walk back through a long history: send the seq of the earliest event you "
+		"already have. Composes with 'since', and together they are a range.",
+	),
 	workspace_id: str | None = fastapi.Query(
 		None, description="Narrow to one workspace, by id or slug. The default spans all of them."
 	),
@@ -121,6 +127,10 @@ def listing (
 	and send it back; you will receive it again and everything after it. `has_more` says
 	whether another page is waiting immediately — when it is false you are caught up, and
 	polling again will return only what happens next.
+
+	**Going the other way is `?before=`.** With `newest` set, `has_more` means there are
+	*earlier* events, and `since` is a floor — so walking back through a long history is
+	`?before=<the earliest seq you hold>`, exclusive. Every answer still reads oldest first.
 
 	Ordered oldest first, because a feed is read forwards. The per-item histories run the
 	other way, because "what happened to this" is a question about the recent past.
@@ -154,6 +164,7 @@ def listing (
 	subroutine.domain.events.refuse_unusable_cursor(
 		session, since=since, workspace_ids=workspace_ids
 	)
+	subroutine.domain.events.refuse_a_bound_that_names_nothing(before)
 
 	return _page(
 		session,
@@ -167,6 +178,7 @@ def listing (
 			dated, session=session, actor=actor, workspace_ids=workspace_ids
 		),
 		since=since,
+		before=before,
 		mine=actor_filter == ACTOR_ME,
 		by=by,
 		newest=newest,
@@ -188,6 +200,7 @@ def _page (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	since: int | None,
+	before: int | None,
 	mine: bool,
 	by: uuid.UUID | None,
 	newest: bool,
@@ -204,6 +217,7 @@ def _page (
 		workspace_ids=workspace_ids,
 		size=size,
 		since=since,
+		before=before,
 		mine=mine,
 		by=by,
 		newest=newest,
