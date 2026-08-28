@@ -1332,6 +1332,54 @@ def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
 	run("done", "1")
 
 
+def test_a_narrowing_filter_given_twice_is_refused_rather_than_halved (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1484`, Simon's decision of 2026-08-28: refuse the second, do not union them.
+
+	Repeating one silently kept the **last**, so `--type finding --type note` answered about
+	notes alone — and on a project holding none it printed *"Nothing on your list"*, which reads
+	as *nothing has ever been filed here*. That is how it was found: an agent following the
+	import process ran a four-type filter and concluded the project was empty, at the step that
+	document calls the most valuable thing it will read all session.
+
+	Same shape as `SR#1468` — a listing answering a narrower question than it was asked and not
+	saying so — and the one option the item rules out, because the other two are each defensible.
+
+	**Five filters share this shape**, so the refusal is one function reading a declared list
+	rather than a rule about `--type`. Two of them are driven here and the population is asserted
+	against the declarations, so a sixth cannot be added without either being covered or failing
+	this.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+
+	refused = run("list", "--type", "task", "--type", "bug", expect=1)
+
+	assert "takes one value" in refused.output, refused.output
+	assert "task" in refused.output and "bug" in refused.output, (
+		f"a refusal about repetition has to quote what was repeated:\n{refused.output}"
+	)
+
+	# **One value still works**, or this is a check that the flag was broken rather than that
+	# repeating it was.
+	assert "Buy milk" in run("list", "--type", "task").output
+
+	# **And it is not a rule about one flag.** `search` carries only `--project` of the five,
+	# so driving it here says the refusal reaches a second command as well as a second option.
+	both = run("search", "milk", "--project", "one", "--project", "two", expect=1)
+
+	assert "takes one value" in both.output, both.output
+
+	# **The declarations and the register agree**, so a sixth narrowing filter is either
+	# covered or fails this rather than joining silently.
+	for flag in subroutine.cli.personal.ONE_VALUE_EACH:
+		assert flag in run("list", "--help").output, (
+			f"{flag} is registered as taking one value and 'list' does not offer it"
+		)
+
+
 def test_deleting_one_turn_of_a_repeat_says_the_repeat_is_still_standing (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -7777,7 +7825,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_600
+REGISTER_CEILING = 1_592
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -7809,7 +7857,7 @@ REGISTER_CEILING = 1_600
 #: left to pay for its declaration. **That is the arrangement working as designed rather than
 #: being worked around**: the bill for a new command is an extraction, so what is added is paid
 #: for instead of accumulated.
-MODULE_LEVEL_FLOOR = 182
+MODULE_LEVEL_FLOOR = 186
 
 
 def _register_span () -> tuple[int, int]:

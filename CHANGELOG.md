@@ -214,6 +214,20 @@ upgrade involves.
 
 ### Changed
 
+- **A filter given twice is refused rather than silently halved.** `subroutine list --type
+  finding --type note` kept only the last and answered about notes alone — and on a project
+  holding none it printed *"Nothing on your list"*, which reads as *nothing has ever been
+  filed here*. `?type=bug&type=spike` did the same over HTTP. Both now say the flag takes one
+  value and quote what was given.
+
+  > **If you repeat a query parameter, this changes.** `GET /v1/tasks?type=a&type=b` answered
+  > `200` about `b`; it is a `422` naming the parameter now. The same applies to every
+  > single-valued parameter on every endpoint — it is refused at the door rather than listed
+  > per route. A parameter declared as a list is unaffected, and none is today.
+
+  Refused rather than unioned, deliberately: refusing now does not stop us accepting both
+  values later, where accepting them now and refusing later would be a break.
+
 - **A refusal about a query parameter names it the same way whoever raised it.** Until now,
   the same parameter on the same endpoint came back as `query.limit` when the request
   validator refused it and as `limit` when the refusal was raised deeper down — and in this

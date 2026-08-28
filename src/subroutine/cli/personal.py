@@ -4210,6 +4210,70 @@ def _in_an_editor (program: Program, current: str) -> str:
 		path.unlink(missing_ok=True)
 
 
+#: The filters that narrow a listing and take exactly one value each — `#1484`. Named here so
+#: the refusal and the declarations cannot come to disagree about which flags are covered, and
+#: so a sixth is a one-line addition rather than a fifth copy of the same three lines.
+#:
+#: **Not `--order`, `--limit` or `--connection`.** The first already takes several sort keys as
+#: one comma-separated value, so repeating it asks a different question; the other two are not
+#: narrowings. They are still last-wins and that is recorded on `#1484` rather than fixed here.
+ONE_VALUE_EACH = ("--project", "--assignee", "--claimed-by", "--status", "--type")
+
+#: The five declared once, because three commands offer them and the wording is user-facing —
+#: `JUST_THIS_ONE_OPTION`'s precedent, and for its reason: three copies is three places for a
+#: help string to drift, and a flag whose wording differs between `list` and `search` reads as
+#: two different flags. Typer builds its own parameter per command from one of these, so
+#: sharing them changes nothing about what any command parses.
+#:
+#: **Each takes a list and each accepts one**, which is what makes the repetition *visible* to
+#: :func:`_only_once`. Declared as a sequence and refused above one, rather than declared
+#: singular and silently keeping the last (`#1484`).
+PROJECT_OPTION = typer.Option(None, "--project", help="Only this project, by key.")
+ASSIGNEE_OPTION = typer.Option(
+	None, "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
+)
+CLAIMED_BY_OPTION = typer.Option(
+	None, "--claimed-by", help="Only what somebody is holding now. A username, or 'me'."
+)
+STATUS_OPTION = typer.Option(None, "--status", help="Only this status, e.g. 'blocked'.")
+TYPE_OPTION = typer.Option(None, "--type", help="Only this type, e.g. 'bug'.")
+
+
+def _only_once (program: Program, flag: str, given: typing.Sequence[str] | None) -> str | None:
+	"""Return the one value a narrowing filter was given, refusing several — `#1484`.
+
+	**Repeating one silently kept the last**, so `subroutine list --type finding --type note`
+	answered about notes alone — and on a project holding none it printed *"Nothing on your
+	list"*, which reads as *nothing has ever been filed here*. That is how it was found: an
+	agent following the import process ran a four-type filter and concluded the project was
+	empty. Same shape as `#1468` — a listing answering a narrower question than it was asked
+	and not saying so.
+
+	**Refused rather than unioned**, on Simon's decision of 2026-08-28. A union has to reach
+	the domain, both clients and the published contract, and five filters share this shape; a
+	refusal is one sentence where the flag is read. It is also the direction that costs nothing
+	if the other is wanted later: refusing now does not stop us accepting a union, and unioning
+	now and refusing later would be a break.
+
+	**The API refuses the same thing at its own door** (`api/query.refuse_repeated`), so a
+	terminal on a remote connection and one on a local database answer alike — which they would
+	not if this lived only here.
+	"""
+
+	if not given:
+		return None
+
+	if len(given) > 1:
+		program.stop(
+			f"'{flag}' takes one value and was given {len(given)}: "
+			f"{', '.join(repr(one) for one in given)}.",
+			f"Ask for one of them. '{flag}' repeated kept only the last, which answered a "
+			"narrower question than you asked without saying so.",
+		)
+
+	return given[0] or None
+
+
 def _names_in_words (names: typing.Sequence[str]) -> str:
 	"""Return names as a sentence rather than as a comma-separated list — "a, b and c".
 
@@ -7470,7 +7534,7 @@ def register (
 		order: str = typer.Option(
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
-		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		project: list[str] | None = PROJECT_OPTION,
 		connection: str = typer.Option(
 			"", "--connection", help="Only this connection, by name."
 		),
@@ -7485,14 +7549,10 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
-		assignee: str = typer.Option(
-			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
-		),
-		claimed_by: str = typer.Option(
-			"", "--claimed-by", help="Only what somebody is holding now. A username, or 'me'."
-		),
-		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
-		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
+		assignee: list[str] | None = ASSIGNEE_OPTION,
+		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
+		status: list[str] | None = STATUS_OPTION,
+		kind: list[str] | None = TYPE_OPTION,
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
@@ -7534,18 +7594,18 @@ def register (
 			merged=merged,
 			strict=strict,
 			order=order or None,
-			project=project or None,
+			project=_only_once(program, "--project", project),
 			connection=connection or None,
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
-			assignee=assignee or None,
-			claimed_by=claimed_by or None,
-			status=status or None,
+			assignee=_only_once(program, "--assignee", assignee),
+			claimed_by=_only_once(program, "--claimed-by", claimed_by),
+			status=_only_once(program, "--status", status),
 			# **`kind` locally, `--type` to the user, `type=` to the client.** `type` is a
 			# builtin and shadowing it inside a function that also annotates with `str | None`
 			# is how a signature comes to mean something it does not.
-			type=kind or None,
+			type=_only_once(program, "--type", kind),
 			filters=_filters(program, dated),
 		)
 
@@ -7563,7 +7623,7 @@ def register (
 		order: str = typer.Option(
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
-		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		project: list[str] | None = PROJECT_OPTION,
 		connection: str = typer.Option(
 			"", "--connection", help="Only this connection, by name."
 		),
@@ -7596,7 +7656,7 @@ def register (
 			merged=merged,
 			strict=strict,
 			order=order or None,
-			project=project or None,
+			project=_only_once(program, "--project", project),
 			connection=connection or None,
 			deferred=deferred,
 			q=_asked(terms, "What are you looking for?"),
@@ -7725,7 +7785,7 @@ def register (
 		order: str = typer.Option(
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
-		project: str = typer.Option("", "--project", help="Only this project, by key."),
+		project: list[str] | None = PROJECT_OPTION,
 		connection: str = typer.Option(
 			"", "--connection", help="Only this connection, by name."
 		),
@@ -7740,14 +7800,10 @@ def register (
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
-		assignee: str = typer.Option(
-			"", "--assignee", help="Only what is assigned to somebody. A username, or 'me'."
-		),
-		claimed_by: str = typer.Option(
-			"", "--claimed-by", help="Only what somebody is holding now. A username, or 'me'."
-		),
-		status: str = typer.Option("", "--status", help="Only this status, e.g. 'blocked'."),
-		kind: str = typer.Option("", "--type", help="Only this type, e.g. 'bug'."),
+		assignee: list[str] | None = ASSIGNEE_OPTION,
+		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
+		status: list[str] | None = STATUS_OPTION,
+		kind: list[str] | None = TYPE_OPTION,
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
@@ -7775,15 +7831,15 @@ def register (
 			merged=merged,
 			strict=strict,
 			order=order or None,
-			project=project or None,
+			project=_only_once(program, "--project", project),
 			connection=connection or None,
 			deferred=deferred,
 			ready=ready,
 			trash=trash,
-			assignee=assignee or None,
-			claimed_by=claimed_by or None,
-			status=status or None,
-			type=kind or None,
+			assignee=_only_once(program, "--assignee", assignee),
+			claimed_by=_only_once(program, "--claimed-by", claimed_by),
+			status=_only_once(program, "--status", status),
+			type=_only_once(program, "--type", kind),
 			filters=_filters(program, dated),
 		)
 

@@ -54,6 +54,8 @@ an endpoint is accepted the moment it exists. A hand-maintained allow-list here 
 same defect this module exists to prevent, one level up.
 """
 
+import collections.abc
+import types
 import typing
 
 import fastapi
@@ -211,10 +213,135 @@ def _accepted (request: starlette.requests.Request) -> frozenset[str] | None:
 	)
 
 
+def refuse_repeated (request: starlette.requests.Request) -> None:
+	"""Refuse a query parameter given more than once, where the route declares one value.
+
+	**Measured 2026-08-28 on the served instance** (`#1484`): `?type=bug&type=spike` answers
+	`200` with spikes and `?status=open&status=done` answers `200` with finished work. The
+	caller asked two questions and was answered one, with nothing saying which — the shape
+	`#1468` has already been fixed once on the other half of a listing, and the shape this
+	module's own docstring is about: *a plausible, complete, wrong answer*.
+
+	**Every query parameter this API declares is scalar**, measured across the routes rather
+	than assumed, so today this refuses every repetition. It reads the annotation anyway,
+	because the day one is declared a sequence is the day repeating it becomes the way to use
+	it — and a check that had hardcoded *always refuse* would have to be found and changed by
+	whoever adds it, which is the maintained-list defect this module exists to avoid.
+
+	**A dotted date filter is not covered here** and says so rather than being silently
+	included: those names are not declared on the route at all (`api/filters` owns them and
+	:func:`refuse_unknown` lets them through on faith), so this has nothing to read an
+	annotation from. `#1484` records that gap.
+
+	Simon's decision of 2026-08-28: **refuse rather than union**. A union has to reach the
+	domain, both clients and the published contract, and five filters share this shape; a
+	refusal is one sentence at the door. It is also the forward-compatible direction —
+	refusing now does not stop us accepting a union later, and unioning now and refusing later
+	would be a break.
+	"""
+
+	if _excused(request):
+		return
+
+	scalar = _scalar(request)
+
+	if scalar is None:
+		return
+
+	seen: dict[str, int] = {}
+
+	for name, _value in request.query_params.multi_items():
+		seen[name] = seen.get(name, 0) + 1
+
+	repeated = sorted(name for name, times in seen.items() if times > 1 and name in scalar)
+
+	if not repeated:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{repeated[0]!r} takes one value and was given "
+		f"{seen[repeated[0]]}.",
+		code="invalid_field_value",
+		errors=[
+			subroutine.errors.FieldError(
+				field=name,
+				code="invalid_field_value",
+				message=f"{name!r} was given {seen[name]} times: "
+				f"{', '.join(repr(value) for key, value in request.query_params.multi_items() if key == name)}.",
+				hint="Ask for one of them. Repeating it kept only the last, which answered a "
+				"narrower question than you asked without saying so.",
+			)
+			for name in repeated
+		],
+	)
+
+
+def _scalar (request: starlette.requests.Request) -> frozenset[str] | None:
+	"""Return the declared query parameters that hold a single value, or ``None``.
+
+	A sequence annotation — ``list[str]``, and ``list[str] | None`` for one that may be
+	omitted — is a parameter whose *meaning* is that it repeats, so it is excluded rather than
+	refused. None exists today; the rule is read from the signature so that the first one to
+	be declared works without anybody remembering this function.
+	"""
+
+	route: typing.Any = request.scope.get("route")
+	dependant = getattr(route, "dependant", None)
+	declared = getattr(dependant, "query_params", None)
+
+	if declared is None:
+		return None
+
+	found: set[str] = set()
+
+	for field in declared:
+		alias = getattr(field, "alias", None)
+
+		if alias is None:
+			continue
+
+		annotation = getattr(getattr(field, "field_info", None), "annotation", None)
+
+		if not _takes_many(annotation):
+			found.add(alias)
+
+	return frozenset(found)
+
+
+def _takes_many (annotation: typing.Any) -> bool:
+	"""Report whether an annotation is a sequence, looking inside an optional.
+
+	``list[str] | None`` is two things at once, so the union is walked rather than tested — a
+	check that asked only about the outer type would call every optional parameter scalar,
+	including the sequences, which is the direction that fails silently.
+	"""
+
+	if annotation is None:
+		return False
+
+	origin = typing.get_origin(annotation)
+
+	if origin in (typing.Union, types.UnionType):
+		return any(_takes_many(one) for one in typing.get_args(annotation))
+
+	return isinstance(origin, type) and issubclass(origin, collections.abc.Sequence) and origin is not str
+
+
+def _asked_once_and_by_name (request: starlette.requests.Request) -> None:
+	"""Both refusals, in the order that gives the better message.
+
+	A name that is unknown *and* repeated is a typo rather than an ambiguity, so
+	:func:`refuse_unknown` answers first and says what the endpoint accepts.
+	"""
+
+	refuse_unknown(request)
+	refuse_repeated(request)
+
+
 #: Declared on every collection endpoint and on the agenda. A dependency rather than a call in
 #: each handler, so it runs before the body of the endpoint and cannot be forgotten half-way
 #: down one.
-UnknownQueryDep = fastapi.Depends(refuse_unknown)
+UnknownQueryDep = fastapi.Depends(_asked_once_and_by_name)
 
 
 #: What ``?include=`` may name, per entity. Short on purpose: every entry is a promise that

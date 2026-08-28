@@ -341,6 +341,68 @@ def test_a_before_below_the_first_seq_is_refused (world: test_api_tasks.World) -
 	assert world.call("GET", "/v1/changes", params={"before": 2}).status_code == 200
 
 
+def test_a_query_parameter_given_twice_is_refused_rather_than_halved (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1484`, Simon's decision of 2026-08-28: refuse the second, do not union them.
+
+	**Measured before the fix, on the served instance**: `?type=bug&type=spike` answered `200`
+	with spikes and `?status=open&status=done` answered `200` with finished work. The caller
+	asked two questions and was answered one of them, with nothing saying which — and on a
+	project holding none of the surviving kind that reads as *nothing has ever been filed
+	here*, which is how it was found: an agent following the import process ran a four-type
+	filter and was told the project was empty.
+
+	**The item only measured the terminal.** The API does the same thing, which is what puts
+	this at the door rather than in the CLI: one refusal covers both transports, every route,
+	and every parameter nobody has declared yet.
+
+	Refused, not unioned, because a union has to reach the domain, both clients and the
+	published contract — and because refusing now does not stop us accepting a union later,
+	where the reverse would be a break.
+	"""
+
+	world.call("POST", "/v1/tasks", json={"title": "One"})
+
+	refused = world.call("GET", "/v1/tasks", params=[("type", "bug"), ("type", "spike")])
+
+	assert refused.status_code == 422, refused.text
+
+	field = refused.json()["errors"][0]
+
+	assert field["field"] == "query.type", refused.text
+	assert "bug" in field["message"] and "spike" in field["message"], (
+		f"a refusal about repetition has to quote what was repeated:\n{field}"
+	)
+
+	# **One value still works**, or this is a check that the parameter was broken rather than
+	# that repeating it was.
+	assert world.call("GET", "/v1/tasks", params={"type": "bug"}).status_code == 200
+
+	# **And it is not a rule about one parameter.** Five filters share this shape and the
+	# guard reads the route rather than a list of names, so a second one costs nothing.
+	both = world.call("GET", "/v1/tasks", params=[("status", "open"), ("status", "done")])
+
+	assert both.status_code == 422, both.text
+	assert both.json()["errors"][0]["field"] == "query.status", both.text
+
+
+def test_an_unknown_parameter_repeated_is_named_as_unknown (
+	world: test_api_tasks.World,
+) -> None:
+	"""The order of the two refusals, and it is the one that gives the better message.
+
+	A name that is both unknown and repeated is a typo rather than an ambiguity — telling
+	somebody they gave `actorr` twice answers a question they did not have, where naming what
+	the endpoint accepts answers the one they did.
+	"""
+
+	refused = world.call("GET", "/v1/changes", params=[("actorr", "me"), ("actorr", "you")])
+
+	assert refused.status_code == 422
+	assert refused.json()["errors"][0]["code"] == "unknown_field", refused.text
+
+
 def test_the_feed_refuses_a_parameter_it_does_not_declare (
 	world: test_api_tasks.World,
 ) -> None:
