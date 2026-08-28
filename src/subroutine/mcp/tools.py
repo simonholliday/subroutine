@@ -3562,7 +3562,20 @@ def _projected (
 		if not rows:
 			return "No projects."
 
-		return "\n".join(f"{row.key}  {row.title}" for row in rows)
+		# **Indented by depth, because where a project sits is the question this answers**
+		# (`#617`). The rows arrive ordered by path, so a child follows its parent and the
+		# shape prints in one pass — the same reason `project list` gives for its own
+		# ordering, and the same walk, since both surfaces call ``client.projects``.
+		#
+		# **§12.2a does not reach this.** That rule drops a column saying the same thing on
+		# every row; indentation differs per row and *is* the relationship rather than a
+		# label for it, which is `#63`'s line between a listing — ordered by recency or
+		# priority, so no shape to draw — and a tree, ordered by the tree.
+		width = max(len(row.key) + row.depth * 2 for row in rows)
+
+		return "\n".join(
+			f"{'  ' * row.depth}{row.key}".ljust(width) + f"  {row.title}" for row in rows
+		)
 
 	title = _text(arguments, "title")
 

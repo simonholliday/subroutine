@@ -16,6 +16,14 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent asking what projects exist is told where each one sits.** `subroutine_project`
+  answered with a flat `key  title` list, so a workspace whose projects are a tree looked
+  like fifteen peers and there was no way to tell a sub-project from a top-level one. The
+  question it is usually asked for is *what should this new project's parent be*, which that
+  answer cannot support. It is indented by depth now, with the key column padded so the
+  titles line up — the same shape `subroutine project list` has always printed, from the
+  same walk.
+
 - **A listing with a real project and a bad status no longer says the project does not exist.**
   `subroutine list --project web --status nonsense` reported *"There is no project 'web' here"*
   about a project the caller had just listed. A project belongs to one workspace, so the task

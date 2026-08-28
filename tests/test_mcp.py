@@ -928,6 +928,35 @@ def test_an_agent_can_make_and_list_a_project (
 	assert "Website redesign" in listed
 
 
+def test_a_project_listing_shows_where_each_project_sits_in_the_tree (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#617`, met at Phase 0 by two separate import runs before it was fixed.
+
+	**Both drawings are named, because a test that only checks the child is indented cannot
+	tell a tree from a listing that indents every row.** The parent's line is asserted flush,
+	which is what fails if the rule is applied to everything rather than to depth.
+
+	**And the titles are asserted to begin at one column**, which a bare check for leading
+	spaces would miss: the key column is padded to the deepest row, so indenting without
+	widening leaves the two titles ragged — the defect one layer down, and the shape `#1424`
+	met in CSS.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+	_called(bound, "subroutine_project", key="docs", title="Documentation", parent="web")
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+
+	drawn = {line.strip().split("  ")[0]: line for line in listed.splitlines()}
+
+	assert drawn["web"].startswith("web"), listed
+	assert drawn["docs"].startswith("  docs"), listed
+	assert drawn["web"].index("Website") == drawn["docs"].index("Documentation"), listed
+
+
 def test_making_a_project_private_says_so_on_the_agent_surface (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
