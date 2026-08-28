@@ -233,11 +233,12 @@ upgrade involves.
   ascending by number just often enough to look deliberate and then stop being it. The one
   outgoing link on a milestone with thirty-three blockers sat sixth, identical to all of them.
 
-  Links now sort by what the relation binds, then prerequisites before dependents, then like
-  with like, then outstanding before finished, then by number — the same order in `show`, in
-  the agent tools, in the browser and in `show --tree`, which all four already took from one
-  place. Nothing about which links exist has changed, only the order they arrive in, so a
-  client that sorts them itself is unaffected.
+  Links now sort by whether they are still outstanding, then by what the relation binds, then
+  prerequisites before dependents, then like with like, then by number — the same order in
+  `show`, in the agent tools, in the browser and in `show --tree`, which all four already took
+  from one place. So a page reads as live work grouped by relation, then finished work grouped
+  the same way, and one relation may appear in two runs. Nothing about which links exist has
+  changed, only the order they arrive in, so a client that sorts them itself is unaffected.
 
 - **A refusal about a date names the field you can send, not the column it is stored in.**
   `PATCH /v1/tasks/1` with an unreadable `due` answered `{"field": "due_at"}` — a column, and

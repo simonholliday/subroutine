@@ -141,7 +141,7 @@ def binds (category: str) -> int:
 	return catalogue.index(category) if category in catalogue else len(catalogue)
 
 
-def reading_order (link: "Related") -> tuple[int, int, str, int, int]:
+def reading_order (link: "Related") -> tuple[int, int, int, str, int]:
 	"""Return the sort key that decides what order somebody reads an item's links in.
 
 	Five keys, each of which a reader can check against what is on the row — which is the
@@ -151,28 +151,45 @@ def reading_order (link: "Related") -> tuple[int, int, str, int, int]:
 	`#1212`: the refs read 1207, 1213, 1219, 1250, 1182, 1263, 1286, 1244 — ascending often
 	enough to look numeric and then not, which sets an expectation and breaks it.
 
-	1. **How much the relation binds**, from :func:`binds`.
-	2. **What must happen before this, before what waits on it.** Incoming first — the
+	1. **Outstanding before settled** (Simon, 2026-08-28, and `#1538` the same day). It was
+	   the *fourth* key for one day, which meant it only ever decided the order **within** one
+	   relation — so on `#1377` four finished blockers outranked a document still in force,
+	   and the rule did less than the reason it was chosen for. First, it is the organising
+	   principle: live work grouped by relation, then finished work grouped the same way.
+
+	   **What it costs, because it is real**: one relation can appear in two runs of the list.
+	   That is acceptable only because the second run is struck through on every surface and
+	   the rollup carries the count, so the two do not read as one interrupted group.
+
+	   **And a row now moves when somebody finishes it**, on a page that polls — `#957` §4's
+	   objection, taken knowingly both times it was put. The reason is that on a milestone of
+	   thirty-three the few left are the whole answer.
+	2. **How much the relation binds**, from :func:`binds`.
+	3. **What must happen before this, before what waits on it.** Incoming first — the
 	   direction the ``N of M blockers done`` rollup counts, and the one :func:`beneath`
 	   already states as *prerequisites, not dependents*. Without it the single ``Blocks`` row
 	   on `#1212` sat sixth among thirty-three ``Blocked by``, identical to all of them.
-	3. **Like with like, by the words the row shows.** The label rather than the key, because
+	4. **Like with like, by the words the row shows.** The label rather than the key, because
 	   two types can share a category — ``documents`` and ``derives_from`` both govern — and
 	   the reader can see a grouping made from what is printed. A key would group as well and
 	   be invisible doing it.
-	4. **Outstanding before settled** (Simon, 2026-08-28). Taken against a recommendation of
-	   ref order alone: a row that moves when somebody finishes it moves under a cursor on a
-	   page that polls, which is `#957` §4's objection. His reason is that on a milestone of
-	   thirty-three the few that are left are the answer, and that is worth the movement.
 	5. **By number**, the only key of the five that is printed beside every row, and the only
 	   one that does not move when an item is renamed or re-categorised.
+
+	**Two orderings were measured against this and declined** (`#1538`). Sorting by the *kind*
+	at the far end — documents below tasks — is a different axis and they do not line up: of a
+	32-link sample here, 19 reach a document and 13 of those are ``relates_to``, which already
+	sorts last, while every governing link has a document as its *source*. And promoting
+	``governing`` above ``gating`` fixes `#1377` only because that document is live; where the
+	document is the finished one it puts dead work above live work, which is the same
+	complaint one case along.
 	"""
 
 	return (
+		1 if settled(link.other) else 0,
 		binds(link.link_category),
 		0 if link.direction == "incoming" else 1,
 		link.label,
-		1 if settled(link.other) else 0,
 		link.other.ref,
 	)
 
@@ -934,10 +951,11 @@ def beneath (
 		frontier = []
 
 		for one, ends in under.items():
-			# **The same two keys the reading order ends on, and only those two** (`#1535`).
-			# Every edge walked here is :data:`SEQUENCING` by the filter above, so the category
-			# and the label cannot separate two siblings, and a tree has no vantage point to
-			# take a direction from — the walk fixes that, always downwards.
+			# **The two keys of the reading order a tree can use, and only those two**
+			# (`#1535`) — its first and its last. Every edge walked here is
+			# :data:`SEQUENCING` by the filter above, so the category and the label cannot
+			# separate two siblings, and a tree has no vantage point to take a direction
+			# from — the walk fixes that, always downwards.
 			#
 			# **This changes which appearance of a repeated item is its first** — `#1410`'s
 			# ``again`` is a property of a drawing rather than of an item, so re-ordering

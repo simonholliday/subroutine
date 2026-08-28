@@ -6794,10 +6794,12 @@ export function Detail ({
 							wire's name would be silent about the one thing no other field says.
 
 							**No sort-value mark, because the reader is not choosing this
-							order.** These arrive in `domain.links.reading_order` — what the
-							relation binds, then prerequisites before dependents, then like
-							with like, then outstanding before settled, then by number — which
-							is the same sequence `show` and the tools draw. A mark says *this
+							order.** These arrive in `domain.links.reading_order` —
+							outstanding before settled, then what the relation binds, then
+							prerequisites before dependents, then like with like, then by
+							number — which is the same sequence `show` and the tools draw.
+							So a relation can appear in two runs, live rows and struck ones,
+							and that is the point rather than a fault (`#1538`). A mark says *this
 							is the column you sorted by*, and nothing here offered a choice.
 
 							**This said "nothing sorted these" until `#1535`, and something

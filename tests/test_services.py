@@ -2398,12 +2398,14 @@ def test_an_items_links_are_read_in_an_order_the_row_itself_explains (
 	8. ``b_first``    gating      incoming   Waits for       yes          3
 	================  ==========  =========  ==============  ===========  ===
 
-	What each key is the only thing deciding, in that table: ``g2`` sits under the gating rows
-	although its label sorts above theirs (**binds**); ``d1`` sits below them although its
-	label sorts above theirs too (**direction**); ``b_done`` sits below two rows it was
-	numbered before (**outstanding**); ``df1`` sits above ``g1`` although it was numbered
-	after (**label**); and ``b_first`` sits above ``b_second`` although its link was made
-	second (**ref**, which a stable sort would otherwise leave in creation order).
+	What each key is the only thing deciding, in that table: ``b_done`` sits **last of all**
+	although it is numbered before every other row and its relation binds more than most
+	(**outstanding**, which `#1538` moved to the front of the key — it was fourth for a day and
+	only ever decided the order inside one relation); ``g2`` sits under the gating rows although
+	its label sorts above theirs (**binds**); ``d1`` sits below them although its label sorts
+	above theirs too (**direction**); ``df1`` sits above ``g1`` although it was numbered after
+	(**label**); and ``b_first`` sits above ``b_second`` although its link was made second
+	(**ref**, which a stable sort would otherwise leave in creation order).
 	"""
 
 	workspace = _workspace(session)
@@ -2488,5 +2490,5 @@ def test_an_items_links_are_read_in_an_order_the_row_itself_explains (
 	assert len(read) == 8, "not every link came back, so the order below proves nothing"
 
 	assert [one.other.ref for one in read] == [
-		b_first.ref, b_second.ref, b_done.ref, d1.ref, g2.ref, df1.ref, g1.ref, r1.ref
+		b_first.ref, b_second.ref, d1.ref, g2.ref, df1.ref, g1.ref, r1.ref, b_done.ref
 	]
