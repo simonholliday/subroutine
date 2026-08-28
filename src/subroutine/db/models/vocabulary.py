@@ -65,8 +65,10 @@ class ItemType(
 	"""What kind of thing a task or document is.
 
 	One table serves both, discriminated by ``entity_type`` — the same trick statuses
-	use. Tasks are typed task, bug, feature, chore, spike or event; documents are typed spec,
-	design, note, decision, finding or dead end.
+	use. What each kind is seeded with is ``subroutine.db.seed.named_types``, which is where a
+	reader should go rather than to a list written out here: this docstring held one of six
+	hand-maintained copies, and all six were wrong on the day a second seed set landed
+	(`#1240`).
 
 	``category`` is what a client branches on when it does not recognise the key (decision
 	`#1133`), exactly as :class:`Status`'s is: an installation may call a type anything, and a

@@ -51,6 +51,7 @@ import subroutine.connections
 import subroutine.context
 import subroutine.credentials
 import subroutine.db.models.work
+import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.agenda
@@ -74,6 +75,26 @@ import subroutine.fanout
 import subroutine.installations
 import subroutine.permissions
 import subroutine.views
+
+#: What ``plan``'s day argument says, the clear included — `#1316`.
+#:
+#: Out here for `#943`'s ratchet, like the two below it: the sentinel default and
+#: ``show_default=False`` are three more lines in the closure, and the help text is the part
+#: that does not need to be there.
+PLANNED_DAY = "A day — 'today', 'tomorrow', 'friday', '2026-08-01'. Pass '' to clear it."
+
+#: What ``--type`` offers, built from the seeds rather than written out — `#1240`.
+#:
+#: **Module level rather than in the option**, because `#943`'s ratchet counts the closure and
+#: an f-string over two calls is seven lines where a literal was one. It also puts the two
+#: spellings beside each other: ``add`` names the default because somebody filing their first
+#: item has not chosen one, and ``update`` does not because they are changing a type that is
+#: already set.
+TASK_TYPES = f"{subroutine.db.seed.named_types('task')}."
+
+TASK_TYPES_WITH_DEFAULT = (
+	f"{TASK_TYPES[:-1]}. Defaults to {subroutine.db.seed.default_type('task')}."
+)
 
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
 DEFAULT_LIST_LIMIT = 50
@@ -2501,10 +2522,18 @@ def _planned (
 		# appointment for tomorrow destroyed the 14:00 that ``add`` had just read.
 		zone = world.account_zone(located.connection, located.workspace)
 
+		# **Three states, the same three ``--until`` has had all along** (`#1316`). The argument
+		# defaulted to ``""`` and went straight into :func:`_asked`, so *left out* and *cleared*
+		# were one value and the empty one prompted — which left a start settable from here and
+		# clearable only over HTTP, on a command whose own ``--until`` documents ``''`` as the
+		# clear. ``UNGIVEN`` is what separates them, and it is why the sentinel exists.
+		cleared = when == ""
 		changed = client.schedule(
 			ref=task.ref,
 			workspace=located.workspace,
-			starts=subroutine.domain.schedule.on_the_day(
+			starts=None
+			if cleared
+			else subroutine.domain.schedule.on_the_day(
 				_day(world, _asked(when, "Which day?"), at=located),
 				keeping=task.starts_at,
 				all_day=task.starts_is_all_day,
@@ -2525,8 +2554,13 @@ def _planned (
 		# *Starts Wed 2 Dec* — byte for byte what it printed while it was **destroying** that
 		# time, which is the silence `#1299` was about. Worse than a screen: ``_because``
 		# writes this sentence into the item's record, where it outlives the session.
-		planned = "Starts " + _render_moment(
-			changed.starts_at, changed.timezone, all_day=changed.starts_is_all_day
+		planned = (
+			"No longer starts on a day"
+			if changed.starts_at is None
+			else "Starts "
+			+ _render_moment(
+				changed.starts_at, changed.timezone, all_day=changed.starts_is_all_day
+			)
 		)
 
 		_because(client, located, because, what=planned)
@@ -7067,9 +7101,7 @@ def register (
 	@app.command()
 	def add (
 		words: list[str] = typer.Argument(None, help="What you need to do."),
-		kind: str = typer.Option(
-			"", "--type", help="task, bug, feature, chore, spike, event. Defaults to task."
-		),
+		kind: str = typer.Option("", "--type", help=TASK_TYPES_WITH_DEFAULT),
 		description: str = typer.Option(
 			"", "--description", help="What it is about, in full. The title stays one line."
 		),
@@ -7890,7 +7922,7 @@ def register (
 	@app.command()
 	def plan (
 		which: str = typer.Argument("", help="A task number, as shown by 'subroutine list'."),
-		when: str = typer.Argument("", help="A day — 'today', 'tomorrow', 'friday', '2026-08-01'."),
+		when: str = typer.Argument(UNGIVEN, help=PLANNED_DAY, show_default=False),
 		until: str = typer.Option(
 			UNGIVEN,
 			"--until",
@@ -8013,7 +8045,7 @@ def register (
 			show_default=False,
 			help="How long before, like '2w' or '1h'. Pass '' to clear it.",
 		),
-		kind: str = typer.Option("", "--type", help="task, bug, feature, chore, spike, event."),
+		kind: str = typer.Option("", "--type", help=TASK_TYPES),
 		status: str = typer.Option("", "--status", help="A status, like 'blocked'."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		assignee: str = typer.Option(

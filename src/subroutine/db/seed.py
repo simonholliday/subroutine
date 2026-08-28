@@ -302,6 +302,45 @@ SEEDED_ITEM_TYPES: tuple[ItemTypeSeed, ...] = tuple(
 	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].item_types
 )
 
+def named_types (entity_type: str) -> str:
+	"""Return one kind of item's seeded types, as prose a help text can carry — `#1240`.
+
+	**Built rather than typed out.** The same list was written by hand in six places — twice in
+	``--help``, twice in a tool schema and twice in a model docstring — and every one of them
+	had to be found and edited the day decision `#1235` seeded ``event``. A list somebody has to
+	remember to update is one that is wrong between the change and the day it is noticed, and
+	here *wrong* means withholding a capability and offering ones that may not exist.
+
+	**This is not the whole answer and the item says so.** A derived list still names only what
+	the *seeds* contain, so a type a workspace added or renamed itself (`#1129`) is still absent
+	from ``--help``. The complete answer reads the live vocabulary the way the browser already
+	does, through ``/v1/meta``. What this removes is the copies; what is left is one known gap
+	instead of six unknown ones.
+
+	Read from :data:`SEEDED_ITEM_TYPES` rather than :data:`ITEM_TYPES`, which stopped being the
+	answer the moment there were two seed sets — the same trap three guards fell into.
+	"""
+
+	return ", ".join(
+		seed.key for seed in SEEDED_ITEM_TYPES if seed.entity_type == entity_type
+	)
+
+
+def default_type (entity_type: str) -> str:
+	"""Return the type something gets when nobody says — the other half of the same sentence.
+
+	Beside :func:`named_types` because a help text that lists the vocabulary almost always goes
+	on to name the default, and two derived halves beside one hand-written one is the seam this
+	is closing.
+	"""
+
+	return next(
+		seed.key
+		for seed in SEEDED_ITEM_TYPES
+		if seed.entity_type == entity_type and seed.is_default
+	)
+
+
 #: The two tables whose rows carry a display order, handled together because the rule for
 #: where a newly seeded row goes is the same for both.
 _PositionedModel: typing.TypeAlias = (

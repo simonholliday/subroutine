@@ -16,6 +16,22 @@ upgrade involves.
 
 ### Fixed
 
+- **A planned day can be taken off again from the terminal.** `subroutine plan 42 ''` now
+  clears the start, the way `--until ''` has always cleared the end on the same command.
+  Before this the only route was `PATCH {"starts": null}` over HTTP: the day argument
+  defaulted to empty, so *left out* and *cleared* were one value and the empty one prompted
+  for a day and then aborted. Omitting it still asks, exactly as it did.
+
+- **`--type` and the agent's type field list the types this installation actually has.**
+  The vocabulary was written out by hand in six places — twice in `--help`, twice in a tool
+  schema and twice in a model docstring — so every one of them had to be found and edited
+  the day `event` was seeded. They are built from the seeds now. A stale list here is worse
+  than untidy: it is the only place a person or an agent learns what may be sent, so it
+  withholds a capability and offers ones that may not exist.
+
+  **This does not yet reach a type a workspace added or renamed itself** — a derived list
+  still names only what the seeds contain. What it removes is the copies.
+
 - **`/v1/openapi.json` no longer hands a stranger pointers into a private tracker.** That
   document answers with no credential, and a rule has forbidden item citations in it since
   0.7.x — but the check walked the source for `@router.<method>` decorators, so it matched

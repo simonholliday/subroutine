@@ -116,6 +116,56 @@ BY_EXAMPLE = {
 }
 
 
+def test_no_source_file_writes_a_seeded_vocabulary_out_by_hand () -> None:
+	"""`#1240`. The list was typed in six places and every one had to be edited by hand.
+
+	**Derived from the seeds, so it cannot be satisfied by editing this test.** The pattern is
+	built by joining the keys the way somebody writing prose joins them, in the seeded order —
+	which is exactly the string that was in two ``--help`` texts, two tool schemas and two model
+	docstrings, and that was wrong in all six the day decision `#1235` added ``event``.
+
+	``db/seed.py`` is the one place allowed to contain it, because that is where the keys are
+	declared and the joining function lives.
+
+	**What this does not catch, and the item says so**: a list that names the seeds correctly is
+	still silent about a type a workspace added or renamed itself (`#1129`). Removing the copies
+	turns six unknown gaps into one known one; it does not close it.
+	"""
+
+	# **An absolute root, because a relative one reads nothing here.** ``pathlib.Path("src")``
+	# resolves against pytest's working directory, and the first version of this scan walked an
+	# empty match set and passed with a literal restored — a mutation that passed, which is the
+	# defect this whole item is about. ``tests/test_references.py`` uses the same anchor for the
+	# same reason.
+	root = pathlib.Path(__file__).resolve().parent.parent / "src"
+	offenders = []
+	scanned = 0
+
+	for entity_type in ("task", "document"):
+		spelled = subroutine.db.seed.named_types(entity_type)
+
+		for path in sorted(root.rglob("*.py")):
+			if path.name == "seed.py":
+				continue
+
+			scanned += 1
+			text = path.read_text(encoding="utf-8")
+
+			for number, line in enumerate(text.splitlines(), start=1):
+				if spelled in line or spelled.replace(", ", " ") in line:
+					offenders.append(f"  {path.name}:{number}: {line.strip()[:96]}")
+
+	# The floor beside the assertion, for the reason above: an empty offender list means
+	# nothing to report only if something was read.
+	assert scanned > 200, scanned
+
+	assert not offenders, (
+		"a source file writes out a vocabulary the seeds already declare, so it goes stale the "
+		"next time a seed set lands. Build it with subroutine.db.seed.named_types.\n"
+		+ "\n".join(offenders)
+	)
+
+
 def _vocabularies () -> dict[str, frozenset[str]]:
 	"""Every vocabulary a workspace is seeded with, by a name a failure can print.
 

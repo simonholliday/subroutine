@@ -29,8 +29,9 @@ class Task(
 ):
 	"""Something that can be finished — or, since decision `#1235`, something that happens.
 
-	Typed task, bug, feature, chore, spike or event. An ``event`` is stored here and is never
-	called a task: it needs a ref, a project, comments, links, a description and a claim, and
+	Typed with one of the workspace's task types — ``subroutine.db.seed.named_types`` is what
+	they are, rather than a list here that has to be found and edited whenever a set is seeded
+	(`#1240`). An ``event`` is stored here and is never called a task: it needs a ref, a project, comments, links, a description and a claim, and
 	every one of those is already this table's. What tells the two apart is the type's
 	*category* — ``occasion`` — which ``--ready`` and the agenda read.
 	"""

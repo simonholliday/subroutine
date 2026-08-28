@@ -32,6 +32,7 @@ import urllib.parse
 import subroutine.addressing
 import subroutine.clients.base
 import subroutine.config
+import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.agenda
@@ -786,7 +787,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"type": "object",
 				"properties": {
 					"text": {"type": "string", "description": "The line to capture."},
-					"type": {"type": "string", "description": "task, bug, feature, chore, spike, event."},
+					"type": {
+						"type": "string",
+						"description": f"{subroutine.db.seed.named_types('task')}.",
+					},
 					"description": {
 						"type": "string",
 						"description": "Why it matters, in full. The title stays one line.",
@@ -901,7 +905,10 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					"urgency": {"type": "integer", "description": "1-5, 5 soonest."},
 					"estimate": {"type": "string", "description": "How long, e.g. '4h'."},
 					"status": {"type": "string", "description": "A status key, e.g. in_progress."},
-					"type": {"type": "string", "description": "task, bug, feature, chore, spike, event."},
+					"type": {
+						"type": "string",
+						"description": f"{subroutine.db.seed.named_types('task')}.",
+					},
 					"title": {"type": "string", "description": "A new title."},
 					"description": {
 						"type": "string",

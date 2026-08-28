@@ -1019,6 +1019,37 @@ def test_plan_and_defer_move_a_task_between_days (
 	assert "Buy milk" not in run("agenda").output
 
 
+def test_a_planned_day_can_be_taken_off_again_from_the_command_line (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1316`. Setting a start was reachable here and clearing one was not.
+
+	**The three states are the whole of it**, and two of them were one value: the argument
+	defaulted to ``""`` and an omitted day and an explicit empty one were indistinguishable, so
+	the empty one prompted. The only route was ``PATCH {"starts": null}`` over HTTP — on a
+	command whose own ``--until`` documents ``''`` as the clear, one option along.
+
+	Driven rather than asserted about, because the defect was in what somebody could *do*: the
+	client method has taken ``UNSET`` against ``None`` since it was written.
+	"""
+
+	run("init")
+	run("add", "Buy milk")
+	run("plan", "1", "tomorrow")
+
+	assert "starts " in run("show", "1").output
+
+	cleared = run("plan", "1", "")
+
+	assert cleared.exit_code == 0, cleared.output
+	assert "No longer starts on a day" in cleared.output
+	assert "starts " not in run("show", "1").output
+
+	# And the omitted argument still asks rather than clearing — the two states this
+	# separated must not have been collapsed the other way.
+	assert "Buy milk" in run("list").output
+
+
 def test_a_defer_keeps_the_time_of_day_it_was_given (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -7615,7 +7646,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_621
+REGISTER_CEILING = 1_619
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
