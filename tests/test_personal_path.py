@@ -7420,6 +7420,77 @@ def test_a_stale_marker_with_nothing_to_fall_back_to_still_says_so (
 	assert "several workspaces" in refused.output
 
 
+def test_adopting_a_checkout_takes_the_workspace_from_the_project_it_was_handed (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#1501`, Simon's decision of 2026-08-28: the argument settles it, or names who does.
+
+	``subroutine use --here --project web`` refused for want of a workspace on any connection
+	reaching more than one, with no stored context and no marker — which is every fresh broad
+	credential, and is the command both plugin skills and the import process prescribe. Two
+	separate import runs met it in one day.
+
+	**The mechanism was not the one first reported.** Reading the current workspace does not
+	refuse: ``use --here`` with no project succeeds and writes a marker naming the connection
+	alone. The refusal came from scoping the *project search*, which asked one workspace and
+	had none to ask about — so ``--project`` was consulted and could not be used.
+
+	**Silent while the answer is unambiguous, insistent when it is not**, which is `SR#587`'s
+	shape. The three cases here are the whole of the rule, and the last two are what stop this
+	passing by guessing.
+	"""
+
+	run("init", "--workspace", "Personal")
+	run("workspace", "create", "projects", "Projects")
+	run("-w", "projects", "project", "create", "web", "Web")
+
+	assert "several workspaces" in run("add", "Something", expect=1).output, (
+		"the fixture is not ambiguous, so it cannot show anything about resolving one"
+	)
+
+	settled = tmp_path / "settled"
+	settled.mkdir()
+	monkeypatch.chdir(settled)
+
+	adopted = run("use", "--here", "--project", "web")
+
+	assert "several workspaces" not in adopted.output, (
+		f"the project names one workspace and the command asked anyway:\n{adopted.output}"
+	)
+
+	written = (settled / subroutine.directory.FILE_NAME).read_text(encoding="utf-8")
+
+	assert 'workspace = "projects"' in written, written
+	assert 'project = "web"' in written, written
+
+	# **A key that two workspaces hold is refused naming *those two*** — which on a real
+	# instance is strictly more than the general refusal can say, because it lists every
+	# workspace there is. Every instance seeds an Inbox, so this needs nothing built.
+	shared = tmp_path / "shared"
+	shared.mkdir()
+	monkeypatch.chdir(shared)
+
+	both = run("use", "--here", "--project", "inbox", expect=1)
+
+	assert "personal" in both.output and "projects" in both.output, both.output
+	assert not (shared / subroutine.directory.FILE_NAME).exists(), (
+		"a refusal left a marker behind"
+	)
+
+	# **And a key nothing holds says where it looked.** *There is no project 'web' here* is a
+	# complete answer with one workspace and an assertion the reader cannot check with two.
+	nowhere = tmp_path / "nowhere"
+	nowhere.mkdir()
+	monkeypatch.chdir(nowhere)
+
+	missing = run("use", "--here", "--project", "nosuchproject", expect=1)
+
+	assert "personal" in missing.output and "projects" in missing.output, missing.output
+	assert not (nowhere / subroutine.directory.FILE_NAME).exists()
+
+
 def test_a_stored_workspace_that_is_also_gone_is_not_used_as_a_fallback (
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,

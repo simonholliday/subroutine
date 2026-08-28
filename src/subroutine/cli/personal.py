@@ -2004,7 +2004,9 @@ def _workspace_id_of (world: World, slug: str | None) -> str | None:
 	return None
 
 
-def _project_written_down (world: World, wanted: str) -> tuple[str, str] | None:
+def _project_written_down (
+	world: World, wanted: str, *, workspace: str | None = None
+) -> tuple[str, str] | None:
 	"""Return the address and permanent id of the project this names, or ``None``.
 
 	Checked before the file is written, because a marker naming a project that does not
@@ -2016,10 +2018,17 @@ def _project_written_down (world: World, wanted: str) -> tuple[str, str] | None:
 	comes back beside it so the readable half of the pair is the one that resolves: a bare
 	key stopped naming one project with `#957`, so writing down what somebody typed would
 	leave a file whose two halves can point at different projects.
+
+	**``workspace`` says which one to look in, and its absence still means "wherever a write
+	would land"** — :func:`_writing_workspace`, which refuses when nothing has said. Named by
+	:func:`_adopted_project` alone, which asks this of several workspaces in turn (`#1501`)
+	and so cannot let each call answer that question for itself.
 	"""
 
 	where = world.writing_to()
-	tree = where.client.projects(workspace=_writing_workspace(world))
+	tree = where.client.projects(
+		workspace=_writing_workspace(world) if workspace is None else workspace
+	)
 	found = _addressed_in(tree, wanted)
 
 	if found is None:
@@ -4201,6 +4210,100 @@ def _in_an_editor (program: Program, current: str) -> str:
 		path.unlink(missing_ok=True)
 
 
+def _names_in_words (names: typing.Sequence[str]) -> str:
+	"""Return names as a sentence rather than as a comma-separated list — "a, b and c".
+
+	Written once because a refusal listing candidates and a line saying what is prioritised
+	both need it, and two copies of an English rule are two places for a stray comma to
+	appear in front of an *and*.
+	"""
+
+	if len(names) < 2:
+		return "".join(names)
+
+	return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _no_such_project (
+	program: Program, wanted: str, searched: typing.Sequence[str]
+) -> typing.NoReturn:
+	"""Refuse a project nobody can find, saying where it was looked for — `#1501`.
+
+	**Where matters as soon as there is more than one place.** *"There is no project 'web'
+	here"* is a complete answer on an instance with one workspace and an assertion the reader
+	cannot check on an instance with four — they cannot tell a key they got wrong from a key
+	in a workspace this credential does not reach.
+	"""
+
+	program.stop(
+		f"There is no project {wanted!r} in {_names_in_words(searched)}."
+		if len(searched) > 1
+		else f"There is no project {wanted!r} here.",
+		"Run 'subroutine project list' to see them, or "
+		f"'subroutine project create {wanted.rsplit('/', 1)[-1]} \"A title\"' to make it.",
+	)
+
+
+def _adopted_project (
+	program: Program, world: World, wanted: str, workspace: str | None
+) -> tuple[str, tuple[str, str]]:
+	"""Return the workspace a named project is in, and the project — `#1501`.
+
+	**§13.7's resolution order, with one step added for this command**, on Simon's decision of
+	2026-08-28. Steps 1 to 5 are unchanged and have already run; this is what happens where
+	they all decline *and a project was named anyway*. Adopting a checkout is the one command
+	handed a project key before it has a workspace, and on the instance this was found on every
+	key but ``inbox`` is in exactly one — so refusing for want of something the argument settles
+	turned one command into an interview, which is the outcome :func:`_use_here`'s own docstring
+	promises to avoid. It was met twice in one day by two separate import runs.
+
+	**Silent while the answer is unambiguous, insistent when it is not**, which is `#587`'s
+	shape: a fresh instance has one workspace and never reaches this at all, and an instance
+	with several made the others deliberately — so the refusal there names the workspaces that
+	*hold the key* rather than every workspace there is, which is strictly more than the
+	general refusal can say.
+
+	**It does not widen :func:`_writing_workspace`**, which is asked wherever refusing is
+	right: every write that lands somewhere has to know where before it starts, and this is the
+	one command carrying an argument that answers. Widening it there would make every write
+	guess.
+
+	One request per workspace, because a project listing is scoped to one at both transports.
+	Four, once, in a command somebody runs when they adopt a repository.
+	"""
+
+	if workspace is not None:
+		named = _project_written_down(world, wanted, workspace=workspace)
+
+		if named is None:
+			_no_such_project(program, wanted, [workspace])
+
+		return workspace, named
+
+	reachable = [one.slug for one in world.writing_to().identity.workspaces]
+	holding = [
+		(slug, found)
+		for slug, found in (
+			(slug, _project_written_down(world, wanted, workspace=slug)) for slug in reachable
+		)
+		if found is not None
+	]
+
+	if not holding:
+		_no_such_project(program, wanted, reachable)
+
+	if len(holding) > 1:
+		candidates = [slug for slug, _found in holding]
+
+		program.stop(
+			f"{wanted!r} is a project in {_names_in_words(candidates)}, so there is no way "
+			"to tell which one this directory is about.",
+			f"Say which — 'subroutine -w {candidates[0]} use --here --project {wanted}'.",
+		)
+
+	return holding[0]
+
+
 def _use_here (program: Program, world: World, where: str, project: str) -> None:
 	"""Write a marker into the current directory, and say what it will do.
 
@@ -4208,6 +4311,12 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 	them, so ``subroutine use --here --project SR`` records where they already are rather
 	than making them type it again — which is the whole difference between adopting a
 	repository in one command and adopting it in an interview.
+
+	**And where there is no current context, the project answers** (`#1501`). That sentence
+	above assumed one, so on a fresh credential reaching several workspaces — no stored
+	context, no marker, nothing to inherit — this refused for want of something the argument
+	settles. :func:`_adopted_project` is that step, and it is an addition to §13.7's order for
+	this command alone, on Simon's decision of 2026-08-28.
 	"""
 
 	connection, workspace = (
@@ -4216,14 +4325,13 @@ def _use_here (program: Program, world: World, where: str, project: str) -> None
 		else (world.current.connection, world.current.workspace)
 	)
 	asked = subroutine.domain.projects.normalize_path(project) or None
-	found = None if asked is None else _project_written_down(world, asked)
+	found = None
 
-	if asked is not None and found is None:
-		program.stop(
-			f"There is no project {asked!r} here.",
-			"Run 'subroutine project list' to see them, or "
-			f"'subroutine project create {asked.rsplit('/', 1)[-1]} \"A title\"' to make it.",
-		)
+	# **The project settles the workspace where nothing else has** (`#1501`). Both refusals
+	# live in :func:`_adopted_project`, including the one for a key nothing holds, because
+	# saying *there is no project 'web' here* means naming where "here" was.
+	if asked is not None:
+		workspace, found = _adopted_project(program, world, asked, workspace)
 
 	key, identifier = found if found is not None else (None, None)
 
@@ -5127,9 +5235,7 @@ def _prioritised_sentence (found: typing.Sequence[str]) -> str:
 	if len(found) == 1:
 		return f"{found[0]} is prioritised, so its work rises here."
 
-	named = f"{', '.join(found[:-1])} and {found[-1]}"
-
-	return f"{named} are prioritised, so their work rises here."
+	return f"{_names_in_words(found)} are prioritised, so their work rises here."
 
 
 def _claimed (program: Program, *, which: str, minutes: int) -> None:

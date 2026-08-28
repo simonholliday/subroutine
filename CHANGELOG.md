@@ -16,6 +16,17 @@ upgrade involves.
 
 ### Fixed
 
+- **Adopting a checkout works out the workspace from the project it was given.**
+  `subroutine use --here --project web` refused for want of a workspace on any connection
+  reaching more than one, with no stored context and no marker — on an instance where the
+  named project was in exactly one of them. That is the command the plugin skills prescribe
+  for adopting a repository, so the first thing an agent was told to run was the thing that
+  did not work.
+
+  It resolves silently where one workspace holds the key, and where more than one does it
+  now names *those* rather than every workspace there is. A key nothing holds says where it
+  looked, which *"there is no project 'web' here"* could not.
+
 - **Deleting one turn of a repeat says the repeat is still there.** Deleting the row you can
   see is what somebody reaches for when they mean *stop this repeating*, and it went through
   in silence — leaving the repeat itself present, drawn by no listing and no agenda, and
