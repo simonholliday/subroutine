@@ -10,8 +10,11 @@ connection it could not make.
 import os
 
 import sqlalchemy.engine
+import typer.rich_utils
+import typer.testing
 
 import conftest
+import subroutine.cli.main
 import subroutine.installations
 
 
@@ -69,3 +72,41 @@ def test_the_editors_plugin_variable_does_not_reach_a_test () -> None:
 
 	assert subroutine.installations.PLUGIN_ROOT not in os.environ
 	assert subroutine.installations.plugin() is None
+
+
+def test_the_machines_colour_setting_does_not_reach_a_test () -> None:
+	"""No test may render differently for being run on a build machine — `SR#1537`.
+
+	``typer.rich_utils`` sets ``FORCE_TERMINAL`` from ``GITHUB_ACTIONS``, ``FORCE_COLOR`` or
+	``PY_COLORS`` **when it is imported**, and every GitHub runner sets the first of those. So
+	help was rendered as plain text on a developer's machine and with ANSI on all four of CI's,
+	and an assertion about help text meant two different things depending on where it ran.
+
+	**It cost a red CI on every interpreter against a green gate here.** rich styles an option
+	name in parts — a styled ``-``, a reset, then ``-project`` — so ``--project`` is not a
+	substring of a page that displays it perfectly.
+
+	Same leak as ``CLAUDE_PLUGIN_ROOT`` above and as the developer's ``config.toml`` before it:
+	the machine's own configuration reaching the suite through a name this project does not
+	own. **And it is here rather than left to the fixture asserting its own good behaviour** —
+	a fixture nothing checks is a control that can be deleted in silence, which is the shape
+	`#303` is named for.
+
+	**Both halves, because the flag alone is a claim about a variable rather than about
+	output.** The second renders a real command through the real runner and asks whether any
+	escape survived, which is the thing that actually broke.
+	"""
+
+	assert typer.rich_utils.FORCE_TERMINAL is False, (
+		"a test's rendering follows the machine it runs on, so help text asserted here means "
+		"something else on a build machine"
+	)
+
+	rendered = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["list", "--help"]
+	).output
+
+	assert "--project" in rendered, "the help did not render, so the check below reads nothing"
+	assert "\x1b" not in rendered.encode("unicode_escape").decode(), (
+		"help came out styled, so any assertion about its text is measuring the styling too"
+	)

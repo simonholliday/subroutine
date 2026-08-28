@@ -1411,8 +1411,25 @@ def test_a_narrowing_filter_given_twice_is_refused_rather_than_halved (
 
 	# **The declarations and the register agree**, so a sixth narrowing filter is either
 	# covered or fails this rather than joining silently.
+	#
+	# **Read off the command rather than out of its help** (`SR#1537`). This compared each flag
+	# against `list --help`, was green on every machine here and red on all four of CI's: with
+	# colour on, rich styles an option name in parts — a styled `-`, a reset, then `-project` —
+	# so the literal never appears in the output at all, about a page that displays it
+	# perfectly. The subject here is the command's *parameters*, and `get_command` answers that
+	# with no renderer in the way.
+	#
+	# Typed loosely for the reason `tests/test_cli_help.py` writes out: Typer vendors its own
+	# click shim, so what `get_command` returns is a private class that is not a `click.Command`
+	# and that Typer exports no name for.
+	root: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	listing = root.get_command(click.Context(root, info_name="subroutine"), "list")
+	offered = {name for parameter in listing.params for name in parameter.opts}
+
+	assert offered, "no options were read off the command, so this is checking nothing"
+
 	for flag in subroutine.cli.personal.ONE_VALUE_EACH:
-		assert flag in run("list", "--help").output, (
+		assert flag in offered, (
 			f"{flag} is registered as taking one value and 'list' does not offer it"
 		)
 

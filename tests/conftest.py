@@ -15,6 +15,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy.engine
 import sqlalchemy.orm
+import typer.rich_utils
 
 import sample_models
 import subroutine.cli.main
@@ -98,6 +99,34 @@ def _no_inherited_installation (
 	for name in list(os.environ):
 		if name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_"):
 			monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_colour (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Render the terminal's help the same way on every machine (`SR#1537`).
+
+	**Typer decides colour from the environment**: ``typer.rich_utils`` sets ``FORCE_TERMINAL``
+	from ``GITHUB_ACTIONS``, ``FORCE_COLOR`` or ``PY_COLORS``, and every GitHub runner sets the
+	first of those. So one assertion about help text was measured against plain text here and
+	against ANSI there, which is not a difference any test means to be making.
+
+	**It cost a red CI on all four interpreters against a green gate on every machine here.**
+	rich styles an option name in parts — a styled ``-``, a reset, then ``-project`` — so
+	``--project`` is not a substring of a help page that displays it perfectly. `SR#1537` also
+	rewrote that test to ask the command rather than its rendering, which is the better half of
+	the fix; this is here so the next one cannot meet the trap at all.
+
+	The rule is the one :func:`_no_inherited_installation` already states in full: a test must
+	not read the configuration of the machine it happens to be running on. Colour is that, and
+	it was the piece of it nobody had thought of.
+
+	**Patched as an attribute rather than as an environment variable.** Those are read once,
+	when ``typer.rich_utils`` is imported, which has already happened by the time any fixture
+	runs — so ``monkeypatch.delenv`` would look right and do nothing. ``_get_rich_console``
+	reads this global on every call.
+	"""
+
+	monkeypatch.setattr(typer.rich_utils, "FORCE_TERMINAL", False)
 
 
 @pytest.fixture(autouse=True)
