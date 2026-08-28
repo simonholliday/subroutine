@@ -7577,7 +7577,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_626
+REGISTER_CEILING = 1_621
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -7609,7 +7609,7 @@ REGISTER_CEILING = 1_626
 #: left to pay for its declaration. **That is the arrangement working as designed rather than
 #: being worked around**: the bill for a new command is an extraction, so what is added is paid
 #: for instead of accumulated.
-MODULE_LEVEL_FLOOR = 169
+MODULE_LEVEL_FLOOR = 180
 
 
 def _register_span () -> tuple[int, int]:

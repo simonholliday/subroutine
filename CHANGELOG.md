@@ -16,6 +16,16 @@ upgrade involves.
 
 ### Fixed
 
+- **A machine that only reaches a server stops being told to create a list it does not want.**
+  `local` is in the roster whether it is declared or not, so on a machine that has never run
+  `init`, every command answered *"no Subroutine instance has been set up here yet — run
+  'subroutine init'"* above the real result. That is the wrong advice for exactly the person
+  reading it: following it gives them a second, empty instance beside the one they were just
+  onboarded to. `connections add` now turns `local` off when this machine has never had a list
+  of its own — the same fact it already uses to decide where writes go — and says so in the
+  sentence it already prints. Never when there is a local database, and never when `local` has
+  been declared by hand.
+
 - **`subroutine init` no longer builds a database nothing on the machine can reach.** On an
   installation whose `config.toml` turns the `local` connection off, `init` created the
   database, seeded it, reported *"Ready"*, and then the very command it suggested wrote to a

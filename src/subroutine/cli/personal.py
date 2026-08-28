@@ -2177,6 +2177,73 @@ def _connection_named (
 	return wanted, address, roster
 
 
+def _has_never_had_a_list_of_its_own (
+	roster: subroutine.connections.Roster, resolved: subroutine.config.Settings
+) -> bool:
+	"""Report whether this machine reaches only ``local`` and has no database there.
+
+	**Decided before the token is resolved**, because the answer changes which environment
+	variable applies: a bare ``SUBROUTINE_TOKEN`` belongs to the default connection (§12.3a),
+	so asking with the old default would prompt for a token the machine already has and store
+	a second copy of it in a file.
+
+	This is the case ``connections add`` exists for — somebody's second laptop, reaching work.
+	Leaving the default pointed at a database nobody created would make the very next ``add``
+	fail, on a machine where the person has just said where their work is.
+
+	**Never true when there is a local database**, because that is somebody's own list and
+	moving their writes off it is their call. Two decisions read this, and that limit is what
+	makes both of them safe.
+	"""
+
+	alone = roster.names == (subroutine.connections.LOCAL_NAME,)
+
+	return alone and resolved.has_no_instance_yet()
+
+
+def _stops_looking_for_a_local_list (never_had_one: bool) -> bool:
+	"""Report whether ``local`` should be turned off as this connection is recorded — `#1454`.
+
+	``connections.roster`` puts ``local`` in whether it is declared or not, so without this
+	every command on a server-only machine answers *"no Subroutine instance has been set up
+	here yet — run 'subroutine init'"* above the real result. **That advice is wrong for this
+	person**: following it gives them a second, empty instance beside the one they were just
+	onboarded to, and then ``use`` and the default connection become things they have to
+	understand on their first day.
+
+	**The same evidence as :func:`_has_never_had_a_list_of_its_own`, one step further.** This
+	command already decides where writes go on that fact and already says so, so nothing extra
+	is being inferred — and the limit that keeps the first decision safe keeps this one safe.
+
+	**Only when ``local`` is not declared at all.** Somebody who wrote the table by hand has
+	said something about it, and ``config.store_table`` refuses a header that is already there
+	— which would surface through this command's failure path as *"the connection could not be
+	written"*, about a connection that was.
+
+	**A flag was the first design and reading this code rejected it**: it would have to be
+	discovered by somebody pasting a line another person printed for them, and ``connections``
+	is hidden from ``--help`` until a second connection exists.
+	"""
+
+	return never_had_one and (
+		subroutine.connections.LOCAL_NAME not in subroutine.connections.declared_names()
+	)
+
+
+def _where_new_work_goes (wanted: str, *, sole: bool) -> str:
+	"""Say that writes now go to a connection this command just made the default.
+
+	**The effect in the reader's terms, and no new noun** (§1.4). Somebody being onboarded has
+	never heard of ``local`` and does not need to: what changed for them is that this machine
+	now answers from one place. The person who does need the word meets it in ``init``'s
+	refusal, at the moment it matters and with the remedy beside it (`#1470`).
+	"""
+
+	said = f"New work goes to {wanted} now, because this machine has no list of its own"
+
+	return f"{said} — and nothing here will look for one." if sole else f"{said}."
+
+
 def _connection_settings (
 	connection: subroutine.connections.Connection,
 ) -> dict[str, str | bool]:
@@ -8398,19 +8465,9 @@ def register (
 			token_command=token_command.strip() or None,
 		)
 
-		# **Whether this connection is where writes go, decided before the token is resolved**
-		# — because the answer changes which environment variable applies. A bare
-		# SUBROUTINE_TOKEN belongs to the default connection (§12.3a), so asking with the old
-		# default would prompt for a token the machine already has, and store a second copy of
-		# it in a file.
-		#
-		# Automatic on a machine with no instance of its own, which is the case this command
-		# exists for: somebody's second laptop, reaching work. Leaving the default at a
-		# database that does not exist would make the very next 'add' fail, and the person has
-		# just said where their work is. Never automatic when there is a local database,
-		# because that is somebody's own list and moving their writes off it is their call.
-		alone = roster.names == (subroutine.connections.LOCAL_NAME,)
-		leads = default or (alone and resolved.has_no_instance_yet())
+		never_had_one = _has_never_had_a_list_of_its_own(roster, resolved)
+		leads = default or never_had_one
+		sole = _stops_looking_for_a_local_list(never_had_one)
 
 		try:
 			found = subroutine.credentials.resolve(
@@ -8458,6 +8515,11 @@ def register (
 			if leads:
 				subroutine.config.store_setting("default_connection", wanted)
 
+			if sole:
+				subroutine.config.store_table(
+					f"connections.{subroutine.connections.LOCAL_NAME}", {"enabled": False}
+				)
+
 		except (OSError, ValueError) as error:
 			stop(
 				f"{wanted!r} could not be written to "
@@ -8503,7 +8565,7 @@ def register (
 			say(f"New work goes to {wanted} now.")
 
 		elif leads:
-			say(f"New work goes to {wanted} now, because this machine has no list of its own.")
+			say(_where_new_work_goes(wanted, sole=sole))
 
 		say("")
 		_suggest(console, "subroutine list", "everything this machine can now reach")

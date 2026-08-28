@@ -1008,6 +1008,99 @@ def test_a_machine_with_no_list_of_its_own_starts_filing_to_the_connection (
 		assert "Filed from the laptop" in run("list").output
 
 
+def test_a_machine_with_no_list_of_its_own_stops_being_told_to_make_one (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1454`. The advice was wrong for exactly the person who was reading it.
+
+	``connections.roster`` puts ``local`` in whether it is declared or not, and the reporter
+	prints every failure beside the answers that did arrive — so on a machine that has never run
+	``init`` every single command answered *"no Subroutine instance has been set up here yet.
+	Run 'subroutine init'"* above the real result. Following that gives somebody a second, empty
+	instance beside the one they were just onboarded to.
+
+	**Driven before the fix on the exact path onboarding prints**: the line a colleague is handed
+	is ``connections add <name> --url <address>``, and nothing in it or after it mentions
+	``local``.
+
+	**Asserted of the rendered answer, not of the file.** A setting written and a sentence
+	stopped are different claims, and only the second is what the person experiences — the
+	config check below is the mechanism, and this is the outcome.
+	"""
+
+	with served(tmp_path) as remote:
+		run("connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n")
+
+		listed = run("list").output
+
+		assert "set up here yet" not in listed, listed
+		assert "subroutine init" not in listed, (
+			f"the one piece of advice this person must not take is still on every read:"
+			f"\n{listed}"
+		)
+
+	assert "[connections.local]" in _configured(home)
+
+
+def test_a_connection_made_default_by_hand_leaves_an_existing_list_alone (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1454`'s limit, and it is the one that makes the inference safe.
+
+	The rule is *this machine has never had a list of its own*, never *this connection is the
+	default*. Somebody with their own database who points ``--default`` at a server has moved
+	their writes and said nothing about the list they already keep — turning it off would take
+	away work they can still see, on the strength of a flag about something else.
+
+	The comment above the original decision says the same thing one line up: *"never automatic
+	when there is a local database, because that is somebody's own list."*
+	"""
+
+	run("init")
+
+	with served(tmp_path) as remote:
+		run(
+			"connections", "add", "work", "--url", remote.url, "--default",
+			input=f"{remote.token}\n",
+		)
+
+	assert "[connections.local]" not in _configured(home), _configured(home)
+
+
+def test_a_local_connection_somebody_declared_is_never_rewritten (
+	tmp_path: pathlib.Path,
+	home: pathlib.Path,
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1454`'s second limit, and it is also what stops a confusing refusal.
+
+	Somebody who wrote the table by hand has said something about it, and `store_table` refuses
+	a header that is already there — which would have surfaced through this command's own
+	failure path as *"the connection could not be written"*, about a connection that was.
+
+	So the inference asks whether ``local`` is **declared**, not whether it is on. A table
+	present and enabled is left exactly as it is.
+	"""
+
+	declare(home, "\n[connections.local]\nenabled = true\n")
+
+	with served(tmp_path) as remote:
+		added = run(
+			"connections", "add", "work", "--url", remote.url, input=f"{remote.token}\n"
+		)
+
+	assert added.exit_code == 0, added.output
+
+	written = _configured(home)
+
+	assert written.count("[connections.local]") == 1, written
+	assert "enabled = true" in written, written
+
+
 def test_a_machine_that_has_its_own_list_keeps_writing_to_it (
 	tmp_path: pathlib.Path,
 	home: pathlib.Path,
