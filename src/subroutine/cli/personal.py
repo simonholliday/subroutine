@@ -8297,26 +8297,7 @@ def register (
 		"""
 
 		with program.opened() as world:
-			located = _locate(program, world, _asked(which, "Which one?"), kinds=ANY_ITEM, verb="delete")
-			where = world.writing_to()
-
-			gone = where.client.discard(
-				ref=located.ref,
-				entity_type=located.entity_type,
-				workspace=located.workspace,
-			)
-
-			say(_acted(world, dataclasses.replace(located, item=gone), "Deleted"))
-
-			# **The remedy, not a reassurance.** "It can be restored" is a claim the reader has
-			# to trust; the command that does it is one they can run. Printed with the ref
-			# because after this the item is out of every listing, so the number on screen is
-			# the only way back to it.
-			_suggest(
-				console,
-				f"subroutine restore {_typeable(world, located.connection, located.item)}",
-				"put it back",
-			)
+			_discarded(program, world, which=_asked(which, "Which one?"))
 
 	@app.command("restore")
 	def undiscard_item (
@@ -8847,6 +8828,91 @@ def _typeable (world: World, connection: str, item: Item) -> str:
 
 	return world.address_of_item(connection, item, next_time=True).replace(
 		subroutine.domain.refs.SIGIL, ""
+	)
+
+
+def _discarded (program: Program, world: World, *, which: str) -> None:
+	"""Move one item to the trash and say what the move did not reach.
+
+	**Outside `register` because that closure only shrinks**, which is the ratchet's own
+	instruction: a command's body belongs in a function it calls. It came out when `#1294`
+	added the line below, which is `#943` working rather than being worked around.
+	"""
+
+	located = _locate(program, world, which, kinds=ANY_ITEM, verb="delete")
+	where = world.writing_to()
+
+	gone = where.client.discard(
+		ref=located.ref,
+		entity_type=located.entity_type,
+		workspace=located.workspace,
+	)
+
+	program.say(_acted(world, dataclasses.replace(located, item=gone), "Deleted"))
+
+	# **What the delete did not reach** (`#1294`). Said above the tip rather than as a second
+	# one, because it is part of what happened rather than a command to try next.
+	standing = _the_repeat_left_behind(world, located, gone)
+
+	if standing is not None:
+		program.say(f"  {standing}")
+
+	# **The remedy, not a reassurance.** "It can be restored" is a claim the reader has to
+	# trust; the command that does it is one they can run. Printed with the ref because after
+	# this the item is out of every listing, so the number on screen is the only way back to it.
+	_suggest(
+		program.console,
+		f"subroutine restore {_typeable(world, located.connection, located.item)}",
+		"put it back",
+	)
+
+
+def _the_repeat_left_behind (world: World, located: Located, gone: Item) -> str | None:
+	"""Return the line naming the repeat a deleted occurrence leaves standing, or ``None``.
+
+	**`#1294`, and the mirror of a refusal that already exists one row along.** ``delete`` on
+	the *series* is turned down and names the occurrence; this is the same fact told from the
+	other end. Deleting the visible row is what somebody reaches for when they mean *stop the
+	repeat*, and until now it did something strictly worse than stopping: ``done <series>``
+	leaves a tidy one-off, while deleting the occurrence leaves the series present, rendered
+	by no listing and no agenda, and **unable to produce another**.
+
+	That last part is measured rather than assumed. :func:`subroutine.domain.tasks.materialise`
+	is called from two places — once when a repeat is created, and once on *completion* — so
+	the next occurrence is minted by finishing the last one. With the only finishable row in
+	the trash the series has no route to a successor and is reachable solely by its number.
+
+	**So the sentence says the repeat is still there and how to end it, and does not say it
+	will come back.** It would not: a message implying the series still runs on a clock would
+	be false, which is the failure this codebase files as *a refusal asserting a cause it has
+	not established*. Restoring is already the tip printed underneath.
+
+	``None`` for a document, for a plain task, for the series itself, and for an occurrence of
+	a repeat somebody has already stopped — ``recurrence_rule`` resolves through
+	:func:`subroutine.views._from_a_live_series`, so a completed template answers nothing and
+	there is no rule left to end.
+
+	The kind is settled with :func:`isinstance` and the fields are read as plain attributes,
+	because `#674`'s cross-surface scan reads ``item.<field>`` to derive what a rendering
+	shows and cannot see a lookup spelled as a string.
+	"""
+
+	if not isinstance(gone, subroutine.views.Task):
+		return None
+
+	if gone.recurrence_template_ref is None or gone.recurrence_rule is None:
+		return None
+
+	named = world.address_of(
+		located.connection, gone.workspace_id, gone.recurrence_template_ref
+	)
+	typeable = world.address_of(
+		located.connection, gone.workspace_id, gone.recurrence_template_ref, next_time=True
+	).replace(subroutine.domain.refs.SIGIL, "")
+
+	return (
+		f"The repeat behind it, {named}, is still there — "
+		f"'subroutine done {typeable}' stops it altogether."
 	)
 
 

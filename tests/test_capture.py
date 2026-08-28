@@ -303,7 +303,12 @@ def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
 
 	# **Both kinds at once get both reasons**, which is why the sentence is built per kind
 	# rather than being one string with one ending.
-	both = subroutine.domain.capture.explain(_parse("Bins out every fortnight +a_b").unparsed)
+	#
+	# **The repeat is last on the line and that is required since `#1408`**: an unreadable
+	# repeat is reported only where nothing unclaimed follows it, and an unreadable `+name`
+	# is itself unclaimed. Written the other way round — `every fortnight +a_b` — this line
+	# now says only the project half, correctly.
+	both = subroutine.domain.capture.explain(_parse("Bins out +a_b every fortnight").unparsed)
 
 	assert both is not None
 	assert "repeat" in both and "project" in both
@@ -760,6 +765,68 @@ def test_a_repeat_left_mid_sentence_is_not_reported_as_unreadable () -> None:
 		f"a writer who never wanted a repeat is told how to phrase one:\n{said}"
 	)
 	assert subroutine.domain.recurrence.PHRASE_HINT in other, other
+
+
+def test_a_sentence_containing_the_word_every_is_not_told_how_to_phrase_a_repeat () -> None:
+	"""`SR#1408`, Simon's decision of 2026-08-28: silent where both signals are absent.
+
+	``_EVERY`` matches ``every\\s+\\S+`` anywhere in the line, so any sentence holding the word
+	had its next word swallowed into a candidate phrase and quoted back when it did not parse.
+	Filing *"Every piece of the browser's state lives in one function"* answered *"Left as
+	written: Every piece — not a repeat this understands. Try 'every day'…"*, and it fired
+	again on the very next line, on a title beginning *"A title beginning with the word
+	Every"*, reporting ``Every is``.
+
+	**Two signals say somebody meant a rule: the phrase's shape and its position.** `SR#1401`
+	settled position for the phrases that *do* parse. Where both are absent there is nothing to
+	report — the grammar took nothing, changed nothing, and every word is still in the title.
+
+	**The advice is why this could not simply be extended.** For a readable phrase *"put it at
+	the end to make it one"* is true and actionable; for an unreadable one it is false, because
+	putting ``every fortnight`` at the end will not make a repeat either.
+
+	Three cases, and the last two are what stop this passing by measuring nothing.
+	"""
+
+	for line in (
+		"Every piece of the browser's state lives in one function",
+		"A title beginning with the word Every is told how to phrase a repeat",
+		"Every fortnight the bins go out and I always forget",
+	):
+		quiet = _parse(line)
+
+		assert quiet.title == line, "rule 1: the words are untouched"
+		assert quiet.recurrence is None, "nothing was read, so nothing may be set"
+		assert quiet.unparsed == (), f"{line!r} was quoted back as {quiet.unparsed}"
+		assert subroutine.domain.capture.explain(quiet.unparsed) is None
+
+	# **An unreadable phrase with nothing after it is still reported**, which is the half
+	# §6.13 rule 1 requires and the half a blanket silencing would take with it.
+	at_the_end = _parse("Review the budget every fortnight")
+
+	assert at_the_end.unparsed == ("every fortnight",)
+
+	told = subroutine.domain.capture.explain(at_the_end.unparsed) or ""
+
+	assert subroutine.domain.recurrence.PHRASE_HINT in told, told
+
+	# **And a *readable* phrase mid-sentence keeps its own message**, which is `SR#1401` and is
+	# the other thing over-silencing would destroy. Both directions of the split, in one test,
+	# because a check that only proves the sentence stopped being said cannot tell this fix
+	# from deleting the feature.
+	readable = _parse("A view somebody uses every day can be saved and shared")
+
+	assert readable.unparsed == ("every day",)
+	assert "words follow it" in (subroutine.domain.capture.explain(readable.unparsed) or "")
+
+	# **The boundary, met while writing this.** *"Every year the accounts have to be filed"*
+	# looks like the cases above and is not one of them: ``every year`` **parses**, so it is
+	# `SR#1401`'s row rather than this one and keeps its own message. What separates the two is
+	# the phrase, never the position of the word in the sentence.
+	parses = _parse("Every year the accounts have to be filed")
+
+	assert parses.unparsed == ("Every year",)
+	assert "words follow it" in (subroutine.domain.capture.explain(parses.unparsed) or "")
 
 
 def test_an_unparsed_recurrence_still_counts_as_words_after_a_bare_day () -> None:

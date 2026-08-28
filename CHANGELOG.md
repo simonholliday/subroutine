@@ -16,6 +16,29 @@ upgrade involves.
 
 ### Fixed
 
+- **Deleting one turn of a repeat says the repeat is still there.** Deleting the row you can
+  see is what somebody reaches for when they mean *stop this repeating*, and it went through
+  in silence — leaving the repeat itself present, drawn by no listing and no agenda, and
+  unable to produce another, because the next occurrence is minted when the last one is
+  *finished* and the only finishable row had just gone to the trash.
+
+  The confirmation now names the repeat and the command that ends it. It deliberately does
+  not say the item will come back, because it will not. `delete` on the repeat itself was
+  already turned down by name; this is the same fact told from the other end.
+
+- **A sentence containing the word "every" is no longer told how to phrase a repeat.**
+  Filing *"Every piece of the browser's state lives in one function"* left the title alone,
+  correctly, and then offered *"not a repeat this understands — try 'every day', 'every 14
+  days'…"* about a repeat nobody had written. The recurrence pattern matches the word
+  anywhere in a line, so any sentence holding it had its next word swallowed into a candidate
+  phrase and quoted back.
+
+  A phrase that cannot be read **and** has words after it is now left in silence: nothing was
+  taken, nothing was changed, and every word is still in the title. One at the end of a line
+  is still reported, and a phrase that *does* read — *"A view somebody uses every day can be
+  saved and shared"* — still says why it was treated as prose, because for that one the
+  advice to move it to the end is true.
+
 - **A calendar feed no longer grows without limit for a series somebody skips by
   deleting.** Every occurrence a repeating item ever had deleted was named as an `EXDATE`,
   including slots years outside the window the feed is otherwise bounded by. The output was

@@ -1332,6 +1332,66 @@ def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
 	run("done", "1")
 
 
+def test_deleting_one_turn_of_a_repeat_says_the_repeat_is_still_standing (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1294`, and it is the refusal above told from the other end.
+
+	``delete`` on the *series* is turned down and names the occurrence. Deleting the
+	**occurrence** went through in silence and left the series present, drawn by no listing and
+	no agenda, and unable to produce another — ``materialise`` mints the next occurrence when
+	the last one is *finished*, so with the only finishable row in the trash there is no route
+	to a successor and the series is reachable solely by its number.
+
+	Deleting the visible row is what somebody reaches for when they mean *stop the repeat*, and
+	it did something strictly worse than stopping: ``done 1`` leaves a tidy one-off, while this
+	left an orphan nobody could see.
+
+	**The line does not say it will come back**, because it will not. A message implying the
+	series still runs on a clock would be a refusal asserting a cause it has not established,
+	which is the failure this file exists to catch.
+
+	Three cases, and the last two are what stop this passing by putting the sentence on
+	everything.
+	"""
+
+	run("init")
+	run("add", "Take the bins out every tuesday")
+
+	assert "from repeat #1" in run("show", "2").output, (
+		"the fixture does not offer the two rows this is about"
+	)
+
+	gone = run("delete", "2").output
+
+	assert "Deleted: Take the bins out" in gone
+	assert "#1" in gone, f"the line has to name the row it is talking about:\n{gone}"
+	assert "done 1" in gone, f"the line has to name the command that ends it:\n{gone}"
+
+	# **An ordinary task says nothing**, or this is a sentence on every delete rather than a
+	# statement about what the delete did not reach.
+	run("add", "Buy milk")
+
+	plain = run("delete", "3").output
+
+	assert "Deleted: Buy milk" in plain
+	assert "repeat" not in plain, f"a task that repeats nothing was told about one:\n{plain}"
+
+	# **And neither does an occurrence of a repeat somebody has already stopped.** Stopping
+	# completes the template rather than clearing a column, so the row still points at one —
+	# and there is no rule left to end, so naming one would be advice about a series that will
+	# never fire again. That is `SR#920`'s rule, reached here through the same resolution.
+	run("restore", "2")
+	run("done", "1")
+
+	stopped = run("delete", "2").output
+
+	assert "Deleted: Take the bins out" in stopped
+	assert "repeat" not in stopped, (
+		f"a stopped series was offered as something to stop:\n{stopped}"
+	)
+
+
 def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -7646,7 +7706,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_619
+REGISTER_CEILING = 1_600
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -7678,7 +7738,7 @@ REGISTER_CEILING = 1_619
 #: left to pay for its declaration. **That is the arrangement working as designed rather than
 #: being worked around**: the bill for a new command is an extraction, so what is added is paid
 #: for instead of accumulated.
-MODULE_LEVEL_FLOOR = 180
+MODULE_LEVEL_FLOOR = 182
 
 
 def _register_span () -> tuple[int, int]:

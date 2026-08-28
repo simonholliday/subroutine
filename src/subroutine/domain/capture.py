@@ -404,6 +404,9 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# could see it. :func:`_repeat_in` is the same function :func:`parse` used, so this is
 	# one description of what a repeat looks like rather than two.
 	mid = [one for one in every if _repeat_in(one) is not None]
+	#: **Only the ones with nothing after them reach here at all** (`#1408`). :func:`parse`
+	#: drops an unreadable phrase with words following it before it becomes a token, so this
+	#: bucket no longer holds every sentence that happens to contain the word *every*.
 	repeats = [one for one in every if _repeat_in(one) is None]
 
 	clauses = []
@@ -543,14 +546,19 @@ def parse (
 	#: whether anything unclaimed follows it. Recorded here because this is the only place
 	#: those spans exist, and a second list built later would be a second copy to keep in step.
 	repeated: list[tuple[int, int]] = []
+	#: Where each repeat this grammar could **not** read landed, for the same question asked of
+	#: the readable ones and answered in the same place. Recorded rather than reported here
+	#: because *what follows it* is not knowable until every other rule has taken what it wants.
+	unread: list[tuple[int, int]] = []
 
 	for match in _EVERY.finditer(text):
 		read = _repeat_in(match.group(0))
 
 		if read is None:
-			# Reserved and reported, exactly as before: "every fortnight" is not a rule this
-			# knows, and inventing one is what §6.13 rule 1 forbids.
-			unparsed.append(match.group(0))
+			# Reserved now, and reported below only where nothing unclaimed follows it
+			# (`#1408`). "every fortnight" is not a rule this knows and inventing one is what
+			# §6.13 rule 1 forbids, so the words stay in the title either way.
+			unread.append(match.span())
 			reserved.append(match.span())
 
 			continue
@@ -618,6 +626,22 @@ def parse (
 		if fields.get("recurrence_text") == text[span[0]:span[1]]:
 			fields.pop("recurrence", None)
 			fields.pop("recurrence_text", None)
+
+	# **And a phrase this grammar cannot read at all is reported only there too** (`#1408`).
+	# The advice differs from the rule above precisely because the phrase does not parse: for
+	# a readable repeat *"put it at the end to make it one"* is true and actionable, and for
+	# an unreadable one it is false — putting `every fortnight` at the end will not make a
+	# repeat either. So the two signals that somebody meant a rule are its shape and its
+	# position, and where both are absent there is nothing to report: nothing was taken,
+	# nothing was changed, and every word is still in the title.
+	#
+	# **Asked after the loop above, against the settled ``claimed``**, because a repeat given
+	# back a moment ago is part of the sentence now and this has to see it that way.
+	settled = _blanked(text, claimed)
+
+	unparsed.extend(
+		text[start:end] for start, end in unread if _nothing_follows(settled, (start, end))
+	)
 
 	# **A `+` nobody claimed** (`#778`). This runs last because it asks what the rules above
 	# took: `_PROJECT` claims the span it read, so anything still unclaimed is a project name
@@ -1070,6 +1094,21 @@ def _repeat_in (phrase: str) -> tuple[str, str] | None:
 _ENDS_A_LINE = " \t\r\n.!?"
 
 
+def _nothing_follows (blanked: str, span: tuple[int, int]) -> bool:
+	"""Report whether a span is the last unclaimed thing on the line.
+
+	**One description of §6.13's test, because two rules ask it** — :func:`_mid_sentence` of a
+	repeat that was read, and :func:`parse` of one that could not be. The two act on opposite
+	answers and must not come to disagree about the question.
+
+	``blanked`` is the line with every claimed span already blanked out, taken as an argument
+	rather than computed here because a caller asking about several spans would otherwise
+	rebuild it once per span.
+	"""
+
+	return not blanked[span[1]:].strip(_ENDS_A_LINE)
+
+
 def _mid_sentence (
 	text: str,
 	claimed: typing.Sequence[tuple[int, int]],
@@ -1103,9 +1142,7 @@ def _mid_sentence (
 
 	blanked = _blanked(text, claimed)
 
-	return [
-		span for span in repeated if blanked[span[1]:].strip(_ENDS_A_LINE)
-	]
+	return [span for span in repeated if not _nothing_follows(blanked, span)]
 
 
 def _as_date (
