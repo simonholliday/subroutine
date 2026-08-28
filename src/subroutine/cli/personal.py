@@ -2900,6 +2900,7 @@ def _listing (
 	claimed_by: str | None = None,
 	status: str | None = None,
 	type: str | None = None,
+	tag: str | None = None,
 	filters: dict[str, str] | None = None,
 ) -> subroutine.fanout.Gathered[Listing]:
 	"""List every reachable workspace's items, one request per workspace per kind.
@@ -2989,6 +2990,7 @@ def _listing (
 					claimed_by=claimed_by,
 					status=status,
 					type=type,
+					tag=tag,
 					filters=filters,
 				)
 
@@ -3080,6 +3082,7 @@ def _listing (
 						claimed_by=claimed_by,
 						status=status,
 						type=type,
+						tag=tag,
 						filters=filters,
 					)
 				)
@@ -3123,6 +3126,7 @@ def _listing (
 					deleted=trash,
 					status=status,
 					type=type,
+					tag=tag,
 					filters=filters,
 				)
 
@@ -3829,6 +3833,7 @@ def _listed (
 	claimed_by: str | None = None,
 	status: str | None = None,
 	type: str | None = None,
+	tag: str | None = None,
 	filters: dict[str, str] | None = None,
 ) -> None:
 	"""Print the list. Registered twice — three times, with ``search`` — from one body."""
@@ -3876,6 +3881,7 @@ def _listed (
 			claimed_by=claimed_by,
 			status=status,
 			type=type,
+			tag=tag,
 			filters=filters,
 		)
 
@@ -4034,7 +4040,7 @@ def _listed (
 		)
 
 
-def _filters (program: Program, dated: list[str] | None) -> dict[str, str]:
+def _filters (program: Program, dated: typing.Sequence[str] | None) -> dict[str, str]:
 	"""Read every ``--filter`` a command was given, refusing what is not one — `#815`.
 
 	**Through ``fail`` rather than by raising**, which is the difference between a sentence
@@ -4217,7 +4223,9 @@ def _in_an_editor (program: Program, current: str) -> str:
 #: **Not `--order`, `--limit` or `--connection`.** The first already takes several sort keys as
 #: one comma-separated value, so repeating it asks a different question; the other two are not
 #: narrowings. They are still last-wins and that is recorded on `#1484` rather than fixed here.
-ONE_VALUE_EACH = ("--project", "--assignee", "--claimed-by", "--status", "--type")
+ONE_VALUE_EACH = (
+	"--project", "--assignee", "--claimed-by", "--status", "--type", "--tag",
+)
 
 #: The five declared once, because three commands offer them and the wording is user-facing —
 #: `JUST_THIS_ONE_OPTION`'s precedent, and for its reason: three copies is three places for a
@@ -4237,6 +4245,10 @@ CLAIMED_BY_OPTION = typer.Option(
 )
 STATUS_OPTION = typer.Option(None, "--status", help="Only this status, e.g. 'blocked'.")
 TYPE_OPTION = typer.Option(None, "--type", help="Only this type, e.g. 'bug'.")
+#: **Without the `#`**, which a POSIX shell eats as a comment before this program sees it —
+#: the same reason a ref is typed bare (§12.2a). Written `#home` in a captured line, asked for
+#: as `--tag home` (`#1319`).
+TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, without the '#'.")
 
 
 def _only_once (program: Program, flag: str, given: typing.Sequence[str] | None) -> str | None:
@@ -4272,6 +4284,103 @@ def _only_once (program: Program, flag: str, given: typing.Sequence[str] | None)
 		)
 
 	return given[0] or None
+
+
+def _shown_list (
+	program: Program,
+	*,
+	limit: int,
+	json_output: bool,
+	merged: bool,
+	strict: bool,
+	order: str,
+	project: typing.Sequence[str] | None,
+	connection: str,
+	deferred: bool,
+	ready: bool,
+	trash: bool,
+	assignee: typing.Sequence[str] | None,
+	claimed_by: typing.Sequence[str] | None,
+	status: typing.Sequence[str] | None,
+	kind: typing.Sequence[str] | None,
+	tag: typing.Sequence[str] | None,
+	dated: typing.Sequence[str] | None,
+) -> None:
+	"""Print the list, for ``list`` and for its hidden synonym ``ls``.
+
+	**Named around `_listing`, which was already taken** — that is the fan-out gatherer three
+	thousand lines above, and Python takes the later binding, so the first version of this
+	shadowed it silently (`#1409`'s shape, third recorded instance). mypy caught it; so would
+	``tests/test_imports.py``, which refuses a module-level name bound twice.
+
+	**One body, which is the rule this file already states about those two names**: they call
+	one thing so they cannot drift into two. It was true of :func:`_listed` and not of the
+	twenty lines in front of it, which were duplicated verbatim in both commands — so a filter
+	added to one and not the other would have made the synonym quietly narrower.
+
+	**Outside `register` because that closure only shrinks** (`#943`). It came out when `#1319`
+	gave both commands a `--tag`, and taking it out is what paid for the option.
+
+	``kind`` is `--type` to the reader and ``type=`` to the client: ``type`` is a builtin, and
+	shadowing it inside a function that also annotates with ``str | None`` is how a signature
+	comes to mean something it does not.
+	"""
+
+	_listed(program,
+		limit=limit,
+		json_output=json_output,
+		merged=merged,
+		strict=strict,
+		order=order or None,
+		project=_only_once(program, "--project", project),
+		connection=connection or None,
+		deferred=deferred,
+		ready=ready,
+		trash=trash,
+		assignee=_only_once(program, "--assignee", assignee),
+		claimed_by=_only_once(program, "--claimed-by", claimed_by),
+		status=_only_once(program, "--status", status),
+		type=_only_once(program, "--type", kind),
+		tag=_only_once(program, "--tag", tag),
+		filters=_filters(program, dated),
+	)
+
+
+def _searched (
+	program: Program,
+	*,
+	terms: str,
+	limit: int,
+	json_output: bool,
+	merged: bool,
+	strict: bool,
+	order: str,
+	project: typing.Sequence[str] | None,
+	tag: typing.Sequence[str] | None,
+	connection: str,
+	deferred: bool,
+	dated: typing.Sequence[str] | None,
+) -> None:
+	"""Print what matches, by any of the words.
+
+	**Outside `register` because that closure only shrinks**, which is the ratchet's own
+	instruction: a command's body belongs in a function it calls. It came out when `#1319`
+	gave three commands a `--tag`, which is `#943` working rather than being worked around.
+	"""
+
+	_listed(program,
+		limit=limit,
+		json_output=json_output,
+		merged=merged,
+		strict=strict,
+		order=order or None,
+		project=_only_once(program, "--project", project),
+		tag=_only_once(program, "--tag", tag),
+		connection=connection or None,
+		deferred=deferred,
+		q=_asked(terms, "What are you looking for?"),
+		filters=_filters(program, dated),
+	)
 
 
 def _names_in_words (names: typing.Sequence[str]) -> str:
@@ -7553,6 +7662,7 @@ def register (
 		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
 		status: list[str] | None = STATUS_OPTION,
 		kind: list[str] | None = TYPE_OPTION,
+		tag: list[str] | None = TAG_OPTION,
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
@@ -7588,25 +7698,11 @@ def register (
 
 		_refuse_words(program, words, looking_for)
 
-		_listed(program,
-			limit=limit,
-			json_output=json_output,
-			merged=merged,
-			strict=strict,
-			order=order or None,
-			project=_only_once(program, "--project", project),
-			connection=connection or None,
-			deferred=deferred,
-			ready=ready,
-			trash=trash,
-			assignee=_only_once(program, "--assignee", assignee),
-			claimed_by=_only_once(program, "--claimed-by", claimed_by),
-			status=_only_once(program, "--status", status),
-			# **`kind` locally, `--type` to the user, `type=` to the client.** `type` is a
-			# builtin and shadowing it inside a function that also annotates with `str | None`
-			# is how a signature comes to mean something it does not.
-			type=_only_once(program, "--type", kind),
-			filters=_filters(program, dated),
+		_shown_list(
+			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
+			order=order, project=project, connection=connection, deferred=deferred,
+			ready=ready, trash=trash, assignee=assignee, claimed_by=claimed_by,
+			status=status, kind=kind, tag=tag, dated=dated,
 		)
 
 	@app.command()
@@ -7624,6 +7720,7 @@ def register (
 			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
 		),
 		project: list[str] | None = PROJECT_OPTION,
+		tag: list[str] | None = TAG_OPTION,
 		connection: str = typer.Option(
 			"", "--connection", help="Only this connection, by name."
 		),
@@ -7650,17 +7747,19 @@ def register (
 		  subroutine search "boiler" --filter created_at.gte=yesterday
 		"""
 
-		_listed(program,
+		_searched(
+			program,
+			terms=terms,
 			limit=limit,
 			json_output=json_output,
 			merged=merged,
 			strict=strict,
-			order=order or None,
-			project=_only_once(program, "--project", project),
-			connection=connection or None,
+			order=order,
+			project=project,
+			tag=tag,
+			connection=connection,
 			deferred=deferred,
-			q=_asked(terms, "What are you looking for?"),
-			filters=_filters(program, dated),
+			dated=dated,
 		)
 
 	@app.command()
@@ -7804,6 +7903,7 @@ def register (
 		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
 		status: list[str] | None = STATUS_OPTION,
 		kind: list[str] | None = TYPE_OPTION,
+		tag: list[str] | None = TAG_OPTION,
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
@@ -7825,22 +7925,11 @@ def register (
 
 		_refuse_words(program, words, looking_for)
 
-		_listed(program,
-			limit=limit,
-			json_output=json_output,
-			merged=merged,
-			strict=strict,
-			order=order or None,
-			project=_only_once(program, "--project", project),
-			connection=connection or None,
-			deferred=deferred,
-			ready=ready,
-			trash=trash,
-			assignee=_only_once(program, "--assignee", assignee),
-			claimed_by=_only_once(program, "--claimed-by", claimed_by),
-			status=_only_once(program, "--status", status),
-			type=_only_once(program, "--type", kind),
-			filters=_filters(program, dated),
+		_shown_list(
+			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
+			order=order, project=project, connection=connection, deferred=deferred,
+			ready=ready, trash=trash, assignee=assignee, claimed_by=claimed_by,
+			status=status, kind=kind, tag=tag, dated=dated,
 		)
 
 	@app.command()

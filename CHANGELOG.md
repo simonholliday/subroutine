@@ -405,6 +405,18 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be narrowed to one tag.** `subroutine list --tag home`, `subroutine search
+  <words> --tag home`, and `?tag=` on `GET /v1/tasks` and `GET /v1/documents`. A tag was
+  write-only until now: it is captured from a `#word`, stored, shown on a row and on `show`,
+  and published in the API's view, and no surface could find work by one — so somebody
+  following the README wrote tags for months and could not get them back out.
+
+  Asked for **without the `#`**, because a shell eats one as a comment. Matched however it
+  was capitalised. A tag nobody uses is refused by name rather than answered with an empty
+  list, the way an unknown status key already is.
+
+  The browser is not covered yet.
+
 - **`GET /v1/changes` accepts `?before=<seq>`**, an exclusive upper bound that makes the
   change feed walkable backwards. Until now the feed was defined forwards in every sense,
   including which way it could be *asked* — so a caller holding its newest page had

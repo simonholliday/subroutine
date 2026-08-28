@@ -249,6 +249,7 @@ class Client:
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
@@ -276,6 +277,7 @@ class Client:
 				status=status,
 				status_category=status_category,
 				type=type,
+				tag=tag,
 				due_before=None if due_before is None else due_before.isoformat(),
 				due_after=None if due_after is None else due_after.isoformat(),
 				subtree="true" if subtree else None,
@@ -330,6 +332,7 @@ class Client:
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
@@ -346,6 +349,7 @@ class Client:
 				status=status,
 				status_category=status_category,
 				type=type,
+				tag=tag,
 			),
 		)
 

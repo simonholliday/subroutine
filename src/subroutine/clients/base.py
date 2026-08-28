@@ -343,6 +343,7 @@ class Client(typing.Protocol):
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
@@ -429,6 +430,7 @@ class Client(typing.Protocol):
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.

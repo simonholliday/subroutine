@@ -3193,6 +3193,70 @@ def test_both_resume_from_the_same_point (pair: Pair) -> None:
 	assert local.changes(since=middle)[0].seq == middle
 
 
+def test_both_narrow_a_listing_to_one_tag_the_same_way (pair: Pair) -> None:
+	"""`SR#1319`, Simon's decision of 2026-08-28: a tag is a filter, and it had no read side.
+
+	A tag was captured from a `#word`, stored, rendered on a row and on `show`, and published
+	in the API's view — and **nothing could select by one**. `domain/filtering.py` contained
+	the word *tag* zero times, search reads the title and the description alone, and a join row
+	is neither. The product invites it in the README, in `explain capture` and in both plugin
+	skills, so somebody writes tags for months before finding they cannot get them back out.
+
+	**Driven across both transports against one database**, because a narrowing that exists on
+	one client and not the other is the divergence this suite is for — and the predicate is
+	deliberately one function, called by four listings, rather than four copies that agree
+	until somebody changes one.
+
+	Documents as well as tasks: one counter numbers both (§6.2) and `subroutine list` spans
+	both, so a tag that reached only tasks would drop half the rows a reader can see without
+	saying it had.
+	"""
+
+	make(pair, "Buy compost #home")
+	make(pair, "Repot the fern #home")
+	make(pair, "Fix the deploy script #ops")
+	make(pair, "Nothing filed under anything")
+
+	local, remote = pair.both()
+
+	for named, client in (("local", local), ("remote", remote)):
+		home = client.tasks(tag="home")
+
+		assert sorted(one.title for one in home) == ["Buy compost", "Repot the fern"], (
+			f"the {named} client answered {[one.title for one in home]} for '#home'"
+		)
+
+		# **However it was capitalised**, because that is what `ensure` normalises on and what
+		# makes a tag one thing rather than several spellings of one.
+		assert [one.ref for one in client.tasks(tag="HOME")] == [one.ref for one in home]
+
+		assert [one.title for one in client.tasks(tag="ops")] == ["Fix the deploy script"]
+
+	assert local.tasks(tag="home") == remote.tasks(tag="home")
+
+	# **A tag nobody uses is refused by name on both**, rather than answered with an empty
+	# listing — a typo and an unused tag produce the same nothing, and the second is far the
+	# rarer. `SR#1468`'s argument, and `status_for`'s.
+	for named, client in (("local", local), ("remote", remote)):
+		with pytest.raises(subroutine.errors.ValidationError) as raised:
+			client.tasks(tag="nosuchtag")
+
+		assert raised.value.errors[0].field == "tag", f"{named}: {raised.value.errors}"
+		assert "nosuchtag" in str(raised.value), named
+
+	# **And the document half**, which is where a narrowing reaching one kind would hide.
+	pair.local.create_document(
+		title="A decision about the deploy", body="Because.", tags=["ops"]
+	)
+
+	for named, client in (("local", local), ("remote", remote)):
+		found = client.documents(tag="ops")
+
+		assert [one.title for one in found] == ["A decision about the deploy"], (
+			f"the {named} client answered {[one.title for one in found]} for a tagged document"
+		)
+
+
 def test_both_read_past_the_first_page_from_the_newest_end (pair: Pair) -> None:
 	"""`SR#1097`, Simon's decision of 2026-08-28: a feed positioned at its tail is walkable back.
 

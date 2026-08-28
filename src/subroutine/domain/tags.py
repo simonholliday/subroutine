@@ -231,6 +231,68 @@ def on (
 	)
 
 
+def carrying (
+	session: sqlalchemy.orm.Session,
+	workspace_id: uuid.UUID,
+	name: str,
+	*,
+	joined: typing.Any,
+	holder: typing.Any,
+) -> typing.Any:
+	"""Return the predicate that narrows a listing to one tag, refusing a name nobody uses.
+
+	**A tag was write-only until now** (`#1319`, Simon's decision of 2026-08-28). It is
+	captured from a `#word`, stored, rendered on a row and on `show`, and published in the
+	API's view — and no surface could select by one. `domain/filtering.py` contained the word
+	*tag* zero times, search reads the title and the description alone, and a join row is
+	neither. So somebody following the README wrote tags for months and could not get them
+	back out.
+
+	**A narrowing rather than a search**, which is the half `#1020` frames and that decision
+	settles: search answers *find me something about this*, a tag answers *show me this set*.
+
+	**Refused by name rather than answered empty.** A tag nobody has used and a tag spelled
+	wrongly produce the same empty listing, and the second is far commoner — this is the same
+	argument `status_for` makes about a status key, and `#1468`'s about a vocabulary word that
+	is nowhere.
+
+	``joined`` is the join model — :class:`~subroutine.db.models.work.TaskTag` or
+	:class:`~subroutine.db.models.work.DocumentTag` — and ``holder`` is its column naming the
+	item, which the two spell differently. Both are passed rather than derived: reading the
+	item column off the primary key would work on the two tables that exist and fail obscurely
+	on the third, and a listing writing its own copy of this predicate is how the two would
+	come to disagree about what a tag match means.
+
+	**Matched on the normalised name**, so `#Home` finds what `#home` tagged: that is what
+	:func:`ensure` stores and what makes a tag one thing rather than several spellings of one.
+	"""
+
+	model = subroutine.db.models.vocabulary.Tag
+	wanted = normalize(name)
+	found = session.scalars(
+		sqlalchemy.select(model).where(
+			model.workspace_id == workspace_id, model.name_normalized == wanted
+		)
+	).one_or_none()
+
+	if found is None:
+		raise subroutine.errors.ValidationError(
+			f"No tag called {name!r} is used here.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field="tag",
+					code="invalid_field_value",
+					message=f"Nothing is tagged {name!r} in this workspace.",
+					hint="A tag exists once something carries it — add one by writing "
+					"'#name' in a captured line.",
+				)
+			],
+		)
+
+	return sqlalchemy.select(holder).where(joined.tag_id == found.id)
+
+
 def names_for (
 	session: sqlalchemy.orm.Session,
 	kind: typing.Any,

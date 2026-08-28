@@ -1332,6 +1332,43 @@ def test_the_repeat_itself_is_turned_down_by_name_rather_than_denied (
 	run("done", "1")
 
 
+def test_a_listing_can_be_narrowed_to_one_tag (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1319`, Simon's decision of 2026-08-28: a tag is a filter and it had no read side.
+
+	`#home` was captured, stored, rendered on the row and on `show`, published in the API's
+	view — and no surface could find work by one. The product invites it in the README, in
+	`explain capture` and in both plugin skills, so somebody writes tags for months before
+	discovering they cannot get them back out.
+
+	**Asked for without the `#`**, because a POSIX shell eats one as a comment before this
+	program sees it — the same reason a ref is typed bare.
+	"""
+
+	run("init")
+	run("add", "Buy compost #home")
+	run("add", "Fix the deploy script #ops")
+	run("add", "Nothing filed under anything")
+
+	home = run("list", "--tag", "home").output
+
+	assert "Buy compost" in home, home
+	assert "Fix the deploy script" not in home, home
+	assert "Nothing filed under anything" not in home, home
+
+	# **However it was capitalised**, or a tag is several things that look like one.
+	assert "Buy compost" in run("list", "--tag", "HOME").output
+
+	# **A tag nobody uses is turned down by name**, rather than answered with an empty list —
+	# a typo and an unused tag produce the same nothing, and the second is far the rarer.
+	assert "nosuchtag" in run("list", "--tag", "nosuchtag").output
+
+	# **And `search` takes it too**, so narrowing and searching compose rather than being two
+	# ways to ask that cannot be combined.
+	assert "Buy compost" in run("search", "compost", "--tag", "home").output
+
+
 def test_a_narrowing_filter_given_twice_is_refused_rather_than_halved (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -7825,7 +7862,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_592
+REGISTER_CEILING = 1_572
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -7857,7 +7894,7 @@ REGISTER_CEILING = 1_592
 #: left to pay for its declaration. **That is the arrangement working as designed rather than
 #: being worked around**: the bill for a new command is an extraction, so what is added is paid
 #: for instead of accumulated.
-MODULE_LEVEL_FLOOR = 186
+MODULE_LEVEL_FLOOR = 188
 
 
 def _register_span () -> tuple[int, int]:

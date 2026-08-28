@@ -68,6 +68,7 @@ import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.sessions
+import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.tokens
 import subroutine.domain.users
@@ -401,6 +402,7 @@ class Client:
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
 		filters: dict[str, str] | None = None,
@@ -643,6 +645,23 @@ class Client:
 				statement = statement.where(
 					model.type_id
 					== subroutine.domain.tasks.item_type_for(session, chosen.id, type).id
+				)
+
+			# **The same predicate the endpoint applies, from the same function** (`#1319`).
+			# A narrowing written twice is what this module keeps being about, and a tag that
+			# matched differently on a local database from a served one would be invisible to
+			# anybody who only has one of them.
+			if tag is not None:
+				statement = statement.where(
+					model.id.in_(
+						subroutine.domain.tags.carrying(
+							session,
+							chosen.id,
+							tag,
+							joined=subroutine.db.models.work.TaskTag,
+							holder=subroutine.db.models.work.TaskTag.task_id,
+						)
+					)
 				)
 
 			if assignee is not None:
@@ -1020,6 +1039,7 @@ class Client:
 		status: str | None = None,
 		status_category: str | None = None,
 		type: str | None = None,
+		tag: str | None = None,
 		filters: dict[str, str] | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
@@ -1057,6 +1077,21 @@ class Client:
 				if status_category is None
 				else subroutine.domain.documents.statuses_in_category(
 					session, chosen.id, status_category
+				)
+			)
+			# **Resolved here with the others, and refused here too** (`#1319`). A tag nobody
+			# uses is a typo far more often than it is an empty set, so it is turned down by
+			# name rather than answered with nothing — which is what `status_for` above does
+			# with a key, and for the reason `#1468` records.
+			carrying = (
+				None
+				if tag is None
+				else subroutine.domain.tags.carrying(
+					session,
+					chosen.id,
+					tag,
+					joined=subroutine.db.models.work.DocumentTag,
+					holder=subroutine.db.models.work.DocumentTag.document_id,
 				)
 			)
 
@@ -1119,6 +1154,9 @@ class Client:
 						sqlalchemy.true()
 						if in_category is None
 						else model.status_id.in_(in_category)
+					)
+					.where(
+						sqlalchemy.true() if carrying is None else model.id.in_(carrying)
 					)
 					.where(
 						sqlalchemy.true()

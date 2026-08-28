@@ -40,6 +40,7 @@ import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
+import subroutine.domain.tags
 import subroutine.errors
 import subroutine.views
 
@@ -206,6 +207,11 @@ def listing (
 	project: str | None = fastapi.Query(None, description="Restrict to one project."),
 	type: str | None = fastapi.Query(None, description="Restrict to one document type key."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
+	tag: str | None = fastapi.Query(
+		None,
+		description="Restrict to items carrying this tag, without the '#'. Matched however "
+		"it was capitalised.",
+	),
 	status_category: str | None = fastapi.Query(
 		None,
 		description=(
@@ -277,6 +283,22 @@ def listing (
 		statement = statement.where(
 			model.status_id
 			== subroutine.domain.documents.status_for(session, workspace.id, status).id
+		)
+
+	# **Both kinds, or a tag is half readable** (`#1319`). One counter numbers tasks and
+	# documents together (§6.2) and `subroutine list` spans both, so a narrowing that reached
+	# only tasks would drop half the rows a reader can see without saying it had.
+	if tag is not None:
+		statement = statement.where(
+			model.id.in_(
+				subroutine.domain.tags.carrying(
+					session,
+					workspace.id,
+					tag,
+					joined=subroutine.db.models.work.DocumentTag,
+					holder=subroutine.db.models.work.DocumentTag.document_id,
+				)
+			)
 		)
 
 	# **A category rather than a key, and it is the only honest way to ask** (`#1087`). A key

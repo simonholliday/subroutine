@@ -48,6 +48,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
+import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.verifications
 import subroutine.errors
@@ -350,6 +351,11 @@ def listing (
 	),
 	project: str | None = fastapi.Query(None, description="Restrict to one project, by key or id."),
 	status: str | None = fastapi.Query(None, description="Restrict to one status key."),
+	tag: str | None = fastapi.Query(
+		None,
+		description="Restrict to items carrying this tag, without the '#'. Matched however "
+		"it was capitalised.",
+	),
 	status_category: str | None = fastapi.Query(
 		None,
 		description=(
@@ -524,6 +530,22 @@ def listing (
 	if type is not None:
 		statement = statement.where(
 			model.type_id == subroutine.domain.tasks.item_type_for(session, workspace.id, type).id
+		)
+
+	if tag is not None:
+		# **The read side a tag never had** (`#1319`). Written as a subquery rather than a join
+		# so the listing's row count cannot change: an item carries a tag once, but a join in a
+		# statement this many other narrowings compose onto is a shape somebody widens later.
+		statement = statement.where(
+			model.id.in_(
+				subroutine.domain.tags.carrying(
+					session,
+					workspace.id,
+					tag,
+					joined=subroutine.db.models.work.TaskTag,
+					holder=subroutine.db.models.work.TaskTag.task_id,
+				)
+			)
 		)
 
 	if parent is not None:
