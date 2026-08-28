@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A calendar feed no longer grows without limit for a series somebody skips by
+  deleting.** Every occurrence a repeating item ever had deleted was named as an `EXDATE`,
+  including slots years outside the window the feed is otherwise bounded by. The output was
+  never wrong — a client ignores an exclusion for a slot it is not expanding — so what this
+  fixes is the size of a body that a calendar client polls. Both halves of the exclusion,
+  moved and deleted, are bounded by the feed's own window now.
+
 - **A planned day can be taken off again from the terminal.** `subroutine plan 42 ''` now
   clears the start, the way `--until ''` has always cleared the end on the same command.
   Before this the only route was `PATCH {"starts": null}` over HTTP: the day argument

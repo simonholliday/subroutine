@@ -572,6 +572,73 @@ def test_a_slot_that_no_longer_holds_an_occurrence_is_excluded_from_the_grid (
 	assert drawn, "the whole series stopped being drawn, which is worse than the phantom"
 
 
+def test_an_emptied_slot_outside_the_window_is_not_excluded (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1313`. Every deleted occurrence a series ever had was named, whatever the window.
+
+	**Efficiency rather than correctness, and the distinction is why this was never noticed.**
+	A client ignores an ``EXDATE`` for a slot it is not expanding, so the feed was right and
+	simply grew — without limit, for the life of a series somebody skips by deleting, on an
+	endpoint a calendar client polls.
+
+	**Both halves of the assertion matter.** The first alone passes against a feed that has
+	stopped emitting exclusions at all, which is `SR#1248`'s defect with the sign reversed and
+	the more expensive one — so the same slot is brought back inside the window and has to
+	reappear.
+	"""
+
+	workspace, owner = _world(session)
+	project = _project(session, workspace)
+	actor = subroutine.domain.authentication.Principal(user=owner)
+
+	made = subroutine.domain.tasks.create(
+		session,
+		project=project,
+		actor=actor,
+		title="Team meeting",
+		starts=NOW + datetime.timedelta(days=1),
+		recurrence="every week",
+	)
+	session.flush()
+
+	# Well beyond ``PAST_DAYS``, which is what the feed's trailing edge is. Written onto the row
+	# rather than reached by materialising a year of occurrences: ``occurrence_at`` is the value
+	# the exclusion is emitted from, and it is the whole of what this bound reads.
+	long_ago = NOW - datetime.timedelta(days=subroutine.domain.calendars.PAST_DAYS + 90)
+	made.occurrence_at = long_ago
+	made.starts_at = long_ago
+	subroutine.domain.tasks.delete(session, made, actor=actor)
+	session.flush()
+
+	def rendered () -> str:
+		"""Return the feed as it stands."""
+
+		return subroutine.domain.icalendar.render(
+			subroutine.domain.calendars.occasions(session, feed, now=NOW),
+			name="Mine",
+			instance_id=uuid.uuid4(),
+			now=NOW,
+		)
+
+	feed, _minted = _feed(session, workspace, owner)
+
+	assert "EXDATE" not in rendered(), (
+		"a slot 97 days before the feed's own trailing edge is excluded, and no client is "
+		f"expanding it:\n{rendered()}"
+	)
+
+	# The same row, inside the window: the exclusion has to come back, or the assertion above
+	# is satisfied by a feed that never excludes anything.
+	made.occurrence_at = NOW + datetime.timedelta(days=1)
+	made.starts_at = NOW + datetime.timedelta(days=1)
+	session.flush()
+
+	assert "EXDATE" in rendered(), (
+		f"an emptied slot inside the window stopped being excluded:\n{rendered()}"
+	)
+
+
 def test_a_series_nobody_has_touched_carries_no_exclusions (
 	session: sqlalchemy.orm.Session,
 ) -> None:

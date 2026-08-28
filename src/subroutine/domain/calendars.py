@@ -553,7 +553,15 @@ def occasions (
 		if row.is_template and _occasions_of(row, earliest=earliest, latest=latest)
 	}
 
-	emptied = _emptied_slots(session, principal, rows, gridded, workspace_id=feed.workspace_id)
+	emptied = _emptied_slots(
+		session,
+		principal,
+		rows,
+		gridded,
+		workspace_id=feed.workspace_id,
+		earliest=earliest,
+		latest=latest,
+	)
 
 	for row in rows:
 		if row.is_template:
@@ -579,6 +587,8 @@ def _emptied_slots (
 	gridded: set[uuid.UUID],
 	*,
 	workspace_id: uuid.UUID,
+	earliest: datetime.datetime,
+	latest: datetime.datetime,
 ) -> dict[uuid.UUID, set[datetime.datetime]]:
 	"""Return, per template, the grid slots that no longer hold an occurrence (`#1248`).
 
@@ -601,6 +611,12 @@ def _emptied_slots (
 	**Restored is answered for free.** Nothing is stored; this is computed per request from the
 	rows as they are, so taking an occurrence back out of the trash refills its slot and the
 	``EXDATE`` stops being emitted.
+
+	**Bounded by the feed's own window, on both halves** (`#1313`). A slot outside it describes
+	nothing the client is expanding, so saying it is empty tells nobody anything — and the
+	deleted half asked for *every* deleted occurrence of every gridded template, so the body of
+	a feed a calendar client polls grew without limit for the life of a series somebody skips by
+	deleting. The output was never wrong: a client ignores an ``EXDATE`` it is not expanding.
 	"""
 
 	emptied: dict[uuid.UUID, set[datetime.datetime]] = {}
@@ -611,7 +627,11 @@ def _emptied_slots (
 		if row.is_template or template_id not in gridded:
 			continue
 
-		if not _is_on_its_grid(row, gridded) and row.occurrence_at is not None:
+		if (
+			not _is_on_its_grid(row, gridded)
+			and row.occurrence_at is not None
+			and earliest <= row.occurrence_at <= latest
+		):
 			emptied.setdefault(template_id, set()).add(row.occurrence_at)
 
 	if not gridded:
@@ -620,7 +640,11 @@ def _emptied_slots (
 	task = subroutine.db.models.work.Task
 	discarded = subroutine.domain.scoping.readable_tasks(
 		principal, workspace_ids=[workspace_id], include_deleted=True, include_completed=True
-	).where(task.deleted_at.is_not(None), task.recurrence_template_id.in_(gridded))
+	).where(
+		task.deleted_at.is_not(None),
+		task.recurrence_template_id.in_(gridded),
+		task.occurrence_at.between(earliest, latest),
+	)
 
 	for row in session.scalars(discarded):
 		if row.occurrence_at is not None and row.recurrence_template_id is not None:
