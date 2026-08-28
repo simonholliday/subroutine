@@ -16,6 +16,12 @@ upgrade involves.
 
 ### Fixed
 
+- **Making a project private says what that means.** A private project is visible to whoever
+  made it and to nobody else, permanently — nothing in the product adds a second person to one.
+  `--private` said *"Only its members can see it"*, which is true and reads as an invitation to
+  add somebody to a set that cannot grow. It now says so plainly at the moment you choose it,
+  with the command that puts it back.
+
 - **Onboarding somebody with both a link and a credential says which is which.** The sign-in
   link has always announced itself; the credential arrived as a bare string, so a reader handing
   both over had to tell them apart from context — and both are shown once, so there is no

@@ -6009,7 +6009,12 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		description: str = typer.Option("", "--description", help="What it is for."),
 		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
 		private: bool = typer.Option(
-			False, "--private", help="Only its members can see it."
+			# **"Only you", not "only its members"** (`#1444`). Both are true and one of them
+			# is misleading: §7.3a grants sight to holders of a `project_member` row, and
+			# nothing in this program writes one for anybody but the owner — no route, no
+			# command, no tool. So *members* names a set that cannot grow, and a reader takes
+			# it as an invitation to add somebody.
+			False, "--private", help="Only you can see it. Nothing can share it yet."
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -6048,6 +6053,23 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 				return
 
 			program.say(f"Created {created.key} — {created.title}")
+
+			# **Said at the one moment it can be acted on** (`#1444`). A private project is
+			# visible to its owner and to nobody else, permanently: sight comes from a
+			# `project_member` row and nothing writes one except creation and a transfer of
+			# ownership. Nothing was wrong at any single site, which is why it survived since
+			# M1 — the specification, the enforcement and the owner's own row are all correct,
+			# and the writer that would let somebody share it was never built.
+			#
+			# **Recoverable, and said so**, because the alternative reads as a refusal: a
+			# reader who has just been told a thing is invisible needs the sentence that puts
+			# it back more than they need the reason.
+			if created.visibility == "private":
+				program.say(
+					"Only you can see it. Nothing can add somebody else to a private project "
+					"yet — 'subroutine project update "
+					f"{_capture_name(world, created)} --public' undoes this."
+				)
 
 			# **The next command is the one that uses it**, not another one about projects.
 			# A project nobody files anything into is an empty gesture, and `+KEY` is the part

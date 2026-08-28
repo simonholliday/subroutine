@@ -9356,3 +9356,48 @@ def test_the_dates_topic_names_the_one_command_that_refuses_a_timestamp (
 		f"'plan' no longer refuses a timestamp, so this page's exception is stale:"
 		f"\n{refused.output}"
 	)
+
+
+def test_making_a_project_private_says_that_nothing_can_share_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1444`, at the one moment it can be acted on.
+
+	**A private project is visible to its owner and to nobody else, permanently.** §7.3a grants
+	sight to holders of a ``project_member`` row, and the only writers are ``projects.create``
+	for the owner and ``projects._ensure_member`` when ownership changes — no route, no command,
+	no tool adds a second person. Driven on a scratch instance before this was written: a
+	colleague's ``project list`` shows the Inbox and not the private project.
+
+	**The flag's own help said "Only its members can see it"**, which is true and reads as an
+	invitation to add somebody. It names a set that cannot grow.
+
+	**The remedy is in the sentence rather than after it.** A reader who has just been told a
+	thing is invisible needs the way back more than they need the reason, and without it the
+	line reads as a refusal of something that in fact succeeded.
+	"""
+
+	run("init")
+
+	said = run("project", "create", "secret", "Secret", "--private").output
+
+	assert "Only you can see it" in said
+	assert "--public" in said
+
+
+def test_an_ordinary_project_says_nothing_about_who_can_see_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, and §1.4 is why it is a test rather than an obvious omission.
+
+	A public project is what somebody with a to-do list makes, and a sentence about visibility
+	on it would introduce a concept they never asked about — the rule that a field nobody set is
+	not printed, applied to a default nobody chose.
+	"""
+
+	run("init")
+
+	said = run("project", "create", "web", "Web").output
+
+	assert "Only you can see it" not in said
+	assert "Created web" in said
