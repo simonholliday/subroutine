@@ -258,6 +258,38 @@ def definition (code: str) -> ErrorDefinition:
 		raise ValueError(f"Unregistered error code {code!r}. Registered codes are: {valid}.") from None
 
 
+#: Where a refused field was read from, as a problem document spells it — `#1404`.
+#:
+#: **A body field carries no location and every other one does.** ``api.problems._field_name``
+#: drops a leading ``body`` because that is where fields live unless somebody says otherwise,
+#: and keeps the rest: knowing ``limit`` was wrong in the query string rather than in the body
+#: is the difference between one fix and two.
+#:
+#: Declared here rather than in ``api`` because the readers that have to strip it are the CLI
+#: and the MCP server, and **nothing outside ``api`` may import it** — a served instance need
+#: not have been started through the CLI, and the MCP adapter answers over a transport that
+#: knows nothing about HTTP.
+FIELD_LOCATIONS = ("query", "path", "header", "cookie")
+
+
+def field_tail (name: str) -> str:
+	"""Return a refused field's name without the location a transport put in front of it.
+
+	**For the readers that have no such location to offer** (`#1404`). A person at a terminal
+	typed a command and an agent called a tool with named arguments; neither has a query string,
+	so ``query.workspace_id`` is a name they cannot act on and ``workspace`` is one they can.
+	The problem document keeps the location, because the caller who *does* build requests by
+	hand needs it.
+
+	**Only a location is stripped, never any first segment.** A body field may be nested and
+	spelled ``meta.owner``, and taking ``meta`` off that would name a field nobody sent.
+	"""
+
+	location, _, rest = name.partition(".")
+
+	return rest if location in FIELD_LOCATIONS and rest else name
+
+
 @dataclasses.dataclass(frozen=True)
 class FieldError:
 	"""One thing wrong with one field, and what to do about it.
@@ -650,7 +682,21 @@ def _status (reported: typing.Any, actual: int | None) -> int:
 
 
 def _field_errors (value: typing.Any) -> tuple[FieldError, ...]:
-	"""Read the ``errors`` array of a problem document, skipping anything malformed."""
+	"""Read the ``errors`` array of a problem document, skipping anything malformed.
+
+	**The location comes off here, and that is :func:`from_problem`'s own rule applied to a
+	field name** (`#1404`). A problem document says ``query.limit`` because a caller building a
+	request by hand has to know which half of it to fix; a caller of *this* client has no
+	request to fix and no query string — it passed ``limit=`` to a method — and the local client
+	answering the same mistake says ``limit``. §13.7 makes several connections normal and a
+	fan-out merges their failures, so one connection saying ``limit`` and another saying
+	``query.limit`` about one mistake is exactly the two vocabularies this function exists to
+	prevent.
+
+	**What the wire says is unchanged**, which is the whole of `#1404`: a third-party client
+	branching on ``field`` reads the document, and so does an agent through
+	``subroutine_call_api``, which hands back the response text rather than an exception.
+	"""
 
 	if not isinstance(value, list):
 		return ()
@@ -670,7 +716,7 @@ def _field_errors (value: typing.Any) -> tuple[FieldError, ...]:
 
 		found.append(
 			FieldError(
-				field=field,
+				field=field_tail(field),
 				# A field error's code is reported as sent when it is one we publish, and as
 				# the generic one otherwise. It is display text here, not a decision.
 				code=code if isinstance(code, str) and code in REGISTRY else "invalid_field_value",

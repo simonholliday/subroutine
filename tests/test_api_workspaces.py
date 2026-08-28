@@ -189,7 +189,7 @@ def test_the_agenda_narrows_to_a_project_and_refuses_one_with_nowhere_to_look (
 
 	assert "project" in said["detail"], said
 	assert "workspace" in said["detail"], said
-	assert any(one["field"] == "project" for one in said.get("errors", [])), said
+	assert any(one["field"] == "query.project" for one in said.get("errors", [])), said
 
 
 def test_the_title_the_timezone_and_the_slug_can_all_change (

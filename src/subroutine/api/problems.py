@@ -442,8 +442,8 @@ def body_fields (route: typing.Any) -> tuple[str, ...]:
 	return tuple(sorted(str(name) for name in fields))
 
 
-def query_parameters (route: typing.Any) -> tuple[str, ...]:
-	"""Return the names a route reads from the query string.
+def parameter_locations (route: typing.Any) -> dict[str, str]:
+	"""Return each name a route reads outside the body, and which half of the request it is in.
 
 	Read the same way :func:`body_fields` reads the other half, and from the same resolved
 	route, so the two answers are about one endpoint and cannot describe different ones.
@@ -451,16 +451,35 @@ def query_parameters (route: typing.Any) -> tuple[str, ...]:
 	The dependency tree is flattened first, because a name declared inside a shared
 	dependency is still a name the caller writes in the query string — and every listing
 	here gets its filters that way.
+
+	**It was ``query_parameters`` and it never returned only the query's** (`#1404`). The flat
+	parameters include the path's, so ``GET /v1/tasks/{id_or_ref}`` answered with ``id_or_ref``
+	among them — harmless while the one caller was narrowed to routes that take a body, and a
+	refusal reading ``query.id_or_ref`` the moment it was not. The location comes back beside
+	the name now, so the caller can say where a field really was rather than assuming.
+
+	The value is ``fastapi``'s own word for it — ``query``, ``path``, ``header``, ``cookie`` —
+	which is the vocabulary :func:`_field_name` already keeps and
+	:data:`subroutine.errors.FIELD_LOCATIONS` already reads.
 	"""
 
 	dependant = getattr(route, "dependant", None)
 
 	if dependant is None:
-		return ()
+		return {}
 
-	return tuple(
-		sorted(str(parameter.name) for parameter in fastapi.dependencies.utils.get_flat_params(dependant))
-	)
+	found: dict[str, str] = {}
+
+	for parameter in fastapi.dependencies.utils.get_flat_params(dependant):
+		# **Read defensively, like :func:`body_fields` reads its half and for the same reason**:
+		# ``in_`` is on ``fastapi``'s ``Param`` subclasses rather than on the ``FieldInfo`` the
+		# type says, and it is not a documented interface. Falling back to ``query`` keeps the
+		# answer this function gave before it knew the difference, which is the safe direction:
+		# a name we cannot place is far more likely to be one.
+		where = getattr(getattr(parameter, "field_info", None), "in_", None)
+		found[str(parameter.name)] = str(getattr(where, "value", "query"))
+
+	return found
 
 
 def _where_it_goes (
@@ -480,14 +499,26 @@ def _where_it_goes (
 	/v1/tasks`` the same refusal about the same parameter must stay bare, because that endpoint
 	takes ``workspace_id`` in the body and takes no query parameters at all.
 
-	**An endpoint with no body at all is left alone, and that is the whole of the
-	narrowing.** A bare name is ambiguous only where there is somewhere else to put it: on
-	``GET /v1/tasks?include=nonsense`` a caller cannot misfile ``include`` into a body,
-	because there is not one. Measured — it reaches 15 routes of 103 and changes no refusal
-	any test had pinned. Widening it further would rename fifteen more published refusals
-	that nobody has been misled by, and three readers match on these names to translate them:
-	``TERMINAL_FIELD_NAMES``, ``TERMINAL_REMEDIES`` and MCP's ``_as_this_tool_calls_it``.
-	That is `#1404`, filed rather than taken in a release week.
+	**It reaches every route now, and it used to reach only the ones that take a body**
+	(`#1404`, Simon's decision of 2026-08-28). The narrowing was defensible on its own terms —
+	a bare name is *ambiguous* only where there is somewhere else to put it — and it left the
+	wire contract saying two things about one parameter depending on which layer refused it.
+	Measured before the widening: 40 routes take ``workspace_id`` in the query and accept no
+	body at all, and about fifteen distinct domain refusals across the API named a query
+	parameter bare. It matters as soon as anybody writes a client that branches on ``field``,
+	and it cannot be found by testing locally, because this runs on the HTTP path alone.
+
+	**The three readers were taught the location first, and that was the order rather than a
+	preference.** ``cli.main.TERMINAL_REMEDIES`` and ``TERMINAL_FIELD_NAMES`` and MCP's
+	``_as_this_tool_calls_it`` all match on a field name; keyed on the bare spelling, every one
+	of them would have stopped matching the day this widened — silently, on remote connections
+	only, costing a person the line that tells them which flag to retype and handing an agent a
+	name its own tool does not declare. They ask :func:`subroutine.errors.field_tail` now.
+
+	**And the location is the parameter's real one rather than an assumption.** This said
+	``query.`` for everything it touched, over a helper whose flat parameters include the
+	path's — so widening it to bodiless routes would have answered ``query.id_or_ref`` about a
+	segment of the URL. :func:`parameter_locations` says which half each name is in.
 
 	A name already carrying a location is left alone, so a refusal that has been through
 	:func:`_field_name` cannot come out ``query.query.limit``. A name the route takes *both*
@@ -497,18 +528,18 @@ def _where_it_goes (
 
 	route = request.scope.get("route")
 	body = set(body_fields(route))
+	outside = {
+		name: where
+		for name, where in parameter_locations(route).items()
+		if name not in body
+	}
 
-	if not body:
-		return tuple(fields)
-
-	in_query = set(query_parameters(route)) - body
-
-	if not in_query:
+	if not outside:
 		return tuple(fields)
 
 	return tuple(
-		dataclasses.replace(field, field=f"query.{field.field}")
-		if field.field in in_query
+		dataclasses.replace(field, field=f"{outside[field.field]}.{field.field}")
+		if field.field in outside
 		else field
 		for field in fields
 	)

@@ -1656,6 +1656,23 @@ def test_a_tool_that_calls_a_field_something_else_says_so (
 		("workspace", "workspace", "a name the tool already takes is left alone"),
 		("project", "project", "no rename declared and no shorter form"),
 		("owner_id", "owner_id", "shortening it would name an argument that does not exist"),
+		(
+			"query.workspace_id",
+			"workspace",
+			"SR#1404: a location is not part of any name a tool declares, and matching on the "
+			"qualified spelling would silently stop renaming anything",
+		),
+		(
+			"query.project",
+			"project",
+			"SR#1404: the same, where the tail is already what the tool calls it",
+		),
+		(
+			"query.owner_id",
+			"query.owner_id",
+			"SR#1404: no argument matches, so the location survives — the reader who gets this "
+			"is building a request by hand and is exactly who it was kept for",
+		),
 	],
 )
 def test_a_field_is_renamed_only_to_something_the_tool_declares (

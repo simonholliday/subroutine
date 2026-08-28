@@ -470,7 +470,7 @@ def test_a_tampered_cursor_is_refused (world: World) -> None:
 	response = world.call("GET", f"/v1/tasks?limit=1&cursor={cursor[:-2]}xy")
 
 	assert response.status_code == 422
-	assert response.json()["errors"][0]["field"] == "cursor"
+	assert response.json()["errors"][0]["field"] == "query.cursor"
 
 
 def test_a_listing_can_be_narrowed_by_project_and_by_text (world: World) -> None:
@@ -1178,7 +1178,7 @@ def test_an_unknown_include_is_refused_and_says_what_it_accepts (world: World) -
 
 	body = response.json()
 
-	assert body["errors"][0]["field"] == "include"
+	assert body["errors"][0]["field"] == "query.include"
 	assert "links" in body["errors"][0]["hint"]
 
 
@@ -1622,7 +1622,7 @@ def test_subtree_without_a_parent_is_refused (world: World) -> None:
 	response = world.call("GET", "/v1/tasks?subtree=true")
 
 	assert response.status_code == 422
-	assert response.json()["errors"][0]["field"] == "subtree"
+	assert response.json()["errors"][0]["field"] == "query.subtree"
 
 
 def test_a_parent_the_caller_cannot_see_is_not_found_rather_than_empty (
@@ -2280,7 +2280,7 @@ def test_an_unknown_deferred_value_is_refused_by_name (world: World) -> None:
 
 	body = response.json()
 
-	assert body["errors"][0]["field"] == "deferred"
+	assert body["errors"][0]["field"] == "query.deferred"
 	assert "include" in body["errors"][0]["message"]
 
 
@@ -2805,7 +2805,7 @@ def test_a_search_asking_for_too_many_words_is_refused_by_name (world: World) ->
 	answer = world.call("GET", f"/v1/tasks?q={asked}&limit=50")
 
 	assert answer.status_code == 422
-	assert answer.json()["errors"][0]["field"] == "q"
+	assert answer.json()["errors"][0]["field"] == "query.q"
 	assert "distinctive" in answer.json()["hint"]
 
 
@@ -3318,7 +3318,7 @@ def test_asking_for_finished_work_and_excluding_it_is_refused (world: World) -> 
 
 	body = response.json()
 
-	assert body["errors"][0]["field"] == "include_completed"
+	assert body["errors"][0]["field"] == "query.include_completed"
 	assert "status_category" in body["errors"][0]["message"]
 
 

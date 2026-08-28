@@ -214,6 +214,24 @@ upgrade involves.
 
 ### Changed
 
+- **A refusal about a query parameter names it the same way whoever raised it.** Until now,
+  the same parameter on the same endpoint came back as `query.limit` when the request
+  validator refused it and as `limit` when the refusal was raised deeper down — and in this
+  API a bare name is the spelling for a field of the *body*. It was qualified only on
+  endpoints that also take a body, on the reasoning that a bare name is ambiguous only where
+  there is somewhere else to put it. That left one wire contract saying two things about one
+  parameter.
+
+  > **If you read the `field` member of a problem document, this changes.** Roughly fifteen
+  > refusals across the API now say `query.<name>` where they said `<name>`, on listings and
+  > other endpoints that take no body. A path parameter is named `path.<name>` for the same
+  > reason. Body fields are unchanged, and so is every error `code`.
+
+  **This project's own clients are unaffected**, and deliberately: the location comes off
+  where a problem document becomes an exception, so a command fanning out across a local
+  connection and a remote one cannot report one mistake two ways. What a person sees at a
+  terminal and what an agent is told by a tool are unchanged.
+
 - **A new instance's first workspace is called `Projects`.** It was `Personal`. `subroutine
   init --workspace "<anything>"` is unchanged and still names it whatever you like; this is
   only what you get when you say nothing. An instance that already exists is untouched, and

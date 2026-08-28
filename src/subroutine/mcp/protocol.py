@@ -549,26 +549,44 @@ def _as_this_tool_calls_it (field: str, tool: Tool | None) -> str:
 	``_id`` rule safe to derive rather than list. A convention deciding a user-facing string is
 	a shape this codebase has been bitten by; this one cannot invent a name, because it checks
 	the schema before using it, and a tool with no such argument keeps the original.
+
+	**And it asks about the name without its location** (`#1404`). A problem document carries
+	``query.workspace_id``; nothing reaches this with one today, because these tools answer
+	through the local client and `errors.from_problem` takes the location off at the other
+	boundary — so this is defence against that decision changing rather than a live path. What
+	is returned when no argument matches keeps whatever it arrived with, because the tool that
+	reaches an uncovered route is ``subroutine_call_api``, whose caller builds the request by
+	hand and is exactly the reader `#1315` kept a location for.
 	"""
 
 	if tool is None:
 		return field
 
 	arguments = tool.schema.get("properties", {})
+	# **Matched without the location a transport may have put in front of it** (`#1404`). A
+	# problem document says ``query.workspace_id`` where knowing which half of the request was
+	# wrong is worth something; a tool has named arguments and no query string, so the location
+	# is not part of any name it declares and matching on the qualified spelling would silently
+	# stop renaming anything.
+	named = subroutine.errors.field_tail(field)
 
-	if field in arguments:
-		return field
+	if named in arguments:
+		return named
 
-	renamed = (tool.renames or {}).get(field)
+	renamed = (tool.renames or {}).get(named)
 
 	if renamed is not None and renamed in arguments:
 		return renamed
 
-	shortened = field.removesuffix("_id")
+	shortened = named.removesuffix("_id")
 
-	if shortened != field and shortened in arguments:
+	if shortened != named and shortened in arguments:
 		return shortened
 
+	# **Unchanged means *with* its location, deliberately.** The tool that reaches a route no
+	# other tool covers is ``subroutine_call_api``, whose caller builds the request by hand and
+	# is exactly the reader `#1315` kept the location for. Stripping it here would take that
+	# away from the one agent who can act on it.
 	return field
 
 

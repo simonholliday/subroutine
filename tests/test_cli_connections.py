@@ -12,6 +12,7 @@ they are the same command surface.
 
 import contextlib
 import datetime
+import io
 import json
 import os
 import pathlib
@@ -36,6 +37,7 @@ import subroutine
 import subroutine.api.app
 import subroutine.auth
 import subroutine.cli.main
+import subroutine.cli.output
 import subroutine.cli.personal
 import subroutine.clients.local
 import subroutine.config
@@ -43,6 +45,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.domain.profiles
 import subroutine.domain.tokens
+import subroutine.errors
 import subroutine.installations
 import subroutine.releases
 import subroutine.views
@@ -3796,3 +3799,97 @@ def test_a_connection_that_did_not_answer_is_named_rather_than_passed_over (
 	assert "'down' did not answer" in result.output
 	assert "second name for an instance this machine already reaches" in result.output
 	assert "Added work to" in result.output, "the caveat is a note, not a refusal"
+
+
+def _refusal_as_printed (error: subroutine.errors.SubroutineError) -> str:
+	"""Return what the terminal writes for a refusal that came back over the wire.
+
+	Driven through :func:`subroutine.cli.main._printed` rather than reconstructed, because the
+	thing under test *is* that function's translation — a copy of the lookup here would only
+	report that it agrees with itself.
+	"""
+
+	buffer = io.StringIO()
+	# **The real class rather than a bare Console**, so what is captured has been through the
+	# escape-neutralising this project prints everything with (`SR#682`) and this test cannot
+	# pass on a rendering nobody sees.
+	console = subroutine.cli.output.Terminal(
+		file=buffer, soft_wrap=True, no_color=True, width=200
+	)
+	was = subroutine.cli.main._err
+	subroutine.cli.main._err = console
+
+	try:
+		subroutine.cli.main._printed(error)
+
+	finally:
+		subroutine.cli.main._err = was
+
+	return buffer.getvalue()
+
+
+@pytest.mark.parametrize("named", ["workspace_id", "query.workspace_id"])
+def test_a_refusal_reaches_the_terminal_in_the_terminal_s_own_words (named: str) -> None:
+	"""`SR#1404`: the same field, qualified or not, gets the same answer at a terminal.
+
+	A problem document names ``query.workspace_id`` where the endpoint takes a body too, and
+	``workspace_id`` where it does not — a difference that matters to somebody building a
+	request by hand and to nobody who typed a command. **This reader is one of the three
+	`SR#1404` says a widening would cost**, and until now nothing tested it at all.
+
+	**Nothing feeds it a qualified name today**, because `errors.from_problem` takes the
+	location off at the client boundary so a fan-out across connections cannot report one
+	mistake two ways. That is what this pins: the strip is a decision, and keyed on the
+	qualified spelling this reader would break the day it was revisited — silently, on remote
+	connections only, and by dropping the one line that says which flag to retype.
+
+	Two things have to survive, and they are looked up separately: the *remedy*, which replaces
+	an API hint written for whoever receives a credential with one a person here can act on, and
+	the *spelling*, because ``workspace_id`` is not a thing anybody types.
+	"""
+
+	printed = _refusal_as_printed(
+		subroutine.errors.ValidationError(
+			"There is more than one workspace here.",
+			code="missing_field",
+			errors=[
+				subroutine.errors.FieldError(
+					field=named, code="missing_field", message="Say which workspace."
+				)
+			],
+		)
+	)
+
+	assert "subroutine -w <workspace>" in printed, (
+		f"the terminal remedy was dropped for {named!r}:\n{printed}"
+	)
+	assert "  workspace: " in printed, f"the field kept a name nobody types:\n{printed}"
+	assert "workspace_id" not in printed, printed
+	assert "query." not in printed, (
+		f"a location a terminal reader has no way to act on reached them:\n{printed}"
+	)
+
+
+def test_a_field_the_terminal_has_no_word_for_keeps_the_one_it_was_given () -> None:
+	"""And the bound on it, without which the rule above is "print whatever you like".
+
+	A name with no translation is printed as it arrived, minus a location — inventing one
+	would be the mistake `SR#547` records at the other transport, and dropping the field
+	entirely would leave a refusal naming nothing.
+	"""
+
+	printed = _refusal_as_printed(
+		subroutine.errors.ValidationError(
+			"That is not a day.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field="query.due_at",
+					code="invalid_field_value",
+					message="Write it as 'friday' or '2026-08-01'.",
+				)
+			],
+		)
+	)
+
+	assert "  due_at: " in printed, printed

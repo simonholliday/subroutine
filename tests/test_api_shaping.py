@@ -394,7 +394,12 @@ def test_a_request_that_cannot_be_honoured_is_refused (
 
 	body = response.json()
 
-	assert body["errors"][0]["field"] == expected
+	# **Qualified since `SR#1404`**, because these are query parameters and `/v1/tasks` takes
+	# no body on a `GET`: a bare name in this API is the spelling for a body field, and the
+	# same refusal raised by Pydantic has said `query.` all along. What our own clients hand a
+	# caller is still bare — the location comes off in `errors.from_problem`, so a fan-out
+	# across a local and a remote connection cannot report one mistake two ways.
+	assert body["errors"][0]["field"] == f"query.{expected}"
 	assert body["errors"][0]["message"], "and says what would have worked"
 
 

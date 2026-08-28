@@ -276,7 +276,7 @@ def test_a_since_below_the_first_seq_is_refused (world: test_api_tasks.World) ->
 	answered = world.call("GET", "/v1/changes", params={"since": 0})
 
 	assert answered.status_code == 422
-	assert answered.json()["errors"][0]["field"] == "since"
+	assert answered.json()["errors"][0]["field"] == "query.since"
 
 
 def test_before_is_exclusive_and_composes_with_since (
@@ -334,7 +334,7 @@ def test_a_before_below_the_first_seq_is_refused (world: test_api_tasks.World) -
 		answered = world.call("GET", "/v1/changes", params={"before": value})
 
 		assert answered.status_code == 422, value
-		assert answered.json()["errors"][0]["field"] == "before", value
+		assert answered.json()["errors"][0]["field"] == "query.before", value
 
 	# **And two is accepted**, or this is a check that the parameter was rejected rather than
 	# that a bound naming nothing was.

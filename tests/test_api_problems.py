@@ -308,6 +308,119 @@ def test_the_ambiguous_workspace_refusal_says_where_the_parameter_goes (
 	assert field["field"] == "query.workspace_id", refused.text
 
 
+def test_a_domain_refusal_on_a_bodiless_route_says_where_the_parameter_goes (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1404`, Simon's decision of 2026-08-28: the rest of `SR#1315`.
+
+	That fix qualified a name only where the endpoint *also* takes a body, on the reasoning that
+	a bare name is ambiguous only when there is somewhere else to put it. True on its own terms,
+	and it left one wire contract saying two things about one parameter depending on which layer
+	refused it: Pydantic's path has said ``query.limit`` on a bodiless listing all along, and a
+	refusal raised in the domain said ``limit``. Measured before the widening — 40 routes take
+	``workspace_id`` in the query and accept no body at all.
+
+	``/v1/tasks/{id_or_ref}/comments`` is the case: it takes ``workspace_id`` in the query and
+	no body on a ``GET``, so before this the ambiguous-workspace refusal came back bare there
+	and qualified on ``PATCH /v1/tasks/{id_or_ref}`` above.
+	"""
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+
+	refused = world.call("GET", "/v1/tasks/1/comments")
+
+	assert refused.status_code == 422, refused.text
+
+	field = refused.json()["errors"][0]
+
+	assert field["code"] == "missing_field"
+	assert field["field"] == "query.workspace_id", refused.text
+
+
+def test_a_path_parameter_is_not_called_a_query_one (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1404`, and it is the latent half the widening would otherwise have made live.
+
+	The qualification read the route's *flat* parameters, which include the path's, and wrote
+	``query.`` in front of whatever it matched. That was harmless only because it ran on routes
+	that take a body, where nothing raised a domain refusal naming a segment of the URL —
+	widening it to every route is what would have started answering ``query.id_or_ref`` about
+	something that is not in the query string at all.
+
+	**Raised from the handler rather than by Pydantic, and the first version of this test got
+	that wrong.** Pydantic names the location itself, and a name that already carries one is
+	left alone here — so driving it that way asserted what the framework does and would have
+	passed against a version that assumes every parameter is in the query. The refusal has to
+	come from below the transport, naming the parameter bare, which is the whole population
+	this function exists for.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	@application.get("/v1/things/{which}")
+	def one_thing (which: int, limit: int = 50) -> dict[str, int]:
+		"""Read one thing."""
+
+		raise subroutine.errors.ValidationError(
+			"That is not a thing here.",
+			code="invalid_field_value",
+			errors=[
+				subroutine.errors.FieldError(
+					field="which",
+					code="invalid_field_value",
+					message="Name one that exists.",
+				)
+			],
+		)
+
+	refused = api_support.call(application, "GET", "/v1/things/7?limit=5")
+
+	assert refused.status_code == 422
+	assert refused.json()["errors"][0]["field"] == "path.which", refused.text
+
+
+def test_our_own_clients_are_handed_the_name_without_its_location (  ) -> None:
+	"""`SR#1404`: the wire keeps the location and a caller of this project's clients does not.
+
+	**Because a fan-out merges failures from several connections** (§13.7). The local client
+	raises the domain's refusal directly, with no transport to qualify anything; the remote one
+	reads a problem document. If the location survived that boundary, one mistake would be
+	reported two ways by two connections of one command — which is exactly the two vocabularies
+	:func:`subroutine.errors.from_problem`'s own docstring says it exists to prevent, and what
+	``tests/test_transport_equivalence.py`` asserts about this very field.
+
+	The location is not lost to anybody who can act on it: a third-party client reads the
+	document, and so does an agent through ``subroutine_call_api``, which hands back the
+	response text rather than an exception.
+	"""
+
+	rebuilt = subroutine.errors.from_problem(
+		{
+			"code": "invalid_field_value",
+			"status": 422,
+			"detail": "That is not a number.",
+			"errors": [
+				{
+					"field": "query.limit",
+					"code": "invalid_field_value",
+					"message": "Send a whole number.",
+				},
+				{
+					"field": "title",
+					"code": "missing_field",
+					"message": "A title is required.",
+				},
+			],
+		}
+	)
+
+	assert [one.field for one in rebuilt.errors] == ["limit", "title"], (
+		"a body field must come through untouched, or this is a rule about every name rather "
+		"than about a location"
+	)
+
+
 def test_a_body_field_is_still_named_bare_where_the_endpoint_takes_one (
 	world: test_api_tasks.World,
 ) -> None:

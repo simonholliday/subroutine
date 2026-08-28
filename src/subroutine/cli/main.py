@@ -289,6 +289,10 @@ def _report_a_defect (exception: BaseException) -> None:
 #: ``FieldError`` carries the name and **each surface renders it in its own vocabulary**. This
 #: is the terminal's half of that bargain, which nothing was doing — so a person issuing a
 #: credential was told to fix ``workspace_id``, which is not something anybody can type here.
+#: **Keyed on the name a problem document carries, minus its location** (`#1404`). What arrives
+#: may be ``workspace_id`` or ``query.workspace_id`` depending on which layer refused and what
+#: else the endpoint accepts, and a terminal reader has no query string either way — so the
+#: lookup and the printed name are both :func:`subroutine.errors.field_tail`'s answer.
 TERMINAL_FIELD_NAMES = {"workspace_id": "workspace"}
 
 #: What a terminal can actually do about a refusal that came back over the wire, by the field
@@ -324,15 +328,26 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 	fields = []
 
 	for field in error.errors:
-		remedy = TERMINAL_REMEDIES.get((field.field, field.code))
+		# **Matched on the name without its location, and printed the same way** (`#1404`).
+		# A problem document says ``query.workspace_id`` because an HTTP caller has to know
+		# which half of the request to fix; somebody at a terminal typed a command and has no
+		# query string, so the location is not a thing they can act on and the name is.
+		#
+		# **Nothing hands this a qualified name today**, because `errors.from_problem` takes the
+		# location off at the client boundary so a fan-out cannot report one mistake two ways.
+		# This is what makes that decision safe to revisit: keyed on the qualified spelling,
+		# every remedy below would stop matching the day it was — silently, on remote
+		# connections only, costing a person the line that says which flag to retype.
+		named = subroutine.errors.field_tail(field.field)
+		remedy = TERMINAL_REMEDIES.get((named, field.code))
 
 		if remedy is not None:
 			hint = remedy
 
-		spelling = TERMINAL_FIELD_NAMES.get(field.field)
+		spelling = TERMINAL_FIELD_NAMES.get(named, named)
 
 		fields.append(
-			field if spelling is None else dataclasses.replace(field, field=spelling)
+			field if spelling == field.field else dataclasses.replace(field, field=spelling)
 		)
 
 	_err.print(subroutine.cli.output.plain(error.detail), markup=False, highlight=False)

@@ -792,7 +792,7 @@ def test_a_deadline_bound_that_cannot_be_read_names_the_field (world: World) -> 
 	answer = world.call("GET", "/v1/tasks?due_after=whenever")
 
 	assert answer.status_code == 422, answer.text
-	assert answer.json()["errors"][0]["field"] == "due_after", "it names what they sent"
+	assert answer.json()["errors"][0]["field"] == "query.due_after", "it names what they sent"
 
 
 def test_an_alias_resolves_to_the_field_it_is_a_synonym_for () -> None:
