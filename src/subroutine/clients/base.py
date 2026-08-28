@@ -1018,6 +1018,16 @@ class Client(typing.Protocol):
 		the decision being taken, and a default would be this method taking it quietly.
 		"""
 
+	def set_member_role (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Change what somebody may do in a workspace they are already in — `#1440`.
+
+		The third membership verb, beside ``add_member`` and ``remove_member``. Until this
+		existed the only route was to remove somebody and add them back, which is two events
+		for one act and leaves nothing in the record saying a role was moved.
+		"""
+
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back — `#475`.
 

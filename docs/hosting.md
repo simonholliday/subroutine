@@ -905,11 +905,26 @@ seeded with its own, and `subroutine user list --workspace <slug>` says who hold
 Deciding membership needs `user:admin`, which is a different thing from being able to work
 there.
 
+**Changing what somebody may do is its own command**, because adding them and re-grading them
+are two decisions:
+
+```console
+$ subroutine user role thomas admin
+thomas is now admin in acme
+```
+
+It moves an existing member and turns down somebody who is not one yet, pointing at `user add`
+— the pair each name the other, so whichever you reach for first tells you the other exists.
+
 Somebody added by mistake can be removed with `subroutine user remove`. That takes away the
-membership and not the account: what they wrote stays, and stays attributed to them. The last
-account able to administer a workspace **cannot** be removed from it — a workspace nobody can
-administer has thrown away the remedy for every later mistake, including that one, and it
-cannot be repaired from inside.
+membership and not the account: what they wrote stays, and stays attributed to them. Their
+membership of any project inside the workspace survives too, so removing and re-adding somebody
+does not silently take a private project away from them.
+
+**The last account able to administer a workspace cannot be removed from it, or moved out of an
+administering role** — a workspace nobody can administer has thrown away the remedy for every
+later mistake, including that one, and cannot be repaired from inside. The two commands are
+refused for the same reason and by the same rule.
 
 On a single-person instance, adding the second account would leave the CLI unable to tell whose
 to-do list to show. It does not: `user create` pins `local_user` to the account that was already

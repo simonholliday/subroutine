@@ -195,6 +195,103 @@ def test_both_report_which_project_is_prioritised_and_report_it_as_an_address (
 		)
 
 
+def _as_the_operator (pair: Pair) -> subroutine.clients.local.Client:
+	"""Return a local client holding the operator's own credential.
+
+	**Needed the moment a test creates a second person.** The ``pair`` fixture's local client
+	has no credential, so §12.1a picks the operator by there being exactly one account —
+	adding a colleague makes every later call refuse with *this database has more than one
+	account*, which is `#587`'s recorded trap arriving in a test rather than in a command. The
+	existing multi-account test here sidesteps it by making its second account a *service*
+	account, which does not count; a membership test cannot, because the subject is a person.
+	"""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		pair.session, user=pair.user, title="The operator, explicitly"
+	)
+	pair.session.flush()
+
+	return subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(pair.session),
+		token=issued.value.get_secret_value(),
+	)
+
+
+def test_a_role_moves_through_either_transport_and_the_other_sees_it (
+	pair: Pair,
+) -> None:
+	"""`#1440` over HTTP as well as in process, which nothing else drives.
+
+	**Written because ``test_reach`` cannot check what it appears to check.** That guard maps
+	``PATCH /v1/workspaces/{id_or_slug}/members/{username}`` to ``set_member_role`` and verifies
+	only that a client method of that *name* exists — its own docstring says so, and `#336` is
+	the time a consistent mis-mapping passed every check in it. Nothing anywhere drove any of
+	the membership endpoints over HTTP before this.
+
+	So the HTTP half is the subject: the remote client moves the role, and a local one — a
+	different code path against the same database — is asked what it now is. A wrong path, a
+	wrong verb or a wrong body fails here and nowhere else.
+	"""
+
+	remote = pair.remote
+	thomas = subroutine.domain.users.create(pair.session, username="thomas")
+
+	with _as_the_operator(pair) as local:
+		local.add_member(
+			username=thomas.username, role="member", workspace=pair.workspace.slug
+		)
+
+		moved = remote.set_member_role(
+			username=thomas.username, role="admin", workspace=pair.workspace.slug
+		)
+
+		assert moved.role == "admin"
+		assert moved.user.username == thomas.username
+
+		held = {
+			one.user.username: one.role
+			for one in local.members(workspace=pair.workspace.slug)
+		}
+
+		assert held[thomas.username] == "admin"
+
+		# And back the other way, so neither transport is only ever the reader.
+		local.set_member_role(
+			username=thomas.username, role="viewer", workspace=pair.workspace.slug
+		)
+
+	seen = {
+		one.user.username: one.role for one in remote.members(workspace=pair.workspace.slug)
+	}
+
+	assert seen[thomas.username] == "viewer"
+
+
+def test_both_refuse_moving_somebody_who_is_not_a_member (pair: Pair) -> None:
+	"""One refusal, raised in the domain, so each transport has to carry it unchanged.
+
+	The HTTP client translates what the endpoint answers and the local one gets the exception
+	itself, which is the seam where a message becomes *the database could not be read* — the
+	shape `#1439` was filed for one function along.
+	"""
+
+	stranger = subroutine.domain.users.create(pair.session, username="stranger")
+
+	with _as_the_operator(pair) as local:
+		for client in (local, pair.remote):
+			with pytest.raises(subroutine.errors.SubroutineError) as raised:
+				client.set_member_role(
+					username=stranger.username,
+					role="admin",
+					workspace=pair.workspace.slug,
+				)
+
+			assert "not a member" in str(raised.value)
+			assert "user add stranger" in (raised.value.hint or "")
+
+
 def test_both_refuse_a_project_this_workspace_does_not_hold (pair: Pair) -> None:
 	"""An unknown project is refused by name rather than stored, identically either way."""
 

@@ -24,6 +24,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.config
+import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.users
@@ -171,6 +172,153 @@ def test_the_last_administrator_cannot_be_removed (
 	refused = run("user", "remove", "owner", expect=1)
 
 	assert "administer" in refused.output
+
+
+def test_somebody_already_in_a_workspace_can_be_moved_to_another_role (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1440`. Until this shipped the only route was to remove somebody and add them back.
+
+	Driven through the CLI because the gap was in what somebody could *do*: every service the
+	route calls existed, and no command, endpoint or tool reached the act.
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "owner")
+	run("user", "create", "thomas")
+
+	assert "member" in run("user", "list", "--workspace", "acme").output
+
+	moved = run("user", "role", "thomas", "admin")
+
+	assert "thomas is now admin in acme" in moved.output
+	assert "admin" in run("user", "list", "--workspace", "acme").output
+
+
+def test_moving_somebody_to_the_role_they_hold_writes_no_event (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""It succeeds rather than refusing, and records nothing — `#1440`.
+
+	**Both halves matter and only one is visible.** A caller asking for the role somebody
+	already holds has had their intent satisfied, so refusing would be unhelpful — but an event
+	saying a role moved when it did not is a false line in the record somebody reads to find
+	out who granted what.
+
+	**Asserted against the event register rather than against what ``changes`` prints.** The
+	first version of this test read the rendered listing for the word ``role`` and **passed
+	with the short circuit removed** — the renderer does not put the field name in a line a
+	grep can find, so it could not tell one event from none. Measured, not assumed: the
+	mutation was applied and the test stayed green.
+	"""
+
+	founder = subroutine.domain.users.create(session, username="founder")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug="acme", title="Acme", owner=founder, timezone="UTC"
+	)
+	thomas = subroutine.domain.users.create(session, username="thomas")
+	joined = subroutine.domain.workspaces.add_member(
+		session, workspace, thomas, role_key="member"
+	)
+
+	def recorded () -> int:
+		"""Return how many events name this membership."""
+
+		event = subroutine.db.models.activity.Event
+
+		return len(
+			session.scalars(
+				sqlalchemy.select(event.id).where(
+					event.entity_type == "workspace_member", event.entity_id == joined.id
+				)
+			).all()
+		)
+
+	before = recorded()
+	held = subroutine.domain.workspaces.set_member_role(
+		session, workspace, thomas, role_key="member"
+	)
+
+	assert held.id == joined.id
+	assert recorded() == before
+
+	# And the same call with a role that differs does write one, so the assertion above is
+	# about *this* case rather than about the register never moving.
+	subroutine.domain.workspaces.set_member_role(
+		session, workspace, thomas, role_key="admin"
+	)
+
+	assert recorded() == before + 1
+
+
+def test_somebody_who_is_not_a_member_is_turned_down_by_name_rather_than_added (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The pair with ``user add``: each turns down the other's case and says which to run.
+
+	Adding somebody already there names this command (`#1439`); this one names ``add``. A
+	version that quietly created the membership would make ``role`` a second spelling of
+	``add``, which is the collapse splitting the verbs exists to prevent.
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "owner")
+	run("user", "create", "thomas")
+	run("user", "remove", "thomas")
+
+	refused = run("user", "role", "thomas", "admin", expect=1)
+
+	assert "not a member" in refused.output
+	assert "user add thomas" in refused.output
+	assert "thomas" not in run("user", "list", "--workspace", "acme").output
+
+
+def test_the_last_administrator_cannot_be_demoted_either (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The guard was written for removals and a demotion reaches the same state — `#1440`.
+
+	**Falsified against the code before the guard was called from here**: without that call the
+	move succeeds, the workspace is left with nobody holding ``workspace:admin``, and it cannot
+	be repaired from inside because granting a role needs somebody who may grant one.
+
+	The refusal that already exists is reused rather than copied. Two sentences saying the same
+	thing about the same state is how they come to disagree.
+	"""
+
+	run("init", "--workspace", "Acme", "--username", "owner")
+
+	refused = run("user", "role", "owner", "member", expect=1)
+
+	assert "administer" in refused.output
+
+	# ``init`` makes its account the workspace's *owner*, which is the other role carrying
+	# ``workspace:admin`` — so this asserts the demotion did not happen rather than that some
+	# administering role is present.
+	assert "owner" in run("user", "list", "--workspace", "acme").output
+
+
+def test_an_administrator_may_move_between_roles_that_still_administer (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The guard is consulted only where authority is actually lost.
+
+	**The counterpart to the test above, and it is what stops that guard being over-broad.**
+	Asking the question on every move would refuse a lone administrator changing to any other
+	administering role, which takes nothing away from anybody.
+	"""
+
+	founder = subroutine.domain.users.create(session, username="founder")
+	workspace = subroutine.domain.workspaces.create(
+		session, slug="acme", title="Acme", owner=founder, timezone="UTC"
+	)
+
+	held = subroutine.domain.workspaces.set_member_role(
+		session, workspace, founder, role_key="admin"
+	)
+	role = session.get(subroutine.db.models.identity.Role, held.role_id)
+
+	assert role is not None
+	assert role.key == "admin"
+	assert subroutine.permissions.WORKSPACE_ADMIN in (role.permissions or [])
 
 
 def test_a_new_account_belongs_to_nothing_until_somebody_says_so (

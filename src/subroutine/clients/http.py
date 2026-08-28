@@ -1126,6 +1126,21 @@ class Client:
 
 		return subroutine.views.Member.model_validate(body)
 
+	def set_member_role (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Change what somebody may do in a workspace they are already in."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"PATCH",
+			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
+			json={"role": role},
+		)
+
+		return subroutine.views.Member.model_validate(body)
+
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back."""
 

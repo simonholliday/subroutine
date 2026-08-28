@@ -108,6 +108,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/users"): "create_user",
 	("PATCH", "/v1/users/{username}"): "set_active",
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
+	("PATCH", "/v1/workspaces/{id_or_slug}/members/{username}"): "set_member_role",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("DELETE", "/v1/comments/{comment_id}"): "uncomment",
@@ -737,6 +738,15 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"budget",
 		"The undo of `add_member` (`#174`), and it would be odd to spend §13.3's bytes on the "
 		"undo of something this surface cannot do.",
+	),
+	"set_member_role": (
+		"disclosure",
+		"Moving somebody between roles (`#1440`). Every argument against `add_member` above "
+		"holds and one more does not have an equivalent there: this is the verb that *takes* "
+		"authority away as well as granting it, so a departing administrator being stepped "
+		"down is a call whose whole value is that a person made it. And the budget is at its "
+		"ceiling, while `subroutine_call_api` reaches the route the day it exists — which is "
+		"`#1444`'s measured finding, where the same argument decided the same way.",
 	),
 	"verify": (
 		"budget",

@@ -6693,6 +6693,42 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			program.say(f"{joined.user.username} is now {joined.role} in {joined.workspace.slug}")
 
+	@user_app.command("role")
+	def user_role (
+		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
+		role: str = typer.Argument(
+			..., help="What they may do there — 'member', 'admin', 'viewer'."
+		),
+		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
+	) -> None:
+		"""Change what somebody who is already there may do.
+
+		Examples:
+
+		  subroutine user role thomas admin
+
+		  subroutine user role thomas viewer --workspace acme
+
+		The role is positional rather than an option, unlike 'user add': there it is one
+		decision among several, and here it is the whole of what this command is for.
+
+		Somebody who is not there yet is turned down by name — 'user add' is what puts them in
+		a workspace, and this is what moves them once they are.
+		"""
+
+		with program.opened() as world:
+			where = world.writing_to()
+			moved = where.client.set_member_role(
+				username=username,
+				role=role.strip(),
+				workspace=workspace.strip() or _writing_workspace(world),
+			)
+
+			# **The role they now hold, not the move.** What it was before is on the event,
+			# which is where a change of this kind is read — a line in a terminal is a
+			# confirmation rather than the record.
+			program.say(f"{moved.user.username} is now {moved.role} in {moved.workspace.slug}")
+
 	@user_app.command("deactivate")
 	def user_deactivate (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),

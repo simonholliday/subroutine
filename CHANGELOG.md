@@ -263,6 +263,23 @@ upgrade involves.
 
 ### Added
 
+- **`subroutine user role <username> <role>` moves somebody already in a workspace to
+  another role**, with `PATCH /v1/workspaces/{id_or_slug}/members/{username}` behind it.
+  Nothing did this before: `user add --role` looked as though it would and refused, so the
+  only route was to remove somebody and add them back — two events for one act, a gap in
+  between during which they could see nothing, and nothing left in the record saying a role
+  had moved. It needs `user:admin`, the same permission that gates adding and removing,
+  whose own description has always read *inviting, removing, changing a member's role*.
+
+  A third verb rather than a flag on `user add`, because adding somebody and re-grading
+  them are two decisions. Each command turns down the other's case by name, so whichever
+  you reach for first tells you the other exists. Asking for the role somebody already
+  holds succeeds and records nothing.
+
+  **The last account able to administer a workspace can no longer be moved out of an
+  administering role**, as it already could not be removed. The existing rule was written
+  for removals and a demotion reached the same state by a different verb.
+
 - **The change feed can be asked about a period.** `subroutine changes --filter
   created_at.gte=yesterday`, `GET /v1/changes?created_at.gte=yesterday`, and `filter` on
   `subroutine_changes` for an agent. Two entries make a range, and the words `/v1/meta` publishes

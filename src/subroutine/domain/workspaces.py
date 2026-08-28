@@ -620,9 +620,10 @@ def _refuse_a_second_membership (
 	of them pass through.
 
 	**It says who they already are**, which is the fact the reader needs and is one query the
-	insert was about to make anyway. Nothing here *changes* the role — that is `#1440`, and
-	doing it quietly would be a permission moved by a command whose own docstring says a role
-	is named rather than assumed.
+	insert was about to make anyway. Nothing here *changes* the role — doing it quietly would
+	be a permission moved by a command whose own docstring says a role is named rather than
+	assumed. That is :func:`set_member_role`, which the hint names: this refusal is where a
+	reader meets the question, so it is where the answer has to be.
 	"""
 
 	# **The role's key, not the membership row**, because the row carries an id and the reader
@@ -641,9 +642,8 @@ def _refuse_a_second_membership (
 
 	raise subroutine.errors.Conflict(
 		f"{user.username} is already {held} in {workspace.slug}.",
-		hint=f"Nothing to do, unless you meant to change what they may do there — which "
-		f"nothing does yet. Remove them with 'subroutine user remove {user.username}' and "
-		f"add them again to move them to another role.",
+		hint=f"Nothing to do, unless you meant to change what they may do there — "
+		f"'subroutine user role {user.username} <role>' moves them.",
 	)
 
 
@@ -708,6 +708,99 @@ def add_member (
 	)
 
 	return membership
+
+
+def set_member_role (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	user: subroutine.db.models.identity.User,
+	*,
+	role_key: str,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.identity.WorkspaceMember:
+	"""Change what somebody may do in a workspace they are already in — item `#1440`.
+
+	**A third verb rather than a flag on ``add_member``**, because ``add`` is documented as
+	letting somebody work in a workspace and doing this under that name would make one word
+	mean two acts on either half of its domain. That is `#1444`'s first conflict, where the
+	answer was also to split the verbs rather than to rename one.
+
+	**What it was before is recorded on the event and reported by nothing.** A caller cannot be
+	handed it without either a second round trip — whose answer is stale the moment a race
+	exists — or a field on a published view that is not a property of a membership. So the
+	command confirms the role somebody now holds, and *bob went from member to admin* is read
+	where every other change of this kind is read, which is `#1429`'s split between the record
+	and the confirmation.
+
+	``user:admin``, which is the same verb ``add_member`` and ``remove_member`` check and is
+	described as *managing who belongs to this workspace and what they may do here*. This is
+	the half of that description nothing implemented.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.USER_ADMIN,
+			workspace_id=workspace.id,
+		)
+
+	member = subroutine.db.models.identity.WorkspaceMember
+	role = subroutine.db.models.identity.Role
+
+	# ``.tuples()`` rather than a bare ``.execute``: without it the row is a tuple of ``Any``
+	# and mypy stops being able to say anything about either half of it.
+	row = (
+		session.execute(
+			sqlalchemy.select(member, role)
+			.join(role, role.id == member.role_id)
+			.where(member.workspace_id == workspace.id, member.user_id == user.id)
+		)
+		.tuples()
+		.first()
+	)
+
+	if row is None:
+		raise subroutine.errors.NotFound(
+			f"{user.username} is not a member of {workspace.slug}.",
+			hint=f"'subroutine user add {user.username} --role {role_key} "
+			f"--workspace {workspace.slug}' puts them in it.",
+		)
+
+	found, held = row
+	wanted = find_role(session, workspace.id, role_key)
+
+	# **Nothing written when nothing differs**, which is not only tidiness: an event saying a
+	# role changed when it did not is a false line in the one record somebody reads to find
+	# out who granted what, and `TimestampMixin` would move ``updated_at`` besides.
+	if wanted.id == found.role_id:
+		return found
+
+	# **The guard is reached from here too, and it was written for removals only** — a
+	# demotion strands a workspace exactly as a removal does, by a different verb, and the
+	# rule could not see it because it takes the membership being deleted. Consulted only
+	# when the role being granted does not administer: moving one administrator to another
+	# administering role takes nothing away.
+	if subroutine.permissions.WORKSPACE_ADMIN not in (wanted.permissions or []):
+		_refuse_leaving_nobody_who_can_administer(session, workspace, found)
+
+	found.role_id = wanted.id
+	session.flush()
+
+	# **The keys, not the ids.** ``add_member`` records the role's key for the same reason:
+	# a change somebody has to read as a sentence cannot be two UUIDs, and the register that
+	# renders these has no way to look a role up.
+	subroutine.domain.events.record(
+		session,
+		workspace_id=workspace.id,
+		entity_type="workspace_member",
+		entity_id=found.id,
+		action=subroutine.domain.events.EventAction.UPDATED,
+		changes={"role": {"from": held.key, "to": wanted.key}},
+		actor=actor,
+	)
+
+	return found
 
 
 #: One membership with the three rows it joins, already loaded. Returned instead of the bare
@@ -794,7 +887,7 @@ def remove_member (
 			hint=f"Run 'subroutine workspace members {workspace.slug}' to see who is.",
 		)
 
-	_refuse_removing_the_last_administrator(session, workspace, found)
+	_refuse_leaving_nobody_who_can_administer(session, workspace, found)
 
 	subroutine.domain.events.record(
 		session,
@@ -810,12 +903,19 @@ def remove_member (
 	session.flush()
 
 
-def _refuse_removing_the_last_administrator (
+def _refuse_leaving_nobody_who_can_administer (
 	session: sqlalchemy.orm.Session,
 	workspace: subroutine.db.models.identity.Workspace,
-	going: subroutine.db.models.identity.WorkspaceMember,
+	losing: subroutine.db.models.identity.WorkspaceMember,
 ) -> None:
-	"""Refuse a removal that would leave a workspace with nobody able to administer it."""
+	"""Refuse an act that would leave a workspace with nobody able to administer it.
+
+	``losing`` is the membership about to stop administering — removed outright, or moved to a
+	role that does not carry ``workspace:admin``. **It was named ``going`` and read as being
+	about removals**, which is why `#1440`'s demotion went past it: the hazard is the same and
+	only the verb differs. A workspace with no administrator cannot be repaired from inside,
+	including by granting somebody the role that would repair it.
+	"""
 
 	member = subroutine.db.models.identity.WorkspaceMember
 	role = subroutine.db.models.identity.Role
@@ -835,7 +935,7 @@ def _refuse_removing_the_last_administrator (
 		if subroutine.permissions.WORKSPACE_ADMIN in (permissions or [])
 	}
 
-	if going.id not in administrators or administrators - {going.id}:
+	if losing.id not in administrators or administrators - {losing.id}:
 		return
 
 	raise subroutine.errors.ValidationError(

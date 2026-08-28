@@ -2227,6 +2227,34 @@ class Client:
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
 			)
 
+	def set_member_role (
+		self, *, username: str, role: str, workspace: str | None = None
+	) -> subroutine.views.Member:
+		"""Change what somebody may do in a workspace they are already in."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(
+				session, actor, requested=workspace
+			)
+			account = subroutine.domain.users.by_username(session, username)
+			membership = subroutine.domain.workspaces.set_member_role(
+				session, chosen, account, role_key=role, actor=actor
+			)
+			held = subroutine.domain.workspaces.find_role(session, chosen.id, role)
+
+			return subroutine.views.member(
+				membership,
+				account=account,
+				role=held,
+				within=chosen,
+				prioritised=subroutine.domain.projects.prioritised_addresses(
+					session, actor, workspace_ids=[chosen.id]
+				).get(chosen.id),
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+			)
+
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
 		"""Mark somebody as having left, or bring them back."""
 

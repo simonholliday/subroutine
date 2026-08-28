@@ -459,6 +459,15 @@ class Join(subroutine.api.schemas.RequestModel):
 	role: str
 
 
+class Regrade(subroutine.api.schemas.RequestModel):
+	"""What ``PATCH /v1/workspaces/{id_or_slug}/members/{username}`` accepts."""
+
+	#: The role they are moving to. The only field, and required: this request has one subject,
+	#: and a body that could arrive empty would be a way to ask for nothing and be told it
+	#: worked.
+	role: str
+
+
 @router.get(
 	"/{id_or_slug}/members",
 	summary="Who belongs to this workspace",
@@ -531,6 +540,54 @@ def join (
 	found = resolve(session, actor, id_or_slug)
 	account = subroutine.domain.users.by_username(session, body.username)
 	membership = subroutine.domain.workspaces.add_member(
+		session, found, account, role_key=body.role, actor=actor
+	)
+	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
+
+	return subroutine.views.member(
+		membership,
+		account=account,
+		role=role,
+		within=found,
+		prioritised=_focus(session, actor, found),
+		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+	)
+
+
+@router.patch(
+	"/{id_or_slug}/members/{username}",
+	summary="Change what somebody may do in this workspace",
+	response_model=subroutine.views.Member,
+)
+def regrade (
+	id_or_slug: str,
+	username: str,
+	body: Regrade,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.Member:
+	"""Move an existing member to another role.
+
+	**A third verb rather than a flag on the POST**, because adding somebody and re-grading
+	them are two acts: one decides that they belong here, the other decides what they may do
+	now that they do. Until this existed the only route was to remove them and add them back,
+	which writes two events for one act and leaves nothing in the record saying a role moved.
+
+	Needs ``user:admin``, the same verb that gates adding and removing — its own description is
+	*managing who belongs to this workspace and what they may do here*, and this is the half of
+	that sentence nothing implemented.
+
+	Somebody who is not a member is refused by name rather than added, which keeps this and the
+	POST a pair: each turns down the other's case and says which one to run.
+
+	The last account able to administer the workspace cannot be moved out of an administering
+	role, for the same reason it cannot be removed — a workspace nobody can administer cannot
+	be repaired from inside, including by granting the role that would repair it.
+	"""
+
+	found = resolve(session, actor, id_or_slug)
+	account = subroutine.domain.users.by_username(session, username)
+	membership = subroutine.domain.workspaces.set_member_role(
 		session, found, account, role_key=body.role, actor=actor
 	)
 	role = subroutine.domain.workspaces.find_role(session, found.id, body.role)
