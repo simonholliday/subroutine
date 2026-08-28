@@ -7105,6 +7105,44 @@ def test_a_project_listing_survives_a_second_workspace (
 	assert "Fix the header" in listed, listed
 
 
+def test_a_bad_status_names_the_status_even_when_a_real_project_is_named (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1468`. The listing said a project the caller had just made did not exist.
+
+	**`SR#332`'s per-workspace tolerance was on the task call and not the document one.** A
+	project legitimately belongs to one workspace, so the task half has caught an absent project
+	and moved on since a second workspace existed; the document half had no such handler, so the
+	refusal escaped from there and was reported as though the key were nowhere.
+
+	**It is reachable because tasks and documents resolve in opposite orders**, and both clients
+	agree with each other: a task listing resolves the status first, a document listing resolves
+	the project first. So in a workspace that holds no such project, ``--status <nonsense>``
+	makes the task call raise about the *status* — which falls through instead of skipping the
+	workspace — and the document call then ran where the project does not exist.
+
+	**A failed listing exits 0**, because a per-connection failure is reported beside whatever
+	did arrive rather than ending the command. Asserting on the exit code would test nothing
+	here; the message is the whole subject.
+
+	**What it cost**, from the report: a reader took the message at face value and spent a round
+	of calls establishing whether the marker was wrong, the project renamed, or the credential
+	unable to read it. The fault was that ``all`` is not a status.
+	"""
+
+	run("init", "--workspace", "Projects")
+	run("project", "create", "web", "Website")
+	run("workspace", "create", "personal", "Personal")
+
+	refused = run("list", "--project", "web", "--status", "all")
+
+	assert "status" in refused.output, refused.output
+	assert "no project" not in refused.output, (
+		f"a project the caller can list is reported as absent, because the *other* "
+		f"workspace answered last:\n{refused.output}"
+	)
+
+
 def test_a_project_that_is_nowhere_is_still_refused_by_name (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -16,6 +16,17 @@ upgrade involves.
 
 ### Fixed
 
+- **A listing with a real project and a bad status no longer says the project does not exist.**
+  `subroutine list --project web --status nonsense` reported *"There is no project 'web' here"*
+  about a project the caller had just listed. A project belongs to one workspace, so the task
+  half of the listing has tolerated an absent project per workspace since a second workspace
+  existed — and the document half never had that handler. It is reachable because a task listing
+  resolves the status first and a document listing resolves the project first, so a bad status
+  makes the task call fall through instead of skipping the workspace, and the document call then
+  runs where the project does not exist. Both halves tolerate it now, and where both a bad
+  vocabulary key and an absent project are seen, the vocabulary one is reported — it is true
+  wherever it was raised, while the project one is false as soon as the key resolved anywhere.
+
 - **A machine that only reaches a server stops being told to create a list it does not want.**
   `local` is in the roster whether it is declared or not, so on a machine that has never run
   `init`, every command answered *"no Subroutine instance has been set up here yet — run

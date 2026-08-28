@@ -2916,7 +2916,19 @@ def _listing (
 		# a key that resolves somewhere is simply absent from the workspaces it is not in.
 		# Suppressing unconditionally would turn a typo into "nothing on your list", which
 		# is the same answer as a project that exists and is empty.
-		missing: subroutine.errors.SubroutineError | None = None
+		# **Two slots, because the two refusals are not equally true** (`#1468`). This was one,
+		# overwritten by whichever workspace failed last — and with `--project X --status
+		# nonsense` the workspaces that do not hold `X` raise about the project while the one
+		# that does raises about the status, so the message depended on the order they were
+		# iterated in. The one that usually came last said *"There is no project 'X' here"*
+		# about a project the caller had just listed.
+		#
+		# **An absent project is ordinary; a vocabulary key that is nowhere is a typo.** A
+		# project legitimately does not exist in most workspaces, so that sentence is only the
+		# answer when the key resolved nowhere at all. When both happened, the project sentence
+		# is simply **false** and the vocabulary one is true — so the true one is raised.
+		absent_project: subroutine.errors.SubroutineError | None = None
+		unknown_word: subroutine.errors.SubroutineError | None = None
 		reached = False
 
 		for workspace in () if item is None else item.identity.workspaces:
@@ -2948,7 +2960,7 @@ def _listing (
 				if project is None:
 					raise
 
-				missing = absent
+				absent_project = absent
 
 				continue
 
@@ -2977,7 +2989,7 @@ def _listing (
 				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
 					raise
 
-				missing = unknown
+				unknown_word = unknown_word or unknown
 				# **An empty `Listing`, not an empty list** (`#1037`). A listing carries
 				# `has_more`, and a workspace that answered nothing genuinely has no more.
 				found_here = subroutine.clients.base.Listing()
@@ -3071,6 +3083,29 @@ def _listing (
 					filters=filters,
 				)
 
+			except subroutine.errors.NotFound as absent:
+				# **`#332`'s tolerance, which this half never had** (`#1468`). The task call
+				# above has caught an absent project per workspace since a second workspace
+				# existed; this one did not, so a project that lives in one workspace escaped
+				# from here and was reported as though it did not exist anywhere — while the
+				# caller had just listed it.
+				#
+				# **It is reachable because tasks and documents resolve in opposite orders**,
+				# and both clients agree with each other: a task listing resolves the status
+				# first, a document listing resolves the project first. So in a workspace that
+				# has no such project, `--status <nonsense>` makes the task call raise about
+				# the *status* rather than the project — which falls through instead of
+				# skipping the workspace — and this call then ran where the project does not
+				# exist, with nothing to catch it.
+				#
+				# Same rule as above: only a named project may legitimately be absent from a
+				# workspace the caller can otherwise read.
+				if project is None:
+					raise
+
+				absent_project = absent
+				found_documents = subroutine.clients.base.Listing()
+
 			except subroutine.errors.ValidationError as unknown:
 				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
 					raise
@@ -3079,7 +3114,7 @@ def _listing (
 				# makes it a typo, and somebody typing `--status` means a task's status far
 				# more often than a document's — so reporting the document one, purely
 				# because it was asked second, names the less likely of two right answers.
-				missing = missing or unknown
+				unknown_word = unknown_word or unknown
 				found_documents = subroutine.clients.base.Listing()
 
 			else:
@@ -3102,6 +3137,10 @@ def _listing (
 		# empty one. Raised rather than returned so `fanout` reports it per connection —
 		# a key on one instance and not another is a fact about that instance, and the
 		# other one's rows still arrive.
+		# **The vocabulary refusal first**, per the two slots above: it is true wherever it was
+		# raised, where the project one is false as soon as the key resolved anywhere.
+		missing = unknown_word or absent_project
+
 		if missing is not None and not reached:
 			raise missing
 
