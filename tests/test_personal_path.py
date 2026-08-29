@@ -16,6 +16,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import sys
 import typing
 import uuid
@@ -35,6 +36,7 @@ import subroutine.connections
 import subroutine.context
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
 import subroutine.domain.comments
@@ -9500,6 +9502,48 @@ def test_the_hint_for_an_empty_pipe_names_every_flag_that_command_takes () -> No
 	)
 
 
+def test_a_span_written_as_two_bare_days_is_planned_as_one_pair (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#1557`. `plan friday --until monday` on a Saturday finished before it began.
+
+	A bare day means *the soonest such one counting today*, which is right for a single date
+	and inverts a span: on a Saturday `friday` is six days off and `monday` is two, so the
+	most ordinary way to write a long weekend was refused with *"It cannot finish before it
+	starts"* — blaming the reader for an ordering they wrote correctly, and naming neither day
+	it had derived.
+
+	**Driven rather than asked, because this surface has its own resolver.** ``_day`` resolves
+	both ends here, before any client is called, so the rule cannot be applied where the two
+	dates arrive as strings — the domain refuses a bare day name outright and is handed two
+	dates that already disagree. A unit test of the rule passes whether or not anything calls
+	it; only this says the wiring is there.
+
+	**The clock is pinned**, because the defect moves through the calendar and an unpinned test
+	would pass on most days. 29 August 2026 is a Saturday.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.db.types, "utcnow", lambda: datetime.datetime(2026, 8, 29, 10, 0, tzinfo=datetime.UTC)
+	)
+
+	run("init")
+	run("add", "A long weekend")
+
+	planned = run("plan", "1", "friday", "--until", "monday")
+
+	assert "Fri 4 Sep" in planned.output, (
+		f"the start is not the Friday this was counted from:\n{planned.output}"
+	)
+
+	shown = run("show", "1")
+
+	assert "Fri 4 Sep to Mon 7 Sep" in shown.output, (
+		f"the Monday was read against today rather than against the Friday:\n{shown.output}"
+	)
+
+
 def test_planning_a_span_on_a_timed_item_refuses_without_advising_the_impossible (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -9757,3 +9801,62 @@ def test_the_line_the_browser_suggests_is_one_a_new_installation_can_run (
 		f"'{suggested}' was accepted but '+inbox' was not read as the project — it is in the "
 		f"title instead:\n{added.output}"
 	)
+
+
+def test_every_example_on_the_add_page_is_one_a_new_installation_can_run (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1556`. Two of six could not run, and they were the two the prose exists to teach.
+
+	`--due` is not an option of `add` at all — a date is written in the captured line, as the
+	other examples do — so the rent line exited 2 suggesting `--under` instead. And the plants
+	line supplied no date, which `every 3 days` cannot name for itself, so the service refused
+	it. Correctly, and with a good message: the fault was the example. Those two sit directly
+	above the paragraph that exists to explain them, `--repeat-from schedule` against
+	`--repeat-from completion`, so the broken pair was the load-bearing pair on the command a
+	new user types first.
+
+	**Read off the command object, never out of rendered help.** `typer.rich_utils` styles an
+	option name in parts when it believes it is writing to a terminal, so a scan of the rendered
+	page finds `--project` on a laptop and not on a CI runner — `SR#1537`, which cost four wrong
+	hypotheses before anybody measured it. The docstring the page is built from has no such
+	problem.
+
+	**Driven rather than parsed, which is the whole of it.**
+	`test_help_leads_with_examples` already asserts that a page *leads with* examples; that is a
+	claim about layout, and both defects here satisfied it perfectly. Nothing anywhere asked
+	whether an example works, and neither is findable by reading.
+
+	**Scoped to `add` deliberately.** Sixty-nine help pages carry 158 example lines, and most
+	cannot be driven blind: they delete workspaces, remove people, mint credentials or name refs
+	that do not exist. Covering them needs a register of what is safe with a reason each, which
+	is `SR#1570`. This page is the one a new installation meets first.
+	"""
+
+	root = typing.cast(typing.Any, typer.main.get_command(subroutine.cli.main.app))
+	page = root.get_command(click.Context(root, info_name="subroutine"), "add")
+
+	examples = [
+		line.strip() for line in re.findall(r"^\s*(subroutine .+)$", page.help or "", re.M)
+	]
+
+	# **A floor, because a scan that reads nothing reports the same empty list as a clean one.**
+	# The regex is over a docstring, so a reformatting that indents differently or a rename of
+	# the command would leave this walking an empty page and passing.
+	assert len(examples) >= 4, (
+		f"only {len(examples)} examples were read off the 'add' page, so this is checking "
+		f"almost nothing: {examples}"
+	)
+
+	run("init")
+
+	for example in examples:
+		arguments = shlex.split(example)
+
+		assert arguments[0] == "subroutine", f"{example!r} is not a command line"
+
+		# `expect=0` is the assertion. The runner reports the exit code, the output and the
+		# exception together, which is what tells a reader whether the page or the product is
+		# wrong — the rent line failed at argument parsing and the plants line inside the
+		# service, and those want opposite fixes.
+		run(*arguments[1:])

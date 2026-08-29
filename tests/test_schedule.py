@@ -663,6 +663,91 @@ def test_a_span_is_stored_from_both_ends_and_each_edge_takes_its_own_boundary (
 	), "an end on its own last day stops as it begins, which loses the day"
 
 
+#: A Saturday, and the day this defect was measured on. Both spellings invert here: counting
+#: *this* day, `friday` is six days off and `monday` is two, and `28 august` is next year's
+#: while `30 august` is tomorrow. Pinned, because the failure moves through the calendar — the
+#: written pair was broken from 14 to 28 August and correct on either side of it.
+INVERTING = datetime.datetime(2026, 8, 29, 10, 0, tzinfo=datetime.UTC)
+
+
+def test_a_span_written_as_two_bare_days_is_read_as_one_pair () -> None:
+	"""`SR#1557`. Each end resolved alone means *the soonest such day counting today*.
+
+	That is right for a single date and :func:`subroutine.domain.dates.written_date` argues it
+	well — *"by 1 September" said in October means next year's*. Applied independently to the
+	**two ends of a span** it inverts one whenever the start has passed this year and the end
+	has not, and the reader is then told *"It cannot finish before it starts"* about an ordering
+	they wrote correctly, with neither year named.
+
+	**Both spellings, because the reported one was the rarer.** The item named written dates;
+	measuring found weekdays do the same thing, and `friday` to `monday` written on a Saturday
+	— the ordinary way to say *a long weekend* — is the shape somebody actually types.
+
+	**The clock is pinned and that is the point.** Nothing dated this span, so the written pair
+	passed from 1 January to 13 August and failed from the 14th, which is how it reached a
+	published example. A test for a defect that depends on the day has to name a day.
+
+	**The property, not two magic numbers.** What the rule is for is that the end lands on or
+	after the start, so that is what is asserted — against the same resolver the caller uses,
+	so this cannot agree with a broken one by sharing its arithmetic.
+	"""
+
+	for beginning, ending in (("friday", "monday"), ("28 august", "30 august")):
+		counting = subroutine.domain.schedule.end_counted_from(
+			beginning, ending, timezone=LONDON, now=INVERTING
+		)
+
+		resolve = subroutine.domain.schedule.interpret_written_day_only
+
+		first = resolve(beginning, timezone=LONDON, now=INVERTING, field="starts_at")
+		last = resolve(ending, timezone=LONDON, now=counting, field="ends_at")
+
+		assert first is not None and last is not None
+
+		# Both ends read against today, which is the defect this exists to remove.
+		alone = resolve(ending, timezone=LONDON, now=INVERTING, field="ends_at")
+
+		assert alone is not None and alone < first, (
+			f"{beginning!r} to {ending!r} no longer inverts when each end is read alone, so "
+			f"this test has stopped covering the case it was written for"
+		)
+
+		assert first <= last, (
+			f"{beginning!r} to {ending!r} still finishes before it begins: {first} to {last}"
+		)
+
+
+def test_only_a_pair_of_bare_days_is_read_as_a_pair () -> None:
+	"""`SR#1557`. The rule is about two days written in one breath, and nothing wider.
+
+	**A mixed pair is somebody saying two different kinds of thing.** ``tomorrow`` is a keyword
+	rather than a day name, an ISO date is already a day, and an offset lands where it lands —
+	none of them was ever counted from today in the sense this rule corrects, so none of them
+	moves. :func:`subroutine.domain.dates.day_named` is the one question that separates them,
+	which is what keeps this from drifting away from the grammar it is about.
+
+	**And anything that is not a written string is left alone**, which is the case the caller
+	in ``update`` actually hits: an end being changed on a task whose start is not being
+	touched arrives with no start beside it at all.
+	"""
+
+	unchanged = (
+		("tomorrow", "monday"),
+		("friday", "2026-09-07"),
+		("2026-09-04", "monday"),
+		(None, "monday"),
+		("friday", None),
+	)
+
+	for beginning, ending in unchanged:
+		assert (
+			subroutine.domain.schedule.end_counted_from(
+				beginning, ending, timezone=LONDON, now=INVERTING
+			)
+			is INVERTING
+		), f"{beginning!r} to {ending!r} is not a pair of bare days and was treated as one"
+
+
 def test_a_span_that_could_not_mean_anything_is_refused_by_name (
 	session: sqlalchemy.orm.Session,
 ) -> None:

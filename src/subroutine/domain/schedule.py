@@ -544,6 +544,51 @@ def check_order (
 	)
 
 
+def end_counted_from (
+	starts: datetime.datetime | datetime.date | str | None,
+	ends: datetime.datetime | datetime.date | str | None,
+	*,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.datetime:
+	"""Return the moment the end of a span is read from — `#1557`.
+
+	**A bare day name means the soonest one counting today**, which is right for a single date
+	and inverts a span. ``friday`` on a Saturday is six days away and ``monday`` is two, so
+	*starts friday, until monday* — the ordinary way to write a long weekend — resolved to a
+	span that finishes before it begins and was refused with *"It cannot finish before it
+	starts"*, blaming the reader for an ordering they wrote correctly. The written spelling
+	does the same: on 29 August, ``28 august`` is next year's and ``30 august`` is tomorrow.
+
+	**So when a caller writes both ends in one breath, they mean them as a pair**, and the
+	second is counted from the first rather than from today. When only one end is given the
+	other is history and is left alone, because a caller adding an end to a task that starts
+	next March means the soonest such day, and the pair rule would silently push it a year out.
+
+	**Both ends have to be bare day names for this to apply.** A mixed pair — ``tomorrow`` at
+	one end and ``monday`` at the other — is somebody saying two different kinds of thing, and
+	an instant or an offset lands where it lands and was never counted from today at all.
+	:func:`subroutine.domain.dates.day_named` is the one question that separates them, and it
+	already covers weekdays, ``next friday`` and every written spelling, so this cannot drift
+	from the grammar it is about.
+	"""
+
+	if not isinstance(starts, str) or not isinstance(ends, str):
+		return now
+
+	zone = subroutine.domain.dates.zone(timezone, "starts_at")
+	today = now.astimezone(zone).date()
+
+	beginning = subroutine.domain.dates.day_named(starts, today=today)
+
+	if beginning is None or subroutine.domain.dates.day_named(ends, today=today) is None:
+		return now
+
+	# Midnight, so the end is counted from the start's *day* whatever time of day the request
+	# arrived — the end is snapped to its own boundary by `interpret` afterwards regardless.
+	return datetime.datetime.combine(beginning, datetime.time.min, tzinfo=zone)
+
+
 def check_span (
 	*,
 	starts_at: datetime.datetime | None,

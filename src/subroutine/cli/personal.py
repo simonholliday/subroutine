@@ -2551,7 +2551,7 @@ def _planned (
 			applies_to=_which_occurrences(
 				program, task, just_this_one=just_this_one, from_now_on=from_now_on
 			),
-			**_until(world, until, at=located, task=task, timezone=zone),
+			**_until(world, until, beside=when, at=located, task=task, timezone=zone),
 		)
 
 		# The planned day, not `_when`'s answer. `_when` prefers a deadline, which is right in
@@ -2624,6 +2624,7 @@ def _until (
 	world: World,
 	written: str,
 	*,
+	beside: str,
 	at: "Located",
 	task: subroutine.views.Task,
 	timezone: str,
@@ -2667,9 +2668,25 @@ def _until (
 			),
 		)
 
+	# **A bare day at each end is one pair, counted from the first** (`SR#1557`). This surface
+	# resolves both days itself, before a client is called, so the rule the domain applies to
+	# ``starts``/``ends`` sent as strings cannot reach here — the domain is handed two dates
+	# that already disagree. One rule, so the moment to count from comes from the same
+	# function the domain asks.
 	return {
 		"ends": subroutine.domain.schedule.on_the_day(
-			_day(world, written, at=at, field="ends_at"),
+			_day(
+				world,
+				written,
+				at=at,
+				field="ends_at",
+				counting_from=subroutine.domain.schedule.end_counted_from(
+					beside if beside is not UNGIVEN else None,
+					written,
+					timezone=timezone,
+					now=subroutine.db.types.utcnow(),
+				),
+			),
 			keeping=task.ends_at,
 			all_day=task.starts_is_all_day,
 			timezone=timezone,
@@ -2679,7 +2696,12 @@ def _until (
 
 
 def _day (
-	world: World, written: str, *, at: "Located", field: str = "starts_at"
+	world: World,
+	written: str,
+	*,
+	at: "Located",
+	field: str = "starts_at",
+	counting_from: datetime.datetime | None = None,
 ) -> datetime.date:
 	"""Read a day the user named, **in their account's zone** (`#1083`, decision `#1088`).
 
@@ -2704,7 +2726,9 @@ def _day (
 	resolved = subroutine.domain.schedule.interpret_written_day_only(
 		written,
 		timezone=world.account_zone(at.connection, at.workspace),
-		now=subroutine.db.types.utcnow(),
+		# **``counting_from`` is how the far end of a span stops being read against today**
+		# (`SR#1557`). Every caller but that one leaves it alone and gets the clock.
+		now=counting_from or subroutine.db.types.utcnow(),
 		field=field,
 	)
 
@@ -7410,9 +7434,9 @@ def register (
 
 		  subroutine add "Cache the roster" --description "Measured at 400ms a call."
 
-		  subroutine add "Pay the rent" --due "30 aug" --repeat "every month on the 30th"
+		  subroutine add "Pay the rent" --repeat "every month on the 30th"
 
-		  subroutine add "Water the plants" --repeat "every 3 days" --repeat-from completion
+		  subroutine add "Water the plants tomorrow" --repeat "every 3 days" --repeat-from completion
 
 		'--description' is where the reasoning goes, so the title can say what will be true
 		when the work is done rather than what is wrong today. A title stating a condition

@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Fixed
 
+- **A span written as two bare days is read as one pair, so a long weekend no longer finishes
+  before it begins.** `subroutine plan 42 friday --until monday`, written on a Saturday, was
+  refused with *"It cannot finish before it starts"* — because a bare day means the soonest
+  such day counting today, and read separately the Friday was six days off while the Monday was
+  two. The same happened to written dates: on 29 August, `28 august` means next year's and
+  `30 august` means tomorrow.
+
+  The end is now counted from the start whenever both were written that way. Only that case
+  changes: a mixed pair, an ISO date, an offset, or an end given on its own all read exactly as
+  they did, because there the two ends were never one phrase.
+
+- **Two of the examples on `subroutine add --help` can be run.** One passed `--due`, which
+  `add` has never had — a date goes in the captured line — and the other set a repeat with no
+  day to repeat from. They were the two the paragraph beneath them exists to explain.
+
 - **A feed read from its newest end goes as deep as it was asked to, over HTTP as well as
   locally.** `subroutine changes --limit 500` returned 200 rows on a connection made by
   address and 500 on a local one, from the same command against the same instance. The CLI
