@@ -73,6 +73,7 @@ import subroutine.config
 import subroutine.db.fulltext
 import subroutine.db.models.activity
 import subroutine.domain.refs
+import subroutine.domain.tags
 import subroutine.errors
 
 #: What answers ``q`` when nothing better is available, and what every instance had until
@@ -149,6 +150,56 @@ def terms (query: str) -> list[str]:
 	"""
 
 	return query.replace("\x00", "").split()
+
+
+#: What marks a word in a search as the name of a tag rather than as prose.
+#:
+#: The same character quick capture uses (§6.13), because it is the one somebody has already
+#: learned — they typed it to make the tag and they type it to look for it again.
+TAG_SIGIL = "#"
+
+
+def tag_names (query: str) -> list[str]:
+	"""Return the tags this query names, or nothing at all where it names anything else.
+
+	`#1576`, Simon's report: *"a search for a tag formatted as ``#tag`` should bring up items
+	tagged with that tag, or containing the string ``#tag``, not items matching the bare word
+	``tag``."*
+
+	**Every word or none, which is the rule that keeps a narrowing from widening.** A tag
+	branch that read ``#research`` out of ``#research compost`` and ignored the second word
+	would answer with everything tagged ``research`` — so adding a word would return *more*,
+	which is the opposite of what typing another one is for. A query made entirely of tags has
+	no such ambiguity, and it is the shape somebody looking for a tag actually types.
+
+	**A bare word never matches a tag**, deliberately. The sigil is what the reader typed on
+	purpose; matching the tag for every word would widen every search in the product to serve
+	a case nobody asked about.
+
+	**All digits is a reference and not a tag** (§6.15), so ``#42`` yields nothing here and
+	stays :func:`matching`'s ref lookup — the two readings of ``#`` never had to be told apart
+	anywhere else, and they do not have to be told apart here either.
+	"""
+
+	wanted = terms(query)
+
+	if not wanted:
+		return []
+
+	names = []
+
+	for term in wanted:
+		if not term.startswith(TAG_SIGIL):
+			return []
+
+		name = term[len(TAG_SIGIL):]
+
+		if not name or name.isdigit():
+			return []
+
+		names.append(name)
+
+	return names
 
 
 def matching (
@@ -290,11 +341,48 @@ def anywhere (
 	twice would cost a join per half and change no answer, which `#815` measured and recorded.
 	"""
 
-	found = identity.in_(
-		sqlalchemy.select(identity)
-		.where(matching(query, *columns, ref=None, backend=backend))
-		.union(in_a_comment(query, entity_type=entity_type, backend=backend))
-	)
+	names = tag_names(query)
+
+	# **A query made entirely of tags is read literally, whatever backend is configured**
+	# (`#1576`). `to_tsquery` lexes `#research` to the lexeme `research`, so on the indexed
+	# backend the sigil was simply gone and the search silently meant the bare word — which is
+	# the half of Simon's report that the tag source below does not answer: *"not items
+	# matching the bare word"*. `like` compares the substring `%#research%` and can express
+	# what he asked for; the index cannot express it at all.
+	#
+	# **So the two backends agree on this one query shape rather than disagreeing**, which is
+	# §10.3's whole subject. The cost is that a tag-only query cannot be served by the
+	# full-text index — §10.4 says a substring never can — and it is a narrow shape asked of
+	# a small set, where the tag arm beside it *is* index-served.
+	reading = LIKE if names else backend
+
+	sources = [
+		sqlalchemy.select(identity).where(
+			matching(query, *columns, ref=None, backend=reading)
+		),
+		in_a_comment(query, entity_type=entity_type, backend=reading),
+	]
+
+	# **A third source rather than a fourth predicate** (`#1576`). A tag is not in any column
+	# this searches — it is a join row — so before this, `#research` found whatever the backend
+	# happened to make of the sigil: on `native` `to_tsquery` lexes it away and the query
+	# silently means the bare word, and on `like` it is the literal substring, which capture
+	# has already taken out of the title. Two backends, two different wrong answers.
+	#
+	# **Unioned, for the reason the comment half is** (`#892`): an `or_` between a subquery and
+	# an indexable predicate costs the index on both sides. Each source resolves to its own set
+	# of ids and each uses its own index.
+	#
+	# **The text reading is kept rather than replaced**, which is `#867`'s shape one term along:
+	# that added a ref clause to this function and left both readings standing, because `862`
+	# may be an item and may equally be a number somebody wrote down. `#research` may be the tag
+	# and may equally be a string in a description.
+	carried = subroutine.domain.tags.carried_by_name(entity_type, names)
+
+	if carried is not None:
+		sources.append(carried)
+
+	found = identity.in_(sqlalchemy.union(*sources))
 
 	if ref is None:
 		return found

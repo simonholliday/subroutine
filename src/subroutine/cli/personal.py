@@ -5636,6 +5636,34 @@ def _released_everything (program: Program) -> None:
 			program.warn(line)
 
 
+def _release_asked (program: Program, *, which: str, everything: bool) -> None:
+	"""Give back one claim or all of them, refusing the pair that says both.
+
+	**Outside `register` because that closure only shrinks**, which is `#943`'s own
+	instruction: a command's body belongs in a function `register` calls. It came out when
+	`#1576` gave `search` four lines of help, which is the ratchet working rather than being
+	worked around — the bill for a sentence arrives in the same currency as the bill for a
+	command.
+	"""
+
+	if everything:
+		if which:
+			# **`program.stop` rather than the `stop` the closure is handed**, which this
+			# function is outside of. Same refusal, reached by the name a module-level
+			# helper can see.
+			program.stop(
+				"Say which one, or say --all. Not both.",
+				hint="'--all' gives back everything you are holding, so a number narrows "
+				"nothing.",
+			)
+
+		_released_everything(program)
+
+		return
+
+	_released(program, which=which)
+
+
 def _released (program: Program, *, which: str) -> None:
 	"""Put a task back, whether or not anybody had claimed it."""
 
@@ -7783,9 +7811,16 @@ def register (
 		Searches tasks and documents together, like 'subroutine list', because one number
 		names either and a search that found only half of them would be lying about the rest.
 
+		A tag is found by writing it as you wrote it. Quote it, or the shell reads the '#'
+		as the start of a comment. That finds what carries the tag and anything that
+		mentions it in writing; '--tag' is the narrower question and answers with
+		everything carrying it and nothing else.
+
 		Examples:
 
 		  subroutine search "dentist"
+
+		  subroutine search "#errand"
 
 		  subroutine search "pagination" --project SR
 
@@ -8084,19 +8119,7 @@ def register (
 		back, which is the ordinary case once work has been finished.
 		"""
 
-		if everything:
-			if which:
-				stop(
-					"Say which one, or say --all. Not both.",
-					"'--all' gives back everything you are holding, so a number narrows "
-					"nothing.",
-				)
-
-			_released_everything(program)
-
-			return
-
-		_released(program, which=which)
+		_release_asked(program, which=which, everything=everything)
 
 	@app.command("verify", hidden=not _worth_showing(settings))
 	def verify_item (

@@ -391,3 +391,62 @@ def names_on (
 	"""
 
 	return [tag.name for tag in on(session, item)]
+
+
+#: Which join table and which of its columns names the item, for each kind that can be tagged.
+#:
+#: **Declared rather than derived**, for the reason :func:`carrying` states: reading the item
+#: column off the primary key works on the two tables that exist and would fail obscurely on a
+#: third. **Declared here rather than passed**, unlike :func:`carrying`, because the caller is
+#: :mod:`subroutine.domain.search`, which knows an item's ``entity_type`` and nothing about its
+#: tables — handing it two more parameters at four call sites would spread that knowledge
+#: rather than keep it in the module that owns tags.
+JOINED_BY: dict[str, tuple[typing.Any, typing.Any]] = {
+	"task": (
+		subroutine.db.models.work.TaskTag,
+		subroutine.db.models.work.TaskTag.task_id,
+	),
+	"document": (
+		subroutine.db.models.work.DocumentTag,
+		subroutine.db.models.work.DocumentTag.document_id,
+	),
+}
+
+
+def carried_by_name (
+	entity_type: str, names: typing.Sequence[str]
+) -> sqlalchemy.Select[tuple[typing.Any]] | None:
+	"""Return the ids of items carrying every one of these tags, or ``None`` for no question.
+
+	**Matched on the name rather than resolved to a row first, which is the whole difference
+	from :func:`carrying`** (`#1576`). That one answers *show me this set* and refuses a name
+	nothing uses, because a typo and an unused tag produce the same empty listing. This one is
+	one branch of a search, which answers *find me something about this* — so a name nothing
+	uses has to contribute nothing and let the text half answer, rather than turn the whole
+	query down.
+
+	**Every named tag must be carried**, which is :func:`subroutine.domain.search.matching`'s
+	rule for words said about tags: a second one narrows rather than widens. Counted with
+	``distinct`` because two workspaces may each hold a tag of the same name, and an item
+	carrying one of them has satisfied that name once.
+
+	``None`` rather than an empty select where there is nothing to ask, so the caller adds no
+	branch at all — a select of no rows would be a union arm that can never match, which costs
+	a scan to prove.
+	"""
+
+	wanted = sorted({normalize(one) for one in names} - {""})
+
+	if not wanted:
+		return None
+
+	joined, holder = JOINED_BY[entity_type]
+	model = subroutine.db.models.vocabulary.Tag
+
+	return (
+		sqlalchemy.select(holder)
+		.join(model, model.id == joined.tag_id)
+		.where(model.name_normalized.in_(wanted))
+		.group_by(holder)
+		.having(sqlalchemy.func.count(sqlalchemy.distinct(joined.tag_id)) == len(wanted))
+	)

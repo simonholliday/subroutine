@@ -16,6 +16,16 @@ upgrade involves.
 
 ### Fixed
 
+- **Searching for `#tag` finds the work carrying it.** A tag is a join row and search reads
+  columns, so the sigil was whatever the backend made of it and never a tag — on PostgreSQL's
+  indexed backend `#research` was lexed down to the bare word `research` and silently answered
+  a different question; on the `like` backend it was a literal substring that capture had
+  already taken out of the title, so it answered nothing. A search made entirely of tags now
+  finds what carries them **and** anything whose text mentions them, on every surface that
+  takes a search: the terminal, the API, the agent tools and the browser's search box. A bare
+  word still does not match a tag, and `#42` is still a reference. `explain capture` says how
+  to get a tag back out.
+
 - **`--tag` works on an instance with more than one workspace.** A listing reads across every
   workspace you can reach, and a tag belongs to one — so a workspace that had not got the tag
   refused, and the refusal took the whole listing with it, including the rows from the

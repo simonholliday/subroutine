@@ -1371,6 +1371,33 @@ def test_a_listing_can_be_narrowed_to_one_tag (
 	assert "Buy compost" in run("search", "compost", "--tag", "home").output
 
 
+def test_searching_for_a_tag_with_its_sigil_finds_what_carries_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1576`. The terminal half of Simon's report, driven where he met it.
+
+	The domain is guarded on both backends in ``tests/test_api_tasks.py``; this says the search
+	*command* reaches it, which is the surface a person types into. `#1319` gave that command a
+	``--tag`` and nobody will find it — the search box is where somebody who tagged something
+	goes looking for it again.
+	"""
+
+	run("init")
+	run("add", "Look at the pile #research")
+	run("add", "Write about research methods")
+	run("add", "Prose only", "--description", "We discussed #research at length")
+
+	tagged = run("search", "#research").output
+
+	assert "Look at the pile" in tagged, tagged
+	assert "Prose only" in tagged, tagged
+	assert "Write about research methods" not in tagged, tagged
+
+	# **A tag nothing uses answers nothing rather than refusing**, unlike `--tag`: the two
+	# commands answer different questions and `#1319` settled which is which.
+	assert "Nothing matches" in run("search", "#nosuchtag").output
+
+
 def test_a_tag_filter_survives_a_workspace_that_has_not_got_the_tag (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -7925,7 +7952,7 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_572
+REGISTER_CEILING = 1_567
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.

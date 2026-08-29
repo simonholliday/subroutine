@@ -3541,6 +3541,98 @@ def ranked (session: sqlalchemy.orm.Session) -> World:
 	return _world(session, instance={"search_backend": "native"})
 
 
+def test_a_search_for_a_tag_finds_what_carries_it (world: World) -> None:
+	"""`SR#1576`, Simon's report from the Hyperfence instance: he could not find `#research`.
+
+	**A tag is a join row and search reads columns**, so before this the sigil was whatever the
+	backend made of it and never a tag. What a reader gets now is his own sentence: the items
+	*tagged* with it, or the ones whose text carries the literal string.
+
+	**A bare word still does not match a tag, deliberately.** The sigil is what somebody typed
+	on purpose; matching the tag for every word would widen every search in the product to
+	serve a case nobody asked about.
+
+	**Two tags narrow rather than widen**, which is :func:`search.matching`'s own rule for
+	words, said about tags — and it is the reason the tag branch is all-or-nothing: one that
+	read `#research` out of `#research compost` and ignored the second word would answer with
+	*more* rows for the extra word.
+	"""
+
+	world.call("POST", "/v1/tasks", json={"text": "Look at the pile #research"})
+	world.call("POST", "/v1/tasks", json={"text": "Two of them #research #urgent"})
+	world.call("POST", "/v1/tasks", json={"text": "Write about research methods"})
+	world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Prose only", "description": "We discussed #research at length"},
+	)
+
+	def titles (query: str) -> set[str]:
+		"""Return the titles this search answers with."""
+
+		found = world.call("GET", "/v1/tasks", params={"q": query})
+
+		assert found.status_code == 200, found.text
+
+		return {row["title"] for row in found.json()["items"]}
+
+	tagged = titles("#research")
+
+	assert "Look at the pile" in tagged, tagged
+	assert "Two of them" in tagged, tagged
+
+	# **The literal string as well as the tag**, which is the *or* in the report: a description
+	# is where `#research` survives, because capture takes a tag out of a title.
+	assert "Prose only" in tagged, tagged
+
+	# **And not the bare word**, or the sigil would mean nothing.
+	assert "Write about research methods" not in tagged, tagged
+
+	# **The bare word finds the prose and not the tag.** Asserted as an absence rather than as
+	# a set: "Prose only" says `#research` in its description, so the substring is in it too and
+	# it is right that a bare search finds it. What must not happen is the *tagged* rows
+	# arriving, which is what would make the sigil mean nothing.
+	bare = titles("research")
+
+	assert "Write about research methods" in bare, bare
+	assert "Look at the pile" not in bare, bare
+	assert "Two of them" not in bare, bare
+
+	assert titles("#research #urgent") == {"Two of them"}, titles("#research #urgent")
+
+	# **A tag nothing uses contributes nothing rather than refusing**, which is the whole
+	# difference from `--tag`: that answers *show me this set* and turns down a name nobody
+	# uses; this answers *find me something about this*, and the text half still has to run.
+	assert titles("#nosuchtag") == set()
+
+
+def test_a_search_for_a_tag_finds_what_carries_it_where_the_index_ranks (
+	ranked: World,
+) -> None:
+	"""The same, on the backend both served instances run — and where the defect was worst.
+
+	`to_tsquery` lexes `#research` to the lexeme `research`, so the sigil was simply gone and
+	the query **silently meant the bare word**: Simon's search answered with twelve rows, none
+	of them tagged, and nothing said it had read the question differently from how he wrote it.
+	The `like` backend gave the opposite wrong answer — the literal substring, which capture
+	has already removed from the title — so this is driven on both rather than on either.
+	"""
+
+	ranked.call("POST", "/v1/tasks", json={"text": "Look at the pile #research"})
+	ranked.call("POST", "/v1/tasks", json={"text": "Write about research methods"})
+
+	found = ranked.call("GET", "/v1/tasks", params={"q": "#research"})
+
+	assert found.status_code == 200, found.text
+
+	titles = {row["title"] for row in found.json()["items"]}
+
+	assert "Look at the pile" in titles, titles
+	assert "Write about research methods" not in titles, (
+		f"the sigil was lexed away and the search meant the bare word: {titles}"
+	)
+
+
 def test_a_search_for_a_number_puts_that_item_first (ranked: World) -> None:
 	"""**`#867`'s other half, and it is why the predicate alone was not enough.**
 
