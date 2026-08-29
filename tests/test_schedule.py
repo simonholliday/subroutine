@@ -388,6 +388,55 @@ def test_a_date_that_is_not_in_any_accepted_form_is_refused (
 	assert raised.value.errors[0].field == "due", "SR#1317: the word a caller sends"
 
 
+def test_a_timezone_the_caller_sends_is_checked_before_the_task_is_written (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1561`. An unknown zone was stored, and the row could then never be dated.
+
+	``_timezone`` returned the caller's value verbatim. The identifier was validated only
+	incidentally, inside ``schedule.interpret``, which runs when a date is supplied — so a task
+	created with ``"Mars/Olympus"`` and no date was accepted, stored and read back. Every later
+	attempt to give it a deadline was then refused **for the stored zone**, naming a value the
+	caller had not sent, on a field they had sent correctly. Sending a good zone on its own
+	changes nothing, deliberately (`#1014`), so there was no way back: only deleting the row
+	cleared it.
+
+	**The workspace, the user and the instance were each already checked on the way in.** This
+	is the fourth member of that family and the only one with a column of its own, which is
+	exactly what kept it outside the rule — a previous review recorded it as unreachable
+	*because every write path resolves the zone through* ``dates.zone`` *first*, which is true
+	of the other three. A rule verified on three of four members of a family.
+
+	**The row must not exist afterwards**, which is the half that made this permanent rather
+	than merely wrong. Asserting only that the call refuses would pass against a version that
+	refused after writing.
+	"""
+
+	workspace = _workspace(session, timezone=LONDON)
+	project = _project(session, workspace)
+
+	before = session.query(subroutine.db.models.work.Task).count()
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.tasks.create(
+			session,
+			project=project,
+			title="Somewhere that is not on Earth",
+			timezone="Mars/Olympus",
+			now=NOW,
+		)
+
+	assert raised.value.status == 422
+	assert [error.field for error in raised.value.errors] == ["timezone"]
+
+	session.rollback()
+
+	assert session.query(subroutine.db.models.work.Task).count() == before, (
+		"the task was written before the zone was looked at, so the refusal came too late to "
+		"stop an unrepairable row"
+	)
+
+
 def test_the_timezone_chain_runs_user_workspace_instance (
 	session: sqlalchemy.orm.Session,
 ) -> None:

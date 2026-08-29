@@ -3104,9 +3104,25 @@ def _timezone (
 
 	The workspace and the instance are fetched only when the answer is not already settled,
 	so the common path — a person with a timezone, editing their own tasks — costs no query.
+
+	**A zone the caller sent is checked here, and used to be taken on trust** (`SR#1561`). The
+	identifier was only ever validated incidentally, inside ``schedule.interpret``, which runs
+	when a date is supplied — so a task created with ``"Mars/Olympus"`` and no date was stored
+	happily and could then never be given one. Every later attempt was refused for the *stored*
+	zone, naming a value the caller had not sent, and sending a good zone on its own changes
+	nothing (`#1014`), so there was no way back: only deleting the row cleared it.
+
+	The workspace, the user and the instance were each already checked on the way in. This is
+	the fourth member of that family and the only one with a column of its own, which is what
+	kept it out of the rule — a previous review recorded it as unreachable *because every write
+	path resolves the zone through* ``dates.zone`` *first*, true of the other three.
 	"""
 
 	if explicit:
+		# Resolved and discarded: what is wanted is the refusal, and the column stores the
+		# identifier rather than the zone.
+		subroutine.domain.dates.zone(explicit, "timezone")
+
 		return explicit
 
 	if actor is not None and actor.user.timezone:

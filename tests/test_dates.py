@@ -308,6 +308,48 @@ def test_minutes_and_months_are_distinguished_by_case () -> None:
 	assert months.strftime("%Y-%m-%d %H:%M") == "2026-08-15 11:30"
 
 
+@pytest.mark.parametrize(
+	"expression",
+	[
+		"today+99999y",
+		"today+999999999y",
+		"today+10000000000000000000y",
+		"now+9999999M",
+		"now-99999y",
+		# **The elapsed half, which the report did not reach.** It named the calendar units
+		# alone; `timedelta` overflows too, and a count too large for a C int raises from
+		# inside the conversion rather than from the arithmetic — three exception types across
+		# two code paths, which is why the guard goes around both.
+		"now+9999999999h",
+		"now+99999999999999m",
+	],
+)
+def test_an_offset_off_the_end_of_the_calendar_is_refused_rather_than_raised (
+	expression: str,
+) -> None:
+	"""`SR#1562`. These were a 500, on the captured line as well as the structured field.
+
+	A `datetime` holds years 1 to 9999 and nothing checked, so an offset past either end came
+	out of the domain as an unhandled `ValueError` or `OverflowError`. The grammar around it was
+	always sound — `today+1`, `today+1x`, `now++1d` and the empty string are each refused by
+	name — and `durations` bounds its own numbers, so this was a bound present on one grammar
+	and missing from its neighbour.
+
+	**The captured line is the path that matters**, because it is the one agents use most and
+	`today+99999y` is the shape a generated value takes.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.dates.resolve(expression, now=WEDNESDAY, timezone=LONDON, field="due")
+
+	assert raised.value.status == 422
+	assert raised.value.code == "invalid_field_value"
+	assert raised.value.errors[0].field == "due"
+	assert expression in raised.value.errors[0].message, (
+		"the refusal has to name the expression, which is the only thing the caller can change"
+	)
+
+
 def test_an_unknown_timezone_is_refused_by_name () -> None:
 	"""The error names the field being resolved, so a caller knows which one to fix."""
 

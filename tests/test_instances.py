@@ -1612,6 +1612,52 @@ def test_the_database_and_its_backups_are_owner_only (
 		)
 
 
+def test_restoring_a_readable_backup_leaves_the_database_private (
+	run: typing.Callable[..., typer.testing.Result], home: pathlib.Path
+) -> None:
+	"""`SR#1563`. A restore copied the backup's mode onto the live database.
+
+	``_restore_sqlite`` stages with ``shutil.copy2``, which preserves permissions, and then
+	``os.replace``s it into place — so a backup that arrived ``0644`` from the shared volume
+	``docs/hosting.md`` recommends left the database holding every task, comment and token hash
+	readable by every account on the machine. `#175`'s own argument, undone one command along.
+
+	**Nothing was wrong at the site that was supposed to catch it, which is why it survived.**
+	``migrate.upgrade`` makes a new database private and its docstring claimed to be *"the one
+	place that catches every route to a new database — init, db upgrade, db copy's target and a
+	restore"*. Migrating happens only when the backup's schema head differs from the running
+	one, so the protection held for an **older** backup and was absent for a **current** one. A
+	conditional protection described as unconditional is worse than none, because it stops the
+	next reader checking.
+
+	**The backup is made group-readable deliberately**, since a backup taken here is ``0600``
+	already and restoring one would prove nothing. What is being reproduced is a file that came
+	from somewhere else.
+	"""
+
+	run("init", "--workspace", "Real")
+	run("add", "something worth keeping")
+
+	taken = _backup_name(run("db", "backup").output)
+	copy = subroutine.db.backup.directory(_settings()) / taken
+
+	database = _settings().sqlite_path
+
+	assert database is not None
+	assert database.stat().st_mode & 0o077 == 0, "the database did not start out private"
+
+	copy.chmod(0o644)
+
+	assert copy.stat().st_mode & 0o077 != 0, "the reproduction needs a readable backup"
+
+	run("db", "restore", str(copy), "--recover", "--yes")
+
+	assert database.stat().st_mode & 0o077 == 0, (
+		f"the database is {oct(database.stat().st_mode)} after restoring a 0644 backup, so the "
+		f"copy's mode came with it"
+	)
+
+
 def test_a_backup_says_how_much_it_copied (
 	own_database: str, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

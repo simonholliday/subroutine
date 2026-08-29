@@ -343,26 +343,47 @@ def _offset (
 	sign, count, unit = match.group(1), int(match.group(2)), match.group(3)
 	amount = -count if sign == "-" else count
 
-	if unit in _ELAPSED:
-		# Elapsed time, so it is added in UTC. Adding to an aware local datetime would add
-		# to the wall clock instead, and "in two hours" would skip an hour every spring.
-		elapsed = (
-			datetime.timedelta(minutes=amount)
-			if unit == "m"
-			else datetime.timedelta(hours=amount)
-		)
-
-		return (local.astimezone(datetime.UTC) + elapsed).astimezone(zone)
-
-	if unit not in _CALENDAR:
+	if unit not in _ELAPSED and unit not in _CALENDAR:
 		raise _invalid(expression, field, _unit_hint(unit))
 
-	# Calendar arithmetic on the wall clock, so the time of day survives a daylight saving
-	# change. `relativedelta` also clamps a month or year that would overflow: 31 January
-	# plus one month is 28 February, not 3 March.
-	step = _step(unit, amount)
+	# **A date has a last day, and the arithmetic has to say so rather than crash** (`SR#1562`).
+	# `today+99999y` left the 1..9999 years a `datetime` can hold and raised out of the domain
+	# as a 500 — on the captured line as well as the structured field, which is the path an
+	# agent uses most and the shape a generated value takes. The grammar around this was always
+	# sound: `today+1`, `today+1x` and `now++1d` are all refused by name, and `durations`
+	# bounds its own numbers. This was a bound present on one grammar and absent on its
+	# neighbour.
+	#
+	# **Three exception types, from both halves.** `relativedelta` raises `ValueError` for a
+	# year out of range, `timedelta` raises `OverflowError` for a span too large to hold, and a
+	# count too large for a C int raises `OverflowError` from inside the conversion. The item
+	# reported the calendar units alone; the elapsed ones do it too, so the guard goes around
+	# both rather than around the site that was measured.
+	try:
+		if unit in _ELAPSED:
+			# Elapsed time, so it is added in UTC. Adding to an aware local datetime would add
+			# to the wall clock instead, and "in two hours" would skip an hour every spring.
+			elapsed = (
+				datetime.timedelta(minutes=amount)
+				if unit == "m"
+				else datetime.timedelta(hours=amount)
+			)
 
-	return (local.replace(tzinfo=None) + step).replace(tzinfo=zone)
+			return (local.astimezone(datetime.UTC) + elapsed).astimezone(zone)
+
+		# Calendar arithmetic on the wall clock, so the time of day survives a daylight saving
+		# change. `relativedelta` also clamps a month or year that would overflow: 31 January
+		# plus one month is 28 February, not 3 March.
+		step = _step(unit, amount)
+
+		return (local.replace(tzinfo=None) + step).replace(tzinfo=zone)
+
+	except (ValueError, OverflowError) as why:
+		raise _invalid(
+			expression,
+			field,
+			f"{expression!r} lands outside the years a date can hold, which are 1 to 9999.",
+		) from why
 
 
 def _step (unit: str, amount: int) -> dateutil.relativedelta.relativedelta:

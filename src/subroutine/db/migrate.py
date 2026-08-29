@@ -43,9 +43,14 @@ def build_config (database_url: str) -> alembic.config.Config:
 def upgrade (database_url: str, revision: str = "head") -> None:
 	"""Bring ``database_url`` up to ``revision``, creating the schema if it is empty.
 
-	The SQLite file is made owner-only afterwards. This is where it comes into existence, so
-	it is the one place that catches every route to a new database — ``init``, ``db upgrade``,
-	``db copy``'s target and a restore — rather than each of them remembering (`#175`).
+	The SQLite file is made owner-only afterwards, for the routes that come through here —
+	``init``, ``db upgrade`` and ``db copy``'s target (`#175`).
+
+	**A restore does not, and this said it did** (`SR#1563`). Migrating happens only when the
+	backup's schema head differs from the running one, so a restore reached this on an older
+	backup and went straight past it on a current one. `db/backup.py` keeps the file private
+	itself now. A sentence claiming to be the one place is worth less than the thing it claims,
+	because it stops the next reader checking.
 	"""
 
 	alembic.command.upgrade(build_config(database_url), revision)

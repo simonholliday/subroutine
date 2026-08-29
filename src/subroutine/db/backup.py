@@ -1414,6 +1414,20 @@ def _restore_sqlite (
 	shutil.copy2(source, staged)
 	os.replace(staged, target)
 
+	# **The copy carries the source's mode, so the live database inherits it** (`SR#1563`).
+	# `copy2` preserves permissions, and `docs/hosting.md` invites keeping backups on a shared
+	# volume — so restoring a file that arrived 0644 left the database holding every task,
+	# comment and token hash readable by every account on the machine. `#175`'s own argument,
+	# undone by a restore: *"§12.1a says there is no local password prompt because anyone who
+	# can read the file can read every row with sqlite3 — which is an argument for the
+	# filesystem permission being right, not for it being ignored."*
+	#
+	# **`migrate.upgrade` does not reach here and its docstring said it did.** It is called
+	# only when the backup's schema head differs from the running one, so the protection held
+	# for an older backup and was absent for a current one — a conditional protection described
+	# as unconditional, which is why nobody looked.
+	subroutine.config.keep_private(target)
+
 	_discard_the_replaced_log(target)
 
 

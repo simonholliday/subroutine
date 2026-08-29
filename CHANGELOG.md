@@ -16,6 +16,24 @@ upgrade involves.
 
 ### Fixed
 
+- **Restoring a backup no longer widens the database's permissions.** The staged copy carried
+  the backup file's mode onto the live database, so restoring one that arrived group-readable
+  from a shared volume left every task, comment and token hash readable by every account on the
+  machine. The database is made owner-only after a restore, as it already was after `init`,
+  `db upgrade` and `db copy`.
+
+- **A date offset past the end of the calendar is refused by name instead of failing.**
+  `due: "today+99999y"` returned a 500 — there are only years 1 to 9999 — and so did the same
+  expression written into a captured line, which is the path agents use most. It is now the
+  same 422 that `today+1x` and `now++1d` have always produced. Elapsed units overflow the same
+  way and are covered too.
+
+- **A timezone sent with a task is checked when it arrives.** An unknown identifier was stored
+  unvalidated, and the row could then never be given a date: every attempt was refused for the
+  *stored* zone, naming a value the caller had not sent, and correcting the zone on its own
+  does nothing. Only deleting the task cleared it. The workspace, the user and the instance
+  were already checked this way.
+
 - **A span written as two bare days is read as one pair, so a long weekend no longer finishes
   before it begins.** `subroutine plan 42 friday --until monday`, written on a Saturday, was
   refused with *"It cannot finish before it starts"* — because a bare day means the soonest
