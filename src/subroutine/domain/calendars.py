@@ -30,6 +30,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.tasks
+import subroutine.domain.text
 import subroutine.domain.tokens
 import subroutine.errors
 import subroutine.permissions
@@ -79,6 +80,10 @@ class Occasion:
 	#: Only ever set beside a ``rule``: a grid is the only thing that can have a hole in it.
 	emptied: tuple[datetime.datetime, ...] = ()
 
+
+
+#: What a feed's title may hold, matching ``calendar_feed.title``'s column — `SR#1555`.
+MAX_TITLE_LENGTH = 128
 
 def create (
 	session: sqlalchemy.orm.Session,
@@ -141,7 +146,7 @@ def create (
 		owner_id=owner.id,
 		audience=audience,
 		item_type_ids=None if item_type_ids is None else [str(one) for one in item_type_ids],
-		title=title,
+		title=subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH),
 		token_prefix=minted.prefix,
 		token_hash=minted.token_hash,
 		expires_at=expires_at,
@@ -260,7 +265,7 @@ def issue (
 		session,
 		actor,
 		workspace_id=found.id,
-		title=title,
+		title=subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH),
 		audience=audience,
 		project_id=None if scope is None else scope.id,
 		item_type_ids=types,

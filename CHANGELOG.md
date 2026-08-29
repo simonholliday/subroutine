@@ -16,6 +16,28 @@ upgrade involves.
 
 ### Fixed
 
+- **A title that will not fit its column is refused on both backends, and control characters
+  are refused everywhere.** Two credential paths — `POST /v1/tokens` and `POST /v1/calendars` —
+  skipped the check the six other title-bearing endpoints use, so an over-long title was
+  `201 Created` on SQLite and `500` on PostgreSQL. Worse than either: the row SQLite accepted
+  could not be copied to PostgreSQL afterwards, so one long title stranded `db copy` with a
+  message naming no table, column or row.
+
+  A control character now behaves the same way, for the same reason and one more. PostgreSQL
+  refuses a NUL in a text field and SQLite stores it, so the same migration was poisonable by a
+  single stray byte; and a real `ESC[31m` survived storage and reached an agent through MCP,
+  whose output a client renders into a terminal. Tabs and newlines are unaffected.
+
+  > **A value that used to be accepted is now refused.** If you have been sending titles longer
+  > than 128 characters to `/v1/tokens` or `/v1/calendars`, or text carrying control characters
+  > anywhere, those requests answer `413` or `422` instead of succeeding. Rows already stored
+  > are untouched.
+
+- **A refusal about a document no longer sends you after a task permission.** There is
+  deliberately no `document:write` — a document is written with `task:write` — so a caller who
+  asked to create one was told to obtain a permission named after something else. Refusals now
+  say `'task:write' (tasks and documents)`, using the description `whoami` already prints.
+
 - **Restoring a backup no longer widens the database's permissions.** The staged copy carried
   the backup file's mode onto the live database, so restoring one that arrived group-readable
   from a shared volume left every task, comment and token hash readable by every account on the

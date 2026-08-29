@@ -103,6 +103,12 @@ CHECKS: tuple[Check, ...] = (
 			"--dist",
 			"worksteal",
 			"--ignore=tests/test_browser.py",
+			# **Coverage rides on this step rather than earning a job** (`SR#1569`, L-7).
+			# `fail_under` is in `pyproject.toml`, so the number is declared once and both this
+			# and CI read it. Measured here rather than across the whole gate because the
+			# browser suite is a separate job whose coverage nothing collects — a floor set
+			# against the combined figure would be a floor nothing ever checks.
+			"--cov",
 		),
 		# **The ones that must not be dropped to make a red run green.** Without the first an
 		# unreachable PostgreSQL is a skip, and the run reports success on half a suite;

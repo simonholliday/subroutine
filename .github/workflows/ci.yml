@@ -200,7 +200,7 @@ jobs:
           SUBROUTINE_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
           SUBROUTINE_TEST_REQUIRE_POSTGRES: "1"
           SUBROUTINE_TEST_REQUIRE_NODE: "1"
-        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py
+        run: pytest -n auto --dist worksteal --ignore=tests/test_browser.py --cov
 
   # **One job rather than a step in the matrix, and that is the cost decision** (`SR#795`).
   # Chromium is ~400MB and the questions this file asks — is a computed colour ours, does a

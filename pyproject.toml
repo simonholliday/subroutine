@@ -193,6 +193,16 @@ source = ["subroutine"]
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if typing.TYPE_CHECKING:", "raise NotImplementedError"]
 
+# The gate the sentence above claimed and nothing enforced (`SR#1569`, L-7). It was declared
+# in prose, `pytest-cov` was a dev dependency, this whole section was configured — and no CI
+# job and no local step ever passed `--cov`, so the number was a statement about an intention.
+# That is the inert-control shape this project keeps finding, in the file that describes it.
+#
+# **Ninety against a measured ninety-two**, and measured through the step that actually runs
+# it: the browser suite is a separate job whose coverage is not collected, so the figure to
+# set this against is the one the parallel run reports on its own, not the whole gate's.
+fail_under = 90
+
 # Ruff is used as a LINTER ONLY. `ruff format` is never run: it would strip the
 # space in `def foo (x)` and re-indent with spaces, both of which the house style
 # requires the other way round. CONTRIBUTING.md says so where a reader can see it.

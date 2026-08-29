@@ -3729,6 +3729,61 @@ def test_a_title_is_stored_on_one_line_and_a_comment_is_not (world: World) -> No
 	assert commented.json()["body"] == planted, "a comment's paragraphs were run together"
 
 
+def test_a_control_character_is_refused_wherever_a_title_goes (world: World) -> None:
+	"""`SR#1555`. A NUL was a 500 on PostgreSQL and a silent 201 on SQLite.
+
+	``text.fit`` collapses whitespace with ``" ".join(value.split())`` and ``str.split()`` does
+	not treat C0 controls as whitespace — so ``\n`` and ``\t`` were handled and **every other
+	control character was stored verbatim**. Two distinct problems met in one character class:
+
+	* **The backends disagree.** PostgreSQL refuses a NUL in a text field and SQLite stores it,
+	  so a row written on a laptop could not be copied to production, and ``db copy`` said so
+	  naming no table, no column and no row. That is exactly the divergence ``domain.text``
+	  exists to close, one class along from the length it was written for.
+	* **A real ``ESC[31m`` reached an agent through MCP**, whose output a client renders into a
+	  terminal. ``cli/output.plain`` strips escapes on the way out of the terminal surface and
+	  nothing stripped them on the way in — so the fix belongs here, where every user-supplied
+	  string already passes, rather than in each renderer.
+
+	**Refused rather than stripped**, for the reason this module's own docstring gives about
+	truncation: a value silently altered does not tell the writer that part of what they sent
+	is gone.
+
+	**A comment is checked too**, because it is the one caller that opts out of collapsing —
+	so it is the one place a control character could survive on a different code path.
+	"""
+
+	for bad, name in ((chr(0), "NUL"), ("\x1b[31mred\x1b[0m", "an escape sequence")):
+		refused = world.call("POST", "/v1/tasks", json={"title": f"probe {bad} here"})
+
+		assert refused.status_code == 422, (
+			f"a title carrying {name} was answered {refused.status_code}: {refused.text}"
+		)
+		assert refused.json()["errors"][0]["field"] == "title"
+
+	ordinary = world.call("POST", "/v1/tasks", json={"title": "probe"}).json()
+
+	commented = world.call(
+		"POST",
+		f"/v1/tasks/{ordinary['ref']}/comments",
+		json={"body": f"a body with {chr(0)} in it"},
+	)
+
+	assert commented.status_code == 422, (
+		f"a comment opts out of collapsing, so it is the one body that could carry one: "
+		f"{commented.text}"
+	)
+
+	# **The three that are whitespace still pass**, in both modes. Refusing a tab would refuse
+	# an ordinary paste, and a comment's newlines are the reason `multiline` exists at all.
+	kept = world.call(
+		"POST", f"/v1/tasks/{ordinary['ref']}/comments", json={"body": "one\n\ttwo"}
+	)
+
+	assert kept.status_code == 201, kept.text
+	assert kept.json()["body"] == "one\n\ttwo"
+
+
 def test_every_field_a_date_refusal_names_is_one_a_caller_can_send (
 	world: World,
 ) -> None:

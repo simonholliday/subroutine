@@ -74,10 +74,10 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 	),
 	AuthorizationFailure.NOT_A_MEMBER: "You are not a member of this workspace.",
 	AuthorizationFailure.ROLE_LACKS_PERMISSION: (
-		"This needs the {permission!r} permission, which your role here does not include."
+		"This needs the {permission} permission, which your role here does not include."
 	),
 	AuthorizationFailure.OUT_OF_TOKEN_SCOPE: (
-		"This needs the {permission!r} permission. Your role allows it, but the token you "
+		"This needs the {permission} permission. Your role allows it, but the token you "
 		"used is scoped to a narrower set."
 	),
 	AuthorizationFailure.OUT_OF_PROJECT_SCOPE: (
@@ -90,14 +90,14 @@ _EXPLANATIONS: dict[AuthorizationFailure, str] = {
 		"The token you used can read this project but may only write in another."
 	),
 	AuthorizationFailure.NOT_A_SUPERUSER: (
-		"This affects the whole installation, and needs the {permission!r} permission. "
+		"This affects the whole installation, and needs the {permission} permission. "
 		"Only an administrator of this instance holds it."
 	),
 }
 
 _HINTS: dict[AuthorizationFailure, str] = {
 	AuthorizationFailure.OUT_OF_TOKEN_SCOPE: (
-		"Use a token that includes {permission!r}, or one with no scope restriction at all."
+		"Use a token that includes {permission}, or one with no scope restriction at all."
 	),
 	AuthorizationFailure.WORKSPACE_MISMATCH: (
 		"Use a token issued without a workspace, or one issued for this workspace."
@@ -106,6 +106,20 @@ _HINTS: dict[AuthorizationFailure, str] = {
 		"Ask whoever runs this instance to do it, or to make your account an administrator."
 	),
 }
+
+
+def _named (permission: str) -> str:
+	"""Return a permission as a refusal should say it, with what it covers if that is not obvious.
+
+	``'task:write' (tasks and documents)`` rather than ``'task:write'``, because the name is
+	about tasks and the permission is not. Only the four verbs in
+	:data:`subroutine.permissions.COVERAGE` carry a gloss; everything else says its own name,
+	which is already the whole truth about it.
+	"""
+
+	covers = subroutine.permissions.COVERAGE.get(permission)
+
+	return f"{permission!r}" if covers is None else f"{permission!r} ({covers})"
 
 
 class AuthorizationError(subroutine.errors.Forbidden):
@@ -127,9 +141,17 @@ class AuthorizationError(subroutine.errors.Forbidden):
 
 		hint = _HINTS.get(failure)
 
+		# **Named with what it covers, where the name alone would misdirect** (`SR#1555`'s
+		# sweep). There is deliberately no ``document:write`` — a document is written with
+		# ``task:write`` — so a caller who asked to create a *document* was told to obtain a
+		# *task* permission, with nothing saying the two are one. The gloss is
+		# :data:`subroutine.permissions.COVERAGE`, which already existed for exactly this and
+		# is what ``whoami`` prints, so this adds no second description to keep in step.
+		named = _named(permission)
+
 		super().__init__(
-			_EXPLANATIONS[failure].format(permission=permission),
-			hint=None if hint is None else hint.format(permission=permission),
+			_EXPLANATIONS[failure].format(permission=named),
+			hint=None if hint is None else hint.format(permission=named),
 		)
 
 		self.failure = failure

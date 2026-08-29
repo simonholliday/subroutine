@@ -173,7 +173,13 @@ class AuthorshipMixin:
 
 
 class VersionMixin:
-	"""Carries the optimistic-concurrency counter surfaced as an ETag.
+	"""Carries the optimistic-concurrency counter §8.9 compares against.
+
+	**Not an ETag, and this said it was.** No response carries one, deliberately —
+	``api/concurrency.py`` records the decision and the ``etag()`` helper it removed, *"a
+	header nothing sent, which is the inert control this project keeps finding"*. The number
+	travels as a field on the entity and comes back in ``If-Match`` or in the body. A reader
+	meets this docstring first, so it was the half of the pair that misled.
 
 	**The counter is also the condition every ``UPDATE`` is written under** (`#927` H-12).
 	Without that, §8.9's promise held only against a change that had *already* landed:

@@ -1456,6 +1456,49 @@ def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
 	assert feed.last_polled_at is not None
 
 
+def test_a_feed_title_is_measured_against_its_column (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1555`. These two mint credentials and were the two that skipped `text.fit`.
+
+	``domain.text.fit`` is this project's answer to *SQLite ignores VARCHAR length and
+	PostgreSQL enforces it*, and its module docstring says so. Thirteen call sites used it;
+	these did not — so a 600-character title was **201 on SQLite and 500 on PostgreSQL**, where
+	the six other title-bearing endpoints answered 413 on both.
+
+	**The 500 is the smaller half.** The row SQLite accepted could not be copied to PostgreSQL,
+	so a single over-long title stranded ``db copy`` — the upgrade path ``docs/hosting.md``
+	recommends — with a refusal naming no table, no column and no row. On the terminal the
+	message actively misdirected: *"local could not be read: value too long for type character
+	varying(128) — check that the database is reachable, and check 'database_url'."*
+
+	**Both bad values, because they are one defect.** A control character reached the same
+	column by the same route, and is refused by the same call now.
+	"""
+
+	world = test_api_tasks._world(session, instance={"calendars_enabled": True})
+
+	over_long = "x" * 600
+	control = f"a title with {chr(0)} in it"
+
+	for value, why in ((over_long, "600 characters"), (control, "a NUL")):
+		refused = world.call("POST", "/v1/calendars", json={"title": value})
+
+		assert refused.status_code in (413, 422), (
+			f"a title of {why} was answered {refused.status_code}, which on PostgreSQL is an "
+			f"unhandled DataError and on SQLite is a row that cannot be copied to one: "
+			f"{refused.text}"
+		)
+		assert refused.json()["errors"][0]["field"] == "title"
+
+	accepted = world.call("POST", "/v1/calendars", json={"title": "An ordinary one"})
+
+	assert accepted.status_code == 201, (
+		f"the refusals above have to be about the title rather than about the request: "
+		f"{accepted.text}"
+	)
+
+
 def test_an_address_naming_no_feed_and_a_disabled_instance_look_alike (
 	session: sqlalchemy.orm.Session,
 ) -> None:

@@ -27,6 +27,7 @@ import subroutine.domain.authorization
 import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.selection
+import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -37,6 +38,15 @@ import subroutine.permissions
 #: a broken token rather than as a missing membership.
 SERVICE_ACCOUNT_ROLE = "contributor"
 
+
+
+#: What a credential's title may hold, matching ``api_token.title``'s column — `SR#1555`.
+#:
+#: **The derived default is not measured against it, deliberately.** ``{username}'s token`` is
+#: ours rather than the caller's, and a username is bounded at 64, so it cannot reach this;
+#: :func:`subroutine.domain.text.fit` refuses *user input* and this project's rule is that a
+#: derived value is shaped rather than validated.
+MAX_TITLE_LENGTH = 128
 
 def expires_on (
 	written: str | None, *, timezone: str, now: datetime.datetime | None = None
@@ -225,7 +235,9 @@ def issue (
 	row, issued = subroutine.domain.authentication.issue_token(
 		session,
 		user=owner,
-		title=title or f"{owner.username}'s token",
+		title=subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
+		if title
+		else f"{owner.username}'s token",
 		workspace_id=None if pinned is None else pinned.id,
 		scopes=scopes,
 		project_scope=(

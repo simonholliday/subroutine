@@ -13,6 +13,16 @@ backend's behaviour — the user would not be told that the end of their sentenc
 
 import subroutine.errors
 
+#: The control characters no field here may carry — `SR#1555`.
+#:
+#: **C0 and DEL, less the three that are whitespace.** ``\t``, ``\n`` and ``\r`` are
+#: legitimate in a comment's body and are collapsed out of everything else by :func:`fit`
+#: before this is consulted, so allowing them costs nothing and refusing them would refuse
+#: an ordinary paste.
+CONTROL_CHARACTERS = frozenset(
+	chr(code) for code in [*range(0x00, 0x20), 0x7F] if chr(code) not in "\t\n\r"
+)
+
 #: How much of a title fits on one line of a compact listing before it is cut. Sixty
 #: characters is what leaves room for an address, a date and a priority inside eighty.
 ONE_LINE_LIMIT = 60
@@ -64,6 +74,35 @@ def fit (
 	"""
 
 	cleaned = value.strip() if multiline else " ".join(value.split())
+
+	# **Refused rather than stripped, for this module's own stated reason** (`SR#1555`). A
+	# value silently altered is the truncation the docstring at the top of this file argues
+	# against — the writer is not told that part of what they sent is gone.
+	#
+	# **Two distinct problems, one check.** PostgreSQL refuses a NUL in a text field and
+	# SQLite stores it, so a row written on a laptop could not be copied to production and
+	# `db copy` reported it naming no table, column or row: exactly the divergence this module
+	# exists to close, one character class along from the length it was written for. And a
+	# real `ESC[31m` survived storage and reached an agent's context through MCP, which
+	# renders into a terminal — `cli/output.plain` strips them on the way out of one surface
+	# and nothing did on the way in.
+	found = next((one for one in cleaned if one in CONTROL_CHARACTERS), None)
+
+	if found is not None:
+		name = label or field
+
+		raise subroutine.errors.ValidationError(
+			f"That {name} contains a control character, which is not text anybody can read.",
+			code="invalid_field_value",
+			hint="Remove it and send the value again. A tab or a newline is fine.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"A {name} may not contain the character U+{ord(found):04X}.",
+				)
+			],
+		)
 
 	if len(cleaned) <= limit:
 		return cleaned

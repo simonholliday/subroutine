@@ -8892,10 +8892,39 @@ def test_a_title_carrying_terminal_escapes_is_printed_rather_than_obeyed (
 	Driven through the real commands rather than against the helper, because the listing does
 	not print strings — it builds ``rich.text.Text`` and prints that, which is the path a check
 	on the string helper would have missed entirely.
+
+	**The row is written round the domain, and since `SR#1555` it has to be** — ``text.fit``
+	refuses a control character at the door now, so ``add`` can no longer construct one. That
+	is not a reason to retire this: the two guards answer different questions and only one of
+	them can reach a row this instance did not write. A merged remote agenda, a row restored
+	from another installation and a row written before that refusal existed are all exactly
+	this state, and they are the population the paragraph above names. Writing it directly is
+	closer to the subject than ``add`` ever was.
 	"""
 
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.db.session
+
 	run("init")
-	run("add", "Buy milk \x1b[2K\x1b[1;31mDANGER\x1b[0m")
+	run("add", "Buy milk DANGER")
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			session.execute(
+				sqlalchemy.update(subroutine.db.models.work.Task).values(
+					title="Buy milk \x1b[2K\x1b[1;31mDANGER\x1b[0m"
+				)
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
 
 	for command in (("list",), ("agenda",), ("show", "1")):
 		printed = run(*command).output
