@@ -1917,6 +1917,7 @@ class Client:
 
 			created = subroutine.domain.projects.create(
 				session,
+				settings=self.settings,
 				workspace_id=chosen.id,
 				key=key,
 				title=title,
@@ -2589,7 +2590,9 @@ class Client:
 				else subroutine.domain.selection.project(session, actor, chosen, parent)
 			)
 
-			subroutine.domain.projects.move(session, found, parent=under, actor=actor)
+			subroutine.domain.projects.move(
+				session, found, parent=under, actor=actor, settings=self.settings
+			)
 
 			return subroutine.views.project(
 				found, subroutine.views.Vocabulary.for_projects(session, [found])
@@ -2615,6 +2618,7 @@ class Client:
 
 			created = subroutine.domain.documents.create(
 				session,
+				settings=self.settings,
 				project=subroutine.domain.selection.project(session, actor, chosen, project),
 				title=title,
 				body=body,
@@ -2662,6 +2666,7 @@ class Client:
 
 			row, captured = subroutine.domain.tasks.create_from_text(
 				session,
+				settings=self.settings,
 				workspace=chosen,
 				text=text,
 				# **Only when given.** `create_from_text` merges overrides over the parsed
@@ -2976,13 +2981,17 @@ class Client:
 			)
 
 			if entity_type == "document":
-				subroutine.domain.documents.move(session, row, parent=under, actor=actor)
+				subroutine.domain.documents.move(
+					session, row, parent=under, actor=actor, settings=self.settings
+				)
 
 				return subroutine.views.document(
 					row, subroutine.views.Vocabulary.for_documents(session, [row])
 				)
 
-			subroutine.domain.tasks.move(session, row, parent=under, actor=actor)
+			subroutine.domain.tasks.move(
+				session, row, parent=under, actor=actor, settings=self.settings
+			)
 
 			return subroutine.views.task(
 				row, subroutine.views.Vocabulary.for_tasks(session, [row])

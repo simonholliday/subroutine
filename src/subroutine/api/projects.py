@@ -141,6 +141,7 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 ) -> subroutine.views.Project:
 	"""Create a project, optionally inside another."""
 
@@ -149,6 +150,7 @@ def create (
 
 	created = subroutine.domain.projects.create(
 		session,
+		settings=settings,
 		workspace_id=workspace.id,
 		key=body.key,
 		title=body.title,
@@ -359,6 +361,7 @@ def move (
 	body: Move,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
 	"""Reparent a project, taking its whole subtree with it."""
@@ -387,6 +390,7 @@ def move (
 		subroutine.domain.projects.move(
 			session,
 			project,
+			settings=settings,
 			parent=parent,
 			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
 			actor=actor,

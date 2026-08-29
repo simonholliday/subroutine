@@ -23,6 +23,7 @@ import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -37,6 +38,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.hierarchy
 import subroutine.domain.links
 import subroutine.domain.mentions
 import subroutine.domain.patch
@@ -843,6 +845,67 @@ def test_depth_is_bounded_for_the_whole_subtree (session: sqlalchemy.orm.Session
 	assert error.value.code == "cycle_detected"
 	assert "limit is 1" in error.value.detail
 	assert child.path.startswith(root.path), "the refused move must have changed nothing"
+
+
+def test_the_instances_depth_setting_is_what_bounds_a_tree (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1560`. `max_hierarchy_depth` was published, cited in the refusal, and read by nothing.
+
+	Every enforcement site took ``max_depth: int = DEFAULT_MAX_DEPTH`` and **no caller anywhere
+	in ``src`` supplied it**, so the setting appeared in ``config show`` and in ``/v1/meta``,
+	was named in both of ``hierarchy``'s refusal hints, and moved nothing. The fourth inert
+	control after `SR#247`, `SR#251` and `SR#303` — and the only one whose own error message
+	tells the operator to set the thing that does nothing: *"Move it somewhere shallower, or
+	raise max_hierarchy_depth."*
+
+	**Driven at both edges of the setting**, because a test that only asserts the refusal
+	cannot tell a live setting from the old hardcoded ten. The value here is deliberately
+	*below* ``DEFAULT_MAX_DEPTH``: a value above it would pass against the broken code for
+	every depth up to ten, and the first thing anybody would reach for is a bigger number.
+	"""
+
+	settings = subroutine.config.Settings(max_hierarchy_depth=2)
+
+	workspace = _workspace(session)
+	root = _project(session, workspace)
+
+	under = root
+
+	for _ in range(2):
+		under = subroutine.domain.projects.create(
+			session,
+			workspace_id=workspace.id,
+			key=f"deep{_}",
+			title="Deep",
+			parent=under,
+			settings=settings,
+		)
+
+	with pytest.raises(subroutine.errors.Conflict) as refused:
+		subroutine.domain.projects.create(
+			session,
+			workspace_id=workspace.id,
+			key="toodeep",
+			title="Too deep",
+			parent=under,
+			settings=settings,
+		)
+
+	assert refused.value.code == "cycle_detected"
+	assert "limit is 2" in refused.value.detail, (
+		"the refusal quoted a limit the instance did not set, so the setting reached nothing"
+	)
+
+	# **And nobody saying anything still gets ten**, which is what every existing caller and
+	# every test that passes no settings relies on.
+	assert subroutine.domain.hierarchy.depth_limit(None, None) == (
+		subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH
+	)
+	assert subroutine.domain.hierarchy.depth_limit(None, settings) == 2
+	assert subroutine.domain.hierarchy.depth_limit(5, settings) == 5, (
+		"an explicit depth is what the caller said, exactly as `claims._lease` treats minutes"
+	)
 
 
 def test_moving_to_the_same_place_does_nothing (session: sqlalchemy.orm.Session) -> None:

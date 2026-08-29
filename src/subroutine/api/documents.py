@@ -165,6 +165,7 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 ) -> subroutine.views.Document:
 	"""Create a document — a spec, a design, a note, a decision, a finding or a dead end."""
 
@@ -172,6 +173,7 @@ def create (
 
 	created = subroutine.domain.documents.create(
 		session,
+		settings=settings,
 		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
 		title=body.title,
 		body=body.body,
@@ -560,6 +562,7 @@ def move (
 	body: Move,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
 	"""Re-nest a document, taking its sections with it.
@@ -593,6 +596,7 @@ def move (
 		subroutine.domain.documents.move(
 			session,
 			document,
+			settings=settings,
 			parent=parent,
 			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
 			actor=actor,

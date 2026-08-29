@@ -15,6 +15,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.addressing
+import subroutine.config
 import subroutine.db.mixins
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -120,7 +121,8 @@ def create (
 	visibility: str = "public",
 	owner_id: uuid.UUID | None = None,
 	is_inbox: bool = False,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.project.Project:
 	"""Create a project, placed in the tree and stamped with its template's defaults."""
@@ -196,7 +198,7 @@ def create (
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
 	)
-	subroutine.domain.hierarchy.place(project, parent, max_depth=max_depth)
+	subroutine.domain.hierarchy.place(project, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings))
 
 	session.add(project)
 	session.flush()
@@ -232,7 +234,8 @@ def move (
 	project: subroutine.db.models.project.Project,
 	*,
 	parent: subroutine.db.models.project.Project | None,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
@@ -263,7 +266,7 @@ def move (
 	previous_path = project.path
 
 	moved = subroutine.domain.hierarchy.reparent(
-		session, subroutine.db.models.project.Project, project, parent, max_depth=max_depth
+		session, subroutine.db.models.project.Project, project, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings)
 	)
 
 	if moved == 0:

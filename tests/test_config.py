@@ -3,10 +3,15 @@
 import os
 import pathlib
 import tomllib
+import typing
 
+import annotated_types
+import pydantic
 import pytest
+import sqlalchemy
 
 import subroutine.config
+import subroutine.domain.hierarchy
 
 
 def test_xdg_paths_are_honoured (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -500,3 +505,139 @@ def test_a_public_url_that_is_not_an_address_is_named_as_one (
 
 	assert fault is not None
 	assert because in fault
+
+
+#: Numeric settings that may legitimately take any integer, with the reason — `SR#1559`.
+#:
+#: Empty, and the emptiness is the point: everything numeric here bounds a resource, a count
+#: or a size, and none of them means anything below one except a timeout, which means *no
+#: bound* at zero. An entry added later has to say why the next reader should not be surprised.
+UNBOUNDED_ON_PURPOSE: dict[str, str] = {}
+
+
+def test_every_numeric_setting_says_what_it_will_not_take () -> None:
+	"""`SR#1559`. Nine of ten took any integer, and zero was the bad one every time.
+
+	The precedent was already in the file, two fields above the worst of them.
+	``claim_lease_minutes``'s comment (`SR#358`) argues exactly this case: *"the path a caller
+	controls was bounded and the path the operator controls — the one that applies by default
+	to everybody — was not. Zero was the bad one: claiming succeeded, printed a confirmation,
+	and did nothing, silently, for every worker."* ``max_page_size = 0`` is that sentence one
+	field over, hiding every row instead of every claim, and reporting an empty instance rather
+	than a misconfigured one.
+
+	**A ratchet rather than a list of values.** What matters is not that today's ten are
+	bounded — it is that the eleventh cannot arrive without somebody deciding. The population
+	comes off ``model_fields``, so a numeric setting added tomorrow fails this until it carries
+	a bound or an excuse.
+	"""
+
+	unbounded = []
+
+	for name, field in subroutine.config.Settings.model_fields.items():
+		if field.annotation is not int or name in UNBOUNDED_ON_PURPOSE:
+			continue
+
+		if not any(isinstance(rule, annotated_types.Ge) for rule in field.metadata):
+			unbounded.append(name)
+
+	assert not unbounded, (
+		f"{unbounded} take any integer, including 0 and -1. Give each a "
+		f"`pydantic.Field(ge=...)`, or record in UNBOUNDED_ON_PURPOSE why the next reader "
+		f"should not be surprised."
+	)
+
+
+def test_no_setting_is_excused_from_a_bound_it_already_has () -> None:
+	"""The other direction, so an excuse cannot outlive its reason.
+
+	Every allow-list in this repository owes an answer to *what makes this entry go away*, and
+	the ones that do not are how a stale reason comes to justify a live rule.
+	"""
+
+	for name in UNBOUNDED_ON_PURPOSE:
+		field = subroutine.config.Settings.model_fields.get(name)
+
+		assert field is not None, f"{name!r} is excused from a bound and is not a setting"
+		assert not any(isinstance(rule, annotated_types.Ge) for rule in field.metadata), (
+			f"{name!r} carries a bound now, so its entry in UNBOUNDED_ON_PURPOSE is spent"
+		)
+
+
+def test_a_value_outside_a_bound_is_refused_rather_than_used () -> None:
+	"""The bounds fire, and the message names the setting a reader has to change.
+
+	Driven rather than inspected, because a constraint declared and never exercised is the
+	thing this whole item is about.
+	"""
+
+	# **Written out rather than splatted from a mapping.** `Settings` is a pydantic-settings
+	# model whose ``__init__`` is typed for its own sources, so `**{name: value}` is not
+	# something mypy can check — and the gate runs mypy over `tests` as well as `src`.
+	attempts: tuple[tuple[str, typing.Callable[[], subroutine.config.Settings]], ...] = (
+		("max_page_size", lambda: subroutine.config.Settings(max_page_size=0)),
+		("default_page_size", lambda: subroutine.config.Settings(default_page_size=0)),
+		(
+			"request_timeout_seconds",
+			lambda: subroutine.config.Settings(request_timeout_seconds=-1),
+		),
+		("max_hierarchy_depth", lambda: subroutine.config.Settings(max_hierarchy_depth=99)),
+		("port", lambda: subroutine.config.Settings(port=0)),
+	)
+
+	for name, attempt in attempts:
+		with pytest.raises(pydantic.ValidationError) as refused:
+			attempt()
+
+		assert refused.value.errors()[0]["loc"] == (name,)
+
+	# **Zero is legitimate for exactly one of them**, and the reason is in `db/session.py`:
+	# it reads the value as falsy and sets no statement timeout at all, which is how every
+	# caller behaved before the setting existed.
+	assert subroutine.config.Settings(request_timeout_seconds=0).request_timeout_seconds == 0
+
+
+def test_the_depth_a_setting_may_ask_for_fits_the_column_that_stores_it () -> None:
+	"""`SR#1560`'s L-1, and the seam that keeps two literals honest.
+
+	``config`` may not import the domain, so ``max_hierarchy_depth``'s ceiling is written out
+	there as a number. This is what holds it to the derivation — and holds that derivation to
+	the real column, which ``hierarchy`` deliberately cannot see either, because :class:`Node`
+	is a protocol so the rule can be applied without importing a model.
+
+	**Three declarations, none of which can see the other two, agreeing here or nowhere.**
+	Until `SR#1560` the setting reached nothing, so none of this mattered; making it live
+	without this turns a dead setting into a way to overflow ``path`` — silently on SQLite,
+	which ignores ``VARCHAR`` lengths, and as a ``StringDataRightTruncation`` on PostgreSQL.
+	"""
+
+	import subroutine.db.models.work
+
+	kind = subroutine.db.models.work.Task.__table__.columns["path"].type
+
+	assert isinstance(kind, sqlalchemy.String), "`path` stopped being a bounded string"
+	assert kind.length == subroutine.domain.hierarchy.PATH_COLUMN_LENGTH
+
+	ceiling = next(
+		rule.le
+		for rule in subroutine.config.Settings.model_fields["max_hierarchy_depth"].metadata
+		if isinstance(rule, annotated_types.Le)
+	)
+
+	assert ceiling == subroutine.domain.hierarchy.MAX_DEPTH
+
+	# And the derivation itself, against a real path rather than the formula that produced it.
+	import uuid
+
+	path = None
+
+	for _ in range(subroutine.domain.hierarchy.MAX_DEPTH + 1):
+		path = subroutine.domain.hierarchy.build_path(path, uuid.uuid4())
+
+	assert len(path or "") <= kind.length, "the deepest allowed tree overflows `path`"
+
+	overflowing = subroutine.domain.hierarchy.build_path(path, uuid.uuid4())
+
+	assert len(overflowing) > kind.length, (
+		"one level past the ceiling still fits, so the ceiling is lower than it needs to be"
+	)

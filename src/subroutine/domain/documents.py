@@ -23,6 +23,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.db.mixins
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
@@ -243,7 +244,8 @@ def create (
 	owner_id: uuid.UUID | None = None,
 	supersedes: subroutine.db.models.work.Document | None = None,
 	tags: typing.Sequence[str] | None = None,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Document:
 	"""Write a document into a project, allocating its ref and recording that it happened."""
@@ -311,7 +313,7 @@ def create (
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
 	)
-	subroutine.domain.hierarchy.place(document, parent, max_depth=max_depth)
+	subroutine.domain.hierarchy.place(document, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings))
 
 	session.add(document)
 	session.flush()
@@ -627,7 +629,8 @@ def move (
 	document: subroutine.db.models.work.Document,
 	*,
 	parent: subroutine.db.models.work.Document | None,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
@@ -687,7 +690,7 @@ def move (
 	previous_path = document.path
 
 	moved = subroutine.domain.hierarchy.reparent(
-		session, subroutine.db.models.work.Document, document, parent, max_depth=max_depth
+		session, subroutine.db.models.work.Document, document, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings)
 	)
 
 	if moved == 0:

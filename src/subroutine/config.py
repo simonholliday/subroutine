@@ -640,7 +640,15 @@ class Settings(pydantic_settings.BaseSettings):
 	source_url: str = "https://github.com/simonholliday/subroutine"
 
 	host: str = "127.0.0.1"
-	port: int = 8471
+# **Bounded for the reason `claim_lease_minutes` is** (`SR#1559`). Nine numeric settings
+# took any integer, and zero was the bad one in every case that mattered — the same
+# sentence #358 wrote about a lease, one field over. Lower bounds only, deliberately: an
+# operator who has already set a large value must not find that upgrading stops every
+# command on their machine from reading its own configuration.
+	#
+	# An upper bound here is the one exception, and it is not a judgement: there is no
+	# port above 65535 to be stopped from using.
+	port: int = pydantic.Field(default=8471, ge=1, le=65535)
 
 	# Marks this instance as one whose data matters (docs/design.md §12.5). A protected instance
 	# refuses `db restore`, `db upgrade` and its own deletion unless the operator confirms or
@@ -666,13 +674,13 @@ class Settings(pydantic_settings.BaseSettings):
 
 	# Per *token*, and generous: a backstop against a runaway client rather than a quota.
 	# Keyed on the token prefix, which is its public half.
-	rate_limit_per_minute: int = 600
+	rate_limit_per_minute: int = pydantic.Field(default=600, ge=1)
 
 	# Per *address*, on requests whose credential did not work, and deliberately much lower.
 	# Keyed on where the request came from rather than on the token prefix — a prefix is
 	# chosen by the caller, so keying on it would give an attacker a fresh allowance every
 	# attempt.
-	rate_limit_failures_per_minute: int = 30
+	rate_limit_failures_per_minute: int = pydantic.Field(default=30, ge=1)
 
 	# Per *feed*, on the calendar endpoint, and its own bucket because §20.5 says so: these
 	# addresses are hit by pollers rather than by people, so a misconfigured client should be
@@ -685,7 +693,7 @@ class Settings(pydantic_settings.BaseSettings):
 	# client could reach would be a feed that stops working for reasons its owner cannot see.
 	# A URL that *does not* resolve is counted against the address by the failure limiter
 	# above instead, which is where a guess belongs.
-	rate_limit_polls_per_minute: int = 60
+	rate_limit_polls_per_minute: int = pydantic.Field(default=60, ge=1)
 
 	# **Whether this instance serves calendar feeds at all** (§20.6, `#916`). A feed URL is a
 	# bearer credential that ends up in a phone's calendar settings and quite possibly in a
@@ -704,7 +712,9 @@ class Settings(pydantic_settings.BaseSettings):
 	# somebody wrote and §6.10 already bounds each field; what this stops is the request nobody
 	# meant to send. Ten megabytes is far more than any legitimate write here and far less than
 	# a machine's memory.
-	max_body_bytes: int = 10 * 1024 * 1024
+	# Zero refused every write with *"larger than this instance reads (0 KB)"*, which is
+	# true and unhelpful.
+	max_body_bytes: int = pydantic.Field(default=10 * 1024 * 1024, ge=1)
 
 	# How long the database work behind one request may spend on any single statement, in
 	# seconds. Zero turns it off.
@@ -734,7 +744,11 @@ class Settings(pydantic_settings.BaseSettings):
 	# paged and every ordering is indexed, so a request that reaches this has met something the
 	# design does not account for. A number small enough to shape behaviour would be a
 	# performance policy nobody has decided.
-	request_timeout_seconds: int = 30
+	# **`ge=0` rather than `ge=1`, because zero is meaningful here**: `db/session.py` reads it
+	# as falsy and sets no statement timeout at all, which is every caller's behaviour before
+	# this setting existed. Negative is what was broken — the server started, passed
+	# `/healthz`, and 500'd every read with `-1000 ms is outside the valid range`.
+	request_timeout_seconds: int = pydantic.Field(default=30, ge=0)
 
 	# The proxies whose `X-Forwarded-For` this instance believes (`#277`). Empty means the
 	# header is ignored entirely and the immediate peer is the key, which is right for a
@@ -808,8 +822,12 @@ class Settings(pydantic_settings.BaseSettings):
 	# They come back with what enforces them — `#251` for events, §6.9's purge for the trash —
 	# and `#473` adds a requirement to the first: assignment events are exempt from retention,
 	# so the day pruning is built is the day an unexempted history would silently truncate.
-	default_page_size: int = 50
-	max_page_size: int = 200
+	# **Zero here hid every row and reported nothing.** Both page sizes at zero answered 200
+	# with an empty list on every listing, clamped an explicit `?limit=5` to nothing, and
+	# published the zeroes through `/v1/meta` without comment — an instance that reads as
+	# empty rather than as misconfigured.
+	default_page_size: int = pydantic.Field(default=50, ge=1)
+	max_page_size: int = pydantic.Field(default=200, ge=1)
 
 	# **Bounded here, because the bound on the argument beside it was not the same bound**
 	# (`#358`). `claims.claim(minutes=…)` refuses anything outside 1 to MAX_LEASE_MINUTES by
@@ -830,7 +848,15 @@ class Settings(pydantic_settings.BaseSettings):
 
 	# Bounds how deep a project or subtask tree may nest, and with it the length of a
 	# materialised path and the cost of a move (docs/design.md §5.4).
-	max_hierarchy_depth: int = 10
+	# **Bounded at 26 because `path` is `String(1024)`** (`SR#1560`'s L-1). A depth of *n* is
+	# *n + 1* segments of 37 characters plus a leading separator, so 26 is 1000 and 27 is
+	# 1037 — PostgreSQL raises and SQLite stores it, which is the divergence `domain/text.py`
+	# exists for, in a column no caller writes directly.
+	#
+	# **The literal is held to `hierarchy.MAX_DEPTH` by a test**, because importing that here
+	# would make `config` depend on the domain and this module deliberately imports nothing
+	# from it.
+	max_hierarchy_depth: int = pydantic.Field(default=10, ge=1, le=26)
 
 	# Which implementation answers `q` (§9.4, item `#823`).
 	#

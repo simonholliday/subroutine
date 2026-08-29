@@ -16,6 +16,24 @@ upgrade involves.
 
 ### Fixed
 
+- **`max_hierarchy_depth` does something.** It was published by `config show` and by
+  `/v1/meta`, and named in the refusal you get when a tree is too deep — *"Move it somewhere
+  shallower, or raise max_hierarchy_depth"* — while every enforcement site used a hardcoded ten
+  and nothing read the setting at all. Raising it now raises the limit. It is bounded at 26,
+  which is where a materialised path stops fitting its column.
+
+- **Nine numeric settings refuse a value that would break the instance.** `default_page_size`,
+  `max_page_size`, `max_body_bytes`, `max_hierarchy_depth`, `port`, the three `rate_limit_*` and
+  `request_timeout_seconds` all took any integer. Zero was the bad one in each case that
+  mattered: both page sizes at zero answered every listing with an empty list and reported
+  nothing wrong, so the instance read as empty rather than as misconfigured, and a negative
+  timeout started the server, passed `/healthz` and failed every read.
+
+  > **An instance whose configuration holds one of those values will now refuse to start,
+  > naming the setting.** That is the intended behaviour — every such value was already
+  > producing a broken instance — but if you have set one deliberately, change it before
+  > upgrading. Lower bounds only: a large value you chose on purpose is unaffected.
+
 - **A title that will not fit its column is refused on both backends, and control characters
   are refused everywhere.** Two credential paths — `POST /v1/tokens` and `POST /v1/calendars` —
   skipped the check the six other title-bearing endpoints use, so an over-long title was

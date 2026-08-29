@@ -238,6 +238,7 @@ def create (
 	body: Create,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 ) -> subroutine.views.Task:
 	"""Create a task, from structured fields or from a captured line."""
 
@@ -294,6 +295,7 @@ def create (
 		# filed the task in the Inbox with nothing to say it had.
 		created, _capture = subroutine.domain.tasks.create_from_text(
 			session,
+			settings=settings,
 			workspace=workspace,
 			text=body.text,
 			timezone=body.timezone,
@@ -323,6 +325,7 @@ def create (
 
 	created = subroutine.domain.tasks.create(
 		session,
+		settings=settings,
 		project=subroutine.domain.selection.project(session, actor, workspace, body.project),
 		timezone=body.timezone,
 		actor=actor,
@@ -1226,6 +1229,7 @@ def move (
 	body: Move,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
 	"""Re-parent a task, taking its subtask tree with it.
@@ -1263,6 +1267,7 @@ def move (
 		subroutine.domain.tasks.move(
 			session,
 			task,
+			settings=settings,
 			parent=parent,
 			expected_version=subroutine.api.concurrency.expected(request, body.expected_version),
 			actor=actor,

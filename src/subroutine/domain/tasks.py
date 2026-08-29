@@ -718,7 +718,8 @@ def create (
 	tags: typing.Sequence[str] | None = None,
 	timezone: str | None = None,
 	now: datetime.datetime | None = None,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.work.Task:
 	"""Create a task in a project, allocating its ref and recording that it happened.
@@ -893,7 +894,7 @@ def create (
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
 	)
-	subroutine.domain.hierarchy.place(task, parent, max_depth=max_depth)
+	subroutine.domain.hierarchy.place(task, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings))
 
 	session.add(task)
 	session.flush()
@@ -966,6 +967,7 @@ def create_from_text (
 	timezone: str | None = None,
 	project: subroutine.db.models.project.Project | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
+	settings: subroutine.config.Settings | None = None,
 	**overrides: typing.Any,
 ) -> tuple[subroutine.db.models.work.Task, subroutine.domain.capture.Capture]:
 	"""Create a task from a captured line, resolving the names it mentions.
@@ -1070,6 +1072,10 @@ def create_from_text (
 		now=instant,
 		timezone=zone,
 		actor=actor,
+		# **Named rather than left to ``overrides``**, for the reason ``project`` is: it is not
+		# a field of the task, it is how the call is answered, and a caller writing
+		# ``settings`` into a captured line's overrides would be saying something else.
+		settings=settings,
 		**fields,
 	)
 
@@ -1677,7 +1683,8 @@ def move (
 	task: subroutine.db.models.work.Task,
 	*,
 	parent: subroutine.db.models.work.Task | None,
-	max_depth: int = subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH,
+	max_depth: int | None = None,
+	settings: subroutine.config.Settings | None = None,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> int:
@@ -1750,7 +1757,7 @@ def move (
 	previous_path = task.path
 
 	moved = subroutine.domain.hierarchy.reparent(
-		session, subroutine.db.models.work.Task, task, parent, max_depth=max_depth
+		session, subroutine.db.models.work.Task, task, parent, max_depth=subroutine.domain.hierarchy.depth_limit(max_depth, settings)
 	)
 
 	if moved == 0:

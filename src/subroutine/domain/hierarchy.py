@@ -16,6 +16,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.config
 import subroutine.errors
 
 PATH_SEPARATOR = "/"
@@ -24,6 +25,50 @@ PATH_SEPARATOR = "/"
 #: enough that no real structure has hit it and shallow enough that a path stays inside
 #: the 1024-character column with room to spare (docs/design.md §5.4).
 DEFAULT_MAX_DEPTH = 10
+
+#: How wide ``path`` is on every model that has one. Declared here rather than read off a
+#: model, because this module deliberately knows nothing about them — :class:`Node` is a
+#: protocol so that the rule can be applied to a task, a document or a project without any
+#: of them being imported. ``tests/test_services.py`` holds this to the real column, which
+#: is the seam that keeps a literal honest.
+PATH_COLUMN_LENGTH = 1024
+
+#: One segment: a uuid in its dashed form, plus the separator that follows it.
+PATH_SEGMENT_LENGTH = 36 + len(PATH_SEPARATOR)
+
+#: The deepest a tree can go before :func:`build_path` outruns the column — `SR#1560`'s L-1.
+#:
+#: **A depth of *n* is *n + 1* segments**, because :func:`depth_of` counts a root as zero, and
+#: the path opens with a leading separator. So 26 is 27 segments and 1000 characters, and 27
+#: is 28 and 1037 — measured, not derived from a remembered formula.
+#:
+#: **This is a ceiling on the setting, not a default.** Until `SR#1560` nothing read
+#: ``max_hierarchy_depth`` at all, so it could say 99 with no effect; making it live without
+#: this would have turned a dead setting into a way to overflow ``path`` — silently on SQLite,
+#: which ignores ``VARCHAR`` lengths, and as a ``StringDataRightTruncation`` on PostgreSQL.
+MAX_DEPTH = (PATH_COLUMN_LENGTH - len(PATH_SEPARATOR)) // PATH_SEGMENT_LENGTH - 1
+
+
+def depth_limit (
+	max_depth: int | None, settings: subroutine.config.Settings | None
+) -> int:
+	"""Return how deep a tree may go: what the caller said, what the instance says, or ten.
+
+	**The instance's answer used to reach nothing** (`SR#1560`). Every enforcement site took
+	``max_depth: int = DEFAULT_MAX_DEPTH`` and no caller anywhere supplied it, so
+	``max_hierarchy_depth`` was published by ``config show`` and by ``/v1/meta``, named in both
+	of the refusals below, and read by nothing — while the refusal told the operator to raise
+	it. The fourth inert control after `#247`, `#251` and `#303`, and the only one whose own
+	error message instructed somebody to use it.
+
+	``claims._lease`` is the shape this follows: an explicit value, then the instance's, then a
+	default, with ``None`` meaning *nobody said* at each step rather than *zero*.
+	"""
+
+	if max_depth is not None:
+		return max_depth
+
+	return DEFAULT_MAX_DEPTH if settings is None else settings.max_hierarchy_depth
 
 
 class Node(typing.Protocol):
