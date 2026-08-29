@@ -16,6 +16,27 @@ upgrade involves.
 
 ### Fixed
 
+- **A description or a document's body is now held to the same rule as a title.** The entry
+  below said control characters were refused everywhere; they were refused in every field with
+  a declared width, which is every title, name, key and label — and not in free prose, which
+  has no width and so was never measured. So a NUL in a task's description was `500` on
+  PostgreSQL, stored on SQLite, and enough on its own to strand `db copy` between them. The
+  same divergence, one column type along.
+
+  Prose is checked for characters and not for length: there is no cap on a description or a
+  body, and adding one to reach the character rule would be a second change nobody asked for.
+
+  > **A value that used to be accepted is now refused.** A description, a document's body or a
+  > project's or workspace's description carrying a control character answers `422` where it
+  > answered `500` or succeeded. A tab and a newline are unaffected; so is length. Rows already
+  > stored are untouched.
+
+- **Six control characters are refused in a title, where they were quietly turned into a
+  space.** A one-line field has its whitespace collapsed, and Python counts VT, FF and
+  FS/GS/RS/US as whitespace — so those six were gone before the check that would have refused
+  them, while the same six were refused in a comment, which does not collapse. One rule, two
+  answers, decided by which field it was asked about.
+
 - **`doctor` no longer says a machine's listings will fail when nothing on it serves one.** A
   page cursor is signed by whatever holds the database, so on a machine whose only connection
   is a server elsewhere there is nothing here to sign with and nothing here that signs — but
@@ -115,7 +136,7 @@ upgrade involves.
   > upgrading. Lower bounds only: a large value you chose on purpose is unaffected.
 
 - **A title that will not fit its column is refused on both backends, and control characters
-  are refused everywhere.** Two credential paths — `POST /v1/tokens` and `POST /v1/calendars` —
+  are refused in every text field a caller can write.** Two credential paths — `POST /v1/tokens` and `POST /v1/calendars` —
   skipped the check the six other title-bearing endpoints use, so an over-long title was
   `201 Created` on SQLite and `500` on PostgreSQL. Worse than either: the row SQLite accepted
   could not be copied to PostgreSQL afterwards, so one long title stranded `db copy` with a
@@ -128,8 +149,8 @@ upgrade involves.
 
   > **A value that used to be accepted is now refused.** If you have been sending titles longer
   > than 128 characters to `/v1/tokens` or `/v1/calendars`, or text carrying control characters
-  > anywhere, those requests answer `413` or `422` instead of succeeding. Rows already stored
-  > are untouched.
+  > in any field a caller can write, those requests answer `413` or `422` instead of
+  > succeeding. Rows already stored are untouched.
 
 - **A refusal about a document no longer sends you after a task permission.** There is
   deliberately no `document:write` — a document is written with `task:write` — so a caller who

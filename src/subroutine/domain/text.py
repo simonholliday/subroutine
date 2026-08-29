@@ -18,9 +18,15 @@ import subroutine.errors
 #: The control characters no field here may carry — `SR#1555`.
 #:
 #: **C0 and DEL, less the three that are whitespace.** ``\t``, ``\n`` and ``\r`` are
-#: legitimate in a comment's body and are collapsed out of everything else by :func:`fit`
-#: before this is consulted, so allowing them costs nothing and refusing them would refuse
-#: an ordinary paste.
+#: legitimate in a comment's body and are collapsed out of a one-line field by :func:`fit`
+#: afterwards, so allowing them costs nothing and refusing them would refuse an ordinary
+#: paste.
+#:
+#: **Afterwards is a correction** (`SR#1586`). This was consulted *after* the collapse, and
+#: ``str.split()`` counts VT, FF and FS/GS/RS/US as whitespace — so six of the characters
+#: below were turned into a space before anything looked at them, and were refused in a
+#: comment's body, which strips rather than splits. The set said one thing and the two modes
+#: of one function enforced two.
 CONTROL_CHARACTERS = frozenset(
 	chr(code) for code in [*range(0x00, 0x20), 0x7F] if chr(code) not in "\t\n\r"
 )
@@ -84,6 +90,72 @@ def plain (message: str) -> str:
 	return INSTRUCTIONS.sub("", message)
 
 
+def _refuse_a_character_nobody_can_read (
+	value: str, *, field: str, label: str | None
+) -> None:
+	"""Raise if ``value`` carries one of :data:`CONTROL_CHARACTERS`.
+
+	Private because it is the rule and not an entry point: :func:`fit` asks it of a value it
+	already holds, and :func:`readable` is the same question for a caller with an optional
+	field. One scan, so the two can never come to disagree.
+	"""
+
+	found = next((one for one in value if one in CONTROL_CHARACTERS), None)
+
+	if found is None:
+		return
+
+	name = label or field
+
+	raise subroutine.errors.ValidationError(
+		f"That {name} contains a control character, which is not text anybody can read.",
+		code="invalid_field_value",
+		hint="Remove it and send the value again. A tab or a newline is fine.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=f"A {name} may not contain the character U+{ord(found):04X}.",
+			)
+		],
+	)
+
+
+def readable (value: str | None, *, field: str, label: str | None = None) -> str | None:
+	"""Return ``value`` unchanged, or refuse it for carrying a character nobody can read.
+
+	**The rule with no length beside it, because the two are about different sets** (`#1584`).
+	:func:`fit` answers *does this fit its column*, which only a sized column can be asked;
+	this answers *is this text*, which is true of every column PostgreSQL stores. Free prose —
+	a task's description, a document's body — has no width and so cannot go through ``fit``,
+	and giving it one to reach the character check would refuse this project's own
+	specification, which lives in the instance as documents of eighty kilobytes.
+
+	**Two distinct problems, one check.** PostgreSQL refuses a NUL in a text field and SQLite
+	stores it, so a row written on a laptop could not be copied to production and ``db copy``
+	reported it naming no table, column or row. And a real ``ESC[31m`` survived storage and
+	reached an agent's context through MCP, which renders into a terminal —
+	``cli/output.plain`` strips them on the way out of one surface and nothing did on the way
+	in.
+
+	**Refused rather than stripped, for this module's own stated reason.** A value silently
+	altered is the truncation the docstring at the top of this file argues against: the writer
+	is not told that part of what they sent is gone.
+
+	``None`` passes through, because an absent description is not an unreadable one and every
+	caller here has an optional field to hand.
+
+	**Returns the value so a caller can write ``x = readable(x, …)``**, which is what keeps the
+	check on the path rather than beside it: a call whose result is thrown away is one somebody
+	deletes as dead.
+	"""
+
+	if value is not None:
+		_refuse_a_character_nobody_can_read(value, field=field, label=label)
+
+	return value
+
+
 def fit (
 	value: str,
 	*,
@@ -115,36 +187,14 @@ def fit (
 	than an attack in the ordinary case, and refusing the paste helps nobody.
 	"""
 
+	# **Before the whitespace is collapsed, and that ordering is `SR#1586`.** It ran after,
+	# and ``str.split()`` treats VT, FF and FS/GS/RS/US as whitespace — so those six were
+	# turned into a space and never reached the scan, while the same six were refused in a
+	# comment, which strips rather than splits. One rule read two ways by the two modes of
+	# one function.
+	_refuse_a_character_nobody_can_read(value, field=field, label=label)
+
 	cleaned = value.strip() if multiline else " ".join(value.split())
-
-	# **Refused rather than stripped, for this module's own stated reason** (`SR#1555`). A
-	# value silently altered is the truncation the docstring at the top of this file argues
-	# against — the writer is not told that part of what they sent is gone.
-	#
-	# **Two distinct problems, one check.** PostgreSQL refuses a NUL in a text field and
-	# SQLite stores it, so a row written on a laptop could not be copied to production and
-	# `db copy` reported it naming no table, column or row: exactly the divergence this module
-	# exists to close, one character class along from the length it was written for. And a
-	# real `ESC[31m` survived storage and reached an agent's context through MCP, which
-	# renders into a terminal — `cli/output.plain` strips them on the way out of one surface
-	# and nothing did on the way in.
-	found = next((one for one in cleaned if one in CONTROL_CHARACTERS), None)
-
-	if found is not None:
-		name = label or field
-
-		raise subroutine.errors.ValidationError(
-			f"That {name} contains a control character, which is not text anybody can read.",
-			code="invalid_field_value",
-			hint="Remove it and send the value again. A tab or a newline is fine.",
-			errors=[
-				subroutine.errors.FieldError(
-					field=field,
-					code="invalid_field_value",
-					message=f"A {name} may not contain the character U+{ord(found):04X}.",
-				)
-			],
-		)
 
 	if len(cleaned) <= limit:
 		return cleaned

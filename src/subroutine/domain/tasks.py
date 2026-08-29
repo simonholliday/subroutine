@@ -735,6 +735,7 @@ def create (
 	"""
 
 	cleaned_title = _clean_title(title)
+	description = subroutine.domain.text.readable(description, field="description")
 
 	if parent is not None and parent.project_id != project.id:
 		raise subroutine.errors.ValidationError(
@@ -1190,6 +1191,11 @@ def update (
 
 	# Validation pass. Nothing below this point may raise.
 	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
+	description = (
+		description
+		if description is subroutine.domain.patch.UNSET
+		else subroutine.domain.text.readable(description, field="description")
+	)
 	status: typing.Any = (
 		subroutine.domain.patch.UNSET if status_key is subroutine.domain.patch.UNSET else status_for(session, task.workspace_id, status_key)
 	)

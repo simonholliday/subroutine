@@ -251,6 +251,7 @@ def create (
 	"""Write a document into a project, allocating its ref and recording that it happened."""
 
 	cleaned_title = _clean_title(title)
+	body = subroutine.domain.text.readable(body, field="body")
 
 	if owner_id is not None:
 		# The same question, and this path asked nothing at all: an id naming nobody reached
@@ -454,6 +455,11 @@ def update (
 		subroutine.domain.patch.UNSET
 		if title is subroutine.domain.patch.UNSET
 		else _clean_title(title)
+	)
+	body = (
+		body
+		if body is subroutine.domain.patch.UNSET
+		else subroutine.domain.text.readable(body, field="body")
 	)
 	status: typing.Any = (
 		subroutine.domain.patch.UNSET

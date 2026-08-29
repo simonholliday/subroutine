@@ -245,7 +245,9 @@ def update (
 		)
 
 	if description is not subroutine.domain.patch.UNSET:
-		changed["description"] = description
+		changed["description"] = subroutine.domain.text.readable(
+			description, field="description"
+		)
 
 	if settings is not subroutine.domain.patch.UNSET:
 		# **Merged per key rather than replaced**, and validated against the registry — see

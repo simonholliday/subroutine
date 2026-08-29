@@ -130,6 +130,7 @@ def create (
 	title = subroutine.domain.text.fit(
 		subroutine.domain.text.require(title, field="title"), field="title", limit=512
 	)
+	description = subroutine.domain.text.readable(description, field="description")
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id)
 
 	normalized_key = normalize_key(key)
@@ -375,6 +376,9 @@ def update (
 		cleaned_title = subroutine.domain.text.fit(
 			subroutine.domain.text.require(title, field="title"), field="title", limit=512
 		)
+
+	if description is not subroutine.domain.patch.UNSET:
+		description = subroutine.domain.text.readable(description, field="description")
 
 	if visibility is not subroutine.domain.patch.UNSET and visibility not in subroutine.db.mixins.PROJECT_VISIBILITIES:
 		raise subroutine.errors.ValidationError(
