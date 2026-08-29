@@ -16,6 +16,22 @@ upgrade involves.
 
 ### Fixed
 
+- **`doctor` now says a signing key is missing where other people reach the instance, instead
+  of calling it fine.** With `dev_mode = true` and no `secret_key`, a cursor is signed with a
+  value made up per process, so every listing in flight fails when the process restarts. On a
+  laptop that is the smaller price and is still reported as an ordinary fact. With `public_url`
+  set — this instance telling the world where to find it — the cost lands on readers who cannot
+  see the cause and did not choose the setting, and it is reported as needing attention.
+
+  Nothing is refused and nothing stops starting. Since the development key became unguessable
+  there is no security fault here to turn down; what is left is a reliability cost, and stating
+  a cost is what this command is for. Setting `secret_key` clears it.
+
+  > **`doctor` may exit non-zero where it did not**, on an instance with `public_url` set,
+  > `dev_mode` on and no `secret_key`. It is documented as the last line of an update script,
+  > so such a script will report a failure it did not before. The remedy is one setting, and
+  > `subroutine init` writes it.
+
 - **The link a citation suggests is no longer proposed backwards when you read it from the
   document.** `show` on an item whose prose cites a decision offers a command that confirms the
   link; the command was built with a fixed argument order, which is right from the work and

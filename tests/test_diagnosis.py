@@ -121,6 +121,9 @@ class TestWhatItLooksAt:
 		``doctor`` turning red on a development machine would teach people to ignore it, and
 		saying "set" would be false — the value is invented per process, so every cursor
 		expires at every restart.
+
+		**No ``public_url``, which is what makes this the laptop case** (`SR#1623`). Losing a
+		cursor on a restart costs the person who restarted it, and they chose the setting.
 		"""
 
 		found = subroutine.diagnosis.examine(
@@ -130,6 +133,46 @@ class TestWhatItLooksAt:
 
 		assert reported.ok
 		assert "dev_mode" in reported.detail
+
+	def test_a_made_up_key_is_a_fault_where_the_instance_says_others_reach_it (
+		self, home: pathlib.Path
+	) -> None:
+		"""`SR#1623`, Simon's decision of 2026-08-29: permit it and say so.
+
+		**The same fact, and who pays decides whether it needs attention.** ``public_url`` is
+		this instance saying where other people find it, so a key that dies with the process
+		drops listings belonging to readers who cannot see the cause and did not choose the
+		setting. The neighbouring settings check has used exactly this gate since `#1558`; this
+		branch was the half `SR#1582` left unasked.
+
+		**Reported and not refused.** `#1568` made the development key unguessable, so nothing
+		here is a security fault any more — what is left is a reliability cost, and ``doctor``
+		exists to state a cost rather than to turn one down.
+		"""
+
+		found = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				secret_key=None, dev_mode=True, public_url="https://example.com"
+			)
+		)
+		reported = _named(found, "signing key")
+
+		assert not reported.ok, "somebody else's listings break on every restart"
+		assert not reported.unknown, "this was answered, not unanswerable"
+		assert "public_url" in reported.detail, (
+			"the reader has to be told which setting made this worth saying"
+		)
+
+		# **A key settles it whatever else is set**, which is the remedy this points at: the
+		# first branch answers before any of this is reached, so following the advice really
+		# does clear the finding rather than moving it.
+		settled = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				secret_key="a-real-key", dev_mode=True, public_url="https://example.com"
+			)
+		)
+
+		assert _named(settled, "signing key").ok
 
 	def test_a_missing_key_is_a_fact_where_nothing_here_serves_a_listing (
 		self, home: pathlib.Path

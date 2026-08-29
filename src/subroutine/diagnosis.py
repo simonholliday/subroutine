@@ -157,6 +157,13 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 	:func:`_the_settings` reports exposure *"only when ``public_url`` is set, because that is
 	what says this instance is reachable by somebody other than the person at the keyboard"*.
 	Written the same morning, one function apart.
+
+	**And applying it once left half of it undone** (`SR#1623`). That narrowing asked whether
+	anything here signs a cursor at all; it did not ask who pays when one is signed with a key
+	that will not survive a restart. So a ``dev_mode`` instance with ``public_url`` set — which
+	is a served instance telling the world where it is — reported that nothing needed
+	attention. Permitted rather than refused, because `SR#1568` made the key unguessable and
+	what is left is a reliability cost, and a cost is reported.
 	"""
 
 	if settings.secret_key:
@@ -171,6 +178,29 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 		]
 
 	if settings.dev_mode:
+		# **The same fact, and whether it needs attention depends on who can reach this**
+		# (`SR#1623`). A throwaway key costs a cursor on every restart, which on a laptop is
+		# the smaller price and is what ``require_secret_key`` already argues. On an instance
+		# that has told the world where it is, the same restart drops every listing somebody
+		# else had in flight — so the cost lands on people who cannot see the cause and did
+		# not choose the setting.
+		#
+		# **``public_url`` is the same gate the paragraph above cites**, and this branch is
+		# where it was still missing: `SR#1582` narrowed *whether anything here signs at all*
+		# and left *who is affected when it signs badly* unasked.
+		if settings.public_url:
+			return [
+				Finding(
+					area="signing key",
+					detail=(
+						"none, and dev_mode is on, so one is made up per process — and "
+						"public_url says other people reach this instance, so every listing "
+						"they have in flight fails when it restarts"
+					),
+					ok=False,
+				)
+			]
+
 		return [
 			Finding(
 				area="signing key",
