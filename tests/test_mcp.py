@@ -1050,6 +1050,20 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 	assert "commented" in shown
 
 
+#: What the whole tool catalogue may weigh, as JSON — `SR#1565`, and a ratchet rather than a
+#: budget. The number is **today's measured size** and therefore asserts nothing about what any
+#: client charges, which is the claim §21.2 made and that a measurement refuted; it says only
+#: that the surface does not grow unobserved, which is what it did for six days after the old
+#: cap was retired.
+#:
+#: **Measured in this harness, and it has to be.** ``_within`` writes the session's workspace
+#: into every schema as a default, so the figure moves with the length of a workspace slug —
+#: the cold review that raised this measured 13,720 bytes against the 14,358 here, from the
+#: same tree. It is a fact about our source read through a fixed fixture, exactly as
+#: ``REGISTER_CEILING`` is, and never a number to quote as what a session costs.
+TOOL_BYTE_CEILING = 14_358
+
+
 def test_the_whole_tool_surface_stays_small (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -1418,21 +1432,33 @@ def test_the_whole_tool_surface_stays_small (
 	  and the ``order`` examples are the grammar. So this raise buys the whole 51 rather than
 	  most of it having been there, which is the honest report and the opposite of `#819`'s.
 
-	**The byte cap is retired, and the count is not** — Simon's decision of 2026-08-23,
-	answering `#1124` Q3 and closing the spike `#541`. Everything below it is the record of how
-	it was spent and is left standing, because the reasoning in it is about *what earns a
-	place on this surface*, which is the question that survives.
+	**The byte cap was retired on 2026-08-23 and is back, in a different form** — Simon's
+	decisions of 2026-08-23 (`#1124` Q3, closing spike `#541`) and 2026-08-29 (`SR#1565`).
+	Everything below is the record of how the old one was spent and is left standing, because
+	the reasoning in it is about *what earns a place on this surface*, which is the question
+	that survives either way.
 
-	**What falsified it was a measurement of the client, not an argument.** A session was found
-	loading tool **names** eagerly and deferring every schema until one was fetched — so the
-	ceiling rationed a cost that client does not charge at session start. §21.2 stated the
-	premise as a law where it is a worst case, and clients without tool search do exist; what
-	it was doing in practice was blocking `#999` by 85 bytes and `#1114` by 91.
+	**What falsified the old cap was a measurement of the client, not an argument.** A session
+	was found loading tool **names** eagerly and deferring every schema until one was fetched —
+	so the ceiling rationed a cost that client does not charge at session start. §21.2 stated
+	the premise as a law where it is a worst case, and clients without tool search do exist;
+	what it was doing in practice was blocking `#999` by 85 bytes and `#1114` by 91.
 
-	**The risk that survives is discoverability, and a count measures it where bytes do not.**
-	A schema never fetched is a tool never called, so a fat surface hides its own tools — and
-	fourteen names in a list is the thing an agent actually reads before choosing. The cap
-	stays at fourteen and raising it is still meant to be an act.
+	**What brought it back was the six days after it went.** A cold review measured the surface
+	at **2.2x the last figure anybody had written down**, and nobody had noticed — which is the
+	thing a ratchet exists to prevent and the thing no amount of reasoning about clients
+	replaces. Token usage is a standing cost and somebody has to be able to see it move.
+
+	**The number's provenance is what makes this not the same cap.** §21.2's came from a theory
+	about what a client charges at session start, and that theory is what was refuted. This one
+	is **today's measured size** — it claims nothing about any client, and says only that the
+	surface does not grow without somebody deciding it should. That is `SR#943`'s ratchet shape,
+	which this repository already runs against `cli/personal.register`.
+
+	**The risk the count measures is a different one, and both are kept.** A schema never
+	fetched is a tool never called, so a fat surface hides its own tools — and fifteen names in
+	a list is the thing an agent actually reads before choosing. Bytes measure what a session
+	carries; the count measures what a reader can hold. Raising either is meant to be an act.
 
 	The spending record follows.
 
@@ -1490,6 +1516,14 @@ def test_the_whole_tool_surface_stays_small (
 	tools = answered[0]["result"]["tools"]
 
 	assert len(tools) <= 15, "the surface has grown; is each new tool worth every session?"
+
+	assert len(json.dumps(tools)) <= TOOL_BYTE_CEILING, (
+		f"the tool surface is {len(json.dumps(tools))} bytes against a ceiling of "
+		f"{TOOL_BYTE_CEILING}. Read the schemas for fat before raising it: the last raise "
+		f"before the cap was retired bought 51 filter keys, and the six days without one grew "
+		f"the surface by 2.2x with nobody noticing. If the addition earns it, move the number "
+		f"and write what it bought into the record below."
+	)
 
 	# **The shared `workspace` description's cost, measured here rather than asserted in a
 	# comment** (`#361`). `mcp/tools.py` used to carry the figure in prose beside the constant

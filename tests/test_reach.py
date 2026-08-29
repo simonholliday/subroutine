@@ -415,54 +415,66 @@ NOT_IN_CLI: dict[str, Excuse] = {
 }
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
+#: Why the twelve vocabulary routes have no tool of their own — one reason, twelve entries.
+#:
+#: **Written out twelve times until `SR#1565`**, which is how it came to say *14 of 14 tools*
+#: long after there were fifteen: twelve copies that agreed until the thing they described
+#: moved, and then agreed with each other and with nothing else. The count and the byte cap it
+#: cites are both live constraints, so a stale number here is a stale *reason* attached to a
+#: refusal that is still in force — which is what an excuse register is read for.
+VOCABULARY_IS_NOT_DAILY_WORK = (
+	"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **15 of 15 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet."
+)
+
+
 NOT_IN_MCP: dict[str, Excuse] = {
 	"statuses": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"create_status": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"update_status": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"delete_status": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"link_types": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"create_link_type": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"update_link_type": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"delete_link_type": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"tags": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"create_tag": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"update_tag": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"delete_tag": (
 		"budget",
-		"`SR#826`. Asked of `SR#484`'s test — *what would an agent get wrong without it?* — and the answer is nothing: curating a workspace's vocabulary is configuration somebody does once, not daily work, and `subroutine_call_api` reaches every one of these routes today. The surface is at **14 of 14 tools** under §21.2, so twelve more would be a raise of both the count and the byte cap for a capability an agent has no routine use for.\n\n**What would change it**: an installation whose agents genuinely invent statuses as they work, which would make this daily rather than occasional. Nothing measures that yet.",
+		VOCABULARY_IS_NOT_DAILY_WORK,
 	),
 	"occurrences": (
 		"budget",
