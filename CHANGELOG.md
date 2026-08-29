@@ -16,6 +16,18 @@ upgrade involves.
 
 ### Fixed
 
+- **`doctor` says something when a setting is dangerous rather than merely reporting it.** Its
+  job is to say whether an installation is coherent, and it validated nothing — so an instance
+  handing any page on any site a signed-in session closed with *"Nothing here needs attention"*,
+  word for word with a healthy one. It now reports what is in force about exposure, and calls
+  an open `cors_origins` and rate limiting switched off on a published instance faults. `serve`
+  prints a line about the first of those at startup.
+
+- **A query parameter that will not convert refuses in the same voice as everything else.**
+  `?ready=maybe` answered *"Input should be a valid boolean, unable to interpret input"* and
+  named no spelling that would work. The twelve `bool` and `int` query parameters now say what
+  was wrong and what to send, with the field and the code unchanged.
+
 - **A pagination cursor is bound to the listing that issued it.** `/v1/tasks` and
   `/v1/documents` share a default ordering, and a cursor carried the ordering's shape but not
   which collection it came from — so one was accepted by the other and answered `200` with rows

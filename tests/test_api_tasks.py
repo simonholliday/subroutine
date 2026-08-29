@@ -523,6 +523,56 @@ def test_a_cursor_from_one_collection_is_refused_by_another (world: World) -> No
 	assert world.call("GET", f"/v1/tasks?limit=10&cursor={on_tasks}").status_code == 200
 
 
+def test_a_value_that_never_reached_our_validation_still_refuses_in_our_voice (
+	world: World,
+) -> None:
+	"""`SR#1569`, L-4. Twelve query parameters answered in pydantic's voice, with no hint.
+
+	A cold review provoked 110 refusals across the advertised surface: **98 were in the house
+	voice** with a field, a specific message and an actionable hint, and the twelve that were
+	not are all the `bool` and `int` **query** parameters — which pydantic rejects at coercion,
+	before the endpoint's own body runs. So ``?ready=maybe`` said *"Input should be a valid
+	boolean, unable to interpret input"* and named none of the spellings it would have taken,
+	where every sibling refusal names its vocabulary: *"The choices are: include, exclude,
+	only."*
+
+	**Reworded at the handler rather than by re-declaring the parameters as strings.** Reaching
+	our own validation would mean taking them as text and parsing them ourselves, which changes
+	what ``/v1/openapi.json`` says these accept — a published contract, changed to improve a
+	sentence.
+
+	**The envelope was always right** and still is: this asserts the field and the code as well,
+	because what was wrong was the prose and a missing hint, not the shape.
+	"""
+
+	for query, field, expected in (
+		("?ready=maybe", "query.ready", "'maybe' is not a true or false value."),
+		("?include_completed=perhaps", "query.include_completed", "'perhaps' is not a true"),
+		("?limit=abc", "query.limit", "'abc' is not a whole number."),
+		("?limit=1.5", "query.limit", "'1.5' is not a whole number."),
+	):
+		answer = world.call("GET", f"/v1/tasks{query}")
+
+		assert answer.status_code == 422, answer.text
+
+		error = answer.json()["errors"][0]
+
+		assert error["field"] == field
+		assert error["message"].startswith(expected), error["message"]
+		assert error["hint"], (
+			f"{query} refuses without saying what would work, which is what every other "
+			f"refusal on this surface does"
+		)
+
+	# **A control.** The rewording keys on pydantic's own type strings, so a version that
+	# renames one has to leave the refusal exactly as it was rather than lose it — and a
+	# refusal our own validation raises must be untouched by any of this.
+	ours = world.call("GET", "/v1/tasks?limit=0")
+
+	assert ours.status_code == 422
+	assert "A page cannot hold 0 items." in ours.text, ours.text
+
+
 def test_a_listing_can_be_narrowed_by_project_and_by_text (world: World) -> None:
 	"""The simple filters, and the one that has to be case-insensitive on both backends."""
 

@@ -707,6 +707,11 @@ server {
     ssl_certificate     /etc/letsencrypt/live/tasks.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/tasks.example.com/privkey.pem;
 
+    # Tell the browser never to come back over plain HTTP. Subroutine issues session
+    # cookies and refuses to serve publicly without TLS, so the one gap left is a first
+    # request somebody makes to `http://`. Caddy, below, sets this itself.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
     location / {
         proxy_pass http://127.0.0.1:8471;
         proxy_set_header Host              $host;

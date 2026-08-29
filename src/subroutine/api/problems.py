@@ -61,6 +61,23 @@ _FIELD_CODES: dict[str, str] = {
 	"missing": "missing_field",
 }
 
+#: Pydantic's coercion failures, and what to say about each instead — `SR#1569`, L-4.
+#:
+#: **Keyed on pydantic's own type strings**, which is a dependency on somebody else's constant
+#: and is why the fallback below is the original message: an entry that stops matching leaves
+#: the refusal exactly as it was rather than losing it. Measured on the version in use —
+#: `bool_parsing` for a word that is not true or false, `int_parsing` for both `abc` and `1.5`.
+#:
+#: **The canonical pair rather than every alias.** Pydantic also takes `yes`, `on`, `y`, `t` and
+#: their inverses, and listing nine spellings answers a question nobody asked; what a caller
+#: needs is one that works.
+_COERCIONS: dict[str, tuple[str, str]] = {
+	"bool_parsing": ("a true or false value", "Use 'true' or 'false'."),
+	"bool_type": ("a true or false value", "Use 'true' or 'false'."),
+	"int_parsing": ("a whole number", "Send a whole number, with no decimal point."),
+	"int_type": ("a whole number", "Send a whole number, with no decimal point."),
+}
+
 
 def respond (
 	request: starlette.requests.Request,
@@ -397,6 +414,22 @@ def _field_error (
 
 	elif code == "missing_field":
 		message = f"{name!r} is required."
+
+	# **A value that never reached our own validation** (`SR#1569`, L-4). Of 110 refusals a
+	# cold review provoked across the advertised surface, 98 were in the house voice with a
+	# field, a specific message and an actionable hint; the 12 that were not are all `bool` and
+	# `int` **query** parameters, which pydantic rejects at coercion — before the endpoint's
+	# body runs at all. So `?ready=maybe` said *"Input should be a valid boolean, unable to
+	# interpret input"* and named none of the spellings it would have taken, where every
+	# sibling refusal names its vocabulary: *"The choices are: include, exclude, only."*
+	#
+	# **Reworded here rather than by re-declaring the parameters as strings**, which is the
+	# other way to reach our own validation and would change what `/v1/openapi.json` says these
+	# take — a published contract, changed to improve a sentence.
+	elif str(item.get("type")) in _COERCIONS:
+		wanted, advice = _COERCIONS[str(item.get("type"))]
+		message = f"{item.get('input')!r} is not {wanted}."
+		hint = advice
 
 	return subroutine.errors.FieldError(field=name, code=code, message=message, hint=hint)
 
