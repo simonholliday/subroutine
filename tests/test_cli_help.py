@@ -16,6 +16,7 @@ import ast
 import inspect
 import pathlib
 import re
+import shlex
 import textwrap
 import typing
 
@@ -667,3 +668,171 @@ def test_no_excused_flag_has_quietly_become_ours_or_gone_away () -> None:
 			stale.append(f"{entry} is excused as {why!r} and is now an option this program has")
 
 	assert not stale, "excuses that have expired:\n  " + "\n  ".join(stale)
+
+
+#: The fewest example lines the help pages carry between them, as a floor under the walk below.
+#:
+#: Measured at 158 across 69 pages on 2026-08-29. Set well beneath that, because the job is to
+#: catch a reader that has stopped reading — which reports the same clean result as a tree with
+#: nothing wrong with it — rather than to pin a number that moves whenever somebody writes a
+#: better page.
+FEWEST_EXAMPLES = 120
+
+
+def _examples (command: typing.Any) -> list[str]:
+	"""Return the command lines one help page offers as examples.
+
+	**Read off the command object, never out of rendered help.** ``typer.rich_utils`` styles an
+	option name in parts when it believes it is writing to a terminal, so a scan of the rendered
+	page finds ``--project`` on a laptop and not on a CI runner — `#1537`, which cost four wrong
+	hypotheses before anybody measured it.
+	"""
+
+	return [
+		line.strip() for line in re.findall(r"^\s*(subroutine .+)$", command.help or "", re.M)
+	]
+
+
+def _options_of (command: typing.Any) -> dict[str, bool]:
+	"""Return every option one command accepts, saying of each whether it stands alone.
+
+	``--help`` is added by hand: Typer attaches it when a command is rendered rather than
+	declaring it as a parameter, so it is real everywhere and appears in no ``params`` list.
+	"""
+
+	found = {"--help": True}
+
+	for parameter in command.params:
+		for spelling in (
+			*getattr(parameter, "opts", ()),
+			*getattr(parameter, "secondary_opts", ()),
+		):
+			if spelling.startswith("-"):
+				found[spelling] = bool(getattr(parameter, "is_flag", False))
+
+	return found
+
+
+def _refused (line: str) -> list[str]:
+	"""Return what an example line names that the command it names would turn down.
+
+	**Walked the way click reads it — one word at a time, against the command reached so far.**
+	An example may carry the root's own options before the subcommand: ``subroutine -w work
+	agenda --project acme`` is a real line on the ``agenda`` page, and a walk that stops at the
+	first word beginning with a hyphen attributes ``--project`` to ``subroutine`` and reports a
+	false offender. An option that takes a value consumes the word after it, or ``work`` is read
+	as a subcommand and refused for not being one.
+
+	``_unreachable`` above stops instead, and is right to: its population is the tips, of which
+	39 were measured and the only one carrying an option before a subcommand is ``subroutine
+	--help``. The two walkers differ because what they read does.
+	"""
+
+	try:
+		words = shlex.split(line)
+
+	except ValueError:
+		return ["cannot be read as a command line at all"]
+
+	# **Typed loosely, for the reason `_commands` above writes out**: Typer vendors its own
+	# click shim, so what `get_command` returns is a private `typer._click.core.Command` that is
+	# not a `click.Command` and that Typer exports no name for.
+	node: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	path = "subroutine"
+
+	faults: list[str] = []
+	awaiting_value = False
+
+	for word in words[1:]:
+		if awaiting_value:
+			awaiting_value = False
+			continue
+
+		if word.startswith("-"):
+			spelling, joined, _value = word.partition("=")
+			accepted = _options_of(node)
+
+			if spelling not in accepted:
+				faults.append(f"names {spelling}, which {path!r} does not accept")
+
+			elif not joined and not accepted[spelling]:
+				awaiting_value = True
+
+			continue
+
+		if not hasattr(node, "list_commands"):
+			# A leaf, so this word is an argument to it rather than a subcommand.
+			continue
+
+		child = node.get_command(click.Context(node, info_name=path), word)
+
+		if child is None:
+			faults.append(f"names {word!r}, which is not a command of {path!r}")
+			break
+
+		node, path = child, f"{path} {word}"
+
+	return faults
+
+
+def test_every_flag_a_help_example_names_is_one_that_command_accepts () -> None:
+	"""`#1573`. The guard above checks a flag against the program; this checks it against the
+	command it is written under, and both recorded defects lived in the difference.
+
+	``subroutine add "Pay the rent" --due "30 aug"`` was on the ``add`` page until `#1556` — and
+	``--due`` *is* an option of this program, of ``plan``, so a program-wide set says it is
+	fine. It exited 2 suggesting ``--under``, directly above the paragraph the page exists to
+	teach. ``subroutine list --deleted`` was `#1264`'s: the flag is ``--trash``, and Typer's
+	*did you mean* then pointed at ``--deferred``.
+
+	**Every example is reachable this way and only six of them can be driven**, which is the
+	argument for spending the walk. Most of the 158 delete workspaces, mint credentials, start a
+	server or name refs a fresh instance does not have, so driving them needs the register that
+	is `#1570`; naming a flag wrongly costs the reader the same either way.
+	"""
+
+	pages = {path: _examples(command) for path, command in _commands()}
+
+	offered = sum(len(lines) for lines in pages.values())
+
+	assert offered >= FEWEST_EXAMPLES, (
+		f"only {offered} example lines were read off {len(pages)} help pages, which is fewer "
+		f"than the {FEWEST_EXAMPLES} that exist — this has stopped reading the pages, and no "
+		f"offenders then reads exactly like a tree with nothing wrong with it"
+	)
+
+	broken = [
+		f"the {path!r} page offers {line!r}, which {fault}"
+		for path, lines in sorted(pages.items())
+		for line in lines
+		for fault in _refused(line)
+	]
+
+	assert not broken, "help pages offer lines the program would refuse:\n  " + "\n  ".join(
+		broken
+	)
+
+
+def test_the_example_reader_turns_down_the_two_lines_that_shipped () -> None:
+	"""A guard is tested by feeding it a defect through its own entry point (`#405`).
+
+	Both lines here were published and both were found by somebody typing them. The accepted
+	pair beneath them are the shapes that make a naive reader report a false offender: a global
+	option before the subcommand, and an option whose value would otherwise be read as one.
+	"""
+
+	assert _refused('subroutine add "Pay the rent" --due "30 aug"'), (
+		"'--due' is an option of 'plan' and not of 'add', which is what `#1556` shipped"
+	)
+
+	assert _refused("subroutine list --deleted"), (
+		"the flag is '--trash', which is what `#1264` shipped"
+	)
+
+	assert not _refused("subroutine -w work agenda --project acme"), (
+		"'-w' is the root's and '--project' is the agenda's, and this line is on that page"
+	)
+
+	assert not _refused("subroutine --profile scratch init"), (
+		"'scratch' is the profile's value rather than a command called 'scratch'"
+	)
