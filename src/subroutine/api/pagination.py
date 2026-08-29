@@ -179,6 +179,20 @@ def after (keys: typing.Sequence[SortKey], values: typing.Sequence[typing.Any]) 
 	return sqlalchemy.or_(*clauses)
 
 
+#: What ``limit`` does, in the words a caller reads in ``/v1/openapi.json`` — `SR#1569`, L-2.
+#:
+#: **The asymmetry is deliberate and is why this says "capped".** Below the range is refused by
+#: name, because a page of zero items is not a page; above it is served as ``max_page_size``,
+#: because a caller asking for more than the instance will give is asking a reasonable question
+#: and gets as much as there is. ``domain/paging.size`` argues it and is the one place it
+#: changes.
+#:
+#: **Declared once because it had already drifted.** Four listings said this and three said
+#: only *"How many to return."* — so half the surface disclosed the cap and half left a caller
+#: to notice it by comparing what they asked for with what came back.
+LIMIT_DESCRIPTION = "How many to return. At least 1; capped at the instance's max_page_size."
+
+
 def encode (
 	secret: str, keys: typing.Sequence[SortKey], row: typing.Any, *, collection: str
 ) -> str:

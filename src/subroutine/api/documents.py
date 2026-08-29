@@ -237,7 +237,7 @@ def listing (
 		# this endpoint and the local client refuse an impossible page identically — with
 		# `limit` as the field, not FastAPI's `query.limit`. Two copies of the rule produced
 		# two different refusals for the same mistake.
-		description="How many to return. At least 1; capped at the instance's max_page_size.",
+		description=subroutine.api.pagination.LIMIT_DESCRIPTION,
 	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),

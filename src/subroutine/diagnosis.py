@@ -148,7 +148,10 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 		return [
 			Finding(
 				area="signing key",
-				detail="none, and dev_mode is on, so one is made up per process",
+				detail=(
+					"none, and dev_mode is on, so one is made up per process and every "
+					"listing's cursor expires when this process does"
+				),
 			)
 		]
 

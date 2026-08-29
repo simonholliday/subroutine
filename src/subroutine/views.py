@@ -73,7 +73,16 @@ Item = typing.TypeVar("Item")
 class Page(pydantic.BaseModel):
 	"""Where a collection response sits in the sequence it came from."""
 
-	limit: int
+	#: How many rows this page was limited to, or **null when nothing limited it** —
+	#: `SR#1569`, L-3.
+	#:
+	#: Six collections are returned whole and refuse ``?limit=`` — the vocabularies, the
+	#: tokens, the accounts and the calendar feeds. They filled this with the number of rows
+	#: they happened to return, which is a row count wearing the name of a limit: a caller
+	#: reading ``{"limit": 10}`` had been told something that was not true of the request they
+	#: made. ``has_more`` and ``next_cursor`` were always right about completeness, so what was
+	#: wrong was this field alone.
+	limit: int | None = None
 	next_cursor: str | None = None
 	has_more: bool = False
 

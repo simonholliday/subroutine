@@ -262,7 +262,7 @@ def list_statuses (
 
 	return subroutine.views.Collection[subroutine.views.Status](
 		items=[subroutine.views.status(row) for row in rows],
-		page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
 	)
 
 
@@ -336,7 +336,7 @@ def list_link_types (
 
 	return subroutine.views.Collection[subroutine.views.LinkType](
 		items=[subroutine.views.link_type(row) for row in rows],
-		page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
 	)
 
 
@@ -423,7 +423,7 @@ def list_tags (
 
 	return subroutine.views.Collection[subroutine.views.TagEntry](
 		items=[subroutine.views.tag_entry(row) for row in rows],
-		page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
 	)
 
 

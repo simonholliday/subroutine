@@ -235,7 +235,7 @@ def listing (
 		None,
 		# No `ge=1`: `domain.paging.size` is the one arbiter, so this and the local client
 		# refuse an impossible page identically, naming `limit` rather than `query.limit`.
-		description="How many to return. At least 1; capped at the instance's max_page_size.",
+		description=subroutine.api.pagination.LIMIT_DESCRIPTION,
 	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),

@@ -641,3 +641,42 @@ def test_the_depth_a_setting_may_ask_for_fits_the_column_that_stores_it () -> No
 	assert len(overflowing) > kind.length, (
 		"one level past the ceiling still fits, so the ceiling is lower than it needs to be"
 	)
+
+
+def test_a_development_instance_signs_with_a_key_nobody_else_has () -> None:
+	"""`SR#1568`. It was the literal `"development-only-key"`, in a public repository.
+
+	With no ``secret_key`` and ``dev_mode = true``, ``require_secret_key`` returned that
+	constant — the same value on every machine — and the comment beside it said *"deterministic
+	within a process, and never written down"*, which was wrong in both halves: it was
+	deterministic across every process everywhere, and it was written down three lines below.
+
+	**And nothing refused the combination.** ``_refuse_without_a_signing_key`` returns early on
+	``dev_mode`` and ``_refuse_public_bind`` is satisfied by ``public_url``, so a published
+	instance could serve while signing with a value anybody could read.
+
+	**Made true rather than reworded.** The sentence describes what a reader would want to be
+	the case, so the code now does it: an instance that starts today still starts, nothing is
+	refused, and the key is unguessable. What it costs is cursors not surviving a restart, on a
+	machine whose own configuration says ``dev_mode``.
+
+	**Per process rather than per :class:`Settings`**, which is the half that would break
+	quietly: this is called on every request and a process may build more than one ``Settings``,
+	so a value that differed between them would mean a cursor minted by one request was refused
+	by the next.
+	"""
+
+	first = subroutine.config.Settings(secret_key=None, dev_mode=True).require_secret_key()
+	second = subroutine.config.Settings(secret_key=None, dev_mode=True).require_secret_key()
+
+	assert first == second, "two Settings in one process must sign the same way"
+	assert first != "development-only-key", "the published constant is still being signed with"
+	assert len(first) >= 32, "a key short enough to guess is the defect wearing a new value"
+
+	# A real key still wins, and no key outside development is still refused by name.
+	assert (
+		subroutine.config.Settings(secret_key="a-real-key").require_secret_key() == "a-real-key"
+	)
+
+	with pytest.raises(RuntimeError):
+		subroutine.config.Settings(secret_key=None, dev_mode=False).require_secret_key()

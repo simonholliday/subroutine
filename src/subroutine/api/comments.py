@@ -197,7 +197,7 @@ def _attach (
 		workspace_id: str | None = fastapi.Query(
 			None, description="Which workspace, by id or slug. Needed when you can reach several."
 		),
-		limit: int | None = fastapi.Query(None, description="How many to return."),
+		limit: int | None = fastapi.Query(None, description=subroutine.api.pagination.LIMIT_DESCRIPTION),
 		cursor: str | None = fastapi.Query(None, description="Continue after a page."),
 		format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 		fields: str | None = subroutine.api.shaping.FIELDS_QUERY,

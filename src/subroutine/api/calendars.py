@@ -187,7 +187,7 @@ def listing (
 	return subroutine.api.shaping.response(
 		subroutine.views.calendars(found, session=session, principal=actor),
 		subroutine.views.Page(
-			limit=len(found), has_more=False, next_cursor=None, total=len(found)
+			limit=None, has_more=False, next_cursor=None, total=len(found)
 		),
 		shape,
 	)

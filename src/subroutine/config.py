@@ -617,6 +617,43 @@ class TomlSettingsSource(pydantic_settings.PydanticBaseSettingsSource):
 		return {key: value for key, value in data.items() if value is not None}
 
 
+#: The signing key a development instance uses, made once per process — `SR#1568`.
+_DEVELOPMENT_KEY: str | None = None
+
+
+def _development_key () -> str:
+	"""Return this process's throwaway signing key, generating it on first use.
+
+	**It used to be the literal ``"development-only-key"``** — the same value on every machine,
+	in a public repository, and the comment beside it said *"deterministic within a process,
+	and never written down"*, which was wrong in both halves: it was deterministic across every
+	process everywhere, and it was written down three lines below. ``diagnosis`` understated it
+	the same way, reporting *"one is made up per process"* about a constant.
+
+	**Nothing refused the combination**, either: ``_refuse_without_a_signing_key`` returns early
+	on ``dev_mode`` and ``_refuse_public_bind`` is satisfied by ``public_url``, so
+	``serve --host 0.0.0.0`` with ``dev_mode = true`` and no key started and served, signing
+	with a value anybody could read.
+
+	**Made true rather than reworded**, which closes it without refusing anything: an instance
+	that starts today still starts, and the key is now unguessable. What it costs is that
+	cursors do not survive a restart — on a machine whose configuration says ``dev_mode``,
+	where that is the smaller price. An instance serving real readers should set ``secret_key``,
+	and this is one more thing pushing it to.
+
+	**Per process rather than per :class:`Settings`.** This is called on every request and a
+	process may build more than one ``Settings``; a value that differed between them would mean
+	a cursor minted by one request was refused by the next.
+	"""
+
+	global _DEVELOPMENT_KEY
+
+	if _DEVELOPMENT_KEY is None:
+		_DEVELOPMENT_KEY = secrets.token_urlsafe(32)
+
+	return _DEVELOPMENT_KEY
+
+
 class Settings(pydantic_settings.BaseSettings):
 	"""Process configuration, resolved from flags, environment, file, then defaults."""
 
@@ -927,15 +964,17 @@ class Settings(pydantic_settings.BaseSettings):
 		The key signs pagination cursors. It deliberately does *not* pepper stored token
 		hashes (docs/design.md §7.4), so rotating it costs an in-flight page of results rather
 		than every credential in the installation. Starting with a generated-per-process
-		key would still break cursors on every restart, so this fails loudly instead.
+		key would still break cursors on every restart, so this fails loudly instead — for an
+		instance with **no** key, which is what that sentence is about. ``dev_mode`` is the
+		case where breaking cursors on a restart is the smaller cost, and see
+		:func:`_development_key` for what changed there and why.
 		"""
 
 		if self.secret_key:
 			return self.secret_key
 
 		if self.dev_mode:
-			# Deterministic within a process, and never written down. Development only.
-			return "development-only-key"
+			return _development_key()
 
 		raise RuntimeError(
 			"No secret_key is configured. Run 'subroutine init' to create one, set "

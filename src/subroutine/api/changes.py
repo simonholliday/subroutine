@@ -42,6 +42,7 @@ import sqlalchemy.orm
 
 import subroutine.api.dependencies
 import subroutine.api.filters
+import subroutine.api.pagination
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
@@ -111,7 +112,7 @@ def listing (
 		description="Start at the newest events rather than the oldest. For a first look at "
 		"a long history; the page still reads forwards. Ignored when 'since' is given.",
 	),
-	limit: int | None = fastapi.Query(None, description="How many to return."),
+	limit: int | None = fastapi.Query(None, description=subroutine.api.pagination.LIMIT_DESCRIPTION),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:

@@ -166,7 +166,7 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 		order: str | None = fastapi.Query(
 			None, description="'-seq' (default, newest first) or 'seq' for oldest first."
 		),
-		limit: int | None = fastapi.Query(None, description="How many to return."),
+		limit: int | None = fastapi.Query(None, description=subroutine.api.pagination.LIMIT_DESCRIPTION),
 		cursor: str | None = fastapi.Query(None, description="Continue after a page."),
 		format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 		fields: str | None = subroutine.api.shaping.FIELDS_QUERY,

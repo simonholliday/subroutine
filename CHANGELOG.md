@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Fixed
 
+- **A development instance signs with a key nobody else has.** With no `secret_key` and
+  `dev_mode = true`, the signing key was a constant published in this repository — and nothing
+  refused that combination on an instance reachable from outside. It is now made once per
+  process and cannot be guessed. The cost is that pagination cursors do not survive a restart
+  on such an instance, which is a reason to set `secret_key` on anything serving real readers.
+
+- **A collection that limited nothing says so.** Six listings that are returned whole and
+  refuse `?limit=` reported `page.limit` as the number of rows they happened to return, under
+  a name that means something else. It is `null` there now. `has_more` and `next_cursor` were
+  always correct and are unchanged.
+
+- **Every listing says what `limit` does.** Four of the seven documented that a value above
+  `max_page_size` is served rather than refused, and three said only *"How many to return."*
+  The sentence is declared once and used by all of them.
+
 - **`doctor` says something when a setting is dangerous rather than merely reporting it.** Its
   job is to say whether an installation is coherent, and it validated nothing — so an instance
   handing any page on any site a signed-in session closed with *"Nothing here needs attention"*,

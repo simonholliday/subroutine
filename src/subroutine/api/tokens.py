@@ -183,7 +183,7 @@ def listing (
 			for row in found
 		],
 		subroutine.views.Page(
-			limit=len(found), has_more=False, next_cursor=None, total=len(found)
+			limit=None, has_more=False, next_cursor=None, total=len(found)
 		),
 		shape,
 	)

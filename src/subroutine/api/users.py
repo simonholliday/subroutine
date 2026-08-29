@@ -232,6 +232,6 @@ def listing (
 			subroutine.views.user(row, answers_to=answerable.get(row.id))
 			for row in found
 		],
-		subroutine.views.Page(limit=len(found), has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
 		shape,
 	)

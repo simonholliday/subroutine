@@ -76,6 +76,37 @@ def world (session: sqlalchemy.orm.Session) -> World:
 	)
 
 
+def test_a_collection_that_limited_nothing_says_so_rather_than_a_row_count (
+	world: World,
+) -> None:
+	"""`SR#1569`, L-3. `page.limit` reported how many rows came back, under a limit's name.
+
+	Six collections are returned whole and refuse ``?limit=`` — the three vocabularies, the
+	tokens, the accounts and the calendar feeds — and each filled this field with
+	``len(found)``. A caller reading ``{"limit": 10}`` had been told something that was not true
+	of the request they made.
+
+	**``has_more`` and ``next_cursor`` were always right**, which is why this is small: the
+	envelope told the truth about completeness and lied only about what constrained the answer.
+	Null is what says *nothing did*.
+	"""
+
+	world.call("POST", "/v1/tokens", json={"title": "One"})
+
+	page = world.call("GET", "/v1/tokens").json()["page"]
+
+	assert page["limit"] is None, "a collection nothing limited reports a limit"
+	assert page["has_more"] is False
+	assert page["next_cursor"] is None
+
+	refused = world.call("GET", "/v1/tokens?limit=2")
+
+	assert refused.status_code == 422, (
+		"the null above has to mean 'nothing limited this', which is only true while the "
+		"endpoint goes on refusing a limit"
+	)
+
+
 def test_a_credential_title_is_measured_against_its_column (world: World) -> None:
 	"""`SR#1555`. These two mint credentials and were the two that skipped `text.fit`.
 
