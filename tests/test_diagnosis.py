@@ -131,6 +131,89 @@ class TestWhatItLooksAt:
 		assert reported.ok
 		assert "dev_mode" in reported.detail
 
+	def test_a_published_instance_that_answers_any_origin_is_a_fault (
+		self, home: pathlib.Path
+	) -> None:
+		"""`SR#1558`. Six instances, one difference each, and one closing line for all of them.
+
+		``doctor``'s stated job is to say whether this machine's installation is coherent, and
+		it validated **no setting at all** — so an instance handing any page on any site a
+		signed-in session reported *"Nothing here needs attention."*, word for word with a
+		healthy one.
+
+		**Only when it is published.** ``public_url`` is what says somebody other than the
+		person at the keyboard can reach this, and it is the same signal `#286` and `#832`
+		already use to decide whether rate limiting applies — so a laptop meets none of it and
+		is told so rather than being asked to think about origins it does not have.
+
+		**Both directions and the healthy case**, because a check that only fires is one that
+		could be firing on everything.
+		"""
+
+		private = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key="k", public_url=None, cors_origins=["*"])
+		)
+
+		assert _named(private, "exposure").ok, "a laptop has no origins to worry about"
+
+		open_to_all = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				secret_key="k", public_url="https://example.test", cors_origins=["*"]
+			)
+		)
+		reported = _named(open_to_all, "cors_origins")
+
+		assert not reported.ok
+		assert not reported.unknown, "this is a fault here, not a question that went unanswered"
+		assert "any page" in reported.detail
+
+		named = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				secret_key="k",
+				public_url="https://example.test",
+				cors_origins=["https://app.example.test"],
+			)
+		)
+
+		assert _named(named, "cors_origins").ok
+
+	def test_rate_limiting_turned_off_on_a_published_instance_is_a_fault (
+		self, home: pathlib.Path
+	) -> None:
+		"""`SR#1558`. The other legal value whose meaning is who can reach this.
+
+		Turning it off is something an operator can mean — behind a proxy that does its own —
+		which is why this is reported rather than refused. What was wrong is that nothing said
+		it at all.
+
+		**`None` is not `False`**, and the distinction is the whole of the check: unset means
+		*decide from the bind and `public_url`*, which is `#286`'s rule, and only an explicit
+		``false`` is somebody having turned it off.
+		"""
+
+		# **Written out rather than splatted from a mapping**, and this is the second time
+		# today: `Settings` is a pydantic-settings model whose `__init__` is typed for its own
+		# sources, so `**{...}` is not something mypy can check — and the gate runs it over
+		# `tests` as well as `src`.
+		off = subroutine.diagnosis.examine(
+			subroutine.config.Settings(
+				secret_key="k", public_url="https://example.test", rate_limit=False
+			)
+		)
+
+		assert not _named(off, "rate_limit").ok
+
+		unset = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key="k", public_url="https://example.test")
+		)
+		ordinary = _named(unset, "rate_limit")
+
+		assert ordinary.ok, "an unset rate_limit is the ordinary state, not a fault"
+		assert "on" in ordinary.detail, (
+			"it has to say what is in force rather than echo the file, or a reader cannot "
+			"tell 'limiting is on' from 'nothing looked'"
+		)
+
 	def test_it_reports_no_plugin_by_saying_nothing (self, home: pathlib.Path) -> None:
 		"""A command line is not a plugin's child process, and that is the ordinary case.
 

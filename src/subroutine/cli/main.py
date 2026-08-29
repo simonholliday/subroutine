@@ -797,6 +797,8 @@ def serve (
 	for surface in surfaces:
 		_say(f"  {surface.path:<{column}}  {surface.what} — {surface.note}")
 
+	_warn_about_an_open_origin_list(settings)
+
 	listen(
 		application,
 		host=where,
@@ -817,6 +819,36 @@ def serve (
 		# Two mechanisms for one job is this codebase's signature defect, and the one that
 		# stays is the one that can see the configuration.
 		proxy_headers=False,
+	)
+
+
+def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> None:
+	"""Say out loud that this instance answers any origin, if it does — `SR#1558`.
+
+	``cors_origins = ["*"]`` on a published instance lets any page anywhere read and write as
+	anybody who is signed in and visits it: the browser sends the session cookie because the
+	response says ``access-control-allow-credentials: true``, and ``SameSite=lax`` is a
+	different door that does not close this one.
+
+	**The reasoning was written down twice and said by nothing.** ``config.py`` measures and
+	documents it in full, and ``docs/hosting.md`` gives the operator a curl one-liner to check
+	what their instance answers — while ``serve`` printed nothing and ``doctor`` said nothing
+	needed attention. ``db/backup.py``'s `#172`: *"the document knew and the program did not."*
+
+	**A line rather than a refusal, and that is a decision rather than caution.**
+	``_refuse_public_bind`` is the precedent for refusing, and it is about a bind that cannot be
+	made safe; an open origin list is a thing an operator may have chosen, on an instance that
+	is already running. Refusing it would stop a machine that starts today from starting after
+	an upgrade, which is a worse failure than the one being reported. Whether it should
+	nonetheless be refused is `SR#1558`'s open half.
+	"""
+
+	if not settings.public_url or "*" not in settings.cors_origins:
+		return
+
+	_say(
+		"  Warning: cors_origins is '*', so any page on any site can read and write as "
+		"anybody signed in who visits it. Name the origins that need it, or empty the list."
 	)
 
 

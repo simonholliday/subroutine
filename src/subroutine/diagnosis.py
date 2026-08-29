@@ -75,6 +75,7 @@ def examine (settings: subroutine.config.Settings | None = None) -> list[Finding
 		*_the_program(),
 		*_the_directories(),
 		*_the_signing_key(resolved),
+		*_the_settings(resolved),
 		*_the_connections(resolved),
 		*_the_backups(resolved),
 	]
@@ -161,6 +162,89 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 			ok=False,
 		)
 	]
+
+
+def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
+	"""Report a setting whose value is legal and whose meaning is exposure — `SR#1558`.
+
+	**This command validated nothing.** Its stated job is to *"say whether this machine's
+	installation is coherent"*, and it reported facts: paths, versions, whether a key exists,
+	how many backups there are. Six freshly-initialised instances, one configuration difference
+	each — an open CORS list on a public instance, rate limiting off on a public instance, a
+	page size of zero, a negative timeout, a depth setting that did nothing — and the closing
+	line on all six, including the healthy one, was *"Nothing here needs attention."*
+
+	**Four of those six can no longer be set at all** (`SR#1559`), so what is left here is the
+	pair that are genuinely a judgement rather than a bad number: legal values whose meaning is
+	who can reach this instance. That is the right division — a number nobody could mean is
+	refused when the file loads, and a decision an operator might have made on purpose is
+	reported rather than overruled.
+
+	**The lesson is one this codebase already recorded one command along.** ``db/backup.py``'s
+	``check_engine`` (`#172`): *"docs/hosting.md already stated the rule, which is the shape
+	worth noticing: the document knew and the program did not."* Here the *code* knows —
+	``config.py`` measures and documents the ``["*"]`` danger in full, and ``docs/hosting.md``
+	gives the operator a curl one-liner to check it — and the program said nothing.
+
+	**Only when ``public_url`` is set**, because that is what says this instance is reachable
+	by somebody other than the person at the keyboard. It is the same signal `#286` and `#832`
+	use to decide whether rate limiting applies at all, so a laptop meets none of this.
+	"""
+
+	if not settings.public_url:
+		return [Finding(area="exposure", detail="not published, so nothing is reachable from outside")]
+
+	findings = []
+
+	if "*" in settings.cors_origins:
+		findings.append(
+			Finding(
+				area="cors_origins",
+				detail=(
+					"'*' on a published instance — any page on any site can read and write "
+					"as anybody who is signed in and visits it. Name the origins that need "
+					"it, or leave the list empty"
+				),
+				ok=False,
+			)
+		)
+	else:
+		findings.append(
+			Finding(
+				area="cors_origins",
+				detail=(
+					"empty, so only this instance's own pages may call it"
+					if not settings.cors_origins
+					else f"{len(settings.cors_origins)} named"
+				),
+			)
+		)
+
+	# **Reported either way, like the list above it.** An operator reads this to learn what is
+	# in force, and a check that speaks only when it is unhappy leaves them unable to tell
+	# *limiting is on* from *nothing looked*. What is stated is what is **in force** rather than
+	# what the file says: unset means on here, because `#286` decides it from `public_url`
+	# first and this whole function has already established that it is set.
+	if settings.rate_limit is False:
+		findings.append(
+			Finding(
+				area="rate_limit",
+				detail=(
+					"off on a published instance, so nothing slows down somebody guessing "
+					"credentials"
+				),
+				ok=False,
+			)
+		)
+	else:
+		findings.append(
+			Finding(
+				area="rate_limit",
+				detail="on" if settings.rate_limit else "on, because this instance is published",
+			)
+		)
+
+	return findings
 
 
 def _the_connections (settings: subroutine.config.Settings) -> list[Finding]:
