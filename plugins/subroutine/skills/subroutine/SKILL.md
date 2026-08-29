@@ -494,9 +494,9 @@ line — `Fix the boiler by friday !4/2 ~2h #home +sr` — and `POST /v1/tasks` 
 using the grammar, sets no deadline because nobody parsed "by friday", and nothing anywhere
 reports it. A raw call is the one place this tool surface cannot help you.
 
-So: **the tools are a budget, and the command line is the whole product.** There are fourteen
-tools because each one costs context in every session whether you call it or not — not because
-the product does fourteen things. **If `subroutine` is on your `PATH`**, `subroutine --help` and
+So: **the tools are a budget, and the command line is the whole product.** The list you were
+given is short because each tool costs context in every session whether you call it or not —
+not because the product does only that much. **If `subroutine` is on your `PATH`**, `subroutine --help` and
 `subroutine explain <topic>` are complete, and setting anything up — `subroutine token create`
 for another agent, for instance — exists only there. Check before recommending one: a session
 connected to a server by address has the whole tool surface and no command line at all, and

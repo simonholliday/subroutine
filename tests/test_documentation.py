@@ -658,6 +658,19 @@ _COUNTS_TOOLS = re.compile(
 )
 
 
+#: The pages that describe the agent tool surface to somebody who will never open this
+#: repository, and must therefore not say how many of it there are.
+#:
+#: Both skills, because a plugin is self-contained by construction and the two copies are held
+#: byte-identical by ``tests/test_plugin.py`` — scanning one would do and scanning both says so
+#: without depending on that.
+COUNTS_THE_TOOLS = (
+	README,
+	ROOT / "plugins" / "subroutine" / "skills" / "subroutine" / "SKILL.md",
+	ROOT / "plugins" / "subroutine-remote" / "skills" / "subroutine" / "SKILL.md",
+)
+
+
 def _counted_tools (text: str) -> list[str]:
 	"""Return every phrase in this page that states how many tools there are.
 
@@ -685,19 +698,28 @@ def test_no_published_page_counts_the_tools () -> None:
 	prose that ages slowly and readably; naming how many is a claim that is false the moment
 	one is added, and false silently.
 
-	**The README alone, and the other pages are excluded on evidence rather than by oversight.**
-	Written over all four first, it reported two findings and both were correct prose:
-	``docs/hosting.md`` says a merged agenda beats keeping things "in two tools", meaning two
-	*products*; and ``CHANGELOG.md`` records a past release serving "nine tools", which was true
-	of that release and is what a changelog is for. A guard that fires on those would be
-	switched off inside a month, which is the argument ``tests/test_references.py`` makes for
-	not being a general dead-link checker. The README is the one page that describes this
-	surface.
+	**Two pages are excluded on evidence rather than by oversight.** Written over all four
+	first, it reported two findings and both were correct prose: ``docs/hosting.md`` says a
+	merged agenda beats keeping things "in two tools", meaning two *products*; and
+	``CHANGELOG.md`` records a past release serving "nine tools", which was true of that release
+	and is what a changelog is for. A guard that fires on those would be switched off inside a
+	month, which is the argument ``tests/test_references.py`` makes for not being a general
+	dead-link checker.
+
+	**The skills joined this population in `#1579`, and how they were out of it is the lesson.**
+	This docstring used to end *"the README is the one page that describes this surface"* — true
+	when it was written, and untrue from the day the skill grew a paragraph about the budget. It
+	then said *"there are fourteen tools… not because the product does fourteen things"* while
+	there were fifteen, in the document every agent session loads, and the guard written for
+	exactly that could not see it. **A guard checks the shape it was written from**, which is
+	this repository's own recorded defect arriving in the file that records it. Scoping a
+	population by *which page happens to describe a thing today* is the shape to distrust.
 	"""
 
 	wrong = [
-		f"{README.name}: {phrase!r}"
-		for phrase in _counted_tools(README.read_text(encoding="utf-8"))
+		f"{page.name}: {phrase!r}"
+		for page in COUNTS_THE_TOOLS
+		for phrase in _counted_tools(page.read_text(encoding="utf-8"))
 	]
 
 	assert not wrong, (

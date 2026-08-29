@@ -121,8 +121,7 @@ to, since a token carries no clue about whose it is.
 **What it needs:** the program on this machine, the address, and a token from whoever runs the
 instance.
 
-**You know it worked** when `subroutine list` shows the server's work with an address you can
-type back:
+**You know it worked** when `subroutine list` shows the server's work:
 
 ```console
 $ subroutine list
@@ -131,6 +130,23 @@ $ subroutine list
 
   work
     work/acme/#1  Fix the deploy script
+```
+
+**If this machine has nothing of its own, it looks different and that is right.** Somebody
+given a token who installs the program and never runs `init` has one connection, so there is
+nothing to tell apart and nothing to prefix — the list is bare, with no `Local` heading:
+
+```console
+$ subroutine list
+   #1  Fix the deploy script
+```
+
+`connections add` says so at the time, on a line the transcript above does not have because
+that machine had a list already:
+
+```console
+New work goes to work now, because this machine has no list of its own — and nothing here
+will look for one.
 ```
 
 **The name — `work` here — is yours.** It becomes the first part of every address that
