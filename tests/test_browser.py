@@ -65,24 +65,53 @@ POLICY = subroutine.api.policy.headers()
 LOOKS_LIKE_THE_BROWSER: dict[str, str] = {}
 
 
+#: The element the probe draws, filled once and left empty once.
+#:
+#: **It must be a box whose width a font decides, and that is `SR#1585`.** The first version
+#: drew a ``<p>``, which is a block: its width is the *container's*, so it read 1264 on a
+#: Chromium with no fonts at all — the same 1264 it reads on a machine with them, and the same
+#: 1264 an **empty** ``<p>`` reads. A number that does not move when the text is taken away
+#: cannot answer whether the text was drawn. An inline box that may not wrap is as wide as its
+#: glyphs and no wider, so it measures zero when there are none.
+PROBE = "<span id='probe' style='white-space:nowrap'>{text}</span>"
+
+
 @functools.cache
-def _cannot_lay_out_text (width: float | None) -> str | None:
-	"""Return why a measured width means no text can be drawn, or None if it can.
+def _cannot_lay_out_text (drawn: float | None, blank: float | None) -> str | None:
+	"""Return why two measured widths mean no text can be drawn, or None if it can.
 
 	**Separated from the probe because this machine cannot reach the state it is about**
 	(`SR#1567`). Chromium here has fonts, and pointing it at an empty fontconfig did not take
-	them away — so the branch below is unreachable on the machine writing it, and a guard
+	them away — so the first branch below is unreachable on the machine writing it, and a guard
 	written where its own failure path cannot run is untested. This project's rule for that is
 	to pull the decision into something that returns a value and assert on **that**, which
 	`tests/test_fixtures.py` does.
 
-	**Zero and ``None`` are the two shapes it comes back as**: a page that laid out nothing
-	measures zero, and one whose evaluation returned nothing at all gives ``None``. Neither is
-	a browser this file can drive.
+	**Zero and ``None`` are the two shapes an unusable answer comes back as**: a page that laid
+	out nothing measures zero, and one whose evaluation returned nothing at all gives ``None``.
+	Neither is a browser this file can drive.
+
+	**The second reading is the empty element, and it is here because the first fix was blind**
+	(`SR#1585`). Pulling the decision out made it testable and left it fed a measurement that
+	could not vary with the thing being decided, so every assertion about it was true and the
+	probe still passed on a machine that could draw nothing. Measuring the same element with
+	its text taken out is what says the *instrument* works: if the two agree, the width is
+	being decided by something other than the glyphs and this function is guessing.
+
+	That second answer is a fault in this file rather than in the machine, so it says so — the
+	remedy is to fix the probe, and a reader who is told to install fonts will install them and
+	be no better off.
 	"""
 
-	if width:
+	if drawn and drawn != blank:
 		return None
+
+	if drawn:
+		return (
+			f"the probe measures {drawn} whether it is given text or not, so it cannot tell "
+			f"whether chromium drew anything — fix PROBE in tests/test_browser.py to use a "
+			f"box a font decides the width of"
+		)
 
 	return (
 		"chromium starts here and cannot lay out text, which usually means no fonts are "
@@ -138,18 +167,27 @@ def _unavailable () -> str | None:
 	# **A computed value read back, not just a page that did not throw.** Laying out text is
 	# what needs a font, and reading a width is what makes the layout actually happen rather
 	# than being deferred.
+	#
+	# **Twice, and the second reading is the control** (`SR#1585`). One measurement says a
+	# number; two say whether the number is about the text. See `PROBE`, where the first
+	# version's block box read the same width empty as filled.
 	try:
 		with playwright.sync_api.sync_playwright() as running:
 			browser = running.chromium.launch()
 
 			try:
 				page = browser.new_page()
-				page.set_content("<p id='probe'>Subroutine</p>")
-				width = page.evaluate(
-					"document.getElementById('probe').getBoundingClientRect().width"
-				)
+				widths = []
 
-				refusal = _cannot_lay_out_text(width)
+				for text in ("Subroutine", ""):
+					page.set_content(PROBE.format(text=text))
+					widths.append(
+						page.evaluate(
+							"document.getElementById('probe').getBoundingClientRect().width"
+						)
+					)
+
+				refusal = _cannot_lay_out_text(*widths)
 
 				if refusal is not None:
 					return refusal

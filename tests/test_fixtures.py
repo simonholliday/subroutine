@@ -134,12 +134,32 @@ def test_a_machine_that_cannot_draw_text_is_a_skip_rather_than_66_errors () -> N
 	failure path cannot run is untested. The rule is pulled into a function that returns a
 	value, which is this project's answer whenever a defect depends on the running machine
 	differing from this one.
+
+	**And that was not enough on its own, which is `SR#1585` and the half worth reading.** The
+	rule was pulled out and asserted on here exactly as prescribed, and the probe went on
+	passing on a fontless machine — because what it handed this function was the width of a
+	``<p>``, a block box measuring its *container*. Every assertion below was true of a
+	function being fed a number that could not vary with the thing it decides. So the probe
+	reads the same element twice now, once with text and once empty, and the pair is what says
+	the instrument works at all; the case that catches the original defect is the last one.
 	"""
 
-	assert test_browser._cannot_lay_out_text(120.5) is None, "a real width is a usable browser"
+	assert test_browser._cannot_lay_out_text(120.5, 0) is None, (
+		"text wider than the empty element is a usable browser"
+	)
 
 	for measured in (0, 0.0, None):
-		refusal = test_browser._cannot_lay_out_text(measured)
+		refusal = test_browser._cannot_lay_out_text(measured, 0)
 
 		assert refusal is not None, f"a width of {measured!r} is a browser that drew nothing"
 		assert "fonts" in refusal, "the remedy has to name what is missing, not just refuse"
+
+	# **The measured defect, as measured** (`SR#1585`): 1264 was what a fontless Chromium gave
+	# the old probe, and it is what a Chromium *with* fonts gives it here — because it is the
+	# window, not the words. A probe that answers the same with the text taken out is refused
+	# rather than believed, and the refusal names the probe because that is what is broken.
+	blind = test_browser._cannot_lay_out_text(1264, 1264)
+
+	assert blind is not None, "a width that does not move when the text goes says nothing"
+	assert "PROBE" in blind, "the remedy is to fix the probe, not to install fonts"
+	assert "fonts" not in blind, "sending a reader after fonts they already have helps nobody"
