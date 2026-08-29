@@ -66,6 +66,30 @@ LOOKS_LIKE_THE_BROWSER: dict[str, str] = {}
 
 
 @functools.cache
+def _cannot_lay_out_text (width: float | None) -> str | None:
+	"""Return why a measured width means no text can be drawn, or None if it can.
+
+	**Separated from the probe because this machine cannot reach the state it is about**
+	(`SR#1567`). Chromium here has fonts, and pointing it at an empty fontconfig did not take
+	them away — so the branch below is unreachable on the machine writing it, and a guard
+	written where its own failure path cannot run is untested. This project's rule for that is
+	to pull the decision into something that returns a value and assert on **that**, which
+	`tests/test_fixtures.py` does.
+
+	**Zero and ``None`` are the two shapes it comes back as**: a page that laid out nothing
+	measures zero, and one whose evaluation returned nothing at all gives ``None``. Neither is
+	a browser this file can drive.
+	"""
+
+	if width:
+		return None
+
+	return (
+		"chromium starts here and cannot lay out text, which usually means no fonts are "
+		"installed, so install a font package such as fonts-dejavu-core"
+	)
+
+
 def _unavailable () -> str | None:
 	"""Why this file cannot run here, and what to do about it — or None if it can.
 
@@ -98,9 +122,41 @@ def _unavailable () -> str | None:
 	except ImportError:
 		return "playwright is not installed, so install it with `pip install -e '.[dev]'`"
 
+	# **Launched *and made to lay out text*, because launching is not the question** (`SR#1567`).
+	# A machine with no fonts and no fontconfig starts Chromium perfectly well and dies at the
+	# first `set_content` — so this probe passed, all 66 tests ran, and all 66 errored with a
+	# Playwright stack trace instead of skipping with a remedy. Measured on exactly such a
+	# machine during the cold review of 2026-08-28.
+	#
+	# **Third turn of the same wheel, and the two above are in this file.** `SR#927`'s H-17: the
+	# probe asked about the browser and every fixture also needs Node, so a Node-less PATH gave
+	# 1 passed, 37 skipped, exit 0 — from the variable whose entire purpose is refusing that
+	# skip. `SR#795`: every test here errored in CI for want of a browser, on six commits, while
+	# the local gate stayed green. Each fix closed the instance it met; this closes the class,
+	# by asking the browser to do the cheapest thing every fixture here needs it to do.
+	#
+	# **A computed value read back, not just a page that did not throw.** Laying out text is
+	# what needs a font, and reading a width is what makes the layout actually happen rather
+	# than being deferred.
 	try:
 		with playwright.sync_api.sync_playwright() as running:
-			running.chromium.launch().close()
+			browser = running.chromium.launch()
+
+			try:
+				page = browser.new_page()
+				page.set_content("<p id='probe'>Subroutine</p>")
+				width = page.evaluate(
+					"document.getElementById('probe').getBoundingClientRect().width"
+				)
+
+				refusal = _cannot_lay_out_text(width)
+
+				if refusal is not None:
+					return refusal
+
+			finally:
+				browser.close()
+
 	# Every failure here means the same thing to a caller: there is no browser to drive.
 	except Exception as why:
 		return f"chromium could not be launched ({why}), so run `playwright install chromium`"

@@ -890,11 +890,29 @@ def refuse_unsafe_commands (path: pathlib.Path) -> None:
 	filesystem — so without this a backup file is arbitrary code execution as the operator, and
 	``docs/hosting.md`` invites putting backups on a shared volume (`#928`).
 
-	**Read as ``psql`` reads it, because anything less is a different question.** Inside a
-	``COPY … FROM stdin;`` block every line is data, a leading backslash is an escape, and the
-	block ends at a lone ``\\.``; outside one, a leading backslash starts a command. A scan that
-	does not track which of the two it is in would refuse ordinary rows that happen to begin
-	with a backslash.
+	**This does not read as ``psql`` reads it, and it used to say that it did** (`SR#1554`).
+	The sentence here was *"read as psql reads it, because anything less is a different
+	question"*, which is the requirement rather than a description — and it is why nobody
+	looked. What this actually models is two states, inside or outside a ``COPY … FROM stdin;``
+	block. ``psql`` also tracks single-quoted strings, E-strings, dollar-quoted strings, ``--``
+	comments and ``/* … */`` comments, and accepts a meta-command **anywhere a statement may
+	end** rather than only at the start of a line.
+
+	**Five shapes were driven past it**, each allowed here and executed by psql: a mid-line
+	``SELECT 1; \\! …``; and a ``COPY … FROM stdin;`` inside a block comment, inside a
+	dollar-quote, or inside a string literal, each of which puts this scan into copy mode —
+	where psql is not — after which every remaining line is skipped until a lone ``\\.`` that a
+	forged file never provides.
+
+	**So this catches the shapes it knows and is not a boundary.** What closes the class is
+	`SR#1554`: ``pg_dump --format=custom`` with ``pg_restore``, which has no meta-command lexer
+	at all, so the instruction cannot exist rather than having to be found. Widening the scan
+	means reimplementing ``psqlscan.l`` and being wrong again — which is what this docstring
+	promised and did not do.
+
+	The COPY tracking below is still right about what it does: inside such a block every line
+	is data and a leading backslash is an escape, so a scan without it would refuse ordinary
+	rows that happen to begin with one.
 	"""
 
 	if engine_in(path) != "PostgreSQL":

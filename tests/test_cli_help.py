@@ -540,6 +540,10 @@ def test_every_command_the_program_suggests_is_one_it_can_run () -> None:
 NOT_OUR_OPTIONS = {
 	"db/backup.py::--dbname": "psql's, passed to it",
 	"db/backup.py::--file": "psql's, passed to it",
+	# Named in prose rather than passed: `SR#1554` records why the plain format is the vector
+	# and what replaces it, and a docstring that could not name the flag would be arguing
+	# about something it may not spell.
+	"db/backup.py::--format": "pg_dump's, named in the argument for changing to it",
 	"db/backup.py::--no-owner": "pg_dump's, passed to it",
 	"db/backup.py::--no-privileges": "pg_dump's, passed to it",
 	"db/backup.py::--no-psqlrc": "psql's, passed to it",

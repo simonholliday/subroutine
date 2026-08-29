@@ -16,6 +16,7 @@ import typer.testing
 import conftest
 import subroutine.cli.main
 import subroutine.installations
+import test_browser
 
 
 def test_a_derived_url_keeps_its_password () -> None:
@@ -110,3 +111,35 @@ def test_the_machines_colour_setting_does_not_reach_a_test () -> None:
 	assert "\x1b" not in rendered.encode("unicode_escape").decode(), (
 		"help came out styled, so any assertion about its text is measuring the styling too"
 	)
+
+
+def test_a_machine_that_cannot_draw_text_is_a_skip_rather_than_66_errors () -> None:
+	"""`SR#1567`. The browser probe asked whether Chromium *starts*, which is not the question.
+
+	Measured on the machine that ran the cold review of 2026-08-28: no fonts and no fontconfig
+	at all. Chromium launched perfectly well, so ``UNAVAILABLE`` was ``None``, so all 66 tests
+	ran — and all 66 **errored** at the first ``set_content`` with a Playwright stack trace
+	rather than skipping with a remedy. CI is unaffected, because ``playwright install-deps``
+	pulls fonts onto the runner; the population that meets it is a contributor on a headless
+	box or a slim container, which is precisely the population the guard exists for.
+
+	**Third turn of the same wheel and the first two are in that file's own comments** —
+	`SR#927`'s H-17, where the probe asked about the browser and every fixture also needs Node,
+	and `SR#795`, where every test errored in CI for want of a browser on six commits while the
+	local gate stayed green. Each of those closed the instance it met.
+
+	**Asserted here rather than there, because this machine cannot reach the state.** Chromium
+	has fonts here, and pointing it at an empty fontconfig did not take them away — so the
+	branch is unreachable on the machine that wrote it, and a guard written where its own
+	failure path cannot run is untested. The rule is pulled into a function that returns a
+	value, which is this project's answer whenever a defect depends on the running machine
+	differing from this one.
+	"""
+
+	assert test_browser._cannot_lay_out_text(120.5) is None, "a real width is a usable browser"
+
+	for measured in (0, 0.0, None):
+		refusal = test_browser._cannot_lay_out_text(measured)
+
+		assert refusal is not None, f"a width of {measured!r} is a browser that drew nothing"
+		assert "fonts" in refusal, "the remedy has to name what is missing, not just refuse"
