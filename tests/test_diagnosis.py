@@ -131,6 +131,72 @@ class TestWhatItLooksAt:
 		assert reported.ok
 		assert "dev_mode" in reported.detail
 
+	def test_a_missing_key_is_a_fact_where_nothing_here_serves_a_listing (
+		self, home: pathlib.Path
+	) -> None:
+		"""`SR#1582`. A cursor is signed by whatever holds the database.
+
+		So on a machine whose only connection is elsewhere, nothing here signs anything and the
+		warning above is false. **Proven on a disposable pair before this was written**: a
+		machine reporting *"listings longer than a page will fail"* listed sixty rows against a
+		page of fifty, because the server had signed the cursor with its own key.
+
+		**It is not an exotic arrangement.** ``connections add`` turns ``local`` off when a
+		machine has no list of its own (`#1454`), so it is the state every colleague handed a
+		token lands in — and ``docs/connecting.md`` sends them to ``doctor`` when something
+		looks wrong.
+
+		**Still reported, as a fact rather than a fault**, which is what this command is for:
+		the absence is true and what it costs here is nothing.
+		"""
+
+		root = home / "xdg_config_home" / "subroutine"
+		root.mkdir(parents=True)
+		(root / "config.toml").write_text(
+			'default_connection = "work"\n'
+			"\n"
+			"[connections.local]\n"
+			"enabled = false\n"
+			"\n"
+			"[connections.work]\n"
+			'url = "https://subroutine.example.test"\n',
+			encoding="utf-8",
+		)
+
+		found = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key=None, dev_mode=False)
+		)
+		reported = _named(found, "signing key")
+
+		assert reported.ok, (
+			f"a machine that serves no listing was told its listings will fail: "
+			f"{reported.detail}"
+		)
+		assert "none" in reported.detail, (
+			f"the absence is still worth saying, and this stopped saying it: {reported.detail}"
+		)
+
+	def test_a_missing_key_is_still_a_fault_where_this_machine_holds_the_database (
+		self, home: pathlib.Path
+	) -> None:
+		"""The case `#1254` was built for, asserted beside the one that narrowed it.
+
+		An instance whose database arrived by being copied, restored or promoted has no key and
+		fails on the first listing longer than a page, a long way from the decision that caused
+		it. A served instance's own connection **is** local, so gating on that leaves this
+		exactly as it was — which is the half a narrowing like this most easily breaks.
+		"""
+
+		found = subroutine.diagnosis.examine(
+			subroutine.config.Settings(secret_key=None, dev_mode=False)
+		)
+		reported = _named(found, "signing key")
+
+		assert not reported.ok, (
+			f"the local connection holds the database and signs its own cursors: "
+			f"{reported.detail}"
+		)
+
 	def test_a_published_instance_that_answers_any_origin_is_a_fault (
 		self, home: pathlib.Path
 	) -> None:

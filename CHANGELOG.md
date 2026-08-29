@@ -16,6 +16,15 @@ upgrade involves.
 
 ### Fixed
 
+- **`doctor` no longer says a machine's listings will fail when nothing on it serves one.** A
+  page cursor is signed by whatever holds the database, so on a machine whose only connection
+  is a server elsewhere there is nothing here to sign with and nothing here that signs — but
+  a missing `secret_key` was reported as needing attention anyway. That is the ordinary state
+  for anybody handed a token who never runs `init`, which is also the person most likely to run
+  `doctor` and least able to judge the answer. The absence is still reported, as a fact. An
+  instance that holds its own database and has no key is unchanged: it still needs one, and
+  still says so.
+
 - **Searching for `#tag` finds the work carrying it.** A tag is a join row and search reads
   columns, so the sigil was whatever the backend made of it and never a tag — on PostgreSQL's
   indexed backend `#research` was lexed down to the bare word `research` and silently answered

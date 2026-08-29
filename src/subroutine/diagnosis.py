@@ -139,10 +139,36 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 
 	The key itself is never printed. Whether there is one is the question; what it is belongs
 	in the file it was written to.
+
+	**Only where this process could mint a cursor** (`SR#1582`). A cursor is signed by whatever
+	holds the database, so on a machine whose only connection is remote nothing here signs
+	anything and the warning is simply false — proven by listing sixty rows against a page of
+	fifty on a machine reporting it. That is not an exotic arrangement: ``connections add``
+	turns ``local`` off when a machine has no list of its own (`#1454`), so it is the state
+	every colleague handed a token lands in, and ``docs/connecting.md`` sends them here when
+	something looks wrong.
+
+	**The case this was built for is untouched**, because a served instance's own connection
+	*is* local: an instance whose database arrived by being copied, restored or promoted still
+	has no key, still reports the fault, and still fails on the first long listing otherwise
+	(`#1254`).
+
+	**This is the gate the neighbour below already had and this one did not** —
+	:func:`_the_settings` reports exposure *"only when ``public_url`` is set, because that is
+	what says this instance is reachable by somebody other than the person at the keyboard"*.
+	Written the same morning, one function apart.
 	"""
 
 	if settings.secret_key:
 		return [Finding(area="signing key", detail="set")]
+
+	if not _serves_its_own_listings(settings):
+		return [
+			Finding(
+				area="signing key",
+				detail="none, and nothing here serves a listing — every connection is elsewhere",
+			)
+		]
 
 	if settings.dev_mode:
 		return [
@@ -165,6 +191,27 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 			ok=False,
 		)
 	]
+
+
+def _serves_its_own_listings (settings: subroutine.config.Settings) -> bool:
+	"""Say whether a listing could be answered from this machine's own database.
+
+	``roster`` returns the connections that are **enabled**, and a connection is local exactly
+	when it names no URL — so this asks the question the roster already answers rather than
+	inspecting a file or guessing from a path.
+
+	**A roster that cannot be read counts as yes.** The configuration is broken in that case
+	and :func:`_the_connections` says so in its own line; answering *no* here would suppress a
+	real warning on the strength of a failure that is nothing to do with it.
+	"""
+
+	try:
+		roster = subroutine.connections.roster(settings)
+
+	except subroutine.errors.SubroutineError:
+		return True
+
+	return any(connection.is_local for connection in roster.connections)
 
 
 def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
