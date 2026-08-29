@@ -203,6 +203,61 @@ def test_a_tool_that_works_answers_with_text (
 	assert result["isError"] is False
 
 
+def test_a_tool_result_carries_no_instruction_to_the_terminal () -> None:
+	"""`SR#1566`. MCP handed an agent raw escapes that the terminal surface strips.
+
+	Measured before the fix: ``subroutine_add`` with a title containing a real ``ESC[31m``,
+	then ``subroutine_list``, and both results carried the raw ``\x1b`` bytes in
+	``content[0].text``. The same title through the command line came out with no ESC at all.
+
+	**The argument for why that matters was already written**, in the module that does it
+	properly — ``cli/output``: *"titles arrive from other people, from agents and from merged
+	remote instances… on a shared instance the text being printed was written by somebody who
+	is not the reader."* An agent's client renders ``content[].text`` into a terminal, so it
+	applies here word for word.
+
+	**``--json`` does not cover it**, which is the trap in the obvious reading. ``plain``'s
+	docstring sends anybody wanting the bytes verbatim to the JSON form — and this *is* the
+	prose channel: the escapes are JSON-escaped on the wire and decoded by the client before
+	display, so they reach the terminal as instructions either way.
+
+	**Driven through the real loop against a tool that returns one**, rather than against
+	``plain``, because what is being asserted is that every result passes through the place
+	that calls it. A check on the helper would have passed throughout the defect.
+	"""
+
+	shouting = subroutine.mcp.protocol.Tool(
+		name="shout",
+		title="Shout",
+		description="Return a line carrying terminal instructions.",
+		schema={"type": "object", "properties": {}},
+		call=lambda arguments: "Buy milk \x1b[2K\x1b[1;31mDANGER\x1b[0m",
+	)
+
+	answered = _exchange(
+		subroutine.mcp.protocol.Server(
+			[shouting], name="test", version="0", instructions="Shouts."
+		),
+		{
+			"jsonrpc": "2.0",
+			"id": 1,
+			"method": "tools/call",
+			"params": {"name": "shout", "arguments": {}},
+		},
+	)
+
+	text = answered[0]["result"]["content"][0]["text"]
+
+	assert "\x1b" not in text, f"an escape reached the agent's context: {text!r}"
+
+	# **The control character goes and its parameters stay**, which is what the terminal
+	# surface does too and is deliberate: `[2K` is only an instruction while an ESC precedes
+	# it, and removing the visible characters as well would be editing somebody's title. The
+	# CLI's own test asserts exactly this pair for the same reason.
+	assert "DANGER" in text, f"the text around the instructions was lost: {text!r}"
+	assert text.startswith("Buy milk "), text
+
+
 def test_a_tool_that_raises_is_a_result_and_not_an_error (
 	server: subroutine.mcp.protocol.Server,
 ) -> None:

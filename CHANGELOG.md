@@ -16,6 +16,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A pagination cursor is bound to the listing that issued it.** `/v1/tasks` and
+  `/v1/documents` share a default ordering, and a cursor carried the ordering's shape but not
+  which collection it came from — so one was accepted by the other and answered `200` with rows
+  silently missing. An agent paging several listings in one loop could read a short collection
+  as a complete one. A cursor from elsewhere is now refused exactly as a tampered one is.
+
+  > **Cursors issued before this upgrade will be refused.** The remedy is the one every bad
+  > cursor already has: start the listing again.
+
+- **An agent's tool results carry no terminal instructions.** A title containing an ANSI escape
+  reached `content[].text` intact, where a client renders it into a terminal — while the same
+  title printed by `subroutine list` had them removed. Both surfaces now use one rule.
+
 - **`max_hierarchy_depth` does something.** It was published by `config show` and by
   `/v1/meta`, and named in the refusal you get when a tree is too deep — *"Move it somewhere
   shallower, or raise max_hierarchy_depth"* — while every enforcement site used a hardcoded ten

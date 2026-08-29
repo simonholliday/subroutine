@@ -473,6 +473,56 @@ def test_a_tampered_cursor_is_refused (world: World) -> None:
 	assert response.json()["errors"][0]["field"] == "query.cursor"
 
 
+def test_a_cursor_from_one_collection_is_refused_by_another (world: World) -> None:
+	"""`SR#1564`. A tasks cursor was accepted by `/v1/documents` and silently dropped rows.
+
+	`decode` validated three things — the signature, that the body was readable, and that the
+	payload's **shape** matched the ordering — and nothing that said *which listing*. Tasks and
+	documents share a default ordering (``created_at`` plus the ``id`` tiebreak), so a cursor
+	minted on one satisfied all three on the other.
+
+	**The consequence is a 200 with rows missing**, which is the shape worth guarding against:
+	an ordering mismatch was already caught and reported, and this was not, so an agent paging
+	several listings in one loop — which ``/v1/docs/examples`` encourages — would read a short
+	collection as a complete one.
+
+	**Both directions and a control**, because a test that only proves the cursor is refused
+	cannot tell a bound cursor from a broken one. The same cursor must still work on the
+	listing that minted it, or this would pass against a version that refused every cursor.
+	"""
+
+	for index in range(4):
+		world.call("POST", "/v1/tasks", json={"title": f"Task {index}"})
+		world.call("POST", "/v1/documents", json={"title": f"Document {index}"})
+
+	whole = world.call("GET", "/v1/documents").json()["items"]
+
+	assert len(whole) == 4, "the fixture needs more documents than one page holds"
+
+	on_tasks = world.call("GET", "/v1/tasks?limit=1").json()["page"]["next_cursor"]
+	on_documents = world.call("GET", "/v1/documents?limit=1").json()["page"]["next_cursor"]
+
+	assert on_tasks is not None and on_documents is not None
+	assert on_tasks != on_documents, (
+		"the two cursors are identical, so this fixture cannot tell them apart — the rows "
+		"they name have to differ for the crossing to mean anything"
+	)
+
+	for path, foreign in (("/v1/documents", on_tasks), ("/v1/tasks", on_documents)):
+		crossed = world.call("GET", f"{path}?limit=10&cursor={foreign}")
+
+		assert crossed.status_code == 422, (
+			f"{path} accepted a cursor minted elsewhere and answered "
+			f"{crossed.status_code}: {crossed.text}"
+		)
+		assert crossed.json()["errors"][0]["field"] == "query.cursor"
+
+	# **The control.** Each listing still walks with its own cursor, so what was added is a
+	# binding rather than a refusal of everything.
+	assert world.call("GET", f"/v1/documents?limit=10&cursor={on_documents}").status_code == 200
+	assert world.call("GET", f"/v1/tasks?limit=10&cursor={on_tasks}").status_code == 200
+
+
 def test_a_listing_can_be_narrowed_by_project_and_by_text (world: World) -> None:
 	"""The simple filters, and the one that has to be case-insensitive on both backends."""
 

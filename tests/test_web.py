@@ -6472,6 +6472,11 @@ class Instance(typing.NamedTuple):
 	username: str
 	status: str
 	cursor: str
+	#: A cursor from the **documents** listing, because since `SR#1564` a cursor names the
+	#: collection that issued it and one from ``/v1/tasks`` is refused by ``/v1/documents``.
+	#: The browser has always held one per collection — ``listingRequests`` takes a mapping —
+	#: so it is the fixture that was pretending otherwise, and this guard is what said so.
+	document_cursor: str
 	since: int
 
 	def call (self, method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
@@ -6582,6 +6587,12 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	page = call("GET", f"/v1/tasks{scope}&limit=1&order={sunk}")
 	assert page.status_code == 200, page.text
 
+	# **And one for the other listing**, in the same order and against the same instance —
+	# a cursor is bound to its collection since `SR#1564`, so borrowing the one above is the
+	# thing that is now refused.
+	documents = call("GET", f"/v1/documents{scope}&limit=1&order={sunk}")
+	assert documents.status_code == 200, documents.text
+
 	# **A real seq, read rather than invented.** A literal `1` is below the oldest event the
 	# shared PostgreSQL database still holds — earlier tests roll back and leave a gap in the
 	# sequence — and is correctly refused with `410 cursor_expired`.
@@ -6612,6 +6623,7 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		username=setup.user.username,
 		status=refs[0]["status"],
 		cursor=page.json()["page"]["next_cursor"],
+		document_cursor=documents.json()["page"]["next_cursor"],
 		since=int(newest),
 	)
 
@@ -6754,7 +6766,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("listingRequests", [place.slug, None, None]),
 		("listingRequests", [place.slug, place.project, None]),
 		("listingRequests", [
-			place.slug, None, {"tasks": place.cursor, "documents": place.cursor},
+			place.slug, None, {"tasks": place.cursor, "documents": place.document_cursor},
 		]),
 		("itemRequests", ["task", place.task, place.slug]),
 		("itemRequests", ["document", place.document, place.slug]),
@@ -7192,7 +7204,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
 		document=2, spare_document=5, document_status="archived", document_link="dl",
-		username="si", status="open", cursor="c", since=1,
+		username="si", status="open", cursor="c", document_cursor="d", since=1,
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 

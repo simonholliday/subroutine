@@ -22,6 +22,7 @@ import json
 import typing
 
 import subroutine.db.failures
+import subroutine.domain.text
 import subroutine.errors
 
 #: The specification revision these shapes were taken from. Sent back verbatim when the
@@ -248,7 +249,17 @@ class Server:
 
 		return _result(
 			identifier,
-			{"contents": [{"uri": found.uri, "mimeType": found.mime_type, "text": text}]},
+			# A resource is read into the same context a tool result is, so it is cleaned the
+			# same way — `_content` explains why.
+			{
+				"contents": [
+					{
+						"uri": found.uri,
+						"mimeType": found.mime_type,
+						"text": subroutine.domain.text.plain(text),
+					}
+				]
+			},
 		)
 
 	def _initialize (self, params: dict[str, typing.Any]) -> dict[str, typing.Any]:
@@ -654,9 +665,29 @@ def _in_this_surfaces_words (text: str) -> str:
 
 
 def _content (text: str, *, failed: bool = False) -> dict[str, typing.Any]:
-	"""Return a tool result carrying one block of text."""
+	"""Return a tool result carrying one block of text, with terminal instructions removed.
 
-	return {"content": [{"type": "text", "text": text}], "isError": failed}
+	**An agent's client renders this into a terminal** (`SR#1566`), so the argument
+	``cli/output`` already made about a listing applies here word for word: *"titles arrive
+	from other people, from agents and from merged remote instances… on a shared instance the
+	text being printed was written by somebody who is not the reader."* The terminal surface
+	stripped escapes on the way out and nothing here did, so one title came out safe on one
+	surface and raw on the other — measured, ``\x1b[31m`` reached ``content[0].text`` intact.
+
+	**Not covered by ``--json``.** ``plain``'s own docstring sends anybody wanting the bytes
+	verbatim to the JSON form, and this *is* the prose channel: the escapes are JSON-escaped on
+	the wire and decoded by the client before display, so they arrive at the terminal as
+	instructions either way.
+
+	**Here rather than in each tool**, because that is a list of the places somebody thought of
+	and this is the one function every tool result passes through — the same reason
+	``cli/output.Terminal`` puts it at the console rather than at each line.
+	"""
+
+	return {
+		"content": [{"type": "text", "text": subroutine.domain.text.plain(text)}],
+		"isError": failed,
+	}
 
 
 def answer (server: Server, raw: str | bytes) -> dict[str, typing.Any] | None:

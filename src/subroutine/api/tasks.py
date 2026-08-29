@@ -1479,8 +1479,8 @@ def _page (
 
 	if cursor is not None:
 		values = subroutine.api.pagination.decode(
-			settings.require_secret_key(), keys, cursor
-		)
+					settings.require_secret_key(), keys, cursor, collection="tasks"
+				)
 		statement = statement.where(subroutine.api.pagination.after(keys, values))
 
 	ordered = statement.order_by(*[key.ordering() for key in keys])
@@ -1517,7 +1517,9 @@ def _page (
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
-				subroutine.api.pagination.encode(settings.require_secret_key(), keys, rows[-1])
+				subroutine.api.pagination.encode(
+					settings.require_secret_key(), keys, rows[-1], collection="tasks"
+				)
 				if has_more and rows
 				else None
 			),

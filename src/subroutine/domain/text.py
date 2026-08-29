@@ -11,6 +11,8 @@ error code rather than a truncation". Truncating silently would be worse than ei
 backend's behaviour — the user would not be told that the end of their sentence is gone.
 """
 
+import re
+
 import subroutine.errors
 
 #: The control characters no field here may carry — `SR#1555`.
@@ -40,6 +42,46 @@ ONE_LINE_LIMIT = 60
 #: `is_loopback` into `config`. Two thresholds agreed separately would drift into one surface
 #: warning where the other did not, and nothing would look wrong on either side.
 LARGE_PROSE = 10_000
+
+
+#: Everything a terminal reads as an instruction rather than as text: ``ESC``, the rest of the
+#: C0 controls Rich does not already drop, ``DEL``, and the C1 range some terminals still
+#: decode as escapes. Newline and tab are text here and are kept.
+INSTRUCTIONS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def plain (message: str) -> str:
+	"""Return a line with anything a terminal would obey rather than show taken out.
+
+	**Rich's markup is off and that is a different problem.** ``[bold]`` in a title is
+	neutralised already (`#682`); an ANSI escape is not — measured, ``ESC[2K`` reaches the
+	terminal exactly as written, where ``BEL`` is dropped. So a title could clear the line
+	above it, repaint what was there, or move the cursor, and every one of the four things
+	that print here carries a title.
+
+	**Titles arrive from other people, from agents and from merged remote instances**, which
+	is what makes this worth doing rather than theoretical: on a shared instance the text
+	being printed was written by somebody who is not the reader, and §13.7 merges an agenda
+	across connections that are not even the same installation.
+
+	Removed rather than shown as an escape: they are instructions rather than characters, and
+	the job here is to print the title. Anything wanting them verbatim reads ``--json``, where
+	JSON's own escaping already renders them as text.
+
+	**Here rather than in ``cli/output``, where it was** (`SR#1566`). MCP renders into a
+	terminal too — an agent's client prints ``content[].text`` — and had no equivalent, so the
+	same title came out stripped on one surface and raw on the other. ``mcp`` may not import
+	``cli``, so the rule moves to the module both already depend on, which is where
+	:data:`LARGE_PROSE` went for the same reason.
+
+	**Wider than :data:`CONTROL_CHARACTERS`, and the difference is the point.** That set is
+	refused when somebody *writes*; this one is stripped when anybody *reads*. A read has to
+	defend text this instance never validated — a merged remote agenda, a restored database, a
+	row written before that refusal existed — so it also takes ``\r`` and the C1 range, neither
+	of which a writer here can store any more.
+	"""
+
+	return INSTRUCTIONS.sub("", message)
 
 
 def fit (

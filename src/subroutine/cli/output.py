@@ -6,38 +6,16 @@ either one.
 """
 
 import datetime
-import re
 import typing
 
 import rich.console
 import rich.text
 
-#: Everything a terminal reads as an instruction rather than as text: ``ESC``, the rest of the
-#: C0 controls Rich does not already drop, ``DEL``, and the C1 range some terminals still
-#: decode as escapes. Newline and tab are text here and are kept.
-_INSTRUCTIONS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+import subroutine.domain.text
 
-
-def plain (message: str) -> str:
-	"""Return a line with anything a terminal would obey rather than show taken out.
-
-	**Rich's markup is off and that is a different problem.** ``[bold]`` in a title is
-	neutralised already (`#682`); an ANSI escape is not — measured, ``ESC[2K`` reaches the
-	terminal exactly as written, where ``BEL`` is dropped. So a title could clear the line
-	above it, repaint what was there, or move the cursor, and every one of the four things
-	that print here carries a title.
-
-	**Titles arrive from other people, from agents and from merged remote instances**, which
-	is what makes this worth doing rather than theoretical: on a shared instance the text
-	being printed was written by somebody who is not the reader, and §13.7 merges an agenda
-	across connections that are not even the same installation.
-
-	Removed rather than shown as an escape: they are instructions rather than characters, and
-	the job here is to print the title. Anything wanting them verbatim reads ``--json``, where
-	JSON's own escaping already renders them as text.
-	"""
-
-	return _INSTRUCTIONS.sub("", message)
+#: The rule lives in :mod:`subroutine.domain.text` since `SR#1566`, because MCP needs it too
+#: and may not import this package. Re-exported under the name every caller here already uses.
+plain = subroutine.domain.text.plain
 
 
 class Terminal (rich.console.Console):

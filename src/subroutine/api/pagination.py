@@ -180,32 +180,49 @@ def after (keys: typing.Sequence[SortKey], values: typing.Sequence[typing.Any]) 
 
 
 def encode (
-	secret: str, keys: typing.Sequence[SortKey], row: typing.Any
+	secret: str, keys: typing.Sequence[SortKey], row: typing.Any, *, collection: str
 ) -> str:
-	"""Return a signed cursor naming one row's position in an ordering."""
+	"""Return a signed cursor naming one row's position in one collection's ordering.
+
+	``collection`` is what the cursor is *for*, and it is bound into the signature rather than
+	written into the payload — see :func:`decode` for why that is the whole of the check.
+	"""
 
 	payload = {key.name: _to_json(key.value_of(row)) for key in keys}
 	body = base64.urlsafe_b64encode(
 		json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 	).decode("ascii")
 
-	return f"{body}{_SEPARATOR}{_sign(secret, body)}"
+	return f"{body}{_SEPARATOR}{_sign(secret, body, collection)}"
 
 
 def decode (
-	secret: str, keys: typing.Sequence[SortKey], cursor: str
+	secret: str, keys: typing.Sequence[SortKey], cursor: str, *, collection: str
 ) -> list[typing.Any]:
 	"""Return the sort values a cursor carries, refusing one that was not issued here.
 
 	Every failure — a bad signature, unreadable base64, a cursor from a different ordering
-	— reports the same way, because the caller's remedy is the same in all of them: start
-	the listing again. Naming which check failed would tell somebody probing the signature
-	how far they had got.
+	or from a different collection — reports the same way, because the caller's remedy is the
+	same in all of them: start the listing again. Naming which check failed would tell somebody
+	probing the signature how far they had got.
+
+	**A cursor is bound to the collection it was minted for** (`SR#1564`). The shape check below
+	compares the *ordering* and could not tell two listings apart, and ``/v1/tasks`` and
+	``/v1/documents`` share a default ordering — ``created_at`` plus the ``id`` tiebreak — so a
+	cursor minted on one was accepted by the other and **silently omitted rows behind a 200**.
+	Measured: thirteen documents, eight returned, five gone. An agent paging several listings in
+	one loop, which ``/v1/docs/examples`` encourages, would read a short collection as a
+	complete one.
+
+	**Bound into the signature rather than added to the payload**, which is what makes it a
+	check nobody can forget to perform: there is no second comparison to omit, a cursor cannot
+	be edited to claim a different collection, and the refusal is the one every other failure
+	already produces rather than a new branch reporting a new thing.
 	"""
 
 	body, separator, signature = cursor.partition(_SEPARATOR)
 
-	if not separator or not hmac.compare_digest(signature, _sign(secret, body)):
+	if not separator or not hmac.compare_digest(signature, _sign(secret, body, collection)):
 		raise _unusable()
 
 	try:
@@ -233,10 +250,15 @@ def _same (key: SortKey, value: typing.Any) -> sqlalchemy.ColumnElement[bool]:
 	return key.column.is_(None) if value is None else key.column == value
 
 
-def _sign (secret: str, body: str) -> str:
-	"""Return the signature for a cursor body."""
+def _sign (secret: str, body: str, collection: str) -> str:
+	"""Return the signature for a cursor body, in the collection it belongs to.
 
-	digest = hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
+	The separator cannot appear in a collection name — they are the fixed words below — so
+	there is no pair of (collection, body) that signs the same as another.
+	"""
+
+	signed = f"{collection}{_SEPARATOR}{body}"
+	digest = hmac.new(secret.encode("utf-8"), signed.encode("ascii"), hashlib.sha256).digest()
 
 	return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 

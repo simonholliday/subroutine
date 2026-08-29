@@ -277,7 +277,9 @@ def listing (
 		statement = statement.where(
 			subroutine.api.pagination.after(
 				keys,
-				subroutine.api.pagination.decode(settings.require_secret_key(), keys, cursor),
+				subroutine.api.pagination.decode(
+					settings.require_secret_key(), keys, cursor, collection="workspaces"
+				),
 			)
 		)
 
@@ -293,7 +295,9 @@ def listing (
 			limit=size,
 			has_more=has_more,
 			next_cursor=(
-				subroutine.api.pagination.encode(settings.require_secret_key(), keys, rows[-1])
+				subroutine.api.pagination.encode(
+					settings.require_secret_key(), keys, rows[-1], collection="workspaces"
+				)
 				if has_more and rows
 				else None
 			),
