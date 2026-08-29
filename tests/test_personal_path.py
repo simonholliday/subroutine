@@ -1371,6 +1371,50 @@ def test_a_listing_can_be_narrowed_to_one_tag (
 	assert "Buy compost" in run("search", "compost", "--tag", "home").output
 
 
+def test_a_tag_filter_survives_a_workspace_that_has_not_got_the_tag (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1575`. One workspace hid this, and the test above is why: it calls `init` and stops.
+
+	A read spans every workspace a credential can reach (§13.7) and `-w` only settles where a
+	*write* goes, so a second workspace is enough. A tag row belongs to one workspace exactly as
+	a status does, and `domain.tags.carrying` refuses by name where there is none — so the
+	moment a second workspace existed, `--tag home` was turned down in that one and the refusal
+	took the whole listing with it, including the rows the right workspace had returned.
+
+	**The sentence it printed was false twice over**: the tag existed, and something carried it.
+	Measured on the served instance at the time — five workspaces, `--tag ui` refused, and
+	`GET /v1/tasks?tag=ui` answered with the row.
+
+	**`#1468`'s defect a third time**, and its own comment had named the shape: a status and a
+	type are per-workspace vocabularies and are tolerated per workspace; nobody added the third.
+	One register now, so a fourth is a decision rather than an omission.
+
+	**Both halves of the fan-out**, because a task listing resolves the status first and a
+	document listing resolves the project first — the asymmetry that made `#1468` reachable at
+	all — so each has its own `except` and each had to learn the word.
+	"""
+
+	run("init")
+	run("add", "Buy compost #home")
+	run("doc", "create", "Why we chose compost", "--body", ".", "--tag", "home")
+	run("workspace", "create", "second", "Second")
+
+	found = run("list", "--tag", "home").output
+
+	assert "Buy compost" in found, (
+		f"a second workspace with no such tag swallowed the workspace that has it:\n{found}"
+	)
+	assert "Why we chose compost" in found, (
+		f"the document half of the listing was lost the same way:\n{found}"
+	)
+
+	# **A tag that is nowhere is still refused by name**, which is what `#1319` built the
+	# refusal for: a typo and an unused tag produce the same empty listing, and tolerating
+	# every workspace would have traded that away to fix this.
+	assert "nosuchtag" in run("list", "--tag", "nosuchtag").output
+
+
 def test_a_narrowing_filter_given_twice_is_refused_rather_than_halved (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

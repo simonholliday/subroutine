@@ -16,6 +16,12 @@ upgrade involves.
 
 ### Fixed
 
+- **`--tag` works on an instance with more than one workspace.** A listing reads across every
+  workspace you can reach, and a tag belongs to one — so a workspace that had not got the tag
+  refused, and the refusal took the whole listing with it, including the rows from the
+  workspace that did. What it printed, `No tag called 'ui' is used here`, was false twice over.
+  A tag that exists nowhere is still turned down by name, which is what that message is for.
+
 - **A status or a link type refuses a name that will not fit the column, or carries a control
   character.** These were the one family of vocabulary writers with their own length check
   instead of the shared one, so they never inherited the character rule added in the previous

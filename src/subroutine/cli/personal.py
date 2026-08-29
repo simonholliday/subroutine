@@ -419,6 +419,20 @@ ANY_ITEM = ("task", "document")
 #: Named here so the message a person reads and the file they will look for agree.
 FILE_NAME = subroutine.directory.FILE_NAME
 
+#: The narrowing words whose value belongs to one workspace rather than to the instance.
+#:
+#: A read spans every workspace a credential can reach (§13.7), so one of these being absent
+#: from *a* workspace is the ordinary answer and the workspace is passed over; one that is
+#: absent from *every* workspace is a typo and is still refused by name. That distinction is
+#: `#332`'s, corrected by `#1468`, and this register exists because it was written out twice
+#: and `tag` was added to neither — `#1575`, which made `--tag` refuse on every instance with
+#: more than one workspace while the API answered the same question correctly.
+#:
+#: **An assignee is deliberately not here.** An account belongs to the instance, so a name that
+#: resolves nowhere is a typo wherever it was asked, and tolerating it would turn one into
+#: "nothing on your list" across every workspace at once.
+_PER_WORKSPACE_WORDS = frozenset({"status", "type", "tag"})
+
 #: What ``update`` treats as "you did not name this field", for the two it can *clear*.
 #: §8.3's distinction between omitted and null is the whole of `PATCH`'s semantics, and a
 #: shell has only one way to say nothing — so `--description ""` has to mean "clear it" and
@@ -3055,7 +3069,14 @@ def _listing (
 				# and `item_type_for` takes the default. The field is what actually says
 				# "a vocabulary key this workspace has not got", and matching on it means
 				# a genuine refusal about something else is still raised.
-				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+				#
+				# **A tag is the third such vocabulary and was missing from this set until
+				# `#1575`**, which is `#1468`'s defect a third time. A tag row belongs to one
+				# workspace exactly as a status does, so `--tag ui` refused in the four
+				# workspaces that have not got it and took the whole listing with it — while
+				# `GET /v1/tasks?tag=ui` answered correctly, and the sentence printed said the
+				# tag was unused. One workspace made it unreachable; a second made it wrong.
+				if not {problem.field for problem in unknown.errors} & _PER_WORKSPACE_WORDS:
 					raise
 
 				unknown_word = unknown_word or unknown
@@ -3178,7 +3199,7 @@ def _listing (
 				found_documents = subroutine.clients.base.Listing()
 
 			except subroutine.errors.ValidationError as unknown:
-				if not {problem.field for problem in unknown.errors} & {"status", "type"}:
+				if not {problem.field for problem in unknown.errors} & _PER_WORKSPACE_WORDS:
 					raise
 
 				# **The first refusal wins.** Both vocabularies rejecting the key is what
