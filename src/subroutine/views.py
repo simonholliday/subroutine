@@ -1260,6 +1260,35 @@ class Proposal(pydantic.BaseModel):
 			self.because,
 		)
 
+	def confirmed_as (self, near: int) -> tuple[int, int]:
+		"""Return the two refs a confirming link takes, the governing end first.
+
+		**The order is the whole of it, and a fixed one was `SR#1609`.** Both surfaces wrote
+		the command as *the other end, then this one*, which is right only while the far end
+		is the governing document. Standing **on** that document — reading a specification
+		and being shown the work that cites it — the same order proposes that the work
+		documents the specification, and confirming it writes exactly that.
+
+		**Two different questions are spelled with the same two words, and that is why this
+		was written wrongly.** ``direction`` says *which end governs*; the citation direction
+		underneath ``because`` says *whose prose did the naming*. They are opposite ends in
+		the ordinary case — a task cites the specification that governs it — so a command
+		built from either one agrees with the other until somebody reads from the document.
+
+		**Here rather than in the two renderers**, because a swap written twice is two copies
+		of one rule, and the terminal and the tools an agent holds would come to disagree
+		about an edge neither can see is backwards: *Read first* renders a governing link the
+		same way whichever direction it runs.
+		"""
+
+		# Compared against the literal rather than a shared constant, deliberately. The same
+		# word means the other thing a few lines from where this value is set, so a name
+		# spanning both would assert they are one concept.
+		if self.direction == "outgoing":
+			return (near, self.other.ref)
+
+		return (self.other.ref, near)
+
 
 class Verification(pydantic.BaseModel):
 	"""What was checked against a task, and which tree it was checked on.

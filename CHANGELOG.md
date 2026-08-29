@@ -16,6 +16,26 @@ upgrade involves.
 
 ### Fixed
 
+- **The link a citation suggests is no longer proposed backwards when you read it from the
+  document.** `show` on an item whose prose cites a decision offers a command that confirms the
+  link; the command was built with a fixed argument order, which is right from the work and
+  reversed from the decision. Confirming it wrote a real edge saying the task documented the
+  specification.
+
+  It was invisible where it mattered: *Read first* renders a governing link the same way
+  whichever direction it runs, so the work item looked correct and only the decision's own page
+  disagreed. On the agent surface the label and the call it sat above contradicted each other in
+  one answer — `Documents  #2` over a call making `#2` the document.
+
+  Links already made are untouched. An edge confirmed from the wrong end before this can be
+  removed with `subroutine unlink` and made again.
+
+- **A workspace nobody has written in is no longer told about drafts it does not have.**
+  `subroutine://conventions` explains an empty index, and the explanation was written for a
+  workspace holding documents none of which is in force — so on a new installation it named a
+  draft, and a convention that predates the reader, about documents that do not exist. The two
+  kinds of empty now get their own answer.
+
 - **A description or a document's body is now held to the same rule as a title.** The entry
   below said control characters were refused everywhere; they were refused in every field with
   a declared width, which is every title, name, key and label — and not in free prose, which

@@ -7219,6 +7219,38 @@ def test_show_offers_the_link_the_writing_suggests_and_says_it_is_not_one (
 	assert "subroutine link 1 documents 2" in shown, f"nothing says how to confirm it: {shown}"
 
 
+def test_the_suggestion_read_from_the_document_offers_the_same_command (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1609`. The tip named the task as the thing that documents the decision.
+
+	**The neighbour above drives the same citation from the task and always passed**, because
+	the command was built as *the other end, then this one* and from a task the other end is
+	the document. So the guard existed, was correct, and could only ever ask the question from
+	the side where a fixed order happens to be right — this project's signature defect, in a
+	test written for this feature.
+
+	Confirming the old tip wrote a real edge, and it was invisible where it mattered: *Read
+	first* renders a governing link the same way whichever direction it runs, so the work item
+	looked perfect and only the decision's own page disagreed.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("add", "Rewrite the parser", "--description", "Follows #1.")
+
+	shown = run("show", "1").output
+
+	assert "Not linked, but its writing suggests (1)" in shown, shown
+	assert "it names this" in shown, "the task did the citing, and the evidence says so"
+	assert "subroutine link 1 documents 2" in shown, (
+		f"the decision governs the task, so it is the source of the offered link: {shown}"
+	)
+	assert "subroutine link 2 documents 1" not in shown, (
+		f"a task does not document a decision: {shown}"
+	)
+
+
 def test_confirming_the_suggestion_makes_it_a_link_and_the_offer_stops (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

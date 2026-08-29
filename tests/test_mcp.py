@@ -983,6 +983,52 @@ def test_an_agent_can_make_and_list_a_project (
 	assert "Website redesign" in listed
 
 
+def test_the_suggested_link_names_the_governing_end_first (bound: typing.Any) -> None:
+	"""`SR#1609`. The label and the call it sits above said opposite things.
+
+	`Documents  #2` over `subroutine_link(ref=2, …)` is one answer contradicting itself: the
+	line reads *this decision governs that task* and the call makes the task the document.
+	The label was right — it has always read ``direction`` — and only the command ignored it.
+
+	**Nothing anywhere asserted this line on either surface before now**, which is why a fixed
+	argument order shipped and survived. Driven from the document, because from a task the
+	fixed order is accidentally correct.
+	"""
+
+	written, failed = _called(
+		bound,
+		"subroutine_document",
+		title="How dates are written",
+		body="Because.",
+		type="decision",
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	decision = int(numbered.group(1))
+	captured, failed = _called(
+		bound,
+		"subroutine_add",
+		text="Rewrite the parser",
+		description=f"Follows #{decision}.",
+	)
+
+	assert not failed, captured
+
+	work = int(captured.split()[1].lstrip("#"))
+	shown = _called(bound, "subroutine_show", ref=decision)[0]
+
+	assert "Not linked, but its writing suggests" in shown, shown
+	assert f"subroutine_link(ref={decision}, type='documents', other={work})" in shown, (
+		f"the decision governs, so it is the ref the link is made from: {shown}"
+	)
+	assert f"ref={work}" not in shown, f"a task does not document a decision: {shown}"
+
+
 def test_a_project_listing_shows_where_each_project_sits_in_the_tree (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

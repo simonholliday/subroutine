@@ -24,6 +24,7 @@ import subroutine.domain.authentication
 import subroutine.domain.documents
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.views
 import test_api_tasks
 
 
@@ -253,6 +254,52 @@ def test_a_document_is_asked_what_its_writing_suggests_it_governs (
 	assert [one["other"]["ref"] for one in found] == [work["ref"]]
 	assert found[0]["direction"] == "outgoing", "this document governs that task"
 	assert found[0]["because"] == "it names this"
+
+
+def test_one_citation_proposes_one_edge_whichever_end_asks_about_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1609`. One citation is one link, and reading it from the far end cannot reverse it.
+
+	**The property the surfaces get wrong, stated where both of them can be held to it.** A
+	renderer builds a confirming command from a proposal, and both built it as *the other end,
+	then this one* — a fixed order that is right only while the far end is the governing
+	document. Asked from the document, the same order proposes that the work documents the
+	specification.
+
+	**Asserted as an equality between the two answers rather than against a literal**, because
+	a literal would let both ends drift together. What must hold is that one citation describes
+	one edge however it is read, and that its source is the document that governs.
+	"""
+
+	decision = _document(world)
+	work = _task(world, description=f"Follows #{decision['ref']}.")
+
+	asked_of_the_work = _proposed(world, work["ref"])
+	asked_of_the_decision = _proposed(world, decision["ref"], kind="documents")
+
+	assert len(asked_of_the_work) == 1, asked_of_the_work
+	assert len(asked_of_the_decision) == 1, asked_of_the_decision
+
+	near_work = subroutine.views.Proposal.model_validate(asked_of_the_work[0])
+	near_decision = subroutine.views.Proposal.model_validate(asked_of_the_decision[0])
+
+	from_the_work = near_work.confirmed_as(work["ref"])
+	from_the_decision = near_decision.confirmed_as(decision["ref"])
+
+	assert from_the_work == (decision["ref"], work["ref"]), (
+		f"the document governs, so it is the source: {from_the_work}"
+	)
+	assert from_the_work == from_the_decision, (
+		"one citation is one edge, and which end asked may not decide which way it runs"
+	)
+
+	# **The two ends really are reading different `direction` values**, so the equality above
+	# is a rule being applied rather than two identical inputs agreeing. Without this the test
+	# would still pass against a version that ignored `direction` entirely on both paths.
+	assert near_work.direction != near_decision.direction, (
+		"if both ends report one direction this test is proving nothing"
+	)
 
 
 def test_a_governing_document_at_both_ends_proposes_nothing (

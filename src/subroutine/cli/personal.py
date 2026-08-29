@@ -10768,10 +10768,15 @@ def _render_item (
 			line.append(f"  ({suggestion.because})", style=DETAIL)
 			console.print(line)
 
+		# **The governing end first, and a fixed order was `SR#1609`.** ``confirmed_as`` decides
+		# it once for both surfaces, because a swap written here and again in `mcp` is two
+		# copies of one rule about a link neither renderer can show is backwards.
+		source, target = proposed[0].confirmed_as(located.ref)
+
 		_suggest(
 			console,
-			f"subroutine link {proposed[0].other.ref} "
-			f"{proposed[0].link_type.replace('_', '-')} {located.ref}",
+			f"subroutine link {source} "
+			f"{proposed[0].link_type.replace('_', '-')} {target}",
 			"confirm one",
 		)
 

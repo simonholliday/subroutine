@@ -488,15 +488,37 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		# The version that returned as soon as the decisions came back empty made every other
 		# section reachable only through that one, so a workspace that had closed a route off
 		# without marking a decision in force was told nothing at all.
-		lines += [
-			"",
-			"Nothing is marked as in force here yet, which is not the same as nothing having",
-			"been decided. A document written before this workspace started marking them, or",
-			"one still being drafted, will not appear.",
-			"",
-			"`subroutine_list` with a `type` shows every document of that kind whatever its",
-			"status, and `subroutine_document` records a new one.",
-		]
+		# **Two ways to have nothing, and they want opposite sentences — `SR#1611`.** The lines
+		# below explain an *unmarked* workspace: documents exist and none is in force. On an
+		# instance nobody has written in they describe a cause that cannot apply, telling a
+		# reader on their first day about drafts and about a convention that predates them,
+		# neither of which exists. A first-contact reviewer read that answer and reported the
+		# resource as returning nothing at all — twice, in two places.
+		#
+		# **One extra request, and only where the index is empty**, which is the cheap path
+		# already and is read once per session.
+		written = list(client.documents(workspace=workspace, limit=1))
+
+		if written:
+			lines += [
+				"",
+				"Nothing is marked as in force here yet, which is not the same as nothing having",
+				"been decided. A document written before this workspace started marking them, or",
+				"one still being drafted, will not appear.",
+				"",
+				"`subroutine_list` with a `type` shows every document of that kind whatever its",
+				"status, and `subroutine_document` records a new one.",
+			]
+		else:
+			lines += [
+				"",
+				"Nothing has been written here yet, so nothing binds you. This is where",
+				"conclusions appear once somebody records one: a decision taken, a specification,",
+				"a design, or a route deliberately closed off.",
+				"",
+				"`subroutine_document` records the first, and the moment worth doing it is when",
+				"a question gets settled that the next reader would otherwise ask again.",
+			]
 
 		return "\n".join(lines)
 
@@ -2657,9 +2679,14 @@ def _shown (
 			f"{one.label}  #{one.other.ref}  {one.other.title}  ({one.because})"
 			for one in proposed
 		)
+		# **The governing end first, and a fixed order was `SR#1609`.** The label above this
+		# line already reads the direction correctly, so before this the two contradicted each
+		# other inside one answer: *Documents #2* over a call that makes #2 the document.
+		governing, governed = proposed[0].confirmed_as(ref)
+
 		parts.append(
-			f"Confirm one with subroutine_link(ref={proposed[0].other.ref}, "
-			f"type='{proposed[0].link_type}', other={ref})"
+			f"Confirm one with subroutine_link(ref={governing}, "
+			f"type='{proposed[0].link_type}', other={governed})"
 		)
 
 	if arguments.get("history"):

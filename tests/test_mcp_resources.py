@@ -507,7 +507,13 @@ def test_an_empty_conventions_resource_says_why_rather_than_nothing () -> None:
 	"""
 
 	client = _client()
-	client.documents.return_value = subroutine.clients.base.Listing()
+	# **Empty for every governing type, then one row for the probe** (`SR#1611`). This test is
+	# about a workspace that has *written* things and marked none of them in force; the case
+	# where nothing has been written at all is its own answer and its own test below.
+	client.documents.side_effect = [
+		*[subroutine.clients.base.Listing() for _ in subroutine.domain.documents.GOVERNING],
+		subroutine.clients.base.Listing([object()]),
+	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
 	text = answer["result"]["contents"][0]["text"]
@@ -518,7 +524,41 @@ def test_an_empty_conventions_resource_says_why_rather_than_nothing () -> None:
 	# **Every governing type is asked before that is concluded**, which is `#590`'s lesson
 	# widened by `#1036`. The version that returned as soon as the decisions came back empty
 	# made every other section reachable only through that one.
-	assert client.documents.call_count == len(subroutine.domain.documents.GOVERNING)
+	#
+	# The one beyond that count is `SR#1611`'s probe, which runs only on this path and is what
+	# tells the two kinds of empty apart.
+	assert client.documents.call_count == len(subroutine.domain.documents.GOVERNING) + 1
+
+
+def test_a_workspace_nobody_has_written_in_is_not_told_about_drafts () -> None:
+	"""`SR#1609`'s neighbour, `SR#1611`. Two ways to be empty, and they need opposite sentences.
+
+	The answer above explains an *unmarked* workspace: documents exist and none is in force. On
+	a fresh installation it describes a cause that cannot apply — drafts, and a convention that
+	predates the reader — about documents that do not exist, on the resource an agent is told
+	to read before its first write.
+
+	**Found by a first-contact review, which reported this resource as returning nothing at
+	all** — twice, in two places, having read a well-written explanation of emptiness. Whether
+	that was the prose failing to land or the reader inferring without reading cannot be
+	settled from here; what can be fixed is that on a new instance the explanation was about
+	something else.
+	"""
+
+	client = _client()
+	client.documents.return_value = subroutine.clients.base.Listing()
+
+	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
+	text = answer["result"]["contents"][0]["text"]
+
+	assert "Nothing has been written here yet" in text, text
+	assert "subroutine_document" in text, "it has to say how the first one gets written"
+
+	# **The unmarked answer must not appear here**, which is the whole of the split: telling a
+	# reader on their first day that a draft or an older convention may be hiding something is
+	# describing documents that do not exist.
+	assert "still being drafted" not in text, text
+	assert "before this workspace started marking them" not in text, text
 
 
 def test_every_document_type_either_binds_the_reader_or_describes_something () -> None:
