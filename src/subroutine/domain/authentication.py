@@ -25,6 +25,7 @@ import subroutine.db.models.project
 import subroutine.db.types
 import subroutine.domain.accountability
 import subroutine.domain.hierarchy
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.permissions
 
@@ -262,6 +263,20 @@ class Principal:
 		return self.user.is_superuser
 
 
+#: The width ``api_token.title`` holds, declared beside the function that writes it.
+#:
+#: **Moved down here from ``domain.tokens`` by `SR#1571`**, whose guard drove this column and
+#: found nothing refusing it: the check sat in ``tokens.issue`` and this is what stores the
+#: row, so a second caller would have gone round it — which is exactly how `#1555`'s
+#: vocabulary gap arose one module along.
+#:
+#: **The derived default passes through it now and the decision behind that is unchanged.**
+#: ``{username}'s token`` is ours rather than the caller's and a username is bounded at 64, so
+#: it cannot reach this limit and is never refused; what changed is where the rule is applied,
+#: not which values it turns down.
+MAX_TITLE_LENGTH = 128
+
+
 def issue_token (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -295,6 +310,8 @@ def issue_token (
 	rule; ``actor=None`` remains the unauthenticated internal caller, which for this function
 	means ``subroutine init`` and a script holding the database file.
 	"""
+
+	title = subroutine.domain.text.fit(title, field="title", limit=MAX_TITLE_LENGTH)
 
 	if actor is not None:
 		_refuse_amplification(

@@ -16,6 +16,21 @@ upgrade involves.
 
 ### Fixed
 
+- **A status or a link type refuses a name that will not fit the column, or carries a control
+  character.** These were the one family of vocabulary writers with their own length check
+  instead of the shared one, so they never inherited the character rule added in the previous
+  release — a label containing a NUL was stored on SQLite and refused by PostgreSQL, which is
+  what strands a `db copy`. An over-long key or label now answers `413 payload_too_large`
+  rather than `422 invalid_field_value`, which is what every other over-long field in this API
+  has always answered.
+
+  > This is a behaviour change on `POST`/`PATCH` of `/v1/statuses` and `/v1/link-types`. A
+  > client branching on the status code for an over-long value sees 413 where it saw 422.
+
+- **A credential's title is measured where it is stored.** The check was applied by the
+  function that issues a token rather than by the one that writes the row, so it depended on
+  every future caller remembering.
+
 - **A development instance signs with a key nobody else has.** With no `secret_key` and
   `dev_mode = true`, the signing key was a constant published in this repository — and nothing
   refused that combination on an instance reachable from outside. It is now made once per

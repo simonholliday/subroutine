@@ -76,6 +76,9 @@ def _refuse_a_key_that_is_not_one (key: str, *, field: str) -> str:
 	A key travels in a request body and in a query string, so it may not carry whitespace —
 	and it is what a client branches on where a category is absent, so an empty one is
 	unusable. This is deliberately looser than a project key (§5.4), which is a path segment.
+
+	Its width and what may be in it are :func:`subroutine.domain.text.fit`'s answer rather
+	than this function's, so both agree with every other written field in the system.
 	"""
 
 	cleaned = key.strip()
@@ -93,21 +96,21 @@ def _refuse_a_key_that_is_not_one (key: str, *, field: str) -> str:
 			],
 		)
 
-	if len(cleaned) > MAX_KEY_LENGTH:
-		raise subroutine.errors.ValidationError(
-			f"That key is longer than {MAX_KEY_LENGTH} characters.",
-			errors=[
-				subroutine.errors.FieldError(
-					field=field, code="invalid_field_value", message="Too long."
-				)
-			],
-		)
-
-	return cleaned
+	# **The length and the characters go through the chokepoint together** (`SR#1574`). This
+	# module kept its own copy of the length rule and had no copy at all of the character one,
+	# because `#1555` put that check in `text.fit` and reached everything through
+	# `text.require` — which nothing here calls. So a key carrying a NUL was stored on SQLite
+	# and refused by PostgreSQL, which is `#1555`'s own consequence in the writer that never
+	# inherited its fix. Routing through `fit` is what stops there being a third copy.
+	return subroutine.domain.text.fit(cleaned, field=field, limit=MAX_KEY_LENGTH, label="key")
 
 
 def _refuse_a_label_that_is_not_one (label: str, *, field: str) -> str:
-	"""Return the label, or refuse an empty or over-long one."""
+	"""Return the label on one line, or refuse an empty, over-long or unreadable one.
+
+	Everything but the emptiness is :func:`subroutine.domain.text.fit`'s answer, which is what
+	makes a label as safe to render as a title.
+	"""
 
 	cleaned = label.strip()
 
@@ -123,17 +126,12 @@ def _refuse_a_label_that_is_not_one (label: str, *, field: str) -> str:
 			],
 		)
 
-	if len(cleaned) > MAX_LABEL_LENGTH:
-		raise subroutine.errors.ValidationError(
-			f"That label is longer than {MAX_LABEL_LENGTH} characters.",
-			errors=[
-				subroutine.errors.FieldError(
-					field=field, code="invalid_field_value", message="Too long."
-				)
-			],
-		)
-
-	return cleaned
+	# The same chokepoint the key goes through, and for the same reason (`SR#1574`). It also
+	# puts a label on one line, which every other title in this system has been since `#927`
+	# H-8 and which this checker's own `strip` never did.
+	return subroutine.domain.text.fit(
+		cleaned, field=field, limit=MAX_LABEL_LENGTH, label="label"
+	)
 
 
 def _refuse_a_duplicate_key (
