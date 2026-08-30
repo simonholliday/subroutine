@@ -11,7 +11,7 @@ whoever is standing the server up, and if that is also you, read it first.
 
 | Your work lives | You are | Read |
 | --- | --- | --- |
-| On a server | In a browser | [Just a web page](#just-a-web-page) |
+| On a server | In a browser, or as an app on a phone | [Just a web page](#just-a-web-page) |
 | On this machine | At a terminal | [Just this machine](#just-this-machine) |
 | On a server | At a terminal | [Your terminal here, your work there](#your-terminal-here-your-work-there) |
 | On this machine | An agent in your editor | [An agent, on the machine holding the work](#an-agent-on-the-machine-holding-the-work) |
@@ -52,6 +52,52 @@ the other.
 **What you can do there**: read and add work, change what an item says, move it through its
 statuses, comment, link items together, and search. If you also want a terminal or an agent,
 every section below still applies and you want a token as well as a link.
+
+### On a phone or tablet
+
+**The same address installs as an app.** You get an icon on the home screen, a window of its
+own with no address bar and no tabs, and an entry in the app switcher beside everything else.
+There is nothing to download from a store and nothing to sign up for — the instance serves what
+the browser needs to do it.
+
+**Sign in in the browser first, then install.** The installed app shares the browser's cookies,
+so doing it in that order means the app is signed in the moment it opens and there is nothing
+else to do. The other order works and is more confusing: the first thing you see is *You are not
+signed in*, which looks like the install having failed when it has not.
+
+So: open the sign-in link in the browser you want to install from, check you can see your work,
+and only then install.
+
+**Where the control is depends on the browser, and it is never on the page:**
+
+| | |
+| --- | --- |
+| Chrome, Edge, Samsung Internet on Android | menu → **Install app** |
+| Firefox for Android | menu → **Install** |
+| Safari on iPhone or iPad | share → **Add to Home Screen** |
+
+**A browser-badged icon that opens in a tab is a shortcut rather than an app**, and it is worth
+knowing the difference before deciding something is broken. Making a real installed app on
+Android involves the browser asking a server to build one, and browsers that do not use that
+service — Brave among them — write a bookmark instead. It goes to the same place and works the
+same way; what you do not get is the separate window, the launcher entry and the app switcher.
+
+**It needs the network, exactly like the page does.** Nothing is stored on the device and there
+is no offline mode: everything you see comes from the instance, so an app that could open
+without it would only ever show you an empty list. That is a decision rather than an omission.
+
+**What we have actually checked**: a real Chromium reads the manifest without complaint and
+reports nothing standing in the way of installing. **Everything else here is the browsers doing
+what they document**, and we do not test them — if yours does something different, that is worth
+telling us rather than assuming you did it wrong.
+
+**A private browser that forgets everything cannot hold a session.** Firefox Focus and anything
+like it erase cookies when you leave, and a sign-in works once and lasts half an hour — so you
+would be signing in again every time you opened it. Use an ordinary browser for this one.
+
+**Signing out is the same as in a tab**: the **Sign out** control on the page, or ask whoever
+runs the instance to run `subroutine login revoke` for you, which ends every browser and every
+installed app you are signed in on at once. **Removing the icon does not sign you out.**
 
 ## What to ask for, if somebody else runs the instance
 

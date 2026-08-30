@@ -38,6 +38,10 @@ upgrade involves.
   The status bar follows the system's light or dark setting. A theme pinned in the app's own
   footer is not followed there; that is a limit of what a page can declare.
 
+  [docs/connecting.md](docs/connecting.md#on-a-phone-or-tablet) is the page to hand somebody:
+  where the control is in each browser, why signing in before installing is the easier order,
+  and how to tell a real installed app from the bookmark some browsers write instead.
+
 ## 0.8.7 — 2026-08-30
 
 ### Fixed
