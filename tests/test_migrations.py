@@ -426,6 +426,87 @@ def _a_workspace_with_one_task (
 	return identifier
 
 
+#: The revision before `SR#1688` seeded the supersedes link type and the superseded status.
+_BEFORE_SUPERSEDING = "9c41d0b7ae52"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_back_below_superseding_refuses_while_anything_uses_it (
+	migrated_url: str,
+) -> None:
+	"""**`SR#1689`: the foreign key that should refuse this is switched off while it runs.**
+
+	``migrations/env.py`` turns SQLite's foreign-key enforcement off for the duration of a
+	migration, which it must — ``render_as_batch`` rebuilds a table by copy-drop-rename, and
+	enforcement on makes that fail on a constraint the migration is not breaking. The
+	consequence nobody had followed through is that a ``downgrade`` deleting a vocabulary row
+	does it with the check that would have stopped it disabled.
+
+	**Found by driving this file's own downgrade rather than by reading it.** One task marked
+	superseded and one link drawn: PostgreSQL raised, SQLite succeeded and left a task pointing
+	at a status that no longer existed. **Two backends, opposite outcomes, and the damage
+	outlives the command** — which is why the migration counts the rows itself rather than
+	trusting ``ondelete=RESTRICT``.
+
+	Both backends are driven, because the whole point is that they disagreed.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.commit()
+
+			held = session.scalars(
+				sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
+					subroutine.db.models.vocabulary.LinkType.workspace_id == workspace.id,
+					subroutine.db.models.vocabulary.LinkType.key == "supersedes",
+				)
+			).one()
+
+			# A link of that type is enough on its own — the status half is the same check on
+			# the other table, and asserting one of the two is what let this ship untested
+			# in `9c41d0b7ae52`.
+			session.add(
+				subroutine.db.models.work.Link(
+					workspace_id=workspace.id,
+					link_type_id=held.id,
+					source_type="task",
+					source_id=uuid.uuid4(),
+					target_type="task",
+					target_id=uuid.uuid4(),
+				)
+			)
+			session.commit()
+
+		with pytest.raises(Exception) as refused:
+			subroutine.db.migrate.downgrade(migrated_url, _BEFORE_SUPERSEDING)
+
+		assert "supersedes" in str(refused.value), (
+			f"the downgrade failed for some other reason: {refused.value}"
+		)
+
+		table = subroutine.db.base.Base.metadata.tables["link_type"]
+
+		with engine.begin() as connection:
+			left = connection.scalar(
+				sqlalchemy.select(sqlalchemy.func.count())
+				.select_from(table)
+				.where(table.c.key == "supersedes")
+			)
+
+		assert left == 1, (
+			"the row was deleted anyway, so a link now points at a link type that is gone"
+		)
+
+	finally:
+		engine.dispose()
+
+
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_the_backfilled_link_category_is_the_one_the_seeder_would_have_written (
 	migrated_url: str,
@@ -467,7 +548,7 @@ def test_the_backfilled_link_category_is_the_one_the_seeder_would_have_written (
 				).tuples().all()
 			)
 
-		wanted = {one.key: one.category for one in subroutine.db.seed.LINK_TYPES}
+		wanted = {one.key: one.category for one in subroutine.db.seed.SEEDED_LINK_TYPES}
 
 		assert len(wanted) >= 5, f"only {sorted(wanted)} are seeded, so this checks little"
 		assert backfilled == wanted

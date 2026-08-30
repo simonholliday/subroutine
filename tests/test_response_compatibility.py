@@ -622,7 +622,7 @@ def test_the_fill_is_derived_from_the_seed_rather_than_written_out_beside_it () 
 	still a derivation and still covers the relation the whole defect was about.
 	"""
 
-	seeded = {one.key: one.category for one in subroutine.db.seed.LINK_TYPES}
+	seeded = {one.key: one.category for one in subroutine.db.seed.SEEDED_LINK_TYPES}
 
 	assert seeded == subroutine.domain.links.BEFORE_CATEGORIES, (
 		"this map is meant to *be* the seed's categories; a hand-written copy would need a "

@@ -175,13 +175,13 @@ def _vocabularies () -> dict[str, frozenset[str]]:
 	"""
 
 	found: dict[str, set[str]] = {
-		"link type": {one.key for one in subroutine.db.seed.LINK_TYPES}
+		"link type": {one.key for one in subroutine.db.seed.SEEDED_LINK_TYPES}
 	}
 
 	for kind in subroutine.db.seed.SEEDED_ITEM_TYPES:
 		found.setdefault(f"{kind.entity_type} type", set()).add(kind.key)
 
-	for status in subroutine.db.seed._STATUSES:
+	for status in subroutine.db.seed.SEEDED_STATUSES:
 		found.setdefault(f"{status.entity_type} status", set()).add(status.key)
 
 	return {name: frozenset(keys) for name, keys in found.items()}

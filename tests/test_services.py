@@ -406,7 +406,7 @@ def test_a_new_workspace_arrives_complete (session: sqlalchemy.orm.Session) -> N
 	assert seeded is not None
 	assert seeded["seed_version"]["to"] == subroutine.db.seed.SEED_VERSION
 	assert seeded["roles"]["to"] == 5
-	assert seeded["statuses"]["to"] == 14
+	assert seeded["statuses"]["to"] == 15
 
 
 def test_a_duplicate_workspace_slug_is_refused_by_name (
@@ -560,7 +560,7 @@ def test_a_project_template_writes_settings_and_nothing_else (
 		)
 	).all()
 
-	assert len(statuses) == len(set(statuses)) == 6
+	assert len(statuses) == len(set(statuses)) == 7
 
 
 def test_an_unknown_template_lists_the_real_ones (session: sqlalchemy.orm.Session) -> None:

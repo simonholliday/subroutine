@@ -66,9 +66,10 @@ def test_a_fresh_workspace_gets_a_complete_vocabulary (session: sqlalchemy.orm.S
 
 	**A fresh workspace gets every set, not only the first**, which is what the item-type count
 	says now that there is more than one: eleven at version 1 and ``event`` at version 2
-	(`SR#1236`). The number is written out rather than derived from the seeds — a test taking
-	its expectation from the thing under test can only report that a tuple has the length it
-	has, and this one exists so that adding a seed is a decision somebody makes twice.
+	(`SR#1236`), then a status and a link type at version 3 (`SR#1688`). The numbers are
+	written out rather than derived from the seeds — a test taking its expectation from the
+	thing under test can only report that a tuple has the length it has, and this one exists so
+	that adding a seed is a decision somebody makes twice.
 	"""
 
 	workspace = _make_workspace(session)
@@ -76,9 +77,9 @@ def test_a_fresh_workspace_gets_a_complete_vocabulary (session: sqlalchemy.orm.S
 	report = subroutine.db.seed.seed_workspace(session, workspace)
 
 	assert report.roles == 5
-	assert report.statuses == 14
+	assert report.statuses == 15
 	assert report.item_types == 12
-	assert report.link_types == 5
+	assert report.link_types == 6
 	assert report.from_version == 0
 	assert report.to_version == subroutine.db.seed.SEED_VERSION
 
@@ -94,7 +95,9 @@ def test_a_fresh_workspace_gets_a_complete_vocabulary (session: sqlalchemy.orm.S
 	assert type_keys == {"task", "bug", "feature", "chore", "spike", "event"}
 
 	task_keys = {status.key for status in _statuses(session, workspace.id, "task")}
-	assert task_keys == {"open", "in_progress", "blocked", "needs_input", "done", "cancelled"}
+	assert task_keys == {
+		"open", "in_progress", "blocked", "needs_input", "done", "cancelled", "superseded"
+	}
 
 	link_keys = set(
 		session.scalars(
@@ -103,7 +106,9 @@ def test_a_fresh_workspace_gets_a_complete_vocabulary (session: sqlalchemy.orm.S
 			)
 		)
 	)
-	assert link_keys == {"blocks", "relates_to", "duplicates", "derives_from", "documents"}
+	assert link_keys == {
+		"blocks", "relates_to", "duplicates", "derives_from", "documents", "supersedes"
+	}
 
 
 def test_seeding_twice_changes_nothing (session: sqlalchemy.orm.Session) -> None:
@@ -270,7 +275,7 @@ def test_workspaces_do_not_share_a_vocabulary (session: sqlalchemy.orm.Session) 
 
 	model = subroutine.db.models.vocabulary.Status
 
-	assert _count(session, model, first.id) == _count(session, model, second.id) == 14
+	assert _count(session, model, first.id) == _count(session, model, second.id) == 15
 
 	first_open = session.scalars(
 		sqlalchemy.select(model).where(
@@ -333,6 +338,7 @@ def test_a_deleted_row_is_not_resurrected (session: sqlalchemy.orm.Session) -> N
 		"blocked",
 		"done",
 		"cancelled",
+		"superseded",
 	}
 
 
@@ -341,11 +347,16 @@ def test_a_later_version_adds_only_its_own_rows (
 ) -> None:
 	"""An upgrade applies the new set and leaves every earlier decision alone.
 
-	**Its synthetic set is version 3, and it was 2** (`SR#1236`). Version 2 became a real one
-	the day ``event`` was seeded, so patching that key replaced the set the first call above had
-	already applied — leaving the workspace at 2, the second call with nothing to do, and the
-	test asserting about an upgrade that never happened. The next unused number is what this
-	needs, and it will need moving again for the same reason.
+	**Its synthetic set is version 4, and it has been 2 and then 3** (`SR#1236`, `SR#1688`).
+	Each of those numbers became a real one — ``event`` at 2, then a status and a link type at
+	3 — so patching that key replaced a set the first call above had already applied, leaving
+	the workspace at that version, the second call with nothing to do, and the test asserting
+	about an upgrade that never happened. **The next unused number is what this needs, and it
+	will need moving again for the same reason.** That has now happened twice, which is the
+	guard working rather than the guard being annoying: the failure names the number to move to.
+
+	**Its synthetic link type used to be ``supersedes``**, which is a real one since `SR#1688`,
+	so the example is now deliberately something nothing will ever seed.
 	"""
 
 	workspace = _make_workspace(session)
@@ -364,17 +375,17 @@ def test_a_later_version_adds_only_its_own_rows (
 
 	monkeypatch.setitem(
 		subroutine.db.seed.SEED_SETS,
-		3,
+		4,
 		subroutine.db.seed.SeedSet(
 			statuses=(
 				subroutine.db.seed.StatusSeed("task", "on_ice", "On ice", "todo"),
 			),
 			link_types=(subroutine.db.seed.LinkTypeSeed(
-				"supersedes", "Supersedes", "Superseded by", "governing"
+				"rhymes_with", "Rhymes with", "Rhymed with by", "describing"
 			),),
 		),
 	)
-	monkeypatch.setattr(subroutine.db.seed, "SEED_VERSION", 3)
+	monkeypatch.setattr(subroutine.db.seed, "SEED_VERSION", 4)
 
 	report = subroutine.db.seed.seed_workspace(session, workspace)
 
@@ -382,8 +393,8 @@ def test_a_later_version_adds_only_its_own_rows (
 	assert report.link_types == 1
 	assert report.roles == 0
 	assert report.item_types == 0
-	assert report.from_version == 2
-	assert report.to_version == 3
+	assert report.from_version == 3
+	assert report.to_version == 4
 
 	task_statuses = _statuses(session, workspace.id, "task")
 	keys = [status.key for status in task_statuses]
@@ -409,7 +420,7 @@ def test_a_corrupt_version_is_treated_as_unseeded (session: sqlalchemy.orm.Sessi
 
 	assert report.from_version == 0
 	assert report.total == 0
-	assert _count(session, subroutine.db.models.vocabulary.Status, workspace.id) == 14
+	assert _count(session, subroutine.db.models.vocabulary.Status, workspace.id) == 15
 
 
 def test_every_permission_constant_is_listed () -> None:

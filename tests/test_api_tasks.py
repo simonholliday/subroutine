@@ -1814,6 +1814,49 @@ def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> No
 	assert second in listed, "the blocker is done and the task is still held back"
 
 
+def test_a_superseded_blocker_stops_holding_up_the_thing_that_superseded_it (
+	world: World,
+) -> None:
+	"""**`SR#1688`, and this is the whole reason the status sits in the `cancelled` category.**
+
+	The ordinary shape of superseding is that the successor is *also* the thing the old item was
+	blocking — `#589` blocked the milestone that absorbed it. So if a superseded task went on
+	counting as unfinished, marking something superseded would permanently hold up its own
+	replacement, and the more correct somebody was about recording it the more stuck they would
+	be.
+
+	**Nothing about the status vocabulary carries this.** `readiness.unblocked` reads *finished*
+	off ``completed_at``, and §10.7's invariant 5 makes that column non-null exactly for the
+	``done`` and ``cancelled`` categories — so a `superseded` filed anywhere else, or given a
+	category of its own, breaks this without a word being wrong anywhere else.
+	"""
+
+	old = world.call("POST", "/v1/tasks", json={"title": "The old way"}).json()["ref"]
+	instead = world.call("POST", "/v1/tasks", json={"title": "What replaced it"}).json()["ref"]
+
+	_blocking(world, old, instead)
+
+	held = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert instead not in held, "the blocker is open, so this is not testing what happens next"
+
+	moved = world.call("PATCH", f"/v1/tasks/{old}", json={"status": "superseded"})
+
+	assert moved.status_code == 200, moved.text
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert instead in listed, (
+		"a superseded task is still counted as unfinished, so recording where work went now "
+		"holds up the work it went to"
+	)
+	assert old not in listed, "a superseded task is still being offered as work to pick up"
+
+
 def test_ready_excludes_an_event_because_nobody_can_be_offered_one (world: World) -> None:
 	"""`SR#1236`, decision `SR#1235` §4 — the first task category that decides anything.
 

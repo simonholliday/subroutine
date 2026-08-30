@@ -1750,7 +1750,12 @@ def test_both_propose_the_same_link_from_the_same_citation (pair: Pair) -> None:
 
 
 def test_both_refuse_a_link_type_nobody_seeded (pair: Pair) -> None:
-	"""And name the ones that exist, because a vocabulary is only usable if it is listed."""
+	"""And name the ones that exist, because a vocabulary is only usable if it is listed.
+
+	**The key used to be ``supersedes``, which `SR#1688` seeded** — so this asserted that
+	creating a real link was refused, on both transports. A name chosen because it was the
+	obvious relation the product lacked is a name somebody eventually adds.
+	"""
 
 	first = make(pair, "One")
 	second = make(pair, "Two")
@@ -1760,7 +1765,7 @@ def test_both_refuse_a_link_type_nobody_seeded (pair: Pair) -> None:
 
 	for client in (local, remote):
 		with pytest.raises(subroutine.errors.SubroutineError) as refused:
-			client.link(ref=first.ref, link_type="supersedes", target=second.ref)
+			client.link(ref=first.ref, link_type="not_a_relation", target=second.ref)
 
 		refusals.append(refused.value)
 

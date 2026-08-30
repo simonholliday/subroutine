@@ -340,9 +340,9 @@ def test_a_link_category_outside_the_vocabulary_is_refused_by_name (
 		"POST",
 		"/v1/link-types",
 		json={
-			"key": "supersedes",
-			"title": "Supersedes",
-			"inverse_title": "Superseded by",
+			"key": "mitigates",
+			"title": "Mitigates",
+			"inverse_title": "Mitigated by",
 			"category": "sequencing",
 		},
 	)
@@ -363,15 +363,18 @@ def test_a_link_type_can_be_added_and_is_not_removable_while_it_joins_something 
 	``PATCH`` and ``DELETE`` on a link type are **not** in §5.5's table — only ``GET/POST`` is.
 	They are built anyway: a row somebody can add and never be rid of is the shape this arc is
 	closing, and finding that out costs them a row they cannot reach.
+
+	**The key is a workspace's own and used to be ``supersedes``**, which `SR#1688` seeded — so
+	this stopped testing *a workspace adds one* and started testing *creating a duplicate*.
 	"""
 
 	made = world.call(
 		"POST",
 		"/v1/link-types",
 		json={
-			"key": "supersedes",
-			"title": "Supersedes",
-			"inverse_title": "Superseded by",
+			"key": "mitigates",
+			"title": "Mitigates",
+			"inverse_title": "Mitigated by",
 			"category": "governing",
 		},
 	)
@@ -384,7 +387,7 @@ def test_a_link_type_can_be_added_and_is_not_removable_while_it_joins_something 
 	joined = world.call(
 		"POST",
 		f"/v1/tasks/{first['ref']}/links",
-		json={"link_type": "supersedes", "target": second["ref"]},
+		json={"link_type": "mitigates", "target": second["ref"]},
 	)
 
 	assert joined.status_code == 201, joined.text

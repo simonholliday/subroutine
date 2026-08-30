@@ -5813,7 +5813,7 @@ def test_the_link_tool_does_not_hard_code_a_renameable_vocabulary (
 	link = tools["subroutine_link"]
 	described = link["description"] + link["inputSchema"]["properties"]["type"]["description"]
 
-	seeded = {seed.key for seed in subroutine.db.seed.LINK_TYPES}
+	seeded = {seed.key for seed in subroutine.db.seed.SEEDED_LINK_TYPES}
 	named = {key for key in seeded if key in described}
 
 	assert named <= {"blocks"}, (
@@ -6244,7 +6244,7 @@ def test_no_signpost_names_a_status_a_workspace_may_rename () -> None:
 	think of.
 	"""
 
-	keys = {status.key for status in subroutine.db.seed._STATUSES}
+	keys = {status.key for status in subroutine.db.seed.SEEDED_STATUSES}
 
 	client = unittest.mock.MagicMock(spec=subroutine.clients.base.Client)
 

@@ -14,22 +14,36 @@ upgrade involves.
 
 ## Unreleased
 
-### Changed
-
-- **A browser you are using stays signed in.** The fortnight is now counted from the last time
-  you used it rather than from the moment you signed in, so a browser or an installed app in
-  regular use does not sign you out on a schedule. Nothing to configure, and existing sessions
-  get it on their next request.
-
-  **What it was built for is unchanged**: a device somebody else has stops working a fortnight
-  after they took it, because the person it was taken from is no longer the one using it. What
-  has gone is the fortnightly sign-in it was charging everybody who *was* using it.
-
-  There is deliberately no maximum age on top of this, so a session in daily use lasts
-  indefinitely. `subroutine login revoke <name>` still ends every browser and installed app
-  somebody holds, at once, which is what a lost device needs.
+> **This release changes the database schema**, to `a986838fadc4`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **An item can say what superseded it, and what it replaced.** Two ways to record that work
+  moved rather than stopped: a `supersedes` relation, and a `superseded` status for a task.
+
+  ```
+  subroutine link 42 supersedes 17
+  subroutine update 17 --status superseded
+  ```
+
+  The superseded item then reads *Superseded by*, naming the one that replaced it, and the
+  replacement reads *Supersedes* — on the terminal, in the browser and through the agent tools.
+  Before this the honest options were *cancelled*, which says the work was abandoned, and a
+  comment, which nothing can follow.
+
+  **A superseded task stops holding up whatever it was blocking**, which is usually the item
+  that superseded it — so recording where work went does not strand the work it went to.
+
+  **The two are separate acts and neither does the other.** Linking does not change a status
+  and a status says nothing about where to go; a status changed by drawing a line on a graph
+  is a decision nobody took.
+
+  Both reach existing workspaces through the migration above.
+
 
 - **The browser interface installs as an app on a phone or tablet.** Open an instance in Chrome
   on Android and it offers *Install app* rather than only *Add to Home screen*: the icon opens
@@ -61,6 +75,21 @@ upgrade involves.
   > browsers require before they will offer to install anything. An instance serving an earlier
   > build of this offers no install on most devices, and nothing anywhere says why — the
   > manifest parses, no request fails, and the menu item is simply absent.
+
+### Changed
+
+- **A browser you are using stays signed in.** The fortnight is now counted from the last time
+  you used it rather than from the moment you signed in, so a browser or an installed app in
+  regular use does not sign you out on a schedule. Nothing to configure, and existing sessions
+  get it on their next request.
+
+  **What it was built for is unchanged**: a device somebody else has stops working a fortnight
+  after they took it, because the person it was taken from is no longer the one using it. What
+  has gone is the fortnightly sign-in it was charging everybody who *was* using it.
+
+  There is deliberately no maximum age on top of this, so a session in daily use lasts
+  indefinitely. `subroutine login revoke <name>` still ends every browser and installed app
+  somebody holds, at once, which is what a lost device needs.
 
 ## 0.8.7 — 2026-08-30
 

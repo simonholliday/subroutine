@@ -4938,6 +4938,88 @@ def test_one_call_makes_a_link_to_each_of_several_items (
 		assert title in shown, f"{title} was not joined:\n{shown}"
 
 
+def test_a_superseded_item_says_where_the_work_went_and_the_successor_says_what_it_replaced (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1688`, and this is the argument for a link rather than a column.**
+
+	A document has carried ``supersedes_id`` since the first migration — a unique index so the
+	chain cannot fork, settable on both clients and at the terminal — and **226 documents on the
+	instance this was found on use it zero times**, because no surface renders either end.
+	Driven there: the superseded document says only *superseded*, a dead end, and the one that
+	replaced it does not mention it at all. That is `#1684`.
+
+	**A link needed no renderer**, which is what this asserts. The same machinery that draws
+	*Blocked by* draws both ends of this, so the reader of a dead item is told where to go and
+	the successor says what it absorbed.
+
+	**Both ends, because one end is where the column already fails.** Asserting only the
+	successor would pass against a mechanism with exactly the defect this replaces.
+	"""
+
+	run("init")
+	run("add", "The old way of doing it")
+	run("add", "The milestone that absorbed it")
+
+	run("link", "2", "supersedes", "1")
+
+	replaced = run("show", "1").output
+	successor = run("show", "2").output
+
+	assert "Superseded by" in replaced, (
+		f"the superseded item does not say what replaced it, so it is the dead end a status "
+		f"alone already was:\n{replaced}"
+	)
+	assert "#2" in replaced, f"it says it was superseded and not by what:\n{replaced}"
+
+	assert "Supersedes" in successor, f"the successor does not say what it absorbed:\n{successor}"
+	assert "#1" in successor, f"it says it supersedes and not what:\n{successor}"
+
+
+def test_the_redirect_is_the_first_relation_a_superseded_item_shows (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1685`'s category decision, asserted where it shows.**
+
+	`#1157` §2's categories are nested by how much a relation binds and `#1535` orders an item's
+	links by exactly that, so ``governing`` puts the redirect above the describing relations.
+	On a dead item the line saying where the work went is the one worth reading first, and
+	``describing`` — which is literally more accurate, since superseding gates nothing — would
+	have printed it below everything else.
+
+	**The comparison is against an *incoming* describing link, and the first version of this
+	was not.** ``links.order`` sorts by settled, then category, then **incoming before
+	outgoing**, then the label — so a redirect compared against *outgoing* describing links is
+	put first by the direction key whatever its category is. Re-categorising the relation to
+	``describing`` left that version green, which is a mutation passing and means the test was
+	carried by a key it was not written about.
+
+	``Duplicated by`` is the comparison because it is incoming and describing, and because it
+	sorts **before** ``Superseded by`` on the label — so if the category stopped deciding, the
+	two swap and this fails.
+	"""
+
+	run("init")
+	run("add", "The old way of doing it")
+	run("add", "The milestone that absorbed it")
+	run("add", "Something else entirely")
+
+	run("link", "2", "supersedes", "1")
+	run("link", "3", "duplicates", "1")
+
+	shown = run("show", "1").output
+	order = [
+		line for line in shown.splitlines()
+		if any(word in line for word in ("Superseded by", "Duplicated by"))
+	]
+
+	assert len(order) == 2, f"both relations did not render:\n{shown}"
+	assert "Superseded by" in order[0], (
+		f"the redirect is not the first relation shown, so a reader of a dead item meets "
+		f"everything else first:\n{shown}"
+	)
+
+
 def test_several_items_can_block_one_in_a_single_call (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

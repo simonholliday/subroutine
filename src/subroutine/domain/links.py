@@ -92,7 +92,7 @@ GOVERNING = "governing"
 #: fails as *noise* rather than as loss, because nothing seeded since `#1157` is ``gating``
 #: and `#1151` is where that would be decided.
 BEFORE_CATEGORIES: dict[str, str] = {
-	one.key: one.category for one in subroutine.db.seed.LINK_TYPES
+	one.key: one.category for one in subroutine.db.seed.SEEDED_LINK_TYPES
 }
 
 #: The categories whose rings are a contradiction — anything that asserts which of a pair comes

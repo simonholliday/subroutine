@@ -257,13 +257,21 @@ def test_nothing_can_be_linked_to_itself (world: test_api_tasks.World) -> None:
 def test_an_unknown_link_type_names_the_ones_that_exist (
 	world: test_api_tasks.World,
 ) -> None:
-	"""Link types are workspace data, so the valid set is read rather than assumed."""
+	"""Link types are workspace data, so the valid set is read rather than assumed.
+
+	**The key is one nothing will ever seed, and it used to be ``supersedes``** (`SR#1688`).
+	That was a fair example of a relation the product did not have, right up until it had one —
+	at which point this test asserted that creating a real link was refused, and failed. A
+	name chosen to be plausible is a name somebody may later add.
+	"""
 
 	one = world.call("POST", "/v1/tasks", json={"title": "One"}).json()
 	two = world.call("POST", "/v1/tasks", json={"title": "Two"}).json()
 
 	response = world.call(
-		"POST", f"/v1/tasks/{one['ref']}/links", json={"target": two["ref"], "link_type": "supersedes"}
+		"POST",
+		f"/v1/tasks/{one['ref']}/links",
+		json={"target": two["ref"], "link_type": "not_a_relation"},
 	)
 
 	assert response.status_code == 422

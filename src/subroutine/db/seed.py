@@ -262,6 +262,43 @@ LINK_TYPES = (
 	LinkTypeSeed("documents", "Documents", "Documented by", "governing"),
 )
 
+#: What a task says when the work is still wanted and has moved somewhere else — `#1685`.
+#:
+#: **Category ``cancelled``, and that is the load-bearing part.** §10.7's invariant 5 makes
+#: ``completed_at`` non-null exactly for the ``done`` and ``cancelled`` categories, and
+#: ``readiness.unblocked`` reads *finished* off that column rather than off the vocabulary. So a
+#: superseded task stops blocking its successor — which is the ordinary case, since the
+#: successor is usually the thing that superseded it.
+#:
+#: **It exists because ``cancelled`` says something false.** Cancelled means somebody decided
+#: not to do this; superseded means it is being done somewhere else. Simon met the difference on
+#: `#589`, which was absorbed into a milestone and had to be marked as abandoned to stop holding
+#: that milestone up.
+SUPERSEDED_STATUS = (
+	StatusSeed("task", "superseded", "Superseded", "cancelled"),
+)
+
+#: How an item says what replaced it, and what it replaced — `#1685`, `#1688`.
+#:
+#: **``governing`` rather than ``describing``, which is a decision about where it sorts.**
+#: `#1157` §2's categories are nested by how much a relation binds and `#1535` orders an item's
+#: links by exactly that, so on a superseded item this prints above `Relates to` and
+#: `Duplicates`. On a dead item the line saying where the work went is the one worth reading
+#: first, and `describing` would have put it last. It is defensible on the merits too: the
+#: successor governs what happens to the work.
+#:
+#: **It is not the browser's *Read first*, and nothing may imply it is.** That section is
+#: documents-only — ``links.governing`` filters to governing *document* types that are in force
+#: — so a task superseded by a task does not appear there.
+#:
+#: **Nothing here moves a status.** ``documents.update`` moves a superseded document's status
+#: when ``supersedes`` is set, and `#1685` deliberately did not repeat that for the link: a link
+#: that rewrites another row is unlike every other link type, and unlinking would then have to
+#: guess at reversing it.
+SUPERSEDES_LINK = (
+	LinkTypeSeed("supersedes", "Supersedes", "Superseded by", "governing"),
+)
+
 #: Keyed by the release that introduced them. To add a status in a later version, add a
 #: new key here holding only the new rows — never edit an existing set, because a
 #: workspace already past that number will not look at it again, and moving a row between
@@ -285,6 +322,11 @@ SEED_SETS: dict[int, SeedSet] = {
 	# migration rather than by rewriting a JSON settings blob on two backends is the cheaper
 	# half of the same outcome.
 	2: SeedSet(item_types=EVENT_TYPES),
+	# **Decision `#1685`, built by `#1688`.** Two rows saying one thing from two directions:
+	# the link says *where the work went*, and the status says *not here any more*. Neither
+	# writes the other, which is `#84`'s rule — a status inferred from a graph edge is a write
+	# nobody made.
+	3: SeedSet(statuses=SUPERSEDED_STATUS, link_types=SUPERSEDES_LINK),
 }
 
 #: The version a freshly seeded workspace ends up at. Derived rather than declared, so
@@ -300,6 +342,24 @@ SEED_VERSION = max(SEED_SETS)
 #: silence, which is a guard reading a list that no longer means what its name says.
 SEEDED_ITEM_TYPES: tuple[ItemTypeSeed, ...] = tuple(
 	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].item_types
+)
+
+#: Every link type a fully seeded workspace ends up with, in the order the sets apply.
+#:
+#: **The same derivation as :data:`SEEDED_ITEM_TYPES`, and for the same reason arriving a second
+#: time** (`#1688`). :data:`LINK_TYPES` stopped being the answer the moment a set added one, and
+#: four guards read it by name — the backfill check, the compatibility map, the terminal's help
+#: and the tool schemas — each asking *what does a seeded workspace have* and being answered
+#: *what set 1 has*. Every one of them went quietly wrong on the day `supersedes` was seeded.
+SEEDED_LINK_TYPES: tuple[LinkTypeSeed, ...] = tuple(
+	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].link_types
+)
+
+#: Every status a fully seeded workspace ends up with, in the order the sets apply.
+#:
+#: Derived for the reason above, before anything reads ``_STATUSES`` and means this.
+SEEDED_STATUSES: tuple[StatusSeed, ...] = tuple(
+	seed for version in sorted(SEED_SETS) for seed in SEED_SETS[version].statuses
 )
 
 def named_types (entity_type: str) -> str:
@@ -324,6 +384,26 @@ def named_types (entity_type: str) -> str:
 	return ", ".join(
 		seed.key for seed in SEEDED_ITEM_TYPES if seed.entity_type == entity_type
 	)
+
+
+def named_link_types () -> str:
+	"""Return the seeded ways two items can relate, as prose a help text can carry — `#1688`.
+
+	**Built rather than typed out**, which is :func:`named_types`' argument one vocabulary along
+	and it had already gone wrong here: ``subroutine link``'s ``relation`` argument listed five
+	relations by hand, and the day a sixth was seeded the help offered a set the product did not
+	have. A guard caught it, which is the only reason this is a helper rather than a sixth
+	hand-written list.
+
+	**Hyphens rather than underscores**, because that is what somebody types at a terminal —
+	both spellings are accepted (`#1619`) and this offers the one the rest of the CLI uses.
+
+	The same known gap as :func:`named_types`: this names what the *seeds* hold, so a relation a
+	workspace added itself is absent. The complete answer is the live vocabulary, which
+	``/v1/meta`` publishes and the browser reads.
+	"""
+
+	return ", ".join(seed.key.replace("_", "-") for seed in SEEDED_LINK_TYPES)
 
 
 def default_type (entity_type: str) -> str:

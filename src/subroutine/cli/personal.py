@@ -6296,7 +6296,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 	def link_items (
 		which: str = typer.Argument("", help="Which item, by its number. Or several: 9,11,12."),
 		relation: str = typer.Argument(
-			"", help="blocks, relates-to, duplicates, derives-from, documents."
+			"", help=f"{subroutine.db.seed.named_link_types()}."
 		),
 		other: str = typer.Argument("", help="The other item, by its number. Or several: 9,11,12."),
 	) -> None:
