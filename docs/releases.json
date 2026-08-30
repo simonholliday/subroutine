@@ -1,6 +1,11 @@
 {
   "releases": [
     {
+      "version": "0.8.7",
+      "schema": "9c41d0b7ae52",
+      "date": "2026-08-30"
+    },
+    {
       "version": "0.8.2",
       "schema": "9c41d0b7ae52",
       "date": "2026-08-26"
