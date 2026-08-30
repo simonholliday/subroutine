@@ -30,9 +30,25 @@ import subroutine.permissions
 #: having a bad afternoon and somebody reading their inbox after lunch.
 LINK_LIFETIME = datetime.timedelta(minutes=30)
 
-#: How long a browser stays signed in. A working fortnight: long enough that a person is
-#: not signing in every morning, short enough that a laptop left on a train stops being a
-#: way in without anybody having to notice and act.
+#: How long a browser stays signed in **after it was last used**. A working fortnight: long
+#: enough that a person is not signing in every morning, short enough that a laptop left on a
+#: train stops being a way in without anybody having to notice and act.
+#:
+#: **It slides, and until `#1671` it did not** — ``expires_at`` was written once, at sign-in,
+#: and never moved. So the two cases this number exists to tell apart got the same answer: a
+#: person using it every day was signed out on the fourteenth day, and so was a person who
+#: signed in once and never came back. On a laptop that is a fortnightly annoyance; on a phone,
+#: where an installed app is expected to stay signed in the way every other app does, it reads
+#: as the thing being broken.
+#:
+#: **Sliding keeps the whole of the original reason.** A device somebody else has stops working
+#: a fortnight after they took it, because the person it was taken from is no longer the one
+#: using it. What it drops is the cost that was being charged to everybody who *was* using it.
+#:
+#: **There is deliberately no absolute cap on top of this**, so a session in daily use lasts
+#: indefinitely. That is what was asked for and it is the behaviour of the applications this
+#: was compared against; a maximum age is a separate decision, and it would want to be a
+#: setting rather than a second constant here.
 SESSION_LIFETIME = datetime.timedelta(days=14)
 
 #: How often a session's ``last_used_at`` is written. Same reasoning as the token's, and
@@ -298,10 +314,20 @@ def authenticate (
 
 	_refuse_an_account_that_cannot_sign_in(user, prefix=prefix)
 
+	# **Both writes or neither, on one schedule** (`#1671`). Sliding the expiry is the same act
+	# as recording the use — it is *because* this session was used that it is still alive — so
+	# they share `LAST_USED_INTERVAL` and cost one row write between them rather than two. A
+	# renewal per request would be `#565`'s deadlock with a second column on it.
+	#
+	# **The cookie is slid by the caller, not here**, because a domain function has no response
+	# to write a header on. `api/security.principal` does it, and if it ever stopped, the
+	# browser would delete a cookie for a session this row still says is good — which looks
+	# exactly like being signed out at random.
 	if record_use and (
 		opened.last_used_at is None or moment - opened.last_used_at >= LAST_USED_INTERVAL
 	):
 		opened.last_used_at = moment
+		opened.expires_at = moment + SESSION_LIFETIME
 
 	return subroutine.domain.authentication.Principal(user=user, session=opened)
 

@@ -213,6 +213,84 @@ def test_a_revoked_session_stops_working_immediately (
 		subroutine.domain.sessions.authenticate(session, cookie)
 
 
+def test_using_a_session_pushes_its_expiry_out (session: sqlalchemy.orm.Session) -> None:
+	"""**`SR#1671`.** The fortnight is measured from the last use, not from signing in.
+
+	Before this, ``expires_at`` was written once and never moved — so a person using the app
+	every day and a person who signed in once and never came back were signed out on the same
+	afternoon. The number was never the complaint; the two cases it exists to tell apart got
+	one answer.
+	"""
+
+	user = _make_user(session)
+	_principal, cookie = _signed_in(session, user)
+
+	opened = subroutine.domain.sessions.authenticate(session, cookie).session
+
+	assert opened is not None
+
+	first = opened.expires_at
+	later = subroutine.db.types.utcnow() + datetime.timedelta(days=7)
+
+	subroutine.domain.sessions.authenticate(session, cookie, now=later)
+
+	assert opened.expires_at == later + subroutine.domain.sessions.SESSION_LIFETIME
+	assert opened.expires_at > first, (
+		"a session in use is still counting down from the day it was created"
+	)
+
+
+def test_a_session_left_alone_still_expires (session: sqlalchemy.orm.Session) -> None:
+	"""**`SR#1671` keeps the property it was built around**, which is the half worth guarding.
+
+	*"A laptop left on a train stops being a way in without anybody having to notice and act"*
+	is the sentence the fortnight was chosen for, and a sliding window is only acceptable while
+	it stays true. The test beside this one proves the expiry moves; **this proves it moves only
+	for somebody who is actually there**, which is what makes a stolen device stop working.
+	"""
+
+	user = _make_user(session)
+	_principal, cookie = _signed_in(session, user)
+
+	# Used once, hard, and then not again — which is what the thief's device looks like.
+	subroutine.domain.sessions.authenticate(session, cookie)
+
+	gone = subroutine.db.types.utcnow() + subroutine.domain.sessions.SESSION_LIFETIME
+	gone += datetime.timedelta(minutes=1)
+
+	with pytest.raises(subroutine.domain.authentication.AuthenticationError):
+		subroutine.domain.sessions.authenticate(session, cookie, now=gone)
+
+
+def test_a_session_used_twice_in_a_minute_is_written_once (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1671` inherits `SR#565`'s cost rule rather than adding a second write.**
+
+	The expiry slides on the same schedule as ``last_used_at`` and for the same reason: a write
+	per request is a row lock held for the length of the request, which was measured deadlocking
+	a request against itself. Two columns on one schedule is one row write; two columns on two
+	schedules would be the defect back with a new cause.
+	"""
+
+	user = _make_user(session)
+	_principal, cookie = _signed_in(session, user)
+
+	opened = subroutine.domain.sessions.authenticate(session, cookie).session
+
+	assert opened is not None
+
+	settled = opened.expires_at
+	soon = subroutine.db.types.utcnow() + subroutine.domain.sessions.LAST_USED_INTERVAL
+	soon -= datetime.timedelta(seconds=1)
+
+	subroutine.domain.sessions.authenticate(session, cookie, now=soon)
+
+	assert opened.expires_at == settled, (
+		"the expiry moved inside the interval that exists to stop this row being written"
+	)
+
+
 def test_an_expired_session_is_refused (session: sqlalchemy.orm.Session) -> None:
 	"""A laptop left on a train stops being a way in without anybody having to act."""
 

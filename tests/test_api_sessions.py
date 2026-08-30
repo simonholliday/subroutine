@@ -7,11 +7,13 @@ carries the attributes that make it a CSRF defence rather than a liability.
 """
 
 import datetime
+import email.utils
 import typing
 import uuid
 
 import fastapi
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
 import api_support
@@ -112,6 +114,102 @@ def test_the_cookie_authenticates_the_next_request (
 	assert answer.status_code == 200
 	assert answer.json()["user"]["username"] == setup.user.username
 	assert answer.json()["credential"]["kind"] == "web_session"
+
+
+def test_the_browser_is_handed_the_expiry_the_row_now_carries (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**`SR#1671`, and this is the half a domain test structurally cannot see.**
+
+	The cookie is *persistent* — ``set_session_cookie`` writes ``expires=`` — so it carries the
+	same absolute moment the row does. Sliding the row alone is worse than sliding neither: the
+	browser deletes a cookie for a session this instance still considers good, and the reader is
+	signed out at a moment nothing on either side explains.
+
+	So the assertion is that the two **agree**, rather than that either of them moved. Driven
+	over HTTP because the header is the whole of what the API layer adds.
+	"""
+
+	held = _cookie(setup.application, _link(session, setup.user))
+
+	model = subroutine.db.models.identity.WebSession
+	opened = session.scalars(sqlalchemy.select(model)).one()
+
+	# A week of the tab sitting there: last used long ago, and counting down towards a date a
+	# week nearer than a fresh sign-in would buy.
+	week = datetime.timedelta(days=7)
+	opened.last_used_at = subroutine.db.types.utcnow() - week
+	opened.expires_at = opened.expires_at - week
+	session.flush()
+
+	stale = opened.expires_at
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+	)
+
+	assert answer.status_code == 200
+
+	session.expire(opened)
+
+	assert opened.expires_at > stale, "the row did not slide, so this is not testing the cookie"
+
+	sent = answer.headers.get("set-cookie")
+
+	assert sent is not None, (
+		"the response carried no cookie, so the browser is still holding one that expires "
+		"before the session this instance thinks is alive"
+	)
+
+	renewed = email.utils.parsedate_to_datetime(
+		sent.split("expires=")[1].split(";")[0]
+	)
+
+	# **To the second**, because a cookie's expiry has no finer resolution than that — the
+	# comparison is that they are the same moment, not that they are the same value.
+	assert abs((renewed - opened.expires_at).total_seconds()) < 1, (
+		f"the browser was told {renewed} and the row says {opened.expires_at}, so one of them "
+		f"will end the session while the other still considers it good"
+	)
+
+
+def test_a_bearer_token_is_never_handed_back_as_a_cookie (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""**`SR#1671` reaches browser sessions and nothing else.**
+
+	A token was put in the request deliberately by whoever sent it; answering with it as a
+	``Set-Cookie`` would move an agent's credential into a browser's cookie jar, where
+	``SameSite`` and the CSRF rule above are the only things standing between it and any page
+	that can reach this instance.
+
+	**Two guards stand between here and that, and only one of them is this test's.** Deleting
+	the *session* check alone does not reach this case — a request with no cookie returns at
+	the check below it — so what this catches is the widening rather than the omission: somebody
+	deciding that every authenticated response should carry the cookie back, which is a
+	simplification that looks tidier and is the whole defect. Falsified that way rather than by
+	removing a null check that turns out to be carried by its neighbour.
+	"""
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="An agent"
+	)
+
+	answer = api_support.call(
+		setup.application,
+		"GET",
+		"/v1/me",
+		headers={"authorization": f"Bearer {issued.value.get_secret_value()}"},
+	)
+
+	assert answer.status_code == 200
+	assert "set-cookie" not in answer.headers, (
+		"a bearer token came back as a cookie, so an API credential is now something a "
+		"browser will attach to requests nobody asked it to make"
+	)
 
 
 def test_the_cookie_is_httponly_and_samesite_lax (

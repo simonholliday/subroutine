@@ -369,7 +369,9 @@ def _refuse_a_credential_in_the_url (request: starlette.requests.Request) -> Non
 
 
 def principal (
-	request: starlette.requests.Request, session: subroutine.api.dependencies.SessionDep
+	request: starlette.requests.Request,
+	response: starlette.responses.Response,
+	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.domain.authentication.Principal:
 	"""Return the principal making this request, refusing it if there is none.
 
@@ -407,9 +409,53 @@ def principal (
 	if limits is not None and counted is not None:
 		limits.count_a_request(counted)
 
+	_keep_the_browser_signed_in(request, response, found)
+
 	_release_the_authentication_write(session)
 
 	return found
+
+
+def _keep_the_browser_signed_in (
+	request: starlette.requests.Request,
+	response: starlette.responses.Response,
+	found: subroutine.domain.authentication.Principal,
+) -> None:
+	"""Send the session cookie back with the expiry the row now carries (`SR#1671`).
+
+	**The cookie is persistent and carries the same absolute moment the row does**, so sliding
+	one without the other is worse than sliding neither: the browser would delete a cookie for
+	a session this instance still considers good, and being signed out at a moment nothing
+	explains is the failure people report as *it keeps logging me out*.
+
+	**Written on every authenticated response rather than only when the row moved**, which is a
+	deliberate trade of about a hundred and fifty bytes for a branch that cannot be wrong. The
+	row slides at most every ``LAST_USED_INTERVAL``; asking here whether that just happened
+	means either reading SQLAlchemy's change history — cleared by the commit one line below —
+	or re-deriving the schedule, which is a second copy of the rule that decides it. Setting the
+	value the row actually holds is right whether it moved or not.
+
+	**Only a browser session**, and only when a cookie was presented. A bearer token was put
+	there deliberately by whoever sent it, and nothing here should hand one back.
+	"""
+
+	opened = found.session
+
+	if opened is None:
+		return
+
+	presented = request.cookies.get(SESSION_COOKIE)
+
+	# **A session principal without the cookie that made it is not reachable today** — the only
+	# resolver that builds one reads it from here — and it is guarded rather than asserted,
+	# because the cost of being wrong is re-minting a cookie with an empty value, which signs
+	# the reader out.
+	if presented is None:
+		return
+
+	settings: subroutine.config.Settings = request.app.state.settings
+
+	set_session_cookie(response, presented, settings=settings, expires_at=opened.expires_at)
 
 
 def _release_the_authentication_write (session: sqlalchemy.orm.Session) -> None:

@@ -14,6 +14,21 @@ upgrade involves.
 
 ## Unreleased
 
+### Changed
+
+- **A browser you are using stays signed in.** The fortnight is now counted from the last time
+  you used it rather than from the moment you signed in, so a browser or an installed app in
+  regular use does not sign you out on a schedule. Nothing to configure, and existing sessions
+  get it on their next request.
+
+  **What it was built for is unchanged**: a device somebody else has stops working a fortnight
+  after they took it, because the person it was taken from is no longer the one using it. What
+  has gone is the fortnightly sign-in it was charging everybody who *was* using it.
+
+  There is deliberately no maximum age on top of this, so a session in daily use lasts
+  indefinitely. `subroutine login revoke <name>` still ends every browser and installed app
+  somebody holds, at once, which is what a lost device needs.
+
 ### Added
 
 - **The browser interface installs as an app on a phone or tablet.** Open an instance in Chrome
