@@ -452,6 +452,10 @@ NOT_ANNOUNCED = {
 	"/readyz": "the same, and docs/hosting.md names it where an operator configures one",
 	"/": "the browser app, which is what the address on the line above already opens",
 	"/app/{name}": "the browser app's own files, fetched by that page rather than by anybody",
+	"/app/manifest.webmanifest": (
+		"how that page installs as an app, read by the browser and by nobody else"
+	),
+	"/app/sw.js": "its service worker, fetched by the page it belongs to",
 	"/signin": "how a person signs in, reached from the page rather than typed",
 }
 

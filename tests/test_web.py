@@ -26,6 +26,7 @@ import urllib.parse
 import uuid
 
 import fastapi
+import fastapi.routing
 import httpx
 import pytest
 import sqlalchemy
@@ -44,7 +45,9 @@ import subroutine.api.tasks
 import subroutine.api.web
 import subroutine.cli.personal
 import subroutine.cli.topics
+import subroutine.config
 import subroutine.db.mixins
+import subroutine.db.models.system
 import subroutine.db.seed
 import subroutine.domain.agenda
 import subroutine.domain.authentication
@@ -1942,8 +1945,19 @@ def test_the_page_asks_for_nothing_this_instance_does_not_serve () -> None:
 
 	assert wanted, "the page names no assets, so this is checking nothing"
 
+	# **Two ways to be served, since `SR#1665`.** Almost everything under `/app/` is a file read
+	# at import; the manifest and nothing else is *generated*, because its name has to say which
+	# instance this is. So the question is whether the address answers, not whether it is a file
+	# — asking only the first would have this guard refuse a route that works.
+	answered = {
+		getattr(route, "path", "") for route in subroutine.api.web.router.routes
+	}
+
 	for name in sorted(wanted):
-		assert name in subroutine.api.web.FILES, f"index.html asks for /app/{name}"
+		assert name in subroutine.api.web.FILES or f"/app/{name}" in answered, (
+			f"index.html asks for /app/{name}, which is neither one of the app's files nor a "
+			f"route this instance declares"
+		)
 
 
 def test_every_asset_the_stylesheet_reaches_for_is_one_this_instance_serves () -> None:
@@ -2028,6 +2042,296 @@ def test_every_page_this_instance_serves_wears_the_same_mark () -> None:
 
 	for name in sorted(asked):
 		assert name in subroutine.api.web.FILES, f"the mark asks for /app/{name}"
+
+
+#: A name an instance would only have if somebody set it, used to prove a public answer
+#: is not built from one. Not a hostname anybody has: the point is that it could not
+#: arrive in the answer by coincidence.
+PRIVATE_MACHINE_NAME = "kettle-in-the-airing-cupboard"
+
+#: How the stylesheet writes the page's own ground, which three other places have to agree
+#: with. Read rather than repeated, because a colour written out twice is this codebase's
+#: signature defect and the copy nobody renders is the one that goes stale.
+_SUNKEN = re.compile(r"--bg-sunken:\s*light-dark\(\s*(#[0-9a-f]{6})\s*,\s*(#[0-9a-f]{6})\s*\)")
+
+#: A ``theme-color`` declaration in the shell, with the scheme it answers for.
+_THEME_COLOUR = re.compile(
+	r'<meta name="theme-color" media="\(prefers-color-scheme: (\w+)\)" content="(#[0-9a-f]{6})">'
+)
+
+
+def test_the_shell_asks_for_the_manifest_this_instance_generates () -> None:
+	"""**`SR#1665`.** Without this link the page is not installable and nothing says so.
+
+	That is the failure mode worth a guard of its own: a browser with no manifest to read does
+	not report anything, it simply never offers *Install app* — so the whole feature can be
+	present, correct and unreachable, and every other test here would pass.
+
+	**The address is checked against the route rather than against a string**, because the two
+	are where they can drift: :data:`subroutine.api.web.MANIFEST` names the route, and this
+	file is served verbatim and cannot interpolate it.
+	"""
+
+	page = (ASSETS / "index.html").read_text(encoding="utf-8")
+	declared = f'<link rel="manifest" href="/app/{subroutine.api.web.MANIFEST}">'
+
+	assert declared in page, (
+		f"the shell does not ask for {declared}, so a browser has no manifest to read and "
+		f"will offer a bookmark shortcut rather than an installable app"
+	)
+
+	served = {
+		route.path
+		for route in subroutine.api.web.router.routes
+		if isinstance(route, fastapi.routing.APIRoute)
+	}
+
+	assert f"/app/{subroutine.api.web.MANIFEST}" in served, (
+		"the shell names a manifest address no route answers, which is a 404 nobody sees"
+	)
+
+
+def test_the_manifest_names_only_icons_this_instance_serves () -> None:
+	"""**`SR#1665`**, and the same shape as the mark's own check one test above.
+
+	An icon path in the manifest is a *string* in a dictionary, so nothing else reads it: it
+	could name three files that do not exist and the only symptom would be an installed app
+	with a blank square on the home screen — which is worse than the tab icon case, because
+	reinstalling is the only way a reader could fix it.
+	"""
+
+	built = subroutine.api.web.manifest_for(subroutine.config.Settings())
+
+	assert built["icons"], "the manifest declares no icon, so nothing is installable"
+
+	for icon in built["icons"]:
+		assert icon["src"].startswith("/app/"), (
+			f"{icon['src']!r} is not served flat at /app/<name> like every other asset"
+		)
+
+		name = icon["src"].removeprefix("/app/")
+
+		assert name in subroutine.api.web.FILES, (
+			f"the manifest asks for /app/{name} and this instance serves no such file"
+		)
+
+
+def test_an_app_nobody_else_can_reach_is_called_after_the_product () -> None:
+	"""**`SR#1665`.** The launcher label is where two instances are told apart, and where one
+	instance must not be made to look like a configuration error.
+
+	An instance with no ``public_url`` is one nothing off its machine can reach — which is
+	``diagnosis._the_settings``' own reading of that field — so it is the only one on whatever
+	installed it, and there is nothing to disambiguate. It gets the product's name, which is
+	the same word the page's own title carries.
+	"""
+
+	name, short = subroutine.api.web.app_names(subroutine.config.Settings())
+	page = (ASSETS / "index.html").read_text(encoding="utf-8")
+
+	assert (name, short) == (subroutine.api.web.PRODUCT, subroutine.api.web.PRODUCT)
+
+	assert f"<title>{subroutine.api.web.PRODUCT}</title>" in page, (
+		"the installed app and the page it opens would carry two different names for one "
+		"product, on one device"
+	)
+
+
+def test_an_app_somebody_else_can_reach_says_which_instance_it_is () -> None:
+	"""**`SR#1665`.** A standalone window has no address bar, so the label is the only thing
+	left that says which instance an icon opens.
+
+	**The port is part of the answer** where there is one: two instances on one machine differ
+	by nothing else, and that is the arrangement `#1254`'s promoted instance is reached through
+	while the old one is still running.
+	"""
+
+	plain = subroutine.config.Settings(public_url="https://work.example.com")
+	ported = subroutine.config.Settings(public_url="http://192.168.0.9:8151")
+
+	assert subroutine.api.web.app_names(plain) == (
+		"Subroutine (work.example.com)", "work.example.com"
+	)
+	assert subroutine.api.web.app_names(ported) == (
+		"Subroutine (192.168.0.9:8151)", "192.168.0.9:8151"
+	)
+
+
+def test_the_manifest_never_names_the_machine_this_instance_runs_on (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1665`, and this is the security half of it.**
+
+	The manifest answers with no credential — it is fetched by a `<link>` as the head is
+	parsed, which on the sign-in path happens before there is a session at all. So everything
+	in it is published to anybody who can reach the instance.
+
+	**``Instance.name`` is the field this most obviously wanted and must not use.** It is
+	editable, it is what `#1666` is about, and it **defaults from ``/etc/hostname``** — which is
+	the value `#1344` forbids in a tracked file, and a public route is a wider disclosure than a
+	tracked file. So the label comes from the address instead, which whoever is reading this
+	typed in order to get here.
+
+	**Driven with a name nobody could produce by accident**, rather than asserted from the
+	builder's signature: the point is not that today's code cannot reach a session, it is that
+	tomorrow's must not put this value in this answer. Wiring `#1666` into the manifest fails
+	here.
+	"""
+
+	standing = session.scalars(
+		sqlalchemy.select(subroutine.db.models.system.Instance)
+	).one_or_none()
+
+	if standing is None:
+		session.add(subroutine.db.models.system.Instance(name=PRIVATE_MACHINE_NAME))
+	else:
+		standing.name = PRIVATE_MACHINE_NAME
+
+	session.flush()
+
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url="https://work.example.com"
+	)
+
+	answer = api_support.call(application, "GET", f"/app/{subroutine.api.web.MANIFEST}")
+
+	assert answer.status_code == 200
+	assert PRIVATE_MACHINE_NAME not in answer.text, (
+		"the manifest publishes what this instance calls itself, which defaults from the "
+		"machine's hostname, to anybody who can reach the page"
+	)
+	assert "work.example.com" in answer.text, (
+		"nothing in the answer names the address either, so this test is checking that an "
+		"empty manifest holds no hostname"
+	)
+
+
+def test_the_status_bar_and_the_splash_are_the_pages_own_ground () -> None:
+	"""**`SR#1665`.** Three declarations of one colour, and only the stylesheet renders.
+
+	The shell's two ``theme-color`` tags tint a phone's status bar and
+	:data:`subroutine.api.web.SPLASH` paints the splash screen behind a starting app. Neither
+	is on the page, so a stylesheet that moved its ground would leave both saying the old
+	colour with nothing to notice — a border of the wrong shade around an app that is otherwise
+	correct.
+
+	**Derived from the stylesheet rather than listed here**, so this test moves when the design
+	does and fails only when the copies stop agreeing.
+	"""
+
+	style = (ASSETS / "app.css").read_text(encoding="utf-8")
+	page = (ASSETS / "index.html").read_text(encoding="utf-8")
+
+	grounds = _SUNKEN.findall(style)
+
+	assert len(grounds) == 1, (
+		f"the stylesheet declares --bg-sunken {len(grounds)} times, so this test cannot say "
+		f"which one the page is painted with"
+	)
+
+	light, dark = grounds[0]
+	declared = dict(_THEME_COLOUR.findall(page))
+
+	assert declared == {"light": light, "dark": dark}, (
+		f"the shell tints the status bar {declared} where the page's own ground is "
+		f"light {light} and dark {dark}"
+	)
+
+	assert light == subroutine.api.web.SPLASH, (
+		f"the manifest paints a starting app {subroutine.api.web.SPLASH} where the light "
+		f"theme's ground is {light}"
+	)
+
+
+def test_the_service_worker_caches_nothing () -> None:
+	"""**`SR#1665` holding `SR#914`'s decision**, which is the whole reason this file is as
+	small as it is.
+
+	`#914` replaced a five-minute cache with ``no-cache`` so that a restarted server cannot
+	serve current bytes to a page that will not ask for them, and its own comment names the
+	risk: *a long cache is a user looking at last week's app with no way to know it*. A service
+	worker that stored the shell would be that risk with a longer memory and **no way for a
+	reader to clear it** — a hard refresh does not reach a worker's cache.
+
+	So the guard is on the *absence* of the storage API rather than on what the worker does
+	with it. Anything that starts caching here has to argue with this test.
+	"""
+
+	source = (ASSETS / "sw.js").read_text(encoding="utf-8")
+
+	# Comments are stripped first, because this file's own reasoning is about caching and a
+	# scan over prose that reads its own explanation as evidence is a trap this project has
+	# met three times (`#1286`, `#908`).
+	code = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+
+	for forbidden in ("caches", "CacheStorage", "cache.put", "cache.match"):
+		assert forbidden not in code, (
+			f"the service worker names {forbidden!r}, so it has begun storing responses — "
+			f"which is `#914`'s trap with no expiry and no way for a reader out of it"
+		)
+
+	assert "respondWith" in code, (
+		"the worker no longer answers anything, and a fetch handler that never calls "
+		"respondWith is one Chrome skips — so the page stops being installable"
+	)
+
+
+def test_the_worker_may_control_the_page_it_was_written_for (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1665`.** A worker's scope is its own directory unless the server says otherwise.
+
+	``/app/sw.js`` would control ``/app/`` and not the page at ``/``, so without the header the
+	registration is rejected with a ``SecurityError`` and the app is not installable — the same
+	silent outcome as having no worker at all. Driven over HTTP rather than read, because the
+	header is the whole of what this route adds to its neighbour.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	answer = api_support.call(application, "GET", f"/app/{subroutine.api.web.WORKER}")
+
+	assert answer.status_code == 200
+
+	assert answer.headers.get("service-worker-allowed") == "/", (
+		"the worker is served without the header that lets it claim a wider scope than "
+		"/app/, so registering it is refused and the app is not installable"
+	)
+
+	registration = (ASSETS / "app.js").read_text(encoding="utf-8")
+
+	assert f'register("/app/{subroutine.api.web.WORKER}", {{ scope: "/" }})' in registration, (
+		"the app no longer registers the worker at the scope the header permits, so the two "
+		"halves of this arrangement have parted company"
+	)
+
+
+def test_the_manifest_answers_without_a_credential_and_says_it_is_an_app (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1665`**, driven end to end, because every part of this can be right separately.
+
+	``standalone`` is Simon's decision of 2026-08-30 and is the field that decides whether an
+	icon opens an app or a browser tab, so it is asserted by name rather than left to the
+	round trip.
+	"""
+
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url="https://work.example.com"
+	)
+
+	answer = api_support.call(application, "GET", f"/app/{subroutine.api.web.MANIFEST}")
+
+	assert answer.status_code == 200
+	assert answer.headers["content-type"].startswith("application/manifest+json")
+	assert answer.headers["cache-control"] == subroutine.api.web.REVALIDATE
+
+	built = answer.json()
+
+	assert built["display"] == "standalone"
+	assert built["start_url"] == "/"
+	assert built["scope"] == "/"
+	assert built["short_name"] == "work.example.com"
 
 
 def test_the_placeholder_mark_is_gone_and_nothing_still_asks_for_it () -> None:
@@ -5599,9 +5903,22 @@ def test_the_app_claims_no_path_it_has_not_been_given () -> None:
 		for path in (getattr(route, "path", "") for route in router.routes)
 	}
 
-	assert declared == {"/", "/app/{name}"}, (
-		f"the app declares {sorted(declared)}; anything beyond its page and its files claims "
-		f"addresses nothing else has claimed yet, which is what SR#648 is about"
+	assert declared == {
+		"/", "/app/manifest.webmanifest", "/app/sw.js", "/app/{name}"
+	}, (
+		f"the app declares {sorted(declared)}; a route added here needs an entry in "
+		f"`test_api_authentication.PUBLIC_ROUTES` and in `test_reach` before it is one this "
+		f"instance answers to strangers"
+	)
+
+	# **The rule `SR#648` is actually about**, stated separately from the ratchet above: a
+	# literal path claims exactly itself and `routing.check` already refuses one registered
+	# behind a parameter. **A parameter is what claims addresses nobody has claimed yet**, and
+	# there may be exactly one of them here — the app's own files, under a segment that cannot
+	# be mistaken for anything else. `SR#1665` added two literals and none of this changed.
+	assert {path for path in declared if "{" in path} == {"/app/{name}"}, (
+		"the app declares a second parameterised path, which is how `/{workspace}` came to "
+		"swallow `/v1/nothing` and `GET /mcp`"
 	)
 
 	# **A catch-all is allowed, and only under an address a workspace can never have.**

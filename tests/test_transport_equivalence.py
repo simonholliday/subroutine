@@ -4303,6 +4303,12 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 	would be a URL a person had to be told. Both are HTML and JavaScript rather than answers,
 	and neither reads the database at all.
 
+	`/app/manifest.webmanifest` and `/app/sw.js` are the same app one step further (`SR#1665`),
+	and they are the two of these that nobody types at all: a browser reads them because the
+	page named them. The manifest is the one address here that is *generated* rather than
+	read off disk, and it is still not an answer — it is what the page is called and which
+	icons it wears, built from settings and, deliberately, from nothing in the database.
+
 	**The addresses a person pastes into a message are not routes at all** (`#648`). They were,
 	briefly, and `/{workspace}/{project}` claimed `/v1/nothing` — so the API's own 404 became a
 	page. They are a 404 fallback now, which is why nothing new appears in this set: an address
@@ -4318,7 +4324,16 @@ def test_every_route_a_raw_call_is_meant_to_reach_is_under_the_api_prefix () -> 
 
 	assert mounted, "the walk found no routes at all, so it is not measuring the application"
 
-	assert outside == {"/healthz", "/readyz", "/mcp", "/signin", "/", "/app/{name}"}, (
+	assert outside == {
+		"/healthz",
+		"/readyz",
+		"/mcp",
+		"/signin",
+		"/",
+		"/app/{name}",
+		"/app/manifest.webmanifest",
+		"/app/sw.js",
+	}, (
 		"a route appeared outside the API prefix, so a raw call cannot reach it. That is either "
 		"correct and belongs in this list with a reason, or the route is API and is misplaced.\n"
 		f"found: {sorted(outside)}"

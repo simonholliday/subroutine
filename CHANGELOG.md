@@ -12,6 +12,32 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **The browser interface installs as an app on a phone or tablet.** Open an instance in Chrome
+  on Android and it offers *Install app* rather than only *Add to Home screen*: the icon opens
+  in its own window with no address bar and no tab, and it appears in the app switcher like
+  anything else. Safari on iOS has offered *Add to Home Screen* all along and now gets the same
+  name and icon.
+
+  **An instance that says where it is reachable puts that address on the icon.** With
+  `public_url` set the launcher label is the host — `work.example.com` — and the install prompt
+  reads `Subroutine (work.example.com)`; with no `public_url` it is simply *Subroutine*. That is
+  the difference between a machine somebody else can reach, which may sit beside another one on
+  the same phone, and a laptop that is by definition the only one. A standalone window has no
+  address bar, so the label is the only thing left saying which instance an icon opens.
+
+  **It works offline no better than before, deliberately.** The service worker this needs passes
+  every request straight to the network and stores nothing. Everything the page shows comes from
+  the instance, so a cached shell would render an empty page and a row of failed requests — and
+  a cache in a service worker is one no reader can clear, which is the trap the app's `no-cache`
+  policy was adopted to avoid.
+
+  The status bar follows the system's light or dark setting. A theme pinned in the app's own
+  footer is not followed there; that is a limit of what a page can declare.
+
 ## 0.8.7 — 2026-08-30
 
 ### Fixed

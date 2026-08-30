@@ -235,6 +235,18 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 		"The browser app's own files (`#597`). Same reason as the page they belong to: these "
 		"are bytes a browser needs and nothing a client would ever ask for.",
 	),
+	("GET", "/app/manifest.webmanifest"): (
+		"protocol",
+		"How the browser app installs on a phone (`#1665`). It is read by the browser itself, "
+		"from a `<link>` in the page's head, and what it holds is a name and two icon paths — "
+		"so a client method returning it would be a method for being an operating system's "
+		"launcher. Everything it says about this instance is already reached above.",
+	),
+	("GET", "/app/sw.js"): (
+		"protocol",
+		"The browser app's service worker (`#1665`). Bytes a browser fetches and runs, like "
+		"the modules beside it, and it caches nothing — so there is no capability here at all.",
+	),
 	("GET", "/mcp"): (
 		"protocol",
 		"A refusal, not a capability (`#648`): this transport has no server-initiated messages, "

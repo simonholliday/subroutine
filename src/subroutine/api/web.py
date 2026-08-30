@@ -18,16 +18,20 @@ derived from a database — it is the same bytes for every caller, signed in or 
 """
 
 import hashlib
+import json
 import pathlib
 import typing
+import urllib.parse
 
 import fastapi
 import starlette.exceptions
 import starlette.requests
 import starlette.responses
 
+import subroutine.api.dependencies
 import subroutine.api.problems
 import subroutine.api.routing
+import subroutine.config
 import subroutine.errors
 import subroutine.web.vendored
 
@@ -83,6 +87,115 @@ ICON_LINKS = (
 	'<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">'
 )
 
+#: What this product is called wherever it has to name itself to an operating system.
+#:
+#: The shell's ``<title>`` says the same word, and a test holds the two together — an installed
+#: app whose launcher label disagreed with the page it opens would be one product wearing two
+#: names on one device.
+PRODUCT = "Subroutine"
+
+#: The two addresses an installable app needs, and neither is a file on disk (`#1665`).
+#:
+#: **Written here rather than only in the shell**, so the page's ``<link>`` and the routes that
+#: answer it can be held to one spelling. A manifest a browser cannot find is not an error and
+#: reaches no log: the install offer simply never appears, which is the whole of what this item
+#: was about.
+MANIFEST = "manifest.webmanifest"
+WORKER = "sw.js"
+
+#: What a phone paints behind the app while it starts.
+#:
+#: **This is not the static colour a manifest ``theme_color`` was refused for.** Leaving it out
+#: does not avoid choosing one — it accepts the browser's, which is white — so the only question
+#: is *which* static value, and the light theme's own ground is a better answer than a generic
+#: one. `#908`'s dark reader still meets a light splash for the moment it takes to start, and
+#: there is no manifest field that could follow a theme.
+#:
+#: It is ``--bg-sunken``'s light value, and ``tests/test_web.py`` reads the stylesheet rather
+#: than trusting this comment: a colour written out twice is this codebase's signature defect,
+#: and the copy nobody renders is the one that goes stale.
+SPLASH = "#f6f7f9"
+
+
+def app_names (settings: subroutine.config.Settings) -> tuple[str, str]:
+	"""Return what an installed app calls itself: the full name, then the launcher label.
+
+	**A ``public_url`` decides whether the address appears in the name**, and the conditional is
+	this codebase's own rather than a new one. ``diagnosis._the_settings`` reads a set
+	``public_url`` as *this instance is reachable by somebody other than the person at the
+	keyboard*, and that is exactly the population that has more than one of them — a promoted
+	instance (`#1254`), a colleague's, a hosted one beside a self-hosted one. An instance nobody
+	else can reach is by construction the only one on the phone that installed it, so it gets
+	the clean label.
+
+	**The address rather than ``Instance.name``, and the reason is who may read this.** That
+	field exists, is editable, and defaults from ``/etc/hostname`` — so it is the better answer
+	on a surface that needs a credential, which is `#1666`. A manifest is fetched by a ``<link>``
+	before anybody has signed in, from a route ``PUBLIC_ROUTES`` records as answering to
+	everybody; putting the machine's hostname in it would publish to anonymous callers the one
+	value `#1344` forbids in a tracked file. The address costs nothing, because whoever is
+	reading this typed it to get here.
+	"""
+
+	told = (settings.public_url or "").strip()
+
+	try:
+		parsed = urllib.parse.urlsplit(told)
+		host = parsed.hostname or ""
+		port = parsed.port
+
+	# **Not reachable through a loaded ``Settings``**, which validates the address at startup
+	# through :func:`subroutine.config.public_url_fault` — and caught anyway, because a label
+	# on a home screen is not worth a 500 and this function is handed its argument by callers
+	# a validator does not stand in front of.
+	except ValueError:
+		return (PRODUCT, PRODUCT)
+
+	if not host:
+		return (PRODUCT, PRODUCT)
+
+	where = f"{host}:{port}" if port else host
+
+	# **The address is the *short* name**, which is the one a launcher writes under the icon —
+	# so the thing that tells two instances apart is put where two icons sit side by side. The
+	# full name is what the install prompt and the app switcher show, where there is room to
+	# say what the product is as well as which one.
+	return (f"{PRODUCT} ({where})", where)
+
+
+def manifest_for (settings: subroutine.config.Settings) -> dict[str, typing.Any]:
+	"""Return what this instance tells a phone about installing its browser app.
+
+	**``display: standalone``** is Simon's decision of 2026-08-30: an installed app opens
+	without the browser's chrome, which is what makes it read as an app rather than as a
+	bookmark. The cost is stated on `#1665` — the address bar is where a reader could otherwise
+	see which instance they are on, which is why :func:`app_names` puts it in the label.
+
+	**The icons declare no ``purpose``, deliberately.** ``assets/favicon.md`` records the tile
+	mark sitting at 78-86% of its grid, and a maskable icon's safe zone is the inner *circle* —
+	so claiming ``maskable`` would have an adaptive launcher crop the mark's corners on every
+	Android home screen. Left unset, the platform puts the tile on its own plate, which is what
+	the tile was drawn for.
+
+	**Nothing here is derived from the database**, which keeps the promise this module's own
+	docstring makes: the same bytes for every caller, signed in or not.
+	"""
+
+	name, short = app_names(settings)
+
+	return {
+		"name": name,
+		"short_name": short,
+		"start_url": "/",
+		"scope": "/",
+		"display": "standalone",
+		"background_color": SPLASH,
+		"icons": [
+			{"src": "/app/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
+			{"src": "/app/icon-512-on-black.png", "sizes": "512x512", "type": "image/png"},
+		],
+	}
+
 #: What a browser is told about keeping these files (`#914`).
 #:
 #: **``no-cache`` does not mean do not store — it means revalidate before use**, which with the
@@ -108,8 +221,8 @@ def _tag (body: bytes) -> str:
 	"""Return a strong entity tag for exactly these bytes.
 
 	Truncated because a tag is an opaque identity rather than a checksum — sixteen bytes of
-	SHA-256 is far past the point where two of this app's six files could collide, and the whole
-	value travels on every request and every revalidation.
+	SHA-256 is far past the point where two of the files this app serves could collide, and
+	the whole value travels on every request and every revalidation.
 	"""
 
 	return f'"{hashlib.sha256(body).hexdigest()[:32]}"'
@@ -201,6 +314,69 @@ def shell (request: starlette.requests.Request) -> starlette.responses.Response:
 	"""
 
 	return _served(SHELL, request)
+
+
+@router.get(
+	f"/app/{MANIFEST}",
+	summary="What this instance is called when it is installed as an app",
+	include_in_schema=False,
+)
+def manifest (
+	request: starlette.requests.Request,
+	settings: subroutine.api.dependencies.SettingsDep,
+) -> starlette.responses.Response:
+	"""Answer with the web app manifest, which is what makes the page installable.
+
+	**Generated rather than a file in ``assets``**, because the name has to say which instance
+	this is and only the running process knows its own address. That is the whole reason this
+	is a route and its neighbours are bytes read at import.
+
+	``include_in_schema=False`` for the reason :func:`shell` gives: a browser's manifest in the
+	OpenAPI document is a row every generated client has to be told to ignore.
+	"""
+
+	# Tab-indented so that a person who opens it reads it the way they read everything else
+	# this project serves, and a trailing newline for the same reason.
+	body = json.dumps(manifest_for(settings), indent="\t").encode("utf-8") + b"\n"
+	tag = _tag(body)
+
+	headers = {"cache-control": REVALIDATE, "etag": tag}
+
+	# **Revalidated like every other file** (`#914`). A manifest a browser holds on to is how a
+	# home screen comes to carry an icon and a name from a version nobody is running, and it is
+	# the one asset a person cannot refresh — reinstalling the app is the only way back.
+	if _asked_for(request, tag):
+		return starlette.responses.Response(status_code=304, headers=headers)
+
+	return starlette.responses.Response(
+		content=body, media_type="application/manifest+json", headers=headers
+	)
+
+
+@router.get(
+	f"/app/{WORKER}",
+	summary="The browser app's service worker",
+	include_in_schema=False,
+)
+def worker (request: starlette.requests.Request) -> starlette.responses.Response:
+	"""Serve the service worker, and say that it may control the whole site.
+
+	**A route of its own for one header.** A worker's default scope is the directory it is
+	served from, so ``/app/sw.js`` would control ``/app/`` and not the page at ``/`` — which is
+	the page it exists to make installable. ``Service-Worker-Allowed`` is what lets it claim a
+	wider scope than its own address, and the registration in ``app.js`` asks for exactly that.
+
+	**The alternative was serving it at ``/sw.js``**, where the default scope would be right and
+	no header would be needed. It is not that, because *everything the app is made of is served
+	flat at ``/app/<name>``* is an invariant three tests and the stylesheet check already read —
+	and one file living somewhere else for a reason nobody would guess is worse than a header
+	whose absence fails loudly, with a ``SecurityError`` naming the scope.
+	"""
+
+	answer = _served(WORKER, request)
+	answer.headers["service-worker-allowed"] = "/"
+
+	return answer
 
 
 @router.get(

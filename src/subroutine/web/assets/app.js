@@ -9566,3 +9566,29 @@ if (typeof document !== "undefined") {
 	   inside the thing that throws catches nothing. */
 	render(html`<${Boundary} what="The page"><${App} /></${Boundary}>`, document.getElementById("app"));
 }
+
+/*
+	**Registering the service worker, which is what lets this page be installed** (`#1665`).
+
+	The worker itself caches nothing — `sw.js` says why at length — so this buys installability
+	and changes nothing about how the app behaves in an ordinary tab.
+
+	**`scope: "/"` with the file at `/app/sw.js`.** A worker's default scope is the directory it
+	came from, and the page it has to control is at the root; `api.web.worker` sends the
+	`Service-Worker-Allowed` header that permits the wider claim. If that header ever goes, this
+	rejects with a `SecurityError` naming the scope rather than failing quietly.
+
+	**Guarded on `navigator` rather than on `document`**, because the two are separate questions:
+	the render harness supplies a document so that components can be rendered, and it has no
+	reason to supply a navigator. Nothing here may stop this module being imported.
+
+	**Nothing is done with the promise but swallow its rejection.** A browser that refuses to
+	register — a private window, an insecure origin, a user's own setting — is one where the app
+	works exactly as it always has, so there is nothing to tell anybody and an unhandled
+	rejection in the console would say there was.
+*/
+if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+	navigator.serviceWorker.register("/app/sw.js", { scope: "/" }).catch(() => {
+		/* Not installable here, which costs this reader nothing they had. */
+	});
+}

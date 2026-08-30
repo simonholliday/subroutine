@@ -48,6 +48,21 @@ PUBLIC_ROUTES: dict[str, str] = {
 	# mount this test could never have seen.
 	"GET /": "the browser app's page, which loads before there is a session to load it with",
 	"GET /app/{name}": "the browser app's own files, the same bytes for every caller",
+	# **Public for a reason the two above do not cover, and it is why this is its own entry.**
+	# A `<link rel="manifest">` is fetched by the browser as it parses the head, which on the
+	# sign-in path is before there is a session at all — so a manifest behind a credential is a
+	# manifest nothing ever reads, and the symptom is an install offer that never appears.
+	#
+	# It says nothing a caller did not already have: the product's name, the address they typed
+	# to get here, and the names of icons `GET /app/{name}` serves to anybody. `SR#1665` records
+	# why it is **not** built from `Instance.name`, which would put the machine's own hostname
+	# on an anonymous route.
+	"GET /app/manifest.webmanifest": (
+		"how the app installs, read by the browser before anybody can sign in"
+	),
+	# A script, and one whose whole content is in the repository (`SR#1665`). It is fetched by
+	# `navigator.serviceWorker.register`, which sends no credential of the page's choosing.
+	"GET /app/sw.js": "the browser app's service worker, which caches nothing",
 	# A refusal that reads nothing and needs nothing (`#648`). Requiring a credential to be
 	# told the method is wrong would mean a client had to authenticate before learning it had
 	# asked the wrong question — and a 405 discloses nothing that `/v1/openapi.json` does not.

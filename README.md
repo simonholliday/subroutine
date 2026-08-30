@@ -375,6 +375,11 @@ on it, link it to what is holding it up, say how often it comes round, write a d
 revise it, search, complete it, and hand a task to somebody from a list of the people in that
 workspace.
 
+- **It installs on a phone or tablet.** Open the address in Chrome on Android and it offers
+  *Install app*; on iOS, *Add to Home Screen* in Safari. The icon opens in its own window with
+  no address bar, so an instance that says where it is reachable puts that address on the
+  label — which is what tells two of them apart on one home screen. It needs the network like
+  the page does; nothing is stored on the device.
 - **Every item has an address you can send somebody**, and the project in the middle is there
   for the reader rather than for the machine — rename it and old links still work.
 - **Descriptions and comments render as the Markdown they are written in.** Anything that looks

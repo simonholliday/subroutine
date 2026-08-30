@@ -12,6 +12,32 @@
 <link rel="icon" href="/app/favicon-on-black.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" href="/app/favicon-on-black.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
+<!--
+	What makes this installable on a phone or tablet (`#1665`). The manifest is *generated*,
+	unlike everything else the head names — `api.web.manifest_for` builds it, because the app's
+	name has to say which instance this is and only the running process knows its own address.
+
+	The service worker is registered from `app.js` rather than here: it needs no inline script,
+	and `#805`'s policy hashes every one of those from the served bytes.
+-->
+<link rel="manifest" href="/app/manifest.webmanifest">
+<!--
+	The colour a phone paints its status bar while this page is open.
+
+	**Media queries rather than the manifest's `theme_color`**, which is a single static value
+	and would be wrong for one of `#908`'s two themes on every device. These follow the system,
+	which is what `theme_color` cannot do at all.
+
+	**A theme the reader pinned is not followed**, and that is a known limit rather than an
+	oversight: `#908`'s pinned states are a `data-theme` attribute, which no media query can
+	see. Following it would mean swapping these tags at runtime from `applyTheme`, which is a
+	larger change than a status-bar tint is worth — `#1665` records it.
+
+	The two values are `--bg-sunken`, which is the page's own ground, and `tests/test_web.py`
+	reads the stylesheet rather than trusting that sentence.
+-->
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f7f9">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101316">
 <link rel="stylesheet" href="/app/app.css">
 <!--
 	An import map rather than a build step. Every bare specifier any served module imports
