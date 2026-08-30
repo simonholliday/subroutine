@@ -37,8 +37,12 @@ https://subroutine.example.com/signin?link=…
 ```
 
 **It is good for half an hour and works once.** If it has gone stale by the time you get to it,
-that is ordinary — ask for another. Once it has signed you in, the browser stays signed in for a
-fortnight, and you sign in again the same way after that.
+that is ordinary — ask for another.
+
+**After that the browser stays signed in while you keep using it.** A fortnight of not touching
+it ends the session and you sign in again the same way; using it puts the fortnight back. So a
+browser you open most days never asks again, and a device somebody else has stops working two
+weeks after they took it.
 
 **Treat it like a password while it is alive**, because for those thirty minutes it is one:
 anybody who has the link can become you. It travels in a web address, so it reaches whatever
@@ -60,21 +64,35 @@ own with no address bar and no tabs, and an entry in the app switcher beside eve
 There is nothing to download from a store and nothing to sign up for — the instance serves what
 the browser needs to do it.
 
-**Sign in in the browser first, then install.** The installed app shares the browser's cookies,
-so doing it in that order means the app is signed in the moment it opens and there is nothing
-else to do. The other order works and is more confusing: the first thing you see is *You are not
-signed in*, which looks like the install having failed when it has not.
+**Five steps, and the second one is where this goes wrong:**
 
-So: open the sign-in link in the browser you want to install from, check you can see your work,
-and only then install.
+1. **Get a sign-in link** — `subroutine login link --username <you>`, run wherever the instance
+   is. It works once and lasts half an hour.
 
-**Where the control is depends on the browser, and it is never on the page:**
+2. **Copy the link and paste it into the address bar of the browser you want the app in. Do not
+   tap it.** A link tapped in a message, a mail app or a notes app opens in whichever browser
+   the device treats as the default — and the link is spent by whichever browser opens it. If
+   that is not the one you meant, you are left with a browser that is not signed in and a link
+   that no longer works, and you need a new one.
 
-| | |
-| --- | --- |
-| Chrome, Edge, Samsung Internet on Android | menu → **Install app** |
-| Firefox for Android | menu → **Install** |
-| Safari on iPhone or iPad | share → **Add to Home Screen** |
+3. **Check you can see your work**, before anything else can confuse the picture. If this step
+   fails, nothing after it will make sense.
+
+4. **Install it from the browser's own menu.** It is never a control on the page:
+
+   | | |
+   | --- | --- |
+   | Firefox for Android | menu → **Install** |
+   | Chrome, Edge, Samsung Internet on Android | menu → **Install app** |
+   | Safari on iPhone or iPad | share → **Add to Home Screen** |
+
+5. **Open it from the home screen.** It should come up already signed in, in a window of its
+   own, with no address bar.
+
+**Signing in before installing is what makes step 5 uneventful.** The installed app shares the
+browser's cookies, so in that order there is nothing left to do. The other order works and is
+more confusing: the first thing you see is *You are not signed in*, which looks like the install
+having failed when it has not.
 
 **A browser-badged icon that opens in a tab is a shortcut rather than an app**, and it is worth
 knowing the difference before deciding something is broken. Making a real installed app on

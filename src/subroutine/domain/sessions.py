@@ -475,8 +475,8 @@ def _refuse_a_credential_that_would_be_widened (
 	if expires_at is not None and expires_at < now + SESSION_LIFETIME:
 		raise subroutine.errors.Forbidden(
 			"A sign-in link would outlive the credential that asked for it.",
-			hint=f"The session it buys lasts {SESSION_LIFETIME.days} days, and the "
-			"credential you presented expires before that.",
+			hint=f"The session it buys lasts at least {SESSION_LIFETIME.days} days — longer "
+			f"if it keeps being used — and the credential you presented expires before that.",
 		)
 
 

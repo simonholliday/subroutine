@@ -30,6 +30,7 @@ import subroutine.auth
 import subroutine.cli.main
 import subroutine.config
 import subroutine.db.migrate
+import subroutine.domain.sessions
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
@@ -37,6 +38,65 @@ CONNECTING = ROOT / "docs" / "connecting.md"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
 RELEASES = ROOT / "docs" / "releases.json"
+
+
+#: The sentence in which a published page tells a reader how long they stay signed in.
+#:
+#: **The sentence rather than the word, and the difference is a falsification that passed.**
+#: The first version registered ``"fortnight"`` and asked whether it appeared on the page — and
+#: *fortnight* is an ordinary English word this repository uses about booked holidays, code
+#: freezes and repeating chores, so rewording the session sentence to *two weeks* left the
+#: guard green on a second occurrence three lines away. That is the scan-over-prose weakness a
+#: register was supposed to avoid, reintroduced inside one.
+#:
+#: **Written because this went wrong within four hours** (`SR#1675`). `SR#1671` changed the
+#: session from a fixed fortnight to a fortnight from the last use, and left this page saying
+#: *"you sign in again the same way after that"* — in the paragraph directly above the one
+#: written for the reader who was about to test it. A behaviour change leaves its documentation
+#: behind, and the copy furthest from the code is the one nobody greps for.
+SESSION_LENGTH_IN_PROSE = {
+	CONNECTING: "A fortnight of not touching\nit ends the session",
+}
+
+#: What a length written in words is worth in days. **Read out of the sentence rather than
+#: declared beside it**, so there is no second place to say which word the page used.
+_DAYS_IN_WORDS = {"week": 7, "fortnight": 14, "month": 30}
+
+
+def test_a_page_that_says_how_long_you_stay_signed_in_agrees_with_the_code () -> None:
+	"""**`SR#1675`.** The number is in two places and only one of them signs anybody out.
+
+	A page saying *a fortnight* against a `SESSION_LIFETIME` of thirty days is not a rendering
+	fault anybody would see: the software behaves correctly, the page reads plausibly, and the
+	only person who finds out is somebody who planned around the sentence.
+
+	**Both directions fail here.** Changing the constant without the page is the case this was
+	written for; deleting the sentence fails too, and the message says to update the register,
+	because a page that stopped explaining this is a decision rather than an accident.
+	"""
+
+	told = subroutine.domain.sessions.SESSION_LIFETIME.days
+
+	for page, sentence in SESSION_LENGTH_IN_PROSE.items():
+		prose = page.read_text(encoding="utf-8")
+
+		assert sentence in prose, (
+			f"{page.name} no longer carries the sentence that says how long you stay signed "
+			f"in. If it was reworded, put the new wording in SESSION_LENGTH_IN_PROSE; if it "
+			f"has gone, take the entry out — a page that stopped explaining this is a "
+			f"decision rather than an accident."
+		)
+
+		named = sorted(word for word in _DAYS_IN_WORDS if word in sentence)
+
+		assert len(named) == 1, (
+			f"{page.name}'s sentence names {named or 'no'} length this test can read, so it "
+			f"cannot say what the page promises"
+		)
+		assert _DAYS_IN_WORDS[named[0]] == told, (
+			f"{page.name} tells a reader they stay signed in for a {named[0]} — "
+			f"{_DAYS_IN_WORDS[named[0]]} days — and a session actually lasts {told}"
+		)
 
 
 @pytest.fixture
