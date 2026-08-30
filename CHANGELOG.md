@@ -54,8 +54,13 @@ upgrade involves.
   footer is not followed there; that is a limit of what a page can declare.
 
   [docs/connecting.md](docs/connecting.md#on-a-phone-or-tablet) is the page to hand somebody:
-  where the control is in each browser, why signing in before installing is the easier order,
-  and how to tell a real installed app from the bookmark some browsers write instead.
+  the five steps, why signing in before installing is the easier order, and what to do if a
+  browser's menu offers nothing.
+
+  > **The manifest declares a 192px icon as well as a 512px one**, which is what Android
+  > browsers require before they will offer to install anything. An instance serving an earlier
+  > build of this offers no install on most devices, and nothing anywhere says why — the
+  > manifest parses, no request fails, and the menu item is simply absent.
 
 ## 0.8.7 — 2026-08-30
 

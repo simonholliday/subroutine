@@ -1,12 +1,17 @@
 <!--
 	Everything below the rule is the export's own README, copied verbatim as provenance for
-	the mark (`#1286`). The two paragraphs above it are ours.
+	the mark (`#1286`). Everything above it is ours.
 -->
 
 **Where this came from.** Simon designed and exported the set on 2026-08-25; it is not
 third-party, so `web/vendored.py`'s licence machinery does not cover it and does not need to.
 The files are here byte for byte, all of them, on his instruction — including the black,
 inverted and on-white variants nothing currently references.
+
+**One file here is ours rather than his.** `icon-192-on-black.png` was rendered from
+`favicon-on-black.svg` at 192 by the Chromium the test suite already uses, because a home screen
+asks for that size and the export does not hold it (`#1681`). It is faithful to the vector
+source and it is derived — worth replacing with a real export whenever the set is next made.
 
 **The paths in *In the head* below are the exporter's and are not this instance's.** Assets are
 served at `/app/<name>` — see `api/web.asset` — so the head declares `/app/favicon-on-black.ico`

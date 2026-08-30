@@ -76,21 +76,16 @@ the browser needs to do it.
 3. **Check you can see your work.** The app inherits this browser's session, so this is what
    there is to get right.
 
-4. **Install it from the browser's own menu**, which is where every browser keeps this:
-
-   | | |
-   | --- | --- |
-   | Firefox for Android | menu → **Install** |
-   | Chrome, Edge, Samsung Internet on Android | menu → **Install app** |
-   | Safari on iPhone or iPad | share → **Add to Home Screen** |
+4. **Install it from the browser's own menu.** It is called **Install**, **Install app** or
+   **Add to Home Screen** depending on the browser, and it is never a control on the page.
 
 5. **Open it from the home screen.** It comes up signed in, in a window of its own, with no
    address bar.
 
-**Some browsers write a bookmark instead of installing an app**, and Brave is one: making a
-real installed app on Android means the browser asking a server to build one, which not every
-browser does. You get a browser-badged icon that opens in a tab. It goes to the same place; what
-it does not bring is the separate window, the launcher entry and the app switcher.
+**If your browser's menu offers nothing, try another one.** Browsers differ about when they
+will install a page, and about what they make when they do — some write a bookmark that opens in
+a tab rather than an app with a window of its own. There is nothing to change on this end and
+nothing you have done wrong.
 
 **It needs the network, exactly like the page does.** Everything you see comes from the
 instance, so there is nothing stored on the device and no offline mode.
@@ -99,9 +94,9 @@ instance, so there is nothing stored on the device and no offline mode.
 you leave will need a fresh sign-in link every time, and a link works once and lasts half an
 hour.
 
-**What we have checked ourselves**: a real Chromium reads the manifest without complaint and
-reports nothing standing in the way of installing. The rest is each browser doing what it
-documents, and we do not test them — tell us if yours does something else.
+**What we have checked ourselves**: Brave on an Android tablet installs it and it works, and a
+real Chromium reads the manifest without complaint. Other browsers we have not tested — tell us
+what yours does, either way.
 
 **Signing out is the same as in a tab**: the **Sign out** control on the page, or ask whoever
 runs the instance to run `subroutine login revoke` for you, which ends every browser and every

@@ -103,6 +103,17 @@ PRODUCT = "Subroutine"
 MANIFEST = "manifest.webmanifest"
 WORKER = "sw.js"
 
+#: The two icon sizes a home screen asks for, named here so the manifest and the guard that
+#: measures the files cannot drift (`SR#1681`).
+#:
+#: **192 and 512 are a documented floor rather than a preference.** Chromium's installability
+#: criteria name both, and Firefox for Android has the same lower bound — so an app declaring a
+#: 180 and a 512, which is what the exported set could offer, is simply not offered for
+#: installation, on every browser except one that was applying an older rule. Nothing reports
+#: this: the manifest parses, no request fails, and the menu item is absent.
+ICON_SMALL = "icon-192-on-black.png"
+ICON_LARGE = "icon-512-on-black.png"
+
 #: What a phone paints behind the app while it starts.
 #:
 #: **This is not the static colour a manifest ``theme_color`` was refused for.** Leaving it out
@@ -171,6 +182,11 @@ def manifest_for (settings: subroutine.config.Settings) -> dict[str, typing.Any]
 	bookmark. The cost is stated on `#1665` — the address bar is where a reader could otherwise
 	see which instance they are on, which is why :func:`app_names` puts it in the label.
 
+	**192 and 512, which is the documented floor and is what `SR#1681` was** — Chromium and
+	Firefox for Android both want a 192 *and* a 512, and this declared a 180 and a 512 because
+	the exported set was made for tab bars and stores, where nothing asks for 192. Three of
+	Simon's four devices were offered no install at all.
+
 	**The icons declare no ``purpose``, deliberately.** ``assets/favicon.md`` records the tile
 	mark sitting at 78-86% of its grid, and a maskable icon's safe zone is the inner *circle* —
 	so claiming ``maskable`` would have an adaptive launcher crop the mark's corners on every
@@ -191,8 +207,8 @@ def manifest_for (settings: subroutine.config.Settings) -> dict[str, typing.Any]
 		"display": "standalone",
 		"background_color": SPLASH,
 		"icons": [
-			{"src": "/app/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"},
-			{"src": "/app/icon-512-on-black.png", "sizes": "512x512", "type": "image/png"},
+			{"src": f"/app/{ICON_SMALL}", "sizes": "192x192", "type": "image/png"},
+			{"src": f"/app/{ICON_LARGE}", "sizes": "512x512", "type": "image/png"},
 		],
 	}
 

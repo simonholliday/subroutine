@@ -19,6 +19,7 @@ import json
 import pathlib
 import re
 import shutil
+import struct
 import subprocess
 import textwrap
 import typing
@@ -2114,6 +2115,52 @@ def test_the_manifest_names_only_icons_this_instance_serves () -> None:
 		assert name in subroutine.api.web.FILES, (
 			f"the manifest asks for /app/{name} and this instance serves no such file"
 		)
+
+
+def test_the_manifest_declares_the_icon_sizes_a_home_screen_asks_for () -> None:
+	"""**`SR#1681`, and the reason it is measured from the file rather than from the string.**
+
+	Chromium's installability criteria name a **192px and a 512px** icon, and Firefox for
+	Android has the same floor. This manifest declared a 180 and a 512 — the sizes the exported
+	set happened to hold, because that set was made for tab bars and stores — and **three of
+	four real devices were then offered no install at all**. Nothing reported it: the manifest
+	parses, no request fails, and the menu item is simply not there.
+
+	**`#1665`'s own probe said this was fine, and it was true about the wrong platform.** A
+	desktop Chromium reported no installability errors, because a desktop has no home screen to
+	put a 192 on. A measurement taken on the machine you have is a claim about that machine.
+
+	**The declared size is checked against the PNG's own header**, so a `sizes` string that
+	stopped matching its file fails here — which is the version of this defect that would be
+	invisible from every direction, since a browser believes the file and a reader believes the
+	string.
+	"""
+
+	declared = {
+		icon["src"].removeprefix("/app/"): icon["sizes"]
+		for icon in subroutine.api.web.manifest_for(subroutine.config.Settings())["icons"]
+	}
+
+	measured = {}
+
+	for name in declared:
+		body, _kind = subroutine.api.web.FILES[name]
+
+		# The IHDR chunk is fixed: an eight-byte signature, a four-byte length, four bytes of
+		# type, then width and height as big-endian unsigned ints. Read rather than imported,
+		# because a picture library is a dependency for eight bytes.
+		width, height = struct.unpack(">II", body[16:24])
+		measured[name] = f"{width}x{height}"
+
+	assert declared == measured, (
+		f"the manifest says {declared} and the files are {measured}, so a browser choosing an "
+		f"icon by the size it was promised gets a different one"
+	)
+	assert {"192x192", "512x512"} <= set(measured.values()), (
+		f"the manifest offers {sorted(measured.values())}; Chromium and Firefox for Android "
+		f"both want a 192 and a 512, and an app missing either is not offered for installation "
+		f"at all — with nothing anywhere saying why"
+	)
 
 
 def test_an_app_nobody_else_can_reach_is_called_after_the_product () -> None:
