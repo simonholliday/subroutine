@@ -64,21 +64,19 @@ own with no address bar and no tabs, and an entry in the app switcher beside eve
 There is nothing to download from a store and nothing to sign up for — the instance serves what
 the browser needs to do it.
 
-**Five steps, and the second one is where this goes wrong:**
+**Sign in first, then install**, and it takes five steps:
 
 1. **Get a sign-in link** — `subroutine login link --username <you>`, run wherever the instance
    is. It works once and lasts half an hour.
 
-2. **Copy the link and paste it into the address bar of the browser you want the app in. Do not
-   tap it.** A link tapped in a message, a mail app or a notes app opens in whichever browser
-   the device treats as the default — and the link is spent by whichever browser opens it. If
-   that is not the one you meant, you are left with a browser that is not signed in and a link
-   that no longer works, and you need a new one.
+2. **Open the browser you want the app in, and paste the link into its address bar.** Copy it
+   rather than tapping it: a tapped link opens in whatever the device treats as the default
+   browser, and the link is used up by whichever browser opens it.
 
-3. **Check you can see your work**, before anything else can confuse the picture. If this step
-   fails, nothing after it will make sense.
+3. **Check you can see your work.** The app inherits this browser's session, so this is what
+   there is to get right.
 
-4. **Install it from the browser's own menu.** It is never a control on the page:
+4. **Install it from the browser's own menu**, which is where every browser keeps this:
 
    | | |
    | --- | --- |
@@ -86,32 +84,24 @@ the browser needs to do it.
    | Chrome, Edge, Samsung Internet on Android | menu → **Install app** |
    | Safari on iPhone or iPad | share → **Add to Home Screen** |
 
-5. **Open it from the home screen.** It should come up already signed in, in a window of its
-   own, with no address bar.
+5. **Open it from the home screen.** It comes up signed in, in a window of its own, with no
+   address bar.
 
-**Signing in before installing is what makes step 5 uneventful.** The installed app shares the
-browser's cookies, so in that order there is nothing left to do. The other order works and is
-more confusing: the first thing you see is *You are not signed in*, which looks like the install
-having failed when it has not.
+**Some browsers write a bookmark instead of installing an app**, and Brave is one: making a
+real installed app on Android means the browser asking a server to build one, which not every
+browser does. You get a browser-badged icon that opens in a tab. It goes to the same place; what
+it does not bring is the separate window, the launcher entry and the app switcher.
 
-**A browser-badged icon that opens in a tab is a shortcut rather than an app**, and it is worth
-knowing the difference before deciding something is broken. Making a real installed app on
-Android involves the browser asking a server to build one, and browsers that do not use that
-service — Brave among them — write a bookmark instead. It goes to the same place and works the
-same way; what you do not get is the separate window, the launcher entry and the app switcher.
+**It needs the network, exactly like the page does.** Everything you see comes from the
+instance, so there is nothing stored on the device and no offline mode.
 
-**It needs the network, exactly like the page does.** Nothing is stored on the device and there
-is no offline mode: everything you see comes from the instance, so an app that could open
-without it would only ever show you an empty list. That is a decision rather than an omission.
+**Use a browser that remembers you.** Firefox Focus and anything else that erases cookies when
+you leave will need a fresh sign-in link every time, and a link works once and lasts half an
+hour.
 
-**What we have actually checked**: a real Chromium reads the manifest without complaint and
-reports nothing standing in the way of installing. **Everything else here is the browsers doing
-what they document**, and we do not test them — if yours does something different, that is worth
-telling us rather than assuming you did it wrong.
-
-**A private browser that forgets everything cannot hold a session.** Firefox Focus and anything
-like it erase cookies when you leave, and a sign-in works once and lasts half an hour — so you
-would be signing in again every time you opened it. Use an ordinary browser for this one.
+**What we have checked ourselves**: a real Chromium reads the manifest without complaint and
+reports nothing standing in the way of installing. The rest is each browser doing what it
+documents, and we do not test them — tell us if yours does something else.
 
 **Signing out is the same as in a tab**: the **Sign out** control on the page, or ask whoever
 runs the instance to run `subroutine login revoke` for you, which ends every browser and every
