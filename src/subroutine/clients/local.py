@@ -3208,6 +3208,7 @@ class Client:
 		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		applies_to: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden."""
 
@@ -3234,6 +3235,7 @@ class Client:
 				actor=actor,
 				applies_to=applies_to,
 				settings=self.settings,
+				expected_version=expected_version,
 				**changes,
 			)
 

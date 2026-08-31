@@ -451,7 +451,14 @@ def test_the_agenda_can_be_asked_about_another_day (
 	assert "Today" in ahead and "Next 7 days" not in ahead, (
 		"asked about tomorrow, tomorrow's deadline is today's work"
 	)
-	assert "Aug" in ahead.splitlines()[0], (
+	# **The month comes from the same clock the command read, never from a literal** (`SR#1699`).
+	# This asserted `"Aug"`, which was true for thirty days and false on the thirty-first —
+	# tomorrow is `Tue 1 Sep` then, and the failure lands inside whoever's change happens to be
+	# running, reading as a regression in it. The claim is that the day being shown is *named*,
+	# so the expected month is derived from the day being shown.
+	tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+
+	assert tomorrow.strftime("%b") in ahead.splitlines()[0], (
 		f"the day being shown is named first, or Overdue reads as a fault: {ahead}"
 	)
 
@@ -1773,6 +1780,57 @@ def test_update_leaves_alone_what_it_was_not_asked_about (
 	run("update", "1", "--estimate", "")
 
 	assert "2h" not in run("show", "1").output
+
+
+def test_a_quoted_version_refuses_a_change_that_would_overwrite_somebody (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1696`, §8.9, brought to the terminal as an option rather than as a default.
+
+	**Why it cannot be automatic here.** ``subroutine update`` resolves its ref through
+	``_a_task``, which is a fresh read in the *same* invocation — so a version taken from
+	there would be milliseconds old and would pass whatever landed while somebody was
+	thinking. There is no session at a command line and nothing is held between invocations,
+	so the only number that spans the gap is one a person carries by hand. A default-on check
+	would catch a round-trip race and be blind to the collision this exists for.
+
+	**The number comes from ``show --json``**, not from the plain command: §1.4 does not print
+	a field nobody set, and a version is machinery rather than something anybody chose.
+
+	Both halves are asserted, because the refusal alone would pass against a version that
+	refuses *after* writing — and writing-then-refusing is what makes a row unrepairable rather
+	than merely wrong (`SR#1561`'s rule).
+	"""
+
+	run("init")
+	run("add", "Fix the parser")
+
+	held = json.loads(run("show", "1", "--json").output)["item"]["version"]
+
+	# Somebody else saves while the first reader is thinking.
+	run("update", "1", "--description", "Their careful paragraph")
+
+	refused = run(
+		"update", "1", "--description", "Mine, written from the old text.",
+		"--expected-version", str(held), expect=1,
+	)
+
+	assert "has changed since you read it" in refused.output, refused.output
+
+	kept = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert kept["description"] == "Their careful paragraph", (
+		"the change was refused and applied anyway"
+	)
+
+	# **Opt-in, and this half is the regression guard**: `None` means *did not ask*, never
+	# *asked and passed*, so a caller who leaves the option out writes exactly as before. That
+	# is what makes this shippable without announcing a behaviour change.
+	run("update", "1", "--description", "Sent without a version.")
+
+	assert json.loads(run("show", "1", "--json").output)["item"]["description"] == (
+		"Sent without a version."
+	)
 
 
 def test_update_with_no_field_named_refuses_rather_than_doing_nothing (
@@ -8066,7 +8124,17 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: :func:`subroutine.cli.personal._what_moved`. **The eighth payment, and the second where the
 #: ratchet fired before anything moved**; extracting the body rather than trimming the option is
 #: what makes the next option on that command free.
-REGISTER_CEILING = 1_567
+#:
+#: **1,567 → 1,500 on 2026-08-31, the ninth payment** (`SR#1696`). ``update`` gained
+#: ``--expected-version`` and the ratchet fired fourteen over, which is the instalment above
+#: arriving again on the same command. What paid it is the ninety-nine lines that decided
+#: *which options were actually named* — fifteen sentinels, each meaning *unset* differently —
+#: leaving as :func:`subroutine.cli.personal._named_changes`.
+#:
+#: **Trimming the new option instead was the available shortcut and is the wrong move**: it
+#: buys one option and leaves the next one at the same wall, which is the ratchet being worked
+#: around rather than paid.
+REGISTER_CEILING = 1_500
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -8098,7 +8166,7 @@ REGISTER_CEILING = 1_567
 #: left to pay for its declaration. **That is the arrangement working as designed rather than
 #: being worked around**: the bill for a new command is an extraction, so what is added is paid
 #: for instead of accumulated.
-MODULE_LEVEL_FLOOR = 188
+MODULE_LEVEL_FLOOR = 190
 
 
 def _register_span () -> tuple[int, int]:

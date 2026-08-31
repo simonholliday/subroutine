@@ -365,6 +365,23 @@ That record is the point. Somebody — possibly you, last week — wrote down wh
 attempted and what happened, and reading it is cheaper than repeating it. A ref names a task
 *or* a document, so this is also how you read a decision somebody pointed you at.
 
+**Note the version, and send it back when you write.** `subroutine_show` reports one — `version
+7` — and both `subroutine_update` and `subroutine_document` take it as `expected_version`:
+
+```
+subroutine_update(ref=42, description="...", expected_version=7)
+```
+
+If somebody saved while you were reading and thinking, the change is turned down and nothing is
+written. Without it your write lands on top of theirs, you are told it succeeded, and nothing
+anywhere records that their edit existed.
+
+**This is your problem far more than a person's.** Somebody editing in a browser has the item
+in front of them and is told when it moves; you read it, spend two minutes reasoning, and write
+into a gap you cannot see. It costs nothing to send — you already have the number from the read
+you just did — and a revision is where it matters most, because replacing a body loses whole
+paragraphs rather than one field.
+
 **Filing something is a complete act on its own.** Most of the time you file work you are
 about to do, so it is visible while it is happening rather than afterwards — but the commoner
 case in a working conversation is that somebody has just told you about a problem, and what

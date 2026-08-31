@@ -76,6 +76,28 @@ upgrade involves.
   > build of this offers no install on most devices, and nothing anywhere says why — the
   > manifest parses, no request fails, and the menu item is simply absent.
 
+- **A change can refuse to overwrite what somebody else saved.** `subroutine update` takes
+  `--expected-version`, and the `subroutine_update` tool takes `expected_version`. If the task
+  has moved on since the version you quote, the change is turned down and nothing is written:
+
+  ```
+  subroutine update 42 --description "..." --expected-version 7
+  ```
+
+  The browser has worked this way since it could edit an item and needs nothing from you: the
+  form carries the version it was opened with, and a save that lost the race says *Somebody
+  else saved this while you were editing* rather than quietly winning.
+
+  **It is offered, not imposed.** Leave it out and the change behaves exactly as before, so
+  nothing that already calls either surface starts failing. What decides whether it is worth
+  sending is whether you have been reading or thinking since: an agent that read a task, spent
+  two minutes on it and is now writing is the case this exists for.
+
+  The number comes from `subroutine show <ref> --json` at the terminal, and from
+  `subroutine_show` through the tools — which reports it now, where before it reported none.
+  That was worth fixing on its own: `subroutine_document` has asked callers to send *the
+  version subroutine_show gave you* since 0.8.6, and no tool gave them one.
+
 ### Changed
 
 - **A browser you are using stays signed in.** The fortnight is now counted from the last time

@@ -979,6 +979,28 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 							"it too. Required then, refused otherwise."
 						),
 					},
+					# **The surface where the other writer is never in the room** (`#1696`,
+					# §8.9). An agent reads a task, reasons for two minutes and writes — which
+					# is the long read-modify-write cycle §8.9 was written for, and the version
+					# is already in its context from `subroutine_show`. Without this the write
+					# lands over whatever arrived in between, the agent is told it succeeded,
+					# and nothing anywhere records that somebody's edit was destroyed.
+					#
+					# **Offered rather than required**, Simon's decision of 2026-08-31. `None`
+					# means *did not ask*, so a one-field change stays one call; requiring it
+					# would make every update cost a read first, which is a price paid by every
+					# caller for a collision most of them cannot have.
+					#
+					# **`subroutine_document` has taken this since `#842`** and this is the
+					# same guarantee one entity along, so the word is the same word — a caller
+					# moving between the two tools, or between here and HTTP, meets one name.
+					"expected_version": {
+						"type": "integer",
+						"description": (
+							"Refuse the change if the task has changed since you read it. "
+							"Send the version subroutine_show gave you."
+						),
+					},
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -2459,6 +2481,19 @@ def _shown (
 	if more := _more(found):
 		parts.append("  ".join(more))
 
+	# **The number `expected_version` asks for, on the tool its own description names**
+	# (`#1697`, §8.9). `subroutine_document` has told an agent to *"send the version
+	# subroutine_show gave you"* since `#842` shipped on 2026-08-27, and until now this
+	# reported no version anywhere — so the guard was declared, enforced, correct, and its one
+	# input could not be obtained on the surface that offered it. The document test passed
+	# because it hardcoded `1`, which is what a freshly written item happens to be.
+	#
+	# **Not in `_more`, whose rule is that every entry is something somebody *chose*.** A
+	# version is machinery, and `#674`'s guard compares that helper against the terminal's —
+	# where this is deliberately absent, because §1.4 does not print a field nobody set. The
+	# comparison runs one way, so the agent may be told more; a person may not.
+	parts.append(f"version {found.version}")
+
 	body = (
 		found.description if isinstance(found, subroutine.views.Task) else found.body
 	)
@@ -3798,8 +3833,26 @@ def _updated (
 	# question on the edit and not on the move would leave the whole point unreachable.
 	applies_to = _text(arguments, "applies_to")
 
+	# **The check goes on the first write and never on both** (`#1696`, §8.9). A call naming
+	# both a field and a day makes two requests, and the first of them moves the version — so
+	# repeating it on the second would refuse the caller for their own edit, every time, which
+	# is a guard that fires only on the innocent.
+	#
+	# **Which call is first depends on what was named**, which is why this is computed rather
+	# than written at one of the two sites: with no ordinary fields there is no ``update`` and
+	# the whole write is the ``schedule``. Sending it only to ``update`` would drop the request
+	# silently for a caller who asked to be guarded while moving a date, and :func:`_version`'s
+	# own rule is that dropping it is worse than never offering it.
+	guarding = _version(arguments)
+
 	changed = (
-		client.update(ref=ref, workspace=workspace, applies_to=applies_to, **changes)
+		client.update(
+			ref=ref,
+			workspace=workspace,
+			applies_to=applies_to,
+			expected_version=guarding,
+			**changes,
+		)
 		if changes
 		else client.task(ref=ref, workspace=workspace)
 	)
@@ -3834,7 +3887,12 @@ def _updated (
 			)
 
 		changed = client.schedule(
-			ref=ref, workspace=workspace, applies_to=applies_to, **sending
+			ref=ref,
+			workspace=workspace,
+			applies_to=applies_to,
+			# ``None`` when ``update`` above already spent it — see ``guarding``.
+			expected_version=None if changes else guarding,
+			**sending,
 		)
 
 	if changed is None:

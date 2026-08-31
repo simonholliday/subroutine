@@ -1773,6 +1773,7 @@ class Client:
 		ends: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		snooze: datetime.datetime | datetime.date | None = subroutine.clients.base.UNSET,
 		applies_to: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Set when a task begins, or the day it stops being hidden.
 
@@ -1801,7 +1802,10 @@ class Client:
 			"PATCH",
 			f"/v1/tasks/{ref}",
 			params=_given(workspace_id=workspace),
-			json=changes,
+			# ``_asked`` rather than ``changes`` directly, for the reason its own docstring
+			# gives: ``expected_version: None`` in a §8.3 body would read as *clear it*, so the
+			# key is added only when there is one to add.
+			json=_asked(changes, expected_version),
 		)
 
 		return self._parsed(subroutine.views.Task, body)

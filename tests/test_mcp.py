@@ -1162,7 +1162,24 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: the cold review that raised this measured 13,720 bytes against the 14,358 here, from the
 #: same tree. It is a fact about our source read through a fixed fixture, exactly as
 #: ``REGISTER_CEILING`` is, and never a number to quote as what a session costs.
-TOOL_BYTE_CEILING = 14_358
+#:
+#: **14,358 → 14,521 on 2026-08-31, and what 163 bytes bought** (`SR#1696`):
+#: ``subroutine_update`` gained ``expected_version``, so an agent that read a task, reasoned
+#: and is now writing can refuse to land on top of whatever arrived in between. Before it, that
+#: write went through, the agent was told it succeeded, and nothing recorded that somebody's
+#: edit had been destroyed.
+#:
+#: **§21.2's test is *what would an agent get wrong without it*, and this is the sharpest
+#: answer of the three raises so far**: not a capability it lacks but a guarantee it cannot
+#: ask for, on the one surface where the other writer is never in the room. ``subroutine_document``
+#: has carried the same argument since `SR#842`.
+#:
+#: **The schemas were read for fat first, and the fat was found somewhere better.** The saving
+#: available here was trimming the new description; what was taken instead was `SR#1697` — no
+#: tool reported a version at all, so the argument would have been unusable and the bytes spent
+#: on a control nobody could reach. Reading for fat found a defect rather than a saving, which
+#: is `SR#1129`'s pattern: a byte budget is worth keeping because of what re-reading turns up.
+TOOL_BYTE_CEILING = 14_521
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -7163,6 +7180,195 @@ def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
 	)
 
 	assert not failed, current
+
+
+def test_the_version_a_guard_asks_for_is_one_this_surface_reports (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1697`. A control whose one input cannot be obtained where it is offered.
+
+	``subroutine_document`` has told an agent to *"send the version subroutine_show gave you"*
+	since `SR#842` shipped on 2026-08-27, and no tool in the catalogue reported a version
+	anywhere — measured across ``subroutine_show``, the same with ``history``,
+	``subroutine_list`` and ``subroutine_update``'s own echo. So the guard was declared,
+	enforced, correct, and unreachable except through ``subroutine_call_api``.
+
+	**Fourth of the declared-and-inert family** after `SR#247`, `SR#251` and `SR#303`, and the
+	worst-shaped: nothing is wrong at any one site. The schema is right, the comparison is
+	right, and the sentence joining them is false.
+
+	**It survived because the guard's own test supplied the input.** `SR#842`'s test passes
+	``expected_version=1``, which is what a freshly written item happens to be — proving the
+	comparison works and saying nothing about whether a caller could ever hold a 1.
+
+	**Driven end to end rather than asserted of the renderer**, because that is the claim: read
+	the number the way an agent must, then spend it on a write, and require the write to be
+	refused. A test that only greps ``show`` for a digit would pass on a version that is
+	reported but wrong.
+	"""
+
+	ref = _added(bound, "Ship the parser")
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+
+	numbered = re.search(r"version (\d+)", shown)
+
+	assert numbered is not None, (
+		f"subroutine_show reports no version, so nothing an agent can call gives it the "
+		f"number expected_version asks for:\n{shown}"
+	)
+
+	held = int(numbered.group(1))
+
+	# Somebody else saves, so the number the agent is holding is now the *previous* one.
+	between, failed = _called(
+		bound, "subroutine_update", ref=ref, description="Their careful finding."
+	)
+
+	assert not failed, between
+
+	# **The number has to be the one the guard compares against**, which is what makes this a
+	# test of the reported value rather than of the pattern that found it. A renderer printing
+	# a plausible but wrong version passes every check above and fails here.
+	stale, failed = _called(
+		bound, "subroutine_update", ref=ref, description="Mine.", expected_version=held
+	)
+
+	assert failed, (
+		f"the version subroutine_show reported was not the one the write compares "
+		f"against:\n{stale}"
+	)
+
+
+def test_an_agent_can_refuse_to_overwrite_a_task_somebody_else_saved (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1696`, §8.9, on the surface where the other writer is never in the room.
+
+	**This is the long read-modify-write cycle §8.9 was written for.** An agent reads a task,
+	reasons for two minutes, and writes — and the version it needs is already in its context
+	from ``subroutine_show``. Before this it had no way to send it, so the write landed over
+	whatever arrived in between, the agent was told it succeeded, and nothing anywhere recorded
+	that somebody's edit had been destroyed.
+
+	**The terminal is a different problem and is deliberately not solved the same way.**
+	``subroutine update`` resolves its ref with a fresh read in the same invocation, so a
+	version taken from there would be milliseconds old and would pass whatever happened while
+	somebody was thinking. There is no session at a command line, so the only number that spans
+	the gap is one a person carries by hand — which is what ``--expected-version`` is for.
+
+	**Offered rather than required**, Simon's decision of 2026-08-31: requiring it would make
+	every one-field change cost a read first, a price paid by every caller for a collision most
+	of them cannot have.
+	"""
+
+	ref = _added(bound, "Ship the parser")
+
+	# What the agent read. Version 1, because nothing has touched it since it was filed.
+	first, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, first
+
+	# Somebody else saves in between — unguarded, because they read it after the agent did.
+	between, failed = _called(
+		bound, "subroutine_update", ref=ref, description="Their careful finding."
+	)
+
+	assert not failed, between
+
+	stale, failed = _called(
+		bound,
+		"subroutine_update",
+		ref=ref,
+		description="Mine, written from the old text.",
+		expected_version=1,
+	)
+
+	assert failed, f"the agent's stale write was accepted:\n{stale}"
+
+	kept, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert "Their careful finding." in kept, kept
+
+	# **Opt-in, which §8.9 requires**: ``None`` is *did not ask*, never *asked and passed*. An
+	# agent that omits it writes exactly as it did before, so nothing already calling this tool
+	# starts failing — which is the whole of what makes this change safe to ship unannounced.
+	current, failed = _called(
+		bound, "subroutine_update", ref=ref, description="Sent without a version."
+	)
+
+	assert not failed, current
+
+
+def test_a_guarded_write_is_guarded_even_when_only_a_date_is_changing (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1696`. The path where the version had nowhere to go, and would have been dropped.
+
+	**One tool reaches two endpoints.** ``subroutine_update`` sends ordinary fields through
+	``client.update`` and days through ``client.schedule``, because §12.2's ``plan`` and
+	``defer`` are their own verbs — so a call naming *only* a date never touches ``update`` at
+	all. ``schedule`` did not take a version, so wiring the check into ``update`` alone would
+	have accepted this silently.
+
+	**That is the exact failure §8.9 exists to prevent**, stated in ``_version``'s own
+	docstring: a caller who believes a write was guarded when it was not is worse off than one
+	never offered the guard. Both writes go to the same ``PATCH /v1/tasks/{ref}``, which has
+	always accepted the check — only the client method was missing it.
+
+	**Falsified against the wiring rather than against the feature.** Passing ``None`` to
+	``schedule`` leaves every assertion in the test above green and lets this one through, so
+	the two tests cover different halves and neither is carried by the other.
+	"""
+
+	ref = _added(bound, "Ship the parser")
+	held = 1
+
+	between, failed = _called(
+		bound, "subroutine_update", ref=ref, description="Their careful finding."
+	)
+
+	assert not failed, between
+
+	stale, failed = _called(
+		bound, "subroutine_update", ref=ref, plan="tomorrow", expected_version=held
+	)
+
+	assert failed, f"a date-only write dropped the version it was given:\n{stale}"
+	assert "version" in stale.lower(), stale
+
+	# **And the version is spent once, not twice.** A call naming a field *and* a date makes
+	# two requests and the first moves the version — so repeating the check on the second would
+	# refuse the caller for their own edit. Sending the current version must therefore succeed
+	# with both kinds named, which is the assertion that stops the fix being "send it to both".
+	fresh, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, fresh
+
+	# **Read out of the answer rather than assumed, and that is the whole point of the line.**
+	# The first version of this test fell back to a hardcoded 2 when the pattern missed, and it
+	# passed — which is how `#1697` was found: no tool reported a version at all, so nothing an
+	# agent could call would have given it this number. A test that supplies the input its
+	# subject is supposed to obtain proves the comparison and nothing about the wiring.
+	numbered = re.search(r"version (\d+)", fresh)
+
+	assert numbered is not None, (
+		f"subroutine_show reports no version, so an agent cannot obtain the number "
+		f"expected_version asks it to send:\n{fresh}"
+	)
+
+	together, failed = _called(
+		bound,
+		"subroutine_update",
+		ref=ref,
+		description="Merged.",
+		plan="tomorrow",
+		expected_version=int(numbered.group(1)),
+	)
+
+	assert not failed, f"a field and a date together refused the caller's own edit:\n{together}"
 
 
 def test_a_version_that_is_not_a_number_is_refused_rather_than_dropped (

@@ -1594,12 +1594,21 @@ class Client(typing.Protocol):
 		ends: datetime.datetime | datetime.date | None = UNSET,
 		snooze: datetime.datetime | datetime.date | None = UNSET,
 		applies_to: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task:
 		"""Set the day a task is planned for, or the day it becomes visible.
 
 		``applies_to`` is decision `#1249`'s answer — ``"this_one"`` or ``"from_now_on"``.
 		**Moving a repeating item is the case the whole story was filed for**, so this is not
 		the optional extra it looks like beside the three dates.
+
+		**``expected_version`` is here so that a caller cannot be silently unguarded** (`#1696`,
+		§8.9). This is the same ``PATCH /v1/tasks/{ref}`` :meth:`update` reaches and it has
+		always accepted the check; what made this needed is that a surface offering the
+		argument may reach *either* method depending on which fields were named. Without it,
+		asking to be guarded while changing only a date would drop the request on the floor —
+		and a caller who believes a write was guarded when it was not is worse off than one
+		never offered the guard.
 		"""
 
 	def close (self) -> None:

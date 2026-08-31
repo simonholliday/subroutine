@@ -2634,6 +2634,20 @@ def _hidden (
 		_suggest(program.console, "subroutine agenda")
 
 
+class Ending(typing.TypedDict, total=False):
+	"""What ``--until`` contributes to a scheduling call: an end, or nothing at all.
+
+	**Named rather than left as a ``dict[str, ...]``**, because it is splatted into
+	:meth:`schedule` and a loose mapping tells the type checker to look away at exactly the
+	call it is describing. That became load-bearing when ``schedule`` grew ``expected_version``
+	(`SR#1696`): a wide value type made a version argument look reachable from this splat, and
+	mypy said so. ``total=False`` is the first of the three states below — *not given* is the
+	absence of the key, which is what makes it expressible at the call site at all.
+	"""
+
+	ends: datetime.date | datetime.datetime | None
+
+
 def _until (
 	world: World,
 	written: str,
@@ -2642,7 +2656,7 @@ def _until (
 	at: "Located",
 	task: subroutine.views.Task,
 	timezone: str,
-) -> dict[str, datetime.date | datetime.datetime | None]:
+) -> Ending:
 	"""Return what to pass a client for ``--until``: nothing, a day, or an explicit clear.
 
 	**Three states, and a flag can only carry two of them without this.** ``UNSET`` and
@@ -8402,6 +8416,12 @@ def register (
 		),
 		just_this_one: bool = JUST_THIS_ONE_OPTION,
 		from_now_on: bool = FROM_NOW_ON_OPTION,
+		expected_version: int = typer.Option(
+			UNGIVEN_NUMBER,
+			"--expected-version",
+			show_default=False,
+			help="Refuse the change if the task has moved on. See 'show --json'.",
+		),
 		because: str = typer.Option("", "--because", help="Why, recorded against it."),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -8426,107 +8446,31 @@ def register (
 		A repeat belongs to the series rather than to the one in front of you, so changing it
 		changes every occurrence after this one. '--repeat ""' stops it: the work in hand keeps
 		its number and its history, and nothing follows it.
+
+		'--expected-version' turns the change down if somebody has saved since. The number comes
+		from 'subroutine show 42 --json', which is where a script reads it; the plain command
+		does not print it, because a version is machinery rather than something you set. Without
+		it the last save wins and the other person's edit goes with no record that it happened.
 		"""
 
-		changes: dict[str, typing.Any] = {}
-
-		# Written out rather than looped, because each of these decides *not given* differently
-		# and a loop would hide that: a title cannot be blank, a description and an estimate can
-		# be cleared by passing nothing, and a number has no empty string to be given.
-		if title:
-			changes["title"] = title
-
-		if description is not UNGIVEN:
-			changes["description"] = description or None
-
-		if estimate is not UNGIVEN:
-			changes["estimate"] = estimate or None
-
-		if remind is not UNGIVEN:
-			changes["reminder"] = remind or None
-
-		if importance != UNGIVEN_NUMBER:
-			changes["importance"] = importance
-
-		if urgency != UNGIVEN_NUMBER:
-			changes["urgency"] = urgency
-
-		if kind:
-			changes["type"] = kind
-
-		if status:
-			changes["status"] = status
-
-		# **Handing work over, which is the whole of `#493` and the reason it ranked where it
-		# did.** A task could be assigned when it was filed — §6.13's `@name` has always worked
-		# — and never afterwards, so work could not be passed between two people or two agents
-		# once it was under way. An empty string leaves it with nobody, which is how something
-		# is handed back without being handed to anybody in particular.
-		if assignee is not UNGIVEN:
-			changes["assignee"] = assignee or None
-
-		# Comma-separated, because a repeated option would make "no tags" impossible to say —
-		# and replacing rather than adding is what §8.3 means by a field, here and in the API.
-		if tags is not UNGIVEN:
-			changes["tags"] = [
-				word.strip() for word in tags.split(",") if word.strip()
-			]
-
-		if due is not UNGIVEN:
-			changes["due"] = due or None
-
-		# Sent on its own as well as beside a date: the zone a deadline is *read* in can be
-		# wrong while the date is right, and §6.4 keeps the two separate for that reason.
-		if timezone is not UNGIVEN:
-			changes["timezone"] = timezone or None
-
-		# **Editing a repeat, which a captured line can never do** (`#94`, Simon's direction of
-		# 2026-08-16). The grammar reads one out of a sentence at creation and that is the fast
-		# path — but a line only ever *makes* one, so before this the only way to change how
-		# something came round was the API. Empty stops the series, which `stop_repeating`
-		# explains is completing the template rather than clearing a column.
-		if repeat is not UNGIVEN:
-			changes["recurrence"] = repeat.strip() or None
-
-		# **Sent on its own as well as beside a rule**, exactly as `--timezone` is beside a date
-		# and for the same reason: *how often* can be right while *measured from where* is
-		# wrong, and re-sending a rule in order to change the field next to it is how a rule
-		# gets retyped slightly differently. `#918` is what made that reach anything.
-		if repeat_from is not UNGIVEN:
-			# **No empty form, unlike every sentinel above it.** Those clear a field that can
-			# legitimately hold nothing; a series always measures from *somewhere*, so there is
-			# no state for this to clear to — and passing it empty would reach the service as
-			# *not given*, which answers "Changed" having changed nothing. `#918`, met once
-			# already today, one layer up.
-			if not repeat_from.strip():
-				stop(
-					"A repeat is always measured from something.",
-					"Say --repeat-from schedule or --repeat-from completion, or use "
-					"--repeat '' to stop it repeating at all.",
-				)
-
-			changes["recurrence_anchor"] = repeat_from.strip()
-
-		# **Moving between projects, which `update` could not do until `#169`.** The endpoint
-		# has taken it since `#43`; I added this command without it, and the sequence a new
-		# user actually performs — accumulate tasks, notice a theme, make a project, file them
-		# — dead-ended at the last step.
-		if project:
-			# Passed as typed: `projects.normalize_key` in the service decides the stored
-			# form, and a second opinion here is a copy of that rule free to disagree with
-			# it — which is exactly what happened when the rule changed (`#508`).
-			changes["project"] = project.strip()
-
-		# **A refusal rather than a cheerful no-op**, matching the MCP tool: somebody who ran
-		# this and named no field meant to change something, and "unchanged" would hide the
-		# mistake at exactly the moment it could still be corrected.
-		if not changes:
-			stop(
-				"Nothing to change.",
-				"Name a field: --title, --description, --importance, --urgency, "
-				"--estimate, --type, --status or --repeat.",
-			)
-
+		changes = _named_changes(
+			program,
+			title=title,
+			description=description,
+			estimate=estimate,
+			remind=remind,
+			importance=importance,
+			urgency=urgency,
+			kind=kind,
+			status=status,
+			assignee=assignee,
+			tags=tags,
+			due=due,
+			timezone=timezone,
+			repeat=repeat,
+			repeat_from=repeat_from,
+			project=project,
+		)
 		_changed(
 			program,
 			which=which,
@@ -8535,6 +8479,9 @@ def register (
 			as_json=json_output,
 			just_this_one=just_this_one,
 			from_now_on=from_now_on,
+			expected_version=(
+				None if expected_version == UNGIVEN_NUMBER else expected_version
+			),
 		)
 
 	@app.command()
@@ -8985,6 +8932,144 @@ def register (
 	return show_today, selected
 
 
+def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.Any]:
+	"""Return the fields a caller actually named, from options that each mean *unset* differently.
+
+	**Out of `register`'s closure to pay for an option that grew it** (`#943`'s ratchet,
+	met by `SR#1005`, `SR#1215`, `SR#1430` and now `SR#1696`). The bill for a new command
+	arrives for an *option* on an existing one too, in smaller instalments, and the remedy
+	the ratchet names is the same: what can leave the closure, leaves.
+
+	Nothing here needs the closure. It reads fifteen option values and returns a dict, so
+	the one thing it did need — the closure's `stop` — is `program.stop` now, exactly as
+	`release`'s extracted body found before it.
+
+	**Taken as ``**given`` rather than as fifteen keyword parameters.** They are read by
+	name below and every one is a Typer option whose type is decided at the declaration, so
+	spelling them again here would be a second copy of that list free to disagree with it —
+	and a signature nobody could read. What makes that safe is that the caller is the single
+	command these belong to, and a name this does not read is a name it does not write.
+	"""
+
+	title = given["title"]
+	description = given["description"]
+	estimate = given["estimate"]
+	remind = given["remind"]
+	importance = given["importance"]
+	urgency = given["urgency"]
+	kind = given["kind"]
+	status = given["status"]
+	assignee = given["assignee"]
+	tags = given["tags"]
+	due = given["due"]
+	timezone = given["timezone"]
+	repeat = given["repeat"]
+	repeat_from = given["repeat_from"]
+	project = given["project"]
+
+	changes: dict[str, typing.Any] = {}
+
+	# Written out rather than looped, because each of these decides *not given* differently
+	# and a loop would hide that: a title cannot be blank, a description and an estimate can
+	# be cleared by passing nothing, and a number has no empty string to be given.
+	if title:
+		changes["title"] = title
+
+	if description is not UNGIVEN:
+		changes["description"] = description or None
+
+	if estimate is not UNGIVEN:
+		changes["estimate"] = estimate or None
+
+	if remind is not UNGIVEN:
+		changes["reminder"] = remind or None
+
+	if importance != UNGIVEN_NUMBER:
+		changes["importance"] = importance
+
+	if urgency != UNGIVEN_NUMBER:
+		changes["urgency"] = urgency
+
+	if kind:
+		changes["type"] = kind
+
+	if status:
+		changes["status"] = status
+
+	# **Handing work over, which is the whole of `#493` and the reason it ranked where it
+	# did.** A task could be assigned when it was filed — §6.13's `@name` has always worked
+	# — and never afterwards, so work could not be passed between two people or two agents
+	# once it was under way. An empty string leaves it with nobody, which is how something
+	# is handed back without being handed to anybody in particular.
+	if assignee is not UNGIVEN:
+		changes["assignee"] = assignee or None
+
+	# Comma-separated, because a repeated option would make "no tags" impossible to say —
+	# and replacing rather than adding is what §8.3 means by a field, here and in the API.
+	if tags is not UNGIVEN:
+		changes["tags"] = [
+			word.strip() for word in tags.split(",") if word.strip()
+		]
+
+	if due is not UNGIVEN:
+		changes["due"] = due or None
+
+	# Sent on its own as well as beside a date: the zone a deadline is *read* in can be
+	# wrong while the date is right, and §6.4 keeps the two separate for that reason.
+	if timezone is not UNGIVEN:
+		changes["timezone"] = timezone or None
+
+	# **Editing a repeat, which a captured line can never do** (`#94`, Simon's direction of
+	# 2026-08-16). The grammar reads one out of a sentence at creation and that is the fast
+	# path — but a line only ever *makes* one, so before this the only way to change how
+	# something came round was the API. Empty stops the series, which `stop_repeating`
+	# explains is completing the template rather than clearing a column.
+	if repeat is not UNGIVEN:
+		changes["recurrence"] = repeat.strip() or None
+
+	# **Sent on its own as well as beside a rule**, exactly as `--timezone` is beside a date
+	# and for the same reason: *how often* can be right while *measured from where* is
+	# wrong, and re-sending a rule in order to change the field next to it is how a rule
+	# gets retyped slightly differently. `#918` is what made that reach anything.
+	if repeat_from is not UNGIVEN:
+		# **No empty form, unlike every sentinel above it.** Those clear a field that can
+		# legitimately hold nothing; a series always measures from *somewhere*, so there is
+		# no state for this to clear to — and passing it empty would reach the service as
+		# *not given*, which answers "Changed" having changed nothing. `#918`, met once
+		# already today, one layer up.
+		if not repeat_from.strip():
+			program.stop(
+				"A repeat is always measured from something.",
+				"Say --repeat-from schedule or --repeat-from completion, or use "
+				"--repeat '' to stop it repeating at all.",
+			)
+
+		changes["recurrence_anchor"] = repeat_from.strip()
+
+	# **Moving between projects, which `update` could not do until `#169`.** The endpoint
+	# has taken it since `#43`; I added this command without it, and the sequence a new
+	# user actually performs — accumulate tasks, notice a theme, make a project, file them
+	# — dead-ended at the last step.
+	if project:
+		# Passed as typed: `projects.normalize_key` in the service decides the stored
+		# form, and a second opinion here is a copy of that rule free to disagree with
+		# it — which is exactly what happened when the rule changed (`#508`).
+		changes["project"] = project.strip()
+
+	# **A refusal rather than a cheerful no-op**, matching the MCP tool: somebody who ran
+	# this and named no field meant to change something, and "unchanged" would hide the
+	# mistake at exactly the moment it could still be corrected.
+	if not changes:
+		program.stop(
+			"Nothing to change.",
+			"Name a field: --title, --description, --importance, --urgency, "
+			"--estimate, --type, --status or --repeat.",
+		)
+
+
+	return changes
+
+
 def _changed (
 	program: Program,
 	*,
@@ -8994,6 +9079,7 @@ def _changed (
 	as_json: bool,
 	just_this_one: bool = False,
 	from_now_on: bool = False,
+	expected_version: int | None = None,
 ) -> None:
 	"""Apply the fields a caller named to one task, and say what happened.
 
@@ -9027,6 +9113,16 @@ def _changed (
 				)
 			),
 			**changes,
+			# **The version the caller quoted, never one this command read for itself**
+			# (`#1696`, §8.9). ``_a_task`` above resolves the ref with a fresh read, so a
+			# version taken from *there* would be milliseconds old and would pass whatever
+			# happened while somebody was thinking — a guard that reports success for the
+			# case it exists to catch. What is compared is the number a person saw in an
+			# earlier ``subroutine show``, which is the only thing here that spans the gap.
+			#
+			# ``None`` is *did not ask* rather than *asked and passed*, so leaving the option
+			# out behaves exactly as it did before this existed.
+			expected_version=expected_version,
 		)
 		now = dataclasses.replace(located, item=changed)
 
