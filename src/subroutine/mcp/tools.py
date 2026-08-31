@@ -1957,9 +1957,17 @@ def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
 	nothing about ``additionalProperties``. So ``{"created_at.gte": 5}`` reaches here, and this
 	is the only place that can refuse it.
 
-	The *names* are not checked here either. Those belong to ``domain/filtering``'s registry,
-	which lives on the instance — so a misspelled field is refused once, by the side that knows,
-	and a client one release behind can still ask a question its instance understands.
+	**A misspelled *field* is not checked here, and that is still right**: it belongs to
+	``domain/filtering``'s registry, which lives on the instance, so it is refused once by the
+	side that knows and a client one release behind can still ask a question its instance
+	understands.
+
+	**A name that is not filter-shaped at all is a different mistake and is refused here**
+	(`SR#1626`). ``understood`` skips one, because over HTTP the flat names belong to the
+	endpoint and ``api.query.refuse_unknown`` answers for them — but this argument is only ever
+	filters, so nothing else is going to. Measured before the fix: ``filter={"status":
+	"needs_input"}`` returned every row, and **the wrong answer being a superset is why nobody
+	noticed** — a listing that quietly ignores half the question looks like a listing.
 	"""
 
 	given = arguments.get("filter")
@@ -1981,6 +1989,8 @@ def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
 				)
 			],
 		)
+
+	subroutine.domain.filtering.refuse_names_that_are_not_filters(given)
 
 	return dict(given)
 

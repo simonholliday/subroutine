@@ -31,6 +31,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.filtering
 import subroutine.domain.instances
+import subroutine.errors
 
 #: Far enough from "now" that nothing here depends on the hour the suite runs at.
 #:
@@ -840,3 +841,47 @@ def test_a_flat_name_that_is_not_an_alias_is_still_left_alone () -> None:
 	assert subroutine.domain.filtering.understood(
 		[("due_after", "2026-08-03")], entity="document"
 	) == []
+
+
+def test_a_flat_name_is_skipped_here_and_refused_where_nobody_else_owns_it () -> None:
+	"""`SR#1626`. The division of labour, pinned — because the obvious tidy-up breaks HTTP.
+
+	``understood`` **skips** a parameter with no separator, and that is correct on the surface
+	it was written for: over HTTP ``status``, ``limit`` and ``project`` are real query
+	parameters belonging to the endpoint, and ``api.query.refuse_unknown`` refuses the ones
+	nobody declared. Making this function strict would refuse every listing that carries one.
+
+	It is **wrong wherever no such neighbour exists**, which is the terminal's ``--filter`` and
+	the agent surface's ``filter``: those namespaces are only ever filters, so a flat name is
+	nobody's and was being dropped in silence. Both parsers call
+	:func:`refuse_names_that_are_not_filters` first.
+
+	**This is written as one test on purpose.** The two halves are a single decision about who
+	owns what, and asserting them apart is how a later reader comes to believe the skip is a
+	defect — which is what the sentence removed from ``understood``'s docstring encouraged. The
+	comment that said *"nothing is quietly ignored"* was true of one caller and read as a claim
+	about the program.
+	"""
+
+	# The mixed namespace: skipped, not refused, so an endpoint's own parameters survive.
+	assert subroutine.domain.filtering.understood(
+		[("status", "open"), ("created_at.gte", "yesterday")], entity="task"
+	) == subroutine.domain.filtering.understood(
+		[("created_at.gte", "yesterday")], entity="task"
+	), "understood stopped skipping a flat name, which is what HTTP relies on"
+
+	# The namespace that is only filters: refused, by name, with the shape.
+	with pytest.raises(subroutine.errors.ValidationError) as refused:
+		subroutine.domain.filtering.refuse_names_that_are_not_filters(
+			{"status": "open", "created_at.gte": "yesterday"}
+		)
+
+	assert "'status'" in str(refused.value)
+
+	# **An alias survives both**, and it is the case a rule about the separator alone breaks:
+	# `due_before` carries no separator and is a filter.
+	subroutine.domain.filtering.refuse_names_that_are_not_filters({"due_before": "today"})
+
+	assert subroutine.domain.filtering.understood(
+		[("due_before", "today")], entity="task"
+	), "an alias stopped resolving"

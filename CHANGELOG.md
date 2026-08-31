@@ -100,6 +100,27 @@ upgrade involves.
 
 ### Changed
 
+- **A filter that names no operator is refused instead of ignored.** `--filter status=open`
+  and `filter={"status": "open"}` were accepted and dropped, so the listing came back
+  unnarrowed and nothing said the question had not been asked:
+
+  ```
+  $ subroutine list --filter status=open
+  'status' is not a filter.
+    filter: A filter is written field.operator, and 'status' has no operator.
+      Write it as field.operator=value, like created_at.gte=yesterday.
+  ```
+
+  > **This turns a silent no-op into a refusal**, so a script that has been passing a filter
+  > with no operator will now stop rather than quietly return more rows than it asked for.
+  > The rows it was getting were never narrowed, so nothing that relied on the old behaviour
+  > was getting the answer it looked like it was getting.
+
+  A filter that names a field the listing does not have is unchanged — still refused by name,
+  with the fields it does have. Query parameters over HTTP are unchanged too: `status` there is
+  a real parameter of the endpoint, and undeclared ones have been refused by name since 0.8.4.
+
+
 - **A browser you are using stays signed in.** The fortnight is now counted from the last time
   you used it rather than from the moment you signed in, so a browser or an installed app in
   regular use does not sign you out on a schedule. Nothing to configure, and existing sessions

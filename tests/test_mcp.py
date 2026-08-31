@@ -7182,6 +7182,53 @@ def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
 	assert not failed, current
 
 
+def test_a_filter_key_that_names_no_operator_is_refused_rather_than_dropped (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1626`, and the surface it was measured on.
+
+	An agent asked for ``filter={"status": "needs_input"}`` and got fifteen unfiltered rows,
+	then began composing a report from them. **The wrong answer is a superset**, so a listing
+	that ignored half the question looks exactly like a listing that answered it — which is why
+	this survived, and why it matters more here than at a terminal, where a person sees the
+	rows they asked about.
+
+	**Why `understood` cannot be the one to refuse it.** Over HTTP the flat names belong to the
+	endpoint — ``status``, ``limit`` and ``project`` are real query parameters — so it skips a
+	name with no separator and ``api.query.refuse_unknown`` answers for them. That division is
+	correct there; this argument simply has no second owner, so the refusal goes in the parser
+	that owns the whole namespace.
+
+	**Both neighbours are asserted**, because a rule about the separator alone would take out
+	``due_before``, which is flat and is a filter.
+	"""
+
+	_added(bound, "Ordinary work")
+
+	dropped, failed = _called(
+		bound, "subroutine_list", filter={"status": "needs_input"}
+	)
+
+	assert failed, f"a filter key with no operator was ignored:\n{dropped}"
+	assert "not a filter" in dropped, dropped
+
+	# A field the registry does not have keeps its own refusal, which names the vocabulary.
+	unknown, failed = _called(
+		bound, "subroutine_list", filter={"nonsense.gte": "yesterday"}
+	)
+
+	assert failed, unknown
+
+	real, failed = _called(bound, "subroutine_list", filter={"created_at.gte": "yesterday"})
+
+	assert not failed, real
+	assert "Ordinary work" in real, real
+
+	alias, failed = _called(bound, "subroutine_list", filter={"due_before": "2099-01-01"})
+
+	assert not failed, f"'due_before' is a filter and was refused as though it were not:\n{alias}"
+
+
 def test_the_version_a_guard_asks_for_is_one_this_surface_reports (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

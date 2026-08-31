@@ -450,6 +450,63 @@ def timezone_for (
 	)
 
 
+def refuse_names_that_are_not_filters (given: typing.Iterable[str]) -> None:
+	"""Refuse a name that could not be a filter for anything — `SR#1626`.
+
+	**For a caller that owns its whole namespace**, which :func:`understood` deliberately does
+	not. Over HTTP the flat names belong to the endpoint — ``status``, ``limit``, ``project``
+	are real query parameters — so ``understood`` skips a name with no separator and lets
+	``api.query.refuse_unknown`` answer for it. That division is correct there and is the whole
+	of why this function exists somewhere else: a surface whose ``filter`` argument is *only*
+	ever filters has no second owner, so a name that reaches it and is not a filter is nobody's
+	and was being dropped in silence.
+
+	**The wrong answer was a superset**, which is what made it survive. An agent asking for
+	``{"status": "needs_input"}`` got every row back and no indication that its question had
+	been ignored — measured on this instance, fifteen rows where three were true.
+
+	**Shape only, because a parser does not know the entity.** ``created_at.gte`` is filter-
+	shaped everywhere; whether *this* listing has a ``created_at`` is :func:`understood`'s
+	question, and it answers it by name with the vocabulary. So the two refusals are different
+	sentences about different mistakes, and neither is a copy of the other's register.
+
+	**Aliases are taken across every entity**, which is deliberately looser than it could be.
+	``due_before`` is a filter on a task and nothing on a document, and refusing it here would
+	be this function guessing at an entity it was not given — where letting it through means
+	``understood`` names it, for the right listing, with the fields that listing does have.
+	"""
+
+	flat = {
+		name
+		for names in ALIASES.values()
+		for name in names
+	}
+	stray = sorted(
+		name for name in given if SEPARATOR not in name and name not in flat
+	)
+
+	if not stray:
+		return
+
+	named = ", ".join(repr(name) for name in stray)
+
+	raise subroutine.errors.ValidationError(
+		f"{named} is not a filter." if len(stray) == 1 else f"{named} are not filters.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="filter",
+				code="invalid_field_value",
+				message=(
+					f"A filter is written field.operator, and {named} has no operator."
+					if len(stray) == 1
+					else f"A filter is written field.operator, and {named} have none."
+				),
+				hint="Write it as field.operator=value, like created_at.gte=yesterday.",
+			)
+		],
+	)
+
+
 def parsed (given: typing.Iterable[str]) -> dict[str, str]:
 	"""Read ``field.operator=value`` as somebody types it, refusing anything shapeless.
 
@@ -481,6 +538,12 @@ def parsed (given: typing.Iterable[str]) -> dict[str, str]:
 			)
 
 		found[name.strip()] = value.strip()
+
+	# **Before a client is chosen, which is what makes both transports agree** (`SR#1626`).
+	# The terminal's ``--filter`` is only ever filters, so a flat name here is nobody's — and
+	# the local client and the HTTP client would otherwise drop it in two different places for
+	# two different reasons.
+	refuse_names_that_are_not_filters(found)
 
 	return found
 
@@ -546,8 +609,19 @@ def understood (
 
 	**Every parameter carrying the separator belongs to this function**, which is what lets
 	``api/query.refuse_unknown`` keep owning the flat names without either of them holding a
-	list of the other's. A misspelled field is refused *here*, by name, with the vocabulary —
-	so nothing is quietly ignored, which is the property that module exists for.
+	list of the other's. A misspelled field is refused *here*, by name, with the vocabulary.
+
+	**A name with no separator is skipped, and that is only safe where somebody else owns it**
+	(`SR#1626`). This used to say *"so nothing is quietly ignored, which is the property that
+	module exists for"* — a claim about the whole program made from inside the one caller where
+	it happens to hold. Over HTTP it does: ``status`` and ``limit`` are real query parameters
+	and the neighbour above refuses the ones nobody declared. Everywhere else the flat names
+	are nobody's, and skipping them silently widened the answer instead of refusing it.
+
+	So the rule is now stated where it can be kept: a caller whose namespace is *only* filters
+	calls :func:`refuse_names_that_are_not_filters` first — the terminal through :func:`parsed`,
+	and the agent surface through ``mcp.tools._filters``. This function keeps the skip, because
+	the mixed namespace it was written for still needs it.
 
 	**Separate from :func:`predicates` because the two need different things.** Resolving a
 	name needs only the registry, so it can run as a request dependency — before the handler,

@@ -8364,6 +8364,54 @@ def test_a_filter_with_no_equals_is_refused_before_anything_is_asked (
 	assert "created_at.gte=yesterday" in refused, "the refusal did not show the shape"
 
 
+def test_a_filter_that_names_no_operator_is_refused_rather_than_dropped (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1626`. A name with no operator is not a filter, and was being ignored in silence.
+
+	**The wrong answer was a superset**, which is the whole reason it survived: asking for
+	``--filter status=open`` returned the entire listing, so nothing looked broken and a caller
+	could compose a report from rows that had never been narrowed.
+
+	**Refused in :func:`subroutine.domain.filtering.parsed`, before a client is chosen**, which
+	is what makes both transports agree. The terminal's ``--filter`` is only ever filters, so a
+	flat name in it is nobody's — where over HTTP ``status`` is a real query parameter belonging
+	to the endpoint, and ``understood`` skips it there on purpose.
+
+	**The two refusals exit differently and that is not this item's doing.** This one is raised
+	while the line is being read, before any connection is asked, so it stops the command; a
+	field the *registry* does not have is refused per connection by the fan-out, which reports
+	it and carries on. Asserted rather than corrected, so that a later change to either is
+	visible here.
+
+	The neighbouring shapes are asserted alongside, because a refusal that also turned down
+	real filters would pass a test written only about the defect — and ``due_before`` is the
+	one that would break, being flat *and* a filter.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+
+	refused = run("list", "--filter", "status=open", expect=1).output
+
+	assert "'status' is not a filter" in refused, refused
+	assert "created_at.gte=yesterday" in refused, "the refusal did not show the shape"
+
+	# A dotted name nobody declares keeps its own refusal, which names the field and the
+	# vocabulary — a different sentence about a different mistake, and from `understood`.
+	unknown = run("list", "--filter", "nonsense.gte=today").output
+
+	assert "is not a field this endpoint can filter on" in unknown, unknown
+
+	# A real filter still narrows, and an alias is still accepted. `due_before` is flat and is
+	# a filter, so a rule written about the separator alone would have taken it out.
+	assert "Ordinary work" in run("list", "--filter", "created_at.gte=today").output
+
+	alias = run("list", "--filter", "due_before=2099-01-01").output
+
+	assert "is not a filter" not in alias, alias
+
+
 def test_asking_when_something_was_completed_finds_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
