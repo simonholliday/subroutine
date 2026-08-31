@@ -137,6 +137,10 @@ upgrade involves.
 
 ### Fixed
 
+- **The Complete button sits at the right edge of a row again**, so the actions line up in a
+  column instead of starting wherever the last chip left off. Lost by the same edit as the row
+  separator below.
+
 - **Rows in the browser have a line between them again.** A stylesheet comment sat between a
   selector and the rule it belonged to, so the rule that draws the separator matched nothing at
   all — on every list, board and agenda since 0.7.6. Nothing failed, because a stylesheet

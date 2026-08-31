@@ -1270,9 +1270,25 @@ fieldset {
 	correctly had no line above it. The only missing thing was the line between every other
 	pair — which is what made Simon's *Waiting on somebody else* rows run together.
 
-	The rule that lost its body was `.meta .finish { margin-left: auto }`, and restoring it is
-	`#1722`'s other half rather than this one: it moves a control on every card.
+	The rule that lost its body was the one below, restored on Simon's instruction the same day.
 */
+/*
+	**Pushed to the far end, so the actions are one group however many chips precede them.**
+
+	Without it *Complete* sits wherever the last chip left off, so it lands at a different x on
+	every row and a reader hunting for it reads the chips first. `#911` gives the actions their
+	own end of the line for that reason; this is what puts them there.
+
+	**Restored eleven days after it was lost** (`#1722`), on Simon's instruction: it went with
+	the separator when a declaration was deleted off the end of a selector line, and it was
+	held back from that fix rather than slipped in with it, because moving a control on every
+	card, row and agenda line is a thing to look at rather than a tidy-up.
+
+	`.finish` is last in `.meta`, so this pushes it and nothing else — and a row with no
+	*Complete* is untouched, which is every finished one and every occasion.
+*/
+.meta .finish { margin-left: auto; }
+
 .rows li {
 	display: block;
 	border-top: 1px solid var(--line);
