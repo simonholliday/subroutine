@@ -2226,6 +2226,12 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 		r"\s*The database is at (?P<at>\w+)\.\n"
 		r"\s*About to upgrade[^\n]*\n"
 		r"\s*Backed up to (?P<backup>\S+) \([\d,]+ bytes\)\.\n"
+		# **The retention footnote, and it is quoted because it is what the command prints**
+		# (`#1676`). Two fixed lines, so a transcript can carry them verbatim on any machine —
+		# which is why they are two: `_say` wraps at the terminal's width, and one long
+		# sentence would land differently for every reader.
+		r"\s*(?P<retention>Nothing deletes that copy for you[^\n]*)\n"
+		r"\s*(?P<pruning>'subroutine db backup --keep N'[^\n]*)\n"
 		r"\s*Upgraded from (?P<origin>\w+) to (?P<reached>\w+)\.",
 		page,
 	)
@@ -2248,6 +2254,19 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 	assert parts[0] == "subroutine", name
 	assert parts[1] == "default", f"{name} names no instance, and every backup here does"
 	assert parts[-1] == quoted["origin"], f"{name} is not stamped with the revision it holds"
+
+	# **Held against the source rather than against itself.** `#189`'s rule is that a quoted
+	# output is what the program printed, and a regex loose enough to match the line is loose
+	# enough to match a reworded one. These two are fixed strings, so the check is exact: edit
+	# the sentence in `cli/main.py` and this fails until the transcript is brought with it.
+	spoken = (
+		pathlib.Path(subroutine.cli.main.__file__).read_text(encoding="utf-8")
+	)
+
+	for name in ("retention", "pruning"):
+		assert f'_say("{quoted[name]}")' in spoken, (
+			f"the transcript quotes {quoted[name]!r}, which `db upgrade` does not say"
+		)
 
 	published = {
 		release["version"] for release in json.loads(RELEASES.read_text(encoding="utf-8"))["releases"]

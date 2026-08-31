@@ -100,6 +100,20 @@ upgrade involves.
 
 ### Fixed
 
+- **`db upgrade` says that the backup it takes is never removed.** It takes one before every
+  upgrade and prunes nothing, so on a machine that upgrades often the copies accumulate with
+  nothing to notice — until the disk fills, and the symptom is the database refusing writes
+  rather than anything pointing at backups.
+
+  It now says so, and says the other half nobody would guess: `subroutine db backup --keep N`
+  prunes the whole backup directory by age, so it counts these alongside your routine copies —
+  which means an hourly timer can delete the rollback point for the upgrade you did yesterday.
+  Both facts are worth a sentence at the moment the copy is made.
+
+  Bounding the growth properly is a retention rule rather than a flag, and it is not this
+  change: passing a `--keep` to the upgrade would delete your *routine* backups as a side
+  effect of upgrading, which an upgrade may not do.
+
 - **Nine refusals named a database column instead of the field you can send.** Giving a
   document a parent in another project was refused with `"field": "parent_id"`; the endpoint
   accepts `parent`. So did superseding across workspaces (`supersedes_id`), a token expiry

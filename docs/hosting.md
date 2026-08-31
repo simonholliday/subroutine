@@ -1723,6 +1723,8 @@ copy where it landed, migrate, then read the schema back rather than assuming.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.sql (63,584 bytes).
+  Nothing deletes that copy for you, and every upgrade leaves one.
+  'subroutine db backup --keep N' prunes by age and counts these too.
   Upgraded from f159c8635e54 to a986838fadc4.
 ```
 

@@ -288,6 +288,16 @@ def test_upgrade_takes_a_backup_before_it_migrates (
 	assert len(backups) == 1, f"expected exactly one backup, found {backups}"
 	assert older in backups[0].name, "the copy records the schema it was taken on"
 
+	# **And it says the copy is nobody's to remove** (`#1676`). `take` is called with no
+	# `keep`, so one accumulates per upgrade and the only symptom is a full disk. Asserted
+	# here rather than only in the transcript, because the transcript is prose and this is
+	# the command actually running.
+	assert "Nothing deletes that copy for you" in result.output
+	assert "--keep N" in result.output, (
+		"the second half is the one nobody would guess — the command that prunes counts "
+		"these alongside routine backups, so an hourly timer can delete this one"
+	)
+
 	# And the instance is usable again, which is the only outcome that matters to its owner.
 	assert "Something from before the upgrade" in run("agenda").output
 

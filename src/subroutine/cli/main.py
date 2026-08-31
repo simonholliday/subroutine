@@ -1391,6 +1391,28 @@ def upgrade (
 
 	_say(f"Backed up to {written.path} ({written.size_bytes:,} bytes).")
 
+	# **Say that nothing removes it, because nothing does** (`#1676`). `take` prunes only when
+	# it is given a `keep`, and this call deliberately gives none — so every upgrade leaves a
+	# full copy behind for ever. On one machine with a large disk that is a footnote; where
+	# several instances share a volume and a fleet upgrades weekly it fills the disk, and the
+	# symptom is the database refusing writes rather than anything pointing at backups.
+	#
+	# **The obvious fix is passing a `keep` here, and it is worse than the leak.** `prune`
+	# deletes `catalogue(settings)[keep:]` — every backup in the directory by recency — so an
+	# operator who keeps thirty nightly copies and runs `db upgrade --keep 3` would lose
+	# twenty-seven of them *as a side effect of upgrading*. Destroying somebody's backups is
+	# not something an upgrade may do quietly. A pre-upgrade copy is the rollback point for the
+	# upgrade that just happened and wants a lifetime of its own, which is `#1712`.
+	#
+	# **So this says the thing an operator cannot otherwise find out**, in both directions:
+	# these accumulate, and the command that prunes counts them alongside routine backups.
+	#
+	# **Two short lines rather than one long one**, because `_say` prints through a console
+	# that wraps at the terminal's width — so a single sentence lands differently on every
+	# machine and `docs/hosting.md`'s quoted transcript could not be true of all of them.
+	_say("Nothing deletes that copy for you, and every upgrade leaves one.")
+	_say("'subroutine db backup --keep N' prunes by age and counts these too.")
+
 	try:
 		subroutine.db.migrate.upgrade(settings.database_url)
 
