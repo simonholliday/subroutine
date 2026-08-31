@@ -100,6 +100,28 @@ upgrade involves.
 
 ### Changed
 
+- **`unlink` no longer removes every link between two items.** Two items can be joined more
+  than one way — one relation gating work, another a note about neighbours — and undoing
+  "the link" between them removed both, reporting a single line that named the item rather
+  than what went:
+
+  ```
+  $ subroutine unlink 42 7
+  #42 has more than one link to #7, so this would remove more than one thing.
+  Say which with --type: blocks, relates-to.
+
+  $ subroutine unlink 42 7 --type blocks
+  Unlinked: Blocks Changelog
+  ```
+
+  > **This refuses where it used to act**, so a script undoing links between a pair joined
+  > more than one way will now stop. Nothing is removed when it refuses. Pairs joined a
+  > single way — nearly all of them — are unaffected and still need no `--type`.
+
+  You still do not have to say which kind in the ordinary case, and that is deliberate:
+  having to remember the relation is what leaves a wrong link in place. The report now names
+  the relation as well as the item, so a removal says what it withdrew.
+
 - **A filter that names no operator is refused instead of ignored.** `--filter status=open`
   and `filter={"status": "open"}` were accepted and dropped, so the listing came back
   unnarrowed and nothing said the question had not been asked:

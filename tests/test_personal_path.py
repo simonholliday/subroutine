@@ -5212,6 +5212,74 @@ def test_one_call_withdraws_a_link_to_each_of_several_items (
 	assert "Changelog" not in shown and "Tag it" not in shown, shown
 
 
+def test_undoing_a_pair_joined_two_ways_refuses_rather_than_removing_both (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1637`. Silent loss of a statement the product exists to hold.
+
+	Two items joined by ``blocks`` *and* ``relates_to`` are making two true statements — one
+	gates work, one is a note about neighbours. ``unlink`` removed both and reported
+	``Unlinked: Beta``: the same sentence whether it withdrew one edge or five, naming the item
+	rather than the relation, so **no reading of it revealed the loss**. And the information
+	needed to notice was gone by the time anybody could look, because a reader confirms a
+	removal by opening the item and sees the state after both.
+
+	**Refused rather than resolved, on ``db restore``'s rule** (§12.6a): when both defaults are
+	wrong half the time there is no default, so the caller says. Removing every link destroys
+	something somebody meant to keep; removing one leaves a command that did less than it said.
+
+	**The no-verb design survives where it was argued for.** ``unlink``'s help is right that an
+	unwanted link is worse than a missing one, so undoing a mistake should not require
+	remembering the relation — and with one link, the ordinary case, it still does not. That is
+	the first assertion here, and it is the one that would break if this were fixed by simply
+	requiring ``--type``.
+	"""
+
+	run("init")
+
+	for title in ("Alpha", "Beta", "Gamma"):
+		run("add", title)
+
+	# One link: unchanged, no relation named, and the report now says which kind went.
+	run("link", "1", "blocks", "3")
+
+	alone = run("unlink", "1", "3")
+
+	assert "Unlinked:" in alone.output, alone.output
+	assert "Blocks" in alone.output, (
+		f"the report still names only the item, so a loss would be invisible:\n{alone.output}"
+	)
+
+	run("link", "1", "blocks", "2")
+	run("link", "1", "relates-to", "2")
+
+	refused = run("unlink", "1", "2", expect=1)
+
+	assert "more than one link" in refused.output, refused.output
+	assert "blocks" in refused.output and "relates-to" in refused.output, (
+		f"the refusal did not list what it could have meant:\n{refused.output}"
+	)
+
+	# **Nothing was withdrawn**, which is the half that makes it a refusal rather than a
+	# warning — and a test asserting only the message passes against a version that refuses
+	# *after* writing.
+	held = run("show", "2").output
+
+	assert "Blocked by" in held and "Relates to" in held, (
+		f"the refusal removed something anyway:\n{held}"
+	)
+
+	# Named, it removes exactly that one — and the hyphen spelling `link` accepts works here.
+	precise = run("unlink", "1", "2", "--type", "relates-to")
+
+	assert "Relates to" in precise.output, precise.output
+
+	left = run("show", "2").output
+
+	assert "Blocked by" in left, f"the wrong link was withdrawn:\n{left}"
+	assert "Relates to" not in left, f"the named link survived:\n{left}"
+
+
 def test_withdrawing_a_link_that_is_not_there_leaves_the_others_alone (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -5246,16 +5314,37 @@ def test_a_link_is_withdrawn_by_naming_the_two_items (
 
 	Requiring one would make this a command only a script could run, and ``show`` prints the
 	two refs — which is what somebody actually has in front of them.
+
+	**One assertion here was vacuous and is fixed** (found by `SR#1637`). It read ``assert
+	"Build" not in run("show", "1").output`` — nothing in this test is ever called *Build*, so
+	it passed against any behaviour whatever. It now asserts what it was reaching for: the link
+	is gone from the item's own page, not merely reported as gone.
+
+	**The test was not blind without it**, and that is worth saying rather than claiming a
+	rescue. The readiness assertion below covers the same ground indirectly — a link that
+	survived would leave ``#2`` with an unfinished blocker and out of ``--ready`` — so a version
+	that reported success and withdrew nothing was already caught. What was missing was a
+	*direct* statement, which is the one a reader checks the behaviour against.
+
+	**The fixture is renamed for a reason too.** It used *Blocker* and *Blocked*, which collide
+	with the relation labels ``Blocks`` and ``Blocked by`` — so an assertion about the report
+	could not tell a title from a relation, and adding the relation to that report broke this
+	test for a reason that had nothing to do with what it was about.
 	"""
 
 	run("init")
-	run("add", "Blocker")
-	run("add", "Blocked")
+	run("add", "Ship it")
+	run("add", "Changelog")
 	run("link", "1", "blocks", "2")
 
-	assert "Unlinked: Blocked" in run("unlink", "1", "2").output
-	assert "Build" not in run("show", "1").output
-	assert "Blocked" in run("list", "--ready").output
+	# The relation as well as the item, since `SR#1637`: the old line was the same sentence
+	# whether it withdrew one link or five.
+	assert "Unlinked: Blocks Changelog" in run("unlink", "1", "2").output
+
+	assert "Changelog" not in run("show", "1").output, (
+		"the link was reported as withdrawn and is still on the item"
+	)
+	assert "Changelog" in run("list", "--ready").output
 
 
 def test_show_counts_the_blockers_that_are_done (

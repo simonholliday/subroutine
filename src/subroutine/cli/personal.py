@@ -6348,9 +6348,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		the moment one link per command costs most.
 		"""
 
-		# Hyphens read better than underscores at a command line and the seeded keys use
-		# underscores; accepted either way rather than making somebody guess which.
-		wanted = _asked(relation, "How are they related?").strip().replace("-", "_")
+		wanted = _relation_key(_asked(relation, "How are they related?"))
 
 		with program.opened() as world:
 			_joined(
@@ -6365,6 +6363,13 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 	def unlink_items (
 		which: str = typer.Argument("", help="Which item, by its number."),
 		other: str = typer.Argument("", help="The item it is joined to. Or several: 9,11,12."),
+		relation: str = typer.Option(
+			"",
+			"--type",
+			show_default=False,
+			help=f"Which kind to undo, when there is more than one: "
+			f"{subroutine.db.seed.named_link_types()}.",
+		),
 	) -> None:
 		"""Undo a link between two items.
 
@@ -6374,9 +6379,15 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		  subroutine unlink 42 43,44,45
 
+		  subroutine unlink 42 43 --type blocks
+
 		Worth having beside 'link' rather than later. A link added by mistake blocks work that
 		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
 		one, because it narrows what looks startable and says nothing about doing so.
+
+		You do not have to say which kind, because usually there is only one and having to
+		remember the relation is what leaves a wrong link in place. Where two items are joined
+		more than one way, this says so and lists them rather than removing both.
 
 		Several numbers separated by commas undo one link each, which is what a plan laid out
 		the wrong way round needs.
@@ -6388,6 +6399,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 				world,
 				which=_asked(which, "Which one?"),
 				other=_asked(other, "And the other one?"),
+				relation=relation,
 			)
 
 
@@ -10515,7 +10527,28 @@ def _joined (
 	)
 
 
-def _unjoined (program: Program, world: World, *, which: str, other: str) -> None:
+def _relation_key (relation: str) -> str:
+	"""Return the stored key for a relation somebody typed at a terminal.
+
+	Hyphens read better than underscores at a command line and the seeded keys use
+	underscores, so both spellings are accepted rather than making anybody guess which.
+
+	**Here rather than inline, because there are two callers now** (`SR#1637`). ``link`` carried
+	this as one expression in its command body; ``unlink`` gaining ``--type`` would have made it
+	two copies of one rule, which is the defect this codebase finds most often — and they would
+	have agreed until somebody changed one, at which point ``link derives-from`` and
+	``unlink --type derives-from`` would disagree about the same word.
+
+	**A terminal convenience rather than a domain rule**, which is why it lives here: the
+	service takes the key as it is stored, and nothing over HTTP or MCP accepts the hyphen.
+	"""
+
+	return relation.strip().replace("-", "_")
+
+
+def _unjoined (
+	program: Program, world: World, *, which: str, other: str, relation: str = ""
+) -> None:
 	"""Undo the links between one item and each of the items named — `#1352`.
 
 	**Found by the pair rather than asked for by id.** A link's id is a UUID that appears in no
@@ -10562,6 +10595,58 @@ def _unjoined (program: Program, world: World, *, which: str, other: str) -> Non
 			f"Run 'subroutine show {near.ref}' to see what it is joined to.",
 		)
 
+	if relation:
+		wanted = _relation_key(relation)
+		joins = {
+			ref: [one for one in links if one.link_type == wanted]
+			for ref, links in joins.items()
+		}
+		nothing_of_that_kind = [target for target in far if not joins[target.ref]]
+
+		if nothing_of_that_kind:
+			program.stop(
+				f"{world.address_of_located(near)} has no {wanted!r} link to "
+				+ ", ".join(
+					world.address_of_located(one) for one in nothing_of_that_kind
+				)
+				+ ".",
+				f"Run 'subroutine show {near.ref}' to see what it is joined to.",
+			)
+
+	# **Refused rather than resolved, where a pair carries more than one link** (`SR#1637`).
+	# Both defaults are wrong half the time: removing every link destroys a statement somebody
+	# meant to keep, and removing one leaves a command that did less than it said. That is
+	# ``db restore``'s rule — when neither answer is right, refuse and let the caller say —
+	# and it applies harder here, because the report was *singular either way* and the
+	# information needed to notice the loss is gone by the time anybody could look.
+	#
+	# **The no-verb design survives where it was argued for.** ``unlink``'s help is right that
+	# an unwanted link is worse than a missing one, so somebody undoing a mistake should not
+	# have to remember the relation — and with one link between the pair, which is the ordinary
+	# case, they still do not.
+	ambiguous = [target for target in far if len(joins[target.ref]) > 1]
+
+	if ambiguous:
+		program.stop(
+			f"{world.address_of_located(near)} has more than one link to "
+			+ ", ".join(world.address_of_located(one) for one in ambiguous)
+			+ ", so this would remove more than one thing.",
+			# **Offered in the spelling this command's own help lists**, which is hyphens
+			# (`SR#1547`): both are accepted, and printing the stored key here would show a
+			# reader a third spelling of a word they have already met twice.
+			"Say which with --type: "
+			+ ", ".join(
+				sorted(
+					{
+						one.link_type.replace("_", "-")
+						for target in ambiguous
+						for one in joins[target.ref]
+					}
+				)
+			)
+			+ ".",
+		)
+
 	for target in far:
 		for one in joins[target.ref]:
 			where.client.unlink(
@@ -10571,7 +10656,12 @@ def _unjoined (program: Program, world: World, *, which: str, other: str) -> Non
 				workspace=near.workspace,
 			)
 
-		program.say(f"Unlinked: {joins[target.ref][0].other.title}")
+		# **The relation, not only the title.** The old line was the same sentence whether it
+		# removed one edge or five and named the item rather than what was withdrawn, so there
+		# was no reading of it that revealed a loss.
+		program.say(
+			f"Unlinked: {joins[target.ref][0].label} {joins[target.ref][0].other.title}"
+		)
 
 	_suggest(program.console, f"subroutine show {_typeable(world, near.connection, near.item)}")
 
