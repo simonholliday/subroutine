@@ -486,6 +486,80 @@ def _ran (tmp_path: pathlib.Path, body: str) -> typing.Any:
 	return json.loads(done.stdout)
 
 
+def test_the_agenda_says_who_is_holding_a_row_up (tmp_path: pathlib.Path) -> None:
+	"""**`SR#1287`, Simon's decision of 2026-08-27.** The mark says *that*; this says *what*.
+
+	Decision `SR#1267` §3c is what asked for it and says why a chip could not carry it: *"a
+	mark cannot carry the thing that makes this useful, which is who you are waiting on."*
+
+	**Its own `li` rather than a chip in `marks`**, and that is a guard's refusal rather than a
+	layout preference. ``marks`` is the vocabulary a row, a card and a *link line* share, and
+	``test_a_link_line_can_answer_everything_marks_reads`` holds it to fields a ``LinkEnd``
+	carries — a blocker's own blockers is not one, so putting it there would fail that test,
+	correctly.
+
+	**The refs are links, unlike the terminal's plain text.** `SR#989` binds the surfaces to
+	one *answer* and never to one rendering; here every other ref on the page opens something,
+	so one that did not would be the odd one out.
+	"""
+
+	shown = _rendered(tmp_path, {"Agenda": {
+		"buckets": [{
+			"key": "blocked_by_others",
+			"label": "Waiting on somebody else",
+			"items": [{
+				"ref": 2, "kind": "task", "title": "My bit", "workspace": "projects",
+				"status_is_default": True,
+				"blocked": True,
+				"blocked_by": [
+					{
+						"entity_type": "task", "ref": 1, "title": "Their bit",
+						"assignee": "jo",
+					},
+					{"entity_type": "task", "ref": 7, "title": "Nobody's job"},
+				],
+			}],
+		}],
+		"more": 0,
+	}})["Agenda"]
+
+	assert "waiting on" in shown, shown
+	assert "#1" in shown and "@jo" in shown, shown
+	assert "/projects/1" in shown, (
+		f"the ref opens the item, like every other ref on this page: {shown}"
+	)
+	assert "#7" in shown, (
+		f"an unassigned blocker is named too — chasing @jo alone does not release the row: "
+		f"{shown}"
+	)
+
+
+def test_no_other_agenda_row_says_what_is_holding_it_up (tmp_path: pathlib.Path) -> None:
+	"""**`SR#1287`.** One section is the argued exception; the rest keep `SR#856`'s rule.
+
+	*A listing says that and a detail view says what*, which is written on
+	``views.Task.blocking``. Only the agenda's *Waiting on somebody else* section resolves
+	``blocked_by``, so every other row carries null and this page must draw nothing from it —
+	including a row that is genuinely blocked, which is the case a `[]`-versus-null slip would
+	break.
+	"""
+
+	shown = _rendered(tmp_path, {"Agenda": {
+		"buckets": [{
+			"key": "today",
+			"label": "Today",
+			"items": [{
+				"ref": 2, "kind": "task", "title": "My bit", "workspace": "projects",
+				"status_is_default": True, "blocked": True,
+			}],
+		}],
+		"more": 0,
+	}})["Agenda"]
+
+	assert "My bit" in shown
+	assert "waiting on" not in shown, shown
+
+
 def _rendered (
 	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
 ) -> dict[str, str]:

@@ -1270,6 +1270,19 @@ fieldset {
 .rows li:hover { background: var(--bg-sunken); }
 
 /*
+	What is holding one agenda row up (`#1287`). It hangs off the row above it, so it takes no
+	separator and no hover: both would say it is an item, and it is a continuation of one — the
+	only place in this app where an `li` is not a thing in its own right.
+*/
+.rows li.waiting {
+	border-top: 0;
+	padding: 0 var(--space-7) var(--space-5);
+	font-size: var(--text-small);
+}
+
+.rows li.waiting:hover { background: none; }
+
+/*
 	**A row wears the colour of the project it belongs to** — `#1027`, decision `#1023`, and
 	`#102` as Simon amended it on 2026-08-19: colour may carry identity where the identity is a
 	bounded unordered category, is redundant with a word already on the row, and is stored as a

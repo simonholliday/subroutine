@@ -5184,6 +5184,61 @@ def test_a_stale_change_is_refused_on_both_transports (pair: Pair) -> None:
 		)
 
 
+def test_both_transports_agree_about_who_is_holding_a_row_up (pair: Pair) -> None:
+	"""`SR#1287`, and the two clients reach the far end by entirely different routes.
+
+	The local client resolves the blockers and renders them; the HTTP client parses them back
+	off the wire. That is §13.7's equivalence suite's own shape — `SR#854`'s ``starts`` and
+	``snooze`` were declared on both signatures and dropped by both bodies, and ``test_reach``
+	compares *signatures*, so it was satisfied throughout.
+
+	**The ref and the assignee are both compared**, because the whole of the decision is that
+	the reader can act: the ref is the item they open and the name is the person they chase.
+	A transport that carried one and not the other would leave half a remedy on one surface.
+	"""
+
+	local, remote = pair.both()
+	other = subroutine.domain.users.create(
+		pair.session,
+		username=f"jo-{uuid.uuid4().hex[:8]}",
+		timezone="Europe/London",
+		is_service_account=True,
+		responsible_user_id=pair.user.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		pair.session, workspace=pair.workspace, user=other, role_key="member"
+	)
+	pair.session.flush()
+
+	theirs = local.capture(text=f"Their bit {uuid.uuid4().hex[:6]}").task
+	mine = local.capture(text=f"My bit {uuid.uuid4().hex[:6]}").task
+
+	local.update(ref=theirs.ref, assignee=other.username)
+	local.link(ref=theirs.ref, link_type="blocks", target=mine.ref)
+
+	answers = {}
+
+	for client in (local, remote):
+		held = {
+			row.ref: [(end.ref, end.assignee) for end in (row.blocked_by or [])]
+			for row in client.agenda().blocked_by_others
+		}
+		answers[repr(client)] = held
+
+	assert len({json.dumps(one, sort_keys=True) for one in answers.values()}) == 1, (
+		f"the two transports disagree about who is holding a row up: {answers}"
+	)
+	assert next(iter(answers.values())) == {mine.ref: [(theirs.ref, other.username)]}, answers
+
+	# **And no other section carries it, on either** — the `None`-versus-`[]` distinction that
+	# says *nobody asked* rather than *nothing holds this up*. A client defaulting the field to
+	# an empty list would destroy it silently, and a listing is where `SR#856`'s rule holds.
+	for client in (local, remote):
+		assert all(
+			row.blocked_by is None for row in client.tasks(limit=50)
+		), f"{client!r} named a far end on an ordinary listing"
+
+
 def test_both_transports_agree_about_what_readiness_held_back (pair: Pair) -> None:
 	"""`SR#1610`'s count, and the two clients get it by entirely different routes.
 

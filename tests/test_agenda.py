@@ -1258,6 +1258,188 @@ def test_work_held_up_by_somebody_elses_item_gets_its_own_section (
 	)
 
 
+def _held_up (
+	built: subroutine.domain.agenda.Agenda, title: str
+) -> list[str] | None:
+	"""Return the titles of what is holding one row up, or ``None`` where nobody asked."""
+
+	for row in built.blocked_by_others:
+		if row.title == title:
+			held = built.blockers.get(row.id)
+
+			return None if held is None else [one.title for one in held]
+
+	raise AssertionError(f"{title!r} is not in the section")
+
+
+def test_the_section_says_what_is_holding_each_row_up (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1287`, Simon's decision of 2026-08-27.** *Blocked* with no name is a guess.
+
+	The heading says somebody else has to move first. Decision `SR#1267` §3c is what asked
+	for this and says why a mark could not carry it: *"a mark cannot carry the thing that
+	makes this useful, which is who you are waiting on."*
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+
+	built = world.agenda()
+
+	assert _held_up(built, "My bit") == ["Their bit"]
+
+	held = built.blockers[mine.id]
+
+	assert [one.ref for one in held] == [theirs.ref], (
+		"the ref is what makes the far end something a reader can act on"
+	)
+	assert [one.assignee_id for one in held] == [other.id], (
+		"and the assignee is who they chase — Simon's rule, and never the claimant"
+	)
+
+
+def test_it_names_every_live_blocker_and_not_only_the_one_somebody_holds (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1287`.** Chasing everybody named must not promise more than it can deliver.
+
+	A row is in this section because *some* blocker is assigned to somebody else. It may be
+	held by an unassigned one as well — and naming only the first would say that chasing that
+	person releases the work, when finishing their item leaves the row exactly where it was.
+
+	**The opposite reading is the tempting one**, because the bucket's own predicate is the
+	narrow one (`SR#1285`, decision `SR#1267` §3a) and reusing it here is one fewer rule. What
+	it would produce is a page that is right about why the row is listed and wrong about what
+	to do next.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	nobodys = world.task("Nobody's job")
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+	_blocks(world, nobodys, mine)
+
+	assert _held_up(world.agenda(), "My bit") == sorted(
+		["Their bit", "Nobody's job"],
+		key=lambda title: {"Their bit": theirs.ref, "Nobody's job": nobodys.ref}[title],
+	)
+
+
+def test_a_finished_blocker_is_not_named (session: sqlalchemy.orm.Session) -> None:
+	"""**`SR#1287`.** What is named is what is holding the row up, not what once did.
+
+	The liveness rule is ``readiness._live_blocks_edge``'s, read the same direction
+	``unblocked`` reads it — so a row this names nothing for is a row nothing marks blocked,
+	which is the property that stops the section and the mark disagreeing.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	done = world.task("Already done")
+	done.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+	_blocks(world, done, mine)
+
+	subroutine.domain.tasks.complete(world.session, task=done, actor=world.principal)
+	world.session.flush()
+
+	assert _held_up(world.agenda(), "My bit") == ["Their bit"]
+
+
+def test_a_blocker_the_reader_may_not_see_is_not_named (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1287`, and it is the whole of why naming a far end needed a decision.**
+
+	``readiness.blocked_among`` is deliberately *not* narrowed by visibility, because whether
+	work is blocked is a fact about the work — what it discloses is bounded at *something
+	unseen holds this up*. Naming the far end says *what*, so it takes the rule that governs
+	naming a far end anywhere else: ``domain.links`` drops an end the caller cannot see, and
+	this drops the same ones.
+
+	**So the row stays in the section with nothing named against it**, which is the honest
+	answer and not a bug: it says *somebody you cannot see*. Both assertions are needed —
+	dropping the row instead would hide work the reader is genuinely waiting on, and `SR#856`
+	is what happens when the end is named anyway.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	hidden = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key=f"H{uuid.uuid4().hex[:10].upper()}",
+		title="Somewhere else",
+		visibility="private",
+		owner_id=other.id,
+	)
+	session.flush()
+
+	theirs = world.task("Their bit", project=hidden)
+	theirs.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+
+	built = world.agenda()
+
+	assert _titles(built.blocked_by_others) == ["My bit"], (
+		"the reader is still waiting, and a section that dropped the row would say they are not"
+	)
+	assert _held_up(built, "My bit") == [], (
+		"and nothing about the item holding it up is disclosed"
+	)
+
+
+def test_no_other_section_is_told_what_is_holding_its_rows_up (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#1287`.** One section is the argued exception; the rest keep the rule.
+
+	*A listing says that and a detail view says what* is written on ``views.Task.blocking`` and
+	is what `SR#856` cost. This section is carved out of it by decision `SR#1267` §3c, whose
+	whole subject is the far end. Nothing else is, so a row in another bucket must be absent
+	from this mapping altogether — ``None`` rather than an empty list, because *nobody asked*
+	and *nothing holds this up* are two answers.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	mine = world.task("My bit")
+
+	_blocks(world, theirs, mine)
+
+	loose = world.task("Something to pick up")
+
+	built = world.agenda()
+
+	assert set(built.blockers) == {mine.id}, (
+		"resolved for the one section whose subject is the far end, and for nothing else"
+	)
+	assert loose.id not in built.blockers
+
+
 def test_a_blocker_of_your_own_is_not_somebody_else (session: sqlalchemy.orm.Session) -> None:
 	"""**`SR#1285`, decision `SR#1267` §3a — the narrow reading, and it is Simon's.**
 

@@ -524,6 +524,38 @@ class Task(pydantic.BaseModel):
 	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
 	blocking: bool = False
 
+	#: What is actually holding this up — `#1287`, Simon's decision of 2026-08-27, and **the
+	#: argued exception to the rule stated two fields above rather than a hole in it.**
+	#:
+	#: That rule is that a listing says *that* and a detail view says *what*, because naming a
+	#: far end reports the existence and standing of an item the reader may not be allowed to
+	#: see. Both halves of it survive here. The disclosure half is answered on its own terms:
+	#: these ends come from `readiness.blockers_among`, narrowed by
+	#: `scoping.readable_tasks` exactly as `domain.links` narrows an end on `show`, so this
+	#: names nothing the caller could not already read one call away. The surface half is
+	#: answered by decision `#1267` §3c, which is what asked for this: a mark *"cannot carry
+	#: the thing that makes this useful, which is who you are waiting on"*.
+	#:
+	#: **So it is resolved for the agenda's `blocked_by_others` section and for nothing else.**
+	#: A listing marked `blocked` still says only *that*, and `subroutine show` still says
+	#: *what* — this is the one section whose entire subject is the far end.
+	#:
+	#: **Null means nobody asked; an empty list would mean nothing is holding this up.** Two
+	#: different answers, and a listing that resolved neither must not claim the second — which
+	#: is `Page.held_back`'s rule one model along, and the reason this is not defaulted to `[]`.
+	#:
+	#: **The word is the one the relation already has.** Decision `#1267` §2 records a naming
+	#: hazard this is the fourth meeting of: `waiting` already means *a question parked for
+	#: you*, `assigned_to_me` on a calendar feed already means *strictly assigned*, and
+	#: `blocked_by_others` on the agenda is a bucket of the reader's own rows. A field called
+	#: `waiting_on` would have collided with the first two; this is the seeded `blocks` link
+	#: read from the target end, which every surface already labels *Blocked by*, and it pairs
+	#: with `blocked` above as *that* and *what*.
+	#:
+	#: **No parameter widens it**, deliberately: there is no way to ask a listing to name its
+	#: blockers, because `#856` is what happens when a listing carries the far end.
+	blocked_by: list[LinkEnd] | None = None
+
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
 	#: anything at all — and on a listing that is one call per row. Both are batch-loaded with
@@ -2733,9 +2765,17 @@ def repeats (task: Task) -> bool:
 
 
 def task (
-	row: subroutine.db.models.work.Task, vocabulary: Vocabulary
+	row: subroutine.db.models.work.Task,
+	vocabulary: Vocabulary,
+	*,
+	blocked_by: list[LinkEnd] | None = None,
 ) -> Task:
-	"""Render one task."""
+	"""Render one task.
+
+	``blocked_by`` is passed by the one caller that resolves it and defaults to ``None``
+	everywhere else, which is the honest reading: *nobody asked* rather than *nothing holds
+	this up*. :attr:`Task.blocked_by` carries why only one caller may.
+	"""
 
 	status = vocabulary.statuses.get(row.status_id, {})
 
@@ -2774,6 +2814,7 @@ def task (
 		claim_expires_at=row.claim_expires_at,
 		blocked=row.id in vocabulary.blocked,
 		blocking=row.id in vocabulary.blocking,
+		blocked_by=blocked_by,
 		importance=row.importance,
 		urgency=row.urgency,
 		# Computed here rather than read from the database: §6.3 calls it derived, and a
@@ -3244,8 +3285,20 @@ def _end (end: subroutine.domain.links.End, vocabulary: Vocabulary) -> LinkEnd:
 		else document(end.row, vocabulary)
 	)
 
+	return _projected(rendered, entity_type=end.entity_type)
+
+
+def _projected (rendered: "Task | Document", *, entity_type: str) -> LinkEnd:
+	"""Take a rendered item down to the fields a link's end publishes.
+
+	**Extracted so there is one projection rather than two** (`#1287`). :func:`_end` reaches
+	this from a resolved link; the agenda reaches it from a blocker it resolved itself, and a
+	second copy of *which fields an end carries* is the pair that comes to disagree — which is
+	the defect :class:`LinkEnd` was built to end rather than to repeat.
+	"""
+
 	return LinkEnd(
-		entity_type=end.entity_type,
+		entity_type=entity_type,
 		**{
 			name: getattr(rendered, name, field.default)
 			for name, field in LinkEnd.model_fields.items()
@@ -3610,6 +3663,27 @@ def happened (event: Event) -> str:
 	return "changed " + ", ".join(sorted({field_in_words(name) for name in event.changes}))
 
 
+def _holding_up (
+	built: subroutine.domain.agenda.Agenda,
+	row: subroutine.db.models.work.Task,
+	vocabulary: Vocabulary,
+) -> list[LinkEnd] | None:
+	"""Return what is holding this agenda row up, or ``None`` where nobody asked — `#1287`.
+
+	**The distinction this keeps is between two silences.** ``built.blockers`` holds an entry
+	for every row of the one section that resolves them, so a row absent from it was never
+	asked about and a row present with nothing left is one whose blockers the caller may not
+	see. The first is ``None`` and the second is ``[]``, and a client can tell them apart.
+	"""
+
+	held = built.blockers.get(row.id)
+
+	if held is None:
+		return None
+
+	return [_projected(task(one, vocabulary), entity_type="task") for one in held]
+
+
 def agenda (
 	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
 ) -> Agenda:
@@ -3630,9 +3704,18 @@ def agenda (
 	"""
 
 	everything = [row for bucket in AGENDA_BUCKETS for row in getattr(built, bucket)]
-	vocabulary = Vocabulary.for_tasks(session, everything)
+	# **The blockers are loaded with the page rather than beside it** (`#1287`). They are not
+	# rows of the agenda, and they are rendered through the same :func:`task` every row goes
+	# through — so their status, project address and assignee have to be in the same
+	# vocabulary or a link line would resolve them a second way, which is what
+	# :func:`_projected` exists to stop.
+	holding = [row for group in built.blockers.values() for row in group]
+	vocabulary = Vocabulary.for_tasks(session, everything + holding)
 	rendered: dict[str, typing.Any] = {
-		bucket: [task(row, vocabulary) for row in getattr(built, bucket)]
+		bucket: [
+			task(row, vocabulary, blocked_by=_holding_up(built, row, vocabulary))
+			for row in getattr(built, bucket)
+		]
 		for bucket in AGENDA_BUCKETS
 	}
 

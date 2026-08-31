@@ -5098,6 +5098,48 @@ export function Agenda ({
 								place=${place}
 								onGo=${onGo}
 								onOpen=${onOpen} onComplete=${onComplete} />
+							${/*
+								**What is holding this row up** — `#1287`, Simon's decision of
+								2026-08-27. Only the *Waiting on somebody else* section resolves
+								it, so `blocked_by` is null everywhere else and this draws
+								nothing: a listing marks a row blocked and says *that*, and
+								naming the far end is `#856`'s line. `views.Task.blocked_by`
+								carries why this one section is the argued exception.
+
+								**Its own `li`, not a chip in `marks`.** `marks` is the
+								indicator vocabulary a row, a card and a *link line* share, and
+								`tests/test_web.py` holds it to fields a `LinkEnd` can answer —
+								a blocker's blockers is not one of them. Putting it there would
+								fail that guard, and the guard would be right.
+
+								**The refs are links because every other ref on this page is.**
+								A reader chasing somebody wants to open the item; the terminal
+								spends a line on the same fact because it has no other way to
+								offer it.
+							*/ null}
+							${(item.blocked_by || []).length > 0 && html`
+								<li class="waiting">
+									<span class="quiet">waiting on</span>
+									${item.blocked_by.map((end, at) => {
+										const going = { ref: end.ref, kind: "task" };
+										const held = item.workspace || where;
+										const to = held ? addressOf(going, held) : null;
+										const follow = (event) =>
+											followed(event, () => onOpen && onOpen(going));
+										const who = named(
+											end.assignee,
+											end.assignee_is_agent,
+											end.assignee_answers_to
+										);
+
+										return html`
+											${at > 0 ? " · " : " "}
+											<a href=${to} onClick=${follow}>#${end.ref}</a>
+											${who && html` <span class="quiet">${who}</span>`}
+										`;
+									})}
+								</li>
+							`}
 						`)}
 					</ul>
 				</section>

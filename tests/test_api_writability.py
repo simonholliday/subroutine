@@ -295,6 +295,15 @@ DERIVED: dict[str, str] = {
 		"that went stale, because it changes when *another* item completes. Make it true or "
 		"false by linking or by finishing what it holds up."
 	),
+	"blocked_by": (
+		"Which unfinished tasks hold this one up, read off the same `blocks` links as "
+		"`blocked` above (`SR#1287`) — and narrowed to the ones this caller may see, which is "
+		"what let it be published at all. Writing it would be writing a link, and there is a "
+		"verb for that. It is null on every surface but the agenda's *Waiting on somebody "
+		"else* section, which is not a shape a request model could express either: a listing "
+		"says *that* something blocks a row, `subroutine show` says *what*, and `SR#856` is "
+		"what crossing that line cost."
+	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
 	#: `estimate_human`'s exact twin, one field along (`SR#1211`), and the same argument: one
 	#: grammar rendered once, and a value a caller can read and send straight back.

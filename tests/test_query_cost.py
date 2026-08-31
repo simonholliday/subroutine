@@ -72,6 +72,7 @@ import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.scoping
 import subroutine.domain.search
+import subroutine.domain.users
 
 #: How many tasks to measure against. Chosen as roughly ten times this project's own open
 #: backlog, which is the size at which the `#569` defect was unmistakable rather than merely
@@ -415,6 +416,18 @@ def _fill (engine: sqlalchemy.engine.Engine) -> None:
 			session, username="si", instance_name="Cost measurement"
 		)
 		rows = list(_rows(session, setup))
+
+		# **Somebody else holds the blockers, so the agenda's *Waiting on somebody else*
+		# section is populated** (`SR#1287`). Without an assignee on the far end that bucket is
+		# empty on every measurement here, the statement it costs is never issued, and
+		# :data:`AGENDA_STATEMENTS` would be counting an agenda this instance cannot produce —
+		# a fixture that has quietly stopped being representative of the subject.
+		held_by = subroutine.domain.users.create(
+			session, username="jo", timezone="Etc/UTC"
+		)
+
+		for index in range(0, len(rows) - 1, BLOCKED_IN):
+			rows[index]["assignee_id"] = held_by.id
 
 		session.execute(sqlalchemy.insert(subroutine.db.models.work.Task), rows)
 		session.execute(
@@ -809,19 +822,22 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 
 #: How many statements a whole agenda may issue, at any number of rows (`#1295`).
 #:
-#: **Sixteen measured**, at :data:`TASKS`, and the same on both backends: eight bucket queries
-#: — one is skipped when no look-ahead is asked for — and six counts, plus the
-#: prioritised-project lookup the ordering resolves once and the zone lookup `#1296` added. The
-#: allowance above that is deliberately small, because the thing this catches is not a statement
-#: or two: an N+1 here would be two thousand.
+#: **Seventeen measured**, at :data:`TASKS`, and the same on both backends: eight bucket
+#: queries — one is skipped when no look-ahead is asked for — and six counts, plus the
+#: prioritised-project lookup the ordering resolves once, the zone lookup `#1296` added and the
+#: blocker lookup `#1287` added. The allowance above that is deliberately small, because the
+#: thing this catches is not a statement or two: an N+1 here would be two thousand.
 #:
-#: **It was fourteen until `#1296` and fifteen until `#1265`**, and the number is restated each
-#: time rather than left, because a comment that says *measured* has to say what was measured.
-#: `#1296` added a lookup asking which zones the whole-day rows in scope were dated in, so each
-#: can be compared as a date rather than against somebody else's midnight. `#1265` added the
-#: sixth count: an agenda is one person's now, so the work it leaves out because it belongs to
-#: somebody else has to be counted on the scope *before* that rule, which is a question the
-#: agenda's own select can no longer be asked.
+#: **It was fourteen until `#1296`, fifteen until `#1265` and sixteen until `#1287`**, and the
+#: number is restated each time rather than left, because a comment that says *measured* has to
+#: say what was measured. `#1296` added a lookup asking which zones the whole-day rows in scope
+#: were dated in, so each can be compared as a date rather than against somebody else's
+#: midnight. `#1265` added the sixth count: an agenda is one person's now, so the work it leaves
+#: out because it belongs to somebody else has to be counted on the scope *before* that rule,
+#: which is a question the agenda's own select can no longer be asked. `#1287` added one
+#: statement naming what is holding the *Waiting on somebody else* rows up — **and needed the
+#: fixture changed to be seen at all**, because that bucket was empty here and the lookup
+#: returns without asking anything when it is. See ``_fill``.
 #:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.

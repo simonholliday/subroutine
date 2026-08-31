@@ -2239,6 +2239,28 @@ def _line (
 		if item.blocking:
 			cells.append(subroutine.views.BLOCKING_MARK)
 
+		# **And what is holding it up, on the one section that resolves it** (`#1287`). The
+		# mark above says *that*; this says *what*, and only the agenda's `blocked_by_others`
+		# rows carry it — every other listing here is null and prints nothing, which is
+		# `#856`'s rule kept rather than an omission.
+		#
+		# **One cell rather than one per blocker, unlike the terminal.** `#989` binds the
+		# answer and never the rendering: a terminal spends a line to keep a wrapped agent
+		# name short, and here §13's context economy says the opposite. The refs are what an
+		# agent acts on — it can read either item — and the name is who its operator chases.
+		if item.blocked_by:
+			cells.append("waiting on " + ", ".join(
+				f"#{end.ref} {named}".strip()
+				for end in item.blocked_by
+				for named in [
+					subroutine.views.principal_named(
+						end.assignee,
+						is_agent=end.assignee_is_agent,
+						answers_to=end.assignee_answers_to,
+					)
+				]
+			))
+
 		if item.importance is not None or item.urgency is not None:
 			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")
 

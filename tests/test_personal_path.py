@@ -470,6 +470,69 @@ def test_a_ready_listing_says_how_much_is_waiting_on_something_above_it (
 	).output
 
 
+def test_the_agenda_says_who_is_holding_a_row_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1287`, Simon's decision of 2026-08-27.** *Blocked* with no name is a guess.
+
+	The heading already says somebody else has to move first. What a reader could not get from
+	anywhere on the page is *whom to chase* and *which item to look at*, and decision `SR#1267`
+	§3c is why a mark could not carry it: *"a mark cannot carry the thing that makes this
+	useful, which is who you are waiting on."*
+
+	**The assignee and never the claimant**, which is Simon's rule and his reasoning rather
+	than mine: the claimant may be an agent, and it may be the *assignee's* agent, so the
+	assignee is the only person the reader can instruct.
+
+	**Driven through the real command line**, because this is a line under a row rather than a
+	field on one — a test asserting the view carries `blocked_by` would pass against a terminal
+	that never printed it.
+	"""
+
+	run("init")
+	run("user", "create", "jo")
+	run("add", "Their bit")
+	run("add", "My bit")
+	run("update", "1", "--assignee", "jo")
+	run("link", "1", "blocks", "2")
+
+	shown = run("agenda").output
+	waiting = [line for line in shown.splitlines() if "waiting on #" in line]
+
+	assert "Waiting on somebody else" in shown, shown
+	assert waiting == ["      waiting on #1  @jo"], (
+		f"the ref is what the reader opens and the name is who they chase:\n{shown}"
+	)
+
+
+def test_a_listing_never_says_what_is_holding_a_row_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1287`.** One section is the argued exception; every other listing keeps the rule.
+
+	*A listing says that and a detail view says what* is written on `views.Task.blocking`, and
+	`SR#856` is what crossing it cost — an ordering that inherited a hidden item's importance
+	disclosed the far end and was refused for it. So the mark stays a mark here.
+
+	**Both halves are asserted.** A list that had quietly stopped marking the row at all would
+	satisfy the second assertion on its own, which is the shape a negative test fails in.
+	"""
+
+	run("init")
+	run("user", "create", "jo")
+	run("add", "Their bit")
+	run("add", "My bit")
+	run("update", "1", "--assignee", "jo")
+	run("link", "1", "blocks", "2")
+
+	listed = run("list").output
+
+	assert "My bit" in listed
+	assert "waiting on #" not in listed, (
+		f"a listing marks the row and does not name the far end:\n{listed}"
+	)
+
+
 def test_an_ordinary_listing_says_nothing_about_work_held_under_a_parent (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

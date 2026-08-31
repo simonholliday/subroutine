@@ -22,6 +22,26 @@ upgrade involves.
 
 ### Added
 
+- **Your agenda names who is holding your work up.** *Waiting on somebody else* said that
+  somebody was; it did not say who, so the one thing it existed to prompt — chasing them —
+  needed a second command to find out.
+
+  ```
+  Waiting on somebody else
+    2  My bit
+          waiting on #1  @jo
+  ```
+
+  Each row now names every unfinished item holding it up, with whoever it is assigned to. The
+  assignee and never the person who claimed it: a claim may be held by an agent, possibly
+  somebody else's, and the assignee is the one you can actually ask.
+
+  It appears on the terminal, in the browser and through the agent tools. **Only in that
+  section**: an ordinary listing still marks a row as blocked without naming what blocks it,
+  because that would report an item the reader may not be allowed to see. For the same reason
+  a blocker in a project you cannot read is left out — the row stays where it is, with nothing
+  named beside it.
+
 - **An item can say what superseded it, and what it replaced.** Two ways to record that work
   moved rather than stopped: a `supersedes` relation, and a `superseded` status for a task.
 

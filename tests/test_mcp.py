@@ -54,6 +54,7 @@ import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.filtering
 import subroutine.domain.text
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.installations
 import subroutine.mcp.protocol
@@ -901,6 +902,126 @@ def test_a_day_that_is_not_a_day_is_refused_by_name (
 	assert failed
 	assert "next quarter" in answered
 	assert "understands" in answered
+
+
+def test_an_agent_is_told_who_is_holding_a_row_up (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""**`SR#1287`, Simon's decision of 2026-08-27.** The mark says *that*; this says *what*.
+
+	An agent reading its own agenda could see a row under *waiting on somebody else* and had
+	no way at all to find out who — and unlike a person at a terminal it cannot glance at
+	anything. Decision `SR#1267` §3c is what asked for this.
+
+	**One cell rather than the terminal's line each**, which is not a divergence: `SR#989`
+	binds the surfaces to one *answer* and never to one rendering, and §13's context economy
+	points the opposite way from a terminal's line budget.
+
+	**The assignee and never the claimant.** Simon's reason is that the claimant may be an
+	agent — possibly the assignee's own — so the assignee is the only principal a reader can
+	instruct. On this surface that argument is sharper still: the reader *is* an agent.
+	"""
+
+	workspace = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace)
+	).first()
+	person = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User)
+	).first()
+
+	assert workspace is not None and person is not None
+
+	# **A service account, and that is the fixture answering a rule rather than dodging one.**
+	# Local mode refuses a second *person* — "there is no way to tell whose to-do list to
+	# show" — and a service account deliberately does not count towards that (§12.4). It also
+	# makes the line say more: an agent is written `@name (agent)` wherever a surface names a
+	# principal (`SR#1414`), so this fails for a rendering that printed a bare username.
+	other = subroutine.domain.users.create(
+		session,
+		username=f"jo-{uuid.uuid4().hex[:8]}",
+		timezone="Europe/London",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=workspace, user=other, role_key="member"
+	)
+	session.flush()
+
+	theirs = _added(bound, "Their bit")
+	mine = _added(bound, "My bit")
+
+	_called(bound, "subroutine_update", ref=theirs, assignee=other.username)
+	_called(bound, "subroutine_link", ref=theirs, type="blocks", other=mine)
+
+	on_today, failed = _called(bound, "subroutine_list", today=True)
+
+	assert not failed, on_today
+
+	row = next(
+		line for line in on_today.splitlines() if line.startswith(f"#{mine}  ")
+	)
+
+	assert "blocked_by_others" in row, f"the section is the reason the far end is named: {row}"
+	assert f"waiting on #{theirs} @{other.username} (agent, @{person.username})" in row, (
+		f"an agent is named with the person who answers for it, which is Simon's own reason "
+		f"for naming the assignee — the reader can instruct them:\n{row}"
+	)
+
+
+def test_an_ordinary_listing_never_names_what_is_holding_a_row_up (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""**`SR#1287`.** The rule `SR#856` cost, kept everywhere it was not argued away.
+
+	*A listing says that and a detail view says what* is written on `views.Task.blocking`.
+	One agenda section is carved out of it by decision `SR#1267` §3c; a backlog is not, and an
+	agent asking for one gets the mark and nothing more.
+
+	**The mark is asserted too**, because a listing that had stopped saying anything about the
+	blocker would pass the negative assertion on its own.
+	"""
+
+	workspace = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace)
+	).first()
+	person = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User)
+	).first()
+
+	assert workspace is not None and person is not None
+
+	# **A service account, and that is the fixture answering a rule rather than dodging one.**
+	# Local mode refuses a second *person* — "there is no way to tell whose to-do list to
+	# show" — and a service account deliberately does not count towards that (§12.4). It also
+	# makes the line say more: an agent is written `@name (agent)` wherever a surface names a
+	# principal (`SR#1414`), so this fails for a rendering that printed a bare username.
+	other = subroutine.domain.users.create(
+		session,
+		username=f"jo-{uuid.uuid4().hex[:8]}",
+		timezone="Europe/London",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=workspace, user=other, role_key="member"
+	)
+	session.flush()
+
+	theirs = _added(bound, "Their bit")
+	mine = _added(bound, "My bit")
+
+	_called(bound, "subroutine_update", ref=theirs, assignee=other.username)
+	_called(bound, "subroutine_link", ref=theirs, type="blocks", other=mine)
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+
+	row = next(line for line in listed.splitlines() if line.startswith(f"#{mine}  "))
+
+	assert subroutine.views.BLOCKED_MARK in row, row
+	assert "waiting on #" not in row, f"a backlog row marks it and does not name it: {row}"
 
 
 def test_an_agent_can_ask_what_is_on_today (

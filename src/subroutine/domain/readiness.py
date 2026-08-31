@@ -32,6 +32,8 @@ import sqlalchemy.orm
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.authentication
+import subroutine.domain.scoping
 import subroutine.errors
 
 #: The link-type category that holds work up — decision `#1157`, and the narrowest of the three
@@ -519,6 +521,101 @@ def blocking_among (
 	"""
 
 	return _matching(session, identifiers, lambda model: blocking(model, now=now))
+
+
+def blockers_among (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	now: datetime.datetime,
+) -> dict[uuid.UUID, tuple[subroutine.db.models.work.Task, ...]]:
+	"""Return what is holding each of these tasks up, keyed by the task it holds up — `#1287`.
+
+	**The one function here that *is* narrowed by visibility, and that is the whole decision.**
+	:func:`blocked_among` and :func:`blocking_among` are deliberately not, because whether work
+	is blocked is a fact about the work rather than about the viewer, and marking a row from a
+	blocker the caller cannot see is honest — it says *that*, never *what*. Naming the far end
+	says *what*, so it takes the rule that governs naming a far end: ``domain.links`` drops an
+	end the caller may not see, and this drops the same ones, from
+	:func:`subroutine.domain.scoping.readable_tasks` rather than from a second copy.
+
+	**So a row here can be held up by more than this reports**, and nothing says by how many.
+	That is deliberate: a count of what was withheld is more than *something unseen holds this
+	up*, which is the bound :func:`blocked_among`'s docstring already draws and the most this
+	may disclose. The consequence a reader should know is that chasing everybody named does not
+	guarantee the row moves — which is true of an unassigned blocker too, and is why this
+	reports **every** live blocker rather than only the ones
+	:func:`blocked_by_somebody_else` counts.
+
+	**One statement whatever the page**, which is why this is not
+	:func:`subroutine.domain.links.edges` in the agenda: that function answers the general
+	question — every link, both ends, either entity type — in three. Here the far end is known
+	to be a task, the relation is known to be gating, and the near end is on the page, so the
+	same answer is one join off the readable set. `#39`'s N+1 is what this shape exists to
+	avoid and `#1295` is the guard that would see it.
+
+	The liveness rule is :func:`_live_blocks_edge`'s, read in the same direction
+	:func:`_nothing_blocks_it` reads it, so what this names is exactly what holds a row up by
+	an edge of its own, less whatever visibility withheld.
+
+	**It is the direct edges and never the ancestor rule** (`#1610`), which is worth knowing
+	before reading an empty answer as a contradiction: a row can be marked ``blocked`` because
+	something above it cannot start, and there is no edge on *that* row to name. Nothing here
+	reaches such a row today — the agenda's section is built from
+	:func:`blocked_by_somebody_else`, which is direct edges too — and the remedy if anything
+	ever does is to read the parent, which is what the count beside a readiness listing already
+	says.
+	"""
+
+	wanted = set(identifiers)
+
+	if not wanted:
+		return {}
+
+	blocker = subroutine.db.models.work.Task
+	filed_in = subroutine.db.models.project.Project
+	link = subroutine.db.models.work.Link
+	kind = subroutine.db.models.vocabulary.LinkType
+
+	# **Deleted, archived and template rows are readable here for `links._visible`'s reason**,
+	# and are then judged by `_live_blocks_edge` rather than by the listing defaults: which
+	# rows a caller may *see* and which edges *count* are two questions, and answering the
+	# second with the first would leave a row marked blocked by an archived item and reported
+	# as blocked by nothing.
+	statement = (
+		subroutine.domain.scoping.readable_tasks(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+			include_templates=True,
+		)
+		.add_columns(link.target_id)
+		.join(
+			link,
+			sqlalchemy.and_(link.source_type == "task", link.source_id == blocker.id),
+		)
+		.join(kind, kind.id == link.link_type_id)
+		.where(
+			link.target_type == "task",
+			link.target_id.in_(wanted),
+			*_live_blocks_edge(link, kind, blocker, filed_in, now=now),
+		)
+		.order_by(blocker.ref)
+	)
+
+	# **Every id asked about gets an entry**, so a caller can tell *nothing live and visible
+	# holds this up* from *this row was never asked about*. Both are empty otherwise, and on
+	# the one surface that calls this the first means the ends were withheld — see
+	# :func:`subroutine.views._holding_up`, which is where that distinction is published.
+	holding: dict[uuid.UUID, list[subroutine.db.models.work.Task]] = {one: [] for one in wanted}
+
+	for row, held_up in session.execute(statement):
+		holding[held_up].append(row)
+
+	return {one: tuple(rows) for one, rows in holding.items()}
 
 
 def _matching (

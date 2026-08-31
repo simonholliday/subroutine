@@ -260,6 +260,23 @@ class Agenda:
 	#: started, so it is context rather than the day's work.
 	blocked_by_others: tuple[subroutine.db.models.work.Task, ...] = ()
 
+	#: What is holding each of those rows up, keyed by the row it holds up (`#1287`, Simon's
+	#: decision of 2026-08-27). The heading says somebody else has to move first; this is who,
+	#: and which item — *blocked* with no name is an invitation to guess.
+	#:
+	#: **Only for :attr:`blocked_by_others`**, which is the one section whose whole subject is
+	#: the far end. Every other listing this product draws says *that* something blocks a row
+	#: and never *what*, on `#856`'s rule — see :func:`subroutine.views.Task.blocked_by` for why
+	#: this section is the argued exception rather than the first crack in it.
+	#:
+	#: **Every live blocker, not only the ones that put the row here.** The bucket's predicate
+	#: needs a blocker assigned to somebody else; a row can be held by that one *and* by an
+	#: unassigned one, and naming only the first would say that chasing them releases the work
+	#: when it does not.
+	blockers: dict[
+		uuid.UUID, tuple[subroutine.db.models.work.Task, ...]
+	] = dataclasses.field(default_factory=dict)
+
 	#: How many undated tasks there are in total, which is usually more than were returned.
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
@@ -779,6 +796,16 @@ def build (
 		upcoming=rows["upcoming"],
 		unscheduled=rows["unscheduled"],
 		blocked_by_others=rows["blocked_by_others"],
+		# **Resolved for one bucket, after the rows are known** (`#1287`). One statement, and
+		# none at all when nothing on the page is held up — which is the ordinary state of a
+		# solo instance and is what keeps `#1295`'s bounded count where it was.
+		blockers=subroutine.domain.readiness.blockers_among(
+			session,
+			principal,
+			{row.id for row in rows["blocked_by_others"]},
+			workspace_ids=workspace_ids,
+			now=now,
+		),
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],
 		later_total=beyond or 0,

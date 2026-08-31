@@ -9812,6 +9812,9 @@ def _render (
 				)
 			)
 
+			for line in _waiting_on(task):
+				console.print(line)
+
 	if remaining > 0:
 		console.print(rich.text.Text(f"      and {remaining} more unscheduled", style=DETAIL))
 
@@ -10029,6 +10032,53 @@ def _because (
 		entity_type=located.entity_type,
 		workspace=located.workspace,
 	)
+
+
+def _waiting_on (item: Item) -> list[rich.text.Text]:
+	"""Return a line per item holding this row up, or nothing where none is named — `#1287`.
+
+	**Only the agenda's *Waiting on somebody else* section resolves this**, so everywhere else
+	``blocked_by`` is null and this returns nothing at all. That is the rule rather than an
+	accident of where it is called: a listing marks a row blocked and says *that*, and naming
+	the far end is `#856`'s line. :attr:`subroutine.views.Task.blocked_by` carries why this one
+	section is the argued exception.
+
+	**A line each rather than one line of refs**, because an agent is written
+	``@claude-super (agent, @si)`` wherever a surface names a principal (`#1414`) and three of
+	those on one line wraps at whatever width the reader's terminal happens to be — which is
+	the trap ``_say`` already records. Each line here is short whatever is on it.
+
+	**The ref and who has it, and not the title.** The heading above says what kind of waiting
+	this is and the row above says what is waiting; what a reader cannot get from either is
+	*whom to chase* and *which item to look at*, and both of those are addressable. A title
+	would double the width of every line to save a reader who wants it one ``subroutine show``.
+
+	**Nothing is said where the list is empty**, which is a row whose blockers this reader may
+	not see. The section heading has already told them somebody else is holding it up; a line
+	saying *somebody you cannot see* would add a sentence and no remedy.
+	"""
+
+	if not isinstance(item, subroutine.views.Task) or not item.blocked_by:
+		return []
+
+	lines = []
+
+	for end in item.blocked_by:
+		line = rich.text.Text("      waiting on ", style=DETAIL)
+		line.append(f"#{end.ref}", style=POSITION)
+
+		named = subroutine.views.principal_named(
+			end.assignee,
+			is_agent=end.assignee_is_agent,
+			answers_to=end.assignee_answers_to,
+		)
+
+		if named:
+			line.append(f"  {named}", style=DETAIL)
+
+		lines.append(line)
+
+	return lines
 
 
 def _item_line (
