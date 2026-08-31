@@ -917,6 +917,7 @@ REPORTED_AS = {
 	"importance": "sigil",
 	"urgency": "sigil",
 	"estimate_minutes": "sigil",
+	"estimate_text": "the token as typed, which is what that sigil echoes",
 	"assignee": "sigil",
 	"tags": "sigil",
 	"due": "date, rendered beside the title",
@@ -969,7 +970,9 @@ def test_a_line_with_no_sigils_summarises_to_nothing () -> None:
 		("Think about it !3", "!3"),
 		("Do it !4/2", "!4/2"),
 		("Write it ~2h", "~2h"),
-		("Write it ~90m", "~1h 30m"),
+		("Write it ~90m", "~90m"),
+		("Write it ~40h", "~40h"),
+		("Write it ~1h30m", "~1h30m"),
 		("Ask her @alice", "@alice"),
 		("Tidy up #home #admin", "#home #admin"),
 		("Fix the header !4/2 ~2h #ops +web", "+web !4/2 ~2h #ops"),
@@ -978,13 +981,74 @@ def test_a_line_with_no_sigils_summarises_to_nothing () -> None:
 def test_each_sigil_is_written_back_as_it_was_typed (text: str, expected: str) -> None:
 	"""Which is what makes the line need no vocabulary — it is the user's own words.
 
-	``~90m`` becoming ``~1h 30m`` is the one that is not literally what was typed, and it is
-	right: the confirmation somebody wants from a duration is what it came to.
+	**The estimate used to be the exception and is not any more** (`#1614`). This test recorded
+	that ``~90m`` came back as ``~1h 30m`` and argued it was right — *"the confirmation somebody
+	wants from a duration is what it came to"* — which weighed one of ``summarise``'s three
+	stated reasons and never checked the third, that the line **is what they would type again**.
+
+	Measured, and the recorded example is its own refutation:
+
+	    add "Write it ~1h 30m"       ->  title "Write it 30m", estimate 1h
+	    add "M1 milestone ~1d 16h"   ->  title "M1 milestone 16h", estimate 1d
+
+	``humanize`` joins with a space and ``_ESTIMATE`` accepts none, so **every compound it emits
+	is unreadable by the grammar that produced it** — retyping the echo silently sets a smaller
+	estimate and leaves the remainder in the title, which is §6.13 rule 1's forbidden outcome
+	arriving through the line that exists to prevent it.
+
+	It stayed hidden because the case people met first was a milestone, where ``~40h`` came back
+	as ``~1d 16h`` and the *unit* is what everybody complained about. ``estimate_human`` is
+	unchanged and still says what an estimate came to, on every surface that shows a duration
+	rather than confirming a sentence.
 	"""
 
 	read = subroutine.domain.capture.parse(text, now=NOW)
 
 	assert subroutine.domain.capture.summarise(read) == expected
+
+
+@pytest.mark.parametrize(
+	"text",
+	[
+		"M1 milestone ~40h",
+		"Write it ~90m",
+		"Write it ~1h30m",
+		"Ship the thing ~2d",
+		"Fix the header !4/2 ~2h #ops +web @alice",
+	],
+)
+def test_the_line_read_back_can_be_typed_again (text: str) -> None:
+	"""`#1614`. ``summarise`` promises this in words and nothing was asking for it.
+
+	Its third stated reason for echoing tokens rather than prose is that the line **is what
+	they would type again** — so the guard is to type it again. The title and the echo are
+	what a reader sees, so joining them is the sentence they would reconstruct.
+
+	**Stronger than comparing against an expected string**, which is what the test above does
+	and which can only say the answer has not moved. This says the answer is *usable*, and it
+	fails for any rendering the grammar cannot read back — including one nobody has written
+	yet. Falsified by putting ``humanize`` back: three of these five then set a smaller estimate
+	and leave the remainder in the title, and the two that survive are the ones whose written
+	unit happens to be the one it would have chosen.
+
+	Dates are deliberately absent from every case, because they are rendered beside the title
+	rather than echoed (``REPORTED_AS`` above) and so are not part of the line being retyped.
+	"""
+
+	once = subroutine.domain.capture.parse(text, now=NOW)
+	summary = subroutine.domain.capture.summarise(once)
+
+	assert summary is not None, "every case here is written with sigils"
+
+	twice = subroutine.domain.capture.parse(f"{once.title} {summary}", now=NOW)
+
+	assert (twice.title, twice.estimate_minutes) == (once.title, once.estimate_minutes)
+	assert (twice.importance, twice.urgency) == (once.importance, once.urgency)
+	assert (twice.tags, twice.assignee, twice.project_key) == (
+		once.tags,
+		once.assignee,
+		once.project_key,
+	)
 
 
 def test_the_read_back_line_cannot_be_mistaken_for_the_title () -> None:

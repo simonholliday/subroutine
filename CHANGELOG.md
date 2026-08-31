@@ -100,6 +100,19 @@ upgrade involves.
 
 ### Fixed
 
+- **An estimate is confirmed back in the unit you wrote it in.** `subroutine add "M1 milestone
+  ~40h"` answered `(read ~1d 16h)` — the same length of time, said in a unit nobody plans a
+  milestone in, where a day means twenty-four hours rather than a working one.
+
+  Worse, that line could not be typed again. The estimate shorthand takes no space, so
+  retyping `~1d 16h` set a **one-day** estimate and left `16h` in the title — and `~90m`, which
+  came back as `~1h 30m`, did the same thing. The line that exists to show you what was
+  understood was the one line you could not act on.
+
+  Now `~40h` reads back `~40h`, and `~1h30m` reads back `~1h30m`. Everywhere a duration is
+  *displayed* rather than confirmed — a listing, `show`, `estimate_human` in the API — is
+  unchanged and still says what it came to.
+
 - **Two refusals told you to run a command that does not exist.** Putting a document under a
   parent in another project said to move it with `subroutine doc move`, and taking somebody out
   of a workspace said to see who is in it with `subroutine workspace members`. Neither has ever

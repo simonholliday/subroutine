@@ -329,6 +329,13 @@ class Capture:
 	importance: int | None = None
 	urgency: int | None = None
 	estimate_minutes: int | None = None
+
+	#: How long the work will take, and the token it was written as (`#1614`) — the same pair
+	#: as ``recurrence``/``recurrence_text`` two fields up, for the same reason. ``humanize``
+	#: re-spells a duration in the largest units that fit, so ``~40h`` came back as ``~1d 16h``:
+	#: a different sentence, and one this grammar cannot read, because ``_ESTIMATE`` takes no
+	#: space and would stop at ``1d`` and leave ``16h`` in the title.
+	estimate_text: str | None = None
 	tags: tuple[str, ...] = ()
 	assignee: str | None = None
 	project_key: str | None = None
@@ -512,7 +519,19 @@ def summarise (capture: Capture) -> str | None:
 		)
 
 	if capture.estimate_minutes is not None:
-		parts.append(f"~{subroutine.domain.durations.humanize(capture.estimate_minutes)}")
+		# **The token, not the duration re-spelled** (`#1614`). This is the one part of the
+		# echo that was going through a renderer, and it broke both halves of the promise
+		# above: ``~40h`` came back as ``~1d 16h``, which is not what was written and — because
+		# the estimate token takes no space — is not something that can be written again.
+		# Typing it produces a one-day estimate and a title ending in ``16h``.
+		#
+		# **``humanize`` behind it, for a caller that built a ``Capture`` by hand.** Nothing in
+		# the tree does; a summary is only ever made from a parse. But the alternative is
+		# reporting an estimate as unread when one was set, which is the defect this whole
+		# function exists to prevent.
+		parts.append(
+			f"~{capture.estimate_text or subroutine.domain.durations.humanize(capture.estimate_minutes)}"
+		)
 
 	if capture.assignee is not None:
 		parts.append(f"@{capture.assignee}")
@@ -779,6 +798,9 @@ def _collect_sigils (
 			# Rule 1. `~soon` is not an estimate, so it stays in the title rather than
 			# failing the whole capture over one token.
 			continue
+
+		# Kept *after* the parse, so a token that was not an estimate never becomes one.
+		fields["estimate_text"] = match.group("value")
 
 		claimed.append(match.span())
 
