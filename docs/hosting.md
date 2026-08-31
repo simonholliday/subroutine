@@ -787,7 +787,14 @@ So:
 cors_origins = ["https://boards.example.com"]
 ```
 
-**And a way to check you meant it**, which is what an operator can actually run:
+**The instance says what is in force, on every published install.** `subroutine doctor` reports
+this setting in its own right — `empty, so only this instance's own pages may call it`, or
+`1 named`, or, if the list is `*`, the whole warning above followed by `needs attention`. It is
+stated either way rather than only when something is wrong, so you can tell *this is what I
+chose* from *nothing looked*. `serve` prints the same warning at startup for a `*`.
+
+**And a way to check what your instance actually answers**, which is the question neither of
+those asks — they read the setting, this reads the reply:
 
 ```console
 $ curl -si https://subroutine.example.com/v1/meta -H 'Origin: https://somewhere-else.example' \

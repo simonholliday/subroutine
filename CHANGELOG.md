@@ -100,6 +100,15 @@ upgrade involves.
 
 ### Fixed
 
+- **A version conflict no longer tells a terminal to look in a response it does not have.**
+  Losing a race said *"Re-read the item — the current one is in this response — merge your
+  change into it, and send it again."* That is true over HTTP, where the 409 really does carry
+  the current item; at a terminal, and for an agent on a local connection, there is no response
+  to look in and nothing above the message shows the item.
+
+  The promise moved to the layer that keeps it rather than being dropped, so an HTTP caller
+  still gets the sentence and still gets the entity to merge against.
+
 - **`db upgrade` says that the backup it takes is never removed.** It takes one before every
   upgrade and prunes nothing, so on a machine that upgrades often the copies accumulate with
   nothing to notice — until the disk fills, and the symptom is the database refusing writes

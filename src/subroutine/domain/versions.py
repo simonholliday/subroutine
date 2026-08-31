@@ -92,8 +92,18 @@ def require (entity: typing.Any, expected: int | None, *, noun: str = "item") ->
 				hint="Read it again, apply your change to the current version, and retry.",
 			)
 		],
-		hint="Nothing was changed. Re-read the item — the current one is in this response — "
-		"merge your change into it, and send it again.",
+		# **No promise about where the current one is** (`#1698`). This said *the current one
+		# is in this response*, which only `api.concurrency.reporting` makes true — so at a
+		# terminal, and through MCP on a local connection, it pointed at something that is not
+		# there and nothing above it showed the item. That surface reads the sentence; it does
+		# not read the extensions.
+		#
+		# **The clause is not dropped, it has moved to the layer that earns it.** §8.9's
+		# affordance is real over HTTP and `reporting` is what supplies it, so `reporting`
+		# is what says so — which is the same division `raced()` next door already describes
+		# in its docstring.
+		hint="Nothing was changed. Re-read the item, merge your change into it, and send it "
+		"again.",
 		# Machine-readable, because "merge and retry" is a thing a program does and picking
 		# two numbers out of a sentence is not.
 		extensions={"expected_version": expected, "current_version": current},

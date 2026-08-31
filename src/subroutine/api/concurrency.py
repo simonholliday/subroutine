@@ -131,4 +131,15 @@ def reporting (render: typing.Callable[[], typing.Any]) -> typing.Iterator[None]
 				else current
 			)
 
+			# **And say so, because only here is it true** (`#1698`). The hint used to carry
+			# *the current one is in this response* from the domain, where it was false for
+			# every caller that does not come through a router — a terminal reader, and an
+			# agent on a local connection, were told to look in a response they never had.
+			# The sentence belongs to whoever attaches the entity.
+			error.hint = (
+				f"{error.hint} The current one is in this response, under 'current'."
+				if error.hint
+				else "The current one is in this response, under 'current'."
+			)
+
 		raise

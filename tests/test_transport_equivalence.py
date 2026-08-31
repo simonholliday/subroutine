@@ -5184,6 +5184,61 @@ def test_a_stale_change_is_refused_on_both_transports (pair: Pair) -> None:
 		)
 
 
+def test_a_version_conflict_promises_the_current_item_only_where_it_sends_one (
+	pair: Pair,
+) -> None:
+	"""`SR#1698`. A hint has to be true on the surface it is read on.
+
+	``versions.require`` used to say *"Re-read the item — the current one is in this response —
+	merge your change into it, and send it again."* Only ``api.concurrency.reporting`` makes
+	that true: it is a router-level context manager, so a terminal reader and an agent on a
+	local connection were pointed at a response they do not have, with nothing above the
+	message showing the item.
+
+	**The clause was moved rather than dropped**, because §8.9's affordance is real — the 409
+	carries the current entity so a caller can merge instead of refetching — and the layer that
+	attaches it is the layer that may promise it.
+
+	**This is the one place the two transports are allowed to differ**, which is why it is
+	asserted here rather than in either file alone: an equivalence suite that only checks
+	sameness cannot express a difference that is correct.
+	"""
+
+	for client in pair.both():
+		made = client.capture(text=f"Something two people will save {uuid.uuid4().hex[:6]}").task
+
+		with pytest.raises(subroutine.errors.Conflict) as clash:
+			client.update(ref=made.ref, title="Mine", expected_version=made.version + 5)
+
+		hint = clash.value.hint or ""
+		carries = "current" in clash.value.extensions
+
+		assert "merge your change into it" in hint, (
+			f"{client!r} refused without saying what to do about it: {hint!r}"
+		)
+
+		assert carries == ("in this response" in hint), (
+			f"{client!r} {'carries' if carries else 'does not carry'} the current item and its "
+			f"hint {'promises' if 'in this response' in hint else 'does not promise'} one: "
+			f"{hint!r}"
+		)
+
+	# **Named rather than left to the loop**, so this cannot pass with both transports silent
+	# about it — which is what the assertion above allows and is exactly the state before the
+	# fix, read the other way round.
+	over_the_wire = pair.remote.capture(text="One more, for the half that promises").task
+
+	with pytest.raises(subroutine.errors.Conflict) as over_http:
+		pair.remote.update(
+			ref=over_the_wire.ref, title="Mine", expected_version=over_the_wire.version + 5
+		)
+
+	assert "in this response" in (over_http.value.hint or ""), (
+		"the HTTP client attaches the current entity and has to say so — that is what a "
+		"caller merges against instead of reading the item again"
+	)
+
+
 def test_both_can_chain_a_document_to_the_one_it_replaces (pair: Pair) -> None:
 	"""`SR#1144`. ``PATCH /v1/documents`` accepted ``supersedes`` and neither client sent it.
 

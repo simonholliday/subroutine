@@ -30,6 +30,7 @@ import subroutine.auth
 import subroutine.cli.main
 import subroutine.config
 import subroutine.db.migrate
+import subroutine.diagnosis
 import subroutine.domain.sessions
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1142,6 +1143,40 @@ def test_every_step_running_subroutine_as_the_service_account_names_its_environm
 	assert checked >= 2, (
 		f"found only {checked} steps running Subroutine as the service account — has this "
 		f"stopped reaching them?"
+	)
+
+
+def test_what_the_page_says_doctor_reports_is_what_doctor_says () -> None:
+	"""`#1581`. The page quotes the instance's own words about an origin list.
+
+	The `cors_origins` section used to offer a `curl` one-liner as *"a way to check you meant
+	it"*, written when that was the only check there was. Since `#1558` the program reports the
+	setting itself — on `doctor`, on every published install, stated whether or not anything is
+	wrong — and an operator reaches for the command far sooner than for the `curl`.
+
+	**Held against the source, which is `#189` made mechanical.** A page describing what a
+	program says is a claim that goes stale silently, and this page has one: its `doctor`
+	transcript is a run from an older version and is missing three lines a published instance
+	prints. That block needs a real run on a real server and is not fixable from a checkout;
+	this sentence was verifiable and so it is verified.
+	"""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	spoken = pathlib.Path(subroutine.diagnosis.__file__).read_text(encoding="utf-8")
+
+	quoted = "empty, so only this instance's own pages may call it"
+
+	assert quoted in page, "the page no longer quotes what doctor says about an empty list"
+	assert quoted in spoken, (
+		f"the page quotes doctor as saying {quoted!r} about an empty origin list, and it "
+		f"does not say that any more"
+	)
+
+	# The other half: the page also promises the setting is reported whether or not it is a
+	# fault, which is the property that lets a reader tell a choice from an unasked question.
+	assert "stated either way" in page or "either way" in page, (
+		"the page's claim that doctor reports this setting even when nothing is wrong is what "
+		"makes reading it worth anything"
 	)
 
 
