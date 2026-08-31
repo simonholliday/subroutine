@@ -470,6 +470,72 @@ def test_a_ready_listing_says_how_much_is_waiting_on_something_above_it (
 	).output
 
 
+def test_a_listing_says_which_rows_are_waiting_on_a_person (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1383`, Simon's instruction of 2026-08-27.**
+
+	*"Right now there is an @si on the items, but it's small. If you need input from me before
+	you can continue, you should assign to me, I should clearly be able to see it ASAP."*
+
+	**The agenda already did this and no listing did.** Driven before building: `list` rendered
+	a `needs_input` row identically to an ordinary one, because `_state_cell` read
+	`status_category` alone and this is a *key* — `SR#96` refused a fifth category. So
+	`status_is_news`'s own claim that *"printing `blocked` is most of why the field exists"* was
+	true of `show` and untrue of every listing at this terminal, which is `SR#874`'s finding one
+	status along.
+
+	**Both halves.** A listing that had begun marking every row would satisfy the first
+	assertion alone, and §12.2a is that a mark on every row says nothing.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	run("add", "Needs a decision from you")
+	run("update", "2", "--status", "needs_input")
+
+	listed = run("list").output
+	rows = {
+		line.split()[0]: line for line in listed.splitlines() if line.strip().startswith("#")
+	}
+
+	assert subroutine.views.WAITING_MARK in rows["#2"], (
+		f"the row a person has to answer says nothing about it:\n{listed}"
+	)
+	assert subroutine.views.WAITING_MARK not in rows["#1"], (
+		f"a mark on every row says nothing (§12.2a):\n{listed}"
+	)
+
+
+def test_the_mark_and_the_agendas_section_read_one_key (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**`SR#1383`.** One status, one question, asked in one place.
+
+	`views.waiting_on_a_person` is what both read, and it takes the key from
+	`domain.agenda.WAITING_STATUS` — the same declaration the bucket is built from. Two
+	literals would let a listing mark a row the agenda does not bucket, which is the
+	disagreement `SR#913` and `SR#1156` are both records of.
+
+	**Driven rather than compared**, because a test asserting the two constants are equal
+	proves they are equal and says nothing about either surface reading them.
+
+	**Two rows, and the second one is not decoration.** With one row the listing drops every
+	column it could have shown — `SR#1715`, filed the same day — so a fixture of one would fail
+	here for a reason that has nothing to do with what this is about.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+	run("add", "Needs a decision from you")
+	run("update", "2", "--status", "needs_input")
+
+	shown = run("agenda").output
+
+	assert "Waiting on you" in shown, shown
+	assert subroutine.views.WAITING_MARK in run("list").output
+
+
 def test_the_agenda_says_who_is_holding_a_row_up (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

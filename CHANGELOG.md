@@ -22,6 +22,23 @@ upgrade involves.
 
 ### Added
 
+- **Work that needs an answer from you is marked wherever it appears.** A task set to
+  `needs_input` had its own section at the top of the agenda and said nothing anywhere else,
+  so in a list or on a board it looked like ordinary work with a name against it.
+
+  ```
+     #3               Ship the connector
+     #2  needs input  Needs a decision from you
+  ```
+
+  The browser draws it beside *Blocked*, in the same colour a passed deadline uses, rather than
+  as a plain status chip — because owing somebody an answer is a commitment unkept in the same
+  way a deadline is. An agent's row already said it and is unchanged.
+
+  **The mark follows the seeded `needs_input` status.** A workspace that renames that status
+  loses the mark and the agenda's section together, which is the one cost of there being no
+  status *category* for this.
+
 - **Your agenda names who is holding your work up.** *Waiting on somebody else* said that
   somebody was; it did not say who, so the one thing it existed to prompt — chasing them —
   needed a second command to find out.

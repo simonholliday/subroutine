@@ -1910,11 +1910,95 @@ def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 	for name, word in (
 		("BLOCKED_MARK", subroutine.views.BLOCKED_MARK),
 		("BLOCKING_MARK", subroutine.views.BLOCKING_MARK),
+		# **`SR#1383`.** The third word two surfaces say, and the first of the three that is two
+		# words — which is why the status chip's silencing had to learn that a key's underscore
+		# and a mark's space are the same gap.
+		("WAITING_MARK", subroutine.views.WAITING_MARK),
 	):
 		assert word.lower() in shown, (
 			f"`views.{name}` is {word!r} and the browser's `marks` says none of {sorted(shown)}. "
 			f"One relationship with two names is what `#913` was"
 		)
+
+
+def test_the_browser_says_a_row_is_waiting_on_a_person_as_a_state_not_a_status (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""**`SR#1383`, Simon's instruction of 2026-08-27.** *"I should clearly be able to see it."*
+
+	**A promotion rather than a new fact, and measuring is what showed which.** The item says
+	the board *"does not distinguish an item waiting on a person from any other item in its
+	column"*. Driven before building: it did draw it — as the raw key `needs_input`, in the
+	`identity` family, with the same weight as any other status and reading as a column name
+	rather than as a sentence. What was missing is that this one is an **exception**.
+
+	So it takes `late`'s tone, which is `SR#1116`'s reasoning rather than a new judgement: the
+	agenda puts this above `overdue` because owing somebody an answer is a commitment unkept in
+	exactly the way a passed deadline is.
+
+	**And the status chip must fall silent**, or a card says the same thing twice in two
+	registers — `Needs input` beside `needs_input`. That is `SR#1019`'s rule, which compared the
+	two case-blind and could not see that a key's underscore is a mark's space.
+	"""
+
+	body = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	waiting = re.search(r'export const WAITING_STATUS = "([^"]+)"', body)
+
+	assert waiting is not None, "the browser's copy of the key has moved"
+	assert waiting.group(1) == subroutine.domain.agenda.WAITING_STATUS, (
+		f"the browser reads {waiting.group(1)!r} and the agenda's bucket reads "
+		f"{subroutine.domain.agenda.WAITING_STATUS!r} — one status with two keys is what "
+		f"`SR#913` was, and here it would put a mark on a row the agenda does not bucket"
+	)
+
+	shown = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const row = {{
+			ref: 1, kind: "task", title: "Needs a decision",
+			status: {json.dumps(subroutine.domain.agenda.WAITING_STATUS)},
+			status_category: "todo", status_is_default: false,
+		}};
+
+		process.stdout.write(JSON.stringify(app.marks(row, false)));
+	""")
+	drawn = shown
+	waiting_marks = [one for one in drawn if one["text"] == "Needs input"]
+
+	assert waiting_marks, f"nothing on the row says it is waiting on a person: {drawn}"
+	assert waiting_marks[0]["family"] == "state", (
+		f"a status is what an item is; this is an exception a reader must not scroll past: "
+		f"{waiting_marks[0]}"
+	)
+	assert waiting_marks[0]["tone"] == "late", waiting_marks[0]
+
+	assert not [one for one in drawn if one["text"] == subroutine.domain.agenda.WAITING_STATUS], (
+		f"the raw key is still drawn beside the mark, so a card says it twice: {drawn}"
+	)
+
+
+def test_an_ordinary_row_says_nothing_about_waiting_on_a_person (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""**`SR#1383`.** The mark is on the exception, and most rows are not one.
+
+	§12.2a: a mark that appears on every row says nothing, and this is the half a positive
+	assertion alone cannot see — a `marks` that pushed the state unconditionally would satisfy
+	the test above and destroy the thing it is for.
+	"""
+
+	shown = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const row = {{
+			ref: 2, kind: "task", title: "Ordinary work",
+			status: "open", status_category: "todo", status_is_default: true,
+		}};
+
+		process.stdout.write(JSON.stringify(app.marks(row, false)));
+	""")
+
+	assert not [one for one in shown if one["text"] == "Needs input"], shown
 
 
 def test_a_theme_nobody_recognises_reads_as_the_system_one (tmp_path: pathlib.Path) -> None:
@@ -13366,7 +13450,12 @@ def test_every_mark_says_which_family_it_belongs_to (tmp_path: pathlib.Path) -> 
 
 	assert _families(found) == [
 		("identity", "bug"),
-		("identity", "needs_input"),
+		# **`SR#1383` moved this one out of `identity`**, and it stays here rather than being
+		# swapped for a plainer status: this is the catalogue of every mark, so the new one
+		# belongs in it. What a *status* renders as is asserted by
+		# `test_a_status_stands_down_where_a_state_already_says_the_word`, whose `kept` case is
+		# the only place that now covers the identity family for a status.
+		("state", "Needs input"),
 		("state", "Blocked"),
 		("state", "Blocker"),
 		("state", "Repeats"),
@@ -13465,8 +13554,13 @@ def test_a_status_stands_down_where_a_state_already_says_the_word (
 		"status": "blocked", "status_is_default": False,
 	}
 	# The same shape, with a status no state mark says — the half that stops this being a rule
-	# that hides every status.
-	other = {**both, "status": "needs_input"}
+	# that hides every status, and the half that carries `SR#1019`'s generalisation claim.
+	#
+	# **This was `needs_input` until `SR#1383`, which gave that status a state mark** — so the
+	# fixture stopped being an example of the thing it is here to demonstrate, silently, and the
+	# assertion below is what caught it. A key nothing will ever seed is the fix (`SR#1688`'s
+	# precedent), because a seeded one can be captured the same way a second time.
+	other = {**both, "status": "awaiting_parts"}
 
 	twice, kept = _addressing(tmp_path, [
 		("marks", {"item": both, "showKind": False}),
@@ -13475,7 +13569,7 @@ def test_a_status_stands_down_where_a_state_already_says_the_word (
 
 	assert _families(twice) == [("state", "Blocked")], twice
 	assert _families(kept) == [
-		("identity", "needs_input"), ("state", "Blocked"),
+		("identity", "awaiting_parts"), ("state", "Blocked"),
 	], kept
 
 
@@ -13528,10 +13622,15 @@ def test_a_board_column_that_names_one_status_does_not_repeat_it_on_every_card (
 	display correct, and nothing joining them. So this renders the board and reads the cards.
 	"""
 
+	# **A status this product does not seed, and that is deliberate** (`SR#1383`). This used
+	# `needs_input`, which now carries a state mark of its own — so the card stopped drawing a
+	# *chip* at all and this test began failing for a reason that has nothing to do with the
+	# column rule it is about. A workspace's own word cannot be captured that way twice, and it
+	# makes the generalisation claim rather than relying on our vocabulary.
 	statuses = {
 		"task": [
 			{"key": "open", "category": "todo", "is_default": True},
-			{"key": "needs_input", "category": "todo"},
+			{"key": "awaiting_parts", "category": "todo"},
 			{"key": "done", "category": "done"},
 		],
 	}
@@ -13540,7 +13639,7 @@ def test_a_board_column_that_names_one_status_does_not_repeat_it_on_every_card (
 		"status_is_default": False, "status_category": "done",
 	}
 	waiting = {
-		"ref": 6, "kind": "task", "title": "Waiting", "status": "needs_input",
+		"ref": 6, "kind": "task", "title": "Waiting", "status": "awaiting_parts",
 		"status_is_default": False, "status_category": "todo",
 	}
 
@@ -13548,7 +13647,7 @@ def test_a_board_column_that_names_one_status_does_not_repeat_it_on_every_card (
 		"Board": {"items": [finished, waiting], "workspace": "projects", "statuses": statuses},
 	})["Board"]
 
-	assert "needs_input" in rendered, (
+	assert "awaiting_parts" in rendered, (
 		f"the To do column dropped a status its own name does not say: {rendered}"
 	)
 	assert "done" not in rendered.replace("Done", ""), (

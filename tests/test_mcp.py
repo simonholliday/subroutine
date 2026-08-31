@@ -904,6 +904,46 @@ def test_a_day_that_is_not_a_day_is_refused_by_name (
 	assert "understands" in answered
 
 
+def test_an_agents_row_says_a_task_is_waiting_on_a_person (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""**`SR#1383`.** The one surface of the three that already did this, held rather than built.
+
+	`state_is_news_in_a_listing` is true of `needs_input` — it is neither the default nor done —
+	so `_line` has printed the key since `SR#874`. Measured before building rather than assumed,
+	which is what kept this from becoming a change nobody needed.
+
+	**The key rather than the terminal's words**, and that is `state_is_news_in_a_listing`'s own
+	rule: an agent reads keys and sends them back, where a reader at a terminal meeting
+	`needs_input` would be meeting the vocabulary §13.5b keeps off that path. Sharing the
+	*question* is what stops the two drifting; sharing the rendering would be wrong.
+
+	**Guarded now because the terminal and the browser changed around it.** A fact that three
+	surfaces carry and one guard covers is `SR#674`'s subject, and this is the surface whose
+	silence nobody would notice.
+	"""
+
+	ordinary = _added(bound, "Ordinary work")
+	asked = _added(bound, "Needs a decision")
+
+	_called(bound, "subroutine_update", ref=asked, status="needs_input")
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+
+	rows = {
+		int(line.split()[0].lstrip("#")): line
+		for line in listed.splitlines()
+		if line.startswith("#")
+	}
+
+	assert subroutine.domain.agenda.WAITING_STATUS in rows[asked], rows[asked]
+	assert subroutine.domain.agenda.WAITING_STATUS not in rows[ordinary], (
+		f"a cell on every row says nothing (§12.2a): {rows[ordinary]}"
+	)
+
+
 def test_an_agent_is_told_who_is_holding_a_row_up (
 	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
 ) -> None:

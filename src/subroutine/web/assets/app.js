@@ -3860,6 +3860,20 @@ export const CATEGORY_ICONS = {
 	`test_every_glyph_named_is_one_that_was_vendored` scans it: a name with no path data draws
 	nothing and says nothing, which is `#925`'s recorded defect and was found with a typo.
 */
+/*
+	The status key that says a row is waiting for a person to answer something (`#1383`).
+
+	**The twin of `domain.agenda.WAITING_STATUS`, and the duplication is unavoidable**: this is
+	the one renderer that is not in Python. `tests/test_web.py` holds the two to one key, which
+	is `BLOCKED_MARK`'s arrangement extended rather than a new one.
+
+	**A key rather than a category, which nothing else here reads.** `#96` refused a fifth
+	status category on the grounds that the distinction that matters is *who ends the wait* — a
+	`blocks` link resolves itself where this needs a person — so there is no category to ask
+	for. `views.waiting_on_a_person` carries the argument and what a rename costs.
+*/
+export const WAITING_STATUS = "needs_input";
+
 export const MARK_ICONS = {
 	blocked: "lock-simple",
 	blocker: "key",
@@ -3973,6 +3987,36 @@ export function marks (
 		both read `Blocked Blocked`.
 	*/
 	const states = [];
+
+	/*
+		**Somebody has to answer something before this can move** — `#1383`, Simon's instruction
+		of 2026-08-27: *"If you need input from me before you can continue, you should assign to
+		me, I should clearly be able to see it ASAP."*
+
+		**A promotion rather than a new fact.** The status chip below already drew this, in the
+		`identity` family, as the raw key `needs_input` — the same weight as any other status and
+		reading as a column name rather than as a sentence. What was missing is that this one is
+		an *exception*: `#1116` puts it above `overdue` on the agenda because you owe somebody an
+		answer, which is a commitment unkept in exactly the way a passed deadline is. So it takes
+		`late`'s tone, and the chip below falls silent because a state mark now carries the word.
+
+		**First, above `Blocked`**, which is the agenda's own order (`BUCKETS` puts *Waiting on
+		you* above *Waiting on somebody else*): a row can be both, and *answer this* is the more
+		actionable of the two because nobody can act on the task until the question is settled.
+
+		**By key, and `views.waiting_on_a_person` is where that is argued** — `#96` refused a
+		fifth status category, so there is no category to ask for. A workspace renaming the key
+		loses this mark and loses the agenda's bucket together, which is one cost rather than a
+		disagreement between two surfaces.
+
+		**No glyph, unlike `Blocked` and `Blocker`.** Nothing vendored says *a question parked
+		for a person* — `flask` is taken, as the picture of the `question` type category — and
+		`#102` makes a glyph reinforcement rather than information, so the word carries this on
+		its own exactly as `Deferred` does.
+	*/
+	if (item.status === WAITING_STATUS) {
+		states.push({ text: "Needs input", family: "state", tone: "late" });
+	}
 
 	if (item.blocked) {
 		states.push({ text: "Blocked", family: "state", tone: "blocked", icon: MARK_ICONS.blocked });
@@ -4172,9 +4216,9 @@ export function marks (
 		**Compared case-blind on the key**, which is what the view sends: the status arrives as
 		`blocked` and the mark says `Blocked`.
 	*/
-	const said = new Set(states.map((mark) => mark.text.toLowerCase()));
+	const said = new Set(states.map((mark) => mark.text.toLowerCase().replace(/[_ ]/g, " ")));
 	const status = item.status && !item.status_is_default && !hideStatus
-		&& !said.has(String(item.status).toLowerCase())
+		&& !said.has(String(item.status).toLowerCase().replace(/[_ ]/g, " "))
 		? [{ text: item.status, family: "identity" }]
 		: [];
 

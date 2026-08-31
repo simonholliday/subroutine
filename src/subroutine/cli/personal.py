@@ -1011,6 +1011,14 @@ def _state_cell (item: Item) -> str:
 	if item.status_category == "in_progress":
 		return STARTED_MARK
 
+	# **The third state, and the first read by *key* rather than by category** (`#1383`).
+	# `views.waiting_on_a_person` carries why there is no category to ask for, and what a
+	# workspace renaming the key gives up. Above the completion test because the two cannot
+	# both be true — a `needs_input` row is `todo` — and below `in_progress` for the same
+	# reason, so the order is documentation rather than precedence.
+	if subroutine.views.waiting_on_a_person(item):
+		return WAITING_MARK
+
 	return FINISHED_MARK if item.status_category == "done" else ""
 
 
@@ -1026,6 +1034,14 @@ def _state_cell (item: Item) -> str:
 #: is dropped when no row on the page carries one.
 BLOCKED_MARK = subroutine.views.BLOCKED_MARK
 BLOCKING_MARK = subroutine.views.BLOCKING_MARK
+
+#: Marks a row somebody has to answer something about — `#1383`, and it shares
+#: :data:`STARTED_MARK`'s column because the three states are exclusive.
+#:
+#: **Not a §13.5b word, and it does not need to be one.** *Needs input* is the seeded status's
+#: own title and Simon's own sentence; a reader who has never parked a question never sees it,
+#: because the column is dropped when no row on the page carries one.
+WAITING_MARK = subroutine.views.WAITING_MARK
 
 
 def _blocked_cell (item: Item) -> str:

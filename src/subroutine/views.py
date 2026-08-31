@@ -2332,6 +2332,24 @@ AGENDA_BUCKETS: tuple[str, ...] = subroutine.domain.agenda.BUCKETS
 BLOCKED_MARK = "blocked"
 BLOCKING_MARK = "blocker"
 
+#: What a listing calls a row that is waiting for a person to answer something — `#1383`,
+#: Simon's instruction of 2026-08-27: *"If you need input from me before you can continue, you
+#: should assign to me, I should clearly be able to see it ASAP."*
+#:
+#: **The seeded status's own title, not a word invented here.** ``seed`` names it *Needs input*
+#: and Simon's sentence uses the same phrase, so this is the vocabulary the product already had
+#: rather than a fourth spelling of it.
+#:
+#: **Deliberately not `waiting`**, which is decision `#1267` §2's naming hazard met a fifth
+#: time and avoided rather than walked into. That word is doing two jobs on one page already:
+#: the agenda heads one section *Waiting on you* and the next *Waiting on somebody else*, and
+#: since `#1287` the second prints ``waiting on #42 @jo`` beneath its rows. A mark reading
+#: *waiting* on an ordinary listing row could honestly be either.
+#:
+#: **The browser capitalises it and carries the only other copy**, exactly as the two above —
+#: ``tests/test_web.py`` compares them case-blind.
+WAITING_MARK = "needs input"
+
 
 #: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
 #:
@@ -2397,6 +2415,31 @@ def status_is_news (item: "Task | Project | Document") -> bool:
 	"""
 
 	return not item.status_is_default and item.status_category != "done"
+
+
+def waiting_on_a_person (item: "Task | Project | Document") -> bool:
+	"""Report whether this row is waiting for somebody to answer something — `#1383`.
+
+	**Read by key, which is the one place a rendering here does it**, and
+	:data:`subroutine.domain.agenda.WAITING_STATUS` is the declaration rather than a literal.
+	`#96` refused a fifth status category on the grounds that the distinction that matters is
+	*who ends the wait* — a ``blocks`` link resolves itself where this needs a person — so
+	there is no category to ask for and the seeded key is what there is.
+
+	**A workspace that renames that key loses this mark and loses the agenda's bucket with
+	it**, which is `#1156`'s cost taken once rather than twice: it has renamed the thing both
+	are about, and the honest failure is that both go quiet together rather than one of them
+	disagreeing with the other.
+
+	Here rather than in each renderer because the terminal and the browser both ask it, and the
+	browser cannot import this — so it carries a twin and ``tests/test_web.py`` holds the two
+	to one key, exactly as it does for :data:`BLOCKED_MARK`.
+	"""
+
+	return (
+		isinstance(item, Task)
+		and item.status == subroutine.domain.agenda.WAITING_STATUS
+	)
 
 
 def state_is_news_in_a_listing (item: "Task | Project | Document") -> bool:
