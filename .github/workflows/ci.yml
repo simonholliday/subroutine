@@ -129,10 +129,25 @@ jobs:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
 
-    # The longest job here, and the one whose duration is real work rather than setup:
-    # measured at 7-9 minutes across the matrix. Everything else is a small multiple of a
-    # runner's fixed costs.
-    timeout-minutes: 25
+    # The longest job here, and the one whose duration is real work rather than setup.
+    #
+    # **Re-measured 2026-08-31 and this comment was badly out of date** (`SR#1725`). It said
+    # "7-9 minutes across the matrix"; the runs it was written from are long gone, and four
+    # days of pushes read 21m30, 22m58, 23m20, 23m45 and then two jobs killed at 25m. The
+    # spread is by interpreter: 3.14 runs 13-16 minutes, 3.13 runs 18-22, and 3.11 and 3.12 are
+    # the ones at the wall.
+    #
+    # **Raised to 40 because this is a hang-detector and had quietly become a performance
+    # budget nobody chose.** A budget is a fine thing to have and belongs somewhere it can say
+    # what it is measuring — `tests/test_query_cost.py` is where this repository keeps those,
+    # with the figures written down. A job killed at the limit reports neither a hang nor a
+    # regression; it reports nothing at all, and costs 25 minutes to say so.
+    #
+    # **What it does not fix is why the suite takes 23 minutes on two cores**, which is
+    # `SR#1725`: nobody has run `--durations` on a CI-shaped machine, and splitting the job by
+    # backend would roughly halve each. The local gate cannot see any of it — eight cores, one
+    # interpreter, ten minutes — so `gh run list` after a push is the only instrument.
+    timeout-minutes: 40
 
     strategy:
       fail-fast: false

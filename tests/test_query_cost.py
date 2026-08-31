@@ -189,10 +189,45 @@ MEASURED_ANOTHER_WAY: dict[str, str] = {
 #: then everything else is still cheap relative to it and every ratio stays near 1. Applied to
 #: the unordered page as well, because that is the query such a regression would be hiding in.
 #:
-#: Nothing real crossed 17 ms in the table above, so this is ~15x headroom: generous enough
-#: for a contended CI runner, tight enough that half a second of regression fails rather than
-#: passing quietly under a figure chosen to be safe.
+#: **Re-measured 2026-08-31, because the sentence here was three and a half times out of date
+#: and its reassurance was what stopped anybody looking.** It read *"nothing real crossed 17 ms
+#: in the table above, so this is ~15x headroom"*. On this workstation the agenda measures
+#: **60 ms** with nobody assigned anything and **78 ms** on the fixture as it now stands — so
+#: the headroom was ~3x, and a CI runner is about 3.3x slower than here, which put the real
+#: margin at **20%**. It crossed at 257 ms on Python 3.11, twice, and the number in this
+#: comment is why nobody expected it. `#1724`.
+#:
+#: **So this bounds a *single-statement* listing**, which is what it can be honest about, and
+#: the agenda has its own — see :data:`COMPOSITE_CEILING_MS`.
 CEILING_MS = 250.0
+
+#: What a composite view may cost outright, in milliseconds, on either backend.
+#:
+#: **The agenda is not one query and cannot be held to one query's number.** It issues
+#: seventeen statements against a one-statement baseline, which is exactly why `#1295` excused
+#: it from the *ratio* — *"the ratio measures the machine"* — and an absolute millisecond
+#: figure measures the machine harder still. What that item did not do was give it a ceiling of
+#: its own, so it kept the one written for a single page and quietly used up its margin.
+#:
+#: **Measured rather than chosen**: 78 ms here, 257 ms on a contended two-core CI runner. Five
+#: hundred is about 2x the worst reading we have and 6x the local one — tight enough that an
+#: order-of-magnitude regression fails, loose enough that a busy runner does not.
+#:
+#: **It is not the only guard on this view, which is what makes it affordable to be generous.**
+#: :data:`AGENDA_STATEMENTS` bounds the question count and is a fact about the code rather than
+#: about the machine, so an N+1 fails there by three orders of magnitude whatever this says.
+COMPOSITE_CEILING_MS = 500.0
+
+#: Which measurements are composite views rather than one query, and so take the ceiling above.
+#:
+#: **A register rather than a flag on the measurement**, because what makes something composite
+#: is a fact about the work it does and not about the timing — and an entry here has to name the
+#: statement count that justifies it, which is what stops this becoming somewhere to park
+#: anything that went red.
+COMPOSITE: dict[str, str] = {
+	"agenda": "seventeen statements — eight buckets, six counts, the prioritised-project "
+	"lookup, the zone lookup and the blocker lookup. `#1295` and `AGENDA_STATEMENTS`.",
+}
 
 #: **This measures one size, and the thing search does is grow.** `#823` measured the same
 #: no-match search at 20 ms per 1,000 rows, 181 ms at 10,000 and 898 ms at 50,000, against
@@ -775,15 +810,42 @@ def _elapsed (run: typing.Callable[[], typing.Any]) -> float:
 
 
 def _too_slow (measured: Measured) -> dict[str, float]:
-	"""Return everything that took longer than :data:`CEILING_MS`, the baseline included.
+	"""Return everything that took longer than the ceiling for its kind, the baseline included.
 
 	The unordered page is in here deliberately: it is the one query that a ratio *against* the
 	unordered page can never report on.
+
+	**Two ceilings, because one number could only ever be honest about one kind of work**
+	(`#1724`). A single-statement listing and a view that issues seventeen statements are not
+	the same measurement, and holding both to a figure derived from the first is what let the
+	agenda spend its margin unnoticed until a CI runner failed on it.
 	"""
 
 	costs = {"(unordered)": measured.baseline} | measured.timings
 
-	return {name: cost for name, cost in costs.items() if cost > CEILING_MS}
+	return {
+		name: cost for name, cost in costs.items() if cost > _allowed(name)
+	}
+
+
+def _allowed (name: str) -> float:
+	"""Return the ceiling one measurement is held to, in milliseconds."""
+
+	return COMPOSITE_CEILING_MS if name in COMPOSITE else CEILING_MS
+
+
+def _crossing (over: typing.Mapping[str, float]) -> str:
+	"""Say which ceiling each measurement crossed, because there are two of them now.
+
+	**Naming the wrong number is worse than naming none** (`#1724`): the message said *crossed
+	250 ms* whatever had been exceeded, so a composite view failing at 501 ms would have sent a
+	reader to the wrong constant, and to the paragraph arguing for a figure that was not the one
+	that fired.
+	"""
+
+	return ", ".join(
+		f"{name} over {_allowed(name):.0f} ms" for name in sorted(over)
+	)
 
 
 def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
@@ -808,8 +870,8 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 	}
 
 	assert not _too_slow(measured), (
-		f"On {backend}, one page of {PAGE} at {TASKS} tasks crossed {CEILING_MS:.0f} ms:\n"
-		f"{measured.report()}"
+		f"On {backend}, one page of {PAGE} at {TASKS} tasks was too slow — "
+		f"{_crossing(_too_slow(measured))}:\n{measured.report()}"
 	)
 
 	assert not expensive, (
@@ -862,6 +924,33 @@ def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
 	assert not unmeasured, (
 		f"{sorted(unmeasured)} is excused from the ratio on {backend} and is measured by "
 		f"nothing here, so the entry is describing a subject that has gone"
+	)
+
+
+def test_nothing_is_called_composite_that_this_file_never_measures (
+	seeded: tuple[sqlalchemy.engine.Engine, str]
+) -> None:
+	"""**What makes an entry in :data:`COMPOSITE` go away** — `SR#1724`, and this file's own rule.
+
+	That register buys a measurement a ceiling twice the ordinary one, so it is exactly the
+	shape that becomes somewhere to park anything that went red. An entry naming a subject
+	nothing measures is an entry for a thing that no longer exists, and it reads as a considered
+	decision for as long as nobody checks.
+
+	**The reason each entry carries is a statement count**, which is what keeps this honest: a
+	view is composite because of the work it does, and :data:`AGENDA_STATEMENTS` is what holds
+	that claim. A measurement that stopped issuing seventeen statements would fail there rather
+	than here — the two guards are the pair, not one with a spare.
+	"""
+
+	engine, backend = seeded
+	measured = _measured(engine, work={"agenda": _agenda})
+
+	unmeasured = sorted(set(COMPOSITE) - set(measured.timings))
+
+	assert not unmeasured, (
+		f"{unmeasured} takes the composite ceiling on {backend} and is measured by nothing "
+		f"here, so the entry is describing a subject that has gone"
 	)
 
 
@@ -985,8 +1074,8 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 	}
 
 	assert not _too_slow(measured), (
-		f"On {backend}, a listing crossed {CEILING_MS:.0f} ms at {TASKS} tasks:\n"
-		f"{measured.report()}"
+		f"On {backend}, a listing was too slow at {TASKS} tasks — "
+		f"{_crossing(_too_slow(measured))}:\n{measured.report()}"
 	)
 
 	assert not expensive, (
@@ -1185,8 +1274,8 @@ def test_a_prioritised_project_costs_about_what_an_unordered_page_costs (
 	ratio = measured.ratio("prioritised")
 
 	assert not _too_slow(measured), (
-		f"On {backend}, one page of {PAGE} at {TASKS} tasks crossed {CEILING_MS:.0f} ms with a "
-		f"project prioritised:\n{measured.report()}"
+		f"On {backend}, one page of {PAGE} at {TASKS} tasks was too slow with a project "
+		f"prioritised — {_crossing(_too_slow(measured))}:\n{measured.report()}"
 	)
 
 	assert ratio <= RATIO_CEILING, (
