@@ -200,6 +200,27 @@ upgrade involves.
 
 ### Changed
 
+- **Work filed under something that cannot start is no longer offered as ready.** Readiness
+  read `blocks` links and never looked at the parent axis at all, so a sub-task of a blocked
+  milestone came back from `--ready` while the milestone itself was correctly missing from the
+  same listing — and the offered row printed `^6`, naming the very parent whose state it was
+  ignoring.
+
+  Two rules, decided together:
+
+  - a task filed anywhere beneath a blocked task is not ready, at any depth;
+  - a task with unfinished sub-tasks is not ready either — it is a container, and the work is
+    the sub-tasks. Finish them all and it comes back, which is the question being put to you
+    rather than something the product decides. Nothing marks a parent done for you.
+
+  **Nothing is deleted or hidden anywhere else.** Held-back work stays in `list`, on the board
+  and in `show`, and a listing marks it `blocked` for the same reason `--ready` hides it — so
+  what is filtered and what is labelled cannot disagree.
+
+  This matters most to the caller who cannot check: `ready=true` is what an agent asks when it
+  has no other context, and it could previously hand back work from a milestone whose
+  foundations did not exist.
+
 - **The document commands are called `document`, which is the word every other surface uses.**
   The agent tools call it `subroutine_document`, the API calls the collection `/v1/documents`,
   and the terminal called it `doc` — so `subroutine document --help` answered *"Did you mean

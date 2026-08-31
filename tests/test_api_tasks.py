@@ -1814,6 +1814,203 @@ def test_finishing_the_blocker_makes_the_blocked_task_ready (world: World) -> No
 	assert second in listed, "the blocker is done and the task is still held back"
 
 
+def _filed_under (world: World, parent: dict[str, typing.Any], title: str) -> dict[str, typing.Any]:
+	"""Make a sub-task of an existing task, and return it."""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": title, "parent_task_id": str(parent["id"])}
+	)
+
+	assert made.status_code == 201, made.text
+
+	return typing.cast(dict[str, typing.Any], made.json())
+
+
+def _ready_refs (world: World) -> list[int]:
+	"""Return the refs `?ready=true` offers."""
+
+	return [
+		item["ref"]
+		for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+
+def test_work_under_a_blocked_ancestor_is_not_offered_as_ready (world: World) -> None:
+	"""`SR#1610`, Simon's decision of 2026-08-31: blocking inherits down the parent axis.
+
+	Readiness read ``blocks`` edges and never walked ``parent_task_id`` in either direction, so
+	a sub-task of a blocked milestone was offered while the milestone itself was correctly
+	absent from the same listing. The offered row even printed ``^6``, naming the very parent
+	whose state it was ignoring.
+
+	**Why the default rather than an option.** ``ready=true`` is the call an agent makes with no
+	other context, so being wrong here is wrong in the expensive direction — work handed out
+	from a milestone whose foundations do not exist, with nothing in the answer saying so. The
+	cost is that genuinely startable work under a gated parent is *delayed*: it stays in
+	``list``, on the board and in ``show``, which is the same trade `SR#1353` accepted upward.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	child = _filed_under(world, milestone, "Work inside the milestone")
+
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	offered = _ready_refs(world)
+
+	assert milestone["ref"] not in offered, "the milestone itself is blocked"
+	assert child["ref"] not in offered, (
+		"work filed under a blocked milestone was offered as startable, which is the whole of "
+		"SR#1610 — and the row would have named the parent it was ignoring"
+	)
+	assert groundwork["ref"] in offered, "the blocker itself is startable and must stay offered"
+
+
+def test_what_ready_hides_under_a_blocked_ancestor_is_what_a_listing_marks_blocked (
+	world: World,
+) -> None:
+	"""§6.3a, and the reason `SR#1610` went into ``unblocked`` rather than beside it.
+
+	``readiness.blocked_among`` is built *from* ``unblocked``, so a predicate the database
+	filters by and a reader that labels a loaded row cannot disagree. Had the inheritance been
+	a separate clause in ``ready``, a listing would have marked one set of rows and
+	``?ready=true`` would have hidden another — which is the defect that rule exists for, and
+	is exactly what `SR#1610` reported: the child was offered while its parent was absent, on
+	one screen, with nothing joining them.
+
+	**Its sibling is deliberately not like this.** `SR#1353`'s container is not *blocked* —
+	nothing is holding it up, it is simply not the row you start — so it is a clause in
+	``ready`` and this listing must **not** mark it.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	child = _filed_under(world, milestone, "Work inside the milestone")
+
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	# **A container that nothing is blocking**, kept apart from the milestone above because
+	# that one is *both* — the first draft of this test asked whether the blocked milestone was
+	# marked and read the right answer as a failure.
+	container = world.call("POST", "/v1/tasks", json={"title": "A plain parent"}).json()
+	inside = _filed_under(world, container, "Its only part")
+
+	marked = {
+		item["ref"]: item["blocked"]
+		for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]
+	}
+
+	assert marked[child["ref"]] is True, (
+		"the listing offers no reason a row is missing from --ready unless it says blocked"
+	)
+	assert marked[container["ref"]] is False, (
+		"a parent with unfinished children is SR#1353's rule and is not blockage — nothing is "
+		"holding it up, it is simply not the row you start, and marking it blocked would say "
+		"something false on three surfaces to save a clause"
+	)
+	assert container["ref"] not in _ready_refs(world), (
+		"and it is still absent from --ready, which is the pair this test exists to hold "
+		"apart: hidden for one reason, marked for another"
+	)
+	assert inside["ref"] in _ready_refs(world), "its part is ordinary startable work"
+
+
+def test_finishing_the_blocker_releases_the_whole_subtree (world: World) -> None:
+	"""Readiness has to *change*, and the change has to reach the rows it reached going in.
+
+	Three levels, because a rule that walked one would pass the two-level case and hold a
+	grandchild for ever. The predicate asks whether any blocked task's path prefixes this
+	row's, so depth costs nothing and is not a separate case in the code — but it is here,
+	because "not a separate case" is a claim about an implementation somebody may replace.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	child = _filed_under(world, milestone, "A part of it")
+	grandchild = _filed_under(world, child, "A part of the part")
+
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	assert grandchild["ref"] not in _ready_refs(world), (
+		"a grandchild of a blocked task is under a blocked ancestor exactly as a child is"
+	)
+
+	world.call("POST", f"/v1/tasks/{groundwork['ref']}/complete", json={})
+
+	offered = _ready_refs(world)
+
+	assert grandchild["ref"] in offered, "the blocker is done and the subtree is still held"
+	assert child["ref"] not in offered, (
+		"the child now has an unfinished sub-task of its own, so SR#1353 holds it — the two "
+		"rules are independent and both apply"
+	)
+
+
+def test_a_parent_with_unfinished_sub_tasks_is_not_offered_as_ready (world: World) -> None:
+	"""`SR#1353`, Simon's decision of 2026-08-27, in his own words.
+
+	*A task with sub-tasks is done when those sub-tasks are done, therefore you cannot start
+	the parent.* `SR#1290`'s reviewer laid five milestones out as parent tasks and all five
+	appeared in ``--ready`` beside the one leaf that could actually be started.
+
+	**Not *has children*, which is the whole subtlety.** A parent whose children are all done
+	is precisely the row somebody should be looking at — `SR#84`'s *3/3 beside an open parent
+	is the question being put to a person* — so the second half of this test is the rule rather
+	than a convenience.
+
+	**And it is not auto-completion.** The parent is *unstartable*; nothing marks it done, and
+	`SR#84` refuses that with two reasons that still hold.
+	"""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Design the schema"}).json()
+	first = _filed_under(world, parent, "Migrate table A")
+	second = _filed_under(world, parent, "Migrate table B")
+
+	offered = _ready_refs(world)
+
+	assert parent["ref"] not in offered, "a container is not work anybody can start"
+	assert first["ref"] in offered and second["ref"] in offered, (
+		"the sub-tasks are the work and nothing is holding them up"
+	)
+
+	world.call("POST", f"/v1/tasks/{first['ref']}/complete", json={})
+
+	assert parent["ref"] not in _ready_refs(world), "one child is still unfinished"
+
+	world.call("POST", f"/v1/tasks/{second['ref']}/complete", json={})
+
+	after = world.call("GET", f"/v1/tasks/{parent['ref']}").json()
+
+	assert parent["ref"] in _ready_refs(world), (
+		"with every child finished this is the row somebody should be looking at, and it is "
+		"the question SR#84 puts to a person"
+	)
+	assert after["completed_at"] is None, (
+		"finishing the children must not finish the parent — SR#84 refuses auto-completion, "
+		"because it credits whoever closed the last child with a decision they did not take"
+	)
+
+
+def test_a_finished_ancestor_holds_nothing_up (world: World) -> None:
+	"""``_live_blocks_edge``'s rule arriving on the other axis.
+
+	Finished work is neither held up nor holding anything up. An ancestor that is done cannot
+	gate its subtree however it was blocked when it was live — otherwise closing a milestone
+	would strand everything filed under it, which is the opposite of what closing one means.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	child = _filed_under(world, milestone, "Work inside it")
+
+	_blocking(world, groundwork["ref"], milestone["ref"])
+	world.call("POST", f"/v1/tasks/{milestone['ref']}/complete", json={})
+
+	assert child["ref"] in _ready_refs(world), (
+		"the ancestor is finished, so whatever was blocking it is no longer anybody's problem"
+	)
+
+
 def test_a_superseded_blocker_stops_holding_up_the_thing_that_superseded_it (
 	world: World,
 ) -> None:

@@ -160,25 +160,19 @@ def over (
 	return sqlalchemy.or_(model.completed_at.is_not(None), passed(model, now=now))
 
 
-def unblocked (
+def _nothing_blocks_it (
 	model: type[typing.Any], *, now: datetime.datetime
 ) -> sqlalchemy.ColumnElement[bool]:
-	"""Return the predicate matching items nothing unfinished is blocking.
+	"""Return the predicate matching items nothing unfinished is blocking *directly*.
 
-	A ``blocks`` link runs source → target, so an item's blockers are the *sources* of links
-	pointing at it. Only tasks can block: a document has no state that could finish, so a
-	``derives_from`` to a specification would otherwise block every task in the project
-	forever.
+	:func:`unblocked` is this plus the parent axis. Split out because the ancestor test has to
+	ask this question of a *different* row, and a rule that called the whole of ``unblocked``
+	would call itself.
 
-	**Finished is read off ``completed_at``, not off the status vocabulary.** §10.7's
-	invariant 5 makes that column non-null exactly when the category is ``done`` or
-	``cancelled``, so it answers the same question without joining a table an installation is
-	free to rename rows in.
-
-	**``now`` is here because there are two ways to be over** (decision `#1235` §3). A code
-	freeze holds a deploy shut until it lifts and then stops, with nobody marking anything done
-	— so what counts as a live blocker is a question about the clock, and :func:`over` is the
-	one predicate that answers it.
+	**Splitting here rather than making the ancestor test recursive is what keeps it one
+	query.** Every ancestor on a path is examined, so a row under a chain is caught by the
+	blocked ancestor itself rather than by walking up through the ones between — which is the
+	same answer and needs no recursion.
 	"""
 
 	link = subroutine.db.models.work.Link
@@ -200,6 +194,134 @@ def unblocked (
 			*_live_blocks_edge(link, kind, blocker, filed_in, now=now),
 		)
 		.correlate(model)
+	)
+
+
+def under_a_blocked_ancestor (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching work filed beneath something that cannot start — `#1610`.
+
+	**Simon's decision of 2026-08-31: blocking inherits down the parent axis.** Until then
+	readiness read ``blocks`` edges and never walked ``parent_task_id`` in either direction, so
+	a sub-task of a blocked milestone was offered as ready while the milestone itself was
+	correctly absent from the same listing — and the offered row printed ``^6``, naming the very
+	parent whose state it was ignoring.
+
+	**The direction of the failure is what decided it.** Inheriting hides work that may be
+	genuinely startable, and that row is *delayed* — it stays in ``list``, on the board and in
+	``show``. Not inheriting hands an agent work from a milestone whose foundations do not
+	exist, on the one query it makes with no other context, and says nothing. A delay against
+	wasted work is not a close trade.
+
+	**Written as *does any blocked task's path prefix mine*, not as *walk my ancestors*.** The
+	indexed direction is descendants (:func:`subroutine.domain.hierarchy.subtree`); ancestors
+	*from* a row is a leading-wildcard match that no index can serve. Phrased this way the scan
+	is over tasks that have live blockers — forty of five hundred and twenty-one open items on
+	this instance — rather than over the table, and it is bounded by that set rather than by how
+	deep anybody nests.
+
+	``LIKE 'prefix%'`` rather than a range, for the reason :func:`hierarchy.subtree` records in
+	full: PostgreSQL's ``en_GB.UTF-8`` collation does not sort byte-wise, so a half-open range
+	silently omits descendants while looking correct on SQLite. A path is ``/id/id/`` with a
+	separator on both ends, so a prefix match cannot run one id into another.
+
+	**A finished or deleted ancestor holds nothing**, which is :func:`_live_blocks_edge`'s rule
+	arriving on the other axis: finished work is neither held up nor holding anything up.
+	"""
+
+	ancestor = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(ancestor.id)
+		.where(
+			ancestor.id != model.id,
+			ancestor.workspace_id == model.workspace_id,
+			ancestor.deleted_at.is_(None),
+			sqlalchemy.not_(over(ancestor, now=now)),
+			# Paths carry no `%` or `_` — they are hex and separators — so there is nothing to
+			# escape, which is the argument `hierarchy.subtree` makes for its own `autoescape`.
+			model.path.like(ancestor.path.concat("%")),
+			sqlalchemy.not_(_nothing_blocks_it(ancestor, now=now)),
+		)
+		.correlate(model)
+	)
+
+
+def a_container (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching an item with sub-tasks that are not finished — `#1353`.
+
+	**Simon's decision of 2026-08-27**, in his own words: *a task with sub-tasks is done when
+	those sub-tasks are done, therefore you cannot start the parent.* `#1290`'s reviewer laid
+	five milestones out as parent tasks and all five appeared in ``--ready`` beside the one leaf
+	that could actually be started.
+
+	**Not *has children*, and that is the whole subtlety.** A parent whose children are all done
+	is precisely the row somebody should be looking at — `#84`'s *3/3 beside an open parent is
+	the question being put to a person*. So the rule is *has **unfinished** children*, and the
+	row it deliberately leaves in ``--ready`` is the one `#1615` is about surfacing.
+
+	**Deliberately not folded into :func:`unblocked`**, where its sibling `#1610` does belong.
+	``unblocked`` is what :func:`blocked_among` marks rows from, and a container is not
+	*blocked* — nothing is holding it up, it is simply not the row you start. Marking it
+	*Blocked* would say something false on three surfaces to save one clause here.
+
+	**And it is not auto-completion.** `#84` refuses that with two reasons that still hold: it
+	credits whoever closed the last child with a decision they did not take, and it cannot
+	reverse when a child is added later. A parent is *unstartable*, never *done*.
+	"""
+
+	child = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(child.id)
+		.where(
+			child.parent_task_id == model.id,
+			child.deleted_at.is_(None),
+			sqlalchemy.not_(over(child, now=now)),
+		)
+		.correlate(model)
+	)
+
+
+def unblocked (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items nothing unfinished is holding up.
+
+	A ``blocks`` link runs source → target, so an item's blockers are the *sources* of links
+	pointing at it. Only tasks can block: a document has no state that could finish, so a
+	``derives_from`` to a specification would otherwise block every task in the project
+	forever.
+
+	**Finished is read off ``completed_at``, not off the status vocabulary.** §10.7's
+	invariant 5 makes that column non-null exactly when the category is ``done`` or
+	``cancelled``, so it answers the same question without joining a table an installation is
+	free to rename rows in.
+
+	**``now`` is here because there are two ways to be over** (decision `#1235` §3). A code
+	freeze holds a deploy shut until it lifts and then stops, with nobody marking anything done
+	— so what counts as a live blocker is a question about the clock, and :func:`over` is the
+	one predicate that answers it.
+
+	**Two axes since `#1610`, and this is the one place that joins them.** A row is held up by
+	a live ``blocks`` edge pointing at it, *or* by one pointing at anything it is filed
+	beneath. Both are *blocked* in the sense a reader means, which is why they are one
+	predicate: :func:`blocked_among` is built from this, so a listing marks exactly the rows
+	``?ready=true`` hides. §6.3a's warning is what that rule exists for — a predicate the
+	database filters by and a reader that labels a loaded row must agree, or a listing marks
+	one set and the filter hides another.
+
+	**Its sibling `#1353` is deliberately elsewhere**: a parent with unfinished children is not
+	*blocked*, it is simply not the row you start, and :func:`a_container` says so in
+	:func:`ready` instead.
+	"""
+
+	return sqlalchemy.and_(
+		_nothing_blocks_it(model, now=now),
+		sqlalchemy.not_(under_a_blocked_ancestor(model, now=now)),
 	)
 
 
@@ -668,6 +790,11 @@ def ready (
 		undeferred(model, now=now),
 		unclaimed(model, now=now, by=by),
 		in_a_running_project(model),
+		# **A container is not work anybody can start** (`#1353`, Simon 2026-08-27). Its
+		# sibling `#1610` lives in `unblocked` above, because a row under a blocked ancestor
+		# really is blocked; this one is not, so it is a clause here and `blocked_among` does
+		# not mark it. Two halves of one decision, in the two places each is true.
+		sqlalchemy.not_(a_container(model, now=now)),
 		# **An event is not work anybody can be offered** (decision `#1235` §4). It happens
 		# whether or not you act, so ranking it against the backlog and handing it back as
 		# *what to start next* is offering the wrong thing — measured on a disposable instance,
