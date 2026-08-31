@@ -2011,6 +2011,87 @@ def test_a_finished_ancestor_holds_nothing_up (world: World) -> None:
 	)
 
 
+def test_a_readiness_listing_says_how_much_it_held_back (world: World) -> None:
+	"""`SR#1610`'s other half, and the half that makes the exclusion survivable.
+
+	Hiding without saying so is the failure `SR#33` was about, arriving on a second axis:
+	*there is nothing to do* and *all of it is waiting on something above it* are the same
+	empty page, and the second is the ordinary state of somebody's first morning on a real
+	plan. `SR#1265` took this trade once already for the agenda.
+
+	**The count is the ancestor half alone.** A parent with unfinished sub-tasks is absent
+	because it was never work — `SR#84`'s model says so — and a number for it would put a
+	figure on the ordinary shape of every plan rather than on anything surprising.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	_filed_under(world, milestone, "One part")
+	_filed_under(world, milestone, "Another part")
+
+	# A container nothing is blocking, which must *not* be counted: its own sub-task is
+	# ordinary startable work and the container was never work at all.
+	container = world.call("POST", "/v1/tasks", json={"title": "A plain parent"}).json()
+	_filed_under(world, container, "Its only part")
+
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	page = world.call("GET", "/v1/tasks?ready=true&limit=50").json()["page"]
+
+	assert page["held_back"] == 2, (
+		"two parts are startable except that the milestone they are filed under cannot start; "
+		"the plain parent and its part are neither held nor counted"
+	)
+
+
+def test_a_listing_that_did_not_ask_about_readiness_says_nothing_about_it (
+	world: World,
+) -> None:
+	"""Null rather than zero, because *did not ask* and *held nothing back* are two answers.
+
+	The same distinction ``total`` makes beside it: a caller reading ``0`` has been told
+	something about their result, and a caller reading ``null`` has been told the question was
+	not put. Conflating them is how a client comes to report *nothing held back* about a
+	listing that never looked.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	_filed_under(world, milestone, "One part")
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	assert world.call("GET", "/v1/tasks?limit=50").json()["page"]["held_back"] is None, (
+		"a listing nobody asked readiness of has held nothing back and must not say a number"
+	)
+	assert world.call("GET", "/v1/tasks?ready=true&limit=50").json()["page"]["held_back"] == 1
+
+
+def test_the_count_is_of_work_that_is_otherwise_startable (world: World) -> None:
+	"""Otherwise it counts rows nobody would have been offered anyway.
+
+	A deferred sub-task under a blocked milestone is held back twice over, and reporting it
+	here would tell a reader that finishing the blocker releases work that it does not — which
+	is a worse answer than saying nothing, because it is actionable and wrong.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	ready_but_for_the_parent = _filed_under(world, milestone, "One part")
+	parked = _filed_under(world, milestone, "A part put off")
+
+	world.call(
+		"PATCH", f"/v1/tasks/{parked['ref']}", json={"snooze": "2099-01-01"}
+	)
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	page = world.call("GET", "/v1/tasks?ready=true&limit=50").json()["page"]
+
+	assert page["held_back"] == 1, (
+		f"only {ready_but_for_the_parent['ref']} is startable but for its parent; the deferred "
+		f"one would not have been offered whatever the milestone did"
+	)
+
+
 def test_a_superseded_blocker_stops_holding_up_the_thing_that_superseded_it (
 	world: World,
 ) -> None:

@@ -217,6 +217,22 @@ upgrade involves.
   and in `show`, and a listing marks it `blocked` for the same reason `--ready` hides it — so
   what is filtered and what is labelled cannot disagree.
 
+  **And a readiness listing says how much it held back**, because *there is nothing to do* and
+  *all of it is waiting on something above it* are otherwise the same empty page:
+
+  ```
+  $ subroutine list --ready
+     #2  Loose leaf
+     #1  Groundwork
+        2 more things waiting on something they are filed under.
+  ```
+
+  The agent tools say the same thing in their own words, and `page.held_back` on
+  `GET /v1/tasks?ready=true` carries the number — null, not zero, on any listing that did not
+  ask, because *held nothing back* and *was never asked* are two different answers. Only the
+  inherited half is counted: a parent with unfinished sub-tasks was never work, so its absence
+  needs no explaining.
+
   This matters most to the caller who cannot check: `ready=true` is what an agent asks when it
   has no other context, and it could previously hand back work from a milestone whose
   foundations did not exist.

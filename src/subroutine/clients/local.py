@@ -560,7 +560,22 @@ class Client:
 			# endpoint applies them: `ready` already excludes anything parked, so combining the
 			# two narrows rather than contradicts. One predicate, shared with `GET /v1/tasks`,
 			# because a readiness that meant something different here would be worse than none.
+			# **Counted before `ready` narrows it**, so the count and the listing differ by
+			# exactly the rule — the same shape and the same predicate the endpoint uses, for
+			# `#1610`'s other half. Computed here rather than read off a response, because
+			# there is no response: this transport is the instance.
+			held_back = None
+
 			if ready:
+				held_back = session.scalar(
+					sqlalchemy.select(sqlalchemy.func.count()).select_from(
+						statement.where(
+							subroutine.domain.readiness.held_under_a_blocked_ancestor(
+								model, now=now, by=actor.user.id
+							)
+						).subquery()
+					)
+				)
 				statement = statement.where(
 					subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
 				)
@@ -745,6 +760,7 @@ class Client:
 			return subroutine.clients.base.Listing(
 				[subroutine.views.task(row, vocabulary) for row in rows[:size]],
 				has_more=len(rows) > size,
+				held_back=held_back,
 			)
 
 	def task (

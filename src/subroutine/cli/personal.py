@@ -804,6 +804,12 @@ class Listing:
 	#: rather than recomputed, because it is per connection and the report is not.
 	parked: int = 0
 
+	#: How many otherwise-startable tasks `--ready` held back because something they are
+	#: filed under cannot start (`#1610`). Carried for ``parked``'s reason, and read off the
+	#: instance's own answer rather than worked out here — the rule belongs to the server,
+	#: and a client that re-derived it would be a second implementation of it.
+	held_back: int = 0
+
 
 # These live above every function that annotates with them. A module-level annotation is
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
@@ -3000,6 +3006,7 @@ def _listing (
 		cut = False
 
 		parked = 0
+		held_back = 0
 
 		# **A project belongs to one workspace, and this asks them all** (`#332`). Until
 		# 2026-08-03 every instance had exactly one, so the loop ran once and could not
@@ -3104,6 +3111,7 @@ def _listing (
 				answered = True
 
 			cut = cut or found_here.has_more
+			held_back += found_here.held_back or 0
 			rows.extend((client.connection.name, found) for found in found_here)
 
 			# **`--ready` is about work you could start, so a document is not an answer to
@@ -3287,7 +3295,12 @@ def _listing (
 		# and "it is not in the list" quietly stopped meaning "it does not exist", which
 		# is the one inference ref addressing is built to support. The agenda had always
 		# reported its own remainder; this is the same fact, carried the same way.
-		return Listing(rows=rows[:limit], more=cut or len(rows) > limit, parked=parked)
+		return Listing(
+			rows=rows[:limit],
+			more=cut or len(rows) > limit,
+			parked=parked,
+			held_back=held_back,
+		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
 
@@ -4079,6 +4092,8 @@ def _listed (
 			)
 
 		_say_parked(gathered, console=program.console, hidden=hiding)
+
+		_say_held_back(gathered, console=program.console)
 
 		_say_where_a_bare_number_goes(world, console=program.console)
 
@@ -11805,6 +11820,46 @@ def _say_parked (
 		rich.text.Text(
 			f"      {total} {things} put off until later. 'subroutine list --deferred' to "
 			f"include them.",
+			style=DETAIL,
+		)
+	)
+
+
+def _say_held_back (
+	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	console: rich.console.Console,
+) -> None:
+	"""Say how much startable work is waiting on something it is filed under — `#1610`.
+
+	**The other half of Simon's decision of 2026-08-31**: work under something that cannot
+	start stopped being offered, and a listing that hides without saying so is the failure
+	`_say_parked` above exists to prevent, arriving on a second axis. *There is nothing to do*
+	and *all of it is waiting on something above it* read identically as an empty page, and the
+	second is the ordinary state of somebody's first morning on a real plan.
+
+	**Only the inherited half is counted, and only where readiness was asked for.** A parent
+	with unfinished sub-tasks is absent because it was never work — that needs no explaining,
+	and a number for it would put a figure on the ordinary shape of every plan.
+
+	**No flag to widen it, unlike the line above.** There is deliberately no way to ask for
+	work under a blocked ancestor: the remedy is to look at what is holding the parent up,
+	which `list` and `show` already say. A sentence offering a switch that does not exist
+	would be worse than none.
+	"""
+
+	total = sum(answer.value.held_back for answer in gathered.answers)
+
+	if not total:
+		return
+
+	# **"waiting on" rather than "blocked"**, on `_say_parked`'s reasoning: §13.5b keeps the
+	# full model's vocabulary off this path, and this is a sentence somebody meets before they
+	# have met any of it.
+	things = "thing" if total == 1 else "things"
+	console.print(
+		rich.text.Text(
+			f"      {total} more {things} waiting on something they are filed under.",
 			style=DETAIL,
 		)
 	)

@@ -89,6 +89,20 @@ class Page(pydantic.BaseModel):
 	#: Null unless ``include_total=true`` was asked for.
 	total: int | None = None
 
+	#: How many otherwise-startable rows were held back because something above them in the
+	#: tree cannot start — `SR#1610`, and null unless ``ready=true`` was asked for.
+	#:
+	#: **Beside ``total`` because it is the same kind of fact and pays the same way**: a second
+	#: count, only when a caller asked a question that makes it meaningful. What it answers is
+	#: only askable of a real plan — *is this short because there is nothing to do, or because
+	#: it is all waiting on something above it?* Those read identically without it, which is
+	#: `SR#1265`'s argument for ``assigned_elsewhere_total`` one surface along.
+	#:
+	#: **The container half is deliberately not counted.** A parent with unfinished sub-tasks
+	#: is absent from ``--ready`` because it was never work; that needs no explaining, and a
+	#: number for it would put a figure on the ordinary shape of every plan.
+	held_back: int | None = None
+
 
 # ``LinkEnd`` and ``Edge`` sit above ``Collection`` because ``Collection.links`` annotates
 # a field with ``Edge``, and a pydantic field annotation is evaluated when the class body

@@ -5184,6 +5184,47 @@ def test_a_stale_change_is_refused_on_both_transports (pair: Pair) -> None:
 		)
 
 
+def test_both_transports_agree_about_what_readiness_held_back (pair: Pair) -> None:
+	"""`SR#1610`'s count, and the two clients get it by entirely different routes.
+
+	The local client runs the query and counts; the HTTP client reads a number off the
+	envelope's first page. That is exactly the shape SS13.7's equivalence suite exists for —
+	`SR#854`'s ``starts`` and ``snooze`` were declared on both signatures and dropped by both
+	bodies, and ``test_reach`` compares *signatures*, so it was satisfied throughout.
+
+	**Zero rather than null on both**, when nothing was held: a caller who asked readiness has
+	been told something, and only a caller who did not ask gets nothing.
+	"""
+
+	local, remote = pair.both()
+	groundwork = local.capture(text=f"Groundwork {uuid.uuid4().hex[:6]}").task
+	milestone = local.capture(text=f"The milestone {uuid.uuid4().hex[:6]}").task
+
+	local.capture(text=f"One part {uuid.uuid4().hex[:6]}", parent=milestone.ref)
+	local.capture(text=f"Another part {uuid.uuid4().hex[:6]}", parent=milestone.ref)
+	local.link(ref=groundwork.ref, link_type="blocks", target=milestone.ref)
+
+	answers = {
+		repr(client): client.tasks(ready=True, limit=50).held_back
+		for client in (local, remote)
+	}
+
+	assert len(set(answers.values())) == 1, (
+		f"the two transports disagree about how much readiness held back: {answers}"
+	)
+	assert set(answers.values()) == {2}, (
+		f"both parts are filed under a milestone that cannot start: {answers}"
+	)
+
+	# **And a listing that did not ask says nothing**, on both — the distinction between
+	# *held nothing back* and *was never asked*, which a client that defaulted to zero would
+	# quietly destroy.
+	for client in (local, remote):
+		assert client.tasks(limit=50).held_back is None, (
+			f"{client!r} reported a count for a listing nobody asked readiness of"
+		)
+
+
 def test_a_version_conflict_promises_the_current_item_only_where_it_sends_one (
 	pair: Pair,
 ) -> None:

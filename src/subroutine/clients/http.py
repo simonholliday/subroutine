@@ -1939,6 +1939,16 @@ class Client:
 		# release behind sends no such key, which reads as "did not say" rather than "nothing".
 		covers = tuple(body.get("covers") or ())
 
+		# **From the first page and never refreshed, for `covers`' reason** (`#1610`). It counts
+		# rows the *whole* query held back, not rows missing from this page, so a later page
+		# repeating it would either say the same thing or contradict the answer already given.
+		#
+		# **`None` where the key is absent**, which is an instance a release behind rather than
+		# a listing that held nothing back — the two must not read alike, and a client-first
+		# upgrade is the ordinary order.
+		held_back = page.get("held_back")
+		held_back = int(held_back) if isinstance(held_back, int) else None
+
 		while wanted is not None and path is not None and params is not None:
 			# **Four ways to stop, and the last is the one that matters.** The caller has what
 			# it asked for; the instance says there is no more; there is nothing to resume
@@ -1983,7 +1993,9 @@ class Client:
 			has_more = bool(page.get("has_more"))
 			cursor = page.get("next_cursor")
 
-		return subroutine.clients.base.Listing(collected, has_more=has_more, covers=covers)
+		return subroutine.clients.base.Listing(
+			collected, has_more=has_more, covers=covers, held_back=held_back
+		)
 
 	def _not_an_instance (
 		self, because: str, *, body: typing.Any | None = None

@@ -787,11 +787,27 @@ def ready (
 
 	return sqlalchemy.and_(
 		unblocked(model, now=now),
+		_startable_apart_from_blocking(model, now=now, by=by),
+	)
+
+
+def _startable_apart_from_blocking (
+	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return every reason a row is not startable **except** something holding it up.
+
+	Split out of :func:`ready` for :func:`held_under_a_blocked_ancestor`, which asks *what
+	would have been offered but for the parent axis* and therefore needs all of these and none
+	of the blocking. Two readers, one list — writing the clauses out twice is how a count and
+	the listing it describes come to disagree about their own subject.
+	"""
+
+	return sqlalchemy.and_(
 		undeferred(model, now=now),
 		unclaimed(model, now=now, by=by),
 		in_a_running_project(model),
 		# **A container is not work anybody can start** (`#1353`, Simon 2026-08-27). Its
-		# sibling `#1610` lives in `unblocked` above, because a row under a blocked ancestor
+		# sibling `#1610` lives in `unblocked`, because a row under a blocked ancestor
 		# really is blocked; this one is not, so it is a clause here and `blocked_among` does
 		# not mark it. Two halves of one decision, in the two places each is true.
 		sqlalchemy.not_(a_container(model, now=now)),
@@ -804,4 +820,32 @@ def ready (
 		# **The category, not the dates.** An ordinary task may carry a start and an end and is
 		# still work; what makes something an occasion is what it *is*.
 		sqlalchemy.not_(is_occasion(model)),
+	)
+
+
+def held_under_a_blocked_ancestor (
+	model: type[typing.Any], *, now: datetime.datetime, by: uuid.UUID | None
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching what ``ready`` would offer but for the parent axis.
+
+	**The other half of Simon's decision on `#1610`**: blocking inherits down the parent axis,
+	*and the listing says how many rows that held back*. `#1265`'s precedent, where the same
+	trade was taken for the agenda — an empty page and a filtered page read identically, and
+	the second is the ordinary state of somebody's first morning on a real plan.
+
+	**The ancestor half only, deliberately.** A container absent from ``--ready`` needs no
+	explanation: it was never work, and `#84`'s model says so. What is worth a number is work
+	that exists, is otherwise startable, and is waiting on something filed above it — the case
+	a reader would otherwise have to reconstruct from the whole listing.
+
+	**Nothing here is a second copy of the rule.** It is ``_nothing_blocks_it`` and the ancestor
+	test — the two halves :func:`unblocked` composes — with the *opposite* answer to the second,
+	over the same clause list :func:`ready` uses. So a row can be in this count or in the
+	listing and never in both, by construction rather than by agreement.
+	"""
+
+	return sqlalchemy.and_(
+		_nothing_blocks_it(model, now=now),
+		under_a_blocked_ancestor(model, now=now),
+		_startable_apart_from_blocking(model, now=now, by=by),
 	)

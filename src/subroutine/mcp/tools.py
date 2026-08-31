@@ -1940,6 +1940,22 @@ def _listed (
 	if len(ordered) > limit or tasks.has_more or getattr(documents, "has_more", False):
 		rows.append("More matched than are shown. Raise limit, or narrow with project or filter.")
 
+	# **The other half of `#1610`, on the surface it matters most to.** `ready` is the call an
+	# agent makes with no other context, so an empty or short answer is the one it cannot
+	# interrogate — *there is nothing to do* and *all of it is waiting on something above it*
+	# are the same page otherwise, and the second is the ordinary state of a real plan.
+	#
+	# **A number here where `has_more` above is a flag**, and the difference is affordable for
+	# the reason `#33`'s parked count is: this set is bounded by the work under blocked
+	# ancestors rather than by the whole result, so it is one cheap count and not §8.4's
+	# second full scan.
+	if tasks.held_back:
+		things = "thing" if tasks.held_back == 1 else "things"
+		rows.append(
+			f"{tasks.held_back} more {things} are startable except that something they are "
+			f"filed under cannot start. Read the parent to see what is holding it up."
+		)
+
 	return "\n".join(rows)
 
 

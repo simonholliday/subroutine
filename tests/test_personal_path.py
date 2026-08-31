@@ -425,6 +425,75 @@ def test_the_older_name_for_the_agenda_says_where_it_went (
 	assert "agenda" in set(root.list_commands(context)), "the command itself is in the help"
 
 
+def test_a_ready_listing_says_how_much_is_waiting_on_something_above_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1610`'s other half at a terminal, and `#73`'s rule on a second axis.
+
+	Work under something that cannot start stopped being offered. A list that quietly omits
+	things stops supporting the inference refs exist for — *not in the list* means *not in the
+	system* — which is the failure `#33` was about and the reason the line above this one
+	exists for deferred work.
+
+	**The wording avoids the full model's vocabulary** (§13.5b): *waiting on something they are
+	filed under* rather than *blocked by an ancestor*, because this is a sentence somebody
+	meets before they have met any of it.
+
+	**No flag is offered**, unlike the deferred line, and deliberately: there is no way to ask
+	for work under a blocked ancestor and there should not be. Naming a switch that does not
+	exist would be worse than saying nothing.
+	"""
+
+	run("init")
+	run("add", "Groundwork")
+	run("add", "The milestone")
+	run("add", "One part")
+	run("add", "Another part")
+	run("link", "1", "blocks", "2")
+	run("move", "3", "--under", "2")
+	run("move", "4", "--under", "2")
+
+	listed = run("list", "--ready").output
+
+	assert "One part" not in listed and "Another part" not in listed, (
+		"both are filed under a milestone that cannot start"
+	)
+	assert "2 more things waiting on something they are filed under" in listed, (
+		f"two rows left the page and nothing said so:\n{listed}"
+	)
+
+	# **The singular, because a count that always says "things" is a count nobody proof-read.**
+	run("done", "3")
+
+	assert "1 more thing waiting on something they are filed under" in run(
+		"list", "--ready"
+	).output
+
+
+def test_an_ordinary_listing_says_nothing_about_work_held_under_a_parent (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half, or the line above would appear on every list in the product.
+
+	`--ready` is what hides this work; a plain `list` shows it, marked, so there is nothing to
+	explain and a sentence explaining it would be false.
+	"""
+
+	run("init")
+	run("add", "Groundwork")
+	run("add", "The milestone")
+	run("add", "One part")
+	run("link", "1", "blocks", "2")
+	run("move", "3", "--under", "2")
+
+	listed = run("list").output
+
+	assert "One part" in listed, "a plain listing shows it"
+	assert "waiting on something they are filed under" not in listed, (
+		"nothing was held back from this listing, so nothing should be said about it"
+	)
+
+
 def test_the_agenda_can_be_asked_about_another_day (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

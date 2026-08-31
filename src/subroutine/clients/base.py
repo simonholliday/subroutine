@@ -99,12 +99,22 @@ class Listing(list[LISTED]):
 	#: *I cannot see that* would otherwise be the same empty page.
 	covers: tuple[str, ...] = ()
 
+	#: How many otherwise-startable rows a readiness listing held back because something above
+	#: them cannot start (`#1610`). ``None`` where nobody asked, which is every listing that did
+	#: not pass ``ready``.
+	#:
+	#: **Carried on the envelope rather than recomputed by each surface**, which is `#1037`'s
+	#: own lesson one field along: the instance already knows, and a client that works the
+	#: number out again is a second implementation of a rule the server owns.
+	held_back: int | None = None
+
 	def __init__ (
 		self,
 		rows: typing.Iterable[LISTED] = (),
 		*,
 		has_more: bool = False,
 		covers: typing.Iterable[str] = (),
+		held_back: int | None = None,
 	) -> None:
 		"""Hold the rows, and what the instance said about the ones past them."""
 
@@ -112,6 +122,7 @@ class Listing(list[LISTED]):
 
 		self.has_more = has_more
 		self.covers = tuple(covers)
+		self.held_back = held_back
 
 
 @dataclasses.dataclass(frozen=True)

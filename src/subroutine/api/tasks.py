@@ -619,7 +619,22 @@ def listing (
 	if narrowing is not None:
 		statement = statement.where(narrowing)
 
+	# **Counted from the statement as it stands, before `ready` narrows it** — so the count and
+	# the listing differ by exactly the rule and nothing else. `#1610`'s other half: the
+	# exclusion is silent otherwise, and *nothing to do* and *all of it is waiting on something
+	# above it* are the two states a reader most needs told apart.
+	held_back = None
+
 	if ready:
+		held_back = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(
+				statement.where(
+					subroutine.domain.readiness.held_under_a_blocked_ancestor(
+						model, now=now, by=actor.user.id
+					)
+				).subquery()
+			)
+		)
 		statement = statement.where(
 			subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
 		)
@@ -727,6 +742,7 @@ def listing (
 		shape=shape,
 		actor=actor,
 		workspace_id=workspace.id,
+		held_back=held_back,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
 		allowed=sortable if ranked is None else ranked,
 		# **A search defaults to its ranking, and that is what makes `#867` useful** (`#823`).
@@ -1435,6 +1451,7 @@ def _page (
 	shape: subroutine.api.shaping.Shape,
 	actor: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
+	held_back: int | None = None,
 	with_links: bool = False,
 	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	default: typing.Sequence[str] | None = None,
@@ -1524,6 +1541,7 @@ def _page (
 				else None
 			),
 			total=total,
+			held_back=held_back,
 		),
 		shape,
 		links,

@@ -3119,6 +3119,41 @@ def test_a_listing_an_agent_asked_for_says_when_it_was_cut (
 	)
 
 
+def test_a_ready_listing_tells_an_agent_what_is_waiting_on_something_above_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#1610`'s other half on the surface it matters most to.
+
+	``ready`` is the call an agent makes with **no other context**, so a short answer is the
+	one it cannot interrogate: *there is nothing to do* and *all of it is waiting on something
+	above it* are the same page otherwise. A person can look at the whole list and see the
+	marks; an agent asked one question and got one answer.
+
+	**A number here where ``has_more`` above it is a flag**, and the difference is affordable
+	for the reason `SR#33`'s parked count is: this set is the work under blocked ancestors
+	rather than the whole result, so it is one cheap count and not SS8.4's second full scan.
+	"""
+
+	groundwork = _added(bound, "Groundwork")
+	milestone = _added(bound, "The milestone")
+
+	_called(bound, "subroutine_add", text="One part", parent=milestone)
+	_called(bound, "subroutine_add", text="Another part", parent=milestone)
+	_called(bound, "subroutine_link", ref=groundwork, type="blocks", other=milestone)
+
+	offered, failed = _called(bound, "subroutine_list", ready=True)
+
+	assert not failed, offered
+	assert "One part" not in offered and "Another part" not in offered
+	assert "2 more things are startable except that something they are filed under" in offered, (
+		f"two rows left the answer and nothing said so:\n{offered}"
+	)
+	assert "Read the parent" in offered, (
+		"the remedy is to look at what is holding the parent up, and an agent has no other "
+		"way to find out which parent that is"
+	)
+
+
 def test_a_listing_that_is_everything_says_nothing_extra (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
