@@ -6606,8 +6606,21 @@ def _item_fields_read (
 	`holding` and `projectLabel`, which is where most of the reads live; anything deeper is a
 	helper taking values rather than an item, and following it would be scanning for a shape
 	that is not there.
+
+	**Comments are stripped first, and this was handed unstripped source until `SR#1721`.** It
+	fails in both directions. A prose sentence in `Row` explaining why a field is handed in
+	rather than read off the row named `item.blocked_by`, and the listing guard then demanded a
+	request ask for a field nothing renders — met live, and the fix that satisfied it was to
+	reword an explanation. The dangerous direction is the other one: a read somebody *commented
+	out* still counted, so the register went on insisting a listing ask for something no row
+	draws, and read as a considered decision.
+
+	**`_without_comments` was already in this file and already used by the neighbouring
+	guards**; this one was written without it and nothing compared them. Stripping also fixes
+	`_function_body`, which matches brackets and counted the ones inside a comment.
 	"""
 
+	source = _without_comments(source)
 	bodies = {name: _function_body(source, name) for name in surface}
 
 	for name in surface:
@@ -6623,6 +6636,38 @@ def _item_fields_read (
 		read |= set(re.findall(r"\bitem\.([a-z_][a-z0-9_]*)\b", body))
 
 	return bodies, read
+
+
+def test_the_field_scan_reads_code_and_not_the_prose_beside_it () -> None:
+	"""`SR#1721`: this scanner was handed unstripped source and read a comment as a read.
+
+	**Both directions, and the second is the dangerous one.** A sentence in `Row` explaining why
+	a field is handed in rather than read off the row named `item.blocked_by`, and the listing
+	guard then demanded a request ask for a field nothing renders — met live, and what satisfied
+	it was rewording an explanation. In the other direction a read somebody *commented out*
+	still counted, so the guard went on insisting a listing ask for something no row draws, and
+	the entry read as a considered decision.
+
+	**Driven through the scanner's own entry point** (`SR#405`) rather than by re-implementing
+	its rule here, which would only be able to report that the copy agrees with itself. This
+	codebase explains nearly every rule in prose beside the code it governs, so a comment naming
+	the field it is about is the normal way things are written — which is exactly the input this
+	could not read.
+	"""
+
+	source = (
+		"export function Row ({ item }) {\n"
+		"\t/* Handed in rather than read off the row — see item.invented for why. */\n"
+		"\t// return item.retired;\n"
+		"\treturn item.title;\n"
+		"}\n"
+	)
+
+	_, read = _item_fields_read(source, ["Row"])
+
+	assert read == {"title"}, (
+		f"the scan read the prose beside the code as code: {sorted(read)}"
+	)
 
 
 #: What `marks` reads that a link's far end deliberately does not carry, and why. A register

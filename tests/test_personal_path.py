@@ -3452,6 +3452,71 @@ def test_the_type_column_stays_hidden_when_everything_is_one_kind (
 	assert "task" not in run("list").output
 
 
+def test_a_page_of_one_row_still_says_what_is_true_of_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1715`: every column vanished from a listing of one row, and nothing said so.
+
+	`_column`'s rule is *a column that says the same thing on every row says nothing*, which is
+	a statement about contrast **between** rows. One row has no contrast to lose, so the
+	unguarded test found one distinct value in every column and dropped the lot. Measured on one
+	item seconds apart: ``search "the"`` gave the rank and the estimate, ``search "roster"`` gave
+	neither, and nothing marked the difference.
+
+	**The one-row page is the lookup page.** `SR#873` made ``search <ref>`` return one item on
+	purpose, so the page most likely to be *acted* on was the one saying least.
+
+	Driven through the terminal rather than against `_column`, because the defect is what a
+	reader sees and the rule is only how it got there.
+	"""
+
+	run("init")
+	run("add", "Cache the roster !4/2 ~2h")
+	run("add", "Write the migration")
+	run("add", "Ship the connector")
+	run("link", "3", "blocks", "2")
+
+	alone = run("search", "roster").output
+
+	assert "!4/2" in alone, f"the rank went with the other rows: {alone!r}"
+	assert "2h" in alone, f"the estimate went with the other rows: {alone!r}"
+
+	# **A state, which is the half that decides whether the row can be acted on at all.**
+	held = run("search", "migration").output
+
+	assert "blocked" in held, f"nothing said this one cannot be started: {held!r}"
+
+
+def test_a_page_of_one_row_still_says_nothing_nobody_chose (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half of `SR#1715`, and the one that keeps §1.4 intact.
+
+	**Lifting the rule for every column printed ``#1  task  inbox  ordinary work``** on a fresh
+	instance's only item — which is `_column`'s own defining case, and `SR#512`'s decision of
+	2026-08-05 reversed without anybody being asked. Found by running it, after the change had
+	already been written the obvious way.
+
+	The difference is not the row count. A rank, an estimate or a state renders *blank* when
+	nobody chose one, so the empty-column rule already covers them; a type and a project render
+	a **default word**, and a default nobody chose is not a fact about this item. That is
+	``show``'s rule in ``_facts`` said in a layout function.
+	"""
+
+	run("init")
+	run("add", "Ordinary work")
+
+	agenda = run("agenda").output
+
+	assert "Ordinary work" in agenda
+	assert "task" not in agenda.lower(), (
+		f"a beginner's only item was labelled with the default type: {agenda!r}"
+	)
+	assert "inbox" not in agenda.lower(), (
+		f"a beginner's only item was labelled with the default project: {agenda!r}"
+	)
+
+
 def test_a_list_nobody_delegates_on_has_no_assignee_column (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -9690,8 +9755,10 @@ def test_a_shopping_list_says_nothing_about_projects (
 	rule over showing a new reader where things go. Everything is in the Inbox, the remainder
 	is the same word on every line, and the column does not earn its place.
 
-	**Two rows, because a one-row page has no distinct values to compare** — `_column` drops
-	every column on it, so a single "buy milk" would pass this whichever way the rule went.
+	**Two rows, because one row is not the case this is about.** A single row is `_column`'s
+	`SR#1715` path, where the project is dropped for a different reason — a default nobody chose
+	is not a fact about the item — so a lone "buy milk" would pass this whichever way §12.2a's
+	rule went, and would be measuring the other rule.
 	"""
 
 	run("init", "--username", "si", "--workspace", "projects")

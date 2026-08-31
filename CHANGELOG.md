@@ -137,6 +137,23 @@ upgrade involves.
 
 ### Fixed
 
+- **A listing of one row says what is true of it.** Every column vanished when a search or a
+  listing came back with a single row, so the page you are most likely to act on was the one
+  that told you least:
+
+  ```
+  before:  #42  Cache the roster
+  after:   #42  !4/2  2h  Cache the roster
+  ```
+
+  The same item and the same command. The rank, the estimate and whether anything was blocking
+  it were dropped as soon as the search matched only one thing, and nothing said so.
+
+  A column is hidden when it says the same thing on every row, which is a statement about the
+  contrast *between* rows — and one row has no contrast to lose. What a single row still hides
+  is anything nobody chose: the default type and the Inbox are not facts about an item, so a
+  first task on a new installation looks exactly as it did.
+
 - **Going back below the release that introduced events refuses while anything still is one**,
   instead of quietly leaving those items pointing at a type that no longer exists.
 

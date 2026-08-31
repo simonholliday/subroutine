@@ -815,7 +815,9 @@ class Listing:
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
 # definition raises `NameError` on import while mypy reports nothing — the same trap as
 # `Item` above `World`, which cost an import failure on 2026-07-30.
-def _column (values: typing.Iterable[str], *, drop_if_uniform: bool = True) -> int:
+def _column (
+	values: typing.Iterable[str], *, drop_if_uniform: bool = True, alone_is_news: bool = True
+) -> int:
 	"""Return how wide a column must be, or zero when it would say nothing.
 
 	**A column that says the same thing on every row says nothing**, whether what it says is
@@ -845,11 +847,41 @@ def _column (values: typing.Iterable[str], *, drop_if_uniform: bool = True) -> i
 
 	The cost is one redundant column on `list --assignee jo`, which is visible, cheap, and
 	the right way round: a column somebody can see is not a wrong answer.
+
+	**A page of one row keeps what somebody filled in** (`SR#1715`). The rule above is a
+	statement about *contrast between rows*, and one row has no contrast to lose — every column
+	holds exactly one distinct value, so the unguarded test dropped all of them. Measured on the
+	same item seconds apart: ``search "the"`` gave ``#5  !4/2  2h  Cache the roster`` and
+	``search "roster"`` gave ``#5  Cache the roster``. **The one-row page is the lookup page** —
+	`#873` made ``search <ref>`` return one item on purpose — so the page most likely to be
+	acted on was the one that said least.
+
+	**``alone_is_news=False`` is the half that keeps §1.4 intact, and driving it is what found
+	the collision.** Lifting the rule for every column printed ``#1  task  inbox  ordinary
+	work`` on a fresh instance's only item — which is this function's own defining case, and
+	`#512`'s decision of 2026-08-05 reversed without anybody being asked. The difference is not
+	the row count: it is that a priority, an estimate or a state renders *blank* when nobody
+	chose one, so the empty rule below already covers them, while a type and a project render a
+	**default word**. A default nobody chose is not a fact about this item, which is ``show``'s
+	rule in ``_facts`` said in a layout function.
+
+	**``_tabulated`` had already met the one-row case and fixed it in place**, guarding its own
+	call with ``len(rows) == 1``; the rule it was working around lived here and was left
+	standing for every other caller. One rule applied to one of two callers is this codebase's
+	signature defect, and the remedy is to answer it where the rule is.
 	"""
 
+	# Materialised because how many rows there are is now part of the answer, and a generator
+	# can only be counted by consuming it.
+	values = list(values)
 	distinct = set(values)
 
-	if len(distinct) < 2 and (drop_if_uniform or not any(distinct)):
+	# **A column nothing fills says nothing however many rows there are**, so this half is
+	# unconditional — including on the single row, where a blank cell is still a blank cell.
+	if not any(distinct):
+		return 0
+
+	if drop_if_uniform and len(distinct) < 2 and (len(values) > 1 or not alone_is_news):
 		return 0
 
 	return max(len(value) for value in distinct)
@@ -868,16 +900,12 @@ def _tabulated (rows: typing.Sequence[typing.Sequence[str]]) -> list[str]:
 	if not rows:
 		return []
 
-	# **The first column is never dropped, and a single row keeps whatever it filled in.**
-	# `_column` asks whether a column *varies*, which on a one-row page is false of every
-	# column including the name — so the unguarded rule printed a blank line where the answer
-	# was one person. Found by running it on a fresh instance, which is the commonest case
-	# there is.
+	# **The first column is never dropped.** A page of one row keeping whatever it filled in is
+	# `_column`'s own answer since `SR#1715`; this guarded its own call for it and left the rule
+	# wrong for every other caller, which is what that item is. The name is a separate rule and
+	# stays here: it is the only cell that must appear even when it is blank.
 	total = max(len(row) for row in rows)
-	widths = [
-		len(rows[0][index]) if len(rows) == 1 else _column(row[index] for row in rows)
-		for index in range(total)
-	]
+	widths = [_column(row[index] for row in rows) for index in range(total)]
 	widths[0] = max(len(row[0]) for row in rows)
 
 	lines = []
@@ -937,16 +965,38 @@ class Columns:
 
 		within = _asked_within(project)
 
+		# Built once rather than per use: it decides both the width and, on a page of one row,
+		# whether the column is worth drawing at all.
+		matched = [_match_cell(item, term) for _name, item in rows]
+
 		return cls(
 			term=term,
 			within=within,
-			project=_column(_project_cell(item, within) for _name, item in rows),
-			matched=_column(_match_cell(item, term) for _name, item in rows),
+			# **Not on a page of one row either** — `#512`, Simon's decision of 2026-08-05,
+			# which weighed showing a new reader where things go against §12.2a and chose
+			# §12.2a. Nothing here reports whether a project was *chosen* or is the Inbox
+			# everything lands in, so lifting the rule for one row would say `inbox` to the
+			# reader that decision is about. `show` is where one item's project is named.
+			project=_column(
+				(_project_cell(item, within) for _name, item in rows), alone_is_news=False
+			),
+			# **On one row, only where the reader cannot already see it.** The title wins when
+			# both match, so `title` beside a title visibly holding the word says nothing —
+			# and `description` on the same page is the whole reason this column exists.
+			matched=_column(
+				matched, alone_is_news=any(one != VISIBLE_MATCH for one in matched)
+			),
 			parent=_column(_parent_cell(item) for _name, item in rows),
 			address=max(
 				(len(world.address_of_item(name, item)) for name, item in rows), default=0
 			),
-			kind=_column(item.type for _name, item in rows),
+			# **News on its own only when somebody chose it.** On one row there is nothing to
+			# contrast against, so the question becomes whether the type is the workspace's
+			# default — which the view reports, unlike a project's.
+			kind=_column(
+				(item.type for _name, item in rows),
+				alone_is_news=any(not item.type_is_default for _name, item in rows),
+			),
 			state=_column(_state_cell(item) for _name, item in rows),
 			blocked=_column(_blocked_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
@@ -1225,6 +1275,12 @@ def _append_title (line: rich.text.Text, title: str, term: str | None) -> None:
 		at = folded.find(wanted, at + len(wanted))
 
 
+#: The answer :func:`_match_cell` gives when the word is in the part of the row already on
+#: screen. It is the one answer that tells a reader nothing they cannot see, which is what makes
+#: it the value a page of one row drops (`SR#1715`).
+VISIBLE_MATCH = "title"
+
+
 def _match_cell (item: Item, term: str | None) -> str:
 	"""Return where a search term was found, or nothing when no search was made.
 
@@ -1286,7 +1342,7 @@ def _match_cell (item: Item, term: str | None) -> str:
 	title = item.title.casefold()
 
 	if all(word in title for word in words):
-		return "title"
+		return VISIBLE_MATCH
 
 	prose = (
 		item.description if isinstance(item, subroutine.views.Task) else item.body
