@@ -12,6 +12,7 @@ import unittest.mock
 import uuid
 
 import alembic.command
+import alembic.config
 import alembic.runtime.migration
 import pytest
 import sqlalchemy
@@ -429,6 +430,101 @@ def _a_workspace_with_one_task (
 #: The revision before `SR#1688` seeded the supersedes link type and the superseded status.
 _BEFORE_SUPERSEDING = "9c41d0b7ae52"
 
+#: The revision below the one that made a task able to be an event, so downgrading to it is
+#: what takes the ``event`` type away again.
+_BEFORE_EVENTS = "4f177421eb91"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_going_back_below_events_refuses_while_anything_is_one (migrated_url: str) -> None:
+	"""`SR#1689`: a shipped migration asserted a refusal that only one backend performed.
+
+	``9c41d0b7ae52``'s downgrade deletes the ``event`` item type, and its docstring said the
+	delete *may refuse* because ``task.type_id`` is ``ondelete=RESTRICT``. That is true on
+	PostgreSQL and false on SQLite — ``migrations/env.py`` turns enforcement off for the duration
+	of a migration, which it must — so the default backend, and the one ``init`` gives everybody,
+	deleted the row and left the task pointing at a type that was gone.
+
+	**Found by driving it rather than by reading it**, and the reading is what shipped it: a
+	refusal asserted in a docstring and enforced by nothing. Both backends run here, because the
+	whole finding is that the two disagreed.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		workspace = subroutine.db.types.new_uuid()
+		status = subroutine.db.types.new_uuid()
+		event = subroutine.db.types.new_uuid()
+		project = subroutine.db.types.new_uuid()
+
+		with engine.begin() as connection:
+			_insert(connection, "workspace", {"id": workspace, "slug": "w", "title": "W"})
+			_insert(
+				connection,
+				"status",
+				{"id": status, "workspace_id": workspace, "key": "open", "label": "Open"},
+			)
+			_insert(
+				connection,
+				"item_type",
+				{
+					"id": event,
+					"workspace_id": workspace,
+					"key": "event",
+					"label": "Event",
+					"category": "occasion",
+				},
+			)
+			_insert(
+				connection,
+				"project",
+				{
+					"id": project,
+					"workspace_id": workspace,
+					"key": "p",
+					"title": "P",
+					"status_id": status,
+				},
+			)
+			_insert(
+				connection,
+				"task",
+				{
+					"id": subroutine.db.types.new_uuid(),
+					"workspace_id": workspace,
+					"project_id": project,
+					"type_id": event,
+					"status_id": status,
+					"ref": 1,
+					"title": "A conference",
+				},
+			)
+
+		with pytest.raises(Exception) as refused:
+			subroutine.db.migrate.downgrade(migrated_url, _BEFORE_EVENTS)
+
+		assert "event" in str(refused.value), (
+			f"the downgrade failed for some other reason: {refused.value}"
+		)
+
+		types = subroutine.db.base.Base.metadata.tables["item_type"]
+
+		with engine.begin() as connection:
+			left = connection.scalar(
+				sqlalchemy.select(sqlalchemy.func.count())
+				.select_from(types)
+				.where(types.c.key == "event")
+			)
+
+		assert left == 1, (
+			"the row was deleted anyway, so a task now points at a type that is not there"
+		)
+
+	finally:
+		engine.dispose()
+
+
 
 @pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
 def test_going_back_below_superseding_refuses_while_anything_uses_it (
@@ -795,6 +891,158 @@ def test_a_failed_migration_still_restores_foreign_key_enforcement (
 
 	finally:
 		engine.dispose()
+
+
+#: A migration tree of our own: one revision that makes a reference, and one that breaks it.
+#: Written out rather than generated because what is under test is ``env.py``, and the point is
+#: that it is *our* ``env.py`` running — the file is copied beside these, not re-implemented.
+_MAKES_A_REFERENCE = """
+revision = '0001'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+from alembic import op
+
+
+def upgrade () -> None:
+	op.execute('CREATE TABLE held (id INTEGER PRIMARY KEY)')
+	op.execute('CREATE TABLE holder (id INTEGER PRIMARY KEY, held_id INTEGER REFERENCES held(id))')
+	op.execute('INSERT INTO held VALUES (1)')
+	op.execute('INSERT INTO holder VALUES (1, 1)')
+
+
+def downgrade () -> None:
+	op.execute('DROP TABLE holder')
+	op.execute('DROP TABLE held')
+"""
+
+_BREAKS_IT = """
+revision = '0002'
+down_revision = '0001'
+branch_labels = None
+depends_on = None
+
+from alembic import op
+
+
+def upgrade () -> None:
+	op.execute('DELETE FROM held WHERE id = 1')
+
+
+def downgrade () -> None:
+	op.execute('INSERT INTO held VALUES (1)')
+"""
+
+#: The same position in the tree, changing something else entirely. What makes it useful is
+#: that it leaves any reference already broken exactly as broken as it found it.
+_LEAVES_IT_ALONE = """
+revision = '0002'
+down_revision = '0001'
+branch_labels = None
+depends_on = None
+
+from alembic import op
+
+
+def upgrade () -> None:
+	op.execute('CREATE TABLE spare (id INTEGER PRIMARY KEY)')
+
+
+def downgrade () -> None:
+	op.execute('DROP TABLE spare')
+"""
+
+
+def _a_migration_tree (root: pathlib.Path, *revisions: str) -> str:
+	"""Write these revisions beside a copy of the project's own ``env.py``, and return it."""
+
+	versions = root / "versions"
+
+	versions.mkdir(parents=True)
+	(root / "env.py").write_text(
+		(subroutine.db.migrate.MIGRATIONS_DIRECTORY / "env.py").read_text()
+	)
+
+	for revision in revisions:
+		name = revision.split("revision = '")[1].split("'")[0]
+
+		(versions / f"{name}.py").write_text(revision)
+
+	return str(root)
+
+
+def test_a_migration_that_breaks_a_reference_says_so (tmp_path: pathlib.Path) -> None:
+	"""`SR#1689`'s net: SQLite is told not to enforce its foreign keys while a migration runs.
+
+	``env.py`` must turn enforcement off — ``render_as_batch`` rebuilds a table by
+	copy-drop-rename, and enforcement on fails that on a constraint the migration is not
+	breaking. So a migration that deletes a row somebody still points at succeeds on SQLite and
+	is refused on PostgreSQL, which is the one backend difference whose damage outlives the
+	command.
+
+	**Driven through a migration tree of our own, because no migration in this project can
+	reach it any more.** ``9c41d0b7ae52`` and ``a986838fadc4`` both count the rows themselves
+	and refuse first, which is the only thing that *prevents* the damage; this is the net
+	beneath them, for the migration nobody has written yet, and without a tree of its own it
+	would be a guard that has never once fired.
+	"""
+
+	url = f"sqlite:///{tmp_path / 'probe.db'}"
+	config = alembic.config.Config()
+
+	config.set_main_option(
+		"script_location", _a_migration_tree(tmp_path / "tree", _MAKES_A_REFERENCE, _BREAKS_IT)
+	)
+	config.set_main_option("sqlalchemy.url", url)
+
+	alembic.command.upgrade(config, "0001")
+
+	with pytest.raises(RuntimeError) as refused:
+		alembic.command.upgrade(config, "0002")
+
+	assert "holder" in str(refused.value) and "held" in str(refused.value), (
+		f"the failure does not name the two tables: {refused.value}"
+	)
+
+
+def test_a_migration_is_not_blamed_for_a_reference_that_was_already_broken (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A database an earlier migration damaged must still be able to move.
+
+	Refusing on the *total* rather than on the difference would leave exactly those
+	installations unable to migrate in either direction — including upwards, towards the
+	version that stops it happening again. So the check is a before-and-after, and this is the
+	half that says so.
+	"""
+
+	url = f"sqlite:///{tmp_path / 'probe.db'}"
+	config = alembic.config.Config()
+
+	config.set_main_option(
+		"script_location",
+		_a_migration_tree(tmp_path / "tree", _MAKES_A_REFERENCE, _LEAVES_IT_ALONE),
+	)
+	config.set_main_option("sqlalchemy.url", url)
+
+	alembic.command.upgrade(config, "0001")
+
+	# Break it behind the migrations' back, the way an older version of one of them would have.
+	engine = subroutine.db.session.create_engine(url)
+
+	try:
+		with engine.begin() as connection:
+			connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+			connection.exec_driver_sql("DELETE FROM held WHERE id = 1")
+
+	finally:
+		engine.dispose()
+
+	# **The next migration leaves that row exactly as broken as it found it**, which is what
+	# makes this the test of the difference rather than of the total. A migration that dropped
+	# the tables would answer with nothing broken either way and prove nothing.
+	alembic.command.upgrade(config, "0002")
 
 
 def _populate (engine: sqlalchemy.engine.Engine) -> None:

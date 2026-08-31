@@ -78,6 +78,12 @@ item_type = sqlalchemy.table(
     sqlalchemy.column('updated_at', subroutine.db.types.UtcDateTime()),
 )
 
+#: Enough of the referring table to ask whether anything is still typed as an event.
+task = sqlalchemy.table(
+    'task',
+    sqlalchemy.column('type_id', subroutine.db.types.uuid_column()),
+)
+
 
 def upgrade () -> None:
     """Admit the new category, then give every existing workspace the type that uses it."""
@@ -131,13 +137,49 @@ def upgrade () -> None:
 
 
 def downgrade () -> None:
-    """Take the type away, then narrow the column back to what it admitted before.
+    """Refuse while anything is still an event, then take the type away and narrow the column.
 
-    **The delete comes first and may refuse, which is the honest outcome.** ``task.type_id``
-    is ``ondelete=RESTRICT``, so an installation that has filed an event cannot go back below
-    this revision until those items are retyped — and being told that by name is better than a
-    CHECK failing afterwards about a value the row is no longer allowed to hold.
+    **This counts the rows itself, and an earlier version of it did not** (`SR#1689`). It said
+    the delete came first and *may refuse*, on the grounds that ``task.type_id`` is
+    ``ondelete=RESTRICT``. That is true on PostgreSQL and false on SQLite, which is the default
+    backend and what ``init`` gives everybody: ``migrations/env.py`` turns SQLite's foreign-key
+    enforcement off for the duration of a migration — which it must, because ``render_as_batch``
+    rebuilds a table by copy-drop-rename — so the delete that PostgreSQL refuses, SQLite
+    performs. Driven: one task typed ``event``, the downgrade succeeded, and the task was left
+    pointing at a type that no longer existed.
+
+    **Raised before the delete, because nothing here can be undone.** Measured rather than
+    assumed: Alembic's ``begin_transaction`` is a no-op on SQLite, whose DDL is not transactional
+    under Alembic's connection, and wrapping the run in a real transaction does not change it —
+    the delete and the version bump both survive an exception. So a check made afterwards can
+    report the damage and cannot reverse it, and refusing first is the only thing that leaves
+    the database as it was.
     """
+
+    connection = op.get_bind()
+
+    types = list(
+        connection.scalars(
+            sqlalchemy.select(item_type.c.id).where(
+                item_type.c.entity_type == 'task', item_type.c.key == EVENT['key']
+            )
+        )
+    )
+
+    typed = 0
+
+    if types:
+        typed = connection.scalar(
+            sqlalchemy.select(sqlalchemy.func.count())
+            .select_from(task)
+            .where(task.c.type_id.in_(types))
+        ) or 0
+
+    if typed:
+        raise RuntimeError(
+            f"Cannot go back below this revision: {typed} task(s) are "
+            f"'{EVENT['key']}'. Give those items another type first."
+        )
 
     op.execute(
         item_type.delete().where(

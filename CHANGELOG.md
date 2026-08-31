@@ -137,6 +137,21 @@ upgrade involves.
 
 ### Fixed
 
+- **Going back below the release that introduced events refuses while anything still is one**,
+  instead of quietly leaving those items pointing at a type that no longer exists.
+
+  The migration said it would refuse, on the grounds that the database would stop it. That is
+  true on PostgreSQL and was not on SQLite, which is the default and what `subroutine init`
+  gives you: foreign-key enforcement has to be switched off while a migration runs, because
+  that is the only way SQLite can rebuild a table. So the two backends did opposite things and
+  only one of them said so. The migration counts the rows itself now, before it deletes
+  anything, and names how many items are in the way.
+
+  You are only affected if you downgrade, which nothing does for you.
+
+- **A migration that leaves any row pointing at a row that is not there now says so**, naming
+  the two tables, rather than finishing quietly and letting you find out later.
+
 - **The Complete button sits at the right edge of a row again**, so the actions line up in a
   column instead of starting wherever the last chip left off. Lost by the same edit as the row
   separator below.

@@ -15,6 +15,7 @@ import sqlalchemy
 
 import subroutine.config
 import subroutine.db.base
+import subroutine.db.integrity
 import subroutine.db.models
 import subroutine.db.session
 
@@ -130,7 +131,29 @@ def _run_with_connection (connection: sqlalchemy.Connection) -> None:
 
 	try:
 		with alembic.context.begin_transaction():
+			# What is already broken, so that a database some earlier migration damaged can
+			# still be migrated — including upwards, towards the version that stops it
+			# happening again. Refusing on the total would strand exactly those people.
+			before = subroutine.db.integrity.dangling_references(connection)
+
 			alembic.context.run_migrations()
+
+			broken = subroutine.db.integrity.appeared(
+				before, subroutine.db.integrity.dangling_references(connection))
+
+			# **This reports; it does not prevent, and saying so is the point.** Measured:
+			# Alembic's ``begin_transaction`` is a no-op on SQLite, and wrapping the run in a
+			# real transaction does not help either — the writes and the version bump both
+			# survive an exception. So the only thing that can stop a migration breaking a
+			# reference is that migration refusing before it changes anything, which is what
+			# ``9c41d0b7ae52`` and ``a986838fadc4`` do. This is the net beneath them, and what
+			# it buys is that the damage is named at the moment it happens rather than found
+			# later by somebody wondering why an item has no type (`SR#1689`).
+			if broken:
+				raise RuntimeError(
+					f"This database now holds {subroutine.db.integrity.in_words(broken)}."
+					f" Restore the backup taken before this ran."
+				)
 
 	finally:
 		# In a ``finally`` because a migration that raises must not leave enforcement off on
