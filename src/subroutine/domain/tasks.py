@@ -2037,18 +2037,26 @@ def _deltas (
 	meaningless across it. Every caller has to say what it does with each.
 	"""
 
+	# **A zero delta is a member, and leaving it out is `SR#1334`.** This filtered on the walrus
+	# — ``and (moved := _moved_by(...))`` — so a move that rounds to *no* days was falsy and the
+	# column dropped out of the dict entirely. :func:`_carried` then reached its catch-all,
+	# which reads an absent column as the *other* reason one can be absent (cleared, or set from
+	# nothing) and copies the source's **absolute** value: a live occurrence re-dated in another
+	# zone took its template a whole week forward, onto the occurrence's own date.
+	#
+	# **The three reasons a column is absent are named two paragraphs above and this made a
+	# fourth silently.** *It did not move* is now expressed as a delta of zero rather than as
+	# absence, so the vocabulary this docstring promises is the vocabulary the code speaks —
+	# and applying a zero delta is a no-op, which is what *did not move* should do.
 	return {
-		column: moved
+		column: _moved_by(
+			was[column],
+			now_holds[column],
+			whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
+		)
 		for column in MOVED_BY_DELTA
 		if was.get(column) is not None and now_holds.get(column) is not None
 		and not _changed_shape(column, was=was, now_holds=now_holds)
-		and (
-			moved := _moved_by(
-				was[column],
-				now_holds[column],
-				whole_days=bool(now_holds.get(ALL_DAY_FLAG[column])),
-			)
-		)
 	}
 
 

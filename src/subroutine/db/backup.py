@@ -760,10 +760,48 @@ def _head_in_sqlite (path: pathlib.Path) -> str:
 	return _single_head([str(row[0]) for row in rows], path)
 
 
+def _text_of (path: pathlib.Path) -> str:
+	"""Return a backup's text, refusing by name when it cannot be read — `SR#1695`.
+
+	**The one failure the module did not handle was the most mundane one.**
+	:func:`check_restorable` refuses a schema newer than this code by name, and tells a file
+	that records a schema but has no core tables that it is not a backup rather than that its
+	schema is too new (`#928`) — and then read the file with no guard at all, so an unreadable
+	one raised ``PermissionError`` through Typer and wrote a crash report asking the operator
+	to open an issue.
+
+	**It lands at the worst moment.** A restore is what somebody runs when something has
+	already gone wrong, and permissions are *most* likely to be wrong exactly then: a dump
+	copied between machines, pulled out of object storage as root, or carried into a
+	``DynamicUser`` unit's state directory by a root process — which is where this was found.
+	A stack trace is the wrong answer to *the file is 0600 and owned by somebody else*.
+
+	**One reader for all three call sites**, rather than a guard at the one that was reported.
+	``_head_in_dump``, ``_tables_in_dump`` and :func:`refuse_unsafe_commands` each read the same
+	path, and the item was found through the first — so fixing only that one would have left a
+	restore of a readable-then-unreadable file crashing two functions later. The SQLite side
+	needs none of this: it opens through ``sqlite3``, whose ``OperationalError`` is already
+	caught and reported.
+
+	``strerror`` rather than the whole exception, because ``str(OSError)`` carries the errno and
+	the path again and the message already names the file.
+	"""
+
+	try:
+		return path.read_text(encoding="utf-8", errors="replace")
+
+	except OSError as error:
+		raise subroutine.errors.BadRequest(
+			f"'{path.name}' could not be read: {error.strerror}.",
+			hint="Check the file is readable by the account running this. A backup copied "
+			"from another machine, or written by a different service, often is not.",
+		) from error
+
+
 def _head_in_dump (path: pathlib.Path) -> str:
 	"""Find ``alembic_version`` in a PostgreSQL text dump."""
 
-	text = path.read_text(encoding="utf-8", errors="replace")
+	text = _text_of(path)
 	found = _COPY_BLOCK.search(text) or _INSERT_STATEMENT.search(text)
 
 	if found is None:
@@ -873,7 +911,7 @@ def _tables_in_sqlite (path: pathlib.Path) -> frozenset[str]:
 def _tables_in_dump (path: pathlib.Path) -> frozenset[str]:
 	"""List the tables a PostgreSQL dump creates."""
 
-	text = path.read_text(encoding="utf-8", errors="replace")
+	text = _text_of(path)
 
 	# The schema qualifier and the quoting are both optional and both appear in the wild, so
 	# the name is taken as the last dotted part with any quotes stripped.
@@ -920,9 +958,7 @@ def refuse_unsafe_commands (path: pathlib.Path) -> None:
 
 	inside_copy = False
 
-	for number, line in enumerate(
-		path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
-	):
+	for number, line in enumerate(_text_of(path).splitlines(), start=1):
 		if inside_copy:
 			inside_copy = line.rstrip() != "\\."
 			continue

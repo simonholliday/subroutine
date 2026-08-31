@@ -1228,6 +1228,71 @@ def test_from_now_on_reaches_the_row_that_persists (
 	assert _next_live(session, series).title == "Anna's birthday, corrected"
 
 
+def test_saving_an_occurrence_at_its_own_date_leaves_the_series_where_it_was (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1334`, from the second cold review of ``61c9de9..fd24dfd``. A move of *nothing*.
+
+	``_deltas`` filtered its comprehension on the walrus — ``and (moved := _moved_by(...))`` —
+	so a delta of **exactly zero** was falsy and the column fell out of the dict. ``_carried``
+	then reached its catch-all, which reads an absent column as the *other* reason one can be
+	absent (cleared, or set from nothing) and copies the source's **absolute** value.
+
+	So a ``from_now_on`` save that moved the date by nothing took the template **onto the
+	occurrence's own date** — a whole week forward here, on a save that changed no day at all.
+
+	**The item's second reproduction does not reproduce, and the first one is used here.**
+	It reads *"with no zone change at all, a legacy occurrence saving its own unchanged date
+	does the same"*; driven, it does not — sending a column the value it already holds is not
+	a change, so ``update`` returns before anything propagates and the defect is unreachable
+	that way. That reproduction depended on *legacy* rows stored 999999µs behind their
+	template, which is the state `#1291` fixed, so it cannot be built on an instance this code
+	created. The zone route is the one that still works and is the one asserted.
+
+	**The mechanism was pre-existing and the docstring is what made it a defect.** ``_deltas``
+	says a column is absent for three distinguishable reasons and that *"every caller has to
+	say what it does with each"* — and the falsy filter quietly made a fourth. It is expressed
+	as a delta of zero now, which is what *did not move* means, and applying one is a no-op.
+	"""
+
+	made = _repeating(session, recurrence="every week")
+	series = _template(session, made)
+
+	# **The second occurrence, because the first shares the template's own date** — with both
+	# on one day a delta of zero and a copied absolute value are the same number, and the test
+	# would pass against the defect. Completing one materialises the next, a week along.
+	subroutine.domain.tasks.complete(session, made, now=NOW)
+	session.flush()
+
+	later = _next_live(session, series)
+	anchored = series.due_at
+
+	assert anchored is not None
+	assert later.due_at is not None
+	assert later.due_at != anchored, (
+		"this test needs the occurrence and its template on different days to say anything"
+	)
+
+	# **Re-dated in another zone, which is the reviewer's own reproduction.** §6.5 stores a
+	# whole-day deadline at the last microsecond of its day, so reading the same calendar day
+	# in a different zone moves the stored instant by hours — and `_moved_by` rounds that to
+	# *nothing*, because a whole-day date has no sub-day meaning (`#1291`). The day does not
+	# change; the delta is zero; the column disappeared.
+	subroutine.domain.tasks.update(
+		session,
+		later,
+		now=NOW,
+		due=later.due_at.date(),
+		timezone="America/New_York",
+		applies_to="from_now_on",
+	)
+	session.flush()
+
+	assert _template(session, later).due_at == anchored, (
+		"a save that moved the date by nothing carried the occurrence's own date to the series"
+	)
+
+
 def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
 	session: sqlalchemy.orm.Session,
 ) -> None:

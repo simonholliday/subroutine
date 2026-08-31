@@ -493,6 +493,57 @@ def test_a_dump_that_runs_a_command_is_refused (tmp_path: pathlib.Path) -> None:
 	assert "line 2" in str(refused.value)
 
 
+@pytest.mark.skipif(os.getuid() == 0, reason="root reads a 0000 file, so there is nothing to refuse")
+def test_a_backup_that_cannot_be_read_is_refused_rather_than_crashing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1695`, found on a real node and reproduced here. Verified against the 0.8.7 wheel.
+
+	``db restore`` pointed at a dump it cannot read raised ``PermissionError`` through Typer and
+	wrote a crash report asking the operator to open an issue. **It lands at the worst moment**:
+	a restore is what somebody runs when something has already gone wrong, and permissions are
+	most likely to be wrong exactly then — a dump copied between machines, pulled from object
+	storage as root, or carried into a ``DynamicUser`` unit's state directory by a root process,
+	which is how this was found.
+
+	**All three readers, not the one that was reported.** The item was found through
+	``head_in``; ``tables_in`` and ``refuse_unsafe_commands`` read the same path, so guarding
+	only the first would have moved the crash two functions along. They share one reader now,
+	which is why this asserts all three rather than the reported route.
+
+	**The SQLite side is deliberately not in scope and is checked anyway** — it opens through
+	``sqlite3``, whose ``OperationalError`` was already caught and reported, so there was never
+	a crash there and there is nothing to change.
+
+	Skipped as root, which reads a ``0000`` file happily — the condition the test creates does
+	not exist for that account, and asserting a refusal would fail for a correct reason.
+	"""
+
+	dump = tmp_path / "unreadable.sql"
+	dump.write_text(
+		"COPY public.alembic_version (version_num) FROM stdin;\na986838fadc4\n\\.\n"
+	)
+	dump.chmod(0o000)
+
+	try:
+		for reading in (
+			subroutine.db.backup.head_in,
+			subroutine.db.backup.tables_in,
+			subroutine.db.backup.refuse_unsafe_commands,
+		):
+			with pytest.raises(subroutine.errors.BadRequest) as refused:
+				reading(dump)
+
+			# **The file and the reason**, because "could not be read" alone does not tell an
+			# operator whether to fix a permission, a mount or a filename.
+			assert "unreadable.sql" in str(refused.value), reading.__name__
+			assert "Permission denied" in str(refused.value), reading.__name__
+
+	finally:
+		# Restored so `tmp_path` can be cleaned up on every platform.
+		dump.chmod(0o600)
+
+
 def test_data_that_begins_with_a_backslash_is_not_read_as_a_command (
 	tmp_path: pathlib.Path,
 ) -> None:

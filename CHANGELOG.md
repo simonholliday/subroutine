@@ -98,6 +98,28 @@ upgrade involves.
   That was worth fixing on its own: `subroutine_document` has asked callers to send *the
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
 
+### Fixed
+
+- **`db restore` says what it cannot read instead of crashing.** Pointed at a backup file the
+  process has no permission to read, it raised an unhandled error and wrote a crash report
+  asking you to open an issue. It now refuses by name:
+
+  ```
+  'subroutine-default-20260830T214923Z.sql' could not be read: Permission denied.
+  Check the file is readable by the account running this. A backup copied from another
+  machine, or written by a different service, often is not.
+  ```
+
+  This is the moment it matters most — a restore is what you run when something has already
+  gone wrong, and a dump copied between machines or pulled from storage as another user is
+  exactly when permissions are wrong. All three of the readers that open a dump are covered,
+  not only the one that was reported.
+
+- **A repeating item no longer moves its whole series when a save changes no day.** Re-dating
+  one occurrence in a different timezone shifted the series onto that occurrence's date — a
+  week, in the case this was found on — because a move of less than a day rounds to nothing
+  on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
+
 ### Changed
 
 - **`unlink` no longer removes every link between two items.** Two items can be joined more
