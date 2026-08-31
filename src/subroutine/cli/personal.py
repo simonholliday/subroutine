@@ -3804,7 +3804,7 @@ def _a_document (
 
 		program.stop(
 			f"{shown} is a task, not a document — {found.title}",
-			f"'subroutine doc {verb}' works on documents. Change this one with "
+			f"'subroutine document {verb}' works on documents. Change this one with "
 			f"'subroutine update {bare}'.",
 		)
 
@@ -6024,7 +6024,17 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 	document_app = typer.Typer(
 		help="Write down what you concluded.", no_args_is_help=True
 	)
-	app.add_typer(document_app, name="doc")
+
+	# **`document` visible and `doc` hidden**, which is `list`/`ls` unchanged (`#154`): the real
+	# word in the help, the abbreviation still working and out of the way. It had been the other
+	# way round, so the word the other three surfaces use — `subroutine_document`, the
+	# `/v1/documents` collection, the browser's *Writing* select — did not exist here at all, and
+	# `subroutine document --help` answered *"Did you mean 'comment'?"*, which is a different
+	# kind of record (`#1549`).
+	#
+	# One group object registered twice, so there is no second declaration to drift.
+	app.add_typer(document_app, name="document")
+	app.add_typer(document_app, name="doc", hidden=True)
 
 	@document_app.command("create")
 	def document_create (
@@ -6053,9 +6063,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine doc create "Why we dropped the queue" --type decision
+		  subroutine document create "Why we dropped the queue" --type decision
 
-		  cat notes.md | subroutine doc create "Review findings" --type finding
+		  cat notes.md | subroutine document create "Review findings" --type finding
 
 		A comment is what happened; a document is what you concluded. If the next person to
 		look would need to read it, it is a document.
@@ -6138,11 +6148,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine doc edit 42
+		  subroutine document edit 42
 
-		  subroutine doc edit 42 --title "What we settled, and why"
+		  subroutine document edit 42 --title "What we settled, and why"
 
-		  cat revised.md | subroutine doc edit 42
+		  cat revised.md | subroutine document edit 42
 
 		With nothing to change, this opens the document in your editor.
 

@@ -105,15 +105,223 @@ def test_published_help_is_prose_rather_than_source (
 			)
 
 
+#: The package this scan reads, found from this file rather than from the working directory.
+#:
+#: **``conftest`` chdirs every test into a temporary directory**, deliberately, so a relative
+#: path here reads an empty tree — which is the failure `#405` names: a scanner that reads
+#: nothing makes every check pass, confidently. The first draft of the scan below did exactly
+#: that and passed against both defects it was written for.
+SOURCE = pathlib.Path(__file__).resolve().parent.parent / "src" / "subroutine"
+
+#: A command named inside a string, as somebody would type it.
+#:
+#: **Not preceded by a dot or a slash**, which is what keeps ``.subroutine`` — the checkout
+#: marker — and an address like ``projects/subroutine`` out of it. Both read as this word
+#: followed by ordinary prose, and both are in the tree.
+NAMES_A_COMMAND = re.compile(r"(?<![./\w])subroutine((?: [a-z][a-z-]*)+)")
+
+#: How many command mentions the scan below has to find before its silence means anything.
+#:
+#: 448 when this was written. A floor cannot tell *read less* from *read nothing*, so it is set
+#: near the real figure rather than at a token value — and the can-fire test below is what
+#: covers the half a floor cannot.
+NAMES_AT_LEAST = 400
+
+
+def _strings_in (source: str) -> typing.Iterator[tuple[int, str]]:
+	"""Yield every string literal in a module, with the line it starts on.
+
+	**An f-string is joined with a null**, not with a space, so an interpolation ends a run of
+	words rather than silently welding the two sides together. ``'subroutine doc move {ref}
+	--project {key}'`` has to read as ``doc move`` and stop there — joining on a space would
+	make the next literal's first word look like a third command name.
+
+	**And its literal halves are then not yielded again.** ``ast.walk`` reaches the constants
+	inside an f-string as nodes in their own right, so without this every mention in one is read
+	twice — which the can-fire test below is what noticed, by counting.
+	"""
+
+	tree = ast.parse(source)
+	inside = {
+		id(part)
+		for node in ast.walk(tree)
+		if isinstance(node, ast.JoinedStr)
+		for part in node.values
+	}
+
+	for node in ast.walk(tree):
+		if isinstance(node, ast.JoinedStr):
+			# `ast.Constant.value` is typed as anything a literal can hold; inside an f-string
+			# a literal part is always text, and mypy has no way to know that.
+			yield node.lineno, "\x00".join(
+				part.value
+				for part in node.values
+				if isinstance(part, ast.Constant) and isinstance(part.value, str)
+			)
+
+		elif (
+			isinstance(node, ast.Constant)
+			and isinstance(node.value, str)
+			and id(node) not in inside
+		):
+			yield node.lineno, node.value
+
+
+def _unresolvable (words: list[str]) -> str | None:
+	"""Return the first prefix of ``words`` that names nothing, or ``None`` if they all resolve.
+
+	Walks the real application. A *group* must answer to the next word; a leaf command must
+	not, because everything after it is an argument — ``subroutine use work/acme`` names one
+	command and then a place, and ``subroutine document edit 42`` names two and then a number.
+	"""
+
+	node: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+
+	for reached, word in enumerate(words, start=1):
+		if not hasattr(node, "get_command"):
+			return None
+
+		child = node.get_command(click.Context(node), word)
+
+		if child is None:
+			return " ".join(words[:reached])
+
+		node = child
+
+	return None
+
+
+def _commands_named_under (tree: pathlib.Path) -> tuple[list[str], int]:
+	"""Report every string under ``tree`` naming a command nothing answers to, and how many it read.
+
+	**Takes the tree as an argument** so a synthetic offender can be pushed through the real
+	scan rather than through a copy of its rule — `#405`, whose whole point is that the walk is
+	the half that fails silently.
+	"""
+
+	broken: list[str] = []
+	seen = 0
+
+	for module in sorted(tree.rglob("*.py")):
+		for line, text in _strings_in(module.read_text(encoding="utf-8")):
+			for match in NAMES_A_COMMAND.finditer(text):
+				# **A backtick before it, and `#170` is what makes skipping safe.** A backtick
+				# may never appear in help a person is shown, so a name in backticks is by
+				# construction internal prose *about* a command — including the two sentences
+				# in this tree that exist to say a command was deliberately never built.
+				if match.start() and text[match.start() - 1] == "`":
+					continue
+
+				seen += 1
+				missing = _unresolvable(match.group(1).split())
+
+				if missing is not None:
+					broken.append(f"{module.name}:{line} says 'subroutine {missing}'")
+
+	return broken, seen
+
+
+def test_no_message_names_a_command_that_does_not_exist () -> None:
+	"""`#1708`, `#1709`. A remedy nobody can run refuses its reader twice.
+
+	Both were live when this was written and both are the same shape: a refusal names a command
+	as the thing to do next, and there is no such command. A reader who follows one is answered
+	by a message about an unknown command rather than about the thing they were doing, and has
+	no reason to think the first answer was wrong.
+
+	    Move it there first, with 'subroutine doc move 42 --project other'
+	    Run 'subroutine workspace members projects' to see who is
+
+	**Neither could be caught by reading**, because both name a group that does exist and a verb
+	that reads exactly like one of its siblings — and the second is worse, because the API, the
+	domain and the client all answer that question and only the terminal does not.
+
+	**Driven against the real application rather than a list of names**, so a command renamed or
+	withdrawn fails here on the day it moves. Hidden synonyms count as real: ``doc`` and ``ls``
+	still work, so a message naming one is misleading rather than broken, which `#170`'s
+	``FORBIDDEN`` already refuses in published help.
+	"""
+
+	broken, seen = _commands_named_under(SOURCE)
+
+	assert not broken, "a message names a command that does not exist:\n" + "\n".join(broken)
+
+	assert seen >= NAMES_AT_LEAST, (
+		f"the scan read {seen} command mentions and expected at least {NAMES_AT_LEAST}, so its "
+		f"silence above says nothing"
+	)
+
+
+def test_that_scan_can_see_a_command_that_does_not_exist (tmp_path: pathlib.Path) -> None:
+	"""Fed a defect through its own entry point, because a walk is what fails quietly.
+
+	Three shapes, and the middle one is the defect that was actually shipped: a real group with
+	a verb it does not have. The third is an f-string, where the words and the interpolation are
+	one node and a naive join would run them together.
+	"""
+
+	(tmp_path / "offender.py").write_text(
+		'\n'.join(
+			[
+				'BARE = "Run \'subroutine nonesuch\' to see what there is."',
+				'DEEP = "Move it with \'subroutine document nonesuch 42\'."',
+				'GROWN = f"Move it with \'subroutine document nonesuch {ref} --project {key}\'."',
+			]
+		),
+		encoding="utf-8",
+	)
+
+	broken, seen = _commands_named_under(tmp_path)
+
+	assert seen == 3, seen
+	assert [one.split(" says ")[1] for one in broken] == [
+		"'subroutine nonesuch'",
+		"'subroutine document nonesuch'",
+		"'subroutine document nonesuch'",
+	], broken
+
+
+def test_that_scan_leaves_a_command_that_does_exist_alone (tmp_path: pathlib.Path) -> None:
+	"""The other half, so the test above cannot be satisfied by a scan that fails everything.
+
+	``use`` is the one that matters: it is a leaf, so the place named after it is an argument
+	and not a subcommand nobody has built.
+	"""
+
+	(tmp_path / "fine.py").write_text(
+		'\n'.join(
+			[
+				'GROUP = "Write one with \'subroutine document create\'."',
+				'HIDDEN = "Or with \'subroutine doc create\', which still works."',
+				'LEAF = "Switch with \'subroutine use work/acme\'."',
+				'PROSE = "There is deliberately no `subroutine meta` command."',
+			]
+		),
+		encoding="utf-8",
+	)
+
+	broken, seen = _commands_named_under(tmp_path)
+
+	assert not broken, broken
+	assert seen == 3, "the backticked mention should have been skipped"
+
+
 #: Help that names *some* of a seeded vocabulary by example rather than offering all of it, and
 #: why each is allowed to.
 #:
 #: The entry goes away when the parameter does, or when its wording stops naming two keys.
+_A_STARTING_STATUS = (
+	"A status is the most freely edited vocabulary there is, and this sentence is about "
+	"which one a decision starts in rather than about what may be typed."
+)
+
 BY_EXAMPLE = {
-	("subroutine doc create", "status"): (
-		"A status is the most freely edited vocabulary there is, and this sentence is about "
-		"which one a decision starts in rather than about what may be typed."
-	),
+	# **Two spellings of one command, one reason** (`#1549`). The document group is registered
+	# under ``document`` and again, hidden, under ``doc``, so ``_commands`` walks both — and a
+	# register keyed by the path a person types has to hold both or excuse neither. Written as
+	# one string rather than two, because two copies of a reason drift.
+	("subroutine document create", "status"): _A_STARTING_STATUS,
+	("subroutine doc create", "status"): _A_STARTING_STATUS,
 }
 
 

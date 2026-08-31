@@ -3459,7 +3459,7 @@ class Client:
 				raise subroutine.errors.NotFound(
 					f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a "
 					f"task — {instead.title}",
-					hint="Revise it with 'subroutine doc edit "
+					hint="Revise it with 'subroutine document edit "
 					f"{instead.ref}', or read it with 'subroutine show {instead.ref}'.",
 				)
 

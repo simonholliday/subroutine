@@ -681,12 +681,22 @@ def move (
 						f"#{document.ref} is in {here} and #{parent.ref} is in "
 						f"{'another project' if there is None else repr(there)}."
 					),
+					# **`document edit --project`, because there is no `doc move`** (`#1708`).
+					# The word this named for months was borrowed from `subroutine move`, which
+					# is a *task* command taking `--under` and `--top` — so a reader who acted
+					# on it was refused a second time, about an unknown command rather than
+					# about their document.
+					#
+					# **Both branches name the same remedy.** The other one said only *move it
+					# there first* with no command at all, which leaves a reader exactly where
+					# the broken one did; where the project cannot be seen from here we can
+					# still say what to run, and only the key is theirs to supply.
 					hint=(
-						f"Move it there first, with 'subroutine doc move {document.ref} "
+						f"Move it there first, with 'subroutine document edit {document.ref} "
 						f"--project {there}', then put it under #{parent.ref}."
 						if there is not None
-						else f"Move it into that project first, then put it under "
-						f"#{parent.ref}."
+						else f"Move it into that project first, with 'subroutine document edit "
+						f"{document.ref} --project <key>', then put it under #{parent.ref}."
 					),
 				)
 			],

@@ -100,6 +100,19 @@ upgrade involves.
 
 ### Fixed
 
+- **Two refusals told you to run a command that does not exist.** Putting a document under a
+  parent in another project said to move it with `subroutine doc move`, and taking somebody out
+  of a workspace said to see who is in it with `subroutine workspace members`. Neither has ever
+  been a command, so anybody who followed one was refused a second time — about an unknown
+  command rather than about the thing they were doing, with no reason to think the first answer
+  had been wrong.
+
+  Both now name something real: `subroutine document edit <ref> --project <key>` moves the
+  document, and the membership one says what to check instead of promising a listing the
+  terminal does not have. A new check reads every command named in a message and asks the
+  program whether it answers to that name, so this particular kind of dead end cannot be
+  written again.
+
 - **`whoami` says when it could not compare two versions, instead of saying nothing.** A
   version it cannot put in order — anything built from source, `0.8.3.dev60+gb22d6a98a` — was
   not compared at all and printed nothing, which is exactly what agreement printed. So a
@@ -138,6 +151,20 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+
+- **The document commands are called `document`, which is the word every other surface uses.**
+  The agent tools call it `subroutine_document`, the API calls the collection `/v1/documents`,
+  and the terminal called it `doc` — so `subroutine document --help` answered *"Did you mean
+  'comment'?"*, which writes a different kind of record entirely.
+
+  ```
+  subroutine document create "Why we dropped the queue" --type decision
+  subroutine document edit 42 --title "What we settled, and why"
+  ```
+
+  **`doc` still works and always will.** It is a hidden synonym now, exactly as `ls` is for
+  `list` — the real word in the help, the abbreviation out of the way and still typed by
+  everything and everyone that already types it. Nothing you have written down stops working.
 
 - **`unlink` no longer removes every link between two items.** Two items can be joined more
   than one way — one relation gating work, another a note about neighbours — and undoing

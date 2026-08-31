@@ -78,22 +78,20 @@ OWES_A_SIGNPOST = ("budget", "disclosure")
 #: MCP tools with no terminal command of the same name, and why — decision `SR#1547`.
 #:
 #: **Every other one matches exactly**, which is the state worth protecting: `add`, `update`,
-#: `done`, `claim`, `link`, `list`, `search`, `show`, `comment`, `project`, `changes`, `journal`
-#: and `whoami` are one word each on both surfaces. An agent that drops to a shell types what it
-#: already knows.
+#: `done`, `claim`, `link`, `list`, `search`, `show`, `comment`, `project`, `document`,
+#: `changes`, `journal` and `whoami` are one word each on both surfaces. An agent that drops to
+#: a shell types what it already knows.
+#:
+#: **`document` was the one exception and is not any more** (`SR#1549`). Its entry here is
+#: deleted rather than reworded, which is what closing an item looks like in a register whose
+#: own rule is *what makes the entry go away* — and the stale-entry test beside this is what
+#: noticed, on the run that shipped the command.
 NOT_A_COMMAND: dict[str, str] = {
 	"call_api": (
 		"There is no terminal command for it because the terminal *is* the escape hatch: "
 		"`subroutine_call_api` exists so an agent can reach a route its fifteen tools do not "
 		"cover, and a person at a shell reaches those routes by running the command. A "
 		"`subroutine call-api` would be a worse `curl` for somebody who has `curl`."
-	),
-	"document": (
-		"`SR#1549`. The terminal calls this group `doc`, so `subroutine document` is refused "
-		"with *Did you mean 'comment'?* — which points at a different kind of record. It runs "
-		"against `SR#154`'s own rule that a real word beats an abbreviation, and the fix is "
-		"`list`/`ls`'s shape: `document` visible, `doc` a hidden synonym. Deferred past the tag "
-		"by `SR#1547` because it is a rename that reaches the skill and `explain`."
 	),
 }
 

@@ -416,6 +416,11 @@ def _failure (identifier: typing.Any, code: int, message: str) -> dict[str, typi
 #:
 #: Longest first when substituting, so ``doc edit`` is not read as ``doc``.
 INSTEAD_OF = {
+	# **Both names of one group** (`#1549`). `document` is what the terminal says now and `doc`
+	# is its hidden synonym — and over HTTP the sentence being translated was written by the
+	# *instance*, which may be a version behind this program, so the old spelling has to keep
+	# translating rather than reaching an agent as a shell command.
+	"subroutine document edit": "subroutine_document",
 	"subroutine doc edit": "subroutine_document",
 	# **Both halves of one tool** (`#588`). `subroutine_project` lists with no arguments and
 	# creates with a key and a title, so the two commands translate to the same name — which is

@@ -884,9 +884,19 @@ def remove_member (
 	).first()
 
 	if found is None:
+		# **This named `subroutine workspace members`, which has never existed** (`#1709`), so
+		# somebody acting on it was refused a second time about an unknown command rather than
+		# about the account they typed. Nothing at a terminal lists a workspace's membership —
+		# the route, the domain function and the client method are all built and no command
+		# calls them, which is `#1710`.
+		#
+		# **So the hint answers the likelier mistake instead of promising the listing.** Being
+		# told somebody is not a member when you meant to remove them is nearly always a
+		# misspelt username, and `user list` is a real command that settles that.
 		raise subroutine.errors.NotFound(
 			f"{user.username} is not a member of {workspace.slug}.",
-			hint=f"Run 'subroutine workspace members {workspace.slug}' to see who is.",
+			hint="Nothing was changed. Check the spelling — 'subroutine user list' shows who "
+			"is on this instance.",
 		)
 
 	_refuse_leaving_nobody_who_can_administer(session, workspace, found)
