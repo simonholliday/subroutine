@@ -137,6 +137,12 @@ upgrade involves.
 
 ### Fixed
 
+- **Rows in the browser have a line between them again.** A stylesheet comment sat between a
+  selector and the rule it belonged to, so the rule that draws the separator matched nothing at
+  all — on every list, board and agenda since 0.7.6. Nothing failed, because a stylesheet
+  cannot report a rule that fits no element. Rows ran together, which was hardest to read where
+  one item takes several lines.
+
 - **A version conflict no longer tells a terminal to look in a response it does not have.**
   Losing a race said *"Re-read the item — the current one is in this response — merge your
   change into it, and send it again."* That is true over HTTP, where the 409 really does carry

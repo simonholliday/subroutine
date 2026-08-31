@@ -4772,6 +4772,10 @@ export function Row ({
 	/* Where to go when a label is clicked. Absent renders the label as a plain span rather
 	   than a link that does nothing, which is `#251`'s shape. */
 	onGo = null,
+	/* **What is holding this row up, where the caller asked for it** (`#1383`). Empty
+	   everywhere but the agenda's *Waiting on somebody else* section — see `holding` below for
+	   why this is a parameter rather than a field read. */
+	waitingOn = [],
 	/* **Whether the container already says the status** (`#1019`) — true only on a board, and
 	   only for a column whose category holds one status. A row cannot work this out: a list and
 	   an agenda have no columns, and the answer is about the workspace's vocabulary rather than
@@ -4939,12 +4943,64 @@ export function Row ({
 	   put their titles and their holder — which is the ragged edge this replaces. */
 	const shape = showAssignee ? "with-assignee" : "";
 
+	/*
+		**What is holding this row up, as a third line of the row** — `#1383`, and Simon's
+		report of 2026-08-31 on the second attempt at it.
+
+		**It was a sibling `<li>` and that was the defect.** Written outside the row to avoid
+		touching a component the list and the board also use — and *avoiding the shared
+		component is what produced it*: a line between two rows, carrying neither one's colour
+		bar and separated from neither by anything, so there was no way to tell which item it
+		belonged to. `#911` had already settled the shape and I did not read it: a row is *what
+		this item is*, then *what is true of it*. This is a third line of the same kind, and
+		inside the `<li>` it takes the project's bar for nothing.
+
+		**Handed in rather than read off the item, and a guard decided that.** Reading the field
+		off the row here was written first and
+		`test_a_listing_asks_for_every_field_its_rows_render` refused it, correctly: a listing
+		narrows with `fields=` and does not ask for this, so a row drawing nothing would be
+		*nobody asked* wearing the appearance of *nothing holds this up* — which is the exact
+		hazard that guard exists for. Adding it to `TASK_FIELDS` would have satisfied the scan
+		and changed no answer, because only the agenda resolves the field at all.
+
+		**The agenda is the caller that asked** — its request carries no `fields=` at all — so
+		it is the one that may render it. The list and the board pass nothing and draw nothing,
+		knowing none of the rule.
+
+		**One group per blocker, and the gap between groups is wider than the gap inside one.**
+		They were joined with ` · ` and a blocker with nobody on it made that ambiguous: `#1589 ·
+		#1592 @jo` reads as if the first two are a pair and the name belongs to both. Proximity
+		is what says which name goes with which ref, so the separator is gone and the spacing
+		does it — which is `#102`'s argument in a second medium, and the same defect Simon
+		reported one level up.
+	*/
+	const holding = waitingOn.length > 0 && html`
+		<div class="waiting">
+			<span class="quiet">waiting on</span>
+			${waitingOn.map((end) => {
+				const going = { ref: end.ref, kind: "task" };
+				const to = slug ? addressOf(going, slug) : null;
+				const who = named(end.assignee, end.assignee_is_agent, end.assignee_answers_to);
+
+				return html`
+					<span class="held">
+						<a href=${to}
+							onClick=${(event) =>
+								followed(event, () => onOpen && onOpen(going))}>#${end.ref}</a>
+						${who && html`<span class="quiet">${who}</span>`}
+					</span>
+				`;
+			})}
+		</div>
+	`;
+
 	return html`
 		<li ...${lift} data-colour=${hue}>
 			${address
 				? html`<a class="row ${shape}" href=${address} onClick=${open}>${identity}</a>`
 				: html`<button class="row inline ${shape}" onClick=${open}>${identity}</button>`}
 			${meta}
+			${holding}
 		</li>
 	`;
 }
@@ -5141,49 +5197,12 @@ export function Agenda ({
 								showKind=${false} showWhere=${showWhere} workspace=${where}
 								place=${place}
 								onGo=${onGo}
+								${/* **The agenda is the caller that asked** (`#1383`): its request
+								     carries no `fields=`, so it has the whole view and may render
+								     what is holding a row up. A listing narrows and passes
+								     nothing, which is what keeps a blank row honest. */ null}
+								waitingOn=${item.blocked_by || []}
 								onOpen=${onOpen} onComplete=${onComplete} />
-							${/*
-								**What is holding this row up** — `#1287`, Simon's decision of
-								2026-08-27. Only the *Waiting on somebody else* section resolves
-								it, so `blocked_by` is null everywhere else and this draws
-								nothing: a listing marks a row blocked and says *that*, and
-								naming the far end is `#856`'s line. `views.Task.blocked_by`
-								carries why this one section is the argued exception.
-
-								**Its own `li`, not a chip in `marks`.** `marks` is the
-								indicator vocabulary a row, a card and a *link line* share, and
-								`tests/test_web.py` holds it to fields a `LinkEnd` can answer —
-								a blocker's blockers is not one of them. Putting it there would
-								fail that guard, and the guard would be right.
-
-								**The refs are links because every other ref on this page is.**
-								A reader chasing somebody wants to open the item; the terminal
-								spends a line on the same fact because it has no other way to
-								offer it.
-							*/ null}
-							${(item.blocked_by || []).length > 0 && html`
-								<li class="waiting">
-									<span class="quiet">waiting on</span>
-									${item.blocked_by.map((end, at) => {
-										const going = { ref: end.ref, kind: "task" };
-										const held = item.workspace || where;
-										const to = held ? addressOf(going, held) : null;
-										const follow = (event) =>
-											followed(event, () => onOpen && onOpen(going));
-										const who = named(
-											end.assignee,
-											end.assignee_is_agent,
-											end.assignee_answers_to
-										);
-
-										return html`
-											${at > 0 ? " · " : " "}
-											<a href=${to} onClick=${follow}>#${end.ref}</a>
-											${who && html` <span class="quiet">${who}</span>`}
-										`;
-									})}
-								</li>
-							`}
 						`)}
 					</ul>
 				</section>

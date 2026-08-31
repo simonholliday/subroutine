@@ -1258,9 +1258,21 @@ fieldset {
 	padding: var(--space-3) var(--space-7) var(--space-5);
 }
 
-/* Pushed to the far end, so the actions are one group however many chips precede them. */
-.meta 
-/* The row, its properties and its actions are one item, and the `li` is what says so. */
+/*
+	The row, its properties and its actions are one item, and the `li` is what says so.
+
+	**The separator was dead for eleven days and nothing could see it** (`#1722`). A comment sat
+	between `.meta` and its body, so CSS read the pair as the descendant selector `.meta .rows
+	li` — which matches nothing, because no listing sits inside a `.meta`. Measured in a real
+	browser rather than read: `borderTopWidth` was `0px` on every row of every list, board and
+	agenda. **CSS never errors**, and the neighbouring `:first-child` and `:hover` rules are
+	separate and kept working, so a row still lit under the cursor and the first row still
+	correctly had no line above it. The only missing thing was the line between every other
+	pair — which is what made Simon's *Waiting on somebody else* rows run together.
+
+	The rule that lost its body was `.meta .finish { margin-left: auto }`, and restoring it is
+	`#1722`'s other half rather than this one: it moves a control on every card.
+*/
 .rows li {
 	display: block;
 	border-top: 1px solid var(--line);
@@ -1270,17 +1282,34 @@ fieldset {
 .rows li:hover { background: var(--bg-sunken); }
 
 /*
-	What is holding one agenda row up (`#1287`). It hangs off the row above it, so it takes no
-	separator and no hover: both would say it is an item, and it is a continuation of one — the
-	only place in this app where an `li` is not a thing in its own right.
+	What is holding one row up (`#1287`, `#1383`). A third line of the row, under the chips,
+	sharing their left edge — so a reader follows the same column down from the title.
+
+	**It was its own `li` and had to stop being one.** Simon, 2026-08-31: it *"appears between
+	two items… there is no way to determine whether it relates to the item above, or the one
+	below."* An `li` here is an item, and this is part of one — so it took neither neighbour's
+	colour bar and neither's separator, and the ambiguity was structural rather than a matter
+	of spacing. Inside the row it inherits `li[data-colour]`'s bar for nothing, and the next
+	row's `border-top` goes back to separating whole items.
+
+	**The gap between blockers is wider than the gap inside one**, which is what says the name
+	belongs to the ref beside it rather than to the pair. They were joined with a separator and
+	a blocker with nobody assigned made that unreadable.
 */
-.rows li.waiting {
-	border-top: 0;
+.waiting {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-3) var(--space-8);
 	padding: 0 var(--space-7) var(--space-5);
 	font-size: var(--text-small);
 }
 
-.rows li.waiting:hover { background: none; }
+.waiting .held {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
 
 /*
 	**A row wears the colour of the project it belongs to** — `#1027`, decision `#1023`, and

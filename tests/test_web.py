@@ -1921,6 +1921,101 @@ def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 		)
 
 
+def test_what_is_holding_a_row_up_is_drawn_inside_that_row (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""**`SR#1383`, and Simon's report of 2026-08-31 on the first attempt at it.**
+
+	It was written as a sibling `<li>` after the row, to avoid touching a component the list
+	and the board also use — and *avoiding the shared component is what produced the defect*.
+	Simon: it *"appears between two items… there is no way to determine whether it relates to
+	the item above, or the one below."* An `li` in this app **is** an item, so a second one
+	carried neither neighbour's colour bar and neither's separator, and the ambiguity was
+	structural rather than a matter of spacing.
+
+	**Asserted on the element tree rather than on a rendering**, because that is where the
+	claim lives: `test_web`'s harness drops every attribute but `href` and closes no tags, so
+	it cannot see a class *or* a nesting, and a browser check would be about pixels when the
+	question is about which element contains which.
+
+	**`#911` had already settled the shape and this is a third line of it**: a row is what the
+	item *is*, then what is *true* of it, then — where the caller asked — what is holding it up.
+	"""
+
+	tree = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const shape = (node) => {{
+			if (node === null || node === undefined || typeof node !== "object") return null;
+			if (Array.isArray(node)) return node.map(shape).filter(Boolean);
+
+			const props = node.props || {{}};
+			const kids = shape(props.children);
+
+			return {{
+				tag: typeof node.type === "string" ? node.type : null,
+				className: props.className || props.class || null,
+				children: Array.isArray(kids) ? kids.flat() : (kids ? [kids] : []),
+			}};
+		}};
+
+		process.stdout.write(JSON.stringify(shape(app.Row({{
+			item: {{
+				ref: 2, kind: "task", title: "My bit", workspace: "projects",
+				status: "open", status_is_default: true, blocked: true,
+			}},
+			showKind: false,
+			workspace: "projects",
+			waitingOn: [{{ entity_type: "task", ref: 1, title: "Their bit", assignee: "jo" }}],
+		}}))));
+	""")
+
+	assert isinstance(tree, dict) and tree["tag"] == "li", (
+		f"a row is one `li`. A list here means the waiting line went back to being a second "
+		f"element beside it, which is the arrangement Simon could not read: {tree}"
+	)
+
+	classes = [str(child.get("className") or "") for child in tree["children"]]
+
+	assert any("waiting" in one for one in classes), (
+		f"what is holding the row up is not a child of the row: {classes}"
+	)
+
+
+def test_a_row_nobody_asked_about_draws_no_waiting_line (tmp_path: pathlib.Path) -> None:
+	"""**`SR#1383`.** The listing that did not ask must draw nothing.
+
+	`test_a_listing_asks_for_every_field_its_rows_render` is what put this parameter there:
+	a listing narrows with `fields=` and does not ask for the blockers, so a row reading them
+	off the item would render *nobody asked* as though it were *nothing holds this up*. The
+	agenda passes them because its own request carries no narrowing at all.
+	"""
+
+	tree = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const said = (node) => {{
+			if (node === null || node === undefined || typeof node !== "object") return "";
+			if (Array.isArray(node)) return node.map(said).join(" ");
+
+			const props = node.props || {{}};
+
+			return String(props.className || props.class || "") + " " + said(props.children);
+		}};
+
+		process.stdout.write(JSON.stringify(said(app.Row({{
+			item: {{
+				ref: 2, kind: "task", title: "My bit", workspace: "projects",
+				status: "open", status_is_default: true, blocked: true,
+			}},
+			showKind: false,
+			workspace: "projects",
+		}}))));
+	""")
+
+	assert "waiting" not in tree, f"a row nobody asked about drew a waiting line: {tree}"
+
+
 def test_the_browser_says_a_row_is_waiting_on_a_person_as_a_state_not_a_status (
 	tmp_path: pathlib.Path,
 ) -> None:
