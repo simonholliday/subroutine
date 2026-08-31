@@ -4252,9 +4252,9 @@ def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list
 	#
 	# An instance reporting *no* version still warns: that is a fact rather than a comparison —
 	# it predates the field, so it is genuinely older than anything asking.
-	if me.instance_version is None or (
-		running is not None and served is not None and running != served
-	):
+	comparable = running is not None and served is not None
+
+	if me.instance_version is None or (comparable and running != served):
 		lines.append(
 			"The program and the instance disagree, so a call may be refused for a field "
 			"one of them does not have."
@@ -4269,6 +4269,50 @@ def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list
 		lines.append(
 			"The plugin is older than the program, so its skill and its configuration "
 			"describe an earlier version of these tools. Refreshing the plugin is the fix."
+		)
+
+	# **Not compared is a third state, and it used to look exactly like compared and agreed**
+	# (`SR#1617`, Simon's decision of 2026-08-31). ``installations.ordered`` declines anything
+	# but three plain numbers — `#417`'s deliberate refusal to guess without ``packaging`` — so
+	# on a development build **neither** clause above is reached, and both then say nothing,
+	# which is what agreement also says. Measured on Simon's machine: program
+	# ``0.8.3.dev60+gb22d6a98a`` driving instance ``0.8.8.dev6+g65d708f66``, five minor versions
+	# apart, reported as a clean bill of health.
+	#
+	# **Both pairs, because the program is the version that is usually unrankable** — so the
+	# plugin check is skipped on the same machines, and `#499` records what a silently stale
+	# skill costs: a session ran `0.7.1` while `0.7.6` existed and lost a whole section of
+	# conventions. Naming one pair and not the other would be this codebase's signature defect.
+	#
+	# **Identity is evidence and difference is not**, which is the sound half of what `#481`
+	# established. Two identical strings are the same install, so there is nothing to say;
+	# two *different* ones prove nothing either way, because an editable install's version is
+	# fixed at whatever tag its last install saw while the code it runs is the working tree.
+	# That is why this reports a comparison it did not make rather than a disagreement — the
+	# plain ``!=`` `#481` removed claimed the second thing from the first.
+	#
+	# **It cannot reach anybody on a released install**, which is what makes the permanence
+	# affordable: plain versions rank, so they take the clauses above. It appears only on
+	# development machines, on the one command whose whole purpose is to answer *are my
+	# versions right* — `views.versions` is reached from ``whoami`` and ``subroutine_whoami``
+	# and from nowhere else.
+	unranked = []
+
+	if (
+		me.instance_version is not None
+		and me.instance_version != program
+		and not comparable
+	):
+		unranked.append("the instance")
+
+	if plugin is not None and plugin != program and (carried is None or running is None):
+		unranked.append("the plugin")
+
+	if unranked:
+		lines.append(
+			"A development build's version is fixed at install time rather than describing "
+			"the code it runs, so it cannot be ranked — the program has not been compared "
+			f"with {' or '.join(unranked)}."
 		)
 
 	return lines

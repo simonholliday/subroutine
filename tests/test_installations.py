@@ -386,19 +386,34 @@ class TestTheRenderedLine:
 	def test_a_version_that_cannot_be_ordered_is_not_guessed_about (
 		self, program: str, plugin: str
 	) -> None:
-		"""Silence, rather than a comparison with more than one defensible answer.
+		"""No comparison, rather than one with more than one defensible answer.
 
 		A development build is the ordinary case here — every editable install has one — and
 		ordering ``1.0.0.dev73+g29ddffa34`` against ``1.0.0`` correctly needs ``packaging``,
 		which stays undeclared. The numbers are still printed, so the reader who can work it
-		out is not deprived of anything; what is withheld is a claim.
+		out is not deprived of anything; **what is withheld is a claim**, and that is the
+		property this test is about.
+
+		**It asserted silence until `SR#1617`**, which is a stronger thing than the property
+		and was hiding a real case: withholding a claim is right, and saying nothing at all
+		left *not compared* looking exactly like *compared and agreed*. The clause that appears
+		now reports which comparison was not made and asserts nothing about which leads.
+
+		``instance_version`` is the program's own string here, so the instance pair is silent
+		by identity and this is testing the plugin clause alone.
 		"""
 
 		lines = subroutine.views.versions(
 			_me(instance_version=program), program=program, plugin=plugin
 		)
 
-		assert len(lines) == 1, lines
+		assert len(lines) == 2, lines
+		assert "the plugin" in lines[1], lines[1]
+
+		for word in DIRECTIONAL:
+			assert word not in lines[1].lower(), (
+				f"a comparison that was not made claimed {word!r}: {lines[1]}"
+			)
 
 	def test_both_disagreements_are_reported_separately (self) -> None:
 		"""They are different failures with different fixes, so neither stands for the other."""
@@ -436,6 +451,79 @@ class TestTheRenderedLine:
 		)
 
 		assert lines == ["Program 1.0.0, instance 1.0.0."]
+
+	def test_two_builds_nobody_can_rank_say_that_rather_than_nothing (self) -> None:
+		"""`SR#1617`, Simon's decision of 2026-08-31. The case that read as a clean bill.
+
+		Measured on his own machine on 2026-08-30: program ``0.8.3.dev60+gb22d6a98a`` driving
+		instance ``0.8.8.dev6+g65d708f66``. **Five minor versions apart, and the output was
+		identical to two builds that agree** — because ``ordered`` declines both, so neither
+		clause above is reached and both say nothing.
+
+		**The wording explains rather than warns.** It names why the comparison is impossible —
+		an editable install's version is fixed at whatever tag its last install saw — so a
+		reader meeting it once understands the whole area, which is the difference between this
+		and the plain ``!=`` `#481` removed.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="0.8.8.dev6+g65d708f66"), program="0.8.3.dev60+gb22d6a98a"
+		)
+
+		assert len(lines) == 2, lines
+		assert "cannot be ranked" in lines[1], lines[1]
+		assert "the instance" in lines[1], lines[1]
+
+	def test_both_pairs_are_named_when_neither_could_be_compared (self) -> None:
+		"""`SR#1617`. The program is the version that is usually unrankable, so **both** go.
+
+		``ordered(program)`` is consulted by the instance clause *and* the plugin clause, so a
+		development build silences the pair as well as the pair above it. Naming one and not
+		the other would be a rule applied to one of two neighbours, and `#499` records what the
+		unnamed one costs: a session ran skill ``0.7.1`` while ``0.7.6`` existed in the same
+		cache and lost a whole section of conventions. A missing tool refuses and is noticed; a
+		missing convention quietly does not happen.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="0.8.8.dev6+g65d708f66"),
+			program="0.8.3.dev60+gb22d6a98a",
+			plugin="0.8.8",
+		)
+
+		assert len(lines) == 2, lines
+		assert "the instance or the plugin" in lines[1], lines[1]
+
+	def test_one_build_driving_an_instance_that_reports_it_says_nothing (self) -> None:
+		"""`#481`'s sound half, kept: **identity is evidence and difference is not.**
+
+		Two identical strings are the same install, so there is nothing to compare and nothing
+		to say. Two *different* ones prove nothing either way — which is why the clause above
+		reports a comparison that was not made rather than a disagreement.
+		"""
+
+		build = "0.8.8.dev6+g65d708f66"
+
+		assert subroutine.views.versions(_me(instance_version=build), program=build) == [
+			f"Program {build}, instance {build}, schema abcdef123456."
+		]
+
+	def test_a_released_pair_is_untouched_by_any_of_this (self) -> None:
+		"""**It can reach nobody on a released install**, which is what makes it affordable.
+
+		Plain versions rank, so they take the two clauses above and never this one. The line is
+		permanent on development machines and invisible everywhere else — and it appears only
+		on ``whoami``, the one command whose whole purpose is to answer *are my versions right*.
+		"""
+
+		assert subroutine.views.versions(_me(instance_version="0.8.7"), program="0.8.7") == [
+			"Program 0.8.7, instance 0.8.7, schema abcdef123456."
+		]
+
+		differing = subroutine.views.versions(_me(instance_version="0.8.6"), program="0.8.7")
+
+		assert len(differing) == 2
+		assert "cannot be ranked" not in differing[1], differing[1]
 
 	@pytest.mark.parametrize("word", DIRECTIONAL)
 	def test_the_instance_clause_never_claims_which_one_is_newer (self, word: str) -> None:
@@ -541,7 +629,9 @@ class TestTheProgramAndTheInstance:
 			("1.0.0", "0.3.1.dev8+gfd2f40694"),
 		],
 	)
-	def test_a_development_build_says_nothing (self, program: str, instance: str) -> None:
+	def test_a_development_build_claims_no_disagreement (
+		self, program: str, instance: str
+	) -> None:
 		"""The measured defect, in the three shapes it can take.
 
 		The first pair is what this machine actually printed on 2026-08-04, immediately after
@@ -549,11 +639,29 @@ class TestTheProgramAndTheInstance:
 		reported the machine coherent in the same minute. An editable install's version string
 		is fixed at whatever tag its last ``pip install -e .`` saw; the code it runs is the
 		working tree. So the string is not evidence about the code, in either direction.
+
+		**This asserted silence until `SR#1617`, and now asserts the property that silence was
+		protecting.** Saying nothing also said nothing about the case where the two really are
+		far apart — five minor versions, on Simon's own machine, reported as a clean bill of
+		health. So there is a line here now; what may not appear is a claim that they
+		*disagree*, or any word about which leads, because the string still is not evidence.
+
+		The distinction is the whole of `#481` restated: **identity is evidence and difference
+		is not.** A comparison that was not made is reported as one that was not made.
 		"""
 
 		lines = subroutine.views.versions(_me(instance_version=instance), program=program)
 
-		assert len(lines) == 1, f"warned about {program} against {instance}: {lines}"
+		assert len(lines) == 2, f"expected one clause about {program} vs {instance}: {lines}"
+		assert "cannot be ranked" in lines[1], lines[1]
+		assert "disagree" not in lines[1], (
+			f"an unorderable pair was reported as a disagreement: {lines[1]}"
+		)
+
+		for word in DIRECTIONAL:
+			assert word not in lines[1].lower(), (
+				f"the unranked clause claimed a direction with {word!r}: {lines[1]}"
+			)
 
 	def test_an_instance_too_old_to_say_still_warns (self) -> None:
 		"""A fact rather than a comparison, so silence would lose real signal.
@@ -593,8 +701,13 @@ class TestTheProgramAndTheInstance:
 			plugin="0.1.1",
 		)
 
-		assert len(lines) == 2
-		assert "plugin is older than the program" in lines[1]
+		# **Asserted by presence rather than by position** (`SR#1617`): an unorderable instance
+		# now adds a clause of its own, and a count would have made this test fail for a reason
+		# that has nothing to do with what it is about.
+		assert any("plugin is older than the program" in line for line in lines), lines
+		assert not any("disagree" in line for line in lines), (
+			f"an unorderable instance was reported as a disagreement: {lines}"
+		)
 
 
 class TestWhichZonesAreNamed:

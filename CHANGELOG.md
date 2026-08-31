@@ -100,6 +100,23 @@ upgrade involves.
 
 ### Fixed
 
+- **`whoami` says when it could not compare two versions, instead of saying nothing.** A
+  version it cannot put in order — anything built from source, `0.8.3.dev60+gb22d6a98a` — was
+  not compared at all and printed nothing, which is exactly what agreement printed. So a
+  program five minor versions behind the instance it was driving read as a clean bill of
+  health:
+
+  ```
+  Program 0.8.3.dev60+gb22d6a98a, instance 0.8.8.dev6+g65d708f66, schema a986838fadc4.
+  A development build's version is fixed at install time rather than describing the code
+  it runs, so it cannot be ranked — the program has not been compared with the instance.
+  ```
+
+  It still claims nothing about which is newer, because the string genuinely is not evidence
+  about the code an editable install runs. What changed is that a comparison nobody made is
+  no longer reported the same way as one that was made and passed. Released installs are
+  unaffected: plain version numbers are ranked as before.
+
 - **`db restore` says what it cannot read instead of crashing.** Pointed at a backup file the
   process has no permission to read, it raised an unhandled error and wrote a crash report
   asking you to open an issue. It now refuses by name:

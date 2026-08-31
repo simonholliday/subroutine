@@ -208,10 +208,11 @@ Three answers are worth acting on:
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
-- **A line after the versions** names a mismatch worth acting on. There are two, and they are
-  different problems: *the program and the instance disagree* means one of them has a field the
-  other does not; *the plugin is older than the program* means this skill and the plugin's
-  settings describe an earlier version of these tools.
+- **A line after the versions** names something worth acting on, and they are different
+  problems: *the program and the instance disagree* means one of them has a field the other does
+  not; *the plugin is older than the program* means this skill and the plugin's settings describe
+  an earlier version of these tools; *a development build's version cannot be ranked* means the
+  comparison was not made at all, so read the numbers yourself rather than waiting to be told.
 
 **That is why the versions are printed at all.** The plugin, the program and the instance
 upgrade separately, so you may be holding a tool description written for a program that has not
@@ -222,13 +223,13 @@ do, not yours.
 
 **Three numbers that are not identical is normal, and there is deliberately no line about it.**
 The plugin's version moves whenever its own contents change, so it runs ahead of the program
-between releases by design. Only the mismatches above are said out loud.
+between releases by design. Only the things above are said out loud.
 
-**But silence has two causes and only one of them is agreement.** A version this cannot put in
-order — a build from source, `0.8.2.dev45+g1234567` — is not compared at all, and prints nothing,
-exactly as agreement does. So no line means *either* nothing is wrong *or* the question could not
-be answered. If any of the three carries a `.dev` or a `+`, read the numbers yourself rather than
-taking the silence as an all-clear.
+**Silence means the comparisons were made and nothing was wrong.** It used to mean less than
+that: a version this cannot put in order — a build from source, `0.8.2.dev45+g1234567` — was not
+compared at all and printed nothing, exactly as agreement does, so no line meant *either* nothing
+is wrong *or* the question could not be answered. That case says so now. So a line about ranking
+is the one that asks you to read the numbers yourself, and no line at all is an all-clear.
 
 Go back to the whole answer whenever a tool does something you did not expect: an argument
 refused, a field missing, a capability you have read about here that does not seem to be there.
