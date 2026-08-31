@@ -765,7 +765,7 @@ def create (
 	warning = (
 		None
 		if reminder is None
-		else subroutine.domain.durations.parse(reminder, field="reminder_minutes")
+		else subroutine.domain.durations.parse(reminder, field="reminder")
 	)
 
 	zone = _timezone(session, workspace_id, actor=actor, explicit=timezone)
@@ -1239,9 +1239,10 @@ def update (
 	cleaned_reminder: typing.Any = reminder
 
 	if reminder is not subroutine.domain.patch.UNSET and reminder is not None:
-		cleaned_reminder = subroutine.domain.durations.parse(
-			reminder, field="reminder_minutes"
-		)
+		# `reminder`, which is what both request models accept — not the column
+		# (`#1534`). The terminal spells its flag `--remind`, which is a near miss
+		# rather than a dead end, and is `#1547`'s question rather than this one.
+		cleaned_reminder = subroutine.domain.durations.parse(reminder, field="reminder")
 
 	# **§6.5's chain, and `task.timezone` is deliberately not in it** (`#1014`). It used to be
 	# passed as `explicit`, which is the chain's *top* step — so the zone a task was created in

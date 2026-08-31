@@ -33,8 +33,10 @@ The second direction is checked too: a name recorded here that the view no longe
 failure, so this file cannot quietly describe a model that has moved on.
 """
 
+import ast
 import importlib
 import inspect
+import pathlib
 import pkgutil
 import re
 import typing
@@ -47,6 +49,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.api
+import subroutine.api.app
 import subroutine.api.calendars
 import subroutine.api.comments
 import subroutine.api.documents
@@ -64,6 +67,7 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.schedule
 import subroutine.views
 
 #: View field -> the request field that writes it, where the two are spelled differently.
@@ -1207,6 +1211,207 @@ def _nullable (model: type[pydantic.BaseModel]) -> list[str]:
 			found.append(name)
 
 	return found
+
+
+#: A ``field=`` a refusal names that no caller can send, and why each is right anyway.
+#:
+#: **Every entry is a refusal a caller cannot reach over HTTP, or one where nothing in the
+#: request could be changed** — the two honest reasons for naming something that is not a
+#: parameter. An entry goes away when its refusal becomes reachable, or when the name it
+#: uses becomes settable; the test below fails either way.
+NOT_A_FIELD_A_CALLER_SENDS = {
+	"filter": (
+		"The agent tool's own property — `subroutine_list(filter={…})` — and the terminal's "
+		"`--filter`. Over HTTP a filter arrives as a query parameter and `api.query."
+		"refuse_unknown` names the parameter itself, so this refusal is never the one an HTTP "
+		"caller meets."
+	),
+	"local_user": (
+		"A key in `config.toml`, not a field in anything. Local mode is the path with no "
+		"request at all (§12.4), so there is nothing for a caller to send and the message "
+		"names the setting to edit."
+	),
+	"password": (
+		"`user create --password` at a terminal. No request model accepts one and none should "
+		"— §7.4 keeps credentials off the wire — so this refusal has no HTTP door."
+	),
+	"scope": (
+		"`agent create --scope`. A profile decides which verbs a credential carries, and the "
+		"refusal is that naming both contradicts itself. There is no HTTP equivalent."
+	),
+	"write": ("`agent create --write`, and the same argument as `scope` directly above."),
+	"ref": (
+		"`POST /v1/tasks/{id_or_ref}/skip` on something that is not one of a repeating series. "
+		"**Nothing in the request can be changed** — there is no body, and the path parameter "
+		"is right in the sense that it named the task the caller meant. So this names *which "
+		"thing* is wrong rather than a parameter to correct, which is the same choice "
+		"`documents.restore` makes when it names `supersedes` with no body to put it in. "
+		"`id_or_ref` is sendable and is a routing detail nobody reading a message would "
+		"recognise."
+	),
+}
+
+
+def _fields_a_refusal_names () -> dict[str, list[str]]:
+	"""Return every ``field="…"`` written in the domain, and where each is written.
+
+	Read out of the source rather than driven, because the population is *every* refusal
+	including the ones no test reaches — which is where this defect lives. Six of the seven
+	sites `#1534` names had never been driven by anything.
+	"""
+
+	found: dict[str, list[str]] = {}
+	root = pathlib.Path(__file__).resolve().parent.parent / "src" / "subroutine" / "domain"
+
+	for module in sorted(root.rglob("*.py")):
+		for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+			if isinstance(node, ast.Call):
+				for keyword in node.keywords:
+					value = keyword.value
+
+					if (
+						keyword.arg == "field"
+						and isinstance(value, ast.Constant)
+						and isinstance(value.value, str)
+					):
+						found.setdefault(value.value, []).append(f"{module.name}:{keyword.lineno}")
+
+			# **A default counts, and this half was added because the scan missed a live one.**
+			# ``durations.parse``'s ``field`` defaulted to ``estimate_minutes``, which no
+			# endpoint accepts, and both callers took the default — so there was no keyword to
+			# read anywhere. A name nobody passes reaches just as many people.
+			elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+				for argument, default in zip(
+					node.args.kwonlyargs, node.args.kw_defaults, strict=True
+				):
+					if argument.arg != "field" or not isinstance(default, ast.Constant):
+						continue
+
+					if isinstance(default.value, str):
+						found.setdefault(default.value, []).append(
+							f"{module.name}:{node.lineno} (the default)"
+						)
+
+	return found
+
+
+def _names_a_caller_can_send () -> set[str]:
+	"""Return every name any endpoint accepts — in a body, in the query, or in the path."""
+
+	sendable: set[str] = set()
+
+	for info in pkgutil.iter_modules(subroutine.api.__path__):
+		module = importlib.import_module(f"subroutine.api.{info.name}")
+
+		for name in dir(module):
+			thing = getattr(module, name)
+
+			if isinstance(thing, type) and issubclass(thing, pydantic.BaseModel):
+				sendable |= set(thing.model_fields)
+
+	# The query and path parameters, off the signatures the routes are declared with — so a
+	# renamed parameter moves this set rather than leaving a stale copy of it here.
+	for _prefix, router in subroutine.api.app.ROUTERS:
+		for route in getattr(router, "routes", []):
+			endpoint = getattr(route, "endpoint", None)
+
+			if endpoint is not None:
+				sendable |= set(inspect.signature(endpoint).parameters)
+
+	return sendable
+
+
+def test_every_field_a_refusal_names_is_one_a_caller_can_send () -> None:
+	"""`#1534`, and it is `#1315`'s defect at every door rather than at one.
+
+	A ``FieldError`` naming a database column tells a caller to send something the endpoint
+	does not accept, so doing what the refusal says earns a second 422 — from
+	``unknown_field``, about a field they were told to use. Seven sites were live when this
+	was written, in four modules:
+
+	    projects.create      parent_id       ->  parent
+	    documents.create     parent_id       ->  parent
+	    documents.create     supersedes_id   ->  supersedes
+	    documents.update     supersedes_id   ->  supersedes
+	    documents.restore    supersedes_id   ->  supersedes
+	    tokens.expires_on    expires_at      ->  expires
+	    authentication       expires_at      ->  expires
+
+	**Two more that the item did not name**, found by asking this question of the whole domain
+	rather than of the sites somebody had noticed: ``durations.parse``'s default was
+	``estimate_minutes`` where every surface accepts ``estimate``, and both reminder call sites
+	said ``reminder_minutes`` where both request models accept ``reminder``.
+
+	**Read out of the source rather than driven.** `#1317` fixed the date half with a driven
+	guard, which is stronger where a probe exists — and six of these seven refusals have no
+	probe anywhere, because each needs a second workspace, a second project or a credential
+	with an expiry. A scan reaches a refusal nobody has ever triggered, which is where this
+	family lives.
+
+	**The population a name is checked against is derived three ways and none of them is a
+	list**: every request model's fields, every route's query parameters and every route's path
+	parameters, all off the real application. Rename a request field and this fails here rather
+	than in somebody's client.
+
+	**Date columns are exempt because they are translated on the way out** — ``schedule.
+	as_written`` is `#1317`'s fix, and the exemption is derived from ``DATE_FIELDS`` and then
+	checked, so a column that stops being translated stops being exempt.
+	"""
+
+	sendable = _names_a_caller_can_send()
+	written = _fields_a_refusal_names()
+
+	assert len(written) >= 60, (
+		f"this scan found {len(written)} distinct field names and there were 76, so it is "
+		f"reading less than it did rather than passing"
+	)
+
+	translated = set(subroutine.domain.schedule.DATE_FIELDS)
+	untranslated = sorted(
+		column
+		for column in translated
+		if subroutine.domain.schedule.as_written(column) not in sendable
+	)
+
+	assert not untranslated, (
+		f"{untranslated} are exempt here because `as_written` renames them, and what it "
+		f"renames them to is not something any endpoint accepts"
+	)
+
+	unsendable = sorted(
+		name
+		for name in written
+		if name not in sendable
+		and name not in translated
+		and name not in NOT_A_FIELD_A_CALLER_SENDS
+	)
+
+	assert not unsendable, (
+		"these refusals name a field no endpoint accepts, in a body, a query or a path:\n"
+		+ "\n".join(f"  {name} — {', '.join(written[name])}" for name in unsendable)
+		+ "\nA caller who does what the refusal says gets a second 422. Name what the endpoint "
+		"accepts, or record it in NOT_A_FIELD_A_CALLER_SENDS with the reason it cannot."
+	)
+
+
+def test_nothing_is_excused_from_naming_a_field_it_could_name () -> None:
+	"""The other half, as everywhere here: an excuse that has come true reads as considered.
+
+	Each entry claims a refusal has no HTTP door or no changeable field. If the name it uses
+	becomes something an endpoint accepts, the claim is false and the entry has to go — which
+	is what would have happened to `estimate_minutes` had anybody written one for it.
+	"""
+
+	sendable = _names_a_caller_can_send()
+	written = _fields_a_refusal_names()
+
+	for name, reason in NOT_A_FIELD_A_CALLER_SENDS.items():
+		assert reason.strip(), f"{name!r} is excused without a reason"
+		assert name in written, f"{name!r} is excused and no refusal names it: {reason}"
+		assert name not in sendable, (
+			f"{name!r} is excused as something no caller can send, and an endpoint now accepts "
+			f"it — so the refusal can name it and the entry can go"
+		)
 
 
 @pytest.fixture

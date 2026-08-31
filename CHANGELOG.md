@@ -100,6 +100,18 @@ upgrade involves.
 
 ### Fixed
 
+- **Nine refusals named a database column instead of the field you can send.** Giving a
+  document a parent in another project was refused with `"field": "parent_id"`; the endpoint
+  accepts `parent`. So did superseding across workspaces (`supersedes_id`), a token expiry
+  (`expires_at`), an unreadable estimate (`estimate_minutes`) and a reminder
+  (`reminder_minutes`) — each naming something that earns a second 422 from `unknown_field`,
+  about the very field the first refusal told you to use.
+
+  All nine now name what the endpoint accepts. A new check reads every field name written
+  anywhere in the domain and compares it against every name any endpoint takes — in a body, in
+  the query or in the path — so a refusal nobody has ever triggered is covered as well as one
+  that has a test. Dates were already right, since 0.8.5.
+
 - **An estimate is confirmed back in the unit you wrote it in.** `subroutine add "M1 milestone
   ~40h"` answered `(read ~1d 16h)` — the same length of time, said in a unit nobody plans a
   milestone in, where a day means twenty-four hours rather than a working one.

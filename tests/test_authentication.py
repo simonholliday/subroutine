@@ -13,6 +13,7 @@ import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.api.tokens
 import subroutine.auth
 import subroutine.cli.main
 import subroutine.db.models.identity
@@ -429,7 +430,13 @@ def test_a_credential_that_expires_cannot_mint_one_that_does_not (
 			session, user=user, title="Never expires", actor=agent
 		)
 
-	assert refused.value.errors[0].field == "expires_at"
+	# **Asked of the endpoint rather than pinned to a spelling** (`#1534`). This said
+	# ``== "expires_at"``, which is the column and is not something `POST /v1/tokens`
+	# accepts — so it held the refusal to a name that would send a caller looking for a
+	# parameter that does not exist. What it is *for* is that the refusal points at the
+	# right thing, and the request model is what decides what that is called.
+	assert refused.value.errors[0].field in subroutine.api.tokens.Create.model_fields
+	assert refused.value.errors[0].field.startswith("expires")
 	assert tomorrow.date().isoformat() in str(refused.value.errors[0].hint)
 
 	# And the same refusal for one that merely outlives it, which is the case somebody would

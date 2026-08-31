@@ -571,7 +571,9 @@ def _refuse_amplification (
 			"A token cannot outlive the one that asked for it.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="expires_at",
+					# `POST /v1/tokens` accepts `expires`, and so does the flag on
+					# `token create` (`#1534`).
+					field="expires",
 					code="forbidden",
 					message=f"The credential you presented stops working on {until}.",
 					hint=f"Issue one that expires on {until} or sooner.",

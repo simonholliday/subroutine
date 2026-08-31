@@ -265,8 +265,12 @@ def create (
 		raise subroutine.errors.ValidationError(
 			"A section belongs to the same project as the document it is part of.",
 			errors=[
+				# **`parent`, not `parent_id`** (`#1534`). `documents.Create` accepts
+				# `parent`, so a caller who did what this said was refused a second
+				# time by `unknown_field` — `#1315`'s defect, one field along from the
+				# dates `#1317` fixed.
 				subroutine.errors.FieldError(
-					field="parent_id",
+					field="parent",
 					code="invalid_field_value",
 					message="That document is in a different project.",
 				)
@@ -289,7 +293,7 @@ def create (
 			"A document can only supersede one in the same workspace.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="supersedes_id",
+					field="supersedes",
 					code="invalid_field_value",
 					message="That document belongs to a different workspace.",
 				)
@@ -486,7 +490,7 @@ def update (
 			code="cycle_detected",
 			errors=[
 				subroutine.errors.FieldError(
-					field="supersedes_id",
+					field="supersedes",
 					code="cycle_detected",
 					message="That is this document.",
 				)
@@ -846,8 +850,16 @@ def restore (
 				f"Something else supersedes{replaced} now.",
 				code="duplicate_key",
 				errors=[
+					# **`supersedes`, and this is the one site where no name is sendable**
+					# (`#1534`). A restore takes no body, so neither the column nor the
+					# request field can be put in one — but a reader who has met this
+					# document has met `supersedes` on `create` and on `update`, and has
+					# never seen `supersedes_id` anywhere. Naming the vocabulary word says
+					# *which* thing conflicts; naming the column says nothing and looks
+					# like a parameter they failed to find. The remedy is in the hint
+					# below, which is where it has to be when there is no field to change.
 					subroutine.errors.FieldError(
-						field="supersedes_id",
+						field="supersedes",
 						code="duplicate_key",
 						message=f"{subroutine.domain.refs.format_ref(instead)} was written "
 						f"while this was in the trash, and a document can be superseded once.",

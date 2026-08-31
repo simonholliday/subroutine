@@ -72,7 +72,11 @@ def expires_on (
 		boundary=subroutine.domain.schedule.Boundary.END,
 		timezone=timezone,
 		now=now or subroutine.db.types.utcnow(),
-		field="expires_at",
+		# **The name the caller sends, not the column** (`#1534`). `tokens.Create`
+		# accepts `expires` and so does `token create --expires`, so one word is right
+		# for both. Safe to pass down: `interpret` only ever *reports* `field`, through
+		# `schedule.as_written`, which leaves a name it has no entry for alone.
+		field="expires",
 	).instant
 
 

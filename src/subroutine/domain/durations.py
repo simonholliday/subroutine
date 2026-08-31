@@ -40,7 +40,7 @@ _UNIT_ORDER = {unit: index for index, (unit, _minutes) in enumerate(UNITS)}
 _VALID_UNITS = ", ".join(f"`{unit}`" for unit, _minutes in UNITS)
 
 
-def parse (value: int | str, *, field: str = "estimate_minutes") -> int:
+def parse (value: int | str, *, field: str = "estimate") -> int:
 	"""Return a number of minutes, from an integer or a duration string.
 
 	A bare number means minutes, so ``90`` and ``"90"`` and ``"90m"`` are the same thing.
@@ -52,6 +52,13 @@ def parse (value: int | str, *, field: str = "estimate_minutes") -> int:
 
 	``field`` names the field being parsed, so the error points at the right one when a
 	request carries both an estimate and a spent time.
+
+	**The default is ``estimate``, the name a caller sends, and was ``estimate_minutes``, the
+	column** (`#1534`). Every surface agrees on the shorter word — ``estimate`` in both request
+	models, ``estimate`` in the agent tool's schema, ``--estimate`` at a terminal — and none of
+	them accepts the longer one, so a caller who did what the refusal said was refused a second
+	time by ``unknown_field``. Unlike a date, nothing translates on the way out here: what is
+	passed in is what a reader is told to send.
 	"""
 
 	if isinstance(value, bool):

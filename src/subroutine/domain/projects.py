@@ -168,7 +168,10 @@ def create (
 			"A parent project must be in the same workspace.",
 			errors=[
 				subroutine.errors.FieldError(
-					field="parent_id",
+					# **`parent`, not `parent_id`** (`#1534`). `projects.Create` accepts
+					# `parent`; `owner_id` below is left alone because that endpoint
+					# accepts it by exactly that name.
+					field="parent",
 					code="invalid_field_value",
 					message="That project belongs to a different workspace.",
 				)

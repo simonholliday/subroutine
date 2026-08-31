@@ -84,10 +84,17 @@ def as_written (field: str) -> str:
 	refusal formatted the column it was handed.
 
 	**Unmapped names fall through unchanged, deliberately.** A column with no entry is one
-	nobody has decided a caller-facing name for, and inventing one by pattern — stripping
-	``_at``, say — would produce ``expires`` for a field the endpoint calls something else. A
-	name that is merely internal is better than a name that is wrong, because the second sends
-	somebody looking for a parameter that does not exist.
+	nobody has decided a caller-facing name for, and a name that is merely internal is better
+	than one that is wrong, because the second sends somebody looking for a parameter that does
+	not exist. That is the argument against inventing one by pattern, and it is why ``#854``
+	replaced a suffix rule with the table above.
+
+	**This paragraph used to make that case with ``expires``**, saying that stripping ``_at``
+	*"would produce `expires` for a field the endpoint calls something else"*. Driven for
+	`#1534`: ``POST /v1/tokens`` calls it exactly ``expires``, so the example was the one case
+	where the pattern would have been right. The rule stands and the illustration was false —
+	and the real defect it was gesturing at turned out to be that the token refusals were
+	passing the column and nothing was translating it at all. They pass ``expires`` now.
 
 	**Only where the name is *reported*, never where it is looked up.** `field` is a key into
 	this map and into :data:`WHOLE_DAY_EDGE`; translating at those sites would break both.
