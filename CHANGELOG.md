@@ -21,6 +21,21 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A listing can be narrowed by rank, and by whether a field is set at all.**
+
+  `?urgency.gte=3` and `?importance.eq=5` work — both were sortable and unaskable, so you
+  could sort the whole backlog by urgency and not ask for the urgent ones.
+
+  `?assignee.is=unset` finds work nobody has been given, and `?parent.is=unset` finds items
+  that are not sub-tasks. Both used to be spelled `assignee=none` and `parent=none`, which
+  looked up an account and a task actually called *none* and answered **404**.
+
+  `.is` takes `set` or `unset` and works on any field that can be empty — a deadline, a
+  planned day, an estimate, a claim. It is offered only where a field really can be empty, so
+  `created_at.is` is not published: it would answer *all* or *none* and nothing else.
+
+  `GET /v1/meta` publishes every combination, as before.
+
 
 - **A board you had bookmarked gets the new behaviour too.** The grouping lives in the
   address, so an address written before it — a bookmark, a link somebody sent you, the one in
@@ -233,6 +248,11 @@ upgrade involves.
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
 
 ### Fixed
+- **The agent tools stop offering the change feed filters it refuses.** `subroutine_changes`
+  and `subroutine_journal` shared their filter description with `subroutine_list`, so both
+  told an agent it could narrow a feed by a deadline, an estimate or a rank — and every one of
+  those was refused by name. A feed filters events, which have one date.
+
 - **`GET /v1/meta` no longer calls four things filters that are not.** `group_by`,
   `group_limit`, `include` and `workspace_id` were all published under a listing's `filters`,
   so an agent building a request from that list was told they narrow a result set. Two of them

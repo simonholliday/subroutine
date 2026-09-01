@@ -68,6 +68,19 @@ OPERATORS: dict[str, typing.Callable[[typing.Any, typing.Any], typing.Any]] = {
 	"lte": lambda column, value: column <= value,
 }
 
+#: Asking whether a field has a value at all — `#1804`, design `#1801` §5.
+#:
+#: **Not in :data:`OPERATORS`, and that is the distinction rather than an omission.** Every
+#: entry there takes the field's own kind of value and compares it; this one takes one of two
+#: reserved words and asks a question about the *column*, so it is compiled by
+#: :func:`_condition_predicate` before a kind is consulted at all. Putting it in that table
+#: would make it a comparison against a value called "unset", which is the confusion the whole
+#: `is` / `eq` split exists to prevent.
+IS = "is"
+
+#: Every operator a caller may write, whichever kind it turns out to be.
+EVERY_OPERATOR = frozenset(OPERATORS) | {IS}
+
 
 #: Which end of a whole day each operator means, and this is the part that produces plausible
 #: wrong answers if it is got wrong.
@@ -207,7 +220,10 @@ class Kind (typing.NamedTuple):
 INSTANT = Kind(
 	predicate=_instant_predicate,
 	expects="a date or time, or an expression like `yesterday` or `now-7d`",
-	operators=frozenset({"gt", "gte", "lt", "lte"}),
+	# **`is` alongside the four, since `#1804`.** *Has a deadline at all* is a question no
+	# comparison can put — `due_at.gt=1970-01-01` is the workaround people reach for, and it is
+	# wrong about a date before the epoch and unreadable about what was meant.
+	operators=frozenset({"gt", "gte", "lt", "lte", IS}),
 )
 
 #: A username, for asking whose activity — `#815`. Resolved against the whole instance rather
@@ -221,6 +237,9 @@ INSTANT = Kind(
 WHO = Kind(
 	predicate=_no_predicate_of_its_own,
 	expects="a username",
+	# **And `is` is refused too, unlike every other kind** (`#1804`). This field has no column:
+	# it compiles into a correlated `EXISTS` over the event table, so *set* and *unset* would
+	# have to mean *has ever been touched by anybody*, which is true of every row that exists.
 	operators=frozenset({"eq"}),
 )
 
@@ -235,7 +254,10 @@ WHO = Kind(
 DURATION = Kind(
 	predicate=_duration_predicate,
 	expects="a length of time, like `30m`, `2h` or `1h30m` — or a bare number of minutes",
-	operators=frozenset(OPERATORS),
+	# **`is` too**: *nobody has estimated this* is what a planner asks before anything else, and
+	# `estimate_minutes.lte=<huge>` cannot express it — an unestimated task has no value to
+	# compare rather than a large one.
+	operators=frozenset(OPERATORS) | {IS},
 )
 
 
@@ -303,6 +325,120 @@ class Property (typing.NamedTuple):
 	because: str | None = None
 
 
+#: What ``is`` compares against: whether the field has a value at all, never what it is.
+#:
+#: **Two reserved words and no more, which is the whole discipline** — `#1804`, design `#1801`
+#: §5, Simon's decision of 2026-09-01. ``eq`` compares the field's *value*, drawn from the
+#: data's own vocabulary; ``is`` asks about its *condition*, and its argument is one of these
+#: two, which are not data and cannot collide with any.
+#:
+#: **`is` must never become a grab-bag.** GitHub's ``is:`` carries a type (``is:issue``), a
+#: state (``is:open``) and a condition (``is:draft``) under one word — three different
+#: questions, which is why it has to be learned rather than read. Here it answers exactly one:
+#: *does this field have a value?* Anything that reads like a state — *overdue*, *blocked*,
+#: *ready* — is a policy (`#1801` §3) or its own registry field, and never a value of ``is``.
+SET = "set"
+UNSET = "unset"
+
+CONDITIONS = (SET, UNSET)
+
+
+def _condition_predicate (
+	column: typing.Any,
+	operator: str,
+	value: str,
+	field: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> typing.Any:
+	"""Ask whether a field has a value at all, whatever that value is — `#1804`.
+
+	**Refuses anything but the two reserved words, by name.** The two are the whole vocabulary,
+	so a refusal can list it — which is the property `#1801` §5 gives as the reason for keeping
+	``is`` narrow, and it stops being true the moment a third word is admitted.
+	"""
+
+	if value not in CONDITIONS:
+		raise subroutine.errors.ValidationError(
+			f"{value!r} is not something a field can be.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=field,
+					code="invalid_field_value",
+					message=f"{field}.is takes {' or '.join(CONDITIONS)}, not {value!r}.",
+					hint=(
+						f"Use {field}.is={UNSET} for items where nobody has set it, or "
+						f"{field}.eq=<value> to compare what it holds."
+					),
+				)
+			],
+		)
+
+	return column.is_(None) if value == UNSET else column.is_not(None)
+
+
+def _number_predicate (
+	column: typing.Any,
+	operator: str,
+	value: str,
+	field: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> typing.Any:
+	"""Compare a whole number a person typed — `#1804`.
+
+	**Every operator, unlike :data:`INSTANT`.** The argument that refuses ``created_at.eq`` is
+	about precision: a timestamp is stored to the microsecond, so equality against one almost
+	never matches what somebody meant. A rank is one of five values a person chose, so
+	``importance.eq=5`` compares two small integers and means exactly what it says.
+	"""
+
+	try:
+		number = int(value)
+
+	except ValueError:
+		raise _unreadable(field, value, NUMBER) from None
+
+	return OPERATORS[operator](column, number)
+
+
+#: A whole number a person chose — `importance` and `urgency` (§6.3), and later a count.
+#:
+#: **This is Simon's own `urgent>3` example**, and its absence was `#1801` §1's finding rather
+#: than a missing feature: both were orderable and not filterable, so the backlog could be
+#: *sorted* by urgency and not *asked* for the urgent ones. Two lists, nothing holding them
+#: together.
+#:
+#: **`is` alongside the comparisons, because unranked is a real answer.** §6.3a's whole
+#: argument is that ranked, part-ranked and unranked are three states — so
+#: ``importance.is=unset`` is *nobody has judged this*, which no comparison can express and
+#: which an ordering has needed a band for since it was written.
+NUMBER = Kind(
+	predicate=_number_predicate,
+	expects="a whole number",
+	operators=frozenset(OPERATORS) | {IS},
+)
+
+
+#: A field a caller may ask *whether* about and not yet *what* — `#1804`.
+#:
+#: **A kind whose only operator is `is`**, for a column that has a name behind it nothing can
+#: resolve yet. ``assignee`` and ``parent`` are both real columns holding ids, and *nobody has
+#: this* and *this is not a sub-task* are questions a planner asks constantly — where *whose*
+#: and *whose parent* need a username or a ref turned into a UUID, which is the ``REFERENCE``
+#: kind and the rest of this item.
+#:
+#: **Better than offering `eq` early.** A caller writing ``assignee.eq=si`` against a raw
+#: ``assignee_id`` would be refused for a value the flat ``assignee=si`` accepts, which is one
+#: field answering the same question two ways. Refusing the operator by name says *not yet*;
+#: accepting a UUID says *you are holding it wrong*.
+CONDITION = Kind(
+	predicate=_no_predicate_of_its_own,
+	expects="set or unset",
+	operators=frozenset({IS}),
+)
+
+
 class Filterable (typing.NamedTuple):
 	"""One field a listing can be asked about.
 
@@ -319,6 +455,19 @@ class Filterable (typing.NamedTuple):
 
 	#: How its value is read.
 	kind: Kind
+
+	#: Which comparisons this particular field allows — the kind's, narrowed by the column.
+	#:
+	#: **Because :data:`IS` is meaningless on a column that cannot be null** (`#1804`). A kind
+	#: says which operators make sense for a *sort of value*; whether *unset* is a state this
+	#: field can be in is a fact about the column, and `created_at.is=set` is every row while
+	#: `created_at.is=unset` is none. Publishing it would be a filter that can only ever answer
+	#: all or nothing — this codebase's inert-control defect, arriving through a generalisation
+	#: rather than through a constant nobody wired up.
+	#:
+	#: Found by ``test_every_published_filter_is_accepted_by_the_listing_that_publishes_it``,
+	#: which drove every published combination and reported four routes as broken.
+	operators: frozenset[str] = frozenset()
 
 	#: Which fields compile *together*, or ``None`` for one that stands alone.
 	#:
@@ -394,15 +543,15 @@ NOT_A_COLUMN = (
 #: unaskable — Simon's own ``urgent>3`` example, and the finding that decided the registry's
 #: shape. Two of the five are gaps with items against them; three are arguments.
 _ORDER_ONLY: dict[str, Property] = {
+	# **Both filterable since `#1804`**, which is what the registry was built to make possible:
+	# they were sortable and unaskable, so a reader could sort the whole backlog by urgency and
+	# not ask for the urgent ones. Simon's own `urgent>3` example, and it was two lists rather
+	# than a missing feature.
 	"importance": Property(
-		column=subroutine.db.models.work.Task.importance,
-		orderable=True,
-		because="a gap rather than a decision — `#1804` makes it a NUMBER and filterable.",
+		column=subroutine.db.models.work.Task.importance, kind=NUMBER, orderable=True
 	),
 	"urgency": Property(
-		column=subroutine.db.models.work.Task.urgency,
-		orderable=True,
-		because="a gap rather than a decision — `#1804` makes it a NUMBER and filterable.",
+		column=subroutine.db.models.work.Task.urgency, kind=NUMBER, orderable=True
 	),
 	# **Declared with no column, because `ordering` owns the expression** — see `Property`. A
 	# banded `CASE` cannot be built here and the module that builds it imports this one.
@@ -443,6 +592,39 @@ _ORDER_ONLY: dict[str, Property] = {
 #: its axes from this registry now, so it cannot also be where their names are decided — and a
 #: name spelled in both is the duplication the registry exists to remove.
 STATUS_CATEGORY = "status_category"
+
+#: The task properties a listing can be asked *whether* about, and not yet *what* — `#1804`.
+#:
+#: **Both answer a question that had no spelling at all.** ``parent=none`` looked up a task
+#: called *none* and answered **404**; ``assignee=none`` did the same for an account. Those are
+#: two of the four rows in `#1804`'s table, and both are now ``.is=unset``.
+#:
+#: **Declared with a kind that offers only `is`**, because *which* parent and *which* assignee
+#: need a name resolved to an id — a ``REFERENCE`` kind, which is the rest of `#1804` and lands
+#: with the flat parameters it takes over. Offering ``eq`` here before that exists would accept
+#: a UUID and refuse the username the flat spelling already takes, which is worse than not
+#: offering it.
+_CONDITION_ONLY: dict[str, Property] = {
+	"assignee": Property(
+		column=subroutine.db.models.work.Task.assignee_id,
+		kind=CONDITION,
+		because=(
+			"`assignee=<username>` is the flat spelling and resolves a name to an id; "
+			"`assignee.eq` waits for the REFERENCE kind rather than taking a UUID. Ordering by "
+			"who has what is `#1805`."
+		),
+	),
+	"parent": Property(
+		column=subroutine.db.models.work.Task.parent_task_id,
+		kind=CONDITION,
+		because=(
+			"`parent=<ref>` is the flat spelling and resolves a ref to an id, and it carries "
+			"`subtree` with it — one parameter, two questions, which the REFERENCE kind has to "
+			"answer before this can take a value. Ordering by a parent id means nothing."
+		),
+	),
+}
+
 
 #: The task properties a listing may be grouped by and nothing else — `#1803`.
 #:
@@ -527,6 +709,7 @@ TASK_PROPERTIES: dict[str, Property] = {
 	**_worked_on(subroutine.db.models.work.Task.id),
 	**_ORDER_ONLY,
 	**_AXES_ONLY,
+	**_CONDITION_ONLY,
 }
 
 #: What a document listing can be asked about.
@@ -654,11 +837,46 @@ def filters (entity: str) -> dict[str, Filterable]:
 	dict this returns is exactly what it always was, and every caller of it is untouched.
 	"""
 
-	return {
-		name: Filterable(column=held.column, kind=held.kind, group=held.group)
-		for name, held in PROPERTIES.get(entity, {}).items()
-		if held.kind is not None
-	}
+	found = {}
+
+	for name, held in PROPERTIES.get(entity, {}).items():
+		if held.kind is None:
+			continue
+
+		found[name] = Filterable(
+			column=held.column,
+			kind=held.kind,
+			group=held.group,
+			operators=_allowed(held.kind, held.column),
+		)
+
+	return found
+
+
+def _allowed (kind: Kind, column: typing.Any) -> frozenset[str]:
+	"""Return the operators one property really takes: its kind's, minus what its column cannot.
+
+	**Only :data:`IS` is narrowed, and only by nullability.** A kind's other operators are about
+	the *sort* of value and are true wherever that sort is; whether a field can be *unset* is a
+	fact about the column, and a ``NOT NULL`` one answers `is=set` with every row and `is=unset`
+	with none.
+
+	**Given the kind and the column rather than the property**, because a property's kind is
+	optional — *not filterable* is a state it has to describe — and this is only ever called
+	where one has been established. mypy said so.
+
+	**A property with no column of its own keeps whatever its kind allows.** ``touched_by``
+	compiles into a correlated ``EXISTS`` and its column is the entity's identity, so asking
+	this about nullability would answer about the wrong thing — :data:`WHO` refuses ``is``
+	itself, which is where that decision belongs.
+	"""
+
+	nullable = getattr(column, "nullable", None)
+
+	if IS in kind.operators and nullable is False:
+		return kind.operators - {IS}
+
+	return kind.operators
 
 
 def orderable (entity: str) -> dict[str, typing.Any]:
@@ -717,7 +935,7 @@ def names (entity: str) -> frozenset[str]:
 	return frozenset(
 		f"{name}{SEPARATOR}{operator}"
 		for name, field in FILTERS.get(entity, {}).items()
-		for operator in field.kind.operators
+		for operator in field.operators
 	)
 
 
@@ -969,10 +1187,10 @@ def understood (
 		if found is None:
 			raise _no_such_field(name, field, available)
 
-		if operator not in OPERATORS:
+		if operator not in EVERY_OPERATOR:
 			raise _no_such_operator(name, field, operator)
 
-		if operator not in found.kind.operators:
+		if operator not in found.operators:
 			raise _wrong_operator_for_the_field(name, field, operator, found.kind)
 
 		comparisons.append(
@@ -1021,6 +1239,12 @@ def predicates (
 	**Fields declaring a group compile together, once.** Everything else is one predicate per
 	comparison, which is the ordinary case and the reason a group is opt-in rather than the
 	shape everything is forced into.
+
+	**:data:`IS` is compiled here rather than by a kind** — `#1804`. It asks about the *column*
+	and never about the field's own sort of value, so every kind that has a column answers it
+	the same way and giving each one a branch would be the same rule written four times. Which
+	kinds allow it at all is still theirs to say: :data:`WHO` refuses it, because a field
+	compiled as a correlated ``EXISTS`` has no column to be null.
 	"""
 
 	alone = []
@@ -1032,8 +1256,14 @@ def predicates (
 
 			continue
 
+		compile_it = (
+			_condition_predicate
+			if comparison.operator == IS
+			else comparison.against.kind.predicate
+		)
+
 		alone.append(
-			comparison.against.kind.predicate(
+			compile_it(
 				comparison.against.column,
 				comparison.operator,
 				comparison.value,
@@ -1219,7 +1449,7 @@ def _no_such_operator (
 				field=name,
 				code="invalid_field_value",
 				message=f"{field!r} is a field here, but {operator!r} is not an operator.",
-				hint=f"The operators are: {', '.join(sorted(OPERATORS))}.",
+				hint=f"The operators are: {', '.join(sorted(EVERY_OPERATOR))}.",
 			)
 		],
 	)

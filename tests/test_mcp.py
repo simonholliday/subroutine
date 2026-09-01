@@ -5896,6 +5896,89 @@ def test_the_filter_schema_names_every_field_it_accepts (
 	assert subroutine.domain.filtering.TOUCHED_BY in rest
 
 
+def test_no_filter_schema_names_a_field_its_own_listing_refuses (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""**The other direction, which is the one that was wrong** — `SR#1828`.
+
+	The guard above asks whether every accepted field is *named*. Nothing asked whether every
+	named field is *accepted*, and three tools shared one description: `subroutine_list`
+	filters tasks, `subroutine_changes` and `subroutine_journal` filter **events**, which take
+	``created_at`` and nothing else. Both feeds published eight date fields, an estimate and two
+	ranks, every one of which the instance refuses by name.
+
+	**Worse than the same defect in `/v1/meta`**, which `SR#1801` §1 found the day before: that
+	endpoint is fetched deliberately, where a tool schema is in the context of every session
+	whether anybody reads it or not.
+
+	**`SR#815`'s own `names()` guard already asked both directions**, and its comment records
+	that the second was the one that had been wrong. This is that lesson arriving on the surface
+	next door.
+
+	The words are judgement and are not asserted. What is derivable is that a *field name from
+	some other registry* has no business in this one's prose — which is exactly what a shared
+	description produces.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	filtering = subroutine.domain.filtering
+
+	#: Which registry each tool's `filter` really reaches, and there is no way to derive it —
+	#: the tool names a *client method*, not an endpoint. Written down so a tool added later is
+	#: refused by the floor below rather than skipped in silence.
+	answers_about = {
+		"subroutine_list": "task",
+		"subroutine_changes": "event",
+		"subroutine_journal": "event",
+	}
+
+	everywhere = {
+		name for entity in filtering.PROPERTIES for name in filtering.filters(entity)
+	}
+
+	checked = 0
+
+	for tool in answered[0]["result"]["tools"]:
+		described = tool["inputSchema"]["properties"].get("filter", {}).get("description")
+
+		if described is None:
+			continue
+
+		entity = answers_about.get(tool["name"])
+
+		assert entity is not None, (
+			f"{tool['name']} publishes a filter schema and nothing here says which registry it "
+			f"reaches, so its description is checked against nothing"
+		)
+
+		checked += 1
+		accepted = set(filtering.filters(entity))
+		wrong = sorted(
+			name for name in everywhere - accepted if _names_a_field(described, name)
+		)
+
+		assert not wrong, (
+			f"{tool['name']} filters {entity}s and its schema names {wrong}, which that "
+			f"listing refuses by name — a published contract nothing enforces"
+		)
+
+	assert checked == len(answers_about), (
+		f"only {checked} of {len(answers_about)} filter schemas were found, so this is "
+		f"checking less than it says"
+	)
+
+
+def _names_a_field (described: str, name: str) -> bool:
+	"""Report whether a description mentions one field, as a whole word.
+
+	**A whole word, because the names overlap**: ``created_at`` is inside
+	``content_updated_at`` in no useful sense but ``updated_at`` is, so a substring test would
+	report a feed's honest ``created_at`` prose as naming three fields it does not.
+	"""
+
+	return re.search(rf"(?<![\w.]){re.escape(name)}(?![\w])", described) is not None
+
+
 def test_asking_who_you_are_says_what_an_ordinary_role_may_do (
 	session: sqlalchemy.orm.Session,
 ) -> None:

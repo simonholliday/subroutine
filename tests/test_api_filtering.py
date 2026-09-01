@@ -386,8 +386,9 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 		# **The value follows the field's kind**, read from the registry rather than fixed —
 		# `touched_by` takes a username, and driving every combination with `today` refused it
 		# with *there is no account called 'today'*, which is the route working correctly.
-		kind = subroutine.domain.filtering.FILTERS[entity][name.partition(".")[0]].kind
-		value = _sample(kind, world)
+		field, _, operator = name.partition(".")
+		kind = subroutine.domain.filtering.FILTERS[entity][field].kind
+		value = _sample(kind, operator, world)
 
 		answer = world.call("GET", f"{published_path(published, entity)}?{name}={value}")
 
@@ -403,11 +404,29 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 _SAMPLES: dict[str, str] = {
 	"INSTANT": "today",
 	"DURATION": "2h",
+	"NUMBER": "3",
+	# **`CONDITION` has no value of its own**, which is what the kind *is*: its only operator is
+	# `is`, and that is answered above before a kind is consulted. It is here so the
+	# completeness check below stays a real one — a kind absent from this map is a kind nobody
+	# has thought about, and leaving this one out would make that indistinguishable.
+	"CONDITION": subroutine.domain.filtering.UNSET,
 }
 
 
-def _sample (kind: subroutine.domain.filtering.Kind, world: World) -> str:
-	"""Return something this kind of filter will accept."""
+def _sample (
+	kind: subroutine.domain.filtering.Kind, operator: str, world: World
+) -> str:
+	"""Return something this filter will accept, given its kind and its operator.
+
+	**The operator is asked first, and it has to be** (`SR#1804`). ``is`` takes one of two
+	reserved words whatever the field holds, so a value chosen by kind alone drove
+	``created_at.is=today`` and reported four routes as broken — which is the same shape the
+	comment below records for `SR#319`, one axis along. A kind says what a *value* looks like;
+	``is`` does not take one.
+	"""
+
+	if operator == subroutine.domain.filtering.IS:
+		return subroutine.domain.filtering.UNSET
 
 	if kind is subroutine.domain.filtering.WHO:
 		return str(world.user.username)

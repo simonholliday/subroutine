@@ -81,47 +81,76 @@ _DATED = frozenset({subroutine.domain.filtering.TOUCHED_AT})
 
 def _fields_of (
 	kind: subroutine.domain.filtering.Kind,
+	entity: str = "task",
 	without: frozenset[str] = frozenset(),
 ) -> str:
-	"""List a task's filterable fields of one kind, for the schema below.
+	"""List one entity's filterable fields of one kind, for a schema below.
 
 	**Not ``_named``**, which this was called first and which is already the name of the
 	function rendering an event's item further down — so the schema was built from one and the
 	change feed from the other, by luck of definition order. Caught by mypy rather than by any
 	test, because both happened to work.
+
+	**The entity is an argument since `#1828`**, and it was fixed at ``task`` for three tools
+	that filter two different things. `subroutine_changes` and `subroutine_journal` filter
+	*events*, which take ``created_at`` and nothing else, and their own schemas named eight
+	date fields, an estimate and two ranks — every one of which the instance refuses by name.
 	"""
 
 	return ", ".join(
 		sorted(
 			name
-			for name, field in subroutine.domain.filtering.TASK_FILTERS.items()
+			for name, field in subroutine.domain.filtering.filters(entity).items()
 			if field.kind is kind and name not in without
 		)
 	)
 
 
-#: Asking a listing about a date — `#815`, Simon's decision of 2026-08-11 to spend the budget.
+def _filter_schema (description: str) -> dict[str, typing.Any]:
+	"""Wrap one entity's filter prose in the shape the schema takes.
+
+	Written once because the *shape* is the same for every listing and only the vocabulary
+	differs — which is the distinction `#1828` was about: three tools shared a description that
+	could only ever be true of one of them.
+	"""
+
+	return {
+		"type": "object",
+		"additionalProperties": {"type": "string"},
+		"description": description,
+	}
+
+
+#: Asking the change feed or the journal about a period — `#1431`, decision `#1429`.
 #:
-#: **Built from `domain/filtering`'s registry rather than written out**, so it cannot advertise
-#: a field the instance refuses or omit one it accepts. That is what `#815` itself cost twice:
-#: `/v1/meta` nearly published `created_at.eq`, and the agent guide nearly hard-coded an
-#: operator list that had moved the day before.
-DATE_FILTER = {
-	"type": "object",
-	"additionalProperties": {"type": "string"},
-	"description": (
-		"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
-		"entries make a range. gt/gte/lt/lte on "
-		f"{_fields_of(subroutine.domain.filtering.INSTANT, _DATED)}. "
-		# **`#319`, and it is named here because `#821` is what happens otherwise**: a field
-		# accepted and unpublished is one an agent never learns, because it does not send the
-		# word and get corrected — it never sends it. 48 bytes, from slack rather than by
-		# moving the cap, and it is the one filter that answers *what can I finish now*.
-		f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
-		"touched_at is *worked on* — a comment or status change counts, which no other "
-		"field sees. touched_by takes a username and pairs with it."
-	),
-}
+#: **An event has one date and this says so** — `#1828`. It shared :data:`DATE_FILTER` until
+#: then, so `subroutine_changes` published eight date fields, an estimate and two ranks, and
+#: the instance refused all but one of them by name. A published contract nothing enforces, on
+#: the surface that is in a session's context whether anybody reads it or not.
+FEED_FILTER = _filter_schema(
+	"Narrow by when: {'created_at.gte': 'yesterday'}; two entries make a range. "
+	f"gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, 'event')}."
+)
+
+DATE_FILTER = _filter_schema(
+	"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
+	"entries make a range. gt/gte/lt/lte on "
+	f"{_fields_of(subroutine.domain.filtering.INSTANT, without=_DATED)}. "
+	# **`#319`, and it is named here because `#821` is what happens otherwise**: a field
+	# accepted and unpublished is one an agent never learns, because it does not send the
+	# word and get corrected — it never sends it. 48 bytes, from slack rather than by
+	# moving the cap, and it is the one filter that answers *what can I finish now*.
+	f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
+	f"{_fields_of(subroutine.domain.filtering.NUMBER)} are 1-5. "
+	# **`#1804`. Named because `is` is the half an agent cannot discover by being corrected**:
+	# it would have to guess the word before the refusal could teach it, and *unassigned* and
+	# *not a sub-task* are two of the four questions that had no spelling at all —
+	# `parent=none` looked up a task called *none* and answered 404.
+	"Add .is with 'set' or 'unset' to any field that can be empty: "
+	f"{_fields_of(subroutine.domain.filtering.CONDITION)} take only that. "
+	"touched_at is *worked on* — a comment or status change counts, which no other "
+	"field sees. touched_by takes a username and pairs with it."
+)
 
 #: The type of an argument that names an item — `#549`. **Both spellings, because both work
 #: and only one was published.**
@@ -1102,7 +1131,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 					# *what happened yesterday* has no number to offer. Same object as the
 					# listing's, because it is the same grammar and a second spelling here would
 					# be one an agent has to learn twice.
-					"filter": DATE_FILTER,
+					"filter": FEED_FILTER,
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
 					"workspace": WORKSPACE,
 				},
@@ -1123,7 +1152,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 			schema={
 				"type": "object",
 				"properties": {
-					"filter": DATE_FILTER,
+					"filter": FEED_FILTER,
 					"by": {
 						"type": "string",
 						"description": "Only what one account did, by name. 'me' is you.",

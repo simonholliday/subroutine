@@ -293,7 +293,7 @@ def test_the_published_names_are_the_product_of_the_two_tables () -> None:
 	published = subroutine.domain.filtering.names("task")
 
 	for name, field in subroutine.domain.filtering.TASK_FILTERS.items():
-		for operator in field.kind.operators:
+		for operator in field.operators:
 			assert f"{name}.{operator}" in published, (
 				f"{name}.{operator} is accepted and not published"
 			)
@@ -304,6 +304,28 @@ def test_the_published_names_are_the_product_of_the_two_tables () -> None:
 	for combination in published:
 		name, _, operator = combination.partition(".")
 
-		assert operator in subroutine.domain.filtering.TASK_FILTERS[name].kind.operators, (
+		assert operator in subroutine.domain.filtering.TASK_FILTERS[name].operators, (
 			f"{combination} is published and refused"
+		)
+
+	# **The field's own set and not its kind's, since `SR#1804`** — and this test is what said
+	# so. A kind describes a *sort of value*, so its operators are true wherever that sort is;
+	# whether a field can be *unset* is a fact about the **column**, and `created_at.is=set` is
+	# every row while `created_at.is=unset` is none. Read from the kind, the two directions
+	# above disagree in exactly that gap.
+	narrowed = {
+		name
+		for name, field in subroutine.domain.filtering.TASK_FILTERS.items()
+		if field.operators != field.kind.operators
+	}
+
+	assert narrowed, (
+		"no task field narrows its kind's operators, so the two loops above are asking one "
+		"question twice and the column half is measured by nothing"
+	)
+
+	for name in narrowed:
+		assert f"{name}.{subroutine.domain.filtering.IS}" not in published, (
+			f"{name} cannot be unset and {name}.is is published anyway — a filter that can "
+			f"only ever answer all or nothing"
 		)
