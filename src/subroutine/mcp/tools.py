@@ -142,12 +142,14 @@ DATE_FILTER = _filter_schema(
 	# moving the cap, and it is the one filter that answers *what can I finish now*.
 	f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
 	f"{_fields_of(subroutine.domain.filtering.NUMBER)} are 1-5. "
+	f"{_fields_of(subroutine.domain.filtering.REFERENCE)} take a name, and '.in' takes "
+	"several separated by commas. "
 	# **`#1804`. Named because `is` is the half an agent cannot discover by being corrected**:
 	# it would have to guess the word before the refusal could teach it, and *unassigned* and
 	# *not a sub-task* are two of the four questions that had no spelling at all —
 	# `parent=none` looked up a task called *none* and answered 404.
-	"Add .is with 'set' or 'unset' to any field that can be empty: "
-	f"{_fields_of(subroutine.domain.filtering.CONDITION)} take only that. "
+	"Add '.is' with 'set' or 'unset' to any field that can be empty; "
+	f"{_fields_of(subroutine.domain.filtering.CONDITION)} takes only that. "
 	"touched_at is *worked on* — a comment or status change counts, which no other "
 	"field sees. touched_by takes a username and pairs with it."
 )

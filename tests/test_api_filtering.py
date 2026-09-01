@@ -362,6 +362,126 @@ def test_documents_answer_the_same_question (world: World) -> None:
 	assert world.titles("/v1/documents?created_at.lt=2026-01-01") == []
 
 
+def test_a_listing_is_narrowed_by_rank_by_reference_and_by_whether_a_field_is_set (
+	world: World,
+) -> None:
+	"""**`SR#1804`'s four questions, driven** — design `SR#1801`, and Simon's own examples.
+
+	| asked | before |
+	| --- | --- |
+	| urgency ≥ 3 | **422** — not a field this endpoint can filter on |
+	| not a sub-task | **404** — ``parent=none`` looked up a task called *none* |
+	| unassigned | **404** — the same, for an account |
+	| two tags at once | **422** — *'tag' takes one value and was given 2* |
+
+	Every one was a gap in the *vocabulary* rather than in the architecture: `SR#1801` §2 drove
+	search, filters, ordering and grouping together and they compose today. What was missing is
+	what a caller may name.
+
+	**`is` takes a condition and `eq` takes a value**, which is the line `SR#1801` §5 draws and
+	the reason ``is`` must never become GitHub's grab-bag. Both are asserted here on one field,
+	because the pair is the claim.
+	"""
+
+	ordinary = world.call(
+		"POST", "/v1/tasks", json={"title": "Ordinary", "urgency": 2, "importance": 2}
+	)
+	urgent = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Urgent", "urgency": 5, "importance": 4, "tags": ["ops"]},
+	)
+	somebody_elses = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Somebody has this", "assignee": str(world.user.username),
+			"tags": ["web"]},
+	)
+
+	assert {one.status_code for one in (ordinary, urgent, somebody_elses)} == {201}
+
+	# **A rank, which was sortable and unaskable** — the finding that decided the registry.
+	assert world.titles("/v1/tasks?urgency.gte=3") == ["Urgent"]
+	assert world.titles("/v1/tasks?importance.eq=4") == ["Urgent"]
+
+	# **A condition, on a field that has one.** `assignee=none` used to be a 404 about an
+	# account called *none*.
+	unassigned = world.titles("/v1/tasks?assignee.is=unset")
+
+	assert "Somebody has this" not in unassigned and "Urgent" in unassigned
+	assert world.titles("/v1/tasks?assignee.is=set") == ["Somebody has this"]
+
+	# **And the value, through the same resolver the flat spelling uses**, so the dotted form
+	# takes a username rather than being a second and narrower door onto the same column.
+	assert world.titles(
+		f"/v1/tasks?assignee.eq={world.user.username}"
+	) == ["Somebody has this"]
+
+	# **Either of two tags**, which had no spelling at all — `tag` took one value and refused
+	# two by name.
+	assert sorted(world.titles("/v1/tasks?tag.in=ops,web")) == [
+		"Somebody has this", "Urgent"
+	]
+	assert world.titles("/v1/tasks?tag.eq=ops") == ["Urgent"]
+
+	# **Two entries about one field are ANDed**, which is how a caller asks for *both* — and
+	# nothing here carries both tags, so the answer is empty rather than either.
+	assert world.titles("/v1/tasks?tag.eq=ops&tag.eq=web") == []
+
+	# **`is` is refused where a column cannot be null**, because it could only ever answer all
+	# or nothing. `SR#1804` — the guard above found this in the first version of it.
+	refused = world.call("GET", "/v1/tasks?created_at.is=unset")
+
+	assert refused.status_code == 422, refused.text
+
+	# **And the two reserved words are the whole vocabulary**, which is what keeps `is` from
+	# becoming a place to put anything that reads like a state.
+	nonsense = world.call("GET", "/v1/tasks?assignee.is=somebody")
+
+	assert nonsense.status_code == 422, nonsense.text
+	assert "set or unset" in nonsense.text
+
+
+def test_a_tag_cannot_be_named_in_a_way_a_filter_could_not_ask_for (
+	world: World,
+) -> None:
+	"""A comma in a tag's name, refused — `SR#1804`, Simon's decision of 2026-09-01.
+
+	``tag.in=ops,web`` narrows to either of two tags, so a comma inside a name would make *one
+	tag called "ops,web"* and *two tags* the same string — an ambiguity a filter cannot resolve
+	and a caller cannot escape.
+
+	**The cost was measured before the rule**: the `projects` workspace holds 34 tags and not
+	one contains a comma. It sits beside the all-digits rule, which exists for the same kind of
+	reason — a name that could not be written in the syntax that names it.
+	"""
+
+	refused = world.call(
+		"POST", "/v1/tasks", json={"title": "Tagged oddly", "tags": ["ops,web"]}
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "two tags" in refused.text
+
+	# **Enforced where every tag passes, not in the parser** — `SR#1167`'s finding, which is
+	# that renaming is a second door and the digit rule was missed at it for as long as it
+	# existed.
+	made = world.call("POST", "/v1/tasks", json={"title": "Tagged", "tags": ["ops"]})
+
+	assert made.status_code == 201, made.text
+
+
+#: A tag the case above makes before it drives a filter that names one.
+_A_TAG = "ops"
+
+#: What each `REFERENCE` field takes, since one kind covers several vocabularies — `SR#1804`.
+#:
+#: **Per field rather than per kind**, which is where this map differs from :data:`_SAMPLES`
+#: below and has to: a username, a tag name and a project key are three vocabularies wearing one
+#: kind, and driving a tag filter with a username reports the route as broken.
+_REFERENCES: dict[str, str] = {"tag": _A_TAG}
+
+
 @pytest.mark.parametrize("entity", sorted(subroutine.domain.filtering.FILTERS))
 def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 	world: World, entity: str
@@ -376,6 +496,16 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 	whether the route answers, not whether two strings match.
 	"""
 
+	# **A tag has to exist before a filter can name one**, because `tags.carrying` refuses a
+	# name nobody uses rather than answering with an empty listing (`SR#1319`). So the fixture
+	# for a `REFERENCE` sample is made here, on the entity being driven.
+	if entity in ("task", "document"):
+		world.call(
+			"POST",
+			"/v1/tasks" if entity == "task" else "/v1/documents",
+			json={"title": "Something tagged", "tags": [_A_TAG]},
+		)
+
 	published = world.call("GET", "/v1/meta").json()["listings"][entity]["filters"]
 	dotted = sorted(name for name in published if "." in name)
 
@@ -388,7 +518,7 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 		# with *there is no account called 'today'*, which is the route working correctly.
 		field, _, operator = name.partition(".")
 		kind = subroutine.domain.filtering.FILTERS[entity][field].kind
-		value = _sample(kind, operator, world)
+		value = _sample(kind, operator, field, world)
 
 		answer = world.call("GET", f"{published_path(published, entity)}?{name}={value}")
 
@@ -410,11 +540,18 @@ _SAMPLES: dict[str, str] = {
 	# completeness check below stays a real one — a kind absent from this map is a kind nobody
 	# has thought about, and leaving this one out would make that indistinguishable.
 	"CONDITION": subroutine.domain.filtering.UNSET,
+	# **`REFERENCE` is answered above, per field** — see :data:`_REFERENCES`. Here so the
+	# completeness check stays real: a kind absent from this map is one nobody has thought
+	# about, and leaving this one out would make that indistinguishable.
+	"REFERENCE": _A_TAG,
 }
 
 
 def _sample (
-	kind: subroutine.domain.filtering.Kind, operator: str, world: World
+	kind: subroutine.domain.filtering.Kind,
+	operator: str,
+	field: str,
+	world: World,
 ) -> str:
 	"""Return something this filter will accept, given its kind and its operator.
 
@@ -430,6 +567,13 @@ def _sample (
 
 	if kind is subroutine.domain.filtering.WHO:
 		return str(world.user.username)
+
+	if kind is subroutine.domain.filtering.REFERENCE:
+		# **An account is the default and the exceptions are named**, because every reference
+		# but `tag` resolves a username today — and a field added to that kind with a
+		# vocabulary of its own would be driven with a username and report the route broken,
+		# which is the failure the comment above `_SAMPLES` records for kinds.
+		return _REFERENCES.get(field, str(world.user.username))
 
 	for name, value in _SAMPLES.items():
 		if kind is getattr(subroutine.domain.filtering, name):

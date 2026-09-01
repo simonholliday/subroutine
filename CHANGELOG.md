@@ -34,6 +34,16 @@ upgrade involves.
   planned day, an estimate, a claim. It is offered only where a field really can be empty, so
   `created_at.is` is not published: it would answer *all* or *none* and nothing else.
 
+  `?tag.in=ops,web` finds items carrying either tag — `tag` took one value and refused two by
+  name. `?assignee.eq=si` and `?claimed_by.in=si,jo` take the same usernames the flat
+  spellings take. Two entries about one field are combined, so `?tag.eq=ops&tag.eq=web` asks
+  for both.
+
+  **A tag's name may no longer contain a comma.** One called `ops,web` could not be told from
+  two tags in a filter that names either. Measured before the rule: no tag on this project
+  contains one. Existing tags are unaffected; a new name with a comma in it is refused and
+  says why.
+
   `GET /v1/meta` publishes every combination, as before.
 
 

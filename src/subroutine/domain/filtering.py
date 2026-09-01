@@ -46,6 +46,7 @@ import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.selection
+import subroutine.domain.tags
 import subroutine.errors
 
 #: What separates a field from the operator applied to it. §9.6's spelling.
@@ -78,8 +79,36 @@ OPERATORS: dict[str, typing.Callable[[typing.Any, typing.Any], typing.Any]] = {
 #: `is` / `eq` split exists to prevent.
 IS = "is"
 
+#: Asking whether a field holds any of several values — `#1804`, design `#1801` §5.
+#:
+#: **Comma-separated, and Simon took the consequence the same day**: a comma becomes illegal in
+#: a tag name. Measured before the rule rather than after — the `projects` workspace holds 34
+#: tags and not one contains a comma or a space — so it costs nothing now and prevents an
+#: ambiguity that would otherwise be permanent. Project keys, status keys, type keys and
+#: usernames are already constrained and cannot hold one.
+#:
+#: **Any of these, never all of them.** *Both* tags rather than *either* is a real question and
+#: nothing has asked for it; `#1801` §5 names it so the absence is not mistaken for an
+#: oversight.
+#:
+#: **Not in :data:`OPERATORS` either**, for :data:`IS`'s reason one step along: every entry
+#: there compares one value, and this splits its argument and resolves each part through the
+#: field's own resolver. Which is also why it is compiled by a reference's own function rather
+#: than centrally — a central version would need the resolver anyway and would be a second
+#: place the splitting rule lives.
+IN = "in"
+
+#: What separates the values of an :data:`IN`.
+#:
+#: **Declared by :mod:`subroutine.domain.tags` and read here**, which is the way round the
+#: dependency has to run: compiling a ``tag`` filter needs :func:`subroutine.domain.tags.
+#: carrying`, so this module imports that one. The rule it enforces belongs to a tag's *name*
+#: and this is the grammar that makes it necessary, so one declaration serves both and neither
+#: can drift.
+IN_SEPARATOR = subroutine.domain.tags.REFUSED_IN_A_NAME
+
 #: Every operator a caller may write, whichever kind it turns out to be.
-EVERY_OPERATOR = frozenset(OPERATORS) | {IS}
+EVERY_OPERATOR = frozenset(OPERATORS) | {IS, IN}
 
 
 #: Which end of a whole day each operator means, and this is the part that produces plausible
@@ -420,6 +449,32 @@ NUMBER = Kind(
 )
 
 
+#: A field naming something the instance has to look up — `#1804`, design `#1801` §5.
+#:
+#: **The value is a name a person has**, not an id: a tag, a username, a project key, a ref.
+#: That is what the flat route parameters have always taken, and it is where a good refusal
+#: comes from — ``selection.user`` names the account it could not find and points at the command
+#: that lists them, where an unresolved value answered as an empty listing is indistinguishable
+#: from *there is none of that*.
+#:
+#: **Compiled through :data:`GROUPS` rather than by a predicate of its own**, exactly as
+#: :data:`WHO` is. Resolving needs the session and often the workspace, and a kind's predicate
+#: is handed a value and a clock. That mechanism already exists for `#817`'s reason and needed
+#: nothing rewritten; widening the predicate signature to carry a :class:`Where` would have
+#: meant rewriting the one path every listing's filters compile through, in the same breath as
+#: adding a kind.
+#:
+#: **`ne` is deliberately absent.** *Not this tag* over a join table is *no row joins it*, which
+#: is a different query from *a row joins it and is not this* — and the second is what a naive
+#: negation produces. `#1801` §9 keeps the query string flat and ANDed; a negation wants the
+#: `POST` body `#817` reserved for exactly this.
+REFERENCE = Kind(
+	predicate=_no_predicate_of_its_own,
+	expects="a name, a key or a username",
+	operators=frozenset({"eq", IN, IS}),
+)
+
+
 #: A field a caller may ask *whether* about and not yet *what* — `#1804`.
 #:
 #: **A kind whose only operator is `is`**, for a column that has a name behind it nothing can
@@ -477,6 +532,18 @@ class Filterable (typing.NamedTuple):
 	#: would answer *what did si work on yesterday*. One correlated `EXISTS` is the difference.
 	group: str | None = None
 
+
+#: Which group compiles the two fields naming an account that *holds* an item — `#1804`.
+#:
+#: **A group of one field at a time, and that is what the mechanism is for.** ``assignee`` and
+#: ``claimed_by`` never compile together — they are separate questions about separate columns —
+#: but each needs the session to turn a username into an id, and a kind's predicate is handed a
+#: value and a clock. :data:`GROUPS` is where a field whose compilation needs more than its
+#: value goes, which `#817` built for ``touched_at`` and which needed nothing rewritten here.
+WHO_HOLDS_IT = "holder"
+
+#: Which group compiles ``tag``, whose predicate is a subquery over a join table — `#1804`.
+TAGGED = "tagged"
 
 #: *When was this worked on* — created, edited, completed, commented on, linked, status
 #: changed. `#815`'s third and fourth questions, and the two this file exists for.
@@ -607,11 +674,27 @@ STATUS_CATEGORY = "status_category"
 _CONDITION_ONLY: dict[str, Property] = {
 	"assignee": Property(
 		column=subroutine.db.models.work.Task.assignee_id,
-		kind=CONDITION,
+		kind=REFERENCE,
+		group=WHO_HOLDS_IT,
+		because="ordering by an account id means nothing; ordering by who has what is `#1805`.",
+	),
+	"claimed_by": Property(
+		column=subroutine.db.models.work.Task.claimed_by_id,
+		kind=REFERENCE,
+		group=WHO_HOLDS_IT,
+		because="ordering by an account id means nothing — `claimed_at` is the sort that "
+		"answers *taken longest ago*, and it is orderable.",
+	),
+	"tag": Property(
+		column=subroutine.db.models.work.Task.id,
+		kind=REFERENCE,
+		group=TAGGED,
 		because=(
-			"`assignee=<username>` is the flat spelling and resolves a name to an id; "
-			"`assignee.eq` waits for the REFERENCE kind rather than taking a UUID. Ordering by "
-			"who has what is `#1805`."
+			"a row carries several tags, so there is no one value to sort it by. Ordering a "
+			"listing by a set is a different question and nothing has asked it. `tag.is` is "
+			"absent for a second reason worth knowing: the column here is the item's own "
+			"identity, so `_allowed` refuses it — and *has no tags at all* really is a "
+			"different query, a `NOT EXISTS` over the join table rather than a null column."
 		),
 	),
 	"parent": Property(
@@ -619,8 +702,8 @@ _CONDITION_ONLY: dict[str, Property] = {
 		kind=CONDITION,
 		because=(
 			"`parent=<ref>` is the flat spelling and resolves a ref to an id, and it carries "
-			"`subtree` with it — one parameter, two questions, which the REFERENCE kind has to "
-			"answer before this can take a value. Ordering by a parent id means nothing."
+			"`subtree` with it — one parameter, two questions, which has to be settled before "
+			"this can take a value. Ordering by a parent id means nothing."
 		),
 	),
 }
@@ -1251,19 +1334,33 @@ def predicates (
 	grouped: dict[str, list[Comparison]] = {}
 
 	for comparison in comparisons:
+		# **:data:`IS` is decided before the group, and that order is load-bearing** —
+		# `#1804`. A reference names a group so that resolving a *name* can reach the session;
+		# ``is`` resolves nothing, and routing it there sent ``assignee.is=unset`` to
+		# `selection.user`, which answered **404: there is no account called 'unset'**. Caught
+		# by the guard that drives every published combination, which is the second defect it
+		# has found in this item.
+		if comparison.operator == IS:
+			alone.append(
+				_condition_predicate(
+					comparison.against.column,
+					comparison.operator,
+					comparison.value,
+					comparison.reported,
+					where.now,
+					where.timezone,
+				)
+			)
+
+			continue
+
 		if comparison.against.group is not None:
 			grouped.setdefault(comparison.against.group, []).append(comparison)
 
 			continue
 
-		compile_it = (
-			_condition_predicate
-			if comparison.operator == IS
-			else comparison.against.kind.predicate
-		)
-
 		alone.append(
-			compile_it(
+			comparison.against.kind.predicate(
 				comparison.against.column,
 				comparison.operator,
 				comparison.value,
@@ -1377,9 +1474,147 @@ def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:
 	).id
 
 
-#: Which fields compile together, and what compiles them. One entry, so far.
+def _values (comparison: Comparison) -> list[str]:
+	"""Split what a comparison names into the one or several values it stands for.
+
+	``eq`` and ``is`` name one; :data:`IN` names several, separated by
+	:data:`IN_SEPARATOR`. **Empty parts are refused rather than dropped** — ``tag.in=ops,``
+	is a caller who meant something, and silently answering about *ops* alone is the
+	drop-what-you-do-not-understand defect `#1626` was filed for.
+	"""
+
+	if comparison.operator != IN:
+		return [comparison.value]
+
+	given = [part.strip() for part in comparison.value.split(IN_SEPARATOR)]
+
+	if not all(given):
+		raise subroutine.errors.ValidationError(
+			f"{comparison.value!r} has an empty entry in it.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=comparison.field,
+					code="invalid_field_value",
+					message=(
+						f"{comparison.reported} lists its values separated by "
+						f"{IN_SEPARATOR!r} and one of them is empty."
+					),
+					hint="Write them as 'ops,web' — no trailing separator.",
+				)
+			],
+		)
+
+	return given
+
+
+def _held_by (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile *whose is this* — ``assignee`` and ``claimed_by`` — `#1804`.
+
+	**One username resolved to one account, by the same function the flat parameter uses.**
+	`selection.user` takes a username *or* an id, understands ``me``, and refuses by name — so
+	the dotted spelling accepts exactly what ``?assignee=si`` has always accepted rather than
+	being a second, narrower door onto the same column.
+
+	**Each comparison is its own clause, ANDed with the rest.** Two entries about one field is
+	a caller asking for both at once and getting nothing, which is what a conjunction means and
+	is `#1801` §9's stated shape for the query string.
+	"""
+
+	if where.session is None:
+		raise AssertionError("a reference needs a session to resolve a name")
+
+	narrowing = []
+
+	for comparison in comparisons:
+		column = comparison.against.column
+		found = [
+			subroutine.domain.selection.user(
+				where.session, value, caller=where.caller
+			).id
+			for value in _values(comparison)
+		]
+
+		narrowing.append(
+			column.in_(found) if comparison.operator == IN else column == found[0]
+		)
+
+	return sqlalchemy.and_(*narrowing)
+
+
+def _tagged (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``tag`` — `#1804`, on the read side `#1319` built.
+
+	**Through :func:`subroutine.domain.tags.carrying`, which the flat parameter already uses**,
+	so a tag nobody has applied is refused *by name* rather than answered with an empty listing.
+	A tag spelled wrongly and a tag nobody uses produce the same empty page and the second is
+	far commoner.
+
+	**A subquery per value rather than a join** — that function's own rule, and it is why the
+	row count cannot change: an item carries a tag once, but a join in a listing multiplies its
+	rows by however many matched.
+
+	**`in` is any of these, so the clauses are ORed and `eq` is the single case.** Two separate
+	comparisons about ``tag`` are still ANDed, which is how a caller asks for *both* — the
+	question `#1801` §5 records as unasked under a name of its own.
+	"""
+
+	if where.session is None:
+		raise AssertionError("a tag needs a session to resolve a name")
+
+	if len(where.workspace_ids) != 1:
+		raise subroutine.errors.ValidationError(
+			"A tag can only be asked about inside one workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="tag",
+					code="invalid_field_value",
+					message="Tags are a workspace's own vocabulary, and this reads several.",
+					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+				)
+			],
+		)
+
+	identity = typing.cast(typing.Any, comparisons[0].against.column)
+	joined = subroutine.domain.tags.JOINS[identity.parent.class_]
+	narrowing = []
+
+	for comparison in comparisons:
+		# **One `IN` over every value rather than an `OR` of subqueries.** `carrying` returns a
+		# `SELECT` of the items carrying one tag, and `or_` coerces a bare `SELECT` to a
+		# *scalar* subquery — which SQLAlchemy warns about and the suite turns into a 500. So
+		# each is put behind `IN` first, which is what the flat parameter has always done.
+		narrowing.append(
+			sqlalchemy.or_(
+				*[
+					identity.in_(
+						subroutine.domain.tags.carrying(
+							where.session,
+							where.workspace_ids[0],
+							value,
+							joined=joined.rows,
+							holder=joined.owner,
+						)
+					)
+					for value in _values(comparison)
+				]
+			)
+		)
+
+	return sqlalchemy.and_(*narrowing)
+
+
+#: Which fields compile through a function that needs more than the value they carry — and,
+#: where several name one group, together.
+#:
+#: **The name says *together* and the mechanism is wider than that** (`#1804`). ``touched_at``
+#: and ``touched_by`` really do compile as one predicate, which is what this was built for; a
+#: reference compiles alone and is here because resolving a name needs the session. Both are
+#: *a field whose predicate cannot be built from its value and a clock*, which is the property
+#: :class:`Kind`'s own signature cannot express.
 GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	"touched": _touched,
+	WHO_HOLDS_IT: _held_by,
+	TAGGED: _tagged,
 }
 
 

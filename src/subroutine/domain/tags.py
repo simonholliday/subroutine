@@ -29,6 +29,19 @@ MAX_NAME_LENGTH = 128
 
 _WHITESPACE = re.compile(r"\s+")
 
+#: What a tag's name may not contain — `#1804`, and it is declared *here* rather than where it
+#: is used.
+#:
+#: ``tag.in=ops,web`` narrows a listing to either of two tags, so a comma inside a name would
+#: make *one tag called "ops,web"* and *two tags* the same string. :data:`subroutine.domain.
+#: filtering.IN_SEPARATOR` is this value; that module imports this one, because compiling a
+#: ``tag`` filter needs :func:`carrying` and the dependency can only run one way.
+#:
+#: **Simon took the consequence on 2026-09-01 with the cost measured first**: the `projects`
+#: workspace holds 34 tags and not one contains a comma or a space. Project keys, status keys,
+#: type keys and usernames are already constrained and cannot hold one either.
+REFUSED_IN_A_NAME = ","
+
 
 def normalize (name: str) -> str:
 	"""Return the form two tags are considered the same by."""
@@ -51,7 +64,36 @@ def refuse_a_reference (name: str) -> None:
 	is the one function every tag passes through — which is true of every tag that is
 	*created* and false of one that is *renamed*. ``vocabulary.update_tag`` is the second
 	door; it went round this for as long as it existed, and its own comment said it did not.
+
+	**And a comma is refused for the same kind of reason, since `#1804`.** ``tag.in=ops,web``
+	asks for either of two tags, so a comma inside a name would make *one tag called "ops,web"*
+	and *two tags* the same string — an ambiguity a filter has no way to resolve and a caller
+	no way to escape. Simon took that consequence on 2026-09-01 with the cost measured first:
+	the `projects` workspace holds 34 tags and not one contains a comma.
+
+	**Refused here rather than only in the parser**, which is this function's whole argument —
+	a rule that lives in a regex is a rule the next entry point does not have, and renaming was
+	the door the digit rule was missed at.
 	"""
+
+	if REFUSED_IN_A_NAME in name:
+		raise subroutine.errors.ValidationError(
+			f"{name!r} cannot be used as a tag.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="tags",
+					code="invalid_field_value",
+					message=(
+						f"A tag holding a {REFUSED_IN_A_NAME!r} could not be told from two "
+						f"tags when a listing is narrowed to either."
+					),
+					hint=(
+						"Use a hyphen — 'ops-web' rather than 'ops,web' — or make them two "
+						"tags and ask for both with 'tag.in=ops,web'."
+					),
+				)
+			],
+		)
 
 	if not name.isdigit():
 		return
