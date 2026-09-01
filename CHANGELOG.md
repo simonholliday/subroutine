@@ -234,6 +234,13 @@ upgrade involves.
 
 ### Fixed
 
+- **The agenda's *Waiting on you* heading no longer sits further right than the others.** It
+  carried an indent and a wider gap beneath it that nothing had asked for, so one section of
+  the page looked subtly out of line with the rest.
+
+  A styling rule written for the line inside a row that says who is holding work up shared its
+  name with that section, and quietly reached the heading as well. Both now say what they are.
+
 - **Every task listing got about twenty-five times faster on PostgreSQL.** A page of tasks,
   the board, the agenda and `--ready` all spent most of their time on a single question — the
   one that works out which rows something unfinished is holding up.

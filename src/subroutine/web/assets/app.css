@@ -1346,8 +1346,19 @@ fieldset {
 	**The gap between blockers is wider than the gap inside one**, which is what says the name
 	belongs to the ref beside it rather than to the pair. They were joined with a separator and
 	a blocker with nobody assigned made that unreadable.
+
+	**It was `.waiting` and could not stay** (`SR#1826`). The agenda draws its bucket headings
+	as `<h2 class=${bucket.key}>`, one bucket's key is `waiting`, and a bare `.waiting` rule is
+	`(0,1,0)` against `.agenda h2`'s `(0,1,1)` — so *Waiting on you* kept its size and its
+	margin and silently took this rule's `padding` and `display`, because nothing else declared
+	either. Measured: 14px of indent and 18px of gap where every other heading had 0 and 8, from
+	the day the row line shipped. **CSS never errors**, so a rule reaching an element it was
+	never written for looks exactly like one that meant to — `SR#1722` in the same file.
+
+	`holding` is what the value is called at the site that renders it, and it says what the line
+	is rather than which bucket a row is in.
 */
-.waiting {
+.holding {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: baseline;
@@ -1356,7 +1367,7 @@ fieldset {
 	font-size: var(--text-small);
 }
 
-.waiting .held {
+.holding .held {
 	display: inline-flex;
 	align-items: baseline;
 	gap: var(--space-2);

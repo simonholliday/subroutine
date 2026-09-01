@@ -1977,8 +1977,63 @@ def test_what_is_holding_a_row_up_is_drawn_inside_that_row (
 
 	classes = [str(child.get("className") or "") for child in tree["children"]]
 
-	assert any("waiting" in one for one in classes), (
+	# **`holding`, not `waiting`** — `SR#1826`. A bare `.waiting` rule captured the agenda's
+	# *Waiting on you* heading, whose class is its bucket key, and gave it 14px of indent that
+	# nothing could report: CSS never errors. The name says what the line is rather than which
+	# bucket a row is in.
+	assert any("holding" in one for one in classes), (
 		f"what is holding the row up is not a child of the row: {classes}"
+	)
+
+
+def test_no_agenda_bucket_is_named_after_something_the_stylesheet_styles (
+) -> None:
+	"""A bucket key becomes a global class, so it may not collide with one — `SR#1826`.
+
+	The agenda draws ``<h2 class=${bucket.key}>``, which mints a class out of **domain
+	vocabulary**. A bare rule of the same name then reaches that heading, and `SR#1826` is what
+	that cost: `.waiting` was written for the third line of a row — *who is holding this up*,
+	`#1287` — and captured *Waiting on you*, giving it 14px of indent and 10px of gap that
+	every other heading did not have.
+
+	**Nothing could have reported it.** `.waiting` is ``(0,1,0)`` against ``.agenda h2``'s
+	``(0,1,1)``, so the heading kept its size and its margin and looked very nearly right; and
+	**CSS never errors**, so a rule matching an element it was never written for is
+	indistinguishable from one that meant to. `SR#1722` is the same sentence about a rule that
+	matched *nothing*.
+
+	**The registers are both real** — ``domain.agenda.BUCKETS`` and the stylesheet — rather than
+	a list of names kept by hand, so a bucket added tomorrow is checked the day it exists.
+
+	**A text scan is the weaker instrument and is what there is.** Asking a browser whether every
+	bucket heading computes alike but for ``overdue``'s colour would be immune to how a selector
+	is written; that needs the renderer `SR#1723` is about, because ``tests/test_browser.py``
+	takes its markup from a harness that drops every class.
+	"""
+
+	# **`ASSETS`, not a path off the process** — `#405`: `conftest.py` chdirs every test into a
+	# temporary directory, so a relative root reads an empty tree and the scan agrees with
+	# everything it never looked at.
+	stylesheet = (ASSETS / "app.css").read_text()
+
+	# Bare single-class rules only: `.name {` or `.name,`. A scoped rule like `.agenda h2` or
+	# `.holding .held` cannot reach a bucket heading by accident, which is the whole remedy.
+	styled = set(re.findall(r"^\.([a-z][a-z0-9-]*)\s*[,{]", stylesheet, re.MULTILINE))
+
+	# **The floor**, because a scan that reads nothing agrees with everything. There are around
+	# forty of these; twenty is well under and still fails a walk that has stopped walking.
+	assert len(styled) > 20, (
+		f"only {len(styled)} bare class rules were found in app.css, so this scan is not "
+		f"reading the stylesheet it is named after"
+	)
+
+	keys = set(subroutine.domain.agenda.BUCKETS)
+	collide = sorted(keys & styled)
+
+	assert not collide, (
+		f"{collide} is both an agenda bucket key and a class app.css styles on its own, so "
+		f"that rule reaches the bucket's own <h2> — which CSS cannot report. Either scope the "
+		f"rule to where it belongs or give it a name that says what it is"
 	)
 
 

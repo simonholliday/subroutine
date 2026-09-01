@@ -5152,7 +5152,7 @@ export function Row ({
 		reported one level up.
 	*/
 	const holding = waitingOn.length > 0 && html`
-		<div class="waiting">
+		<div class="holding">
 			<span class="quiet">waiting on</span>
 			${waitingOn.map((end) => {
 				const going = { ref: end.ref, kind: "task" };
