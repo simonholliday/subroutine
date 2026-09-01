@@ -469,6 +469,23 @@ that turned out to be wrong is worth more standing beside the correction than re
 "we thought X" is half of why the next session should not think X. Withdraw duplication and
 mistakes, not the record of having been wrong.
 
+**When what you concluded changes, edit the body — never correct it underneath.** A body says
+what is true *now*; a comment says what *happened*. So a superseded plan is replaced:
+`subroutine_document(ref=42, body="…")` for a document, `subroutine_update(ref=42,
+description="…")` for a task. The test needs no judgement — *would somebody who read only the
+body be misled?* If yes, the body is wrong.
+
+**A comment may never open by telling the reader to disregard what is above it.** If you find
+yourself writing that sentence, an edit was what you needed. A reader who has to reach the
+bottom of a thread to learn the top was wrong has had their time taken, and will not trust the
+next item either.
+
+Then say what changed, if it is worth saying — *"replaced the plan with the runbook, because
+building it settled three of the open questions"* is what happened, which is exactly what a
+comment is for. The change is recorded with the previous text, so nothing is lost by replacing
+it.
+
+
 **Write a document when you conclude something.** A comment is what happened; a document is
 what you concluded — and the test is simple: *would the next person need to read it?* Decisions,
 findings, designs and dead ends are all worth more than the hour they cost.

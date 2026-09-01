@@ -155,6 +155,15 @@ upgrade involves.
 
 ### Fixed
 
+- **The plugin's skill tells an agent to revise a body rather than correct it underneath.** An
+  agent whose plan turned out to be wrong would leave the plan where it was and append a comment
+  saying so — sometimes several, ending in one that told you to disregard everything above it.
+  You only find that out after reading the thing you were about to be told to ignore.
+
+  A body now says what is true, and a comment says what happened. When a conclusion changes, the
+  body is edited and the change is described afterwards. The previous text is recorded either
+  way, so nothing is lost by replacing it.
+
 - **A listing of one row says what is true of it.** Every column vanished when a search or a
   listing came back with a single row, so the page you are most likely to act on was the one
   that told you least:
