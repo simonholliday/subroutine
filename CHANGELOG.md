@@ -433,6 +433,19 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+- **A milestone's links no longer push its description off the screen.** An item's links sit
+  above its body, which is right — they say what binds the work. But a milestone with eighteen
+  of them put the description a screen and a half down, so the page opened on a wall of
+  references and nothing else.
+
+  The first five are drawn now, with a line beneath them saying *Showing 5 of 18 links* and a
+  control that shows the rest. Which five is not arbitrary: links are already ordered
+  outstanding first, so what you see is the work that is left. The heading still counts every
+  link, so *(4 of 18 blockers done)* is unchanged.
+
+  Your choice is remembered by the browser, so revealing them, following one and coming back
+  leaves them revealed. Items with five links or fewer — most of them — are untouched.
+
 - **Headings in the browser are the size a heading should be.** Every section heading — the
   board's columns, the agenda's buckets, and *Links*, *Comments* and the rest on an item — was
   set smaller than the text underneath it, in grey capitals. On an item page that meant a

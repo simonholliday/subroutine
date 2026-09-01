@@ -88,6 +88,48 @@ const WIDER = [25, 50, 100];
 const MAX_PARTS = 50;
 
 /*
+	How many links are drawn before the rest are held behind a control — `#1820`.
+
+	**Measured across 100 items on this instance before the number was chosen**: *Links* has a
+	median of 2, is empty on 19% and holds more than five on 12%, with a maximum of 26. So five
+	leaves 88% of items untouched and catches exactly the ones where the body is below the fold.
+
+	**Truncated rather than collapsed, which is where this departs from what was asked for.**
+	Simon proposed hiding the section entirely above a threshold. But `#84`'s model is that a
+	milestone is an item whose blockers are its contents, and it is precisely the items with
+	many links that are milestones — so a default keyed on the count would fold away the point
+	of the pages it fires on. Showing the first five keeps the body reachable, still says how
+	many are held, and always leaves some links on the page.
+
+	**Which five is already decided and is not this constant's to make.**
+	`domain.links.reading_order` sorts outstanding before settled first of all — Simon's call on
+	2026-08-28, argued then as *on a milestone of thirty-three the few left are the whole
+	answer*, which is this truncation's case stated a fortnight before it existed. So the five
+	drawn are the live ones, most-binding first, prerequisites before dependents.
+*/
+const LINKS_SHOWN = 5;
+
+/*
+	Where a preference this browser holds is written — `#1008`, `#1820`.
+
+	Named rather than spelled at the call site, because a key typed in two places is a
+	preference that reads back empty in one of them and nothing says so.
+*/
+const BOARD_COLUMNS_REMEMBERED = "board-columns";
+const SECTIONS_REMEMBERED = "detail-sections";
+
+/*
+	What the links section is called where a reader's choice about it is recorded — `#1820`.
+
+	**One string rather than three that have to agree.** The name is written into the stored
+	map, read back out of it, and put into the list's `id` for `aria-controls`; spelled at each
+	site, a rename would leave the control writing where nothing reads and nothing would say so.
+	`App` never names it at all — it hands the whole map down and takes the name back from the
+	control — so `#1143` adds a section by choosing a word here and nowhere else.
+*/
+const LINKS_SECTION = "link";
+
+/*
 	**What a listing asks for, which is what a row shows and nothing else** (§14.10, `#645`).
 
 	Measured on the served instance: a whole page of tasks is 287 KB and a whole page of
@@ -4571,24 +4613,31 @@ export function collapsedColumns (keys, chosen) {
 	)));
 }
 
-export function collapsedChoices (storage) {
+export function choicesIn (storage, key) {
 	/*
-		What this browser remembers about collapsed columns, as `{ key: boolean }`.
+		What this browser remembers under `key`, as `{ name: boolean }`.
 
 		`localStorage` per `#908`'s theme precedent: browser-local, no API change, no migration,
 		and no column on a `User` row that is more often an agent than a person (`#473`). A
 		second data point for `#904`.
 
 		**Anything unrecognised reads as nothing remembered.** A value written by an older
-		version or by somebody poking at storage must not put the board into a state no control
+		version or by somebody poking at storage must not put the page into a state no control
 		can get it out of — the reasoning is `themeChoice`'s and the failure would be worse here,
 		because a wrongly collapsed column hides work.
 
 		Takes the storage rather than reaching for it, because it throws in some privacy modes
 		and the render harness runs in Node, where it may not exist at all.
+
+		**Takes the key too, since `#1820`.** This was written for the board and a second reader
+		wanted the same defensive parse for a different preference. Two copies of *anything
+		unrecognised reads as nothing remembered* is this codebase's signature defect, and the
+		second copy is the one that would be written without the reasoning above it — so the
+		storage key is a parameter and there is no default, because a default is what lets a
+		caller write to somebody else's preference by forgetting.
 	*/
 	try {
-		const held = storage && storage.getItem("board-columns");
+		const held = storage && storage.getItem(key);
 		const read = held ? JSON.parse(held) : null;
 
 		if (!read || typeof read !== "object" || Array.isArray(read)) return {};
@@ -4601,17 +4650,17 @@ export function collapsedChoices (storage) {
 	}
 }
 
-export function rememberCollapsed (chosen, storage) {
+export function rememberChoices (chosen, storage, key) {
 	/*
-		Write the reader's collapsed columns back, and return what was stored.
+		Write the reader's choices back under `key`, and return what was stored.
 
-		Written whole rather than a key at a time, because the caller holds the whole map and a
+		Written whole rather than a name at a time, because the caller holds the whole map and a
 		partial write is a second copy of it that can disagree. A storage failure is swallowed
 		for `applyTheme`'s reason: not remembering is worse than not honouring, and only for the
 		next load.
 	*/
 	try {
-		if (storage) storage.setItem("board-columns", JSON.stringify(chosen));
+		if (storage) storage.setItem(key, JSON.stringify(chosen));
 	} catch (unavailable) {
 		/* A private window can refuse to remember. The choice still applies to this page. */
 	}
@@ -4863,6 +4912,81 @@ export function blockersDone (links) {
 	const done = held.filter((link) => link.other && link.other.is_complete).length;
 
 	return `  (${done} of ${held.length} blockers done)`;
+}
+
+export function withinAllowance (rows, revealed, allowance = LINKS_SHOWN) {
+	/*
+		The rows of a section that are drawn, which is the front of the list or all of it.
+
+		Pure and given the rows rather than the item, so the harness can drive it (`#640`) and so
+		`#1143` can hand it backlinks — median 3, over five on 25% of items, maximum 36, which is
+		twice this section's incidence and a longer tail. Whatever is built here has to be what
+		that section uses; a shape hand-fitted to one heading would be a second copy of the rule
+		by the time it landed.
+
+		**The rows, and never also a count of the ones held back.** An earlier version returned
+		both, and the count was read by nothing but its own test while :func:`Held` derived the
+		same number a second way — two places one allowance is applied, which is what makes a
+		control and its own subject disagree. `Held` is given what this returned instead.
+
+		**Revealed shows everything, and there is no second allowance.** A reader who asked for
+		the rest asked for all of it: a *Show 13 more* that reveals five is a control whose label
+		is a lie the second time it is pressed.
+	*/
+	const all = rows || [];
+
+	if (revealed || all.length <= allowance) return all;
+
+	return all.slice(0, allowance);
+}
+
+function Held ({ name, total, shown, revealed, onReveal, plural }) {
+	/*
+		The control that reveals a truncated section, or folds it back — `#1820`.
+
+		**Nothing at all when nothing is held and nothing was revealed**, which is the state 88%
+		of items are in. A control that says *Show 0 more* is §12.2a's column that says the same
+		thing on every row, wearing a button.
+
+		**The count is what keeps truncated from meaning blind**, which is Simon's own *"x linked
+		items"* and `#1008`'s settled reasoning. Unlike the board's cap this one knows the number
+		exactly — every row arrived and was counted here rather than left behind by a query — so
+		it says *5 of 18* where the board can only say *there are more*.
+
+		**Both numbers come from the rows themselves**, so the control cannot describe an
+		allowance the list did not apply. `shown` is the length of what
+		:func:`withinAllowance` returned rather than the allowance it was given — the two agree
+		today and would part company the moment a section were handed a different one.
+
+		**`shown === total` is not on its own the state that draws nothing**, which is the
+		off-by-one waiting in this component: a revealed section shows all of its rows too, and
+		the two are told apart by whether anybody asked.
+
+		**`aria-expanded` on the button and `aria-controls` naming the list**, so a reader who
+		cannot see the rows appear is told what changed. The id is the section's name rather than
+		the item's, because two sections on one page must not claim one id and the same section
+		never appears twice.
+
+		**Both directions are remembered and `false` is the load-bearing one.** A reader who
+		folds a section back has to have that survive the next poll, or the default reasserts
+		itself and the control appears to do nothing.
+	*/
+	if (shown === total && !revealed) return null;
+
+	const what = plural || `${name}s`;
+
+	return html`
+		<div class="cut">
+			<span>${revealed
+				? `Showing all ${total} ${what}.`
+				: `Showing ${shown} of ${total} ${what}.`}</span>
+			<button type="button" class="action"
+				aria-expanded=${revealed ? "true" : "false"}
+				aria-controls=${`section-${name}`}
+				onClick=${() => onReveal(name, !revealed)}>
+				${revealed ? "Show fewer" : `Show all ${total}`}</button>
+		</div>
+	`;
 }
 
 export function partsDone (parts) {
@@ -6987,8 +7111,24 @@ export function Detail ({
 	   a row's does — decision `#957` §4, and `#970` is where the links list joined that rule.
 	   `onGo` is what makes the chip a control rather than an ornament (`#251`). */
 	project = null, onGo = null,
+	/* Which truncated sections this reader has opened, and how to change it — `#1820`.
+	   Defaulted, because the render harness builds this component directly and a section that
+	   nobody has answered for is simply the one that takes the allowance. */
+	revealed = {}, onReveal = null,
 }) {
 	const body = item.description || item.body;
+
+	/*
+		**The links section is truncated rather than the whole list drawn** — `#1820`, and
+		`#1149` is why it is above the description in the first place. Eighteen links above a
+		961-character body put the body below the fold, which is that decision costing what it
+		was taken to buy.
+
+		Computed here rather than inside the section so the count and the rows come from one
+		call: two calls would be two places the allowance is applied and one of them would
+		eventually be given a different one.
+	*/
+	const linksShown = withinAllowance(links, revealed[LINKS_SECTION]);
 
 	/*
 		**Both of these are addresses, so both are links** (`#722`). *All items* goes to the
@@ -7169,8 +7309,8 @@ export function Detail ({
 				     `.linked li` meaning *a row in either list* — and an assertion about one of
 				     them that cannot say which list it is on is one that passes on the wrong
 				     one. */ null}
-				<ul class="linked links">
-					${links.map((link) => {
+				<ul class="linked links" id=${`section-${LINKS_SECTION}`}>
+					${linksShown.map((link) => {
 						const going = { ref: link.other.ref, kind: link.other.entity_type };
 						const to = workspace ? addressOf(going, workspace) : null;
 						const follow = (event) =>
@@ -7262,6 +7402,10 @@ export function Detail ({
 						`;
 					})}
 				</ul>
+
+				${onReveal && html`<${Held} name=${LINKS_SECTION} total=${links.length}
+					shown=${linksShown.length} revealed=${!!revealed[LINKS_SECTION]}
+					onReveal=${onReveal} />`}
 
 				${onLink && html`<${Linking} busy=${busy} onLink=${onLink}
 					types=${linkChoices(vocabulary)} />`}
@@ -7676,7 +7820,14 @@ export function App () {
 	   `collapsedColumns`, because they depend on the selection in the address and that changes
 	   under this component without storage having anything to say about it. */
 	const [columnChoices, setColumnChoices] = useState(
-		() => collapsedChoices(globalThis.localStorage)
+		() => choicesIn(globalThis.localStorage, BOARD_COLUMNS_REMEMBERED)
+	);
+	/* **What this browser remembers about revealing a truncated section** (`#1820`), keyed by
+	   the section's name rather than by the item — so it is bounded by how many sections this
+	   app has, where a key per item would grow for ever and be stale the moment an item's link
+	   count changed. Read once, for `columnChoices`' reason. */
+	const [sectionChoices, setSectionChoices] = useState(
+		() => choicesIn(globalThis.localStorage, SECTIONS_REMEMBERED)
 	);
 	/* The project the address narrows to, or null for the whole workspace (`#647`). Held
 	   beside the workspace rather than derived on each render, because the poll and every
@@ -8961,8 +9112,25 @@ export function App () {
 		same fact is decided, and it would fire on mount and write back what it had just read.
 	*/
 	const collapse = useCallback((key, shut) => {
-		setColumnChoices((held) => rememberCollapsed(
-			{ ...held, [key]: shut }, globalThis.localStorage
+		setColumnChoices((held) => rememberChoices(
+			{ ...held, [key]: shut }, globalThis.localStorage, BOARD_COLUMNS_REMEMBERED
+		));
+	}, []);
+
+	/*
+		Reveal a truncated section, or fold it back — `#1820`.
+
+		**One preference for the whole app rather than one per item**, which is the decision a
+		later reader would reverse. A reader who reveals a milestone's links has said something
+		about how they read this page, not about `#1387`; and on the 88% of items with five
+		links or fewer the choice is inert, because there is nothing to hold back. Keying it by
+		item would put an entry in storage for every milestone anybody ever opened, prune none
+		of them, and go on claiming an answer for an item whose links have since been cut to
+		three.
+	*/
+	const reveal = useCallback((name, open) => {
+		setSectionChoices((held) => rememberChoices(
+			{ ...held, [name]: open }, globalThis.localStorage, SECTIONS_REMEMBERED
 		));
 	}, []);
 
@@ -9868,6 +10036,12 @@ export function App () {
 					     reading it would have fallen back to the switcher in silence. */ null}
 					prioritised=${prioritisedHere(me ? me.workspaces : [], open.slug || workspace)}
 					onComplete=${mayWriteThere ? (row) => complete(row, openIn) : null}
+					${/* **A reader who cannot write may still reveal a section** (`#1820`). This
+					     is a fact about how the page is read rather than about the item, so it is
+					     passed unconditionally — gating it on `mayWriteThere` would leave a
+					     viewer looking at five of twenty-six links with no way to see the rest,
+					     which is `#1781`'s complaint with the halves swapped. */ null}
+					revealed=${sectionChoices} onReveal=${reveal}
 					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} heldUp=${heldUp}

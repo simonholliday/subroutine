@@ -4237,6 +4237,140 @@ def test_a_link_can_be_made_and_taken_apart (tmp_path: pathlib.Path) -> None:
 	assert "Links" not in mute
 
 
+def test_a_section_holds_back_what_is_past_its_allowance (tmp_path: pathlib.Path) -> None:
+	"""`SR#1820`, and the rule alone, driven where `Detail` cannot be.
+
+	**Three properties no rendering can state**, which is why they are asked of the function
+	rather than of the page: what is drawn is the *front* of the list, revealing shows
+	everything rather than a second allowance, and a section at exactly the allowance holds
+	nothing back.
+
+	**The front is what makes this safe.** ``domain.links.reading_order`` sorts outstanding
+	before settled first of all — Simon's call on 2026-08-28, argued then as *on a milestone of
+	thirty-three the few left are the whole answer* — so taking the front takes the live work.
+	Slicing from anywhere else would hide exactly the rows a milestone is read for, and would
+	look right on every fixture where nothing is finished.
+
+	**Revealing shows all of it, and the alternative is a control that lies.** A *Show 13 more*
+	that widened the allowance by five would say something false the second time it was
+	pressed, which is `SR#1790`'s board footer with a number attached to it.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import {{ withinAllowance }} from "{_staged(tmp_path).as_uri()}";
+
+		const rows = Array.from({{ length: 8 }}, (_, at) => at + 1);
+
+		console.log(JSON.stringify({{
+			over: withinAllowance(rows, false, 5),
+			revealed: withinAllowance(rows, true, 5),
+			exactly: withinAllowance(rows.slice(0, 5), false, 5),
+			under: withinAllowance(rows.slice(0, 2), false, 5),
+			none: withinAllowance([], false, 5),
+			absent: withinAllowance(undefined, false, 5),
+		}}));
+	""")
+
+	assert answers["over"] == [1, 2, 3, 4, 5], (
+		"the rows drawn are not the front of the list, so a milestone truncated at five would "
+		"hide the outstanding work `domain.links.reading_order` sorts to the top for it"
+	)
+
+	assert answers["revealed"] == [1, 2, 3, 4, 5, 6, 7, 8], (
+		"revealing did not show everything, so the control's own count is wrong the second "
+		"time it is pressed"
+	)
+
+	assert answers["exactly"] == [1, 2, 3, 4, 5], (
+		"a section at exactly its allowance lost a row, which is an off-by-one that only "
+		"shows on the items nobody would think to check"
+	)
+
+	assert answers["under"] == [1, 2] and answers["none"] == [] and answers["absent"] == [], (
+		f"a section inside its allowance did not draw what it was given: {answers}"
+	)
+
+
+def test_a_long_list_of_links_shows_five_and_says_how_many_it_holds (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1820`, Simon: *"When a page has a lot of related links, the body of the item is below
+	the fold."* His example is `SR#1387` — 18 links above a 961-character description.
+
+	**Truncated rather than collapsed, which is where this departs from what he proposed.**
+	`SR#84`'s model is that a milestone is an item whose blockers are its contents, and the
+	items with many links are overwhelmingly milestones — so hiding the section at a threshold
+	would fold away the point of exactly the pages it fires on. Five are drawn, the rest are
+	counted, and the body comes up.
+
+	**The count is what keeps truncated from meaning blind**, which is Simon's own *"x linked
+	items"*. Unlike the board's cap this one knows the number exactly, because every row
+	arrived and was counted here rather than left behind by a query.
+
+	**The heading still counts every link.** `blockersDone` is handed the whole list, not what
+	survived the cut — a milestone reading *(1 of 5 blockers done)* about eighteen blockers
+	would be a confident wrong answer on the one number `SR#84` says the page is for.
+	"""
+
+	shared = {"item": {"ref": 42, "title": "A milestone", "status": "open", "kind": "task"},
+		"comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+
+	links = [
+		{"id": f"l-{at}", "link_type": "blocks", "link_category": "gating",
+			"label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "task", "ref": 100 + at, "title": f"Part {at}",
+				"is_complete": False}}
+		for at in range(18)
+	]
+
+	cut = _rendered(tmp_path, {"Detail": {**shared, "links": links, "onReveal": True}})["Detail"]
+
+	assert "Part 4" in cut and "Part 5" not in cut, (
+		"the links section drew more or fewer than the five it is allowed, so the body is "
+		f"still below the fold: {cut}"
+	)
+
+	assert "Showing 5 of 18 links" in cut, (
+		"a truncated section did not say how many it is holding, which is the whole of what "
+		f"keeps it from reading as the complete list: {cut}"
+	)
+
+	assert "Show all 18" in cut, (
+		"the control does not say how many it would show, so a reader cannot tell what "
+		f"pressing it costs: {cut}"
+	)
+
+	assert "(0 of 18 blockers done)" in cut, (
+		"the heading counted what survived the cut rather than what the item holds, which is "
+		"the one number `SR#84` says a milestone's page is for"
+	)
+
+	whole = _rendered(tmp_path, {"Detail": {
+		**shared, "links": links, "onReveal": True, "revealed": {"link": True}
+	}})["Detail"]
+
+	assert "Part 17" in whole, "revealing the section did not show the rest of it"
+	assert "Showing all 18 links" in whole, (
+		"a revealed section does not say how much it is showing, so a reader cannot tell it "
+		"from one that was never truncated"
+	)
+	assert "Show fewer" in whole, (
+		"a revealed section offers no way back, so the choice is one a reader can make once"
+	)
+
+	# **Nothing at all below the allowance**, which is 88% of items on this instance. A control
+	# saying *0 more* is §12.2a's column that says the same thing on every row, wearing a
+	# button.
+	short = _rendered(tmp_path, {"Detail": {
+		**shared, "links": links[:5], "onReveal": True
+	}})["Detail"]
+
+	assert "Showing" not in short and "Show all" not in short, (
+		f"a section inside its allowance drew a control offering to show nothing: {short}"
+	)
+
+
 def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None:
 	"""`SR#1218`. The page drew the pointer up and not the list down.
 
@@ -13596,32 +13730,45 @@ def test_a_reader_who_opens_a_column_is_remembered (tmp_path: pathlib.Path) -> N
 	"""
 
 	answers = _ran(tmp_path, f"""
-		import {{ collapsedChoices, rememberCollapsed }} from "{_staged(tmp_path).as_uri()}";
+		import {{ choicesIn, rememberChoices }} from "{_staged(tmp_path).as_uri()}";
 
 		const stored = (value) => ({{ getItem: () => value }});
 		const broken = {{ getItem: () => {{ throw new Error("no storage here"); }} }};
 
-		let written = null;
+		const held = {{}};
 		const writable = {{
-			getItem: () => written,
-			setItem: (_key, value) => {{ written = value; }},
+			getItem: (key) => (key in held ? held[key] : null),
+			setItem: (key, value) => {{ held[key] = value; }},
 		}};
 
-		rememberCollapsed({{ cancelled: false, superseded: true }}, writable);
+		rememberChoices({{ cancelled: false, superseded: true }}, writable, "board-columns");
+		rememberChoices({{ link: true }}, writable, "detail-sections");
 
 		console.log(JSON.stringify({{
-			roundTrip: collapsedChoices(writable),
-			nothing: collapsedChoices(stored(null)),
-			nonsense: collapsedChoices(stored("{{ not json")),
-			array: collapsedChoices(stored("[1, 2]")),
-			mixed: collapsedChoices(stored('{{"a": true, "b": "yes", "c": 3}}')),
-			absent: collapsedChoices(undefined),
-			broken: collapsedChoices(broken),
+			roundTrip: choicesIn(writable, "board-columns"),
+			otherKey: choicesIn(writable, "detail-sections"),
+			unwritten: choicesIn(writable, "nobody-wrote-this"),
+			nothing: choicesIn(stored(null), "board-columns"),
+			nonsense: choicesIn(stored("{{ not json"), "board-columns"),
+			array: choicesIn(stored("[1, 2]"), "board-columns"),
+			mixed: choicesIn(stored('{{"a": true, "b": "yes", "c": 3}}'), "board-columns"),
+			absent: choicesIn(undefined, "board-columns"),
+			broken: choicesIn(broken, "board-columns"),
 		}}));
 	""")
 
 	assert answers["roundTrip"] == {"cancelled": False, "superseded": True}, (
 		"what was remembered did not come back, so a reader's choice lasts one render"
+	)
+
+	assert answers["otherKey"] == {"link": True}, (
+		"`SR#1820`. A second preference written under its own key did not come back, so "
+		"generalising this pair left one of its two readers writing where nothing reads"
+	)
+
+	assert answers["unwritten"] == {}, (
+		"a key nobody has written to answered with somebody else's preference, which is the "
+		"failure a shared defensive parse invites and the reason the key is a parameter"
 	)
 
 	for state in ("nothing", "nonsense", "array", "absent", "broken"):

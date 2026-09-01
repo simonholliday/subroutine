@@ -625,6 +625,12 @@ CARD: dict[str, typing.Any] = {
 	# cannot reach a state looks exactly like one nobody needed it to, which is the fourth time
 	# a gap here has been indistinguishable from a missing test.
 	"project_colour": "teal",
+	# **A body, because the complaint this page's order was changed for is about one** —
+	# `SR#1149` put an item's links above its description, and `SR#1820` is the bill for that
+	# on a milestone. Without a description here the links sit above nothing and the geometry
+	# both items are about cannot be measured at all.
+	"description": "The cursor compares a sort value for equality, so a page boundary that "
+		"lands between two rows sharing one repeats or skips them.",
 	"status_category": "todo", "created_at": "2026-08-10T14:22:00+00:00",
 }
 
@@ -799,6 +805,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: ``/v1/tasks``, so without this every open item would draw the whole listing as its own
 	#: sub-tasks and the strikethrough test next door would be counting rows from a board.
 	parts: list[typing.Any] = [EMPTY]
+	#: What an item's links answer — `SR#1820`. A holder for `parts`' reason exactly: the route
+	#: is registered on the context once, so a test wanting a milestone's worth of links cannot
+	#: be given one as an argument to the route.
+	linked: list[typing.Any] = [LINKED]
 	#: Whether the item this page opens repeats — `SR#1253`. A holder for `listing`'s reason:
 	#: the route is registered on the context once and every page shares it.
 	#:
@@ -945,7 +955,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# `fullmatch` is why: `v1/tasks/42/links` is not a full match for
 				# `v1/tasks/\d+`, where it *is* a `startswith` match — which is the whole
 				# difference between the two traps this block records and this line.
-				else LINKED if re.fullmatch(r"v1/tasks/\d+/links", wanted)
+				else linked[0] if re.fullmatch(r"v1/tasks/\d+/links", wanted)
 				else (
 					# **A ref for the series it belongs to is the whole of *this repeats***,
 					# which is what `app.repeats` reads and what `views.repeats` reads at the
@@ -1005,11 +1015,14 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 	def opened (
 		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None,
-		made_of: typing.Any = None,
+		made_of: typing.Any = None, joined: typing.Any = None,
 	) -> typing.Any:
 		"""Open one address and wait for the app to have painted."""
 
 		listing[0] = ROWS if rows is None else rows
+		#: **Three links unless a caller asks**, so every test that predates truncation opens an
+		#: item well inside the allowance and none of their assertions moves.
+		linked[0] = LINKED if joined is None else joined
 		#: **Empty unless a caller asks**, so every test that predates parts opens an item with
 		#: none — which is what keeps this addition from changing eighteen other assertions.
 		parts[0] = EMPTY if made_of is None else made_of
@@ -1823,6 +1836,20 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	anything* and *a column kept when one person has all of it* are two halves of one rule and
 	are now one test, not two; and *the board keeps its chip* is a call to a pure function,
 	which `_addressing` drives in `tests/test_web.py` in a millisecond.
+
+	**Raised to forty for `SR#1820`, and what earns it is the item's own acceptance.** Every
+	other half of that change is pure and is checked in ``tests/test_web.py`` — what is drawn,
+	what is held back, the control's wording, the heading still counting every link, and the
+	storage round-trip. What none of them can say is the thing the change is *for*: that a
+	milestone's description comes above the fold. A markup test is byte-identical whether the
+	body lands at 600 pixels or at 2,400, so the claim is a window height, a flex column and
+	eighteen rows resolving against each other — and the second assertion, which reproduces the
+	defect by revealing them, is what stops the first passing against a page that drew no links.
+
+	**And it is `SR#1008`'s raise a second time, deliberately.** The state, the storage and the
+	callback live in ``App``; ``tests/dom.js`` cannot execute it and will not dispatch an event.
+	The reload is the half that has ever actually broken.
+
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1830,7 +1857,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 39, (
+	assert len(tests) <= 40, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
@@ -3647,6 +3674,108 @@ def test_a_closed_item_is_struck_through_and_a_mark_is_drawn_as_a_row_does (
 		)
 
 
+#: A milestone's worth of links — `SR#1820`, and eighteen is `SR#1387`'s own figure, which is the
+#: page Simon was reading when he asked for this.
+#:
+#: **Every end unfinished**, because the claim being measured is geometric and a struck-through
+#: row is the same height as a live one. What the truncation must *not* do to a mixed list is
+#: `heldBack`'s own test in ``tests/test_web.py``, driven against the rule rather than the page.
+A_MILESTONE: dict[str, typing.Any] = {
+	"items": [
+		{"id": f"m-{at}", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
+			"other": {"entity_type": "task", "ref": 200 + at, "title": f"The {at}th part",
+				"type": "task", "status": "open", "status_is_default": True,
+				"project_path": "subroutine/ui", "is_complete": False}}
+		for at in range(18)
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": 18},
+}
+
+
+def test_a_milestones_links_stop_pushing_its_body_off_the_screen (running: typing.Any) -> None:
+	"""`SR#1820`, Simon: *"When a page has a lot of related links, the body of the item is below
+	the fold."* His example is `SR#1387` — 18 links above a 961-character description.
+
+	**Geometry, and a browser is the only thing that has it.** Every other part of this is pure
+	and is checked in ``tests/test_web.py`` at no cost here: what is drawn, what is held back,
+	the wording of the control and the heading still counting every link. What none of them can
+	say is the thing the item is *for* — that the body comes up. A markup test would be
+	byte-identical whether the description landed at 600 pixels or at 2,400.
+
+	**And the wiring, which is `SR#640` for the eighth time.** The state, the storage and the
+	callback all live in ``App``, which ``tests/dom.js`` cannot execute and which will not
+	dispatch an event by decision — so what is left here is the half that has ever actually
+	broken: that pressing the control changes the page, and that the change survives a reload.
+
+	**The reload is not a flourish.** Remembering is the whole reason this is ``localStorage``
+	rather than component state, and `SR#1008` records the complaint it answers: a reader who
+	reveals the links, follows one and comes back finds it shut again. A version that renders
+	correctly and forgets on every navigation would pass every other check in this file.
+
+	**Read for fat**: one page, one gesture, one reload. The first assertion is the defect, the
+	second is what stops it passing against a page that simply drew no links at all, and the
+	third and fourth are the two halves of the control that are reachable nowhere else.
+	"""
+
+	opened, *_ = running
+	page = opened("/projects/subroutine/ui/42", joined=A_MILESTONE)
+	page.wait_for_selector(".links li", timeout=10_000)
+	page.set_viewport_size({"width": 1200, "height": 900})
+
+	def measured (target: typing.Any) -> typing.Any:
+		"""How many links are drawn, and where the description starts relative to the fold."""
+
+		return target.evaluate("""() => {
+			const prose = document.querySelector(".detail .prose");
+
+			return {
+				rows: document.querySelectorAll(".links li").length,
+				body: prose ? prose.getBoundingClientRect().top : null,
+				fold: window.innerHeight,
+			};
+		}""")
+
+	cut = measured(page)
+
+	assert cut["rows"] == 5, (
+		f"the links section drew {cut['rows']} rows rather than the five it is allowed"
+	)
+
+	assert cut["body"] is not None and cut["body"] < cut["fold"], (
+		f"the description starts {cut['body']}px down a {cut['fold']}px window, so it is still "
+		f"below the fold and the truncation bought nothing"
+	)
+
+	# **What stops the assertion above passing vacuously**, and it is not a formality: a page
+	# that rendered no links at all would put the body at the very top and satisfy it. This is
+	# the same measurement with the allowance removed, and it is what the reader was looking at.
+	page.click(".links + .cut button")
+	# **Said in CSS rather than evaluated**, because the policy this app serves carries no
+	# `unsafe-eval` and a string wait is refused rather than slow — `test_web.py` holds that
+	# rule. `li:nth-child(18)` is *the eighteenth row exists*, which is the same claim.
+	page.wait_for_selector(".links li:nth-child(18)", timeout=10_000)
+
+	whole = measured(page)
+
+	assert whole["body"] > whole["fold"], (
+		f"eighteen links did not push the description below a {whole['fold']}px fold, so this "
+		f"harness cannot reproduce the defect and the assertion above proves nothing: {whole}"
+	)
+
+	# **Read back after a reload rather than trusting the click.** `localStorage` is the whole
+	# mechanism, and a version holding the choice in component state passes everything above.
+	page.reload()
+	# **Waited on broadly and asserted precisely**, so a forgotten choice fails with the
+	# sentence below rather than with a selector timing out. Preact renders `Detail` in one
+	# pass, so the first row appearing means all of them have.
+	page.wait_for_selector(".links li", timeout=10_000)
+
+	assert measured(page)["rows"] == 18, (
+		"the reader's choice did not survive a reload, so following a link and coming back "
+		"shuts the section again — which is the complaint `SR#1008` was built to answer"
+	)
+
+
 def _contrast (ink: str, behind: str) -> float:
 	"""Return the WCAG contrast ratio between two computed CSS colours — `SR#1021`.
 
@@ -3804,8 +3933,8 @@ def test_a_column_that_is_over_starts_folded_and_opens_when_asked (running: typi
 
 	**And the wiring, which is `#640` for the sixth time.** The state, the storage and the
 	callback all live in `App`, which `tests/dom.js` cannot execute and which will not dispatch
-	an event by decision — so the decision (`collapsedColumns`), the storage (`collapsedChoices`,
-	`rememberCollapsed`) and the rendering are all checked in `tests/test_web.py` at no cost
+	an event by decision — so the decision (`collapsedColumns`), the storage (`choicesIn`,
+	`rememberChoices`) and the rendering are all checked in `tests/test_web.py` at no cost
 	here, and what is left is the half that has ever actually broken: that pressing the thing
 	changes the page, and that the change survives a reload.
 
