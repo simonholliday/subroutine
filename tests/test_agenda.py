@@ -28,6 +28,7 @@ import subroutine.db.types
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.claims
 import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.projects
@@ -1258,6 +1259,108 @@ def test_work_held_up_by_somebody_elses_item_gets_its_own_section (
 	)
 
 
+def _agenda_of (
+	world: World, user: subroutine.db.models.identity.User
+) -> subroutine.domain.agenda.Agenda:
+	"""Build the agenda somebody else would see, in the same workspace.
+
+	``World.agenda`` passes its own principal, so a test about two readers cannot go through
+	it — and two readers is the whole of what `SR#1774` needs.
+	"""
+
+	return subroutine.domain.agenda.build(
+		world.session,
+		principal=subroutine.domain.authentication.Principal(user=user),
+		workspace_ids=[world.workspace.id],
+		now=NOW,
+		timezone=LONDON,
+	)
+
+
+def test_a_question_nobody_owns_is_on_nobodys_waiting_list (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1774`, found by Simon in the first hour of the first shared instance.
+
+	Two of his own decisions, parked and assigned to nobody, were addressed to a colleague
+	under a heading reading *Waiting on you*. What put them there is
+	`readiness.yours_to_act_on`'s middle clause — *assigned to nobody* — which is right for
+	every other bucket and wrong for this one: `BUCKETS` says in its own comment that every
+	other bucket is work the reader could pick up and this one is work they are holding up.
+
+	`#96` is why the row cannot answer for itself. With no fifth status category,
+	``needs_input`` records that an answer is owed and never by whom, so reading that silence
+	as *everybody* is the product inventing a fact.
+
+	**Two readers, because one cannot tell the halves apart.** Until a second person existed
+	on any instance, *assigned to nobody* and *mine* selected the same rows — which is why
+	every fixture in this file used an unassigned task and nothing here ever had to choose.
+
+	**And it asserts where the row went, not only where it did not go.** Declining it is only
+	right because the buckets subtract in order and it falls through to `unscheduled`; an
+	assertion that stopped at the empty bucket would pass just as well against a rule that
+	dropped the row off the page.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	unowned = world.task("Which way round?")
+	_waiting(world, unowned, on=None)
+
+	theirs = world.task("Their question")
+	_waiting(world, theirs, on=other.id)
+
+	mine = world.agenda()
+
+	assert _titles(mine.waiting) == [], (
+		"a question nobody has been given is not one this reader is holding up"
+	)
+	assert "Which way round?" in _titles(mine.unscheduled), (
+		"and it is relabelled rather than hidden — it falls through to what could be started"
+	)
+
+	seen = _agenda_of(world, other)
+
+	assert _titles(seen.waiting) == ["Their question"], (
+		"the other reader is holding up their own question and not the unowned one"
+	)
+	assert "Which way round?" in _titles(seen.unscheduled), (
+		"which reaches them the same way it reaches everybody: as work nobody has taken"
+	)
+
+
+def test_a_question_you_are_holding_is_yours_to_answer (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The clause that keeps `SR#1774` from being ``assigned_to_me``, falsified on its own.
+
+	Somebody holding a live lease on a parked question is the person acting on it, so
+	`readiness.yours_to_answer` keeps :func:`yours_to_act_on`'s third clause and drops only
+	its middle one. Without this the narrowing would recreate exactly the failure that third
+	clause exists to prevent — work vanishing from the agenda of the one person who has
+	started it (`#1267` §1, and :func:`unclaimed` one axis along).
+
+	**Separate from the test above because one of them could not tell these apart.** A single
+	test asserting an unowned question is absent would pass against a rule that read the
+	assignee alone, which is the shape a later reader would reach for.
+	"""
+
+	world = World(session)
+
+	unowned = world.task("Which way round?")
+	_waiting(world, unowned, on=None)
+
+	assert _titles(world.agenda().waiting) == [], "nobody has been given it yet"
+
+	subroutine.domain.claims.claim(world.session, unowned, now=NOW, actor=world.principal)
+	world.session.flush()
+
+	assert _titles(world.agenda().waiting) == ["Which way round?"], (
+		"taking a lease on it makes it the reader's to answer, with no assignee involved"
+	)
+
+
 def _held_up (
 	built: subroutine.domain.agenda.Agenda, title: str
 ) -> list[str] | None:
@@ -1927,13 +2030,33 @@ def test_a_date_left_alone_does_not_take_the_zone_with_it (
 	assert task.due_at == before
 
 
-def _waiting (world: World, task: subroutine.db.models.work.Task) -> None:
-	"""Park a question on a task, the way an agent would."""
+#: Stands for *the person whose agenda this is*, so ``on=None`` can mean **nobody** rather
+#: than *not stated* — the distinction `#1774` turns on.
+_THE_READER = uuid.UUID(int=0)
+
+
+def _waiting (
+	world: World,
+	task: subroutine.db.models.work.Task,
+	*,
+	on: uuid.UUID | None = _THE_READER,
+) -> None:
+	"""Park a question on a task, the way an agent would, and say who owes the answer.
+
+	**``on`` defaults to the reader because that is what *Waiting on you* means** (`#1774`).
+	These fixtures were written when this instance had one person, so an unassigned row and
+	the reader's own row were the same thing and nothing here had to choose. They are not the
+	same thing on a shared instance, and the heading names a person.
+
+	Pass ``on=None`` for a question nobody has been given, which is the case
+	``test_a_question_nobody_owns_is_on_nobodys_waiting_list`` is about.
+	"""
 
 	subroutine.domain.tasks.update(
 		world.session,
 		task,
 		status_key=subroutine.domain.agenda.WAITING_STATUS,
+		assignee_id=world.user.id if on is _THE_READER else on,
 		now=NOW,
 		actor=world.principal,
 	)

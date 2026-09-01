@@ -525,10 +525,14 @@ def test_the_mark_and_the_agendas_section_read_one_key (
 	here for a reason that has nothing to do with what this is about.
 	"""
 
-	run("init")
+	run("init", "--username", "reader")
 	run("add", "Ordinary work")
 	run("add", "Needs a decision from you")
-	run("update", "2", "--status", "needs_input")
+
+	# **Assigned, because the heading names a person** (`SR#1774`), and the mark deliberately
+	# does not: the row says a question is parked wherever it appears, and the *section* says
+	# whose it is. Both still read one key, which is what this is about.
+	run("update", "2", "--status", "needs_input", "--assignee", "reader")
 
 	shown = run("agenda").output
 
@@ -761,30 +765,73 @@ def test_the_agenda_says_how_much_dated_work_is_past_the_look_ahead (
 	)
 
 
-def test_the_agenda_leads_with_what_is_already_in_hand (
+def test_work_already_in_hand_comes_above_anything_there_is_to_begin (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
 	"""Simon's decision of 2026-08-25 — `SR#1243`.
 
 	*"I would naturally complete a task before starting another."* Everything below this
-	section is a candidate to **begin**; this is the only one already in hand, so it leads.
+	section is a candidate to **begin**; this is the only one already in hand.
+
+	**It led the page until `SR#1775` put the day's own work above it**, on 2026-09-01. The
+	claim `SR#1243` decided is the one asserted here and it is unchanged: this outranks
+	everything that is a candidate to start. The test was called
+	``test_the_agenda_leads_with_what_is_already_in_hand``, which stopped being true of the
+	first heading a reader meets.
 
 	**The order is asserted rather than the membership**, because membership is what
 	`tests/test_agenda_surfaces.py` already compares across all three surfaces. What that file
 	cannot see is which heading a person meets first, which is the whole of what was decided.
+
+	**The question names who owes the answer** — `SR#1774`. *Waiting on you* is filtered to
+	exactly the reader, so a question assigned to nobody has no section here to be below.
 	"""
 
-	run("init")
+	run("init", "--username", "reader")
 	run("add", "Already going")
 	run("update", "1", "--status", "in_progress")
 	run("add", "Somebody is waiting")
-	run("update", "2", "--status", "needs_input")
+	run("update", "2", "--status", "needs_input", "--assignee", "reader")
 
 	printed = run("agenda").output
 
 	assert "In progress" in printed and "Waiting on you" in printed, printed
 	assert printed.index("In progress") < printed.index("Waiting on you"), (
 		"work already in hand is the one section that is not something to pick up"
+	)
+
+
+def test_the_agenda_leads_with_what_is_happening_today (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Simon's decision of 2026-09-01 — `SR#1775`.
+
+	*"If items are happening today, they should not be pushed down the page by 'waiting on
+	you' or 'waiting on someone else', and my preference is that it lives first — above 'In
+	progress'."*
+
+	**Driven at the terminal, because `BUCKETS` decides two things and only one of them is
+	visible from anywhere else** (`SR#1244`). `tests/test_agenda_surfaces.py` compares
+	membership across the three surfaces, and `tests/test_web.py` holds the browser's own copy
+	of this order against the terminal's — what neither can see is which heading a person
+	actually meets first, which is the whole of what was decided.
+
+	**A started task with no dates, so the pair is a genuine ordering question.** Give it a
+	planned day and it would be in *Today* rather than in *In progress*, and the assertion
+	would hold for the wrong reason: one section would simply be empty.
+	"""
+
+	run("init", "--username", "reader")
+	run("add", "Already going")
+	run("update", "1", "--status", "in_progress")
+	run("add", "Ship the thing")
+	run("plan", "2", "today")
+
+	printed = run("agenda").output
+
+	assert "Today" in printed and "In progress" in printed, printed
+	assert printed.index("Today") < printed.index("In progress"), (
+		"the day's own work is not pushed down the page by anything else"
 	)
 
 
@@ -7607,7 +7654,11 @@ def test_the_agenda_opens_with_what_is_waiting_on_you (
 	run("init", "--username", "si", "--workspace", "Personal")
 	run("add", "Ordinary work")
 	run("add", "Which way round should the flag read?")
-	run("update", "2", "--status", "needs_input")
+
+	# **Assigned, because the heading names a person** (`SR#1774`). This read
+	# `--status needs_input` alone, from a time when an unassigned question was on everybody's
+	# agenda — which on an instance of one reader was indistinguishable from this.
+	run("update", "2", "--status", "needs_input", "--assignee", "si")
 
 	shown = run("agenda").output
 

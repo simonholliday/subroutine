@@ -148,10 +148,25 @@ ORDERS: dict[str, tuple[str, ...]] = {
 #: there because the surfaces reach for it by that name and the domain cannot import the
 #: views, which import it.
 BUCKETS: tuple[str, ...] = (
-	# **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
-	# complete a task before starting another."* Work already in hand is the first thing to
-	# look at, because everything below it is a candidate to *begin* and this is the only
-	# section that is not.
+	# **First, and it is Simon's decision of 2026-09-01** (`#1775`): *"If items are happening
+	# today, they should not be pushed down the page by 'waiting on you' or 'waiting on
+	# someone else', and my preference is that it lives first — above 'In progress'."*
+	#
+	# **It takes rows from every bucket it passed, because one list decides both** (`#1244`).
+	# Dated work that is started, parked on an answer or held up by somebody else is reported
+	# here now. Nothing is hidden by that — the row moves *up* the page, so `#888`'s objection
+	# to capping `in_progress` is untouched — but *In progress* no longer lists everything in
+	# progress, and a reader looking for a started task with a planned day will find it here.
+	#
+	# **Two buckets it deliberately does not take from**, each refused in `build` by a clause
+	# rather than by this order: `occasions`, because a birthday in March would otherwise sit
+	# in Today every day for ever (decision `#1235` §4), and `overdue`, because *you are late*
+	# outranks *this is for today* and a planned day that has gone by is most late work.
+	"today",
+	# **Was first, on Simon's decision of 2026-08-25** (`#1243`): *"I would naturally complete
+	# a task before starting another."* Work already in hand still outranks everything that is
+	# a candidate to *begin*, which is every section below it; what changed on 2026-09-01 is
+	# that the day's own work now comes above all of it.
 	#
 	# **It outranks `overdue` as well, and that is the part with a consequence.** The buckets
 	# are disjoint in order, so a started task with a passed deadline is reported here rather
@@ -176,15 +191,15 @@ BUCKETS: tuple[str, ...] = (
 	# `waiting` and `#1243` for `in_progress`.
 	"blocked_by_others",
 	"overdue",
-	# **Above the day's own work, and below what is late** (decision `#1235` §4). Everything
-	# around it is work; this is what is happening *to* the reader, and a code freeze or a
-	# fortnight off is the context the rest of the page is read in — so it goes before *Today*
-	# and after the things that are already owed.
+	# **Below what is late, and since `#1775` below the day's own work too** (decision `#1235`
+	# §4). Everything around it is work; this is what is happening *to* the reader, and a code
+	# freeze or a fortnight off is the context the rest of the page is read in.
 	#
-	# **Which also takes its rows before `today` can**, since one list decides both. That is
-	# not a coincidence to be maintained; it is why there is one list.
+	# **Its rows are held by a clause and no longer by this order.** `today` used to sit under
+	# it and take what it left; now it sits above, so `today` carries an explicit
+	# `not is_occasion` — which decision `#1235` §4 already required for its own reason, and
+	# which is why moving `today` could not empty this section.
 	"occasions",
-	"today",
 	"upcoming",
 	"unscheduled",
 )
@@ -454,6 +469,16 @@ def build (
 		subroutine.domain.readiness.in_a_running_project(model),
 	)
 
+	# **What *late* means, written once because two buckets now read it** (`#1775`). `today`
+	# sits above `overdue` and matches a start that has passed, so without an exclusion a task
+	# due last week with a planned day would be reported as ordinary work for today — the row
+	# a reader is meant to act on first, quietly relabelled. Two copies of this comparison
+	# would agree until somebody moved one, which is `#508`'s shape.
+	late = sqlalchemy.and_(
+		model.due_at.is_not(None),
+		model.due_at < edge("due_at", on=day, reader=day_start),
+	)
+
 	# **What each bucket is about — and deliberately not what order they come in** (`#1244`).
 	# This is a mapping keyed by bucket, so the sequence it happens to be written in decides
 	# nothing at all; the loop below reads :data:`BUCKETS`, which is the one place the order
@@ -479,20 +504,45 @@ def build (
 		# by how many workers there are times how much each holds at once, which §14.11's
 		# leases keep small on purpose.
 		#
-		# **What would change it is team size**, since every bucket here is scoped by
-		# readability rather than by assignee. If it ever does, the shape is already beside it:
-		# Simon's condition was that a cap must *say* it is one, count what is hidden and offer
-		# a way to see it all, which is exactly what `unscheduled_total` is.
+		# **What would change it is team size**, and that arrived: this said *"every bucket
+		# here is scoped by readability rather than by assignee"*, which `#1265` made false in
+		# August and nothing came back for. Every bucket narrows :func:`_scoped`, which
+		# carries `readiness.yours_to_act_on` — so this is bounded by what **one person** holds
+		# rather than by what a team does, which makes the argument above stronger rather than
+		# weaker. Kept with its history because it is the sentence a reader checking whether
+		# the agenda is per-user would land on.
+		#
+		# If a cap is ever wanted, the shape is already beside it: Simon's condition was that
+		# a cap must *say* it is one, count what is hidden and offer a way to see it all,
+		# which is exactly what `unscheduled_total` is.
 		"in_progress": base.join(
 			subroutine.db.models.vocabulary.Status,
 			subroutine.db.models.vocabulary.Status.id == model.status_id,
 		).where(subroutine.db.models.vocabulary.Status.category == "in_progress"),
 		# **Read by key, which nothing else here does.** `WAITING_STATUS` carries why: `#96`
 		# refused a fifth status category, so there is none to ask for.
+		#
+		# **The one bucket that narrows further than `_scoped` did** (`#1774`, Simon's finding
+		# on the first morning of the first shared instance). Every other bucket is work the
+		# reader could pick up, which is what makes `yours_to_act_on`'s *assigned to nobody*
+		# clause right for them; this one is work they are holding up, and a question nobody
+		# has been given is not that. `#96` is why the row cannot say so itself — with no
+		# fifth status category, `needs_input` records that an answer is owed and never by
+		# whom, and reading that silence as *everybody* addressed two of Simon's decisions to
+		# a colleague on his first hour.
+		#
+		# **A row this declines is relabelled rather than hidden.** The buckets subtract in
+		# order, so it falls through to whichever one its dates put it in, and `#1383` marks
+		# `needs_input` on every surface — so it goes on saying what it is.
 		"waiting": base.join(
 			subroutine.db.models.vocabulary.Status,
 			subroutine.db.models.vocabulary.Status.id == model.status_id,
-		).where(subroutine.db.models.vocabulary.Status.key == WAITING_STATUS),
+		).where(
+			subroutine.db.models.vocabulary.Status.key == WAITING_STATUS,
+			subroutine.domain.readiness.yours_to_answer(
+				model, now=now, user_id=principal.user.id
+			),
+		),
 		# **The other kind of waiting, and the narrow reading of it** (`#1285`, decision
 		# `#1267` §3a): a live blocker that somebody who is not the caller is assigned to.
 		# The predicate is `unblocked`'s edges with one more join, and the reasoning for
@@ -529,10 +579,7 @@ def build (
 		# **A whole-day deadline is compared as a date** (`#1296`). Measured before the fix:
 		# a deadline of yesterday, written in London and read in Auckland, was reported as due
 		# *today* — the row a person is meant to act on first, quietly one day out.
-		"overdue": base.where(
-			model.due_at.is_not(None),
-			model.due_at < edge("due_at", on=day, reader=day_start),
-		),
+		"overdue": base.where(late),
 		# **Overlap with the day, which is what makes a passed event leave on its own**
 		# (decision `#1235` §4). An occasion is here when it has begun by tonight and is not
 		# over before this morning; its end is `ends_at` where there is one and its start
@@ -571,6 +618,14 @@ def build (
 			# above takes the ones that are actually happening; this clause is what stops the
 			# rest coming back through the door beside it.
 			sqlalchemy.not_(subroutine.domain.readiness.is_occasion(model)),
+			# **And it is not late** (`#1775`, Simon's decision of 2026-09-01). This bucket
+			# moved to the front of :data:`BUCKETS`, so it now reaches rows before `overdue`
+			# does — and `starts_at <= day_end` matches a task whose planned day has gone by,
+			# which is most late work anybody had planned. *You are late* is the more urgent
+			# sentence than *this is for today*, so the row stays where it says so. Exactly
+			# the clause above it, for exactly its reason: stopping rows coming back through
+			# the door beside their own bucket.
+			sqlalchemy.not_(late),
 			sqlalchemy.or_(
 				# **Compared against the end of the day, not against the day** (`#854`).
 				# This used to read `planned_for <= day`, a `DATE` against a `date`; the

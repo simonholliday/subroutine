@@ -4550,7 +4550,12 @@ export function columns (items) {
 	both. Add a section there and this fails until it is here.
 */
 const BUCKETS = [
-	/* **First, and it is Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
+	/* **First, and it is Simon's decision of 2026-09-01** (`#1775`): work happening today is
+	   not pushed down the page by what is parked on an answer. It takes dated rows from every
+	   section it passed, because one list decides order and membership alike — but not from
+	   `occasions` or `overdue`, each refused by a clause of its own in `domain/agenda.py`. */
+	{ key: "today", label: "Today" },
+	/* **Was first, on Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
 	   complete a task before starting another."* Everything below this is a candidate to
 	   begin; this is the only section that is already in hand. */
 	{ key: "in_progress", label: "In progress" },
@@ -4567,12 +4572,13 @@ const BUCKETS = [
 	{ key: "overdue", label: "Overdue" },
 	/* **What is happening to the reader rather than being done by them** — decision `#1235`
 	   §4. A birthday, a booked fortnight, a code freeze: none of it is work anybody can pick
-	   up, which is why it sits above *Today* rather than inside it.
+	   up, which is why it is a section of its own rather than part of *Today*. It sat above
+	   *Today* until `#1775`; what keeps its rows now is that bucket's own `not is_occasion`
+	   clause, which decision `#1235` §4 had already required for its own reason.
 
 	   **"Happening" rather than "Happening today"**, matching the terminal: it is true of a
 	   fortnight that began last week, where "today" would deny it. */
 	{ key: "occasions", label: "Happening" },
-	{ key: "today", label: "Today" },
 	{ key: "upcoming", label: `Next ${HORIZON_DAYS} days` },
 	{ key: "unscheduled", label: "Next" },
 ];

@@ -835,6 +835,46 @@ def unclaimed (
 	return sqlalchemy.or_(sqlalchemy.not_(live), model.claimed_by_id == by)
 
 
+def yours_to_answer (
+	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching work somebody has been named for — `#1774`.
+
+	**Assigned to you, or held by you.** :func:`yours_to_act_on` is this *plus* work assigned
+	to nobody, and is written in terms of this below, so the two clauses they share exist in
+	one place rather than in two that agree until somebody moves one (`#508`).
+
+	**The difference between them is whether a heading names a person.** An agenda asks *what
+	could I pick up*, so an unowned row belongs on everybody's — that is decision `#1267` §1
+	and it stands. *Waiting on you* asks something else: `BUCKETS` says so in its own comment,
+	that *every other bucket is work the reader could pick up; this one is work they are
+	holding up*. A row nobody has been given is not work anybody in particular is holding up.
+
+	**What makes it unanswerable rather than merely unassigned is `#96`.** There is no fifth
+	status category, so ``needs_input`` carries no principal at all: it says a question is
+	parked and cannot say whose. Reading that silence as *everybody's* put two of Simon's
+	decisions on a new colleague's agenda within an hour of the first shared instance, under a
+	heading addressed to him.
+
+	**Held by you is kept, and that clause is why this is not ``assigned_to_me``.** Somebody
+	holding a live lease on a parked question is exactly the person acting on it, so dropping
+	them would recreate the failure :func:`yours_to_act_on`'s third clause exists to prevent —
+	work vanishing from the agenda of the one person who has started it. A calendar feed's
+	``audience`` really is strictly-assigned and stays that way (decision `#1267` §2).
+
+	**An unowned question is not hidden by this, it is relabelled.** The buckets are disjoint
+	by subtraction, so a row this declines falls through to whichever bucket its dates put it
+	in, and `#1383` marks ``needs_input`` on every surface — so it still says what it is
+	wherever it lands. `#1116`'s argument for ranking this bucket above *Overdue* was that
+	*you owe an answer* beats *this is late*, which presumes the reader owes it.
+	"""
+
+	return sqlalchemy.or_(
+		model.assignee_id == user_id,
+		sqlalchemy.and_(held(model, now=now), model.claimed_by_id == user_id),
+	)
+
+
 def yours_to_act_on (
 	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
 ) -> sqlalchemy.ColumnElement[bool]:
@@ -868,12 +908,16 @@ def yours_to_act_on (
 
 	``user_id`` is required rather than defaulted, for :func:`ready`'s reason: a caller that
 	forgot it would silently hand somebody a different person's agenda.
+
+	**One bucket does not take the middle clause, and the exception is recorded here rather
+	than only where it is taken** (`#1774`). :func:`yours_to_answer` is the other two, and
+	*Waiting on you* reads it: a carve-out written at its own site alone reads to the next
+	person as a dead rule, and whoever next changes this rule needs to meet its exception.
 	"""
 
 	return sqlalchemy.or_(
-		model.assignee_id == user_id,
+		yours_to_answer(model, now=now, user_id=user_id),
 		model.assignee_id.is_(None),
-		sqlalchemy.and_(held(model, now=now), model.claimed_by_id == user_id),
 	)
 
 

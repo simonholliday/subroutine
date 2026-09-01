@@ -155,6 +155,19 @@ upgrade involves.
 
 ### Fixed
 
+- **A parked question is on the agenda of whoever owes the answer, and nobody else's.**
+  *Waiting on you* held every question that had been assigned to nobody, so on an instance with
+  more than one person it showed everybody the same list — including questions meant for a
+  colleague, under a heading addressed to the reader.
+
+  It now means what it says: a question assigned to you, or one you are holding. A question
+  nobody has been given appears among the work nobody has taken, still marked as needing an
+  answer, rather than at the top of the page addressed to somebody who never agreed to it.
+
+  Assigning a question to yourself, or claiming it, puts it back at the top exactly as before —
+  on an instance of one person or of ten. Every other section is unchanged: an agenda still
+  offers work nobody has taken, because that is what it is for.
+
 - **The plugin's skill tells an agent to revise a body rather than correct it underneath.** An
   agent whose plan turned out to be wrong would leave the plan where it was and append a comment
   saying so — sometimes several, ending in one that told you to disregard everything above it.
@@ -305,6 +318,18 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+
+- **Work happening today is the first thing on the agenda.** The day's own work sat below
+  *In progress*, *Waiting on you* and *Waiting on somebody else*, so a handful of parked
+  questions pushed what is actually happening today down the page.
+
+  Two sections deliberately keep their rows rather than losing them to it: something that is
+  late still reads as late rather than as ordinary work for today, and an occasion still
+  appears under its own heading.
+
+  One consequence worth knowing before you look: a started task with a planned day now appears
+  under *Today* rather than under *In progress*, so *In progress* no longer lists everything
+  that is in progress. Nothing is hidden by that — the row moves up the page, not off it.
 
 - **Work filed under something that cannot start is no longer offered as ready.** Readiness
   read `blocks` links and never looked at the parent axis at all, so a sub-task of a blocked
