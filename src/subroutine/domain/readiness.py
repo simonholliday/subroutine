@@ -523,11 +523,38 @@ def blocked_among (
 	blocked is a fact about the work rather than about the viewer, and counting only the
 	blockers a caller can see would mark an item startable when it is not. What that discloses
 	is bounded — that something unseen blocks an item, never what.
+
+	**Asked as the page minus what is unblocked, rather than as the negation** — `#1800`, and
+	the difference is 818 ms against 18 ms on 1,497 tasks. :func:`unblocked` is an ``AND``, so
+	a planner applies the cheap direct-blocker anti-join first and reaches the ancestor
+	subplan only for what survives; ``NOT`` of it is an ``OR`` by De Morgan, where both
+	branches have to be costed for every row. That estimated a page of a hundred at **1.5
+	million** against real work of ~20 ms — and a cost estimate is what PostgreSQL decides to
+	JIT-compile on, so it spent **780 ms generating 135 functions** for a query that then ran
+	in 30. Measured: ``jit=off`` takes the old form to 30 ms, which is the whole of the
+	evidence that nothing was ever wrong with the plan.
+
+	**``EXCEPT`` rather than subtracting in Python**, which is the same speed and not the same
+	answer: an identifier naming no task is in neither set, so subtracting from what was asked
+	would report it blocked. One statement either way, so no cost guard moves.
+
+	**This is why the predicate itself is untouched.** The rule a listing filters by and the
+	rule that labels a loaded row are still the one expression — §6.3a — and this asks it in
+	the direction the planner can cost. Rewriting :func:`under_a_blocked_ancestor` was tried
+	first and is a dead end: hoisting its inner half into a subquery, into a CTE, and guarding
+	it with ``parent_task_id IS NOT NULL`` each returned the identical answer and moved the
+	estimate not at all, because the inner half was **already hashed** and evaluated once.
 	"""
 
-	return _matching(
-		session, identifiers, lambda model: sqlalchemy.not_(unblocked(model, now=now))
-	)
+	wanted = set(identifiers)
+
+	if not wanted:
+		return set()
+
+	model = subroutine.db.models.work.Task
+	here = sqlalchemy.select(model.id).where(model.id.in_(wanted))
+
+	return set(session.scalars(here.except_(here.where(unblocked(model, now=now)))))
 
 
 def finished_underneath_among (

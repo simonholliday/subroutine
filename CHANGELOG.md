@@ -234,6 +234,24 @@ upgrade involves.
 
 ### Fixed
 
+- **Every task listing got about twenty-five times faster on PostgreSQL.** A page of tasks,
+  the board, the agenda and `--ready` all spent most of their time on a single question — the
+  one that works out which rows something unfinished is holding up.
+
+  Measured on a served instance: a page of 100 tasks took **863 ms**, the agenda 880 ms, and
+  the same page asking only for startable work 1,117 ms. A page of documents, which asks no
+  such question, took 39 ms.
+
+  The work itself was never the problem. The question was phrased as a negation — *which of
+  these is **not** startable* — and PostgreSQL cannot estimate the cost of that shape, so it
+  guessed 1.5 million where the real answer is about twenty milliseconds. It then acted on its
+  own guess and spent **780 ms compiling the query** before running it. Asked the other way
+  round — which of these *is* startable, and take the rest of the page — the estimate is
+  honest, nothing is compiled, and the answer is identical. Same rule, same result, asked in
+  the direction a database can cost.
+
+  Nothing about how work is marked has changed, and no setting needs touching.
+
 - **A grouped listing is no longer slower than the one it replaced.** Splitting an answer into
   columns rendered each column separately, and rendering is where a page loads the batch of
   work-readiness lookups every row needs — so a four-column board ran that batch four times.

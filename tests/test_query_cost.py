@@ -68,11 +68,13 @@ import subroutine.db.session
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.hierarchy
 import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.users
+import subroutine.views
 
 #: How many tasks to measure against. Chosen as roughly ten times this project's own open
 #: backlog, which is the size at which the `#569` defect was unmistakable rather than merely
@@ -87,6 +89,21 @@ TASKS = 2_000
 #: shape it never exercises. Ten per cent is close to what `#851` measured on the real
 #: instance — 16 of 172 open tasks block anything, across 20 live edges.
 BLOCKED_IN = 10
+
+#: One task in this many is filed under the one before it.
+#:
+#: **Every row carried ``path = ""`` until `SR#1800`, and that is not a shape any task has** —
+#: :func:`subroutine.domain.hierarchy.build_path` gives a root ``/<id>/``. An empty path makes
+#: ``model.path LIKE ancestor.path || '%'`` into ``'' LIKE '%'``, which is **true of every pair
+#: of rows**, so `SR#1610`'s ancestor rule matched everything: measured on this fixture, all
+#: 2,000 tasks were ``under_a_blocked_ancestor`` and ``unblocked`` returned **zero**. So
+#: :func:`_ready` was timing an empty page and reporting it fast, from the day that rule
+#: shipped.
+#:
+#: A fifth is nested one level, which is far more than the served instance carries — six of
+#: 521 open items have a parent — because this is the branch the guard exists to reach, and a
+#: fixture at the real proportion would leave it exercised by almost nothing.
+NESTED_IN = 5
 
 #: How many comments each task carries.
 #:
@@ -104,7 +121,16 @@ COMMENTS_PER_TASK = 1
 DELETED_COMMENT_IN = 10
 
 #: One page, as every listing here serves one.
-PAGE = 50
+#:
+#: **A hundred, because that is what the browser asks for** — ``PAGE`` and ``POLL_PAGE`` in
+#: ``web/assets/app.js`` are both 100, on every listing and on every poll. It was 50, and
+#: `SR#1800` is what that cost: measured on this fixture, a page of 50 estimates at **491,514**
+#: and a page of 100 at over 500,000, which is PostgreSQL's ``jit_inline_above_cost`` and
+#: ``jit_optimize_above_cost``. So the guard sat **1.7% under the cliff** it existed to notice,
+#: and the same statement it called 87 ms is 801 ms for the page a person actually loads.
+#:
+#: A guard measuring half the page the product serves is measuring something nobody does.
+PAGE = 100
 
 #: How many times each measurement runs, with the best kept. A benchmark measures a floor:
 #: noise only ever adds, so the minimum is the honest statistic and the mean is the one that
@@ -179,6 +205,15 @@ KNOWN_EXPENSIVE: dict[str, str] = {}
 MEASURED_ANOTHER_WAY: dict[str, str] = {
 	"agenda": "`#1295` — fourteen statements against a one-statement baseline, so the ratio "
 	"measures the machine. A bounded statement count is the guard instead.",
+	"marks": "`SR#1800` — a dozen statements against a one-statement baseline, which is the "
+	"agenda's argument one view along. **34 ms and 13.2x on PostgreSQL against 110 ms and "
+	"28.1x on SQLite**, same fixture. :data:`COMPOSITE_CEILING_MS` is the bound, and it is the "
+	"one that catches the defect this was written for: 803 ms against 500.",
+	"ready": "`SR#1800` — one statement, and four correlated ``EXISTS`` inside it. **23 ms and "
+	"6.5x on PostgreSQL against 142 ms and 36.5x on SQLite**, same fixture, because SQLite "
+	"hashes none of them — so what the ratio reports here is the backend's evaluation "
+	"strategy for a deliberate correlated ``EXISTS``, not the accidental N+1 this number "
+	"watches for. :data:`CEILING_MS` is the bound and it passes with room.",
 }
 
 #: What a single measurement may cost outright, in milliseconds, on either backend — the
@@ -227,6 +262,8 @@ COMPOSITE_CEILING_MS = 500.0
 COMPOSITE: dict[str, str] = {
 	"agenda": "seventeen statements — eight buckets, six counts, the prioritised-project "
 	"lookup, the zone lookup and the blocker lookup. `#1295` and `AGENDA_STATEMENTS`.",
+	"marks": "a dozen statements — statuses, types, projects, parents and tags for the page, "
+	"then the three readiness scans (blocked, blocking, finished underneath). `SR#1800`.",
 }
 
 #: **This measures one size, and the thing search does is grow.** `#823` measured the same
@@ -507,9 +544,18 @@ def _rows (
 
 	epoch = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
 
+	previous: dict[str, typing.Any] | None = None
+
 	for number in range(TASKS):
-		yield {
-			"id": uuid.uuid4(),
+		identifier = uuid.uuid4()
+
+		# **Filed under the row before it, which is a root** — so nothing here is deeper than
+		# one level and the chain cannot run away. See :data:`NESTED_IN` for why any of it is
+		# nested at all.
+		parent = previous if (number % NESTED_IN == 1 and previous is not None) else None
+
+		previous = {
+			"id": identifier,
 			"workspace_id": setup.workspace.id,
 			"project_id": setup.inbox.id,
 			"status_id": status.id,
@@ -517,7 +563,11 @@ def _rows (
 			"ref": number + 1,
 			"title": f"Measured task {number:05d}",
 			"description": _prose(number),
-			"path": "",
+			"parent_task_id": None if parent is None else parent["id"],
+			"depth": 0 if parent is None else 1,
+			"path": subroutine.domain.hierarchy.build_path(
+				None if parent is None else parent["path"], identifier
+			),
 			"importance": None if number % 4 == 0 else (number % 5) + 1,
 			"urgency": None if number % 3 == 0 else (number % 5) + 1,
 			"due_at": epoch + datetime.timedelta(days=number) if number % 3 == 0 else None,
@@ -527,6 +577,8 @@ def _rows (
 			"created_at": epoch + datetime.timedelta(minutes=number),
 			"updated_at": epoch + datetime.timedelta(minutes=number),
 		}
+
+		yield previous
 
 
 def _comments (
@@ -651,6 +703,24 @@ def _ordering (
 		return context.session.execute(statement).unique().scalars().all()
 
 	return run
+
+
+def _marks (context: Context) -> typing.Any:
+	"""Build the vocabulary a page of rows is rendered through — what every listing then does.
+
+	**The half `#1764` says nothing here was measuring.** Every other entry in this file stops
+	at the statement that fetches the rows; a listing then hands them to
+	:class:`subroutine.views.Vocabulary`, which is where readiness is answered for the whole
+	page. So the most expensive statement any listing issued had no standing measurement at
+	all, and `SR#1800` was found by a person loading a page rather than by this file.
+
+	Composite by construction — see :data:`COMPOSITE` for the statement count — so it takes
+	:data:`COMPOSITE_CEILING_MS` for the agenda's reason.
+	"""
+
+	rows = context.session.execute(_base(context).limit(PAGE)).unique().scalars().all()
+
+	return subroutine.views.Vocabulary.for_tasks(context.session, rows)
 
 
 def _ready (context: Context) -> typing.Any:
@@ -914,12 +984,19 @@ def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
 	An excuse naming a subject nothing measures is an excuse for a thing that no longer exists,
 	and it reads as a considered decision for as long as nobody checks. Every register in this
 	repository is asked what removes its entries; this is that question for the newest one.
+
+	**The work is every excused subject, and the name that used to be subtracted is gone.**
+	This ran one measurement and then took ``agenda`` off the difference, so it could only ever
+	have checked an entry that was not the one it measured — and with one entry in the register
+	that was no check at all. `SR#1800` added two more and they were excused by nothing.
 	"""
 
 	engine, backend = seeded
-	measured = _measured(engine, work={"agenda": _agenda})
+	measured = _measured(
+		engine, work={"agenda": _agenda, "marks": _marks, "ready": _ready}
+	)
 
-	unmeasured = set(MEASURED_ANOTHER_WAY) - set(measured.timings) - {"agenda"}
+	unmeasured = set(MEASURED_ANOTHER_WAY) - set(measured.timings)
 
 	assert not unmeasured, (
 		f"{sorted(unmeasured)} is excused from the ratio on {backend} and is measured by "
@@ -941,10 +1018,15 @@ def test_nothing_is_called_composite_that_this_file_never_measures (
 	view is composite because of the work it does, and :data:`AGENDA_STATEMENTS` is what holds
 	that claim. A measurement that stopped issuing seventeen statements would fail there rather
 	than here — the two guards are the pair, not one with a spare.
+
+	**The work is every composite this file knows how to run**, rather than the one that
+	happened to exist when this was written. Naming a single view here made the register
+	half-checked: adding ``marks`` for `SR#1800` failed this test on its first run, correctly,
+	because a second entry was excused by a guard that only ever looked at the first.
 	"""
 
 	engine, backend = seeded
-	measured = _measured(engine, work={"agenda": _agenda})
+	measured = _measured(engine, work={"agenda": _agenda, "marks": _marks})
 
 	unmeasured = sorted(set(COMPOSITE) - set(measured.timings))
 
@@ -1048,6 +1130,7 @@ def test_a_narrowed_listing_costs_about_what_an_unordered_page_costs (
 	work: dict[str, typing.Callable[[Context], typing.Any]] = {
 		"ready": _ready,
 		"agenda": _agenda,
+		"marks": _marks,
 		"search (no match)": _searched,
 		"search with comments (no match)": _searched_including_comments,
 	}

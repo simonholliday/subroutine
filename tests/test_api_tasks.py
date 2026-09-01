@@ -22,10 +22,12 @@ import subroutine.db.fulltext
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.ordering
 import subroutine.domain.projects
+import subroutine.domain.readiness
 import subroutine.domain.search
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -1864,6 +1866,47 @@ def test_work_under_a_blocked_ancestor_is_not_offered_as_ready (world: World) ->
 		"SR#1610 — and the row would have named the parent it was ignoring"
 	)
 	assert groundwork["ref"] in offered, "the blocker itself is startable and must stay offered"
+
+
+def test_marking_a_page_never_reports_an_identifier_that_names_no_task (
+	world: World,
+) -> None:
+	"""``blocked_among`` answers about tasks, so an identifier without one is in neither set.
+
+	**A tripwire on a tempting simplification** — `SR#1800`. That function asks which of a page
+	is *unblocked* and returns the rest, because the negation is an ``OR`` that PostgreSQL
+	estimates at 1.5 million and then spends 780 ms JIT-compiling. The obvious way to write
+	"the rest" is to subtract in Python, which is the same speed and **not the same answer**:
+	an identifier naming no row is in neither set, so subtracting it from what was asked
+	reports it blocked. ``EXCEPT`` takes the difference over rows that exist.
+
+	Nothing reaches this today — the one caller is
+	:class:`subroutine.views.Vocabulary`, which passes ids off rows it has loaded — and that is
+	the reason to pin it rather than to leave it. A property no caller exercises is one a later
+	change breaks in silence.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	held = world.call("POST", "/v1/tasks", json={"title": "Waits for it"}).json()
+
+	_blocking(world, groundwork["ref"], held["ref"])
+
+	nobody = uuid.uuid4()
+	marked = subroutine.domain.readiness.blocked_among(
+		world.session,
+		[uuid.UUID(held["id"]), uuid.UUID(groundwork["id"]), nobody],
+		now=subroutine.db.types.utcnow(),
+	)
+
+	# **The floor.** Without it a function returning nothing at all would pass this.
+	assert uuid.UUID(held["id"]) in marked, (
+		"the held task is blocked and must be marked, or this is measuring an empty answer"
+	)
+
+	assert nobody not in marked, (
+		f"{nobody} names no task, so it is neither blocked nor unblocked — reporting it "
+		f"blocked is what subtracting from the page asked for would do"
+	)
 
 
 def test_what_ready_hides_under_a_blocked_ancestor_is_what_a_listing_marks_blocked (
