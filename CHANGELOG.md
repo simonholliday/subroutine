@@ -233,6 +233,14 @@ upgrade involves.
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
 
 ### Fixed
+- **Asking for startable work is several times faster, and much faster on SQLite.** Readiness
+  asks whether a task sits under something that cannot start yet, and it was asking that of
+  every task — including the four in five that are not filed under anything at all, where the
+  answer can only ever be no.
+
+  Measured at 2,000 tasks: `--ready` goes from 116 ms to 16 ms on SQLite and from 23 ms to
+  7.5 ms on PostgreSQL, returning exactly the same rows. Marking a page of items *Blocked*
+  reads the same rule, so a board and a listing get it too.
 
 - **The agenda's *Waiting on you* heading no longer sits further right than the others.** It
   carried an indent and a wider gap beneath it that nothing had asked for, so one section of

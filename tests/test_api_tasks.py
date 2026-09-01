@@ -1868,6 +1868,60 @@ def test_work_under_a_blocked_ancestor_is_not_offered_as_ready (world: World) ->
 	assert groundwork["ref"] in offered, "the blocker itself is startable and must stay offered"
 
 
+def test_a_task_with_nothing_above_it_is_never_under_a_blocked_ancestor (
+	world: World,
+) -> None:
+	"""The property the short-circuit rests on — `SR#1827`.
+
+	``under_a_blocked_ancestor`` skips its scan for a row whose ``parent_task_id`` is null,
+	which took ``--ready`` on SQLite from 116 ms to 16 ms at two thousand tasks. It is sound
+	because a root's path is ``/<own id>/``, and the predicate needs a **distinct** row whose
+	path is a prefix of that — for a one-segment path the only prefix that is itself a path is
+	the row's own, and a path embeds the id of the row it belongs to.
+
+	**Asserted rather than argued**, because the argument is about an invariant two columns
+	away: it holds only while ``path`` and ``parent_task_id`` are written together, and this is
+	what says so out loud. A blocked root sits beside an unblocked one, so a version that
+	simply stopped hiding anything cannot pass.
+
+	**The clause must stay inside the ``EXISTS``**, and that is not tidiness — ``unblocked``
+	negates this whole predicate, so an ``AND`` written outside it becomes an ``OR`` by De
+	Morgan and both branches are costed for every row. Measured: identical clause, one bracket
+	further out, ``--ready`` on PostgreSQL went from 23 ms to **1,168 ms**. `SR#1800`'s finding
+	that *a negation is not free*, met inside the fix for the thing it was written about.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	blocked_root = world.call("POST", "/v1/tasks", json={"title": "A blocked root"}).json()
+	free_root = world.call("POST", "/v1/tasks", json={"title": "A root nothing holds"}).json()
+	child = _filed_under(world, blocked_root, "Under the blocked root")
+
+	_blocking(world, groundwork["ref"], blocked_root["ref"])
+
+	under = subroutine.domain.readiness.under_a_blocked_ancestor(
+		subroutine.db.models.work.Task, now=subroutine.db.types.utcnow()
+	)
+	held = set(
+		world.session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Task.ref).where(under)
+		)
+	)
+
+	# **The floor**, without which a predicate matching nothing at all passes every line below.
+	assert child["ref"] in held, (
+		"the child of a blocked root is under a blocked ancestor, so this is measuring an "
+		"empty answer rather than a rule"
+	)
+
+	assert blocked_root["ref"] not in held, (
+		"a blocked root was reported as under a blocked ancestor — it is blocked *itself*, "
+		"which is a different question and one `unblocked`'s other half already answers"
+	)
+	assert free_root["ref"] not in held and groundwork["ref"] not in held, (
+		f"a root with nothing above it was reported as under something: {sorted(held)}"
+	)
+
+
 def test_marking_a_page_never_reports_an_identifier_that_names_no_task (
 	world: World,
 ) -> None:

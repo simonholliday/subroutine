@@ -202,18 +202,25 @@ KNOWN_EXPENSIVE: dict[str, str] = {}
 #: Each entry is still measured by :data:`CEILING_MS`, which it passes with room, **and** by
 #: :func:`test_a_composite_view_asks_a_bounded_number_of_questions`, which is the N+1 measured
 #: directly and cannot be moved by a busy machine.
+#: **`ready` was in here for one day and should never have been** — `SR#1827`, and it is the
+#: entry worth learning from rather than the two that remain. It was excused at **36.5x on
+#: SQLite**, over the 25x ceiling, on the argument that the ratio reports a backend's strategy
+#: for a deliberate correlated ``EXISTS``. The ratio was right and the argument was a way of not
+#: looking: the predicate was scanning every ancestor for every row including the four in five
+#: that have no parent at all, and one clause took it to **8.4x and 30 ms**. The absolute
+#: ceiling caught on CI the next day what the ratio had said the day before.
+#:
+#: **So an excuse written on the day a number first crosses a ceiling is the shape to
+#: distrust**, and :func:`test_nothing_is_excused_from_the_ratio_that_is_not_composite` is what
+#: makes that mechanical rather than remembered.
 MEASURED_ANOTHER_WAY: dict[str, str] = {
 	"agenda": "`#1295` — fourteen statements against a one-statement baseline, so the ratio "
 	"measures the machine. A bounded statement count is the guard instead.",
 	"marks": "`SR#1800` — a dozen statements against a one-statement baseline, which is the "
-	"agenda's argument one view along. **34 ms and 13.2x on PostgreSQL against 110 ms and "
-	"28.1x on SQLite**, same fixture. :data:`COMPOSITE_CEILING_MS` is the bound, and it is the "
-	"one that catches the defect this was written for: 803 ms against 500.",
-	"ready": "`SR#1800` — one statement, and four correlated ``EXISTS`` inside it. **23 ms and "
-	"6.5x on PostgreSQL against 142 ms and 36.5x on SQLite**, same fixture, because SQLite "
-	"hashes none of them — so what the ratio reports here is the backend's evaluation "
-	"strategy for a deliberate correlated ``EXISTS``, not the accidental N+1 this number "
-	"watches for. :data:`CEILING_MS` is the bound and it passes with room.",
+	"agenda's argument one view along. **35 ms and 9.9x on PostgreSQL against 36 ms and 9.8x "
+	"on SQLite** (`SR#1827`, re-measured after the fix that took SQLite from 110 ms). "
+	":data:`COMPOSITE_CEILING_MS` is the bound, and it is the one that catches the defect this "
+	"was written for: 803 ms against 500.",
 }
 
 #: What a single measurement may cost outright, in milliseconds, on either backend — the
@@ -1001,6 +1008,38 @@ def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
 	assert not unmeasured, (
 		f"{sorted(unmeasured)} is excused from the ratio on {backend} and is measured by "
 		f"nothing here, so the entry is describing a subject that has gone"
+	)
+
+
+def test_nothing_is_excused_from_the_ratio_that_is_not_composite () -> None:
+	"""**A single statement has no business being excused from a ratio over statements** —
+	`SR#1827`, and this guard exists because the excuse it refuses was written and shipped.
+
+	:data:`RATIO_CEILING` asks one question: *does this consult rows other than the ones it
+	returns, once per candidate row?* There is exactly one honest answer to a subject that
+	exceeds it — *this is not one statement, so the ratio is measuring the machine rather than
+	the query*, which is `SR#1295`'s argument for the agenda and `SR#1800`'s for the marks. A
+	subject that **is** one statement has no such defence, and excusing one is not a judgement
+	about instruments; it is declining to look.
+
+	**That is not hypothetical.** ``ready`` was measured at 36.5x on SQLite, over the ceiling,
+	and excused on the day the number was taken with an argument about correlated ``EXISTS``
+	evaluation strategies. It was one statement doing eight times the work it needed to, the
+	absolute ceiling caught it on CI the next morning, and one clause took it to 8.4x — inside
+	the ratio that had been reporting it correctly all along.
+
+	**Derived from :data:`COMPOSITE` rather than checked against a second list**, so a subject
+	that becomes composite is excusable the day it is declared and a subject that stops being
+	composite loses the excuse in the same breath.
+	"""
+
+	single = sorted(set(MEASURED_ANOTHER_WAY) - set(COMPOSITE))
+
+	assert not single, (
+		f"{single} is excused from the {RATIO_CEILING:.0f}x ratio and is not in COMPOSITE, so "
+		f"it is one statement being let off a measurement of statements. Either it really is "
+		f"composite — declare it, with the statement count — or the ratio is telling you "
+		f"something and the excuse is how you are not hearing it."
 	)
 
 

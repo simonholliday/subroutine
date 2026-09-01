@@ -230,6 +230,25 @@ def under_a_blocked_ancestor (
 
 	**A finished or deleted ancestor holds nothing**, which is :func:`_live_blocks_edge`'s rule
 	arriving on the other axis: finished work is neither held up nor holding anything up.
+
+	**A row with nothing above it is answered without asking** — `#1827`. Its path is
+	``/<own id>/``, and this needs a *distinct* row whose path is a prefix of that; for a
+	one-segment path the only prefix that is itself a path is the row's own. So the scan is
+	dead work for every root, and on this instance's own proportions that is four rows in five.
+
+	``parent_task_id`` rather than ``depth`` or the path's own shape, though all three measure
+	the same: it is the column the other two are derived *from*, so where they disagree the
+	derived one is the wrong one. The direction of that failure is the safe one — a row with a
+	stale path and a parent set still runs the scan below and still finds nothing, where a row
+	with a correct multi-segment path and a null parent cannot arise from any write here.
+
+	**Measured on SQLite at 2,000 tasks: 116 ms to 16 ms, identical over all 1,400 rows.** On
+	PostgreSQL it is worth nothing at all, and that is the half worth knowing rather than the
+	speed-up: `#1800` tried this exact clause there, found it *"moved the estimate not at all"*,
+	and recorded it as a dead end — because PostgreSQL had already made the inner half a hashed
+	subplan run once. SQLite hashes none of it and evaluates the pair per row, which
+	``EXPLAIN QUERY PLAN`` says as ``SCAN task`` inside ``SCAN task``. **A shape measured on one
+	backend and declined has only been declined on that backend.**
 	"""
 
 	ancestor = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
@@ -237,6 +256,13 @@ def under_a_blocked_ancestor (
 	return sqlalchemy.exists(
 		sqlalchemy.select(ancestor.id)
 		.where(
+			# **Inside the `EXISTS`, never beside it** — `#1827`, and it cost a tenfold
+			# regression on PostgreSQL to find out. `unblocked` negates this whole predicate,
+			# so an `AND` written outside becomes an `OR` by De Morgan and both branches are
+			# costed for every row: `ready` went from 23 ms to 1,168 ms with the identical
+			# clause one bracket further out. That is `#1800`'s own finding — *a negation is
+			# not free* — arriving on the fix for the thing it was written about.
+			model.parent_task_id.is_not(None),
 			ancestor.id != model.id,
 			ancestor.workspace_id == model.workspace_id,
 			ancestor.deleted_at.is_(None),
