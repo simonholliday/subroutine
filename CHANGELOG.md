@@ -22,6 +22,40 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be asked for by group, so no column is starved by its neighbours.** Send
+  `group_by=status_category` to `GET /v1/tasks` or `GET /v1/documents` and the answer arrives
+  split, each group with an allowance of its own and its own account of what it held back.
+
+  ```
+  GET /v1/tasks?group_by=status_category&group_limit=25
+
+  {"group_by": "status_category",
+   "groups": [{"key": "todo",        "items": [...], "page": {"has_more": true,  ...}},
+              {"key": "in_progress", "items": [...], "page": {"has_more": false, ...}}]}
+  ```
+
+  This exists because an ordinary page spends one allowance across the whole answer in one
+  order. Ask for a hundred tasks newest-first on a busy workspace and you may get a hundred
+  rows of recent work and **none at all** from a category whose items are older — with nothing
+  in the response saying so, because the page is perfectly honest about itself. Measured on
+  this project's own instance: a board drew one row under *In progress* where three existed,
+  and 27 under *Open* where there were 275.
+
+  Every group the axis has comes back, **including the empty ones**. That is the part that
+  makes it worth having: an answer assembled from whatever rows arrived cannot tell *this
+  group holds nothing* from *this group was never asked about*, and somebody looking at a
+  column to decide whether anything is left needs those told apart.
+
+  `has_more` is per group and costs nothing, which is what a heading needs — *20, and more
+  hidden*. `include_total` still buys the count, at a scan per group. Each group's
+  `next_cursor` works on an ordinary listing narrowed to that group, so drawing one group
+  further needs no new call shape: send `status_category=<key>` and the cursor together.
+
+  Every filter, search and readiness rule the listing takes applies to all of the groups
+  unchanged — grouping is a parameter on the listing rather than a route of its own. A
+  `cursor` alongside `group_by` is refused rather than guessed at, and so is an axis the
+  listing does not have.
+
 - **An item says when its body has been rewritten, and by whom.** Nothing did. The previous
   text was kept, and `subroutine changes` would tell you *that* something changed — but the
   item itself said nothing, so a fifth draft read exactly like a first.

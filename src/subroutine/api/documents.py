@@ -21,6 +21,7 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.filters
+import subroutine.api.grouped
 import subroutine.api.pagination
 import subroutine.api.query
 import subroutine.api.routing
@@ -32,6 +33,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.documents
+import subroutine.domain.grouping
 import subroutine.domain.links
 import subroutine.domain.mentions
 import subroutine.domain.ordering
@@ -195,6 +197,22 @@ def create (
 	return _rendered(session, created)
 
 
+def _for_a_group (
+	session: sqlalchemy.orm.Session, rows: typing.Sequence[typing.Any]
+) -> list[typing.Any]:
+	"""Render one group's rows, loading the vocabulary they name once for the whole group.
+
+	**Once per group rather than once per row.** The first version of this on the task side
+	was a lambda with the lookup inside the comprehension, which is `#39`'s N+1 introduced by
+	the change that removes a listing's — and invisible, because the rendered answer is
+	identical either way.
+	"""
+
+	vocabulary = subroutine.views.Vocabulary.for_documents(session, rows)
+
+	return [subroutine.views.document(row, vocabulary) for row in rows]
+
+
 @router.get(
 	"",
 	summary="List documents",
@@ -241,6 +259,24 @@ def listing (
 	),
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
+	group_by: str | None = fastapi.Query(
+		None,
+		description=(
+			"Split the answer into groups, each with an allowance of its own, so that no "
+			"group can be starved by its neighbours. 'status_category' is the one axis "
+			"today. Changes the response shape: 'groups', each with 'key', 'items' and its "
+			"own 'page'. Every group the axis has is present, including empty ones."
+		),
+		examples=["status_category"],
+	),
+	group_limit: int | None = fastapi.Query(
+		None,
+		description=(
+			"How many rows each group carries. Defaults to 25 and cannot exceed 100, "
+			"because the cost of a grouped request is this times the number of groups. "
+			"Only meaningful with group_by."
+		),
+	),
 	include: str | None = subroutine.api.query.INCLUDE_QUERY,
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
@@ -392,6 +428,30 @@ def listing (
 	statement = statement.options(
 		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
+	# **Grouped answers branch here, after the ordering and before the paging** — the same
+	# place the task listing branches, so both carry the caller's own sort into every group
+	# rather than a second one settled elsewhere.
+	if group_by is not None:
+		axis = subroutine.domain.grouping.refuse_unknown_axis(group_by, kind="document")
+
+		subroutine.api.grouped.refuse_a_cursor(cursor, axis=axis)
+
+		return subroutine.api.grouped.answer(
+			session,
+			statement,
+			secret_key=settings.require_secret_key(),
+			keys=keys,
+			axis=axis,
+			kind="document",
+			status_column=model.status_id,
+			workspace_id=workspace.id,
+			limit=group_limit,
+			include_total=include_total,
+			shape=shape,
+			render=_for_a_group,
+			collection="documents",
+		)
+
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)

@@ -299,6 +299,52 @@ class Collection(pydantic.BaseModel, typing.Generic[Item]):
 	# description documents it, since OpenAPI cannot see a key that is not on the model.
 
 
+class Group(pydantic.BaseModel, typing.Generic[Item]):
+	"""One group of a grouped listing, with an allowance of its own.
+
+	The envelope is :class:`Page`, unchanged and not a new shape: ``limit``, ``has_more``,
+	``total`` and ``next_cursor`` already mean exactly what a group needs them to mean. There
+	were three ways of saying *there is more* before this one, and a fourth spelling of a fact
+	three fields already carry is a thing to learn rather than a thing to read.
+
+	``next_cursor`` is usable on an ordinary listing narrowed to this group, which is what makes
+	drawing one column further cost nothing new: a cursor names a position in a sort order, and
+	a group's order is the listing's order. Ask again with the group's own key as a filter and
+	that cursor, and the answer continues exactly where the group stopped.
+	"""
+
+	#: Which value of the axis this group holds — a status category, today.
+	key: str
+
+	items: list[Item]
+	page: Page
+
+
+class Grouped(pydantic.BaseModel, typing.Generic[Item]):
+	"""A listing split along one axis, so that no group is starved by its neighbours.
+
+	An ordinary page spends one allowance across the whole answer in one order, so a group
+	holding older rows loses them to an unrelated group's recency — and nothing in the response
+	says so. Each group here is the same query narrowed to one value, ordered by the same keys
+	and capped on its own.
+
+	Every group the axis has is present, including the empty ones. An answer assembled from the
+	rows that came back cannot tell *this group holds nothing* from *this group was not asked
+	about*, and a reader looking at a column to decide whether anything is left needs those told
+	apart.
+
+	This is deliberately not a :class:`Collection` and does not contain one. A grouped answer has
+	no single page: there is no one ``has_more`` that is true of it, and a cursor over the whole
+	result would name a position in an order the groups do not share.
+	"""
+
+	#: Which axis the rows were split on, echoed back so a caller reading a stored response
+	#: knows what ``key`` means without the request beside it.
+	group_by: str
+
+	groups: list[Group[Item]]
+
+
 class Instance(pydantic.BaseModel):
 	"""Which installation this is, and where it thinks it is.
 

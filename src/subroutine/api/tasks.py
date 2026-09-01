@@ -23,6 +23,7 @@ import starlette.requests
 import subroutine.api.concurrency
 import subroutine.api.dependencies
 import subroutine.api.filters
+import subroutine.api.grouped
 import subroutine.api.pagination
 import subroutine.api.query
 import subroutine.api.routing
@@ -36,6 +37,7 @@ import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.claims
 import subroutine.domain.filtering
+import subroutine.domain.grouping
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.links
@@ -449,6 +451,24 @@ def listing (
 	include_total: bool = fastapi.Query(
 		False, description="Count the whole result. Costs a second scan; off by default."
 	),
+	group_by: str | None = fastapi.Query(
+		None,
+		description=(
+			"Split the answer into groups, each with an allowance of its own, so that no "
+			"group can be starved by its neighbours. 'status_category' is the one axis "
+			"today. Changes the response shape: 'groups', each with 'key', 'items' and its "
+			"own 'page'. Every group the axis has is present, including empty ones."
+		),
+		examples=["status_category"],
+	),
+	group_limit: int | None = fastapi.Query(
+		None,
+		description=(
+			"How many rows each group carries. Defaults to 25 and cannot exceed 100, "
+			"because the cost of a grouped request is this times the number of groups. "
+			"Only meaningful with group_by."
+		),
+	),
 	include: str | None = subroutine.api.query.INCLUDE_QUERY,
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
@@ -743,6 +763,8 @@ def listing (
 		actor=actor,
 		workspace_id=workspace.id,
 		held_back=held_back,
+		group_by=group_by,
+		group_limit=group_limit,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
 		allowed=sortable if ranked is None else ranked,
 		# **A search defaults to its ranking, and that is what makes `#867` useful** (`#823`).
@@ -1455,6 +1477,8 @@ def _page (
 	with_links: bool = False,
 	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	default: typing.Sequence[str] | None = None,
+	group_by: str | None = None,
+	group_limit: int | None = None,
 ) -> typing.Any:
 	"""Order, paginate and render a task query.
 
@@ -1484,6 +1508,30 @@ def _page (
 	statement = statement.options(
 		*subroutine.domain.ordering.options(order, allowed=sortable, default=fallback)
 	)
+	# **Grouped answers branch here, after the ordering and before the paging**, which is what
+	# makes every group carry the caller's own sort rather than a second one. Everything above
+	# this line is the query the caller asked for; everything below is one page of it.
+	if group_by is not None:
+		axis = subroutine.domain.grouping.refuse_unknown_axis(group_by, kind="task")
+
+		subroutine.api.grouped.refuse_a_cursor(cursor, axis=axis)
+
+		return subroutine.api.grouped.answer(
+			session,
+			statement,
+			secret_key=settings.require_secret_key(),
+			keys=keys,
+			axis=axis,
+			kind="task",
+			status_column=subroutine.db.models.work.Task.status_id,
+			workspace_id=workspace_id,
+			limit=group_limit,
+			include_total=include_total,
+			shape=shape,
+			render=_for_a_group,
+			collection="tasks",
+		)
+
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two
 	# transports disagreed about limit until 2026-07-30 because each had its own copy.
 	size = subroutine.domain.paging.size(limit, settings)
@@ -1546,6 +1594,22 @@ def _page (
 		shape,
 		links,
 	)
+
+
+def _for_a_group (
+	session: sqlalchemy.orm.Session, rows: typing.Sequence[typing.Any]
+) -> list[typing.Any]:
+	"""Render one group's rows, loading the vocabulary they name once for the whole group.
+
+	**A named function rather than a lambda, and the first version was the lambda.** Written
+	inline, the vocabulary lookup sat inside the comprehension and ran once per *row* — `#39`'s
+	N+1 introduced by the very change that removes a listing's, and invisible because the
+	answer would have been identical.
+	"""
+
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+
+	return [subroutine.views.task(row, vocabulary) for row in rows]
 
 
 def _rendered (

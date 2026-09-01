@@ -1617,6 +1617,19 @@ UNREACHED_FILTERS: dict[str, Excuse] = {
 		"would grow a method for them rather than a keyword here, the way `links` already did. "
 		"Nothing tracks it because there is nothing missing.",
 	),
+	"group_by": (
+		"tracked",
+		"`SR#1790` shipped grouped listings over HTTP and stopped there. A keyword on "
+		"`tasks()` would make its return type conditional — a grouped answer is not a "
+		"`Listing` — and a second method would declare twenty parameters twice. That is a "
+		"published client shape and a decision, so it is `SR#1794`. Delete this entry when it "
+		"lands.",
+	),
+	"group_limit": (
+		"tracked",
+		"`SR#1790`'s companion, and it goes wherever `group_by` goes — it means nothing "
+		"without one. `SR#1794`.",
+	),
 }
 
 
