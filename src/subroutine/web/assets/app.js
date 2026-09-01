@@ -64,6 +64,20 @@ const POLL_FIELDS = ["seq", "item_ref", "workspace_id", "entity_type"];
    than a ceiling on what exists. */
 const PAGE = 100;
 
+/* How many rows one column of a board carries — `#1790`. Deliberately smaller than `PAGE`,
+   because a grouped request costs this times the number of groups: four task categories and
+   four document ones is eight, so a column-sized allowance of 100 would fetch eight hundred
+   rows to fill a screen. Twenty-five is within the range Simon asked for and is what the
+   server defaults to anyway; it is written out here so the two cannot drift silently. */
+const COLUMN = 25;
+
+/* What *Show more* does on a board — `#1790`. A board pages by widening every column rather
+   than by following a cursor: the columns do not share a sequence, so there is no one page to
+   continue, and a reader who presses this wants more of whichever column they were looking at.
+   The last step is the server's own ceiling on a group, so pressing again cannot ask for
+   something that will be refused. */
+const WIDER = [25, 50, 100];
+
 /*
 	How many of an item's parts are drawn — `#1218`, and the terminal's own `MAX_CHILDREN`.
 
@@ -499,6 +513,68 @@ export function sunkOrder (selection) {
 	return ORDERINGS[asked] && ORDERINGS[asked].sinks ? `${DEFERRED},${asked}` : asked;
 }
 
+export function unpacked (answers, wanted) {
+	/*
+		What arrived, whichever shape it arrived in — `#1790`.
+
+		A listing answers `{items, page}` and a grouped one answers `{group_by, groups}`, and
+		everything downstream of here wants the same two things out of either: the rows, tagged
+		with the collection they came from, and what was left behind.
+
+		**A pure function rather than three branches inside `load`**, which is `#640`'s rule and
+		the reason `accumulated`, `columns` and `agendaBuckets` are the best-covered code in this
+		file: the harness calls components and helpers as plain functions, so a decision left
+		inside `App` is covered by nothing. Four faults have shipped from exactly that gap.
+
+		**The rows come out flat and in the order the groups were sent**, so `columns` goes on
+		doing the arranging. It regroups rows that arrived grouped, which sounds redundant and is
+		not: the board draws a column for every category whether or not the server sent rows for
+		it, and `columns` is where that has always been decided.
+
+		**One `cut` map across both collections is safe because the two vocabularies are
+		disjoint** — a task is `todo`/`in_progress`/`done`/`cancelled` and a document is
+		`draft`/`current`/`superseded`/`archived`. If a category name were ever added to both,
+		this would silently merge two columns' accounts of themselves, so the test says so.
+
+		`cut` is **null** when nothing was grouped, never an empty object: *this answer was not
+		split* and *this answer was split and nothing was held back* are different facts, and a
+		column heading reads the second as good news.
+	*/
+	const rows = [];
+	const cut = {};
+	const more = { tasks: null, documents: null };
+	let grouped = false;
+
+	answers.forEach((answer, at) => {
+		const kind = wanted[at].kind;
+
+		if (answer.groups) {
+			grouped = true;
+
+			answer.groups.forEach((group) => {
+				group.items.forEach((row) => rows.push({ ...row, kind }));
+
+				cut[group.key] = {
+					more: Boolean(group.page && group.page.has_more),
+					cursor: (group.page && group.page.next_cursor) || null,
+					total: group.page && group.page.total !== undefined
+						? group.page.total
+						: null,
+				};
+			});
+
+			return;
+		}
+
+		answer.items.forEach((row) => rows.push({ ...row, kind }));
+
+		more[`${kind}s`] = answer.page.has_more ? answer.page.next_cursor : null;
+	});
+
+	return { rows, cut: grouped ? cut : null, more };
+}
+
+
 export function accumulated (held, arriving, { appending, collections, ordering }) {
 	/*
 		What the list becomes when a page arrives — the whole rule, in one place.
@@ -851,7 +927,7 @@ export function collectionsFor (selection) {
 	return ordering && !ordering.both ? ["task"] : ["task", "document"];
 }
 
-export function listingRequests (slug, key = null, after = null, selection = null) {
+export function listingRequests (slug, key = null, after = null, selection = null, columns = COLUMN) {
 	/*
 		The list, which is tasks *and* documents — except where it cannot be.
 
@@ -958,13 +1034,27 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	*/
 	const readable = sending("document");
 
+	/*
+		**A grouped request is bounded by `group_limit`, and `limit` means nothing to it**
+		(`#1790`). The server branches before it reads `limit`, so sending both would put a
+		parameter on the wire that is silently ignored — which is the shape this project keeps
+		finding as a defect rather than as tidiness.
+
+		**And a grouped request takes no cursor.** There is no one position in a grouped answer
+		to continue from; the server refuses the pair by name. Each group reports its own
+		instead, which is what a column pages with.
+	*/
+	const grouping = Boolean(chose.group_by);
+	const allowance = grouping ? `group_limit=${columns}` : `limit=${PAGE}`;
+	const carried = (cursor) => (grouping ? "" : from(cursor));
+
 	const asks = {
 		task: { kind: "task", method: "GET", path: scoped(
-			`/tasks?limit=${PAGE}&fields=${TASK_FIELDS}${narrowed}${rows}`
-			+ from(after && after.tasks), slug) },
+			`/tasks?${allowance}&fields=${TASK_FIELDS}${narrowed}${rows}`
+			+ carried(after && after.tasks), slug) },
 		document: { kind: "document", method: "GET", path: scoped(
-			`/documents?limit=${PAGE}&fields=${DOCUMENT_FIELDS}${narrowed}${readable}`
-			+ from(after && after.documents), slug) },
+			`/documents?${allowance}&fields=${DOCUMENT_FIELDS}${narrowed}${readable}`
+			+ carried(after && after.documents), slug) },
 	};
 
 	/* **Tagged with the kind rather than positional**, so a selection reading one collection
@@ -2636,6 +2726,25 @@ export const SELECTABLE = {
 		narrowed — so admitting any value here admits nothing a reader could not already read.
 	*/
 	q: null,
+	/*
+		**How the allowance is spent, which is a selection and not an arrangement** (`#1790`).
+
+		It looks like an arrangement and is not, and the distinction is `#738`'s: an arrangement
+		decides how rows are *displayed*, and this decides which rows *arrive*. One page spends
+		its whole allowance in one order, so a category holding older work loses its rows to an
+		unrelated category's recency — measured here, a board drew one row under *In progress*
+		where three existed. Grouping gives each its own.
+
+		**It clears `#738`'s bound**, which this file states two entries above: a selection
+		parameter may only be one the caller could have sent anyway, and may never widen what a
+		credential can see. This reallocates an allowance across rows `domain/scoping` has
+		already narrowed, so it widens nothing at all.
+
+		**In the address rather than derived from the view**, for the reason `#738` exists: the
+		request builder must not know which arrangement is showing. The board chip carries it in
+		its selection, exactly as it already carries `include_completed`.
+	*/
+	group_by: ["status_category"],
 };
 
 /*
@@ -2678,6 +2787,12 @@ export const ANSWERED_BY = {
 	include_completed: { task: "sent", document: "already" },
 	order: { task: "sent", document: "sent" },
 	q: { task: "sent", document: "sent" },
+	/* **Both, and it is the same axis name meaning two vocabularies** — a task's categories are
+	   `todo`/`in_progress`/`done`/`cancelled` and a document's are
+	   `draft`/`current`/`superseded`/`archived`. Unlike `status_category` above, which is
+	   `cannot` because a *value* of it has no honest document half, the axis itself is answered
+	   by each collection in its own terms. */
+	group_by: { task: "sent", document: "sent" },
 };
 
 export function answers (kind, name) {
@@ -2708,6 +2823,11 @@ export function permits (name, value) {
 /* What the controls produce. Named because two places need each — the chip that writes the
    address and the test that drives it — and a second spelling is what drifts. */
 export const EVERYTHING = { include_completed: "true" };
+
+/* What a board asks for: everything, **split so that no column is starved by its neighbours**
+   (`#1790`). Named beside `EVERYTHING` rather than spelled at the chip, because the test that
+   drives the chip and the chip itself must not be two spellings of one answer. */
+export const BOARD = { ...EVERYTHING, group_by: "status_category" };
 
 /* **The order is now what the server would default to anyway** — `domain.tasks.default_order`,
    item `#1150` — and it is written out here rather than dropped, for a reason that is about
@@ -2918,7 +3038,7 @@ export function chips (behind, showing) {
 		   as though the page had chosen the second. */
 		{ name: "agenda", showing: { view: AGENDA_VIEW, selection: {} } },
 		{ name: "list", showing: { view: "list", selection: {} } },
-		{ name: "board", showing: { view: "board", selection: EVERYTHING } },
+		{ name: "board", showing: { view: "board", selection: BOARD } },
 		/* **`list`, spelled out, not `DEFAULT_VIEW`.** It read the default until the default
 		   became the agenda, at which point *done* would have asked an agenda to show finished
 		   work — which it holds back by construction, so the chip would have produced an empty
@@ -5268,6 +5388,9 @@ export function Board ({
 	   own name already says everything. Only the board needs it: a list and an agenda have no
 	   columns to be redundant with. */
 	statuses = null,
+	/* What each column held back, keyed by column — `#1790`. Null where the answer was not
+	   split, which is the only state in which a column tally is a total. */
+	cut = null,
 }) {
 	/*
 		The same rows the list shows, arranged by what state they are in — `#653`, `?view=board`.
@@ -5317,6 +5440,23 @@ export function Board ({
 		confirmation than expansion, because nothing moves.
 	*/
 	const shut = collapsedColumns(arranged.map((column) => column.key), choices);
+
+	/*
+		**What this column did not show, if anything** — `#1790`.
+
+		A column's tally has always counted the rows on the page rather than the rows there
+		are, and the notice saying so was one line at the *foot of the board*, after every
+		column. `#718`'s own argument is that a column is where somebody glances to conclude
+		nothing is left, and a glance does not reach a footer four columns wide.
+
+		Null for a column nothing was held back from, so the three states a heading can be in
+		— *not split*, *split and complete*, *split and cut* — stay three rather than two.
+	*/
+	const held = (column) => {
+		const account = cut && cut[column.key];
+
+		return account && account.more ? account : null;
+	};
 
 	const classFor = (column) =>
 		`column${over === column.key ? " over" : ""}`
@@ -5388,8 +5528,15 @@ export function Board ({
 											     *not shown* where that is why this is shut — otherwise a column
 											     nobody asked for would read as a column holding nothing, which is
 											     the false statement `#742` exists to prevent, said sideways. */ null}
+										${/* **A `+` where the column was cut**, because a shut column has no
+										     room for the sentence the open one carries. `#102` forbids saying
+										     something in a shape *alone*; this is reinforcement of a fact the
+										     expanded column states in words, which is the same arrangement
+										     every mark in this app already uses. */ null}
 										<span class="tally">
-											${unasked(column) ? NOT_SHOWN : column.items.length}
+											${unasked(column)
+												? NOT_SHOWN
+												: `${column.items.length}${held(column) ? "+" : ""}`}
 										</span>
 									</button>
 								</h2>`
@@ -5406,7 +5553,24 @@ export function Board ({
 											? html`<a href=${finishedTo}>Show finished work</a>`
 											: null}</p>`
 									: column.items.length === 0
-									? html`<p class="empty">Nothing</p>`
+									? html`<p class="empty">${
+										/*
+											**`Nothing` is a claim, and it is only true when this
+											column got an allowance of its own** (`#1790`, `#1782`).
+
+											Before grouping, a board spent one allowance across
+											every column in one order — so a column could be empty
+											on the page while holding work the page never reached,
+											and this said there was none. Measured here: *In
+											progress* read as empty against three real rows.
+
+											`cut` is what tells the two apart. Where the answer was
+											split, this column was asked its own question and the
+											answer really was none. Where it was not, and the board
+											is truncated, the honest word is the one a column
+											nobody asked about already uses.
+										*/ null
+									}${cut === null && truncated ? NOT_SHOWN : "Nothing"}</p>`
 									: html`
 										<ul class="rows">
 											${column.items.map((item) => html`
@@ -5422,6 +5586,23 @@ export function Board ({
 													)} />
 											`)}
 										</ul>
+										${/*
+											**At the foot of the column it is about, not the board**
+											(`#1790`). Simon's own framing: a reader cannot tell a
+											column that is empty from one that only looks empty, and
+											the notice that answered that sat below every column at
+											once.
+
+											**In words, and the count is of what is shown.** §8.4
+											declines a total by default because it costs a scan per
+											group, so this says *there are more* rather than
+											inventing a number — which is the same trade the board's
+											own footer already makes.
+										*/ null}
+										${held(column) && html`
+											<p class="cut">Showing ${column.items.length}.${" "}
+												There are more.</p>
+										`}
 									`}`}
 					</section>
 				`)}
@@ -5429,7 +5610,15 @@ export function Board ({
 
 			${truncated && html`
 				<div class="cut">
-					<span>Showing ${items.length}. There are more.</span>
+					${/* **A grouped board counts columns, not rows** (`#1790`). *Showing 100* under a
+					     board whose columns were each capped at 25 describes an allowance nobody set,
+					     and the number that lets a reader judge a column is the column's own, which is
+					     now printed under it. So this says how many columns are short and leaves the
+					     counting to them. */ null}
+					<span>${cut
+						? `${Object.values(cut).filter((account) => account.more).length} of these`
+							+ ` columns hold more than is shown.`
+						: `Showing ${items.length}. There are more.`}</span>
 					${onMore && html`
 						<button class="action" onClick=${onMore} disabled=${busy}>Show more</button>
 					`}
@@ -7416,6 +7605,25 @@ export function App () {
 	*/
 	const [, retick] = useState(0);
 	const [more, setMore] = useState(null);
+	/* What each of a board's columns held back — `#1790`. Null unless the answer was grouped. */
+	const [cut, setCut] = useState(null);
+	/*
+		How much each column of a board is currently allowed — `#1790`.
+
+		**Named for what it holds, not `allowed`**, which this component already binds to the
+		reader's permission set eighty lines below — `#1409`'s collision, caught here by the
+		parser rather than by a reader.
+
+		**A ref rather than state, for the reason `shown` is one**: `load` is called from a
+		dozen places, including the poll, and a callback closes over the render that made it. As
+		a defaulted argument this reset to 25 on the next poll, so *Show more* widened the board
+		for ten seconds and then silently undid itself.
+
+		It outlives leaving the board, which is deliberate and costs nothing: a widened
+		allowance means nothing to an arrangement that does not group, so the only reader it
+		reaches is one who comes back to a board they had already widened.
+	*/
+	const columnSize = useRef(COLUMN);
 	/* **Read once, from the same storage `index.html` read before the first paint** (`#908`).
 	   Held here only so the control shows the right option: the attribute is already on the
 	   document by the time this runs, so re-applying it on mount would be a second copy of a
@@ -7626,7 +7834,7 @@ export function App () {
 		setTheirs(answered.assigned_elsewhere_total || 0);
 	}, []);
 
-	const load = useCallback(async (slug, key = null, after = null) => {
+	const load = useCallback(async (slug, key = null, after = null, columns = null) => {
 		if (!slug) return;
 
 		/*
@@ -7653,7 +7861,7 @@ export function App () {
 
 		/* What to ask for is `listingRequests`, which is pure and checked (`#640`). What is
 		   left here is what to do with the answers. */
-		const wanted = listingRequests(slug, key, after, chose);
+		const wanted = listingRequests(slug, key, after, chose, columns ?? columnSize.current);
 		let answers;
 
 		try {
@@ -7679,8 +7887,9 @@ export function App () {
 			return load(slug, null, after);
 		}
 
-		const fetched = answers.flatMap((answer, at) =>
-			answer.items.map((row) => ({ ...row, kind: wanted[at].kind })));
+		/* **Whichever shape arrived** (`#1790`) — `unpacked` is pure and driven, so the rule
+		   for reading a grouped answer is not a branch buried in this callback. */
+		const { rows: fetched, cut, more: left } = unpacked(answers, wanted);
 
 		/*
 			**What the list becomes is `accumulated`, which is pure and driven** (`#660`, `#706`).
@@ -7718,14 +7927,13 @@ export function App () {
 			null rather than being absent — `Listing` and `Board` both read both keys, and an
 			undefined would make *there are more* depend on which view was showing.
 		*/
-		const left = { tasks: null, documents: null };
-
-		answers.forEach((answer, at) => {
-			left[`${wanted[at].kind}s`] =
-				answer.page.has_more ? answer.page.next_cursor : null;
-		});
-
 		setMore(left);
+
+		/* **What each column held back, so a heading can stop reading as a total** (`#1790`).
+		   Null where nothing was grouped, which is every arrangement but the board — and the
+		   distinction matters, because *not split* and *split, nothing held back* are two
+		   different things to say under a column. */
+		setCut(cut);
 	}, []);
 
 	const words = useCallback(async (slug) => {
@@ -8901,6 +9109,25 @@ export function App () {
 		setBusy(true);
 
 		try {
+			/*
+				**A grouped answer widens rather than appends** (`#1790`). Its columns do not
+				share a sequence, so there is no cursor that means *the next page of this board*
+				— and the server refuses one sent beside a grouping for that reason. Asking again
+				with a larger allowance is what *more of this* means here, and it is a fresh
+				answer rather than an appended one, so `accumulated` replaces instead of merging.
+			*/
+			if (cut) {
+				const wider = WIDER.find((size) => size > columnSize.current) || null;
+
+				if (wider === null) return;
+
+				columnSize.current = wider;
+
+				await load(workspace, project, null, wider);
+
+				return;
+			}
+
 			await load(workspace, project, more);
 		} catch (failure) {
 			setNote({ text: `There was more, but it did not arrive. ${failure.message}`,
@@ -8908,7 +9135,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [load, more, project, workspace]);
+	}, [cut, load, more, project, workspace]);
 
 	const widen = useCallback(async () => {
 		/*
@@ -9633,6 +9860,7 @@ export function App () {
 							: null} />`
 					: showing.view === "board"
 						? html`<${Board} items=${items} onOpen=${show} onComplete=${mayWrite ? complete : null}
+							cut=${cut}
 							onAdd=${finishedOnly || !mayWrite ? null : add} busy=${busy} more=${more} adding=${adding}
 							onMore=${showMore} onGo=${narrow}
 							project=${project} workspace=${workspace} onWiden=${widen}
@@ -9658,8 +9886,12 @@ export function App () {
 							     narrowed by `status_category` has every other column absent for a
 							     reason no single link undoes, and a link per column claiming to
 							     would be four ways to leave one state. */ null}
+							${/* **`BOARD`, not `EVERYTHING`** (`#1790`). This is a link *into* a board,
+							     so it has to write the same selection the board chip writes —
+							     otherwise following it lands on an ungrouped board, which is the
+							     one arrangement this item exists to stop anybody seeing. */ null}
 							finishedTo=${showing.selection.status_category === undefined
-								? withShowing(behind, { view: "board", selection: EVERYTHING })
+								? withShowing(behind, { view: "board", selection: BOARD })
 								: null}
 							widenTo=${withShowing(listingAddress({ workspace }), showing)} />`
 						/*

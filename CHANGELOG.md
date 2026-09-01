@@ -22,6 +22,24 @@ upgrade involves.
 
 ### Added
 
+- **The board gives every column its own allowance, and a short column says so.** Each column
+  now asks its own question and draws up to 25 rows of its own, instead of every column
+  sharing one page spent newest-first.
+
+  This was visible and wrong. On this project's own board, *In progress* showed **one** item
+  against three that existed, and *Open* showed 27 against 275 — because the newest hundred
+  rows happened to be mostly finished work, and the older open items never arrived. Nothing on
+  the page said so. A column that came up empty simply read **Nothing**.
+
+  *Nothing* is now only printed where the column was actually asked and the answer really was
+  none. Where a column was cut, it says so underneath itself rather than in a single line at
+  the foot of the board — which is where the notice used to be, four columns away from the
+  heading somebody was reading.
+
+  **Show more** widens every column — 25, then 50, then 100 — rather than fetching another
+  page of the board. A board's columns do not share a sequence, so *the next page* was never
+  a thing it could have; more of what you are looking at is.
+
 - **A listing can be asked for by group, so no column is starved by its neighbours.** Send
   `group_by=status_category` to `GET /v1/tasks` or `GET /v1/documents` and the answer arrives
   split, each group with an allowance of its own and its own account of what it held back.

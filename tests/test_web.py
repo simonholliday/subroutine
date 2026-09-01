@@ -7378,17 +7378,34 @@ def _selections () -> list[dict[str, str]]:
 		f"{sorted(covered - declared)} is driven and is not selectable"
 	)
 
-	return [{}] + singles + [_preset(source, name) for name in ("EVERYTHING", "ONLY_FINISHED")]
+	return [{}] + singles + [
+		_preset(source, name) for name in ("EVERYTHING", "ONLY_FINISHED", "BOARD")
+	]
 
 
 def _preset (source: str, name: str) -> dict[str, str]:
-	"""One of the selections a control writes, read from the app rather than restated here."""
+	"""One of the selections a control writes, read from the app rather than restated here.
+
+	**A spread is followed rather than skipped** (`SR#1790`). `BOARD` is written as
+	``{...EVERYTHING, group_by: …}`` because it *is* everything plus one thing, and spelling its
+	two keys out would put `include_completed` in the app twice with nothing comparing them.
+	Read without following the spread, this returned the one key it could see — a preset that
+	looks complete, drives half of what the control writes, and says nothing.
+	"""
 
 	found = re.search(rf"export const {name} = \{{([^}}]*)\}};", source)
 
 	assert found, f"the app's {name} selection could not be read from app.js"
 
-	return dict(re.findall(r'(\w+): "([^"]+)"', found.group(1)))
+	body = found.group(1)
+	selection: dict[str, str] = {}
+
+	for spread in re.findall(r"\.\.\.(\w+)", body):
+		selection.update(_preset(source, spread))
+
+	selection.update(dict(re.findall(r'(\w+): "([^"]+)"', body)))
+
+	return selection
 
 
 def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
@@ -8909,6 +8926,11 @@ def _views (
 			: name === "mergeOrder" ? app.mergeOrder(argument[0], argument[1])
 			: name === "accumulated"
 				? app.accumulated(argument[0], argument[1], argument[2])
+			: name === "listingRequests"
+				? app.listingRequests(
+					argument.slug, argument.key, argument.after, argument.selection
+				)
+			: name === "unpacked" ? app.unpacked(argument.answers, argument.wanted)
 			: app.columns(argument))));
 	"""))
 
@@ -9216,7 +9238,7 @@ def test_the_controls_write_the_addresses_they_are_about_to_navigate_to (
 	assert [chip["href"] for chip in plain] == [
 		"/projects?view=agenda",
 		"/projects?view=list",
-		"/projects?view=board&include_completed=true",
+		"/projects?view=board&include_completed=true&group_by=status_category",
 		"/projects?view=list&status_category=done&order=-completed_at",
 	]
 
@@ -9594,7 +9616,7 @@ def test_a_board_column_nobody_asked_for_does_not_report_that_it_is_empty (
 		f"a column nobody asked for reported on its contents: {bare['said']!r}"
 	)
 
-	assert "/projects?view=board&include_completed=true" in bare["links"], (
+	assert "/projects?view=board&include_completed=true&group_by=status_category" in bare["links"], (
 		f"the column says it is not shown and offers no way to show it: {bare['links']}"
 	)
 
@@ -10079,7 +10101,7 @@ def test_each_view_can_be_opened_in_its_own_tab (tmp_path: pathlib.Path) -> None
 
 	wanted = (
 		"/projects?view=list",
-		"/projects?view=board&include_completed=true",
+		"/projects?view=board&include_completed=true&group_by=status_category",
 		"/projects?view=list&status_category=done&order=-completed_at",
 	)
 
@@ -13793,3 +13815,152 @@ def test_a_board_column_that_names_one_status_does_not_repeat_it_on_every_card (
 	assert "done" not in rendered.replace("Done", ""), (
 		f"the Done column repeated its own name on every card: {rendered}"
 	)
+
+
+def test_a_column_says_when_it_was_the_one_that_was_cut (tmp_path: pathlib.Path) -> None:
+	"""`SR#1790`. The notice belongs under the column it is about, not under the board.
+
+	A column's tally has always counted the rows on the page rather than the rows there are,
+	and the sentence saying so sat at the foot of the whole board. `SR#718`'s own argument is
+	that a column is where somebody *glances* to decide nothing is left, and a glance does not
+	reach a footer four columns wide.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "title": "Open one", "status_category": "todo"},
+		{"ref": 2, "kind": "task", "title": "Underway", "status_category": "in_progress"},
+	]
+
+	board = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": {"include_completed": "true"},
+		"cut": {
+			"todo": {"more": True, "cursor": "abc", "total": None},
+			"in_progress": {"more": False, "cursor": None, "total": None},
+		},
+	}})["Board"]
+
+	assert "Showing 1. There are more." in board, (
+		f"the cut column did not say it was cut: {board}"
+	)
+
+	# **Once, not twice.** Only one column was short, and a sentence under a complete column
+	# would be the false statement this whole item is about, said the other way round.
+	assert board.count("Showing 1. There are more.") == 1, (
+		f"a complete column claimed to be cut: {board}"
+	)
+
+
+def test_an_empty_column_only_claims_to_be_empty_when_it_was_asked_its_own_question (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1790`, and it is `SR#1782`. *Nothing* is a claim, and it was not always a true one.
+
+	Before grouping, a board spent one allowance across every column in one order, so a column
+	could be empty *on the page* while holding work the page never reached — and this said
+	there was none. With an allowance of its own, the column really was asked, and the word is
+	honest.
+	"""
+
+	rows = [{"ref": 2, "kind": "task", "title": "Underway", "status_category": "in_progress"}]
+
+	asked = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": {"include_completed": "true"},
+		"cut": {"in_progress": {"more": False, "cursor": None, "total": None}},
+	}})["Board"]
+
+	assert "Nothing" in asked, (
+		f"a column that was asked its own question would not say it was empty: {asked}"
+	)
+
+	# **The same board, unsplit and truncated.** Here the empty column was never asked about
+	# separately, so the honest word is the one a column nobody asked for already uses.
+	guessed = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": {"include_completed": "true"},
+		"more": {"tasks": "a-cursor", "documents": None},
+	}})["Board"]
+
+	assert "Nothing" not in guessed, (
+		f"a column emptied by a page boundary claimed there was nothing in it: {guessed}"
+	)
+	assert "Not shown" in guessed, (
+		f"it did not say the other thing either: {guessed}"
+	)
+
+
+def test_a_grouped_request_asks_for_an_allowance_a_column_at_a_time (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1790`. What goes on the wire when the selection says to split the answer.
+
+	**And no cursor.** A grouped answer has no single position to continue from, and the server
+	refuses the pair by name — so sending one would turn *show more* into a 422 rather than
+	into more rows.
+	"""
+
+	grouped, plain = _views(tmp_path, [
+		("listingRequests", {
+			"slug": "projects", "key": None, "after": {"tasks": "c", "documents": "d"},
+			"selection": {"include_completed": "true", "group_by": "status_category"},
+		}),
+		("listingRequests", {
+			"slug": "projects", "key": None, "after": {"tasks": "c", "documents": "d"},
+			"selection": {"include_completed": "true"},
+		}),
+	])
+
+	paths = [one["path"] for one in grouped]
+
+	assert all("group_by=status_category" in path for path in paths), paths
+	assert all("group_limit=" in path for path in paths), paths
+	assert not any("limit=100" in path for path in paths), (
+		f"a grouped request carried a page limit the server ignores: {paths}"
+	)
+	assert not any("cursor=" in path for path in paths), (
+		f"a grouped request carried a cursor, which the server refuses: {paths}"
+	)
+
+	# The ungrouped request is untouched, which is what makes this a rule about the selection
+	# rather than a change to every listing.
+	assert all("limit=100" in one["path"] for one in plain), [one["path"] for one in plain]
+	assert any("cursor=" in one["path"] for one in plain), [one["path"] for one in plain]
+
+
+def test_what_arrived_is_read_the_same_way_whichever_shape_it_came_in (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1790`. ``unpacked`` is the one place a listing answer and a grouped one become alike.
+
+	**``cut`` is null rather than empty where nothing was grouped**, and that distinction is
+	what a column heading reads: *this answer was not split* and *this answer was split and
+	nothing was held back* are two different things, and only the second makes *Nothing* true.
+	"""
+
+	grouped, plain = _views(tmp_path, [
+		("unpacked", {
+			"answers": [{"group_by": "status_category", "groups": [
+				{"key": "todo", "items": [{"ref": 1}],
+					"page": {"has_more": True, "next_cursor": "more", "total": 275}},
+				{"key": "in_progress", "items": [{"ref": 2}],
+					"page": {"has_more": False, "next_cursor": None, "total": 3}},
+			]}],
+			"wanted": [{"kind": "task"}],
+		}),
+		("unpacked", {
+			"answers": [{"items": [{"ref": 9}], "page": {"has_more": True, "next_cursor": "c"}}],
+			"wanted": [{"kind": "task"}],
+		}),
+	])
+
+	assert [row["ref"] for row in grouped["rows"]] == [1, 2]
+	assert [row["kind"] for row in grouped["rows"]] == ["task", "task"]
+	assert grouped["cut"]["todo"] == {"more": True, "cursor": "more", "total": 275}
+	assert grouped["cut"]["in_progress"]["more"] is False
+
+	# **A grouped answer carries no collection cursor**, because there is no page of the board
+	# to continue — which is what makes *show more* widen every column instead.
+	assert grouped["more"] == {"tasks": None, "documents": None}
+
+	assert plain["cut"] is None, (
+		f"an ungrouped answer reported columns it never split: {plain['cut']}"
+	)
+	assert plain["more"]["tasks"] == "c"

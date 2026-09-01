@@ -1109,6 +1109,23 @@ fieldset {
 	font-size: var(--text-small);
 }
 
+/* What one column had to leave out (`#1790`). The board's own `.cut` is a bordered, raised bar
+   spanning the width of the page; inside a column that box would compete with the cards above
+   it for a sentence that is a footnote to them. So it keeps the words and drops the furniture.
+
+   The comment stays above the whole rule rather than between the selector and its body, which
+   is `#1722`: a comment in that position is stripped, the selector merges with the next one,
+   and CSS reports nothing at all. */
+.board .column .cut {
+	display: block;
+	margin: var(--space-5) 0 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
 /* A card is a row without the horizontal grid: in a 260px column a 4.5rem address column
    leaves a title about 150px wide, which wraps into nonsense. The ref sits on the title's line
    instead and the title takes what is left — which since `#911` is the whole card, because the
