@@ -108,6 +108,33 @@ class Page(pydantic.BaseModel):
 # a field with ``Edge``, and a pydantic field annotation is evaluated when the class body
 # runs — not lazily. Defined below, this module imports fine under mypy and raises
 # ``NameError`` on import. Same trap as ``Item`` above ``World`` in ``cli/personal.py``.
+class Revisions(pydantic.BaseModel):
+	"""How often an item's body has been rewritten, and who last rewrote it.
+
+	**A count and a name, never a diff.** It answers one question — *has what I am reading
+	been replaced?* — and the superseded text stays where it is, in the change feed.
+
+	**Only a replacement of the body counts.** A rename or a status change is something a
+	reader already sees; writing prose onto an item that had none is a first draft rather
+	than a revision of nothing.
+
+	**Null means nobody asked.** A single item resolves it and a listing does not, so a row
+	saying nothing here is not saying *never*.
+	"""
+
+	#: How many times the body was replaced. Never zero: no revisions is reported by the
+	#: field being absent, not by a count of nothing.
+	count: int
+
+	#: When the last rewrite happened.
+	last_at: datetime.datetime
+
+	#: Who did it, or null where the event records no actor — a migration, or a caller with
+	#: no credential at all (§12.1a). Somebody revised it either way, so only the name is
+	#: missing and the count still stands.
+	last_by: str | None = None
+
+
 class LinkEnd(pydantic.BaseModel):
 	"""What is at the far end of a link, with enough of the row to **judge** it.
 
@@ -572,6 +599,13 @@ class Task(pydantic.BaseModel):
 	#: **No parameter widens it**, deliberately: there is no way to ask a listing to name its
 	#: blockers, because `#856` is what happens when a listing carries the far end.
 	blocked_by: list[LinkEnd] | None = None
+
+	#: How often the body has been rewritten, and by whom — `#1768`. **Null means nobody
+	#: asked**, exactly as ``blocked_by`` above: only a single-item read resolves it, because
+	#: counting it per row on a listing is a scan nothing can currently see the cost of
+	#: (`#1764`). A first draft answers ``None`` from the resolved path too, which is §12.2a:
+	#: an item nobody has revised says nothing, as an unranked one shows no priority.
+	revisions: Revisions | None = None
 
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
@@ -2183,6 +2217,13 @@ class Document(pydantic.BaseModel):
 
 	version: int
 
+	#: How often the body has been rewritten, and by whom — `#1768`. **Null means nobody
+	#: asked**, as it does on a task: only a single-item read resolves it. This is the entity
+	#: the defect was reported on, because `subroutine://conventions` delivers a decision
+	#: **body only** — so an amendment folded into the body is the whole of what an agent
+	#: sees, and nothing said the body had moved.
+	revisions: Revisions | None = None
+
 	def address (self) -> int:
 		"""Return what a caller addresses this by — its ref, shared with tasks (§6.2)."""
 
@@ -2855,17 +2896,76 @@ def repeats (task: Task) -> bool:
 	return task.is_template or task.recurrence_template_ref is not None
 
 
+def revisions_seen (
+	session: sqlalchemy.orm.Session,
+	*,
+	entity_type: str,
+	row: subroutine.db.models.work.Task | subroutine.db.models.work.Document,
+) -> Revisions | None:
+	"""Ask how often this item's body was replaced, and render the answer — `#1768`.
+
+	**One conversion, read by both transports.** The domain answers with a record of its own
+	because nothing under ``domain`` may know what a surface reports (§8.1), and a copy of
+	this three-field translation in each of the API and the local client is the shape this
+	codebase keeps finding wrong — two copies that agree until somebody moves one.
+
+	**Called by the single-item answers and by no listing**, which is the split
+	:attr:`Task.revisions` describes: a per-row scan on a page is a cost `#1764` says nothing
+	can presently measure.
+	"""
+
+	found = subroutine.domain.events.revisions_of(
+		session,
+		workspace_id=row.workspace_id,
+		entity_type=entity_type,
+		entity_id=row.id,
+	)
+
+	if found is None:
+		return None
+
+	return Revisions(count=found.count, last_at=found.last_at, last_by=found.last_by)
+
+
+def revised_in_words (revisions: Revisions, *, when: str) -> str:
+	"""Say that a body has been replaced, in the one wording every surface uses.
+
+	**One renderer for the reason :func:`principal_named` is one** (`#1266`): the terminal,
+	an agent and the browser all report this, and three spellings of one fact is how two
+	surfaces come to disagree about what a number means.
+
+	``when`` is supplied by the caller rather than formatted here, because the surfaces
+	genuinely differ on dates and are meant to — a person reads ``31 Aug`` and an agent is
+	given ISO, which is `#151`'s rule that what a caller is shown should be what it can send
+	back. The *sentence* is what must not vary.
+
+	**No name where the event records no actor**, rather than a placeholder: *somebody
+	revised this* is what is known, and inventing a word for the missing half would be a
+	claim nothing supports.
+	"""
+
+	times = "once" if revisions.count == 1 else f"{revisions.count} times"
+	who = "" if revisions.last_by is None else f" by @{revisions.last_by}"
+
+	return f"revised {times}{who} on {when}"
+
+
 def task (
 	row: subroutine.db.models.work.Task,
 	vocabulary: Vocabulary,
 	*,
 	blocked_by: list[LinkEnd] | None = None,
+	revisions: Revisions | None = None,
 ) -> Task:
 	"""Render one task.
 
 	``blocked_by`` is passed by the one caller that resolves it and defaults to ``None``
 	everywhere else, which is the honest reading: *nobody asked* rather than *nothing holds
 	this up*. :attr:`Task.blocked_by` carries why only one caller may.
+
+	``revisions`` is the same arrangement one field along (`#1768`): the single-item reads
+	resolve it and every listing leaves it null, because counting it per row is a scan
+	nothing can presently measure.
 	"""
 
 	status = vocabulary.statuses.get(row.status_id, {})
@@ -2907,6 +3007,7 @@ def task (
 		blocking=row.id in vocabulary.blocking,
 		sub_tasks_done=row.id in vocabulary.finished_underneath,
 		blocked_by=blocked_by,
+		revisions=revisions,
 		importance=row.importance,
 		urgency=row.urgency,
 		# Computed here rather than read from the database: §6.3 calls it derived, and a
@@ -2992,9 +3093,16 @@ def task (
 
 
 def document (
-	row: subroutine.db.models.work.Document, vocabulary: Vocabulary
+	row: subroutine.db.models.work.Document,
+	vocabulary: Vocabulary,
+	*,
+	revisions: Revisions | None = None,
 ) -> Document:
-	"""Render one document."""
+	"""Render one document.
+
+	``revisions`` is :func:`task`'s arrangement and its reasoning (`#1768`): resolved by the
+	single-item reads, null everywhere else, meaning *nobody asked*.
+	"""
 
 	status = vocabulary.statuses.get(row.status_id, {})
 
@@ -3004,6 +3112,7 @@ def document (
 		title=row.title,
 		body=row.body,
 		size_bytes=_prose_bytes(row.body),
+		revisions=revisions,
 		workspace_id=row.workspace_id,
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),

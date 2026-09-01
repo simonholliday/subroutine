@@ -138,6 +138,13 @@ DERIVED: dict[str, str] = {
 	#: direction of the guard is for — it says *nothing a view publishes is unreachable*, and
 	#: until now it said that about two views out of eight.
 
+	#: **`#1768`.** How often the body has been replaced, counted from the event feed by
+	#: `domain.events.revisions_of` at read time. **Deliberately not a column**: a stored
+	#: counter would be a second answer to a question the events already answer, and a
+	#: second answer is what goes stale. Nothing accepts it because there is nothing to
+	#: accept — revising the body *is* how it changes.
+	"revisions": "counted from the events at read time; rewriting the body is what moves it.",
+
 	#: A project's place in the tree, maintained by `domain.hierarchy` when a project moves.
 	#: `path` is a materialised path of **ids** and `views.Project`'s own docstring warns it is
 	#: not an address (`#986` published one by mistake and printed a UUID at a reader).

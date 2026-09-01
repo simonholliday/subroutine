@@ -280,6 +280,36 @@ def test_nothing_is_classified_that_a_change_can_no_longer_name (
 		assert named - fields == set(), f"{entity}: classified but never compared"
 
 
+def test_the_prose_field_is_content_on_every_entity_that_has_one (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> None:
+	"""`SR#1768`'s register is a subset of this one, and this is what holds it there.
+
+	`domain.events.PROSE_FIELD` names the one field whose replacement is a *revision* — what
+	a reader reads for the conclusion. It is deliberately narrower than `CONTENT_FIELDS`: a
+	rename is a change somebody sees in the title and a status move is reported by the status,
+	where a rewritten body looked exactly like a first draft until that item.
+
+	**Narrower has to mean inside.** A prose field that stopped counting as content would be a
+	field whose replacement moved no `content_updated_at` and yet was reported as a revision —
+	one rule reading two ways for one field, which is `SR#1112`'s own shape.
+
+	**And it must still be a field a change can name**, checked against the same comparison
+	the two registers above are checked against, so deleting the column deletes this too
+	rather than leaving a rule about something nobody has.
+	"""
+
+	comparable = _comparable(session, world)
+
+	for entity, field in subroutine.domain.events.PROSE_FIELD.items():
+		assert field in subroutine.domain.events.CONTENT_FIELDS[entity], (
+			f"{entity}: {field!r} is reported as a revision and is not content"
+		)
+		assert field in comparable[entity], (
+			f"{entity}: {field!r} is named as prose and no change can produce it"
+		)
+
+
 def test_filing_a_document_elsewhere_is_not_a_change_of_meaning (
 	world: test_api_tasks.World,
 ) -> None:

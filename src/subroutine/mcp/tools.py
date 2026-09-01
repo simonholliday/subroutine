@@ -2505,6 +2505,26 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	if item.deleted_at is not None:
 		facts.append(f"deleted {_day_of(item.deleted_at, item)}")
 
+	# **The surface this was built for** (`#1768`). Decision `#1766` asks an agent to correct
+	# a body rather than append a comment saying it is wrong, and as things stood that meant
+	# making its own reasoning disappear: `subroutine_show` reported no version, no count and
+	# no date, so a fifth draft read exactly like a first. An agent that cannot see editing
+	# happen picks the channel it can see, which is the comment.
+	#
+	# **`subroutine://conventions` delivers a decision body only**, so on a document this is
+	# the only thing that says the conclusion an agent is about to act on has moved.
+	if item.revisions is not None:
+		facts.append(
+			# **`_day_of` rather than `.date()`**, which is what the guard in
+			# `tests/test_schedule.py` refused: taking a day off a moment reads it in
+			# whichever zone the value happens to carry, so an agent reading an item
+			# revised late in the evening would be told the wrong day. This is the same
+			# helper every other date on this surface goes through.
+			subroutine.views.revised_in_words(
+				item.revisions, when=_day_of(item.revisions.last_at, item)
+			)
+		)
+
 	return facts
 
 

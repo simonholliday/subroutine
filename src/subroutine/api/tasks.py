@@ -1551,8 +1551,18 @@ def _page (
 def _rendered (
 	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Task
 ) -> subroutine.views.Task:
-	"""Render one task, loading the vocabulary it names."""
+	"""Render one task, loading the vocabulary it names.
+
+	**It resolves how often the body has been rewritten** (`#1768`), which is why this is the
+	chokepoint rather than the builder: every single-item response passes here and no listing
+	does, which is the split :attr:`subroutine.views.Task.revisions` requires. One indexed
+	lookup, on the index the history endpoint already added.
+	"""
 
 	return subroutine.views.task(
-		row, subroutine.views.Vocabulary.for_tasks(session, [row])
+		row,
+		subroutine.views.Vocabulary.for_tasks(session, [row]),
+		revisions=subroutine.views.revisions_seen(
+			session, entity_type="task", row=row
+		),
 	)

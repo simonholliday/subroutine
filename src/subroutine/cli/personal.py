@@ -11420,6 +11420,28 @@ def _facts (located: Located) -> list[str]:
 	if item.deleted_at is not None:
 		facts.append(f"deleted {_render_date(item.deleted_at, getattr(item, 'timezone', None))}")
 
+	# **After the deletion, because it is a fact about the text rather than about the item**
+	# (`#1768`). Everything above says what this *is*; this says the body you are reading has
+	# been replaced, which is what decides whether to trust a comment written under an
+	# earlier draft.
+	#
+	# **Absent on a first draft**, which is this function's own rule read one field along: an
+	# item nobody has revised has nothing to report, exactly as an unranked one shows no
+	# priority. `views.Revisions` is null in that case rather than a count of zero.
+	#
+	# **Null also means nobody asked**, and at this surface nobody ever does not: `show` is
+	# the only caller and it always resolves it. A listing leaves it unresolved and renders
+	# no facts at all, so the two cannot be confused here.
+	revisions = getattr(item, "revisions", None)
+
+	if revisions is not None:
+		facts.append(
+			subroutine.views.revised_in_words(
+				revisions,
+				when=_render_date(revisions.last_at, getattr(item, "timezone", None)),
+			)
+		)
+
 	return facts
 
 

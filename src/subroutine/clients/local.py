@@ -776,7 +776,11 @@ class Client:
 				return None
 
 			return subroutine.views.task(
-				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=row
+				),
 			)
 
 	def _vocabulary_row (
@@ -1257,7 +1261,11 @@ class Client:
 				return None
 
 			return subroutine.views.document(
-				row, subroutine.views.Vocabulary.for_documents(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_documents(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="document", row=row
+				),
 			)
 
 	def update_document (
@@ -1333,7 +1341,11 @@ class Client:
 			revised = subroutine.domain.documents.update(session, row, actor=actor, expected_version=expected_version, **changes)
 
 			return subroutine.views.document(
-				revised, subroutine.views.Vocabulary.for_documents(session, [revised])
+				revised,
+				subroutine.views.Vocabulary.for_documents(session, [revised]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="document", row=revised
+				),
 			)
 
 	def links (
@@ -2649,7 +2661,11 @@ class Client:
 			)
 
 			return subroutine.views.document(
-				created, subroutine.views.Vocabulary.for_documents(session, [created])
+				created,
+				subroutine.views.Vocabulary.for_documents(session, [created]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="document", row=created
+				),
 			)
 
 	def capture (
@@ -2752,7 +2768,11 @@ class Client:
 
 			return subroutine.clients.base.Captured(
 				task=subroutine.views.task(
-					row, subroutine.views.Vocabulary.for_tasks(session, [row])
+					row,
+					subroutine.views.Vocabulary.for_tasks(session, [row]),
+					revisions=subroutine.views.revisions_seen(
+						session, entity_type="task", row=row
+					),
 				),
 				unparsed=captured.unparsed,
 				summary=subroutine.domain.capture.summarise(captured),
@@ -2879,7 +2899,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=row
+				),
 			)
 
 
@@ -3002,7 +3026,11 @@ class Client:
 				)
 
 				return subroutine.views.document(
-					row, subroutine.views.Vocabulary.for_documents(session, [row])
+					row,
+					subroutine.views.Vocabulary.for_documents(session, [row]),
+					revisions=subroutine.views.revisions_seen(
+						session, entity_type="document", row=row
+					),
 				)
 
 			subroutine.domain.tasks.move(
@@ -3010,7 +3038,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=row
+				),
 			)
 
 	def _moved (
@@ -3058,7 +3090,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				held, subroutine.views.Vocabulary.for_tasks(session, [held])
+				held,
+				subroutine.views.Vocabulary.for_tasks(session, [held]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=held
+				),
 			)
 
 	def release (
@@ -3073,7 +3109,11 @@ class Client:
 			freed = subroutine.domain.claims.release(session, row, actor=actor)
 
 			return subroutine.views.task(
-				freed, subroutine.views.Vocabulary.for_tasks(session, [freed])
+				freed,
+				subroutine.views.Vocabulary.for_tasks(session, [freed]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=freed
+				),
 			)
 
 	def complete (
@@ -3098,7 +3138,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				finished, subroutine.views.Vocabulary.for_tasks(session, [finished])
+				finished,
+				subroutine.views.Vocabulary.for_tasks(session, [finished]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=finished
+				),
 			)
 
 	def update (
@@ -3212,7 +3256,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=row
+				),
 			)
 
 	def schedule (
@@ -3256,7 +3304,11 @@ class Client:
 			)
 
 			return subroutine.views.task(
-				row, subroutine.views.Vocabulary.for_tasks(session, [row])
+				row,
+				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				revisions=subroutine.views.revisions_seen(
+					session, entity_type="task", row=row
+				),
 			)
 
 	def close (self) -> None:

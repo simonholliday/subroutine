@@ -6453,6 +6453,19 @@ export function Foot ({ count, theme, onTheme }) {
 	`;
 }
 
+function revisedInWords (revisions) {
+	/* The value half of the *Revised* row: how many times, by whom, and when.
+
+	   `once` rather than `1 time`, matching `views.revised_in_words` — and the name is left
+	   out where the event recorded no actor rather than replaced by a placeholder, because
+	   *somebody revised this* is the whole of what is known. */
+	const times = revisions.count === 1 ? "once" : `${revisions.count} times`;
+	const who = revisions.last_by ? ` by @${revisions.last_by}` : "";
+
+	return `${times}${who} on ${day(revisions.last_at)}`;
+}
+
+
 export function Facts ({ item, prioritised = [] }) {
 	/*
 		**A field nobody set is not printed** (§12.2c). That rule is what lets `subroutine show`
@@ -6513,6 +6526,19 @@ export function Facts ({ item, prioritised = [] }) {
 	add("Estimate", item.estimate_human);
 	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);
 	add("Updated", day(item.updated_at));
+
+	/* **That the body has been replaced, which nothing said until `#1768`.** `Updated` above
+	   moves for any change at all — a status, an assignee, a rank — so it could never answer
+	   *is what I am reading a later draft than the comment beneath it*. This counts only
+	   replacements of the body, which is what decision `#1766` asks people to make instead of
+	   correcting underneath.
+
+	   **The words are `views.revised_in_words`' and the arrangement is not**, deliberately.
+	   Every other row here is a label and a value in a definition list, and a sentence
+	   repeating its own label would read wrongly in that column — so the count, the name and
+	   the day are the same and the leading word is the `<dt>`. `views.principal_named` has
+	   the same shape for the same reason: this is the one renderer that is not Python. */
+	add("Revised", item.revisions ? revisedInWords(item.revisions) : null);
 
 	if (rows.length === 0) return null;
 

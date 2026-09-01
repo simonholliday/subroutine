@@ -12,6 +12,7 @@ will later drain. That is why the cost is paid on every write from the first mig
 rather than added when someone wants a feed.
 """
 
+import dataclasses
 import datetime
 import enum
 import typing
@@ -21,6 +22,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.db.types
@@ -247,6 +249,119 @@ def touches_content (entity_type: str, changes: typing.Mapping[str, typing.Any])
 	"""
 
 	return bool(CONTENT_FIELDS.get(entity_type, frozenset()) & changes.keys())
+
+
+#: The one field whose replacement is a **revision** — the prose a reader reads for the
+#: conclusion, as opposed to everything else an update can touch.
+#:
+#: **Narrower than :data:`CONTENT_FIELDS` on purpose** (`#1768`). A title changing is a rename
+#: and a reader sees it; a status changing is reported by the status. What nothing said was
+#: that the *body* had been replaced — so a fifth draft read exactly like a first, which is
+#: decision `#1766`'s cause rather than its symptom: editing was the invisible channel and
+#: commenting the visible one, so anybody wanting their reasoning seen picked the comment.
+#:
+#: **One field per entity rather than a set**, because there is one, and a set would invite a
+#: second answer to *has this been revised* the day somebody added to it.
+#: ``test_every_prose_field_is_content`` holds each of these inside :data:`CONTENT_FIELDS`,
+#: so a field that stopped counting as content could not go on counting as a revision.
+PROSE_FIELD: dict[str, str] = {"task": "description", "document": "body"}
+
+
+@dataclasses.dataclass(frozen=True)
+class Revisions:
+	"""How many times an item's prose has been replaced, and who last replaced it."""
+
+	#: How many times it was rewritten. Never zero — a first draft has no revisions and is
+	#: reported as ``None`` rather than as a count of nothing, which is §12.2a's rule.
+	count: int
+
+	#: When the last rewrite happened.
+	last_at: datetime.datetime
+
+	#: Who did it, by username, or ``None`` where the event records no actor — a migration
+	#: or a caller with no credential (§12.1a). *Somebody* revised it either way, so the
+	#: count still stands and only the name is missing.
+	last_by: str | None
+
+
+def _replaced_something (change: typing.Any) -> bool:
+	"""Say whether a recorded change **replaced** prose, rather than writing it for the first time.
+
+	**Found by driving it** (`#1768`): a task captured from one line has no description, so
+	the first ``update --description`` records ``{"from": null, "to": "A plan."}`` — and
+	counting that said *revised twice* about something written once and corrected once. A
+	document did not show it, because ``doc create --body`` writes the body at creation and
+	its first update really is a replacement.
+
+	An empty string counts as nothing having been there, for the same reason ``None`` does:
+	both are an item with no prose, and which one is stored depends on how it was made.
+	"""
+
+	return isinstance(change, dict) and bool(change.get("from"))
+
+
+def revisions_of (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	entity_id: uuid.UUID,
+) -> Revisions | None:
+	"""Say how often an item's prose has been rewritten, or ``None`` if it never has.
+
+	**Derived from the events rather than counted onto the row** (`#1768`). A column would be
+	a second answer to a question the event feed already answers, and this project's own
+	record of what that costs is long enough. The old text is in ``event.changes`` whole, so
+	nothing here is reconstructing anything — it is reading what is already stored.
+
+	**Indexed**: ``ix_event_workspace_id_entity_type_entity_id_seq`` is exactly this lookup,
+	added for the history endpoint, so the rows come back without a scan.
+
+	**Filtered in Python rather than in SQL, and that is a portability decision.** ``changes``
+	is a JSON column and the two backends disagree about how to ask what a key contains —
+	§10.3's first review dimension, and the kind of difference that works on SQLite and fails
+	in CI. The rows are an item's own updates, which is tens rather than thousands, so the
+	cost of reading them is what it would have been anyway.
+
+	**Only the prose counts.** :data:`PROSE_FIELD` says which field that is; a rename or a
+	status move is a change somebody can already see.
+
+	**And only a replacement counts**, which :func:`_replaced_something` decides: writing a
+	description onto a task that never had one is the first draft, not a revision of it.
+	"""
+
+	field = PROSE_FIELD.get(entity_type)
+
+	if field is None:
+		return None
+
+	model = subroutine.db.models.activity.Event
+	actor = sqlalchemy.orm.aliased(subroutine.db.models.identity.User)
+
+	rows = session.execute(
+		sqlalchemy.select(model.created_at, model.changes, actor.username)
+		.outerjoin(actor, actor.id == model.actor_user_id)
+		.where(
+			model.workspace_id == workspace_id,
+			model.entity_type == entity_type,
+			model.entity_id == entity_id,
+			model.action == EventAction.UPDATED,
+		)
+		.order_by(model.seq)
+	).all()
+
+	rewrites = [
+		(created_at, username)
+		for created_at, changes, username in rows
+		if changes is not None and _replaced_something(changes.get(field))
+	]
+
+	if not rewrites:
+		return None
+
+	last_at, last_by = rewrites[-1]
+
+	return Revisions(count=len(rewrites), last_at=last_at, last_by=last_by)
 
 
 def changes_between (

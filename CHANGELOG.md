@@ -22,6 +22,27 @@ upgrade involves.
 
 ### Added
 
+- **An item says when its body has been rewritten, and by whom.** Nothing did. The previous
+  text was kept, and `subroutine changes` would tell you *that* something changed — but the
+  item itself said nothing, so a fifth draft read exactly like a first.
+
+  ```
+    #42  active · revised 2 times by @si on Tue 1 Sep
+  ```
+
+  That mattered more than it sounds, because it decided which way people wrote. Correcting a
+  document by editing it made your work invisible; adding a comment saying *ignore the above*
+  did not. So the advice everybody gives — keep the body true — cost you the credit for
+  keeping it true, and the comment won. This is what makes the better habit the visible one.
+
+  A count and a name, never a diff: it answers *has what I am reading been replaced*, and the
+  superseded text is still where it was. Rewriting the body is what moves it — a rename or a
+  status change is something you can already see. Writing a description onto a task that never
+  had one is a first draft rather than a revision of nothing.
+
+  It appears on a single item, at the terminal, in the browser and through an agent. A listing
+  leaves it out, which is why a row says nothing about it rather than saying *never*.
+
 - **A parent whose sub-tasks are all finished says so, on every surface.** Nothing completes a
   parent for you — that would credit whoever closed the last sub-task with a decision they did
   not take, and it could not reverse when a sub-task is added later. So the question is yours,
