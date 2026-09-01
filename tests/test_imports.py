@@ -72,6 +72,13 @@ SIDE_EFFECT_IMPORTS: dict[tuple[str, str], str] = {
 	("src/subroutine/db/models/__init__.py", "subroutine.db.models.work"): (
 		"registers task, document, tag, link and mention, the same way"
 	),
+	("scripts/merge_instance.py", "subroutine.db.models"): (
+		"populates Base.metadata, which is how that script knows what a table is — it reads "
+		"every table by name off the metadata and never writes the module's own name. "
+		"Measured: removing it leaves the tests green, because `subroutine.db.migrate` imports "
+		"the models too. That is exactly the property `#202` says a module must not lean on, so "
+		"it is declared here rather than inherited"
+	),
 	("src/subroutine/db/fulltext.py", "sqlalchemy.dialects.postgresql"): (
 		"registers the argument and return types of to_tsvector and its family; SQLAlchemy "
 		"refuses to compile one constructed before this import, with a message naming it. "
