@@ -364,3 +364,74 @@ def test_the_default_answer_is_exactly_what_the_published_model_describes (
 
 	assert [task.title for task in started.items] == ["Started 2", "Started 1"]
 	assert started.page.limit == subroutine.domain.grouping.DEFAULT_GROUP_SIZE
+
+
+def test_grouping_a_listing_costs_a_handful_of_questions_more_than_not_grouping_it (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1799`. The guard above cannot see an N+1 that is per *group* rather than per row.
+
+	It compares a page of 2 rows against a page of 16 and asserts the count does not move,
+	which is exactly right for a fan-out over rows and blind to one over columns — there are
+	always four of those, so the number is stable while being four times what it should be.
+
+	**That is not hypothetical.** `SR#1790` shipped calling the renderer inside the group loop,
+	and rendering is where :class:`subroutine.views.Vocabulary` is built — which is not a lookup
+	table but a batch of readiness queries. A four-column board ran the whole readiness batch
+	four times: 63 statements against an ungrouped listing's 23, and 1.8x the time on the real
+	instance's data.
+
+	**Compared against the same listing ungrouped**, because that is the property. An absolute
+	ceiling would have to be raised whenever a listing legitimately grows a question, and would
+	then stop measuring the thing this is about.
+	"""
+
+	_spread(world)
+
+	counted: list[str] = []
+
+	def record (
+		_connection: typing.Any, _cursor: typing.Any, statement: str, *_rest: typing.Any
+	) -> None:
+		"""Note every statement the engine is asked to run."""
+
+		counted.append(statement)
+
+	def queries_for (path: str) -> int:
+		"""Return how many statements one listing takes."""
+
+		world.call("GET", path)
+
+		counted.clear()
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", record)
+
+		try:
+			assert world.call("GET", path).status_code == 200
+
+			return len(counted)
+
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", record)
+
+	fields = "ref,title,status_category,blocked,blocking,assignee,project_key"
+
+	flat = queries_for(f"/v1/tasks?limit=100&include_completed=true&fields={fields}")
+	grouped = queries_for(
+		f"/v1/tasks?group_by=status_category&group_limit=25&include_completed=true"
+		f"&fields={fields}"
+	)
+
+	#: What splitting an answer is allowed to cost, in statements.
+	#:
+	#: One lookup to find each group's statuses, and one query per group for its rows — four
+	#: task categories, so five. The measured figure is four, because the ungrouped listing's
+	#: own row query is one of the ones being replaced. Anything beyond this is something being
+	#: run per group that belongs to the page.
+	allowance = 6
+
+	assert grouped <= flat + allowance, (
+		f"grouping a listing took {grouped} statements against {flat} ungrouped, which is "
+		f"more than the {allowance} that splitting it can account for. Something the page "
+		f"pays for once is being paid per group — the vocabulary is where that happened "
+		f"before, and it carries the readiness batch with it."
+	)

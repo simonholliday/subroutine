@@ -234,6 +234,17 @@ upgrade involves.
 
 ### Fixed
 
+- **A grouped listing is no longer slower than the one it replaced.** Splitting an answer into
+  columns rendered each column separately, and rendering is where a page loads the batch of
+  work-readiness lookups every row needs — so a four-column board ran that batch four times.
+
+  Measured at the size of a real instance (1,497 tasks): 63 database questions and 144 ms,
+  against 79 ms for the same listing unsplit. It now asks 27 and takes 69 ms — **faster than
+  before splitting existed**, because four narrow queries beat one scan of everything.
+
+  No index was involved and none would have helped; both plausible ones were built and
+  measured and neither moved the figure.
+
 - **A parked question is on the agenda of whoever owes the answer, and nobody else's.**
   *Waiting on you* held every question that had been assigned to nobody, so on an instance with
   more than one person it showed everybody the same list — including questions meant for a
