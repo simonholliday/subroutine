@@ -35,6 +35,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -238,8 +239,79 @@ DURATION = Kind(
 )
 
 
+class Property (typing.NamedTuple):
+	"""One property of an item, and what a listing may do with it — `#1803`, design `#1801`.
+
+	**Filterable, orderable and groupable were declared three times, and did not agree.**
+	Measured on 2026-09-01: eleven fields in this module, twelve in ``api.tasks.SORTABLE``, one
+	in ``domain.grouping.AXES``, and **no field in all three**. A reader could sort the whole
+	backlog by urgency and could not ask for the urgent ones — which is not a missing feature
+	but three lists nothing held against each other. This codebase's signature defect, on the
+	vocabulary that decides what a caller may ask.
+
+	So each property is declared once here and the three lists are *derived* from it by
+	:func:`filters`, :func:`orderable` and :func:`axes`. They cannot disagree, because there is
+	one of them.
+
+	**The declaration lives in this module because a circular import decides it.**
+	:func:`understood` reads the registry at module scope, so a separate registry module
+	importing this one could never be imported back by it — and passing the registry to
+	``understood``, ``asked``, ``names`` and ``about`` instead would put two modules in front
+	of fourteen call sites that today know one. :mod:`subroutine.domain.ordering` and
+	:mod:`subroutine.domain.grouping` import *this*, and nothing here imports either.
+
+	**A capability whose mechanism belongs to another module is still declared here.**
+	``priority_score`` is a banded expression that :mod:`subroutine.domain.ordering` builds and
+	this module could not; its entry says *orderable, not filterable*, and carries the reason.
+	The registry declares **capability** and a module owns **mechanism** — which is what stops
+	an order-only field being absent from the registry altogether and taking its asymmetry with
+	it.
+	"""
+
+	#: What SQL compares, orders or groups on. ``None`` for a property whose expression is
+	#: another module's — see the class docstring — and for one that is only an axis.
+	column: typing.Any = None
+
+	#: How a filter reads its value, and ``None`` for a property that cannot be filtered on.
+	#:
+	#: **One optional argument rather than a boolean beside it**, because two fields saying the
+	#: same thing is the shape that lets them disagree: a ``filterable=True`` with no kind is a
+	#: promise nothing can keep, and a kind with ``filterable=False`` is a reader nothing calls.
+	kind: Kind | None = None
+
+	#: Whether ``?order=`` may name it.
+	orderable: bool = False
+
+	#: Every key of the axis, in the order a reader meets them, or ``None`` for a property that
+	#: is not one.
+	#:
+	#: **The keys rather than a flag**, because grouping asks one query per group and an axis
+	#: has to be *bounded* to be affordable — see :mod:`subroutine.domain.grouping`. A boolean
+	#: would let somebody declare an assignee groupable, which is an N+1 wearing a parameter.
+	groupable: tuple[str, ...] | None = None
+
+	#: Which properties compile into one predicate. See :class:`Filterable`.
+	group: str | None = None
+
+	#: Why a capability is absent where its neighbours are present.
+	#:
+	#: **Required wherever the three disagree**, and that is the point of the registry rather
+	#: than a side effect of it: nine fields were asymmetric when this was written and not one
+	#: carried a reason anywhere. Some asymmetries are right — ``priority_score`` is computed
+	#: and has no value to compare — and they are worth as much written down as the gaps are.
+	#: ``tests/test_filtering.py`` is what makes it mechanical.
+	because: str | None = None
+
+
 class Filterable (typing.NamedTuple):
-	"""One field a listing can be asked about."""
+	"""One field a listing can be asked about.
+
+	**Derived from :class:`Property` by :func:`filters`, rather than declared beside it.** The
+	filter machinery reads ``kind`` without a guard — :attr:`Comparison.against` is one of these
+	and the predicate is ``against.kind.predicate(…)`` — and a registry entry's kind is optional
+	because *not filterable* is a state it has to be able to describe. Two types, one
+	declaration, and the narrowing happens in one function.
+	"""
 
 	#: What it compares against in SQL. For a field with no column of its own — `touched_at` —
 	#: this is the entity's identity, which is what the subquery correlates on.
@@ -266,7 +338,7 @@ TOUCHED_AT = "touched_at"
 TOUCHED_BY = "touched_by"
 
 
-def _worked_on (identity: typing.Any) -> dict[str, Filterable]:
+def _worked_on (identity: typing.Any) -> dict[str, Property]:
 	"""Declare the pair that asks about activity, for one entity's identity column.
 
 	**Not a stored column, and deliberately not one.** A maintained `last_activity_at` was
@@ -277,15 +349,118 @@ def _worked_on (identity: typing.Any) -> dict[str, Filterable]:
 	"""
 
 	return {
-		TOUCHED_AT: Filterable(column=identity, kind=INSTANT, group="touched"),
-		TOUCHED_BY: Filterable(column=identity, kind=WHO, group="touched"),
+		TOUCHED_AT: Property(
+			column=identity, kind=INSTANT, group="touched", because=NOT_A_COLUMN
+		),
+		TOUCHED_BY: Property(
+			column=identity, kind=WHO, group="touched", because=NOT_A_COLUMN
+		),
 	}
 
 
-def _instants (**fields: typing.Any) -> dict[str, Filterable]:
-	"""Declare several instant-valued fields at once, so a registry reads as a list of names."""
+def _instants (**fields: typing.Any) -> dict[str, Property]:
+	"""Declare several instant-valued properties, so a registry reads as a list of names.
 
-	return {name: Filterable(column=column, kind=INSTANT) for name, column in fields.items()}
+	**Filterable and orderable together**, which is what a timestamp with a column of its own
+	always was on both counts — the two lists happened to agree about most of these and nothing
+	held them to it.
+	"""
+
+	return {
+		name: Property(column=column, kind=INSTANT, orderable=True)
+		for name, column in fields.items()
+	}
+
+
+#: Why a property that has no column of its own is not orderable.
+#:
+#: Shared by the two the activity pair declares, because it is one reason: ``touched_at`` and
+#: ``touched_by`` compile into a correlated ``EXISTS`` over the event table and there is
+#: nothing on the row to sort by. `#817` weighed a maintained ``last_activity_at`` and deferred
+#: it — sortable, one write site, and a second copy of a fact whose drift is silent — and
+#: **named the trigger for revisiting: somebody wanting to sort by activity rather than filter
+#: on it.** That sentence is quoted rather than re-derived, and `#1801` §7 reached the same
+#: shape again on a second field the same way.
+NOT_A_COLUMN = (
+	"an `EXISTS` over the event table, with nothing on the row to sort by. `#817` deferred a "
+	"maintained column and named the trigger: somebody wanting to sort by activity rather "
+	"than filter on it."
+)
+
+#: The task properties an ordering may name and a filter may not — `#1803`, design `#1801` §1.
+#:
+#: **Five, and none of them carried a reason before this.** They were simply in one list and
+#: not the other, which is how ``importance`` and ``urgency`` came to be sortable and
+#: unaskable — Simon's own ``urgent>3`` example, and the finding that decided the registry's
+#: shape. Two of the five are gaps with items against them; three are arguments.
+_ORDER_ONLY: dict[str, Property] = {
+	"importance": Property(
+		column=subroutine.db.models.work.Task.importance,
+		orderable=True,
+		because="a gap rather than a decision — `#1804` makes it a NUMBER and filterable.",
+	),
+	"urgency": Property(
+		column=subroutine.db.models.work.Task.urgency,
+		orderable=True,
+		because="a gap rather than a decision — `#1804` makes it a NUMBER and filterable.",
+	),
+	# **Declared with no column, because `ordering` owns the expression** — see `Property`. A
+	# banded `CASE` cannot be built here and the module that builds it imports this one.
+	"priority_score": Property(
+		orderable=True,
+		because=(
+			"computed, and banded by §6.3a rather than stored — there is no value to compare "
+			"against. The three ranking states are what an ordering arranges; what a caller "
+			"reads is `importance * urgency`, and the two are deliberately different things."
+		),
+	),
+	"ref": Property(
+		column=subroutine.db.models.work.Task.ref,
+		orderable=True,
+		because=(
+			"a ref names exactly one item and `show` is how you ask for it; a *set* of refs "
+			"would be `in` on a lookup, and nothing has asked for one."
+		),
+	),
+	"title": Property(
+		column=subroutine.db.models.work.Task.title,
+		orderable=True,
+		because=(
+			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
+			"— `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+		),
+	),
+}
+
+#: What ``?group_by=`` calls the axis a board is arranged on.
+#:
+#: **A category rather than a status key**, for :func:`subroutine.domain.tasks.
+#: statuses_in_category`'s reason: a key is per-workspace and renameable, so a board keyed on
+#: one stops working on the first installation that renames it. The category is the fixed field
+#: published beside it precisely so a client may branch on it.
+#:
+#: **Here rather than in :mod:`subroutine.domain.grouping`, since `#1803`.** That module reads
+#: its axes from this registry now, so it cannot also be where their names are decided — and a
+#: name spelled in both is the duplication the registry exists to remove.
+STATUS_CATEGORY = "status_category"
+
+#: The task properties a listing may be grouped by and nothing else — `#1803`.
+#:
+#: **The first entry to carry the third capability on its own**, and it is what the registry
+#: makes visible: ``status_category`` was declared in :mod:`subroutine.domain.grouping` and in
+#: neither of the other two lists, so *this is groupable* and *this is filterable* were facts
+#: kept in different modules about the same word. It reaches a listing today as a flat route
+#: parameter, which `#1804` is what changes.
+_AXES_ONLY: dict[str, Property] = {
+	STATUS_CATEGORY: Property(
+		groupable=subroutine.db.mixins.TASK_STATUS_CATEGORIES,
+		because=(
+			"a flat route parameter today rather than a dotted filter, and an ordering by "
+			"category would sort by an id — `#1804` gives it an ENUM kind and `#1805` the "
+			"ordering, if a workspace's own status order turns out to be what people mean."
+		),
+	),
+}
 
 
 #: What a task listing can be asked about.
@@ -296,7 +471,7 @@ def _instants (**fields: typing.Any) -> dict[str, Filterable]:
 #: have one; ``completed_at`` and ``snoozed_until`` do not yet and are here because the questions
 #: `#815` was filed for need them — measured against this instance, where the largest workspace
 #: holds hundreds rather than millions of rows.
-TASK_FILTERS: dict[str, Filterable] = {
+TASK_PROPERTIES: dict[str, Property] = {
 	**_instants(
 		created_at=subroutine.db.models.work.Task.created_at,
 		updated_at=subroutine.db.models.work.Task.updated_at,
@@ -315,22 +490,43 @@ TASK_FILTERS: dict[str, Filterable] = {
 		# carried over: on a timestamp it is the thing `#815` refuses by name, because two
 		# instants are equal to the microsecond and almost never to the caller.
 		starts_at=subroutine.db.models.work.Task.starts_at,
-		content_updated_at=subroutine.db.models.work.Task.content_updated_at,
 		# **When somebody took it, which is not when they will finish** (`#1120`). Reported on
 		# every row since the lease was built and reachable by no question, so *what has been
 		# held since before lunch* — the one a person asks when an agent has gone quiet — had
 		# no query. Null unless it is claimed, and NULLS LAST does the rest.
 		claimed_at=subroutine.db.models.work.Task.claimed_at,
 	),
+	# **Filterable and not orderable, and now it says why** — `#1803`. Both were simply in one
+	# list and not the other; neither absence had been argued, and `#1805` is where they are
+	# decided rather than inherited.
+	"snoozed_until": Property(
+		column=subroutine.db.models.work.Task.snoozed_until,
+		kind=INSTANT,
+		because=(
+			"`ordering.DEFERRED` is what a reader means by *sorted by whether it is put off*, "
+			"and it is a band added per request rather than a column — `#1805` decides whether "
+			"the raw date is worth a second answer to a question already settled."
+		),
+	),
+	"content_updated_at": Property(
+		column=subroutine.db.models.work.Task.content_updated_at,
+		kind=INSTANT,
+		because=(
+			"nothing has asked to sort by when the prose last changed, where `updated_at` "
+			"already answers *when did anything about this move* — `#1805`."
+		),
+	),
 	# `#319`. **No index, and here anyway on the same measured grounds as `completed_at` and
 	# `snoozed_until` above**: the question it was filed for — *what is short and not blocked* —
 	# needs it, and the largest workspace on this instance holds 163 open tasks. The comment at
 	# the head of this registry is the promise being weighed, and this entry is a place to look
 	# when it stops being true.
-	"estimate_minutes": Filterable(
-		column=subroutine.db.models.work.Task.estimate_minutes, kind=DURATION
+	"estimate_minutes": Property(
+		column=subroutine.db.models.work.Task.estimate_minutes, kind=DURATION, orderable=True
 	),
 	**_worked_on(subroutine.db.models.work.Task.id),
+	**_ORDER_ONLY,
+	**_AXES_ONLY,
 }
 
 #: What a document listing can be asked about.
@@ -339,23 +535,75 @@ TASK_FILTERS: dict[str, Filterable] = {
 #: planned day to ask about. It is here at all because one ref counter serves both (§6.2), so
 #: *"what was created yesterday"* answered for tasks alone would be wrong about half of what a
 #: number can name.
-DOCUMENT_FILTERS: dict[str, Filterable] = {
+DOCUMENT_PROPERTIES: dict[str, Property] = {
 	**_instants(
 		created_at=subroutine.db.models.work.Document.created_at,
 		updated_at=subroutine.db.models.work.Document.updated_at,
-		content_updated_at=subroutine.db.models.work.Document.content_updated_at,
+	),
+	"content_updated_at": Property(
+		column=subroutine.db.models.work.Document.content_updated_at,
+		kind=INSTANT,
+		because=(
+			"nothing has asked to sort by when the prose last changed, where `updated_at` "
+			"already answers *when did anything about this move* — `#1805`."
+		),
 	),
 	# **A document is worked on too**, and a comment on one moves nothing in its row — which is
 	# the whole reason this is an `EXISTS`. `#815`'s question is about items, and a ref names
 	# either kind (§6.2).
 	**_worked_on(subroutine.db.models.work.Document.id),
+	# **A document is grouped on the same axis and its keys are its own** (`#1790`). Four
+	# categories a *document* has, which are not a task's four — `db.mixins` keeps them apart
+	# and this is where the two registries stop agreeing by accident.
+	STATUS_CATEGORY: Property(
+		groupable=subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES,
+		because="a flat route parameter today rather than a dotted filter — `#1804`.",
+	),
+	"title": Property(
+		column=subroutine.db.models.work.Document.title,
+		orderable=True,
+		because=(
+			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
+			"— `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+		),
+	),
+	"ref": Property(
+		column=subroutine.db.models.work.Document.ref,
+		orderable=True,
+		because=(
+			"a ref names exactly one item and `show` is how you ask for it; a *set* of refs "
+			"would be `in` on a lookup, and nothing has asked for one."
+		),
+	),
 }
 
 #: What a project listing can be asked about.
-PROJECT_FILTERS: dict[str, Filterable] = _instants(
-	created_at=subroutine.db.models.project.Project.created_at,
-	updated_at=subroutine.db.models.project.Project.updated_at,
-)
+PROJECT_PROPERTIES: dict[str, Property] = {
+	**_instants(
+		created_at=subroutine.db.models.project.Project.created_at,
+		updated_at=subroutine.db.models.project.Project.updated_at,
+	),
+	# **Three orderable and unaskable, and the reason is one sentence for all three**: a
+	# project is *found* by its address rather than narrowed to by its name, and the parameter
+	# that does that — `parent` — is a flat one. `#1804` is where a REFERENCE kind would make
+	# them askable if anybody wanted it; nobody has.
+	**{
+		name: Property(
+			column=column,
+			orderable=True,
+			because=(
+				"a project is reached by its address rather than narrowed to by its name — "
+				"`parent` is the flat parameter that does it, and `#1804` is where a "
+				"REFERENCE kind would change that."
+			),
+		)
+		for name, column in {
+			"key": subroutine.db.models.project.Project.key,
+			"title": subroutine.db.models.project.Project.title,
+			"path": subroutine.db.models.project.Project.path,
+		}.items()
+	},
+}
 
 #: What the change feed and the journal can be asked about — `#1431`, decision `#1429`.
 #:
@@ -373,17 +621,85 @@ PROJECT_FILTERS: dict[str, Filterable] = _instants(
 #: stronger: it is a *resumable cursor* with inclusive-with-dedupe semantics (§5.11), where a
 #: filter would be an ordinary comparison. Two spellings of one number, one of which quietly
 #: loses the resume guarantee, is the shape `#1017` warns about.
-EVENT_FILTERS: dict[str, Filterable] = _instants(
-	created_at=subroutine.db.models.activity.Event.created_at,
-)
+EVENT_PROPERTIES: dict[str, Property] = {
+	"created_at": Property(
+		column=subroutine.db.models.activity.Event.created_at,
+		kind=INSTANT,
+		because=(
+			"a feed always runs forwards and the caller does not choose — `domain.events.feed`. "
+			"`newest` picks which end to start from and is a flat parameter, so this listing "
+			"offers no ordering at all rather than one that would contradict the cursor."
+		),
+	),
+}
 
 #: Every registry, by the entity name a refusal uses. Named here so `/v1/meta` publishes them
 #: from the same place the listings read them, rather than from a second list that agrees today.
+PROPERTIES: dict[str, dict[str, Property]] = {
+	"task": TASK_PROPERTIES,
+	"document": DOCUMENT_PROPERTIES,
+	"project": PROJECT_PROPERTIES,
+	"event": EVENT_PROPERTIES,
+}
+
+
+def filters (entity: str) -> dict[str, Filterable]:
+	"""Return what this entity's listing can be *asked about*, from the one declaration.
+
+	**Derived rather than declared**, which is the whole of `#1803`: the filterable, orderable
+	and groupable sets were three lists in three modules with no field in all three, and a
+	guard comparing them could only ever have reported the disagreement after it happened.
+
+	A property with no :attr:`Property.kind` is not filterable and is simply absent — so the
+	dict this returns is exactly what it always was, and every caller of it is untouched.
+	"""
+
+	return {
+		name: Filterable(column=held.column, kind=held.kind, group=held.group)
+		for name, held in PROPERTIES.get(entity, {}).items()
+		if held.kind is not None
+	}
+
+
+def orderable (entity: str) -> dict[str, typing.Any]:
+	"""Return what this entity's listing can be *ordered by*, as a column each.
+
+	**Columns only.** A property whose ordering expression belongs to another module —
+	``priority_score``, which :mod:`subroutine.domain.ordering` bands — declares the capability
+	here and is added there, because this module cannot build one and importing the module that
+	can would be the cycle :class:`Property` records.
+	"""
+
+	return {
+		name: held.column
+		for name, held in PROPERTIES.get(entity, {}).items()
+		if held.orderable and held.column is not None
+	}
+
+
+def axes (entity: str) -> dict[str, tuple[str, ...]]:
+	"""Return what this entity's listing can be *grouped by*, with each axis's keys."""
+
+	return {
+		name: held.groupable
+		for name, held in PROPERTIES.get(entity, {}).items()
+		if held.groupable is not None
+	}
+
+
+#: What a task listing can be asked about — derived, and unchanged in shape or name.
+TASK_FILTERS: dict[str, Filterable] = filters("task")
+
+#: What a document listing can be asked about.
+DOCUMENT_FILTERS: dict[str, Filterable] = filters("document")
+
+#: **A project's and an event's have no name of their own**, and `#202`'s guard is what decided
+#: that: derived beside these two they were declared and read by nothing, where the pair above
+#: are read by the agent surface and the terminal. `filters("project")` is how to ask.
+
+#: Every filter registry, by the entity name a refusal uses.
 FILTERS: dict[str, dict[str, Filterable]] = {
-	"task": TASK_FILTERS,
-	"document": DOCUMENT_FILTERS,
-	"project": PROJECT_FILTERS,
-	"event": EVENT_FILTERS,
+	entity: filters(entity) for entity in PROPERTIES
 }
 
 def names (entity: str) -> frozenset[str]:

@@ -24,6 +24,7 @@ import sqlalchemy.orm.interfaces
 import subroutine.db.fulltext
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.domain.filtering
 import subroutine.domain.readiness
 import subroutine.errors
 
@@ -570,48 +571,37 @@ def prioritising (
 #: What ``?order=`` accepts on a task listing, and the columns the names mean. Deliberately a
 #: short list: every entry is a promise about an index, and a sort the database cannot serve
 #: cheaply is worse than no sort at all.
+#:
+#: **Read from :data:`subroutine.domain.filtering.TASK_PROPERTIES` since `#1803`**, which is
+#: what stops this and the filter registry disagreeing. They did, in nine places, and nothing
+#: held them to each other: five names were sortable and unaskable — including ``importance``
+#: and ``urgency``, so a reader could sort the backlog by urgency and not ask for the urgent
+#: ones — and four were askable and unsortable. Every asymmetry that is left carries a written
+#: reason on its own declaration.
+#:
+#: **The arguments that used to live here have moved with the declarations they are about**,
+#: and two are worth knowing before touching either:
+#:
+#: * ``completed_at`` is not ``updated_at`` with a status test (`#710`). §10.7 invariant 5
+#:   maintains it non-null exactly when the status category is finished, so descending order is
+#:   finished-newest-first with everything open at the end, NULLS LAST doing that for free.
+#:   Editing a finished item must not reorder the page for a reason nobody did.
+#: * ``estimate_minutes`` and ``claimed_at`` need no band, unlike ``priority_score`` (`#319`,
+#:   `#1120`). A banded expression exists because a *part*-ranked item has a real value on a
+#:   different scale; an estimate has one scale and one absence. NULLS LAST is then honest in
+#:   **both** directions — ascending is *shortest first* and an unestimated task is not known to
+#:   be short; descending is *longest first* and it is not known to be long.
+#:
+#: **``priority_score`` is added here and declared there**, which is the layering `#1803` set
+#: rather than an exception to it: the registry says a property is orderable, and the module
+#: that can build a banded ``CASE`` builds it. Declaring it there is what makes its asymmetry
+#: — orderable, not filterable, because there is no value to compare — visible beside the eight
+#: others rather than absent from the register entirely.
 TASK_FIELDS: dict[str, Sortable] = {
-	"created_at": subroutine.db.models.work.Task.created_at,
-	"updated_at": subroutine.db.models.work.Task.updated_at,
-	# **What "most recently finished" means** (`#710`). `updated_at` is the tempting proxy and
-	# it is wrong: editing a finished item reorders the page for a reason nobody did. The
-	# column is maintained under §10.7 invariant 5 — non-null exactly when the status category
-	# is finished — so descending order is finished-newest-first with everything open at the
-	# end, NULLS LAST doing that for free.
-	"completed_at": subroutine.db.models.work.Task.completed_at,
-	"due_at": subroutine.db.models.work.Task.due_at,
-	"starts_at": subroutine.db.models.work.Task.starts_at,
-	# **A plain column, and the null question §6.3a needed bands for does not arise here**
-	# (`#319`). That item asked what an unestimated task should mean to this ordering, and
-	# expected the answer to be a banded expression like `priority_score` above.
-	#
-	# It is not, because the two are different shapes. `priority_score` bands because a
-	# *part*-ranked item has a real value on a different scale — one axis runs 1 to 5 and the
-	# product runs 1 to 25 — so leaving them in one column sorts "critically important, urgency
-	# unjudged" below "judged trivial". An estimate has one scale and one absence: either
-	# minutes, or nothing.
-	#
-	# So `NULLS LAST` is the whole rule, and it is right in **both** directions rather than
-	# convenient in one. Ascending means *shortest first* and an unestimated task is not known
-	# to be short; descending means *longest first* and it is not known to be long. Last is the
-	# honest place either way, which is §6.3a's principle — more known before less known —
-	# reached without a band.
-	"estimate_minutes": subroutine.db.models.work.Task.estimate_minutes,
-	"importance": subroutine.db.models.work.Task.importance,
-	"urgency": subroutine.db.models.work.Task.urgency,
+	**subroutine.domain.filtering.orderable("task"),
 	"priority_score": Derived(
 		expression=RANKING, read=carried, carried_on=subroutine.db.models.work.Task.rank
 	),
-	# **What "taken longest ago" means** (`#1120`). A lease expires, so a claim taken hours ago
-	# on work nobody finished is the row a person is looking for when they ask what an agent is
-	# sitting on — and until this the column was reported on every row and reachable by no sort.
-	#
-	# `NULLS LAST` for `estimate_minutes`' reason and not by analogy: ascending is *held
-	# longest* and an unclaimed task has not been held at all; descending is *taken most
-	# recently* and it was not taken. Last is the honest place in both directions.
-	"claimed_at": subroutine.db.models.work.Task.claimed_at,
-	"ref": subroutine.db.models.work.Task.ref,
-	"title": subroutine.db.models.work.Task.title,
 }
 
 #: Newest first, which is what "what have I got" means for a to-do list.
@@ -637,12 +627,7 @@ FINISHED_TASK_ORDER = ("-completed_at",)
 #: What ``?order=`` accepts on a document listing. Shorter than a task's because most of that
 #: vocabulary is about scheduling and §6.14 says a document is not scheduled — there is no
 #: deadline to sort by and no priority to rank.
-DOCUMENT_FIELDS: dict[str, Sortable] = {
-	"created_at": subroutine.db.models.work.Document.created_at,
-	"updated_at": subroutine.db.models.work.Document.updated_at,
-	"title": subroutine.db.models.work.Document.title,
-	"ref": subroutine.db.models.work.Document.ref,
-}
+DOCUMENT_FIELDS: dict[str, Sortable] = subroutine.domain.filtering.orderable("document")
 
 #: The same default, for the same reason.
 DEFAULT_DOCUMENT_ORDER = ("-created_at",)
@@ -653,13 +638,7 @@ DEFAULT_DOCUMENT_ORDER = ("-created_at",)
 #: declared inside the HTTP layer is reachable by one transport, so `GET /v1/projects` accepted
 #: a sort that no client could ask for and none of the three lists above could be compared with
 #: it. Projects were the odd one out rather than a special case, which is what made this a move.
-PROJECT_FIELDS: dict[str, Sortable] = {
-	"created_at": subroutine.db.models.project.Project.created_at,
-	"updated_at": subroutine.db.models.project.Project.updated_at,
-	"key": subroutine.db.models.project.Project.key,
-	"title": subroutine.db.models.project.Project.title,
-	"path": subroutine.db.models.project.Project.path,
-}
+PROJECT_FIELDS: dict[str, Sortable] = subroutine.domain.filtering.orderable("project")
 
 #: **Not ``-created_at``**, unlike the two above, and the difference is the point: a project
 #: listing is a *tree*. By path a child follows its parent and the shape can be printed without

@@ -30,17 +30,17 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-import subroutine.db.mixins
 import subroutine.db.models.vocabulary
+import subroutine.domain.filtering
 import subroutine.errors
 
 #: The one axis a listing can be grouped by today.
 #:
-#: **A category rather than a status key**, for :func:`subroutine.domain.tasks.
-#: statuses_in_category`'s reason: a key is per-workspace and renameable, so a board keyed on
-#: one stops working on the first installation that renames it. The category is the fixed field
-#: published beside it precisely so a client may branch on it.
-STATUS_CATEGORY = "status_category"
+#: **Declared in :mod:`subroutine.domain.filtering` since `SR#1803`**, and re-exported here
+#: because this module's own functions are what a reader looking for grouping opens first. It
+#: is one string in one place: an axis is a *property of an item* with a third capability, and
+#: keeping its name here while its keys were declared there is the shape the registry removes.
+STATUS_CATEGORY = subroutine.domain.filtering.STATUS_CATEGORY
 
 #: Which axes each kind of thing can be grouped by, and the keys each one has.
 #:
@@ -48,9 +48,15 @@ STATUS_CATEGORY = "status_category"
 #: an empty group reportable. A group derived from what came back cannot distinguish *this
 #: column holds nothing* from *this column was not asked about*, which is the false statement
 #: `SR#718`, `SR#738` and `SR#744` were each filed about on the surface that renders them.
+#:
+#: **Read from the property registry since `SR#1803`.** This was the third of three lists
+#: declaring what a listing may be asked, in the third module, and **no field was in all
+#: three** — so *groupable* was a fact kept somewhere none of the other two could see. A kind
+#: with no axis answers with an empty map, which is what it always did.
 AXES: dict[str, dict[str, tuple[str, ...]]] = {
-	"task": {STATUS_CATEGORY: subroutine.db.mixins.TASK_STATUS_CATEGORIES},
-	"document": {STATUS_CATEGORY: subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES},
+	kind: subroutine.domain.filtering.axes(kind)
+	for kind in subroutine.domain.filtering.PROPERTIES
+	if subroutine.domain.filtering.axes(kind)
 }
 
 #: How many rows one group carries when the caller does not say.

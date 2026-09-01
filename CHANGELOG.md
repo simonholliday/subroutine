@@ -233,6 +233,13 @@ upgrade involves.
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
 
 ### Fixed
+- **`GET /v1/meta` no longer calls four things filters that are not.** `group_by`,
+  `group_limit`, `include` and `workspace_id` were all published under a listing's `filters`,
+  so an agent building a request from that list was told they narrow a result set. Two of them
+  had been there since grouping shipped.
+
+  What each listing really filters on is unchanged.
+
 - **Asking for startable work is several times faster, and much faster on SQLite.** Readiness
   asks whether a task sits under something that cannot start yet, and it was asking that of
   every task — including the four in five that are not filed under anything at all, where the

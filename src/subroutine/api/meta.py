@@ -94,10 +94,47 @@ PURPOSE = (
 	"what that is worth before it says how."
 )
 
-#: Query parameters that are not *filters*. Reflection cannot tell the difference by
-#: itself — they are all query parameters — and calling `format` a filter would tell an
-#: agent it narrows a result set when it changes how the same rows are reported.
-NOT_FILTERS = frozenset({"order", "limit", "cursor", "include_total", "format", "fields"})
+#: Query parameters that are not *filters*, and why each one is not.
+#:
+#: Reflection cannot tell the difference by itself — they are all query parameters — and calling
+#: `format` a filter would tell an agent it narrows a result set when it changes how the same
+#: rows are reported.
+#:
+#: **Four names were missing and the set had no way of noticing** — `#1803`, design `#1801` §1.
+#: `group_by`, `group_limit`, `include` and `workspace_id` were all published under
+#: `listings.task.filters`, and none is one; two of the four arrived with `#1790` and nothing
+#: asked whether this set should move with them. An agent building a request from that list was
+#: being told something false, which is the opposite of what §13.1 has this endpoint for.
+#:
+#: **A reason each, rather than a bare set**, because that is what makes the classification
+#: reviewable: the question *is this a filter* has a right answer per name and it is not
+#: obvious for several of them. `#1801` §3's layers are what decide it — **scope** and
+#: **arrangement** are not predicates, and neither is anything that changes only how a row is
+#: reported.
+NOT_FILTERS: dict[str, str] = {
+	"order": "arrangement — it decides the sequence, never the set.",
+	"limit": "arrangement — how much of the answer, not which answer.",
+	"cursor": "arrangement — where in the sequence to continue.",
+	"include_total": "reporting — it adds a count beside the same rows.",
+	"format": "reporting — §14.10, how a row is rendered.",
+	"fields": "reporting — §14.10, which of a row is rendered.",
+	"group_by": "arrangement — `#1790`. It splits one answer into several, and every row that "
+	"was in the ungrouped answer is in exactly one group.",
+	"group_limit": "arrangement — how much of each group, which is `limit`'s question per "
+	"column.",
+	"include": "reporting — it adds related entities beside the same rows.",
+	# **Scope, and `#1801` §3 is emphatic that it is not a predicate**: it decides which rows
+	# exist for this caller at all, is never negotiable, and `domain.scoping` owns it. Publishing
+	# it beside the filters invites `workspace_id.eq=`, which every listing refuses.
+	"workspace_id": "scope — which rows exist for this caller at all, and never negotiable.",
+	# **A resumable cursor rather than a comparison**, which `domain.filtering`'s own registry
+	# records: `?since=` carries §5.11's inclusive-with-dedupe guarantee where a filter would be
+	# an ordinary `>=`. Two spellings of one number, one of which quietly loses the resume, is
+	# the shape `#1017` warns about — so the feed publishes neither of them as a filter.
+	"since": "arrangement — a resumable cursor with §5.11's semantics, not a comparison.",
+	"before": "arrangement — `since`'s pair, and a cursor for the same reason.",
+	"newest": "arrangement — which end of the feed to start from.",
+}
 
 #: Which listing each entity's filters and sort fields come from. Declared as data so the
 #: reflection below has one place to look, and so adding an entity is one line.

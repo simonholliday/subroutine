@@ -14,6 +14,8 @@ import datetime
 import pytest
 
 import subroutine.domain.filtering
+import subroutine.domain.grouping
+import subroutine.domain.ordering
 import subroutine.errors
 
 #: A fixed instant, so nothing here depends on when it runs — `SR#762`'s fixture-that-expires
@@ -195,6 +197,94 @@ def test_every_entity_with_a_listing_has_a_registry () -> None:
 	for entity in ("task", "document", "project"):
 		assert subroutine.domain.filtering.FILTERS[entity], f"{entity} filters on nothing"
 		assert "created_at" in subroutine.domain.filtering.FILTERS[entity]
+
+
+def test_a_property_that_can_be_asked_and_not_ordered_says_why () -> None:
+	"""**What makes an asymmetry a decision rather than an accident** — `SR#1803`, design
+	`SR#1801` §1.
+
+	Filterable, orderable and groupable were declared three times, in three modules, and **no
+	field was in all three**. Nine disagreed: five were sortable and unaskable — including
+	``importance`` and ``urgency``, so a reader could sort the whole backlog by urgency and not
+	ask for the urgent ones — and four were askable and unsortable. Not one carried a reason
+	anywhere, because there was nowhere for a reason about *two* lists to live.
+
+	One declaration removes the *silent* disagreement; this is what removes the silent
+	agreement-by-omission. A property that can be asked about and not ordered by, or the
+	reverse, has to say which it is: an argument (``priority_score`` is a banded expression with
+	no value to compare) or a gap with an item against it (``importance`` is `SR#1804`'s). Both
+	are worth writing; neither is worth inferring.
+
+	**Filterable against orderable, and not against groupable.** Grouping asks one query per
+	group, so an axis must be *bounded* — almost nothing is one, and demanding a reason for
+	every property that is not an axis would be a sentence on every entry, which is
+	§12.2a's column that says the same thing on every row.
+	"""
+
+	silent = {}
+	asymmetric = 0
+
+	for entity, properties in subroutine.domain.filtering.PROPERTIES.items():
+		for name, held in properties.items():
+			if (held.kind is not None) == held.orderable:
+				continue
+
+			asymmetric += 1
+
+			if not held.because:
+				silent[f"{entity}.{name}"] = (
+					"filterable, not orderable" if held.kind else "orderable, not filterable"
+				)
+
+	# **The floor**, and it is not a formality: a registry where every property happened to be
+	# symmetric would make every line above vacuous, and this test would go on passing while
+	# guarding nothing.
+	assert asymmetric >= 9, (
+		f"only {asymmetric} properties disagree about what can be done with them, where nine "
+		f"did when this was written — either the registry shrank or this is measuring nothing"
+	)
+
+	assert not silent, (
+		"a property can be asked about and not ordered by, or the reverse, and says nothing "
+		"about why: "
+		+ ", ".join(f"{name} ({how})" for name, how in sorted(silent.items()))
+		+ " — give it a `because`, naming the item if it is a gap rather than a decision"
+	)
+
+
+def test_the_three_capabilities_come_from_one_declaration () -> None:
+	"""The lists cannot disagree, because they are derived — `SR#1803`.
+
+	**Asserted against the modules that publish them**, not against the registry: deriving
+	``ordering.TASK_FIELDS`` from :func:`subroutine.domain.filtering.orderable` and then
+	comparing the two would be comparing a value with itself. What this holds is that the
+	*consumers* really do read the registry, so a fourth list declared beside one of them fails
+	here rather than being discovered nine fields later.
+
+	``priority_score`` is the one name that is declared here and built there, which is the
+	layering `SR#1803` set: the registry says a property is orderable, and the module that can
+	build a banded ``CASE`` builds it.
+	"""
+
+	built_elsewhere = {"priority_score"}
+
+	for entity, published in (
+		("task", subroutine.domain.ordering.TASK_FIELDS),
+		("document", subroutine.domain.ordering.DOCUMENT_FIELDS),
+		("project", subroutine.domain.ordering.PROJECT_FIELDS),
+	):
+		declared = set(subroutine.domain.filtering.orderable(entity))
+
+		assert declared, f"{entity} orders by nothing, so this is comparing two empty sets"
+		assert set(published) - built_elsewhere == declared, (
+			f"{entity}'s sort fields and the registry disagree — "
+			f"{sorted(set(published) - built_elsewhere ^ declared)} is in one and not the other"
+		)
+
+	for kind, axes in subroutine.domain.grouping.AXES.items():
+		assert axes == subroutine.domain.filtering.axes(kind), (
+			f"{kind}'s axes and the registry disagree, so grouping is a fourth list again"
+		)
 
 
 def test_the_published_names_are_the_product_of_the_two_tables () -> None:

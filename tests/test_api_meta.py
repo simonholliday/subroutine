@@ -161,6 +161,65 @@ def test_every_filter_it_publishes_is_one_the_endpoint_accepts (
 	assert "cursor" not in listings["task"]["filters"]
 	assert "limit" not in listings["task"]["filters"]
 
+	# **And neither is arrangement, reporting or scope** — `SR#1803`, design `SR#1801` §1. All
+	# four of these were published as filters, and `group_by` and `group_limit` arrived with
+	# `SR#1790` four commits before anybody looked. An agent building a request from that list
+	# was being told something false about every one of them.
+	for excused in ("group_by", "group_limit", "include", "workspace_id"):
+		assert excused not in listings["task"]["filters"], (
+			f"{excused!r} is published as a filter and narrows nothing"
+		)
+
+
+def test_every_parameter_a_listing_takes_is_a_filter_or_says_why_not (
+	world: test_api_tasks.World,
+) -> None:
+	"""**What makes an entry in ``meta.NOT_FILTERS`` go away** — `SR#1803`, and the question
+	every excuse list in this repository is required to answer (`SR#405`).
+
+	That set had no such rule, which is half of why it fell four names behind: it could name a
+	parameter no route declares for ever, and nothing about a *new* parameter asked whether it
+	belonged in it. This closes the first half. The second — whether a name really is a filter
+	— has a right answer per name that no test can decide, so the register carries a written
+	reason each and this holds them to naming something real.
+
+	**Read off the application rather than off a list**, so a listing added tomorrow is in scope
+	the day it is registered.
+	"""
+
+	schema = world.application.openapi()
+	declared: set[str] = set()
+
+	for _entity, path, *_rest in subroutine.api.meta.LISTINGS:
+		operation = schema.get("paths", {}).get(path, {}).get("get", {})
+		declared |= {
+			parameter["name"]
+			for parameter in operation.get("parameters", [])
+			if parameter.get("in") == "query"
+		}
+
+	# **The floor.** A reflection that read nothing would make every entry look live.
+	assert len(declared) > 20, (
+		f"only {len(declared)} query parameters were found across every listing, so this is "
+		f"checking the excuses against an empty set"
+	)
+
+	stale = sorted(set(subroutine.api.meta.NOT_FILTERS) - declared)
+
+	assert not stale, (
+		f"{stale} is excused from being called a filter and is a parameter of no listing — "
+		f"the entry describes something that has gone"
+	)
+
+	unexplained = sorted(
+		name for name, why in subroutine.api.meta.NOT_FILTERS.items() if not why.strip()
+	)
+
+	assert not unexplained, (
+		f"{unexplained} is excused with no reason, and *is this a filter* has a right answer "
+		f"per name that a reader cannot check without one"
+	)
+
 
 def test_it_does_not_publish_a_filter_grammar_it_cannot_parse (
 	world: test_api_tasks.World,
