@@ -7341,7 +7341,12 @@ export function Detail ({
 								${authorOf(note, members) && html`
 									<strong>${authorOf(note, members)}</strong>${" "}
 								`}
-								${moment(note.created_at)}
+								${/* **The moment is its own element so it can stay quiet**
+								     (`SR#1819`). *Who* is what a reader scans a thread for and
+								     *when* is what they check once they have found it, so the
+								     two are not the same weight — and a bare text node could
+								     not be told apart from the name beside it. */ null}
+								<span class="when">${moment(note.created_at)}</span>
 							</div>
 							<${Prose} className="body" text=${note.body} where=${where}
 								onOpen=${onOpen} />

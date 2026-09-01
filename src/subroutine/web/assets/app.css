@@ -998,16 +998,39 @@ fieldset {
 	min-height: 180px;
 }
 
+/* **The section-heading role, declared once for the three surfaces that use it** (`SR#1818`).
+
+   Every structural heading in this app was `--text-small` — the board's columns, the agenda's
+   buckets and the item page's sections — and every one of them sits above content that
+   inherits `body`'s 15px. So each was **two steps below the thing it headed**, where `#906`'s
+   own rule is *"a heading takes the step above its content, except where it is deep enough to
+   read as a label"*. A page's top-level section is not deep.
+
+   **The sharpest form of it was on the item page**: `markdown.js` offsets a stored `#` to an
+   `h3`, so a heading somebody typed in a description rendered at 17px directly beneath the
+   app's own 13px *Comments* — the author's structure outranking the product's.
+
+   **Why `#906` did not catch it.** Its migration table is twelve rules and eleven of them were
+   14px; it moved what was *off* the scale. These were already on a legal token, so the sweep
+   checked conformance to the vocabulary and never checked correctness of role.
+
+   **The uppercase eyebrow goes with the size.** At 13px it read as a label, which is what made
+   it defensible; at 17px, muted and letterspaced, it would shout. A section heading is a
+   heading here now — the same treatment `.prose h3` already gives the author's own, so the two
+   structures speak one language instead of competing. */
+.detail > h3, .board .column h2, .agenda h2 {
+	font-size: var(--text-section);
+	font-weight: 600;
+	text-transform: none;
+	letter-spacing: normal;
+	color: var(--ink);
+}
+
 .board .column h2 {
 	display: flex;
 	align-items: baseline;
 	gap: var(--space-3);
 	margin: 0 0 var(--space-4);
-	font-size: var(--text-small);
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--ink-soft);
 }
 
 /* **A column that is over, folded to the width of its own name** (`#1008`).
@@ -1180,11 +1203,6 @@ fieldset {
 
 .agenda h2 {
 	margin: 0 0 var(--space-4);
-	font-size: var(--text-small);
-	font-weight: 600;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--ink-soft);
 }
 
 /* **Colour marks the exception and says nothing on its own** (decision `#102`). Overdue is
@@ -1723,13 +1741,19 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	overflow-wrap: anywhere;
 }
 
-.detail h3 {
+/* **A rule where a section begins, and a direct child so the author's own headings never get
+   one** (`SR#1818`). The body already drew a line above itself and nothing after it did, so an
+   item's description had a boundary and its comments ran on from whatever preceded them —
+   which is what Simon read as the comments not being separated from the body.
+
+   `.detail > h3` rather than `.detail h3`: the latter also matches every heading inside
+   `.prose`, so a `##` in somebody's description would have been given a horizontal rule of the
+   app's own. That descendant match is also why `.prose h3` has always had to restate its case,
+   tracking and colour — it was undoing this rule rather than declaring its own. */
+.detail > h3 {
 	margin: var(--space-section) 0 var(--space-4);
-	font-size: var(--text-small);
-	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	color: var(--ink-soft);
+	padding-top: var(--space-6);
+	border-top: 1px solid var(--line);
 }
 
 .linked, .comments { list-style: none; margin: 0; padding: 0; }
@@ -1753,9 +1777,28 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	font-size: var(--text-small);
 }
 
-.comments li { font-size: var(--text-body); }
+/* **A comment gets the air, a link row does not** (`SR#1819`). They share a frame and `#906`
+   already split them on size — *"a link row is a reference and takes the smaller step, where a
+   comment is prose somebody wrote"*. The frame is the half it did not split: a comment is the
+   largest object on this page, holding rendered Markdown with its own paragraphs and lists,
+   and it was separated by exactly the hairline and 8px a one-line reference gets. Four pixels
+   inside a group against sixteen between them is what makes two things read as neighbours
+   rather than as one thing (`#1722`, one level down from this). */
+.comments li { font-size: var(--text-body); padding: var(--space-8) 0; }
 
-.comments .said { color: var(--ink-soft); font-size: var(--text-fine); margin-bottom: var(--space-1); }
+/* **Who spoke, as a heading rather than as fine print** (`SR#1819`). This was `--text-fine`
+   directly above `--text-body` — the smallest step in the system heading the largest text on
+   the page, which is the widest inversion the scale can express.
+
+   **A label rather than the step above**, which is `#906`'s stated exception used the way it
+   was written: the step above 15px is 17px, and that is what a *section* takes here, so an
+   attribution at 17px would say a comment's byline ranks with *Comments* itself. Deep enough
+   to read as a label — so body size, and the weight carries it. The name was already
+   `<strong>`, which is the tell that it had reached for heading weight without heading size. */
+.comments .said { color: var(--ink); font-size: var(--text-body); margin-bottom: var(--space-3); }
+
+/* The moment stays quiet: *who* is what a reader scans for, *when* is what they check. */
+.comments .said .when { color: var(--ink-soft); font-size: var(--text-small); }
 .comments .body { overflow-wrap: anywhere; }
 
 /* ---- rendered Markdown (`#637`) ---------------------------------------- */

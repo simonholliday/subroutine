@@ -426,6 +426,15 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+- **Headings in the browser are the size a heading should be.** Every section heading — the
+  board's columns, the agenda's buckets, and *Links*, *Comments* and the rest on an item — was
+  set smaller than the text underneath it, in grey capitals. On an item page that meant a
+  heading you had typed in a description outranked the page's own structure.
+
+  They are now a step above what they head, in ordinary sentence case, with a line marking
+  where each section begins. A comment says who wrote it at the size of the comment rather than
+  in the smallest type on the page, and two comments have room between them instead of the
+  hairline a one-line reference gets.
 
 - **Work happening today is the first thing on the agenda.** The day's own work sat below
   *In progress*, *Waiting on you* and *Waiting on somebody else*, so a handful of parked
