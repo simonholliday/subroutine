@@ -2920,9 +2920,43 @@ export function showingOf (search) {
 	const impossible = narrowed && arrangement.view === AGENDA_VIEW;
 	const named = new URLSearchParams(String(search || "")).get("view") === AGENDA_VIEW;
 
+	const showing = impossible ? "list" : arrangement.view;
+
+	/*
+		**A board groups whether or not the address says so** — `#1798`.
+
+		`#1790` put the axis in the selection, which is right: the request builder must not know
+		which arrangement is showing (`#738`). What it missed is that **an address written
+		before that shipped names a board and carries no axis**, and there are a lot of those —
+		every bookmark, every link anybody has sent, and the one in the reader's own history.
+		Simon opened exactly that address on the served instance and got the ungrouped board
+		back, with the whole defect intact and no sign that anything had changed.
+
+		**This is a default, not a derivation, and the distinction is `#738`'s.** What that item
+		forbade was the *request builder* branching on the arrangement, which made the selection
+		invisible and left `?include_completed=true` on a list unreachable. Here the axis is
+		still an ordinary member of the selection: it is what the chip writes, what
+		`withShowing` puts back into the address, and what `listingRequests` reads. Only its
+		absence is filled in.
+
+		**There is deliberately no way to ask for an ungrouped board.** One allowance shared
+		across every column is not a thing anybody wants — it draws a column empty while it
+		holds work, which is what `#1782` was — so an address that could still request it would
+		be a way to reach a defect on purpose.
+	*/
+	/*
+		**The axis alone, never the rest of `BOARD`.** Spreading the whole preset would put
+		`include_completed` on a board address that deliberately left it off — and `?view=board`
+		without it is a coherent thing to ask for, which is `#738`: its finished column reads
+		*Not shown* rather than reporting on rows nobody asked about.
+	*/
+	const selection = showing === "board" && rows.selection.group_by === undefined
+		? { ...rows.selection, group_by: BOARD.group_by }
+		: rows.selection;
+
 	return {
-		view: impossible ? "list" : arrangement.view,
-		selection: rows.selection,
+		view: showing,
+		selection,
 		refused: (arrangement.refused ? [`view=${arrangement.refused}`] : [])
 			.concat(impossible && named ? ["view=agenda beside a filter"] : [])
 			.concat(rows.refused),

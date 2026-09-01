@@ -10136,7 +10136,11 @@ def test_the_page_behind_an_open_item_is_a_link (tmp_path: pathlib.Path) -> None
 		},
 	)
 
-	assert "/projects?view=board" in driven["links"], (
+	# **The grouped address, because that is the board there is** (`SR#1798`). `showingOf` fills
+	# the axis in where an address omits it, so going back from an item opened on a board
+	# returns to a board whose columns each have their own allowance — rather than to the one
+	# arrangement `SR#1790` exists to stop anybody seeing.
+	assert "/projects?view=board&group_by=status_category" in driven["links"], (
 		f"there is no link back to the board an item was opened from: {driven['links']}"
 	)
 
@@ -13964,3 +13968,78 @@ def test_what_arrived_is_read_the_same_way_whichever_shape_it_came_in (
 		f"an ungrouped answer reported columns it never split: {plain['cut']}"
 	)
 	assert plain["more"]["tasks"] == "c"
+
+
+def test_a_board_address_written_before_grouping_shipped_still_groups (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1798`. The axis lives in the address, so every address older than it lacks one.
+
+	`SR#1790` put grouping in the selection, which is right — the request builder must not know
+	which arrangement is showing (`SR#738`). What it missed is that a bookmark, a shared link
+	and the reader's own history all name a board and carry no axis, and every one of them went
+	on fetching one page across every column. Simon opened exactly that address on the served
+	instance minutes after it was deployed and got the whole defect back.
+
+	**Filling in an absence is not deriving the selection from the view.** The axis is still an
+	ordinary member of the selection everywhere else: the chip writes it, `withShowing` puts it
+	back, `listingRequests` reads it.
+	"""
+
+	old, bare, listing = _views(tmp_path, [
+		("showingOf", "?view=board&include_completed=true"),
+		("showingOf", "?view=board"),
+		("showingOf", "?view=list"),
+	])
+
+	assert old["selection"]["group_by"] == "status_category", (
+		f"an address written before grouping shipped fetched the old way: {old['selection']}"
+	)
+
+	# **Only the axis is filled in.** Spreading the whole board preset would put
+	# `include_completed` onto an address that deliberately left it off — and `?view=board`
+	# without one is coherent (`SR#738`), with its finished column reading *Not shown* rather
+	# than reporting on rows nobody asked about.
+	assert "include_completed" not in bare["selection"], (
+		f"a board that asked for no finished work was given some: {bare['selection']}"
+	)
+	assert bare["selection"]["group_by"] == "status_category"
+
+	# Nothing else gains an axis. A list has one allowance and one order, and grouping it would
+	# be an arrangement deciding a selection, which is the thing `SR#738` is about.
+	assert "group_by" not in listing["selection"], (
+		f"a list was grouped: {listing['selection']}"
+	)
+
+
+def test_an_old_board_address_and_the_chips_own_address_fetch_the_same_thing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1798`, and this is the assertion that actually bites.
+
+	The one above checks the selection; this checks what goes on the wire, which is where the
+	200 rows came from. A reader cannot tell these two addresses apart and neither should the
+	requests they produce.
+	"""
+
+	old, chip = _views(tmp_path, [
+		("showingOf", "?view=board&include_completed=true"),
+		("showingOf", "?view=board&include_completed=true&group_by=status_category"),
+	])
+
+	before, after = _views(tmp_path, [
+		("listingRequests", {
+			"slug": "projects", "key": None, "after": None, "selection": old["selection"],
+		}),
+		("listingRequests", {
+			"slug": "projects", "key": None, "after": None, "selection": chip["selection"],
+		}),
+	])
+
+	assert [one["path"] for one in before] == [one["path"] for one in after], (
+		"a saved board address fetches something different from the board chip's own"
+	)
+	assert all("group_limit=" in one["path"] for one in before), (
+		f"the saved address still asked for one page across every column: "
+		f"{[one['path'] for one in before]}"
+	)

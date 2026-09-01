@@ -22,6 +22,12 @@ upgrade involves.
 
 ### Added
 
+- **A board you had bookmarked gets the new behaviour too.** The grouping lives in the
+  address, so an address written before it — a bookmark, a link somebody sent you, the one in
+  your own history — named a board and said nothing about grouping, and went on fetching one
+  page shared across every column. Opening such an address now groups it, exactly as pressing
+  *Board* does.
+
 - **The board gives every column its own allowance, and a short column says so.** Each column
   now asks its own question and draws up to 25 rows of its own, instead of every column
   sharing one page spent newest-first.
