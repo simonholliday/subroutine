@@ -1841,12 +1841,13 @@ def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 def test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""`SR#1153`: `hooks/post-commit` decides from two whole lines of this output.
+	"""`SR#1153`: `hooks/post-commit` decides from whole lines of this output.
 
-	It is shell, so it cannot parse JSON — it matches ``  "entity_type": "task",`` and
-	``    "status_category": "…",`` by *whole line*, indentation included, because both keys
-	appear again more deeply indented inside every linked item this output carries and a loose
-	grep would read a blocker's category as this one's.
+	It is shell, so it cannot parse JSON — it matches ``  "entity_type": "task",``,
+	``  "entity_type": "document",`` and ``    "status_category": "…",`` by *whole line*,
+	indentation included, because both keys appear again more deeply indented inside every
+	linked item this output carries and a loose grep would read a blocker's category as this
+	one's.
 
 	**So the hook is guarding a spelling, and this is what stops that being a silent bet.** The
 	hook's own tests stub `subroutine`, which means they assert my opinion of this output rather
@@ -1887,6 +1888,18 @@ def test_the_shape_a_commit_hook_reads_is_the_shape_it_greps_for (
 	assert any(
 		line.startswith('        "status_category": "done"') for line in lines
 	), "the finished blocker's category is carried too, which is what a loose grep would read"
+
+	# **The other spelling, because the hook now discriminates on it** — `SR#1772`. It skips a
+	# document by matching `  "entity_type": "document",` and comments on anything it cannot
+	# read, so this word moving would not fail: it would quietly put the trailers back on every
+	# governing document, which is the outcome that rule exists to prevent.
+	run("doc", "create", "A conclusion", "--body", "Something concluded.")
+
+	lines = run("show", "3", "--json").output.splitlines()
+
+	assert '  "entity_type": "document",' in lines, (
+		"hooks/post-commit tells a document from a task by this line, at the same two spaces"
+	)
 
 
 @pytest.mark.parametrize("written", ["2026-12-01", "monday", "today+2w"])

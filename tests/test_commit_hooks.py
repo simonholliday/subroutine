@@ -434,7 +434,6 @@ def test_a_commit_with_no_reference_records_nothing (repo: Repo) -> None:
 		("task", "open", True, "claimed but not yet started is still the work"),
 		("task", "done", False, "a run says nothing about work that finished days ago"),
 		("task", "cancelled", False, "nor about work that was abandoned"),
-		("document", "current", False, "a gate does not verify a decision"),
 	],
 )
 def test_a_gate_is_recorded_against_the_work_the_commit_did (
@@ -450,9 +449,13 @@ def test_a_gate_is_recorded_against_the_work_the_commit_did (
 	hook could not tell them apart, so `f4215f1` put its gate on two items that had been finished
 	for days and on a decision document, which refused and was reported as a failure.
 
-	**Commenting on all of them stays right** and is `SR#51`: *this commit mentioned you* is true
-	of a citation, and `uncomment` takes it back. A verification is a claim about **evidence**,
-	it is only true of the work the commit did, and no surface can delete one.
+	**Commenting on all of them stays right for a task** and is `SR#51`: *this commit mentioned
+	you* is true of a citation, and `uncomment` takes it back. A verification is a claim about
+	**evidence**, it is only true of the work the commit did, and no surface can delete one.
+
+	Only tasks are parametrised here. A document is not recorded against at all — `SR#1772`,
+	which is a rule about the comment rather than about the gate, so it is asserted where it is
+	decided and not as a sixth row whose expectation two rules would be agreeing on.
 	"""
 
 	repo.looks_like("42", kind, category)
@@ -512,6 +515,60 @@ def test_a_commit_that_says_no_gate_ran_records_none (repo: Repo) -> None:
 	repo.commit("Do the thing\n\nSR#42 — real work, and nobody ran anything")
 
 	assert not [call for call in repo.recorded() if call.startswith("verify ")]
+
+
+def test_nothing_is_recorded_against_a_document (repo: Repo) -> None:
+	"""`SR#1772`, Simon's decision of 2026-09-01, and it is about a ratio rather than a defect.
+
+	Each `Committed as …` trailer is correct provenance. Measured across this instance, 138 of
+	231 document comments were this hook's — and `#102`, a decision that binds, carried eleven
+	of them above the one comment that amended it, which an agent reading the body never
+	reaches. A task is the opposite case and keeps them: a build record on work somebody did is
+	what a comment is for.
+
+	Both calls are asserted, because the gate already refused a document for its own reason and
+	a test watching only the comment could not tell this rule from that one.
+	"""
+
+	repo.looks_like("42", "task", "in_progress")
+	repo.looks_like("99", "document", "current")
+
+	repo.write("thing.py", "value = 1\n")
+	repo.commit("Do the thing\n\nSR#42, concluding SR#99\n\nGate: 1 passed, 0 skipped")
+
+	recorded = repo.recorded()
+
+	assert [call for call in recorded if call.startswith("comment 42 ")], (
+		"the task is still recorded against"
+	)
+	assert not [call for call in recorded if call.startswith("comment 99 ")], (
+		f"and the document is not: {recorded}"
+	)
+	assert not [call for call in recorded if call.startswith("verify 99 ")]
+
+
+def test_an_item_this_hook_cannot_read_is_still_commented_on (repo: Repo) -> None:
+	"""The asymmetry `SR#1772` turns on, and it is why the hook asks *is it a document*.
+
+	Where `subroutine show` failed or its output moved, the record is empty and nothing here
+	knows what it is holding. A comment can be taken back with `uncomment`; a record nobody
+	wrote cannot be reconstructed by somebody who was not there. So the unreadable case
+	comments, and silence is kept for the case the hook is sure of.
+
+	Falsified by asking whether the item is a task instead, which drops the record for every
+	ref whose shape this stub does not describe. Two other tests here fall over with it, so
+	this is not the only thing standing between that inversion and a commit — but they fall
+	over on an unexplained missing comment, where this one says which rule was broken.
+	"""
+
+	# Deliberately no `looks_like`, which is this stub's way of spelling an answer the hook
+	# could not read.
+	repo.write("thing.py", "value = 1\n")
+	repo.commit("Do the thing\n\nSR#42 — and the instance said nothing useful about it")
+
+	assert [call for call in repo.recorded() if call.startswith("comment 42 ")], (
+		f"an unreadable record is still recorded against: {repo.recorded()}"
+	)
 
 
 def test_every_tracked_hook_is_installed (tmp_path: pathlib.Path) -> None:

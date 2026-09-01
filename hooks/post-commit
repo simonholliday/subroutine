@@ -6,6 +6,12 @@
 # checkout. This answers it from the instance, which is where the work is planned and where
 # anybody asking about an item is already looking. Neither direction was answerable before.
 #
+# **A task, and never a document** — item SR#1772. Both halves above stay true of a task,
+# and only one of them is worth what it costs on a document: a document is read for its
+# conclusion, and 59% of the comments on this instance's documents were written by this
+# hook. A commit citing a document is still found by `git log --grep SR#`, which is where
+# it was found before any of this existed.
+#
 # **It can never fail a commit**, and that is structural rather than careful: git ignores
 # this hook's exit code, and by the time it runs the commit is already made. Everything
 # below is best-effort and says so when it gives up.
@@ -57,9 +63,22 @@ case "$(git reflog -1 --format='%gs' 2>/dev/null)" in
 esac
 
 for ref in $refs; do
-	# Read once and asked twice: whether this commit is already written down, and whether a
-	# gate is the kind of evidence this item can carry.
+	# Read once and asked three times: what kind of thing this is, whether this commit is
+	# already written down, and whether a gate is the kind of evidence it can carry.
 	record=$(subroutine show "$ref" --json 2>/dev/null || true)
+
+	# **Nothing is recorded against a document**, anchored at two spaces for SR#1153's
+	# reason, which is written out below.
+	#
+	# **It asks whether the item is a document rather than whether it is a task**, so that
+	# a record this hook could not read is still commented on. Where `show` failed or its
+	# output moved, `$record` is empty and nothing here knows what it is holding — and the
+	# asymmetry the gate argues for below points the other way for a comment: a comment can
+	# be taken back with `uncomment`, where a record nobody wrote cannot be reconstructed by
+	# somebody who was not there. Silence is kept for the case this is sure of.
+	if printf '%s\n' "$record" | grep -qxE '  "entity_type": "document",?'; then
+		continue
+	fi
 
 	# Asked before writing, so re-running this by hand cannot say the same thing twice.
 	if printf '%s\n' "$record" | grep -q "Committed as $short"; then
@@ -101,8 +120,11 @@ for ref in $refs; do
 	#
 	# Two conditions, and neither needs a convention anybody has to remember:
 	#
-	# - **A task.** A gate does not verify a decision document, and `subroutine verify` refuses
-	#   one — which used to be reported here as a failure, on an ordinary correct message.
+	# - **A task, said positively.** A document has left the loop above, so what this still
+	#   catches is a record that could not be read at all — where the reversibility argument
+	#   points the other way, because a verification cannot be deleted on any surface. It
+	#   began as the guard against `subroutine verify` refusing a decision document, which
+	#   used to be reported here as a failure on an ordinary correct message.
 	# - **Not already finished.** Work a commit is *doing* is open or in progress when this
 	#   fires, because the order is claim, start, gate, commit, then done.
 	#
