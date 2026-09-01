@@ -936,6 +936,7 @@ class Columns:
 	kind: int = 0
 	state: int = 0
 	blocked: int = 0
+	sub_tasks_done: int = 0
 	priority: int = 0
 	estimate: int = 0
 	matched: int = 0
@@ -999,6 +1000,7 @@ class Columns:
 			),
 			state=_column(_state_cell(item) for _name, item in rows),
 			blocked=_column(_blocked_cell(item) for _name, item in rows),
+			sub_tasks_done=_column(_sub_tasks_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
 			assignee=_column(
@@ -1092,6 +1094,37 @@ BLOCKING_MARK = subroutine.views.BLOCKING_MARK
 #: own title and Simon's own sentence; a reader who has never parked a question never sees it,
 #: because the column is dropped when no row on the page carries one.
 WAITING_MARK = subroutine.views.WAITING_MARK
+
+#: Marks an unfinished parent whose sub-tasks are all done — `#1615`, and **its own column
+#: rather than :data:`BLOCKED_MARK`'s**.
+#:
+#: The item's own evidence decides that: a stale parent is usually the thing holding the next
+#: milestone up, so it already reads `blocker` there — *"which describes what it does to
+#: others, not that it is holding them back for no reason"*. One column would print whichever
+#: won and lose the other, and losing this one is the defect being fixed.
+#:
+#: Not a §13.5b word: *sub-task* is `#84`'s own, and every surface already heads that section
+#: with it. A reader who has never made one never sees this, because the column is dropped when
+#: no row on the page carries it.
+SUB_TASKS_DONE_MARK = subroutine.views.SUB_TASKS_DONE_MARK
+
+
+def _sub_tasks_cell (item: Item) -> str:
+	"""Return the marker for a parent whose sub-tasks are all done, or nothing — `#1615`.
+
+	**`#84` refuses auto-completion and leaves the question to a person; nothing was putting
+	it.** Complete every sub-task of a parent and the parent stays open, anything it blocks
+	stays blocked, and the listing shows an ordinary open row. The failure is silent and
+	delayed — the person best placed to notice has already moved on.
+
+	Empty on every row of an ordinary list, which drops the column entirely, exactly as the
+	kind, state, blocked and priority columns do (§1.4, §14.10).
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	return SUB_TASKS_DONE_MARK if item.sub_tasks_done else ""
 
 
 def _blocked_cell (item: Item) -> str:
@@ -10203,6 +10236,13 @@ def _item_line (
 	if columns.blocked:
 		line.append(f"{_blocked_cell(item):<{columns.blocked}}  ", style=DETAIL)
 
+	# **After `blocked` and before the rest**, because it answers the same question those two
+	# do — whether you can act on this now — and the answer here is *yes, and it is a decision
+	# rather than work*. An item can carry this and `blocker` at once, which is the ordinary
+	# case for a milestone and the reason the two are not one column.
+	if columns.sub_tasks_done:
+		line.append(f"{_sub_tasks_cell(item):<{columns.sub_tasks_done}}  ", style=DETAIL)
+
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)
 
@@ -11749,6 +11789,13 @@ def _as_json (
 		# be held up and holding something up at once, and an agent choosing what to start
 		# next needs to see the second even when the first is true.
 		"blocking": task.blocking,
+		# **And whether the only thing left is a decision** (`#1615`). A parent whose sub-tasks
+		# are all finished is not completed for anybody — `#84` refuses that — so a script
+		# watching a milestone has no other way to learn that it is answerable. Its own field
+		# for `blocking`'s reason: the two are commonly true of one row, and a script that got
+		# only the first would learn what the item does to others and not that nothing is left
+		# to do about it.
+		"sub_tasks_done": task.sub_tasks_done,
 		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
 		# own is work whose context is one field away, and the number is what a script types
 		# back.

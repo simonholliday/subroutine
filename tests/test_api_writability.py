@@ -295,6 +295,13 @@ DERIVED: dict[str, str] = {
 		"that went stale, because it changes when *another* item completes. Make it true or "
 		"false by linking or by finishing what it holds up."
 	),
+	"sub_tasks_done": (
+		"Whether every sub-task under this is finished and this is not (`SR#1615`), read off "
+		"the children rather than stored. Writing it would be a second answer to a question "
+		"the children already answer, and it is the one that would go stale — it changes when "
+		"a *child* completes, or when somebody adds a child to a parent that had none. Make it "
+		"true or false by finishing the sub-tasks, which is the act it reports."
+	),
 	"blocked_by": (
 		"Which unfinished tasks hold this one up, read off the same `blocks` links as "
 		"`blocked` above (`SR#1287`) — and narrowed to the ones this caller may see, which is "

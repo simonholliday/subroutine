@@ -1991,6 +1991,92 @@ def test_a_parent_with_unfinished_sub_tasks_is_not_offered_as_ready (world: Worl
 	)
 
 
+def _marked_done_underneath (world: World, ref: int) -> bool:
+	"""Read one task back and say whether it reports every sub-task finished."""
+
+	read = world.call("GET", f"/v1/tasks/{ref}")
+
+	assert read.status_code == 200, read.text
+
+	return bool(read.json()["sub_tasks_done"])
+
+
+def test_a_parent_whose_sub_tasks_are_all_done_says_so_and_is_not_completed (
+	world: World,
+) -> None:
+	"""`SR#1615`, and the other half of `SR#1353` above.
+
+	That rule is *has **unfinished** children*, so a parent whose children are all done stays
+	startable on purpose — `SR#84`'s *3/3 beside an open parent is the question being put to a
+	person*. **Nothing was putting it.** Complete every sub-task and the parent stays open,
+	anything it blocks stays blocked, and the listing shows an ordinary open row.
+
+	**The failure is silent and delayed**, which is what makes a mark worth more than it looks:
+	somebody finishes a milestone, moves on, and the next milestone never becomes ready. There
+	is nothing anywhere saying why, and the person best placed to notice has already left.
+
+	**Still not auto-completion.** `SR#84` refuses that with two reasons that hold — it credits
+	whoever closed the last child with a decision they did not take, and it cannot reverse when
+	a child is added later — so this asserts the parent is *unfinished* as hard as it asserts
+	the mark.
+	"""
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Ship the connector"}).json()
+	first = _filed_under(world, parent, "Write the driver")
+	second = _filed_under(world, parent, "Test the driver")
+
+	assert not _marked_done_underneath(world, parent["ref"]), (
+		"nothing is finished yet, so there is no question to put"
+	)
+
+	world.call("POST", f"/v1/tasks/{first['ref']}/complete", json={})
+
+	assert not _marked_done_underneath(world, parent["ref"]), (
+		"one of two is not all of them, and marking it here would put the question early"
+	)
+
+	world.call("POST", f"/v1/tasks/{second['ref']}/complete", json={})
+
+	assert _marked_done_underneath(world, parent["ref"]), (
+		"every sub-task is finished and nothing says the parent is answerable"
+	)
+
+	read = world.call("GET", f"/v1/tasks/{parent['ref']}").json()
+
+	assert not read["is_complete"], (
+		"the parent completed itself, which is the write SR#84 refuses to make on somebody's "
+		"behalf"
+	)
+
+
+def test_a_leaf_and_a_finished_parent_are_not_marked (world: World) -> None:
+	"""The two ways this could be vacuously true, and both would be worse than saying nothing.
+
+	**A task with no sub-tasks at all** trivially has none unfinished, so a rule written as
+	*nothing underneath is outstanding* marks every leaf in the instance — which is a word on
+	nine rows in ten and §12.2a's column that says the same thing on every row.
+
+	**A parent somebody has already finished** has had the question put and answered. Marking
+	it would keep asking, on the one row where the decision is visibly taken.
+	"""
+
+	leaf = world.call("POST", "/v1/tasks", json={"title": "Buy milk"}).json()
+
+	assert not _marked_done_underneath(world, leaf["ref"]), (
+		"a task with no sub-tasks was marked, so every ordinary row carries this"
+	)
+
+	parent = world.call("POST", "/v1/tasks", json={"title": "Ship it"}).json()
+	child = _filed_under(world, parent, "One part of it")
+
+	world.call("POST", f"/v1/tasks/{child['ref']}/complete", json={})
+	world.call("POST", f"/v1/tasks/{parent['ref']}/complete", json={})
+
+	assert not _marked_done_underneath(world, parent["ref"]), (
+		"a parent that has already been finished is still being asked whether to finish it"
+	)
+
+
 def test_a_finished_ancestor_holds_nothing_up (world: World) -> None:
 	"""``_live_blocks_edge``'s rule arriving on the other axis.
 

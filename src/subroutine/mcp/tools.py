@@ -2239,6 +2239,14 @@ def _line (
 		if item.blocking:
 			cells.append(subroutine.views.BLOCKING_MARK)
 
+		# **A cell of its own, and a row commonly carries it beside `blocker`** (`#1615`). A
+		# parent whose sub-tasks are all done is usually the thing holding the next milestone
+		# up, so an agent reading `blocker` alone learns what it does to others and not that
+		# the only thing left is a decision somebody has to take. `#84` refuses to take that
+		# decision automatically, which is what makes saying so the whole of the fix.
+		if item.sub_tasks_done:
+			cells.append(subroutine.views.SUB_TASKS_DONE_MARK)
+
 		# **And what is holding it up, on the one section that resolves it** (`#1287`). The
 		# mark above says *that*; this says *what*, and only the agenda's `blocked_by_others`
 		# rows carry it — every other listing here is null and prints nothing, which is

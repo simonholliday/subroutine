@@ -288,6 +288,39 @@ def a_container (
 	)
 
 
+def every_sub_task_is_done (
+	model: type[typing.Any], *, now: datetime.datetime
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching an unfinished parent whose sub-tasks are all over — `#1615`.
+
+	**The row :func:`a_container` deliberately leaves behind.** That predicate is *has
+	unfinished children*, so a parent whose children are all done stays in ``--ready`` on
+	purpose — `#84`'s *3/3 beside an open parent is the question being put to a person*. This is
+	the other half: nothing anywhere was *putting* the question.
+
+	**The failure it exists to catch is silent and delayed.** Somebody finishes a milestone,
+	moves on, and the next milestone never becomes ready — because `#84` refuses auto-completion
+	for two reasons that still hold, and the person best placed to notice has already left.
+
+	**Three clauses and each is load-bearing.** It must have children, or every leaf in the
+	instance qualifies vacuously. None of them may be unfinished, which is
+	:func:`a_container` negated. And the parent itself must not be over, because once somebody
+	has taken the decision there is no question left to put.
+	"""
+
+	child = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+
+	return sqlalchemy.and_(
+		sqlalchemy.not_(over(model, now=now)),
+		sqlalchemy.exists(
+			sqlalchemy.select(child.id)
+			.where(child.parent_task_id == model.id, child.deleted_at.is_(None))
+			.correlate(model)
+		),
+		sqlalchemy.not_(a_container(model, now=now)),
+	)
+
+
 def unblocked (
 	model: type[typing.Any], *, now: datetime.datetime
 ) -> sqlalchemy.ColumnElement[bool]:
@@ -494,6 +527,29 @@ def blocked_among (
 
 	return _matching(
 		session, identifiers, lambda model: sqlalchemy.not_(unblocked(model, now=now))
+	)
+
+
+def finished_underneath_among (
+	session: sqlalchemy.orm.Session,
+	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	now: datetime.datetime,
+) -> set[uuid.UUID]:
+	"""Return which of these tasks have sub-tasks and no unfinished one — `#1615`.
+
+	:func:`blocked_among`'s shape and for its reason: one ``EXISTS`` scan for a whole page
+	rather than a question per row, which is `#39`'s N+1 and the recorded obstacle to marking
+	anything derived on a listing at all.
+
+	**Not narrowed by visibility**, exactly as its two neighbours are not. Whether a parent's
+	own sub-tasks are finished is a fact about that work rather than about the reader, and
+	counting only the children somebody can see would say the question is ready to be answered
+	when it is not.
+	"""
+
+	return _matching(
+		session, identifiers, lambda model: every_sub_task_is_done(model, now=now)
 	)
 
 

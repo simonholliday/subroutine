@@ -163,6 +163,7 @@ class LinkEnd(pydantic.BaseModel):
 	#: only by opening it.
 	blocked: bool = False
 	blocking: bool = False
+	sub_tasks_done: bool = False
 
 	#: Who has it and who is on it now. A lease expires, so ``claim_expires_at`` travels with
 	#: the holder for the reason :class:`Task` gives: a client answers *is this still held*
@@ -523,6 +524,22 @@ class Task(pydantic.BaseModel):
 	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
 	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
 	blocking: bool = False
+
+	#: Whether every sub-task under this is finished and this is not — `#1615`.
+	#:
+	#: **The question `#84` leaves to a person, which nothing was putting.** A parent never
+	#: auto-completes, for two reasons that still hold: it credits whoever closed the last child
+	#: with a decision they did not take, and it cannot reverse when a child is added later. So
+	#: `3/3` beside an open parent is the question — and until this, the only surface that
+	#: showed the count at all was the one you had already opened.
+	#:
+	#: **The failure is silent and delayed**: a milestone is finished, somebody moves on, and
+	#: the next milestone never becomes ready because `readiness.a_container` correctly declines
+	#: to start a parent while nothing says the parent is answerable.
+	#:
+	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
+	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
+	sub_tasks_done: bool = False
 
 	#: What is actually holding this up — `#1287`, Simon's decision of 2026-08-27, and **the
 	#: argued exception to the rule stated two fields above rather than a hole in it.**
@@ -2350,6 +2367,31 @@ BLOCKING_MARK = "blocker"
 #: ``tests/test_web.py`` compares them case-blind.
 WAITING_MARK = "needs input"
 
+#: What a listing calls an unfinished parent whose sub-tasks are all done — `#1615`.
+#:
+#: **The vocabulary the product already has.** Every surface heads that section *Sub-tasks*
+#: (`#1282`, `#84`'s own word), so this is that word plus what is true of them rather than a
+#: fifth spelling. It states the fact and stops there, which is `#84`'s position exactly: the
+#: parent is *unstartable*, never *done*, and the decision is a person's to take.
+#:
+#: **Deliberately not built on `needs`**, which decision `#1267` §2 has now caught six times.
+#: `needs input` two constants above means *a person owes an answer*, and a mark reading *needs
+#: a decision* on the next row could honestly be either — a reader would have to learn which
+#: was derived and which was set before either meant anything.
+#:
+#: **And not `finishable` or `ready to close`**, which are judgements rather than facts. What is
+#: true is that the sub-tasks are done; whether that finishes the parent is the question, and a
+#: mark that answers it has taken the decision `#84` refuses to take.
+#:
+#: **Its own column rather than `blocked`'s**, and the item's own evidence decides it: a stale
+#: parent is usually the thing holding the next milestone up, so it already reads `blocker`
+#: there — and *"describes what it does to others, not that it is holding them back for no
+#: reason"* is the complaint `#1615` was filed about. One column would lose whichever it did
+#: not print.
+#:
+#: **The browser capitalises it and carries the only other copy**, as the three above do.
+SUB_TASKS_DONE_MARK = "sub-tasks done"
+
 
 #: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
 #:
@@ -2619,6 +2661,12 @@ class Vocabulary:
 		# because they are opposite directions over the same edges, and both return
 		# immediately on an empty page.
 		self.blocking = subroutine.domain.readiness.blocking_among(session, wanted, now=now)
+		# **A third scan of the same shape** (`#1615`). Folding the three into one query would
+		# be better and is not this item: each returns immediately on an empty page, and
+		# `AGENDA_STATEMENTS` is what says whether the count has become a problem.
+		self.finished_underneath = subroutine.domain.readiness.finished_underneath_among(
+			session, wanted, now=now
+		)
 
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
@@ -2857,6 +2905,7 @@ def task (
 		claim_expires_at=row.claim_expires_at,
 		blocked=row.id in vocabulary.blocked,
 		blocking=row.id in vocabulary.blocking,
+		sub_tasks_done=row.id in vocabulary.finished_underneath,
 		blocked_by=blocked_by,
 		importance=row.importance,
 		urgency=row.urgency,

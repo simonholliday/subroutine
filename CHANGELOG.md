@@ -22,6 +22,24 @@ upgrade involves.
 
 ### Added
 
+- **A parent whose sub-tasks are all finished says so, on every surface.** Nothing completes a
+  parent for you — that would credit whoever closed the last sub-task with a decision they did
+  not take, and it could not reverse when a sub-task is added later. So the question is yours,
+  and until now nothing was putting it:
+
+  ```
+    #42  blocked                  The next milestone
+     #7  blocker  sub-tasks done  Ship the connector
+  ```
+
+  The failure this catches is quiet and slow. You finish a milestone, move on, and the next one
+  never becomes available — with nothing anywhere saying why, long after the person best placed
+  to notice has stopped looking.
+
+  It sits beside *blocked* rather than replacing it, because a parent in this state is usually
+  the very thing holding the next piece of work up, and you need both halves to know that
+  a decision is all that is left.
+
 - **Work that needs an answer from you is marked wherever it appears.** A task set to
   `needs_input` had its own section at the top of the agenda and said nothing anywhere else,
   so in a list or on a board it looked like ordinary work with a name against it.

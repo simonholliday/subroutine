@@ -95,7 +95,7 @@ const TASK_FIELDS = [
 	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
 	"relevance",
 	"ref", "title", "due_at", "due_is_all_day", "starts_at", "starts_is_all_day",
-	"blocked", "project_key",
+	"blocked", "sub_tasks_done", "project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest
 	   ancestor's, or its workspace's. Resolved on the server, so what arrives is a palette name
@@ -4057,6 +4057,23 @@ export function marks (
 	*/
 	if (item.blocking) {
 		states.push({ text: "Blocker", family: "state", icon: MARK_ICONS.blocker });
+	}
+	/*
+		**`Sub-tasks done`, and a card commonly carries it beside `Blocker`** (`#1615`). A
+		parent whose sub-tasks are all finished is the row `readiness.a_container` deliberately
+		leaves startable, because `#84` refuses to complete a parent on somebody's behalf — and
+		nothing anywhere was putting the question that refusal creates.
+
+		**The fact, not the consequence.** `Finishable` or `Ready to close` would answer the
+		question rather than ask it, which is the decision `#84` declines to take for a person.
+		What is true is that the sub-tasks are done.
+
+		**No tone**, deliberately. `blocked` and `late` are the two reserved for problems, and
+		this is the opposite — it is the row worth looking at because it is nearly over. The
+		outline is what says *this is a state*, which is `#1019`'s arrangement.
+	*/
+	if (item.sub_tasks_done) {
+		states.push({ text: "Sub-tasks done", family: "state" });
 	}
 	/*
 		**That it comes back at all** — `#925`, Simon: *"nothing indicates that it is a repeating

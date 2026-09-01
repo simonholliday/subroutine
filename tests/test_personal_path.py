@@ -3452,6 +3452,51 @@ def test_the_type_column_stays_hidden_when_everything_is_one_kind (
 	assert "task" not in run("list").output
 
 
+def test_a_parent_whose_sub_tasks_are_done_is_marked_beside_what_it_blocks (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1615`, and the row that decided this is not `blocked`'s column.
+
+	`SR#84` refuses to complete a parent on somebody's behalf, so *3/3 beside an open parent is
+	the question being put to a person* — and nothing anywhere was putting it. The failure is
+	silent and delayed: a milestone is finished, somebody moves on, and the next milestone never
+	becomes ready.
+
+	**The stale parent is usually also a blocker**, which is exactly the shape here, and
+	`SR#1615`'s complaint is that `blocker` *"describes what it does to others, not that it is
+	holding them back for no reason"*. One column would print whichever won and lose the other,
+	so this asserts the two appear **together on one row**.
+	"""
+
+	run("init")
+	run("add", "Ship the connector")
+	run("add", "Write the driver")
+	run("add", "Test the driver")
+	run("add", "The next milestone")
+	run("move", "2", "--under", "1")
+	run("move", "3", "--under", "1")
+	run("link", "1", "blocks", "4")
+
+	before = run("list").output
+
+	assert "sub-tasks done" not in before, (
+		"the sub-tasks are unfinished, so the question is being put early"
+	)
+
+	run("done", "2")
+	run("done", "3")
+
+	listed = run("list").output
+	row = next(line for line in listed.splitlines() if "Ship the connector" in line)
+
+	assert "sub-tasks done" in row, (
+		f"every sub-task is finished and the row does not say so: {row!r}"
+	)
+	assert "blocker" in row, (
+		f"the two marks share a column, so one of them was lost: {row!r}"
+	)
+
+
 def test_a_page_of_one_row_still_says_what_is_true_of_it (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
