@@ -2378,6 +2378,26 @@ class Client:
 				session, chosen, account, actor=actor
 			)
 
+	def update_instance (
+		self, *, name: str | None = None, timezone: str | None = None
+	) -> subroutine.views.Instance:
+		"""Change what this installation is called, or where it says it is."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			changed = subroutine.domain.instances.update(
+				session,
+				actor=actor,
+				**{
+					field: value
+					for field, value in (("name", name), ("timezone", timezone))
+					if value is not None
+				},
+			)
+
+			return subroutine.views.instance(changed)
+
 	def share_project (
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> subroutine.views.ProjectMember:

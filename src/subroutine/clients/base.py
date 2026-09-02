@@ -1090,6 +1090,21 @@ class Client(typing.Protocol):
 		mistake is somebody seeing a private project.
 		"""
 
+	def update_instance (
+		self, *, name: str | None = None, timezone: str | None = None
+	) -> subroutine.views.Instance:
+		"""Change what this installation is called, or where it says it is — `#1669`.
+
+		**Needs ``instance:admin``**, which no role carries. The name is a label rather than an
+		identity — the id is the identity and cannot move — and the timezone is the last word in
+		the chain, so a wrong one is read by everybody who has not set their own.
+
+		``None`` means *not asked* here rather than *set to nothing*, because neither field can
+		be cleared: both are required and an installation with no name is not a state to reach.
+		"""
+
+		raise NotImplementedError
+
 	def share_project (
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> subroutine.views.ProjectMember:

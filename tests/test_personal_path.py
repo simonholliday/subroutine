@@ -10762,3 +10762,36 @@ def test_the_last_person_who_can_see_a_project_is_not_removable (
 	who = run("project", "sharing", "secret").output
 
 	assert who.strip(), "a private project always has at least its owner"
+
+
+def test_this_installation_can_be_given_a_name_and_a_zone (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1669`: both were declared editable and nothing anywhere could edit either.
+
+	The echo is a read-back rather than a repetition of the input — it prints what the write
+	returned, so a call that changed nothing would print the old name here.
+	"""
+
+	run("init")
+
+	named = run("instance", "update", "--name", "Hyperfence")
+
+	assert "Hyperfence" in named.output
+
+	zoned = run("instance", "update", "--timezone", "Europe/London")
+
+	assert "Europe/London" in zoned.output
+	assert "Hyperfence" in zoned.output, "changing one left the other alone"
+
+
+def test_changing_nothing_about_this_installation_is_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A command that succeeds having done nothing reads as a change that did not take."""
+
+	run("init")
+
+	refused = run("instance", "update", expect=1)
+
+	assert "--name" in refused.output

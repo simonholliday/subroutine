@@ -21,6 +21,26 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **This installation can be renamed, and told where it is.**
+
+  Both were declared editable and neither could be changed by anything — no route, no command,
+  no tool, and not by running `init` again, which leaves an existing installation untouched by
+  design. So a self-hosted instance took its name from the machine's hostname and kept it.
+
+  ```
+  subroutine instance update --name "Hyperfence"
+  subroutine instance update --timezone Europe/London
+  ```
+
+  Over HTTP that is `PATCH /v1/instance`, and `/v1/meta` reports the result. Both need
+  `instance:admin`, which no role carries and only a superuser holds.
+
+  The name is a label rather than an identity: it is what tells one installation from another
+  wherever somebody can reach two, and changing it breaks nothing. The **id** is the identity
+  and still cannot move. The timezone is the last word on what a day means here — read by
+  anybody who has not set their own and whose workspace has not set one, which on a fresh
+  installation is everybody.
+
 - **A private project can be shared. Until now it could not, by anybody, on any surface.**
 
   `--private` has been offered since the first release and grants sight to holders of a project

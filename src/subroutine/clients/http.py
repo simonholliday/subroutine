@@ -1194,6 +1194,25 @@ class Client:
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
 		)
 
+	def update_instance (
+		self, *, name: str | None = None, timezone: str | None = None
+	) -> subroutine.views.Instance:
+		"""Change what this installation is called, or where it says it is."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"PATCH",
+			"/v1/instance",
+			json={
+				field: value
+				for field, value in (("name", name), ("timezone", timezone))
+				if value is not None
+			},
+		)
+
+		return subroutine.views.Instance.model_validate(body)
+
 	def share_project (
 		self, project: str, *, username: str, workspace: str | None = None
 	) -> subroutine.views.ProjectMember:

@@ -25,6 +25,7 @@ import subroutine.api.documents
 import subroutine.api.events
 import subroutine.api.health
 import subroutine.api.identity
+import subroutine.api.instance
 import subroutine.api.journal
 import subroutine.api.limits
 import subroutine.api.mcp
@@ -88,6 +89,9 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	("", subroutine.api.sessions.user_sessions),
 	("", subroutine.api.tokens.router),
 	("", subroutine.api.meta.router),
+	# `/v1/instance` is a literal under `/v1` sharing a prefix with nothing, and no router
+	# mounts `/v1/{something}`, so nothing can shadow it — `routing.check` is what says so.
+	("", subroutine.api.instance.router),
 	# Curating the vocabulary — `#826`. `/v1/statuses`, `/v1/link-types` and `/v1/tags` are
 	# literals under `/v1` sharing a prefix with nothing, and their `/{which}` forms are longer
 	# than anything that could shadow them; `routing.check` is what says so rather than this

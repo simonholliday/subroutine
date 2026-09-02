@@ -110,6 +110,7 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
 	("PATCH", "/v1/workspaces/{id_or_slug}/members/{username}"): "set_member_role",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
+	("PATCH", "/v1/instance"): "update_instance",
 	("POST", "/v1/projects/{id_or_key:path}/members"): "share_project",
 	("DELETE", "/v1/projects/{id_or_key:path}/members/{username}"): "unshare_project",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
@@ -449,6 +450,10 @@ SHARING_IS_A_PERSONS_ACT = (
 
 
 NOT_IN_MCP: dict[str, Excuse] = {
+	"update_instance": (
+		"budget",
+		"`SR#1669`. Naming a whole installation and saying which zone its days fall in is an operator's act, gated by `instance:admin`, which no role carries and only a superuser holds — so the population that may call this is the smallest there is, and it is not the population that works through an agent. `subroutine_call_api` reaches the route for the rare case, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an installation where agents provision instances, which is the hosted service's own tooling rather than this product's.",
+	),
 	"share_project": ("budget", SHARING_IS_A_PERSONS_ACT),
 	"unshare_project": ("budget", SHARING_IS_A_PERSONS_ACT),
 	"project_members": ("budget", SHARING_IS_A_PERSONS_ACT),

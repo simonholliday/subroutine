@@ -36,7 +36,10 @@ class Instance(subroutine.db.base.Base, subroutine.db.mixins.TimestampMixin):
 		sqlalchemy.Integer, default=1, nullable=False, unique=True
 	)
 
-	#: Reported as ``instance_name``. Editable — it is a label, not an identity.
+	#: Reported as ``instance_name``. Editable — it is a label, not an identity, and
+	#: ``instances.update`` is what makes that sentence true (`#1669`). It said so for
+	#: months while nothing anywhere could write it: no route, no command, no tool, and
+	#: not a second ``init`` either.
 	name: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(255), nullable=False
 	)

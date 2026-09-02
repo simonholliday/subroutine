@@ -5191,6 +5191,25 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 			_suggest(program.console, f"subroutine use --here --project {renamed.key}")
 
 
+def _instance_updated (program: Program, *, name: str, timezone: str) -> None:
+	"""Change what this installation is called, or where it says it is — `#1669`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		changed = where.client.update_instance(
+			name=name.strip() or None, timezone=timezone.strip() or None
+		)
+
+		program.say(f"{changed.name} — days here are counted in {changed.timezone}.")
+
+		# **Said because it is the commonest reason to be here and the easiest to get wrong.**
+		# This zone is the last word in the chain rather than the first, so it is read only by
+		# people who have set neither their own nor their workspace's — which on a shared
+		# instance is usually nobody, and on a fresh one is everybody.
+		program.say("That is the fallback: a workspace or an account with its own zone keeps it.")
+
+
 def _project_shared (program: Program, *, key: str, username: str) -> None:
 	"""Let one more person see a private project — `#1444`."""
 
@@ -6904,6 +6923,39 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			hide_nothing=hide_nothing,
 			private=private,
 		)
+
+	instance_app = typer.Typer(
+		help="Look after this installation itself.", no_args_is_help=True
+	)
+	app.add_typer(instance_app, name="instance")
+
+	@instance_app.command("update")
+	def instance_update (
+		name: str = typer.Option("", "--name", help="What to call this installation."),
+		timezone: str = typer.Option(
+			"", "--timezone", help="Where it is, as an IANA zone like Europe/London."
+		),
+	) -> None:
+		"""Change what this installation is called, or where it says it is.
+
+		Examples:
+
+		  subroutine instance update --name "Hyperfence"
+
+		  subroutine instance update --timezone Europe/London
+
+		The name is a label rather than an identity — it is what tells this installation from
+		another one you can reach, and changing it breaks nothing.
+
+		The timezone is the last word on what a day means here. It is read by anybody who has
+		not set their own and whose workspace has not set one, so on a fresh installation that
+		is everybody.
+		"""
+
+		if not name.strip() and not timezone.strip():
+			program.stop("Say what to change: --name, --timezone, or both.")
+
+		_instance_updated(program, name=name, timezone=timezone)
 
 	_register_workspace(app, program)
 
