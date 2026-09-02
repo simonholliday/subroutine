@@ -85,10 +85,19 @@ def test_documents_and_tasks_share_one_ref_space (world: test_api_tasks.World) -
 	assert world.call("GET", f"/v1/tasks/{document['ref']}").status_code == 404
 
 
-def test_superseding_a_document_retires_the_one_it_replaces (
+def test_superseding_a_document_is_a_link_and_the_status_is_a_separate_act (
 	world: test_api_tasks.World,
 ) -> None:
-	"""The two are one fact: a superseded document still reading as active is a trap."""
+	"""`SR#1684`: the column is retired, and both halves of what it did are still reachable.
+
+	**It used to be one call doing two things** — recording which document replaced which, and
+	moving the replaced one to a superseded status as a side effect. `SR#1685` decided a link
+	must never rewrite another row, so the side effect went with the column, and a person moves
+	the status on purpose.
+
+	The `supersedes` field is gone from the request rather than merely ignored, which is what
+	`api/query.refuse_unknown` gives every listing and what a body has always done.
+	"""
 
 	first = world.call(
 		"POST", "/v1/documents", json={"title": "Deploy process v1", "status": "active"}
@@ -96,27 +105,65 @@ def test_superseding_a_document_retires_the_one_it_replaces (
 
 	assert first["status_category"] == "current"
 
-	second = world.call(
-		"POST", "/v1/documents", json={"title": "Deploy process v2", "supersedes": first["ref"]}
-	).json()
+	second = world.call("POST", "/v1/documents", json={"title": "Deploy process v2"}).json()
 
-	assert second["supersedes_id"] == first["id"]
+	refused = world.call(
+		"POST", "/v1/documents", json={"title": "v3", "supersedes": first["ref"]}
+	)
 
-	retired = world.call("GET", f"/v1/documents/{first['ref']}").json()
+	assert refused.status_code == 422, "the retired field is refused rather than ignored"
 
-	assert retired["status_category"] == "superseded"
+	drawn = world.call(
+		"POST",
+		f"/v1/documents/{second['ref']}/links",
+		json={
+			"target": first["ref"],
+			"target_type": "document",
+			"link_type": "supersedes",
+		},
+	)
+
+	assert drawn.status_code == 201, drawn.text
+
+	# The link is the record, and it renders from both ends — which the column never did on
+	# any surface, and which is the whole of why it was retired.
+	both = world.call("GET", f"/v1/documents/{first['ref']}/links").json()["items"]
+
+	assert [end["link_type"] for end in both] == ["supersedes"]
+
+	# And the status is unmoved until somebody says so, which is the behaviour that changed.
+	assert world.call("GET", f"/v1/documents/{first['ref']}").json()["status_category"] == (
+		"current"
+	)
+
+	world.call("PATCH", f"/v1/documents/{first['ref']}", json={"status": "superseded"})
+
+	assert world.call("GET", f"/v1/documents/{first['ref']}").json()["status_category"] == (
+		"superseded"
+	)
 
 
 def test_a_document_cannot_supersede_itself (world: test_api_tasks.World) -> None:
-	"""A one-element cycle is still a cycle."""
+	"""A one-element cycle is still a cycle, and the link mechanism still refuses it.
+
+	**The refusal moved rather than going away** (`SR#1684`). `documents.update` used to catch
+	it before writing the column; `domain/links` catches it for every link type, which is where
+	it should always have been — the column's version was one rule for one field.
+	"""
 
 	created = world.call("POST", "/v1/documents", json={"title": "Spec"}).json()
 	response = world.call(
-		"PATCH", f"/v1/documents/{created['ref']}", json={"supersedes": created["ref"]}
+		"POST",
+		f"/v1/documents/{created['ref']}/links",
+		json={
+			"target": created["ref"],
+			"target_type": "document",
+			"link_type": "supersedes",
+		},
 	)
 
-	assert response.status_code == 409
-	assert response.json()["code"] == "cycle_detected"
+	assert response.status_code == 422, response.text
+	assert "itself" in response.text
 
 
 def test_an_omitted_field_is_untouched_and_a_null_one_is_cleared (
@@ -704,40 +751,60 @@ def test_a_document_can_be_nested_over_http (world: test_api_tasks.World) -> Non
 	assert loose.json()["parent_id"] is None
 
 
-def test_restoring_a_document_whose_place_was_taken_is_refused_by_name (
+def test_two_documents_may_now_claim_to_replace_the_same_one (
 	world: test_api_tasks.World,
 ) -> None:
-	"""A 500 from three ordinary commands, and the shape it shares with a project's key.
+	"""The guarantee `SR#1684` gave up, asserted rather than left to be discovered.
 
-	Every unique index here is partial — it ignores deleted rows, which is exactly what lets
-	the thing be re-used while the original is in the trash. So a document that supersedes
-	another can be thrown away, replaced, and then restored, at which point the constraint
-	fires at flush time as an unhandled ``IntegrityError``: a 500 over HTTP and a bare
-	traceback at the terminal.
+	**A refusal used to stand here and its reason has gone.** `uq_document_supersedes_id` made
+	a supersession chain unforkable, and because that index was partial — it ignored deleted
+	rows, like every unique index in this schema — a document could be thrown away, replaced,
+	and then restored, at which point the constraint fired at flush time as an unhandled
+	``IntegrityError``: a 500 over HTTP and a bare traceback at the terminal. `documents.restore`
+	carried a check that turned it into a 409 naming what had taken the place.
 
-	Refused with what to do about it instead. There is nothing this could do on the caller's
-	behalf — putting the row back means deciding which of the two supersedes the original, and
-	that is not a decision a restore should take in silence.
+	**A link type enforces no cardinality**, so a fork is now simply allowed and the restore is
+	an ordinary one. That is a real thing given up, and it is written down on `SR#1684` as such
+	— nobody had asked for the restriction and nothing relied on it, but somebody meeting a
+	forked chain later should find this rather than conclude it is a bug.
+
+	`projects.restore`'s equivalent check is untouched: a project key is still unique.
 	"""
 
 	original = world.call("POST", "/v1/documents", json={"title": "Original"}).json()
-	first = world.call(
-		"POST", "/v1/documents", json={"title": "Replacement", "supersedes": original["ref"]}
-	).json()
+	first = world.call("POST", "/v1/documents", json={"title": "Replacement"}).json()
+	second = world.call("POST", "/v1/documents", json={"title": "Second try"}).json()
 
+	def replaces (successor: dict[str, typing.Any]) -> int:
+		"""Draw a supersedes link from one document to the original."""
+
+		return int(
+			world.call(
+				"POST",
+				f"/v1/documents/{successor['ref']}/links",
+				json={
+					"target": original["ref"],
+					"target_type": "document",
+					"link_type": "supersedes",
+				},
+			).status_code
+		)
+
+	assert replaces(first) == 201
 	world.call("DELETE", f"/v1/documents/{first['ref']}")
 
-	second = world.call(
-		"POST", "/v1/documents", json={"title": "Second try", "supersedes": original["ref"]}
-	)
-
-	assert second.status_code == 201, "the place really was taken while it was in the trash"
+	assert replaces(second) == 201, "the place really was taken while it was in the trash"
 
 	answered = world.call("POST", f"/v1/documents/{first['ref']}/restore")
 
-	assert answered.status_code == 409, answered.text
-	assert answered.json()["code"] == "duplicate_key"
-	assert f"#{second.json()['ref']}" in answered.text, "and it names what took the place"
+	assert answered.status_code == 200, answered.text
+
+	# Both ends now say they replace the same document, which the column could not express.
+	ends = world.call("GET", f"/v1/documents/{original['ref']}/links").json()["items"]
+
+	assert sorted(end["other"]["ref"] for end in ends) == sorted(
+		[first["ref"], second["ref"]]
+	), ends
 
 
 def test_a_document_owner_must_be_somebody_who_can_see_it (

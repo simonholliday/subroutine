@@ -603,10 +603,24 @@ def test_a_superseded_decision_stops_governing (world: test_api_tasks.World) -> 
 	assert _governing(world, work["ref"]) != []
 
 	replacement = _document(world, title="The new rule")
+	world.call(
+		"POST",
+		f"/v1/documents/{replacement['ref']}/links",
+		json={
+			"target": decision["ref"],
+			"target_type": "document",
+			"link_type": "supersedes",
+		},
+	)
+
+	# **The link records the replacement and the status is what stops it governing**, and
+	# since `SR#1684` those are two acts rather than one. `#1036`'s rule is unchanged and is
+	# what this test is about: it asks whether a document is *in force*, not what type it is
+	# and not what links it carries — so drawing the link alone must not silently retire it.
+	assert _governing(world, work["ref"]) != [], "a link is not a status"
+
 	retired = world.call(
-		"PATCH",
-		f"/v1/documents/{replacement['ref']}",
-		json={"supersedes": decision["ref"]},
+		"PATCH", f"/v1/documents/{decision['ref']}", json={"status": "superseded"}
 	)
 
 	assert retired.status_code == 200, retired.text

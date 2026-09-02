@@ -2254,7 +2254,6 @@ class Document(pydantic.BaseModel):
 	#: which is why this field is new on a table that is not.
 	tags: list[str] = pydantic.Field(default_factory=list)
 
-	supersedes_id: uuid.UUID | None
 
 	#: How well this row answered the search that selected it — the same field :class:`Task`
 	#: carries, for the same reason, and it has to be on **both** or a merged list is back to
@@ -3194,7 +3193,6 @@ def document (
 		type_id=row.type_id,
 		owner_id=row.owner_id,
 		tags=vocabulary.tags.get(row.id, []),
-		supersedes_id=row.supersedes_id,
 		relevance=row.relevance,
 		archived_at=row.archived_at,
 		deleted_at=row.deleted_at,
@@ -3832,7 +3830,6 @@ _A_CHANGE_TO = {
 	"status_id": "how it is going",
 	"type_id": "what kind it is",
 	"owner_id": "whose it is",
-	"supersedes_id": "what it replaces",
 	# A project's starting shape. Read by nothing today — the column is kept for `#1029` — and
 	# it is here because the guard beside this asks every column rather than the ones that have
 	# moved so far.

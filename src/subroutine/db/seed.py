@@ -291,10 +291,11 @@ SUPERSEDED_STATUS = (
 #: documents-only — ``links.governing`` filters to governing *document* types that are in force
 #: — so a task superseded by a task does not appear there.
 #:
-#: **Nothing here moves a status.** ``documents.update`` moves a superseded document's status
-#: when ``supersedes`` is set, and `#1685` deliberately did not repeat that for the link: a link
-#: that rewrites another row is unlike every other link type, and unlinking would then have to
-#: guess at reversing it.
+#: **Nothing here moves a status**, and since `SR#1684` nothing anywhere does. `documents.update`
+#: used to, as a side effect of a ``supersedes`` column that no surface rendered; `#1685`
+#: deliberately did not repeat that for the link — a link that rewrites another row is unlike
+#: every other link type, and unlinking would then have to guess at reversing it — and the
+#: column was retired rather than kept beside it. So a person moves the status, on purpose.
 SUPERSEDES_LINK = (
 	LinkTypeSeed("supersedes", "Supersedes", "Superseded by", "governing"),
 )

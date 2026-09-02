@@ -56,7 +56,6 @@ NAMED_BY: dict[str, str] = {
 	"type_id": TYPE,
 	"project_id": PROJECT,
 	"parent_task_id": TASK,
-	"supersedes_id": TASK,
 	"recurrence_template_id": TASK,
 }
 

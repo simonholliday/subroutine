@@ -10182,36 +10182,41 @@ def test_show_survives_an_instance_that_cannot_answer_what_refers_to_this (
 def test_a_document_can_say_which_one_it_replaces (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""`SR#1144`, at the terminal — the flag is its own code path.
+	"""`SR#1684`, at the terminal: `subroutine link` reaches it and `doc edit` no longer does.
 
-	The client-level guard proves both transports carry it; this proves the option that reaches
-	them exists and is wired to the right argument. Driving a command says nothing about its
-	flags, which is how a capability comes to be reachable in a library and not by anybody.
+	**This tested `doc edit --supersedes` and that flag is gone.** The column it wrote was
+	settable from every surface and rendered on none, so it was retired in favour of the
+	`supersedes` link — which `show` already draws from both ends.
 
-	**Both outcomes asserted**, because only one of them can be had by hand: setting the old
-	document's status moves it and leaves the chain empty, and *what replaced this* then has no
-	answer for ever afterwards.
+	`link` takes any item on either side, so no new command was needed. **The status is a
+	separate act now** (`SR#1685`: a link never rewrites another row), and asserting that here
+	is what stops somebody quietly restoring the side effect.
 	"""
 
 	run("init")
 	run("doc", "create", "How we deploy", "--body", "First answer.", "--type", "decision")
 	run("doc", "create", "How we deploy now", "--body", "Second answer.", "--type", "decision")
 
-	run("doc", "edit", "2", "--supersedes", "1")
+	run("link", "2", "supersedes", "1")
 
 	old = run("show", "1").output
 
-	assert "superseded" in old.lower(), f"the replaced decision was not retired:\n{old}"
+	assert "Superseded by" in old, f"the replaced decision does not say what replaced it:\n{old}"
+	assert "#2" in old, old
 
-	# **And an ordinary edit leaves the chain alone**, which is what stops the flag's default
-	# quietly superseding something on every revision — the failure this could most easily
-	# have introduced.
-	run("doc", "create", "Something else", "--type", "decision")
-	run("doc", "edit", "3", "--title", "Something else entirely")
+	# The successor says it from its own end, which the column never did on any surface.
+	assert "Supersedes" in run("show", "2").output
 
-	untouched = run("show", "3").output
+	# **And the status is untouched**, which is the behaviour `SR#1684` changed: setting the old
+	# column retired the predecessor as a side effect, and a link does not.
+	assert "superseded" not in old.lower().replace("superseded by", ""), (
+		f"drawing the link moved the status, and it should not:\n{old}"
+	)
 
-	assert "superseded" not in untouched.lower(), untouched
+	# The retired flag is gone rather than accepted and ignored.
+	refused = run("doc", "edit", "2", "--supersedes", "1", expect=2)
+
+	assert "--supersedes" in refused.output or "No such option" in refused.output, refused.output
 
 
 def test_revising_a_document_takes_any_of_its_flags_on_its_own (
@@ -10221,8 +10226,8 @@ def test_revising_a_document_takes_any_of_its_flags_on_its_own (
 
 	Standard input is consulted only when nothing else was said, because an empty pipe cannot be
 	told from no pipe without blocking. That question was settled against a tuple of four values,
-	and two flags were added to this command afterwards — `--tag`, and `--supersedes` in the
-	change that found this — so each was refused when used alone.
+	and two flags were added to this command afterwards — `--tag`, and `--supersedes`, which
+	`SR#1684` has since retired — so each was refused when used alone.
 
 	**Every flag, not the two that were missing.** A test naming the two would be the same
 	hand-written list one layer up, and would pass on the day a third arrives.
@@ -10237,7 +10242,6 @@ def test_revising_a_document_takes_any_of_its_flags_on_its_own (
 		("--type", "note"),
 		("--status", "draft"),
 		("--tag", "ops"),
-		("--supersedes", "1"),
 	)
 
 	for flag, value in alone:

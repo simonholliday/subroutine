@@ -323,29 +323,14 @@ def test_filing_a_document_elsewhere_is_not_a_change_of_meaning (
 	assert not _drove(world, f"/v1/documents/{ref}", {"project": "elsewhere"})
 
 
-def test_superseding_is_a_change_of_meaning_for_the_document_that_stops_being_current (
-	world: test_api_tasks.World,
-) -> None:
-	"""`supersedes_id`, and the asymmetry is the point.
-
-	Saying *this replaces that* is a relationship, and the successor's own words are unchanged
-	— so its content stamp holds. What moves is the **predecessor's**, because its status
-	becomes `superseded` and a decision that has stopped being in force means something
-	different to anybody reading it.
-	"""
-
-	old = world.call(
-		"POST", "/v1/documents", json={"title": "First", "body": "Words", "type": "decision"}
-	).json()
-	replacement = world.call(
-		"POST", "/v1/documents", json={"title": "Second", "body": "Better", "type": "decision"}
-	).json()
-	was = _stamp(world, f"/v1/documents/{old['ref']}")
-
-	assert not _drove(
-		world, f"/v1/documents/{replacement['ref']}", {"supersedes": old["ref"]}
-	)
-	assert _stamp(world, f"/v1/documents/{old['ref']}") != was
+# **A test stood here and its subject is gone** — `SR#1684`. Superseding a document used to
+# move the predecessor to a `superseded` status as a side effect of setting a column, so the
+# *predecessor's* content stamp moved while the successor's held. The column is retired and a
+# link never rewrites another row (`SR#1685`), so what is left is an ordinary status change on
+# the document itself, which `DOCUMENT_EDITS` already drives through `status`.
+#
+# Recorded rather than deleted silently, because a reader who remembers the asymmetry should
+# find out where it went rather than assume it was forgotten.
 
 
 def test_every_field_a_document_declares_as_compared_can_really_be_produced (
@@ -361,34 +346,38 @@ def test_every_field_a_document_declares_as_compared_can_really_be_produced (
 	"""
 
 	world.call("POST", "/v1/projects", json={"key": "elsewhere", "title": "Elsewhere"})
-	predecessor = world.call(
-		"POST", "/v1/documents", json={"title": "First", "body": "Words", "type": "decision"}
-	).json()
 	subject = world.call(
 		"POST", "/v1/documents", json={"title": "Subject", "body": "Words"}
 	).json()
 	seen: set[str] = set()
 
-	for patch in (
-		*(patch for _setup, patch in DOCUMENT_EDITS.values()),
-		{"project": "elsewhere"},
-		{"supersedes": predecessor["ref"]},
+	# **The setup as well as the patch, which this loop used to skip** (`SR#1684`). Every
+	# entry in `DOCUMENT_EDITS` carries a pair because some patches only change something from
+	# a particular starting state — `status_id` is `draft` then `active`, since `SR#537` made
+	# every seeded type start in force and `{"status": "active"}` alone is a no-op.
+	#
+	# **It passed anyway, through a path that had nothing to do with this loop.** Superseding
+	# used to move the *predecessor's* status, so `status_id` reached `seen` from a second
+	# document by a route that did not go through `update` at all. Retiring the column took
+	# that away and exposed it: the register's own comment had described this trap for the
+	# individual test above and nothing applied the lesson here.
+	for setup, patch in (
+		*DOCUMENT_EDITS.values(),
+		({}, {"project": "elsewhere"}),
 	):
-		assert world.call(
-			"PATCH", f"/v1/documents/{subject['ref']}", json=patch
-		).status_code == 200, patch
+		for sent in (setup, patch):
+			if sent:
+				assert world.call(
+					"PATCH", f"/v1/documents/{subject['ref']}", json=sent
+				).status_code == 200, sent
 
-	# **Both documents**, because superseding writes to the one being retired as well — which
-	# is the path `COMPARED` is most likely to fall behind, since it is the one that does not
-	# go through `update`.
-	for ref in (subject["ref"], predecessor["ref"]):
-		history = world.call("GET", f"/v1/documents/{ref}/events").json()
+	history = world.call("GET", f"/v1/documents/{subject['ref']}/events").json()
 
-		# `updated` only: a `created` event carries the row it wrote, `ref` included, and this
-		# is a question about what an *edit* can report.
-		for event in history["items"]:
-			if event["action"] == "updated":
-				seen.update(event.get("changes") or {})
+	# `updated` only: a `created` event carries the row it wrote, `ref` included, and this
+	# is a question about what an *edit* can report.
+	for event in history["items"]:
+		if event["action"] == "updated":
+			seen.update(event.get("changes") or {})
 
 	assert seen == set(subroutine.domain.documents.COMPARED), (
 		"COMPARED names a field no request can produce, or a request produced one it omits"
@@ -408,8 +397,6 @@ DRIVEN_ELSEWHERE: dict[str, dict[str, str]] = {
 	},
 	"document": {
 		"project_id": "needs a project to file it under",
-		"supersedes_id": "needs a second document to replace",
-		"superseded_by": "written on the *other* document, by the path that retires it",
 	},
 }
 

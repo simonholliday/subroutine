@@ -5335,19 +5335,19 @@ def test_a_version_conflict_promises_the_current_item_only_where_it_sends_one (
 	)
 
 
-def test_both_can_chain_a_document_to_the_one_it_replaces (pair: Pair) -> None:
-	"""`SR#1144`. ``PATCH /v1/documents`` accepted ``supersedes`` and neither client sent it.
+def test_both_can_say_a_document_replaces_the_one_before_it (pair: Pair) -> None:
+	"""`SR#1684`. Superseding is a link now, and both transports have to draw the same one.
 
-	**Here rather than in one transport's file, because the finding is that *neither* had it.**
-	The endpoint has taken it since M1; `test_reach` could not see the gap, being per *method*
-	rather than per argument — ``update_document`` exists and is called, so the route counted as
-	reached while a field it accepts reached nothing (`SR#149`, `SR#178`).
+	**This tested a column and the column is gone.** `SR#1144` added ``supersedes`` to
+	``PATCH /v1/documents`` because neither client sent a field the endpoint had taken since
+	M1 — a gap `test_reach` could not see, being per *method* rather than per argument. What it
+	could not say was that **no surface rendered the result**: zero of 226 documents used it,
+	and a caller who set it correctly saw nothing anywhere.
 
-	**Two outcomes, and only one of them can be had by hand.** It records which document replaced
-	which, *and* it retires the predecessor. Somebody who could only set a status got the second
-	without the first — the chain stayed empty, so *what replaced this* had no answer, which
-	`SR#1119` makes live: a superseded decision stops governing and there is then nothing to
-	point the reader at instead.
+	So the fact moved to the mechanism that already renders on `show`, in the browser and
+	through the tools, and this asks the equivalence question of that instead. **The status is
+	deliberately not asserted here**: setting the link no longer moves it (`SR#1685`), and a
+	test that still expected it to would be describing the behaviour that was removed.
 	"""
 
 	local, remote = pair.both()
@@ -5356,20 +5356,18 @@ def test_both_can_chain_a_document_to_the_one_it_replaces (pair: Pair) -> None:
 		old = client.create_document(title=f"How we deploy, {name}", type="decision")
 		new = client.create_document(title=f"How we deploy now, {name}", type="decision")
 
-		revised = client.update_document(ref=new.ref, supersedes=old.ref)
-
-		assert revised.supersedes_id == old.id, (
-			f"{name}: the chain was not recorded, so nothing says what replaced what"
+		client.link(
+			ref=new.ref,
+			link_type="supersedes",
+			target=old.ref,
+			entity_type="document",
+			target_type="document",
 		)
 
-		# **The other half, which is what makes this more than a foreign key**: the predecessor
-		# is retired by the same call. Asserting only the chain would pass on a build that
-		# stored the id and left the old decision still governing.
-		retired = client.document(ref=old.ref)
+		ends = client.links(ref=old.ref, entity_type="document")
 
-		assert retired is not None, f"{name}: the replaced document cannot be read back"
-		assert retired.status_category == "superseded", (
-			f"{name}: the superseded document is still {retired.status_category!r}"
+		assert [end.link_type for end in ends] == ["supersedes"], (
+			f"{name}: the replaced document does not say what replaced it"
 		)
 
 

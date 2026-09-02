@@ -95,15 +95,15 @@ class Create(subroutine.api.schemas.RequestModel):
 	#: only digits is a reference, not a tag (§6.2).
 	tags: list[str] | None = None
 
-	supersedes: subroutine.api.schemas.Reference | None = None
-
 
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/documents/{id_or_ref}`` accepts.
 
-	Omitted is unchanged; null clears (§8.3). Setting ``supersedes`` moves the document it
-	names to the status that says so — the two are one fact, and a superseded document still
-	reading as active is one somebody will act on.
+	Omitted is unchanged; null clears (§8.3).
+
+	**Superseding is a link, not a field here** (`SR#1684`). ``POST /v1/tasks/{ref}/links`` and
+	the document equivalent take a ``supersedes`` link, which is the same mechanism a task uses
+	— where this was a column only a document had, and which no surface ever rendered.
 	"""
 
 	title: str | None = None
@@ -122,8 +122,6 @@ class Update(subroutine.api.schemas.RequestModel):
 	#: Inbox for good. A document's project also decides who may read it (§7.3a), which makes
 	#: this a permissions field rather than a filing one.
 	project: str | None = None
-
-	supersedes: subroutine.api.schemas.Reference | None = None
 
 	#: The version this change is based on (docs/design.md §8.9).
 	expected_version: int | None = None
@@ -186,11 +184,6 @@ def create (
 		),
 		owner_id=body.owner_id if body.owner_id is not None else actor.user.id,
 		tags=body.tags,
-		supersedes=(
-			None
-			if body.supersedes is None
-			else _resolve(session, actor, workspace, str(body.supersedes))
-		),
 		actor=actor,
 	)
 
@@ -581,13 +574,6 @@ def change (
 		# what `selection.project` is for and what the task endpoint already does.
 		changes["project"] = subroutine.domain.selection.project(
 			session, actor, workspace, body.project
-		)
-
-	if "supersedes" in supplied:
-		changes["supersedes"] = (
-			None
-			if body.supersedes is None
-			else _resolve(session, actor, workspace, str(body.supersedes))
 		)
 
 	with subroutine.api.concurrency.reporting(lambda: _rendered(session, document)):

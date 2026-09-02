@@ -85,15 +85,6 @@ WRITTEN_AS: dict[str, str] = {
 	"project_id": "project",
 	"body": "body",
 
-	#: **Recorded as DERIVED until `#919` drove it**, which is the other direction of an excuse
-	#: being wrong: not a name that had gone, but a field that really is written. The reason
-	#: given — *"set by writing the superseding document, not by editing the superseded one"* —
-	#: describes the superseded document's end of the relation, and this is the superseding
-	#: document's own field. ``PATCH /v1/documents/{ref} {"supersedes": …}`` sets it and null
-	#: clears it, and nothing structural could see that: a name in one register satisfies the
-	#: comparison exactly as a name in the other does.
-	"supersedes_id": "supersedes",
-
 	#: **Widened past `task` and `document` by `#1033`**, which is where these six came from.
 	#: Each is a rename rather than a gap: the endpoint takes the word a caller would type and
 	#: the view reports what was stored.
@@ -1267,10 +1258,11 @@ NOT_A_FIELD_A_CALLER_SENDS = {
 		"`POST /v1/tasks/{id_or_ref}/skip` on something that is not one of a repeating series. "
 		"**Nothing in the request can be changed** — there is no body, and the path parameter "
 		"is right in the sense that it named the task the caller meant. So this names *which "
-		"thing* is wrong rather than a parameter to correct, which is the same choice "
-		"`documents.restore` makes when it names `supersedes` with no body to put it in. "
-		"`id_or_ref` is sendable and is a routing detail nobody reading a message would "
-		"recognise."
+		"thing* is wrong rather than a parameter to correct. `id_or_ref` is sendable and is a "
+		"routing detail nobody reading a message would recognise.\n\n"
+		"**`documents.restore` used to be the other example here** and is not one any more: "
+		"its refusal existed because `uq_document_supersedes_id` made a chain unforkable, and "
+		"`SR#1684` retired the column and accepted that a link enforces no cardinality."
 	),
 }
 
@@ -1359,6 +1351,11 @@ def test_every_field_a_refusal_names_is_one_a_caller_can_send () -> None:
 	    documents.restore    supersedes_id   ->  supersedes
 	    tokens.expires_on    expires_at      ->  expires
 	    authentication       expires_at      ->  expires
+
+	**Three of those seven no longer exist** — `SR#1684` retired `document.supersedes_id`, so
+	the create, update and restore sites went with it. The list is left as it was because it
+	records what the scan found on the day, and the guard below reads the domain rather than
+	this docstring.
 
 	**Two more that the item did not name**, found by asking this question of the whole domain
 	rather than of the sites somebody had noticed: ``durations.parse``'s default was

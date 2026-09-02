@@ -6249,16 +6249,6 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		tag: list[str] | None = typer.Option(
 			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
 		),
-		supersedes: int = typer.Option(
-			# **The house sentinel, and `show_default=False` with it.** A bare `0` renders as
-			# `[default: 0]` in the help, advertising a value that means *absent* as though it
-			# were a number somebody might want — which `test_no_command_advertises_a_sentinel_
-			# as_a_default` exists to refuse, and caught this.
-			UNGIVEN_NUMBER,
-			"--supersedes",
-			show_default=False,
-			help="The document this one replaces, by its number.",
-		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 		without_body: bool = typer.Option(
 			False, "--no-body", help="Leave the document's text out of the result."
@@ -6298,11 +6288,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			# So `doc edit 42 --title "…"` changes the title and leaves the text alone, which
 			# is also what somebody typing it expects.
 			# **Derived, because the hand-written version fell behind twice** (`#1201`). Two
-			# flags were added to this command after the tuple was written — `--tag`, and
-			# `--supersedes` in the same change as this — and neither was added to it, so each
-			# was refused when used on its own. A list somebody has to remember to extend is
-			# the shape this repository keeps removing; anything that is not the ref, the
-			# output format or the body itself is somebody saying what they wanted.
+			# flags were added to this command after the tuple was written and neither was
+			# added to it, so each was refused when used on its own. A list somebody has to
+			# remember to extend is the shape this repository keeps removing; anything that is
+			# not the ref, the output format or the body itself is somebody saying what they
+			# wanted.
 			named = any(
 				(
 					title.strip(),
@@ -6310,7 +6300,6 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					status.strip(),
 					project.strip(),
 					tag is not None,
-					supersedes != UNGIVEN_NUMBER,
 				)
 			)
 			said = body.strip()
@@ -6343,7 +6332,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 								# than runtime introspection: the list is worth reading in the
 								# source, and what it must not do is disagree.
 								hint="Pipe the new text in, or pass --body, --title, --type, "
-								"--status, --project, --tag or --supersedes.",
+								"--status, --project or --tag.",
 							)
 						)
 
@@ -6369,21 +6358,6 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				# to take a mistyped tag off. Typer gives an empty list when the flag is absent,
 				# so "not asked" and "asked for none" are told apart by `None`.
 				tags=subroutine.clients.base.UNSET if tag is None else tag,
-				# **The only way to say *this replaces that* and have it recorded** (`#1144`).
-				# Setting the old document's status by hand gets half the outcome — the status
-				# moves and the chain stays empty, so *what replaced this* has no answer, which
-				# `#1119` makes matter: a superseded decision stops governing, and without the
-				# chain there is nothing to send the reader to instead.
-				#
-				# Zero rather than `None` for absent, because Typer has no natural unset for an
-				# int option and `--supersedes 0` is not a ref anybody can hold (§6.2 starts at
-				# one). Clearing a chain is not offered here: it is rare, and inventing a
-				# spelling for it on this surface before anybody has asked is `#1025`'s mistake.
-				supersedes=(
-					subroutine.clients.base.UNSET
-					if supersedes == UNGIVEN_NUMBER
-					else supersedes
-				),
 				# **Sent only when this command is replacing the body, and that is the whole
 				# of the rule** (`#842`, §8.9). A revision is a whole-body replace, so a lost
 				# update here takes every paragraph the other writer added, with no record

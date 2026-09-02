@@ -47,11 +47,6 @@ import subroutine.permissions
 #: docs/design.md §6.10, matching tasks.
 MAX_TITLE_LENGTH = 512
 
-#: The status a document moves to when something supersedes it. A category rather than a
-#: key, for the reason every other status lookup here uses one: an installation renames
-#: them freely.
-SUPERSEDED_CATEGORY = "superseded"
-
 #: The status of a document that is in force — ``active``, by category (`#506`).
 CURRENT_CATEGORY = "current"
 
@@ -219,15 +214,8 @@ COMPARED: frozenset[str] = frozenset(
 		"owner_id",
 		"status_id",
 		"type_id",
-		"supersedes_id",
 		"tags",
 		"project_id",
-		# **Not a column.** `_retire` names the successor beside the status it is moving, so
-		# that "why did this become superseded" is answerable from the event alone. It is here
-		# because this list is about what an `updated` event can *say*, not about what a row
-		# holds — and a classification that could not see it would be incomplete about the one
-		# path that does not go through `update`.
-		"superseded_by",
 	}
 )
 
@@ -242,7 +230,6 @@ def create (
 	status_key: str | None = None,
 	parent: subroutine.db.models.work.Document | None = None,
 	owner_id: uuid.UUID | None = None,
-	supersedes: subroutine.db.models.work.Document | None = None,
 	tags: typing.Sequence[str] | None = None,
 	max_depth: int | None = None,
 	settings: subroutine.config.Settings | None = None,
@@ -288,18 +275,6 @@ def create (
 		else _first_status(session, workspace_id, type_key)
 	)
 
-	if supersedes is not None and supersedes.workspace_id != workspace_id:
-		raise subroutine.errors.ValidationError(
-			"A document can only supersede one in the same workspace.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="supersedes",
-					code="invalid_field_value",
-					message="That document belongs to a different workspace.",
-				)
-			],
-		)
-
 	ref = subroutine.domain.refs.allocate(session, workspace_id)
 
 	document = subroutine.db.models.work.Document(
@@ -313,7 +288,6 @@ def create (
 		body=body,
 		status_id=status.id,
 		owner_id=owner_id,
-		supersedes_id=None if supersedes is None else supersedes.id,
 		path="",
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
@@ -335,9 +309,6 @@ def create (
 				session, workspace_id=project.workspace_id, names=list(tags)
 			),
 		)
-
-	if supersedes is not None:
-		_retire(session, supersedes, document, actor=actor)
 
 	subroutine.domain.mentions.synchronize(
 		session,
@@ -371,7 +342,6 @@ def update (
 	type_key: str = subroutine.domain.patch.UNSET,
 	owner_id: uuid.UUID | None = subroutine.domain.patch.UNSET,
 	project: subroutine.db.models.project.Project = subroutine.domain.patch.UNSET,
-	supersedes: subroutine.db.models.work.Document | None = subroutine.domain.patch.UNSET,
 	tags: typing.Sequence[str] | None = subroutine.domain.patch.UNSET,
 	expected_version: int | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
@@ -480,23 +450,6 @@ def update (
 		else item_type_for(session, document.workspace_id, type_key)
 	)
 
-	if (
-		supersedes is not subroutine.domain.patch.UNSET
-		and supersedes is not None
-		and supersedes.id == document.id
-	):
-		raise subroutine.errors.Conflict(
-			"A document cannot supersede itself.",
-			code="cycle_detected",
-			errors=[
-				subroutine.errors.FieldError(
-					field="supersedes",
-					code="cycle_detected",
-					message="That is this document.",
-				)
-			],
-		)
-
 	if owner_id is not subroutine.domain.patch.UNSET and owner_id is not None:
 		# **Membership, not existence**, and it asked only about existence — so a document
 		# could be handed to an account that is not in this workspace and cannot see it, and
@@ -537,13 +490,6 @@ def update (
 
 		setattr(document, field, value)
 		changes[field] = {"from": existing, "to": value}
-
-	if supersedes is not subroutine.domain.patch.UNSET:
-		wanted = None if supersedes is None else supersedes.id
-
-		if document.supersedes_id != wanted:
-			changes["supersedes_id"] = {"from": document.supersedes_id, "to": wanted}
-			document.supersedes_id = wanted
 
 	# **Tags replace rather than merge**, which is what §8.3 means by a field on a `PATCH` —
 	# every other field here is assigned, and a `tags` that merged would be the only one a
@@ -587,9 +533,6 @@ def update (
 		document.content_updated_at = subroutine.db.types.utcnow()
 
 	session.flush()
-
-	if supersedes not in (subroutine.domain.patch.UNSET, None) and "supersedes_id" in changes:
-		_retire(session, supersedes, document, actor=actor)
 
 	if (document.title, document.body) != previous_text:
 		subroutine.domain.mentions.synchronize(
@@ -826,49 +769,6 @@ def restore (
 	if document.deleted_at is None:
 		return document
 
-	# **Something else may supersede what this superseded**, and the index saying only one
-	# thing can is partial — it ignores deleted rows, which is what allowed the second one to
-	# be written. So a document deleted, replaced and then restored met the constraint at
-	# flush time and left as an unhandled `IntegrityError`: a 500 over HTTP and a bare
-	# traceback at the terminal, from three ordinary commands. `projects.restore` carries the
-	# same check about a key.
-	if document.supersedes_id is not None:
-		model = subroutine.db.models.work.Document
-		instead = session.scalars(
-			sqlalchemy.select(model.ref).where(
-				model.supersedes_id == document.supersedes_id,
-				model.id != document.id,
-				model.deleted_at.is_(None),
-			)
-		).first()
-
-		if instead is not None:
-			superseded = session.get(model, document.supersedes_id)
-			replaced = "" if superseded is None else f" {subroutine.domain.refs.format_ref(superseded.ref)}"
-
-			raise subroutine.errors.Conflict(
-				f"Something else supersedes{replaced} now.",
-				code="duplicate_key",
-				errors=[
-					# **`supersedes`, and this is the one site where no name is sendable**
-					# (`#1534`). A restore takes no body, so neither the column nor the
-					# request field can be put in one — but a reader who has met this
-					# document has met `supersedes` on `create` and on `update`, and has
-					# never seen `supersedes_id` anywhere. Naming the vocabulary word says
-					# *which* thing conflicts; naming the column says nothing and looks
-					# like a parameter they failed to find. The remedy is in the hint
-					# below, which is where it has to be when there is no field to change.
-					subroutine.errors.FieldError(
-						field="supersedes",
-						code="duplicate_key",
-						message=f"{subroutine.domain.refs.format_ref(instead)} was written "
-						f"while this was in the trash, and a document can be superseded once.",
-					)
-				],
-				hint=f"Throw {subroutine.domain.refs.format_ref(instead)} away, or leave this "
-				f"one where it is.",
-			)
-
 	document.deleted_at = None
 	document.version += 1
 	session.flush()
@@ -1041,7 +941,7 @@ def _first_status (
 	**By category, and falling back rather than refusing.** An installation may rename or
 	remove its statuses (§5.5), so this asks for the one meaning *in force* rather than for a
 	key — and a workspace that has removed it gets the ordinary default instead of a refusal.
-	Writing a decision must not fail because somebody edited a vocabulary; that is :func:`_retire`'s
+	Writing a decision must not fail because somebody edited a vocabulary, which is the same
 	reasoning applied to the other end of the same lifecycle.
 	"""
 
@@ -1060,65 +960,6 @@ def _first_status (
 	).first()
 
 	return found if found is not None else status_for(session, workspace_id, None)
-
-
-def _retire (
-	session: sqlalchemy.orm.Session,
-	superseded: subroutine.db.models.work.Document,
-	by: subroutine.db.models.work.Document,
-	*,
-	actor: subroutine.domain.authentication.Principal | None,
-) -> None:
-	"""Move a superseded document to the status that says so (docs/design.md §6.14).
-
-	Done here rather than left to the caller because the two facts are one fact: a document
-	that has been superseded and still reads as ``active`` is a document somebody will act
-	on. If the workspace has removed its ``superseded`` status, the link stands and the
-	status does not move — an installation is allowed to edit its own vocabulary, and
-	refusing the whole operation over it would be worse.
-	"""
-
-	model = subroutine.db.models.vocabulary.Status
-	replacement = session.scalars(
-		sqlalchemy.select(model)
-		.where(
-			model.workspace_id == superseded.workspace_id,
-			model.entity_type == "document",
-			model.category == SUPERSEDED_CATEGORY,
-		)
-		.order_by(model.position)
-	).first()
-
-	if replacement is None or superseded.status_id == replacement.id:
-		return
-
-	previous = superseded.status_id
-	superseded.status_id = replacement.id
-	superseded.version += 1
-
-	# **The one path that changes a document's status without going through `update`**, so it
-	# is the one place the content rule has to be applied a second time (`#1112`). A decision
-	# that has stopped being in force means something different to anybody reading it, and
-	# this is where it stops.
-	changes = {
-		"status_id": {"from": previous, "to": replacement.id},
-		"superseded_by": {"from": None, "to": by.ref},
-	}
-
-	if subroutine.domain.events.touches_content("document", changes):
-		superseded.content_updated_at = subroutine.db.types.utcnow()
-
-	session.flush()
-
-	subroutine.domain.events.record(
-		session,
-		workspace_id=superseded.workspace_id,
-		entity_type="document",
-		entity_id=superseded.id,
-		action=subroutine.domain.events.EventAction.UPDATED,
-		changes=changes,
-		actor=actor,
-	)
 
 
 def _permitted (

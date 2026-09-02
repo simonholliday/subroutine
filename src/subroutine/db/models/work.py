@@ -391,14 +391,6 @@ class Document(
 			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
 			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
 		),
-		# A document is superseded at most once, so the chain cannot fork.
-		sqlalchemy.Index(
-			"uq_document_supersedes_id",
-			"supersedes_id",
-			unique=True,
-			sqlite_where=sqlalchemy.text("deleted_at IS NULL"),
-			postgresql_where=sqlalchemy.text("deleted_at IS NULL"),
-		),
 		sqlalchemy.Index(
 			"ix_document_workspace_id_project_id_status_id",
 			"workspace_id",
@@ -455,13 +447,6 @@ class Document(
 		nullable=True,
 	)
 
-	# A column rather than a link type: it is a strict chain with its own integrity rule,
-	# and modelling it twice would let the two representations disagree.
-	supersedes_id: sqlalchemy.orm.Mapped[uuid.UUID | None] = sqlalchemy.orm.mapped_column(
-		subroutine.db.types.uuid_column(),
-		sqlalchemy.ForeignKey("document.id", ondelete="SET NULL"),
-		nullable=True,
-	)
 	path: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(1024), nullable=False
 	)

@@ -228,13 +228,6 @@ BOOKKEEPING_FIELDS: dict[str, frozenset[str]] = {
 			"owner_id",
 			"project_id",
 			"tags",
-			# **A relationship rather than content**, and the fact that binds is carried by the
-			# status: superseding a document moves *its* status, which is content on the
-			# document that stopped being current.
-			"supersedes_id",
-			# The other half of that, written on the document being retired. It travels beside
-			# the `status_id` that does the work, so counting it as well would decide nothing.
-			"superseded_by",
 		}
 	),
 }

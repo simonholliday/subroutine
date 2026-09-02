@@ -1297,13 +1297,6 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"to take it on — rather than a field. No item: nobody has asked, and filing one would "
 		"be inventing a requirement.",
 	),
-	"supersedes": (
-		"unbuilt",
-		"§5.10's document supersession. The column exists and the route accepts it; nothing "
-		"reads it and no surface writes it. The inert-control family (`#247`, `#251`, `#303`) "
-		"one step earlier — declared and unwired — and `#303`'s lesson was that deleting beat "
-		"wiring. Which of the two this is has not been decided.",
-	),
 	"parent": (
 		"unbuilt",
 		"Filing a document under another document. `create_project` takes a `parent` and this "

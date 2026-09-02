@@ -14,7 +14,7 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `937352bb16de`.
+> **This release changes the database schema**, to `1f61c97bf2ca`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
@@ -292,6 +292,32 @@ upgrade involves.
   `subroutine_show` through the tools — which reports it now, where before it reported none.
   That was worth fixing on its own: `subroutine_document` has asked callers to send *the
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
+
+### Removed
+- **A document's `supersedes` field is withdrawn — say it with a link instead.** *This is a
+  breaking change.*
+
+  > `POST` and `PATCH /v1/documents` no longer accept `supersedes`; a document no longer
+  > reports `supersedes_id`; and `subroutine doc edit --supersedes` is gone. Draw a
+  > `supersedes` link instead — `POST /v1/documents/{ref}/links` with
+  > `{"link_type": "supersedes", "target": …, "target_type": "document"}`, or
+  > `subroutine link <new> supersedes <old>`.
+
+  A document had two ways to say it had been replaced and a task had one, and **nothing
+  rendered the column on any surface** — not the terminal, not the browser, not the agent
+  tools. So it was settable everywhere and visible nowhere: anybody who used it correctly saw
+  no result. Zero of 226 documents on the instance this was found on had ever used it.
+
+  **Any chain that does exist is carried into a link by the upgrade**, so nothing is lost on an
+  installation that used it.
+
+  **One behaviour goes with it**: setting `supersedes` used to move the replaced document to a
+  superseded status as a side effect. A link never rewrites another row, so the status is now
+  something you set — one more call, and it no longer happens when you did not ask.
+
+  **And one guarantee goes with it**: a unique index meant a document could be superseded only
+  once, so a chain could not fork. Links carry no such rule. Nobody had asked for the
+  restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
 - **The agent tools stop offering the change feed filters it refuses.** `subroutine_changes`

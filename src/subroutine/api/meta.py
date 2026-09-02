@@ -502,7 +502,7 @@ def guide_text () -> str:
 		"task- and document-addressed endpoint takes either. Refs are unique per workspace "
 		"and shared between tasks and documents, they are never reused, and they never "
 		"change — not when an item moves between projects. In a request body, a field that "
-		"names another item (`target`, `supersedes`, `parent`) takes the same integer, so "
+		"names another item (`target`, `parent`) takes the same integer, so "
 		"you can send back what you were given without converting it.",
 		"",
 		# The ordering here is the recommendation, and it is deliberate: `fields` first

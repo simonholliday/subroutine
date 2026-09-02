@@ -117,10 +117,13 @@ REF_COLUMNS = {"task": "ref", "document": "ref"}
 
 #: Self-references, nulled on insert and wired in a second pass. Doing it this way means the
 #: insert order inside a table never has to be worked out — a child before its parent, a task
-#: before the template it came from, a document before the one it supersedes.
+#: before the template it came from.
+#:
+#: **A document's `supersedes_id` was here and is gone** (`SR#1684`): superseding is a link now,
+#: and a link is an ordinary row with no self-reference to unpick.
 SELF_REFERENCES = {
 	"task": ("parent_task_id", "recurrence_template_id"),
-	"document": ("parent_id", "supersedes_id"),
+	"document": ("parent_id",),
 }
 
 #: Vocabulary, as (table it is written in, column, table it points at).
@@ -626,8 +629,8 @@ def _wire_self_references (
 	"""Set the columns that were nulled on insert, now that every row is there.
 
 	Nulled first so the order rows go in never has to be worked out — a child before its parent,
-	a task before the template that mints it, a document before the one it supersedes. The ids
-	are unchanged, so this is the source's own values written back.
+	a task before the template that mints it. The ids are unchanged, so this is the source's own
+	values written back.
 	"""
 
 	for name, columns in SELF_REFERENCES.items():
