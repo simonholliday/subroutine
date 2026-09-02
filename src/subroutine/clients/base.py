@@ -1090,6 +1090,20 @@ class Client(typing.Protocol):
 		mistake is somebody seeing a private project.
 		"""
 
+	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List every workspace on this installation, member or not — item `#1418`.
+
+		**Discovery rather than reach.** :meth:`workspaces` lists what this caller can work in;
+		this says what exists. Nothing a workspace contains is widened by it, and `joined` says
+		whether the reader is inside.
+
+		Needs ``instance:admin``. It exists because anybody who can create a workspace can
+		create one the instance owner is not in, and the owner's answer to *what is here* left
+		it out silently — an empty list, which reads as nothing being there.
+		"""
+
+		raise NotImplementedError
+
 	def update_instance (
 		self, *, name: str | None = None, timezone: str | None = None
 	) -> subroutine.views.Instance:

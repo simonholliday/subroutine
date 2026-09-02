@@ -198,6 +198,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 	("GET", "/v1/projects/{id_or_key:path}/members"): "project_members",
+	("GET", "/v1/instance/workspaces"): "instance_workspaces",
 }
 
 #: Routes no client reaches, and why. **Deleting an entry is what closes it.**
@@ -450,6 +451,10 @@ SHARING_IS_A_PERSONS_ACT = (
 
 
 NOT_IN_MCP: dict[str, Excuse] = {
+	"instance_workspaces": (
+		"budget",
+		"`SR#1418`. *What workspaces exist on this installation* is an operator's question, gated by `instance:admin`, which no role carries and only a superuser holds — and the answer is about administering the installation rather than about doing work in it, which is what an agent's tools are for. `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**And an agent is the wrong reader.** Seeing a workspace here grants nothing: reading what is in one still needs membership, so the listing tells an agent only that places exist which it cannot reach.\n\n**What would change it**: an agent that provisions or audits workspaces, which is the hosted service's own tooling rather than this product's.",
+	),
 	"update_instance": (
 		"budget",
 		"`SR#1669`. Naming a whole installation and saying which zone its days fall in is an operator's act, gated by `instance:admin`, which no role carries and only a superuser holds — so the population that may call this is the smallest there is, and it is not the population that works through an agent. `subroutine_call_api` reaches the route for the rare case, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an installation where agents provision instances, which is the hosted service's own tooling rather than this product's.",

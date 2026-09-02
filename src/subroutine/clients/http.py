@@ -1194,6 +1194,16 @@ class Client:
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
 		)
 
+	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List every workspace on this installation, member or not."""
+
+		body = self._json("GET", "/v1/instance/workspaces")
+
+		return [
+			subroutine.views.WorkspaceOnInstance.model_validate(row)
+			for row in body.get("items", [])
+		]
+
 	def update_instance (
 		self, *, name: str | None = None, timezone: str | None = None
 	) -> subroutine.views.Instance:

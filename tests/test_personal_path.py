@@ -10795,3 +10795,21 @@ def test_changing_nothing_about_this_installation_is_refused (
 	refused = run("instance", "update", expect=1)
 
 	assert "--name" in refused.output
+
+
+def test_the_terminal_can_say_what_workspaces_exist_here (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1418`: 'workspace list' shows what you can work in, and nothing showed what exists.
+
+	On a fresh installation the two answers agree, which is exactly why nobody met this — so
+	this drives the shape rather than the difference, and the difference is measured with two
+	principals in ``tests/test_workspace_discovery.py``.
+	"""
+
+	run("init")
+
+	listed = run("instance", "workspaces")
+
+	assert "1 person" in listed.output
+	assert "not a member" not in listed.output, "the only workspace is one you are in"

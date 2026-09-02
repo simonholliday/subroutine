@@ -2378,6 +2378,15 @@ class Client:
 				session, chosen, account, actor=actor
 			)
 
+	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
+		"""List every workspace on this installation, member or not."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.workspace_on_instance(row)
+				for row in subroutine.domain.workspaces.on_instance(session, actor=actor)
+			]
+
 	def update_instance (
 		self, *, name: str | None = None, timezone: str | None = None
 	) -> subroutine.views.Instance:

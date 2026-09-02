@@ -17,8 +17,14 @@ import subroutine.api.dependencies
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
+import subroutine.api.shaping
 import subroutine.domain.instances
+import subroutine.domain.workspaces
 import subroutine.views
+
+#: What ``?fields=`` may name on the workspace listing, read off the view.
+ON_INSTANCE_FIELDS = subroutine.api.shaping.selectable(subroutine.views.WorkspaceOnInstance)
+
 
 router = fastapi.APIRouter(
 	prefix="/v1/instance",
@@ -71,3 +77,44 @@ def change (
 	changed = subroutine.domain.instances.update(session, actor=actor, **changes)
 
 	return subroutine.views.instance(changed)
+
+
+@router.get(
+	"/workspaces",
+	summary="Every workspace on this installation",
+	response_model=subroutine.views.Collection[subroutine.views.WorkspaceOnInstance],
+)
+def workspaces (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List every workspace here, whether or not the caller is a member.
+
+	Needs ``instance:admin``, which no role carries and only a superuser holds.
+
+	**Discovery, not reach.** ``GET /v1/workspaces`` lists what this caller can *work in* and
+	is unchanged; this says what *exists*, and nothing a workspace contains is widened by it.
+	Anybody holding ``instance:workspace_create`` can make a workspace the instance owner is
+	not in, and until this route the owner's answer to *what is here* silently left it out —
+	an empty list, which reads as nothing being there rather than as something unseen.
+
+	Enveloped and unpaginated, like a workspace's members (\u00a78.4): the number of workspaces on
+	an installation is bounded by how many somebody made.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format,
+		fields=fields,
+		available=ON_INSTANCE_FIELDS,
+		entity="workspace",
+		timezone=subroutine.views.reader_zone(session, actor),
+	)
+	rows = subroutine.domain.workspaces.on_instance(session, actor=actor)
+
+	return subroutine.api.shaping.response(
+		[subroutine.views.workspace_on_instance(row) for row in rows],
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)

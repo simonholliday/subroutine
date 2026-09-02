@@ -21,6 +21,27 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **An instance administrator can find out what workspaces exist here.**
+
+  Anybody who can create a workspace can create one the instance owner is not a member of —
+  and until now the owner's answer to *what is here* silently left it out. The failure was an
+  empty list, which reads as there being nothing there rather than as something unseen. One
+  workspace sat on our own instance for eighteen days that way.
+
+  ```
+  subroutine instance workspaces
+  ```
+
+  Over HTTP that is `GET /v1/instance/workspaces`. Both need `instance:admin`, which no role
+  carries and only a superuser holds. It reports each workspace's short name, title, how many
+  people can reach it, and whether you are one of them — and nothing from inside it.
+
+  **Seeing a workspace does not let you read what is in it.** Membership is still what grants
+  reach, and that has not changed: joining is what opens a workspace, and joining is recorded
+  with a date and an actor. An administrator can now *name* a workspace they are not in, so
+  that listing its members, joining it or deleting it works instead of reporting that it does
+  not exist.
+
 - **This installation can be renamed, and told where it is.**
 
   Both were declared editable and neither could be changed by anything — no route, no command,

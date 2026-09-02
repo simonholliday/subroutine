@@ -1151,3 +1151,85 @@ def _slug_taken (
 		statement = statement.where(model.id != except_id)
 
 	return session.scalars(statement).first() is not None
+
+
+#: One workspace as the installation sees it: what it is called, how many people can reach it,
+#: and whether the caller asking is one of them. **Nothing from inside it**, which is the whole
+#: point — this answers *what exists here*, and reading a workspace's contents still needs
+#: membership.
+class OnInstance(typing.NamedTuple):
+	"""A workspace, its membership count, and whether the caller belongs to it."""
+
+	workspace: subroutine.db.models.identity.Workspace
+	members: int
+	joined: bool
+
+
+def on_instance (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> list[OnInstance]:
+	"""Return every live workspace on this installation, oldest first — item `#1418`.
+
+	**Discovery, not reach.** :func:`readable` is unchanged and still says membership is what
+	grants reach, so nothing a workspace *contains* widens: every listing of tasks, documents
+	and projects derives its workspace ids from ``selection.workspace``, which goes through
+	``readable``. What this answers is the narrower question nothing answered at all — *what
+	exists on this installation* — and it was the absence of that answer that let a workspace
+	sit here for eighteen days invisible to the person who owns the instance.
+
+	**Requires ``instance:admin``**, which no role carries and only a superuser holds. That is
+	the same verb that gates a backup and the same population that can already create a
+	workspace, so this grants nothing to anybody who could not already make one nobody else
+	could see.
+
+	**The failure it exists to prevent is an empty list.** Anybody with
+	``instance:workspace_create`` can make a workspace the instance owner is not in, and until
+	now the owner's answer to *what is here* silently omitted it — which reads as *there is
+	nothing there* rather than as *there is something you cannot see*.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_ADMIN
+		)
+
+	workspace = subroutine.db.models.identity.Workspace
+	member = subroutine.db.models.identity.WorkspaceMember
+
+	# **``.tuples().all()``, and the ``.all()`` is the load-bearing half.** A `Result` has a
+	# `.keys()`, so `dict()` treats it as a mapping and raises `TypeError: 'ChunkedIteratorResult'
+	# object is not subscriptable` — and `.tuples()` does **not** rescue it, because a
+	# `TupleResult` is still a `Result` and still has `.keys()`. This is a recorded trap in this
+	# project, it arrived both times as a ruff C416 suggestion taken on working code, and the
+	# comment written here the first time claimed `.tuples()` alone was enough. It is not.
+	counts = dict(
+		session.execute(
+			sqlalchemy.select(member.workspace_id, sqlalchemy.func.count())
+			.group_by(member.workspace_id)
+		).tuples().all()
+	)
+
+	mine = (
+		set()
+		if actor is None
+		else set(
+			session.scalars(
+				sqlalchemy.select(member.workspace_id).where(member.user_id == actor.user.id)
+			)
+		)
+	)
+
+	rows = session.scalars(
+		sqlalchemy.select(workspace)
+		.where(workspace.deleted_at.is_(None))
+		.order_by(workspace.created_at, workspace.id)
+	)
+
+	return [
+		OnInstance(
+			workspace=row, members=counts.get(row.id, 0), joined=row.id in mine
+		)
+		for row in rows
+	]

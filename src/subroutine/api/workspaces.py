@@ -30,12 +30,14 @@ import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.domain.accountability
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.selection
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import subroutine.views
 
 router = fastapi.APIRouter(
@@ -163,11 +165,23 @@ def resolve (
 	actor: subroutine.domain.authentication.Principal,
 	id_or_slug: str,
 ) -> subroutine.db.models.identity.Workspace:
-	"""Find one workspace this caller can reach, by id or short name.
+	"""Find one workspace this caller can address, by id or short name.
 
 	Searched among the ones they can *read*, so a workspace they are not a member of is
 	reported as absent rather than forbidden — saying "forbidden" would confirm it exists
 	(§7.3a). A token pinned to one workspace therefore cannot see past its pin here either.
+
+	**Except for ``instance:admin``, which may name any of them** (`#1418`). Without that an
+	administrator could not administer: every ``{id_or_slug}`` route goes through here, so the
+	person who owns the installation could not list a workspace's members, add themselves to
+	it, or delete it — and was told it did not exist. The concealment rule is about somebody
+	who should not know it is there, and the instance's owner is not that person.
+
+	**Naming is not reading.** This widens what can be *addressed* and nothing else:
+	``workspaces.readable`` is unchanged, and every listing of tasks, documents and projects
+	resolves its workspace through ``selection.workspace``, which goes through ``readable``.
+	So an administrator can act on the container and still cannot see inside it until they
+	join — which is a membership row, and therefore an event with a date and an actor.
 
 	**Never the trash**, which :func:`unremove` reaches through ``workspaces.for_restore``
 	instead. A slug frees when a workspace is deleted, so it can name a deleted workspace and
@@ -181,10 +195,54 @@ def resolve (
 		if found.slug == wanted or str(found.id) == wanted:
 			return found
 
+	administered = _for_an_administrator(session, actor, wanted)
+
+	if administered is not None:
+		return administered
+
 	raise subroutine.errors.NotFound(
 		f"There is no workspace {wanted!r} that you can reach.",
 		hint="GET /v1/workspaces lists the ones you can.",
 	)
+
+
+def _for_an_administrator (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	wanted: str,
+) -> subroutine.db.models.identity.Workspace | None:
+	"""Return a workspace an ``instance:admin`` caller named but is not a member of — `#1418`.
+
+	``None`` for everybody else, so the refusal above is unchanged for the caller it was
+	written for. Separated out because the widening is a *decision* rather than a clause: it
+	is the one place membership stops being the whole of who may address a workspace, and it
+	should be readable as that.
+
+	**A pinned credential is still pinned.** ``readable`` narrows to the pin, and a token
+	pinned elsewhere is not the instance's owner asking a question — it is a credential that
+	said what it was for. So this refuses one rather than reading past it, which keeps
+	`#344`'s rule that a credential may never reach further than it was issued to.
+	"""
+
+	if actor.pinned_workspace_id is not None:
+		return None
+
+	if not subroutine.domain.authorization.may_instance(
+		actor, subroutine.permissions.INSTANCE_ADMIN
+	):
+		return None
+
+	# **Live only, like the search above it.** The trash is reached through
+	# ``workspaces.for_restore`` because a slug frees when a workspace is deleted and can name
+	# a deleted one and a live one at once — a rule an administrator does not get to skip.
+	model = subroutine.db.models.identity.Workspace
+	statement = sqlalchemy.select(model).where(model.deleted_at.is_(None))
+
+	for found in session.scalars(statement):
+		if found.slug == wanted or str(found.id) == wanted:
+			return found
+
+	return None
 
 
 @router.post("", status_code=201, summary="Create a workspace")

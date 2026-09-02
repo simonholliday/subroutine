@@ -2264,11 +2264,16 @@ def _whoami_lines (me: subroutine.views.Me) -> list[str]:
 
 
 def _role (workspace: subroutine.views.WorkspaceAccess) -> str:
-	"""Return the role held in one workspace, or say that none is.
+	"""Return the role held in one workspace.
 
-	A superuser reaches every workspace whether or not they are a member of one (§7.1), so
-	"no role" is a real answer here rather than a missing value — and it is the answer that
-	explains why somebody with every permission is not on the members list.
+	**This said a superuser reaches every workspace whether or not they are a member, cited
+	§7.1 for it, and had a branch for the roleless case that could not execute** (`#1418`).
+	``workspaces.readable`` is an inner join on membership, so every row reaching here has a
+	role; §7.1 said neither thing, and two surfaces each guessed in opposite directions for
+	months. Membership is reach, and `#1418`'s decision writes that down.
+
+	The fallback stays because ``role`` is optional on the wire and an instance a release
+	behind may not send one — but it is a null guard now rather than a claim about permissions.
 	"""
 
 	return workspace.role or "no role"
@@ -5191,6 +5196,38 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 			_suggest(program.console, f"subroutine use --here --project {renamed.key}")
 
 
+def _instance_workspaces (program: Program, *, json_output: bool) -> None:
+	"""Say what workspaces exist here, member or not — `#1418`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		found = where.client.instance_workspaces()
+
+		if json_output:
+			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
+
+			return
+
+		for one in found:
+			people = "1 person" if one.members == 1 else f"{one.members} people"
+			mark = "" if one.joined else "  — you are not a member"
+
+			program.say(f"  {one.slug}  {one.title}  ({people}){mark}")
+
+		# **The count is the point, and a silent absence is the defect.** Somebody who can
+		# create a workspace can create one the instance owner is not in, and until this
+		# existed the owner's answer to *what is here* left it out with nothing to notice.
+		outside = [one for one in found if not one.joined]
+
+		if outside:
+			program.say("")
+			program.say(
+				f"{len(outside)} of these you cannot see into. "
+				f"'subroutine user add <you> --workspace <name>' joins one."
+			)
+
+
 def _instance_updated (program: Program, *, name: str, timezone: str) -> None:
 	"""Change what this installation is called, or where it says it is — `#1669`."""
 
@@ -6956,6 +6993,27 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			program.stop("Say what to change: --name, --timezone, or both.")
 
 		_instance_updated(program, name=name, timezone=timezone)
+
+	@instance_app.command("workspaces")
+	def instance_workspaces (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show every workspace on this installation, member or not.
+
+		Examples:
+
+		  subroutine instance workspaces
+
+		'subroutine workspace list' shows the ones you can work in. This shows the ones that
+		exist — which is a different question, and the one nothing answered: somebody who can
+		create a workspace can create one you are not in, and it would not appear anywhere you
+		were looking.
+
+		Seeing a workspace here does not let you read what is in it. Joining does, and joining
+		is recorded.
+		"""
+
+		_instance_workspaces(program, json_output=json_output)
 
 	_register_workspace(app, program)
 

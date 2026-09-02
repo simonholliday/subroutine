@@ -1732,6 +1732,44 @@ class Credential(pydantic.BaseModel):
 	last_used_at: datetime.datetime | None
 
 
+class WorkspaceOnInstance(pydantic.BaseModel):
+	"""One workspace as the installation sees it — what exists, rather than what is in it.
+
+	**Deliberately thinner than :class:`Workspace`**, which carries settings and the project a
+	workspace has prioritised. Those are facts from inside, and the caller here may not be a
+	member: this answers *what is on this installation* and nothing more. Reading a workspace's
+	contents still needs membership, and `joined` is what says whether the reader has it.
+	"""
+
+	id: uuid.UUID
+	slug: str
+	title: str
+	created_at: datetime.datetime
+
+	#: How many people can reach it. A count rather than the roster, because who belongs to a
+	#: workspace is a question that workspace's own members answer.
+	members: int
+
+	#: Whether the caller asking is one of them. The whole reason this listing exists is that
+	#: a workspace somebody is not in was indistinguishable from one that does not exist.
+	joined: bool
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — its short name."""
+
+		return self.slug
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return one workspace as the cells of one compact line."""
+
+		return (
+			self.slug,
+			self.title,
+			str(self.members),
+			"" if self.joined else "not a member",
+		)
+
+
 class WorkspaceAccess(WorkspaceRef):
 	"""One workspace a caller can reach, and what they may actually do in it.
 
@@ -5010,6 +5048,21 @@ def project_member (
 		user=user(account, answers_to=answers_to),
 		project=within.key,
 		created_at=row.created_at,
+	)
+
+
+def workspace_on_instance (
+	row: subroutine.domain.workspaces.OnInstance,
+) -> WorkspaceOnInstance:
+	"""Render one workspace as the installation sees it."""
+
+	return WorkspaceOnInstance(
+		id=row.workspace.id,
+		slug=row.workspace.slug,
+		title=row.workspace.title,
+		created_at=row.workspace.created_at,
+		members=row.members,
+		joined=row.joined,
 	)
 
 
