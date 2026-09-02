@@ -549,6 +549,18 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+- **The agenda shows what is overdue second, under what is happening today.** It was fifth,
+  below *In progress*, *Waiting on you* and *Waiting on somebody else* — which on a busy day
+  put the late work off the first screen entirely, and on a phone about two screens down.
+
+  **The sections are disjoint in the order they are listed, so this moves rows as well as
+  headings.** A task whose deadline has passed is now reported as overdue even when it is
+  started, parked on an answer, or held up by somebody else's item; before, whichever of those
+  sections came first claimed it. Each row still carries its own marks wherever it lands.
+
+  One exception is unchanged: something planned for today is still shown under *Today* unless
+  its deadline has also passed, in which case it is late.
+
 - **A milestone's links no longer push its description off the screen.** An item's links sit
   above its body, which is right — they say what binds the work. But a milestone with eighteen
   of them put the description a screen and a half down, so the page opened on a wall of

@@ -4758,21 +4758,28 @@ const BUCKETS = [
 	   section it passed, because one list decides order and membership alike — but not from
 	   `occasions` or `overdue`, each refused by a clause of its own in `domain/agenda.py`. */
 	{ key: "today", label: "Today" },
+	/* **Second, and it is Simon's decision of 2026-09-02** (`#1846`). It was fifth, under four
+	   sections that between them are most of a screen: measured on the served instance, the
+	   heading rendered at y=1157 on a 900px window and y=1942 on a phone, while the same row
+	   on a workspace-scoped agenda was the first thing on the page. He reported the merged
+	   agenda as missing it — it was below the fold, which is the same thing to a reader.
+
+	   `domain/agenda.BUCKETS` carries the reasoning and the membership consequence; this list
+	   only has to equal it, and `tests/test_web.py` compares the two. */
+	{ key: "overdue", label: "Overdue" },
 	/* **Was first, on Simon's decision of 2026-08-25** (`#1243`): *"I would naturally
 	   complete a task before starting another."* Everything below this is a candidate to
-	   begin; this is the only section that is already in hand. */
+	   begin; this is the only section that is already in hand. Since `#1846` a started task
+	   whose deadline has passed is reported above, as late. */
 	{ key: "in_progress", label: "In progress" },
-	/* **Above a passed deadline, and it is the only bucket that is not work the reader could
-	   do** (`#1116`). Somebody is waiting on an answer, so nothing under it can move until
-	   this is dealt with. */
+	/* **Somebody is waiting on an answer**, so nothing under it can move until this is dealt
+	   with — the only section that is not work the reader could pick up (`#1116`). It sat
+	   above `overdue` until `#1846`. */
 	{ key: "waiting", label: "Waiting on you" },
 	/* **The pair with the one above it** (`#1285`, decision `#1267` §3). *Waiting on you* is a
 	   question somebody parked for you; this is the reader's own work held up by an item
-	   somebody else is assigned to. Above `overdue` deliberately: the buckets are disjoint in
-	   order, so a blocked task whose deadline has passed is reported as blocked rather than as
-	   late — *you are late* is not the useful sentence about work nobody has let you start. */
+	   somebody else is assigned to. */
 	{ key: "blocked_by_others", label: "Waiting on somebody else" },
-	{ key: "overdue", label: "Overdue" },
 	/* **What is happening to the reader rather than being done by them** — decision `#1235`
 	   §4. A birthday, a booked fortnight, a code freeze: none of it is work anybody can pick
 	   up, which is why it is a section of its own rather than part of *Today*. It sat above

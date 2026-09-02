@@ -158,39 +158,70 @@ BUCKETS: tuple[str, ...] = (
 	# to capping `in_progress` is untouched — but *In progress* no longer lists everything in
 	# progress, and a reader looking for a started task with a planned day will find it here.
 	#
-	# **Two buckets it deliberately does not take from**, each refused in `build` by a clause
-	# rather than by this order: `occasions`, because a birthday in March would otherwise sit
-	# in Today every day for ever (decision `#1235` §4), and `overdue`, because *you are late*
-	# outranks *this is for today* and a planned day that has gone by is most late work.
+	# **One bucket it deliberately does not take from**: `occasions`, because a birthday in
+	# March would otherwise sit in Today every day for ever (decision `#1235` §4). It refuses
+	# `overdue` too, by a clause of its own — *you are late* outranks *this is for today*, and
+	# a planned day that has gone by is most late work. Since `#1846` that clause and the
+	# order below finally agree; until then this list said one thing and the clause the other.
 	"today",
+	# **Second, and it is Simon's decision of 2026-09-02** (`#1846`): *"I think my preferred
+	# order is: today, overdue, in_progress…"*
+	#
+	# **It was fifth, under four sections that between them are most of a screen.** Measured on
+	# his own instance with his own data: the *Overdue* heading rendered at y=1157 on a 900px
+	# window and **y=1942 on a phone**, while the same row on a workspace-scoped agenda was the
+	# first thing on the page — because the sections above it are empty there and an empty
+	# bucket is dropped. He reported the merged agenda as *missing* the row. It was not missing;
+	# it was below the fold, which is the same thing to a reader.
+	#
+	# **Four decisions put it there and each was right about the pair it argued** — `#1243`,
+	# `#1116`, `#1267` §3 and `#1775`. None of them asked what the composition did, which is
+	# `#1444`'s rule (*ask the set, not the question*) arriving in the one list that decides
+	# order and membership alike.
+	#
+	# **So this reverses the three that had it below them**, and that is a membership change as
+	# well as a positional one: a late task that is started, parked on an answer or held up by
+	# somebody else is reported here now rather than under those headings. Measured before it
+	# was taken — **zero rows on the served instance move**, because nothing above `overdue`
+	# carried a deadline at all, so nothing churned and the reversal is one line.
+	"overdue",
 	# **Was first, on Simon's decision of 2026-08-25** (`#1243`): *"I would naturally complete
 	# a task before starting another."* Work already in hand still outranks everything that is
 	# a candidate to *begin*, which is every section below it; what changed on 2026-09-01 is
-	# that the day's own work now comes above all of it.
+	# that the day's own work came above it, and on 2026-09-02 that a passed deadline did too.
 	#
-	# **It outranks `overdue` as well, and that is the part with a consequence.** The buckets
-	# are disjoint in order, so a started task with a passed deadline is reported here rather
-	# than under *Overdue* — which is right (you are already on it) and which means the late
-	# marking cannot come from the section. Both surfaces mark the row instead; the browser
-	# always did.
+	# **It no longer outranks `overdue`, and that is the part with a consequence.** A started
+	# task with a passed deadline is reported under *Overdue* now. `#1243`'s own argument for
+	# the other answer was that you are already on it, so the lateness needs no chasing; `#1846`
+	# weighs that against a reader who could not see the late work at all, and the row still
+	# carries its late mark wherever it lands — both surfaces mark it, and the browser always
+	# did, which is what makes this a question of where a reader *looks* rather than of what
+	# they are told.
 	"in_progress",
-	# **Before `overdue`, and that is the whole of the decision** (`#1116`). A task that is
-	# both overdue and waiting on an answer belongs here: *you owe an answer* is the more
-	# actionable truth than *this is late*, because the lateness is a consequence of the
-	# question and nobody can act on the task until it is answered. Every other bucket is work
-	# the reader could pick up; this one is work they are holding up.
+	# **A question somebody parked for you**, and every other bucket below is work the reader
+	# could pick up: this one is work they are holding up.
+	#
+	# **It was above `overdue`, on `#1116`** — *you owe an answer* being the more actionable
+	# truth than *this is late*, because the lateness is a consequence of the question. That
+	# argument is still a good one about the pair and it is what `#1846` overturned: an item
+	# that is both is now reported as late, because being seen at all is the prior question.
 	"waiting",
 	# **Directly under `waiting`, and the pair is what makes both legible** (`#1285`, decision
 	# `#1267` §3): *Waiting on you* is a question somebody parked for you, and *Waiting on
 	# somebody else* is your work held up by their item.
 	#
-	# **Above `overdue`, and that is the part with a consequence.** A blocked task whose
-	# deadline has passed is reported here rather than as late — *you are late* is not the
-	# useful sentence about work you cannot start, because chasing the other person is the only
-	# move available and this is the section that says so. Same reasoning as `#1116` for
-	# `waiting` and `#1243` for `in_progress`.
+	# **It was above `overdue` too**, on the same reasoning as `#1116`: *you are late* is not
+	# the useful sentence about work you cannot start, because chasing the other person is the
+	# only move available and this is the section that says so. `#1846` reverses it for the
+	# reason above.
+	#
+	# **And a row that moves loses the line naming who is holding it up.** `blockers` is
+	# resolved for this bucket alone (`#1287`, decision `#1267` §3c), so a blocked task whose
+	# deadline has passed now reports under *Overdue* carrying its *Blocked* mark and not the
+	# far end — back under the ordinary rule that a listing says *that* and a detail view says
+	# *what*. Zero rows on the served instance were both when this was taken. Whether the
+	# exception belongs to the section or to the row is `#1847`.
 	"blocked_by_others",
-	"overdue",
 	# **Below what is late, and since `#1775` below the day's own work too** (decision `#1235`
 	# §4). Everything around it is work; this is what is happening *to* the reader, and a code
 	# freeze or a fortnight off is the context the rest of the page is read in.

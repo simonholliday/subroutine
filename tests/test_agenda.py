@@ -1608,16 +1608,21 @@ def test_a_finished_blocker_of_somebody_elses_releases_the_work (
 	assert "My bit" in _titles(world.agenda().unscheduled)
 
 
-def test_work_held_up_by_somebody_else_is_reported_as_blocked_and_not_as_late (
+def test_work_held_up_by_somebody_else_is_reported_as_late_once_its_deadline_passes (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""**`SR#1285`, and this is the half of the position that has a consequence.**
+	"""**`SR#1285`, reversed by `SR#1846`, and this is the half with a consequence.**
 
-	The bucket sits above ``overdue`` and the buckets are disjoint in computation order, so a
-	blocked task whose deadline has passed is reported here. That is the right way round:
-	*you are late* is not the useful sentence about work nobody has let you start, and
-	**chasing the other person is the only move available**. Same reasoning `#1116` used to
-	put `waiting` above `overdue` and `#1243` used for `in_progress`.
+	`SR#1267` §3 put this bucket above ``overdue`` on `SR#1116`'s reasoning: *you are late* is
+	not the useful sentence about work nobody has let you start, because chasing the other
+	person is the only move available and this is the section that says so. `SR#1846` weighs
+	that against the composition — three such pairwise decisions between them put *Overdue*
+	below the fold — and reverses it.
+
+	**The row keeps its `blocked` mark and loses the far end**, which is `SR#1847` and is
+	asserted here so it cannot happen a second time in silence: ``blockers`` is resolved for
+	``blocked_by_others`` alone (`SR#1287`), so a row that moves out of that bucket goes back
+	under the ordinary rule that a listing says *that* and a detail view says *what*.
 	"""
 
 	world = World(session)
@@ -1631,8 +1636,20 @@ def test_work_held_up_by_somebody_else_is_reported_as_blocked_and_not_as_late (
 
 	agenda = world.agenda()
 
-	assert _titles(agenda.blocked_by_others) == ["My bit"]
-	assert agenda.overdue == (), "a blocked deadline is reported as blocked, not as late"
+	assert _titles(agenda.overdue) == ["My bit"]
+	assert agenda.blocked_by_others == (), "the buckets are not disjoint"
+
+	assert mine.id not in agenda.blockers, (
+		"SR#1847: the far end is resolved for the blocked section, so a row that leaves it "
+		"loses the line naming who is holding it up"
+	)
+
+	# **And work held up with no deadline still gets the section it was written for**, which is
+	# what stops this reordering emptying the bucket it moved past.
+	waited = world.task("Not late, still stuck")
+	_blocks(world, theirs, waited)
+
+	assert _titles(world.agenda().blocked_by_others) == ["Not late, still stuck"]
 
 
 def test_the_blocked_section_is_capped_and_says_how_much_it_is_holding_back (
@@ -1744,9 +1761,13 @@ def test_the_order_the_sections_are_shown_in_is_the_order_they_are_computed_in (
 	*In progress* came first. The suite stayed green.
 
 	There is one declaration now, so this asserts the consequence rather than the equality:
-	move `overdue` above `in_progress` in :data:`subroutine.domain.agenda.BUCKETS` and the row
-	must move with it. A `build` that has gone back to a written-out sequence answers
-	`in_progress` both times.
+	move `in_progress` back above `overdue` in :data:`subroutine.domain.agenda.BUCKETS` and the
+	row must move with it. A `build` that has gone back to a written-out sequence answers
+	`overdue` both times.
+
+	**The example inverted with `SR#1846`**, which is the point rather than an edit: the shipped
+	order and the mutation swapped places, and this went red for exactly that reason. A guard
+	whose mutation is somebody's next decision is the shape worth keeping.
 	"""
 
 	world = World(session)
@@ -1756,21 +1777,21 @@ def test_the_order_the_sections_are_shown_in_is_the_order_they_are_computed_in (
 	task.status_id = started.id
 	session.flush()
 
-	assert _titles(world.agenda().in_progress) == ["Started and late"], (
+	assert _titles(world.agenda().overdue) == ["Started and late"], (
 		"a started, overdue task belongs to the first of the two buckets that claims it"
 	)
-	assert world.agenda().overdue == ()
+	assert world.agenda().in_progress == ()
 
 	monkeypatch.setattr(
 		subroutine.domain.agenda,
 		"BUCKETS",
-		_moved(subroutine.domain.agenda.BUCKETS, "overdue", above="in_progress"),
+		_moved(subroutine.domain.agenda.BUCKETS, "in_progress", above="overdue"),
 	)
 
-	assert _titles(world.agenda().overdue) == ["Started and late"], (
+	assert _titles(world.agenda().in_progress) == ["Started and late"], (
 		"the computation order did not follow BUCKETS, so it is declared somewhere else too"
 	)
-	assert world.agenda().in_progress == ()
+	assert world.agenda().overdue == ()
 
 
 def test_the_sections_a_surface_draws_are_the_ones_the_agenda_computed (
@@ -2083,14 +2104,20 @@ def test_something_waiting_on_a_person_is_the_first_thing_they_see (
 	assert "Which way round should the flag read?" not in _titles(built.unscheduled)
 
 
-def test_a_question_outranks_the_deadline_it_is_holding_up (
+def test_a_deadline_that_has_passed_outranks_the_question_holding_it_up (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""The one decision inside this: `waiting` sits above `overdue`.
+	"""The one decision inside this, and it was taken the other way round until `SR#1846`.
 
-	*You owe an answer* is more actionable than *this is late*, because the lateness is a
-	consequence of the question — nobody can move the task until it is answered. Every other
-	bucket is work the reader could pick up; this one is work they are holding up.
+	`SR#1116` put `waiting` above `overdue`: *you owe an answer* is more actionable than *this
+	is late*, because the lateness is a consequence of the question and nobody can move the
+	task until it is answered. That is a good argument about the pair and it is not what went
+	wrong. What went wrong is that three such arguments were taken separately and `overdue`
+	ended up fifth — a screen and a half down, where Simon reported the section as missing.
+
+	So the answer is reversed and the reason is prior to the argument above: being seen at all
+	comes before which of two true sentences is the more useful. **A task that is both is
+	reported as late.**
 	"""
 
 	world = World(session)
@@ -2099,8 +2126,15 @@ def test_a_question_outranks_the_deadline_it_is_holding_up (
 
 	built = world.agenda()
 
-	assert _titles(built.waiting) == ["Late and stuck"]
-	assert _titles(built.overdue) == [], "the buckets are not disjoint"
+	assert _titles(built.overdue) == ["Late and stuck"]
+	assert _titles(built.waiting) == [], "the buckets are not disjoint"
+
+	# **And a question with no deadline is still a question**, which is what stops this
+	# reordering emptying the section it moved past.
+	asked = world.task("Stuck and not late")
+	_waiting(world, asked)
+
+	assert _titles(world.agenda().waiting) == ["Stuck and not late"]
 
 
 def test_a_question_that_has_been_answered_leaves_the_bucket (

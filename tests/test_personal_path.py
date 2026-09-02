@@ -847,12 +847,19 @@ def test_the_agenda_leads_with_what_is_happening_today (
 def test_a_task_you_have_started_and_are_late_on_still_reads_as_late (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
-	"""The consequence of `SR#1243`'s reorder, and the reason the mark moved to the row.
+	"""**Why the late mark is a property of the row**, through two reorderings that swapped it.
 
-	**The buckets are disjoint in order**, so `in_progress` leading means a started task whose
-	deadline has passed is reported there rather than under *Overdue* — and the heading and the
-	colour both used to be properties of the section. Two of `SR#102`'s three signals would have
-	gone with it, leaving a late item looking ordinary.
+	`SR#1243` put `in_progress` above `overdue`, so a started task whose deadline had passed was
+	reported under *In progress* — and the heading and the colour had both been properties of
+	the *section*. Two of `SR#102`'s three signals would have gone with it, leaving a late item
+	looking ordinary, so the mark moved onto the row.
+
+	`SR#1846` puts `overdue` back above it, so this fixture now reads under *Overdue* and the
+	section says it again. **The row mark still has to be there, and that is what this guards.**
+	Every surface that is not the agenda has no sections at all — a listing and a board carry
+	rows and nothing else — so a section that can say *late* is a coincidence of one view rather
+	than the thing a reader relies on. Somebody tidying the mark away now that the heading is
+	back is exactly the change this must refuse.
 
 	**Driven through the command rather than by calling the helper**, because a helper that
 	returns the right answer to nobody is exactly the shape this guards against: the assertion
@@ -866,14 +873,21 @@ def test_a_task_you_have_started_and_are_late_on_still_reads_as_late (
 	printed = run("agenda").output
 
 	assert "Started and late" in printed
-	assert printed.index("In progress") < printed.index("Started and late"), (
-		"a started task belongs under what is in hand, not under Overdue"
+	assert printed.index("Overdue") < printed.index("Started and late"), (
+		"since SR#1846 a passed deadline outranks having started, so the row reads as late"
 	)
 
 	# **The date is the signal that survives in plain text**, and it is the one `SR#102` says
 	# must be there whatever the colour does: no information exists only in a colour. The style
 	# itself is asserted below, off the rendered row rather than off stripped output.
 	assert "due " in printed, "a late row that does not say when is a colour on its own"
+
+	# **And the same row on a surface with no sections**, which is the half the reordering
+	# cannot reach and the reason the mark lives where it does.
+	listed = run("list").output
+
+	assert "Started and late" in listed
+	assert "due " in listed, "a listing has no headings, so the row is the only thing that can say"
 
 
 def test_a_document_is_never_late_however_a_section_is_marked (
