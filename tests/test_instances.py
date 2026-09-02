@@ -9,11 +9,13 @@ shared session-scoped one: the PostgreSQL path drops and recreates `public`, and
 database is where every other test in the suite lives.
 """
 
+import contextlib
 import datetime
 import errno
 import itertools
 import os
 import pathlib
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -418,7 +420,7 @@ def test_a_newer_schema_is_refused_and_an_equal_one_is_not (
 		subroutine.db.migrate.head_revision()
 	)
 
-	forged = _with_schema_head(written.path, "ffffffffffff", tmp_path)
+	forged = _with_schema_head(engine, "ffffffffffff", tmp_path)
 
 	with pytest.raises(subroutine.errors.SchemaMismatch):
 		subroutine.db.backup.check_restorable(forged)
@@ -476,6 +478,12 @@ def test_a_dump_that_runs_a_command_is_refused (tmp_path: pathlib.Path) -> None:
 	"""`#928`. ``psql --file`` executes backslash commands, so a backup is code until read.
 
 	Reproduced before the fix with the restore's own invocation: ``\\!`` ran and psql exited 0.
+
+	**Since `SR#1554` this guards the *legacy* path only**, and it is worth saying which: nothing
+	writes a `.sql` backup any more, so what this covers is the files an earlier version left
+	behind. The scan is still not a boundary — `SR#1553` drove five shapes past it and one of
+	them is asserted in `test_a_forged_backup_cannot_run_a_command_when_it_is_restored`. What
+	closed the class is the format, not this.
 	"""
 
 	dump = tmp_path / "hostile.sql"
@@ -604,38 +612,49 @@ def test_a_backup_whose_pages_do_not_hold_together_is_refused (
 
 
 def _with_schema_head (
-	source: pathlib.Path, head: str, into: pathlib.Path
+	engine: sqlalchemy.engine.Engine, head: str, into: pathlib.Path
 ) -> pathlib.Path:
-	"""Copy a backup with its recorded schema head replaced, to stand in for another version.
+	"""Take a real backup that records a different schema head, standing in for another version.
 
-	The only way to test the refusal today: there is one migration, so no *genuinely* newer
-	backup can be produced from this tree.
+	The only way to test the refusal: there is one migration head in this tree, so no
+	*genuinely* newer backup can be produced from it.
+
+	**It moves the head in the database and takes an ordinary backup**, rather than editing the
+	written file. `SR#1554` made a PostgreSQL backup a compressed archive, so the revision is no
+	longer a string sitting in text somebody can replace — and a fixture that rewrote bytes
+	would be testing a file this program cannot produce. Going through :func:`take` also keeps
+	the filename, the size and the counts consistent with each other, which is what
+	``check_restorable`` reads.
+
+	The head is put back in a ``finally``, because every other test on this engine would
+	otherwise see a database claiming a revision that does not exist.
 	"""
 
-	target = into / f"subroutine-default-20260730T120000Z-{head}{source.suffix}"
-
-	if source.suffix == subroutine.db.backup.SQLITE_SUFFIX:
-		import shutil
-		import sqlite3
-
-		shutil.copy2(source, target)
-		connection = sqlite3.connect(target)
-
-		try:
-			connection.execute("UPDATE alembic_version SET version_num = ?", (head,))
-			connection.commit()
-
-		finally:
-			connection.close()
-
-		return target
-
-	text = source.read_text(encoding="utf-8")
 	current = subroutine.db.migrate.head_revision()
 
 	assert current is not None
 
-	target.write_text(text.replace(current, head), encoding="utf-8")
+	def record (revision: str) -> None:
+		"""Say which migration this database is at, without running one."""
+
+		with engine.begin() as connection:
+			connection.exec_driver_sql(
+				"UPDATE alembic_version SET version_num = :revision".replace(
+					":revision", "?" if engine.dialect.name == "sqlite" else "%s"
+				),
+				(revision,),
+			)
+
+	record(head)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		record(current)
+
+	target = into / written.path.name
+	shutil.move(str(written.path), target)
 
 	return target
 
@@ -745,6 +764,121 @@ def test_a_restore_puts_the_data_back (
 
 	# Recovered, and it kept the identity it had — agents and configuration refer to it.
 	assert _instance_id(own_database) == identity
+
+
+def test_a_postgresql_backup_is_an_archive_that_no_command_can_be_written_into (
+	own_database: str,
+) -> None:
+	"""`SR#1554`. The fix is that the vector cannot exist, not that it is searched for.
+
+	`SR#928` guarded a plain dump by scanning it for `psql` meta-commands, and `SR#1553` drove
+	five shapes past that scan. **What closes the class is the format**: a custom-format archive
+	is read by ``pg_restore``, which has no meta-command lexer at all.
+
+	Asserted on what :func:`take` *writes*, because that is the property — a scan that can be
+	evaded is still there for the `.sql` files taken before this and is deliberately not the
+	thing being relied on.
+	"""
+
+	subroutine.db.migrate.upgrade(own_database)
+	_seed_instance(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+		postgresql = not subroutine.db.backup._is_sqlite(engine)
+
+	finally:
+		engine.dispose()
+
+	if not postgresql:
+		assert written.path.suffix == subroutine.db.backup.SQLITE_SUFFIX
+
+		return
+
+	assert written.path.suffix == subroutine.db.backup.POSTGRESQL_ARCHIVE_SUFFIX
+	assert subroutine.db.backup.is_archive(written.path)
+
+	# **The archive's own magic number**, so this fails if `--format=custom` is ever dropped
+	# while the suffix stays — which is the shape that would leave the name saying one thing
+	# and the bytes another.
+	assert written.path.read_bytes()[:5] == b"PGDMP"
+
+	# The scan does not apply, and that is a statement about the file rather than about the
+	# scan: there is nothing in an archive for it to read.
+	subroutine.db.backup.refuse_unsafe_commands(written.path)
+
+	# And the reads that used to regex the text still answer, through `pg_restore`.
+	assert subroutine.db.backup.head_in(written.path) == subroutine.db.migrate.head_revision()
+	assert "task" in subroutine.db.backup.tables_in(written.path)
+
+
+def test_a_forged_backup_cannot_run_a_command_when_it_is_restored (
+	own_database: str, tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1554`, and it is the cold reviewer's own reproduction turned into a guard.
+
+	They took a genuine 87 KB backup, appended four lines, and ``db restore --recover --yes``
+	**executed the shell command and reported success**. Nothing said a command had run.
+
+	**The payload is the mid-line shape rather than a leading ``\\!``**, and that is what makes
+	this falsifiable. Driven on 2026-09-02 against a scratch database: ``SELECT 1; \\! touch …``
+	is *allowed* by :func:`refuse_unsafe_commands` — its `_META_COMMAND` anchors at line start —
+	and `psql` runs it. So a naive payload would be caught by the scan and this test would pass
+	against the defect it was written for, which is this project's most-recorded shape of
+	useless test.
+
+	What closes it is that :func:`take` writes a ``pg_dump`` archive now: ``pg_restore`` has no
+	meta-command lexer, so bytes appended to the file are read as nothing at all. Measured both
+	ways before this was written — the archive ignored the appended text and the plain script
+	ran it.
+
+	**SQLite is exercised too and the vector never existed there**, because a `.db` backup is a
+	database rather than a script. Running it on both is what keeps this a statement about the
+	backup mechanism rather than about one backend.
+	"""
+
+	marker = tmp_path / "executed"
+
+	subroutine.db.migrate.upgrade(own_database)
+	identity = _seed_instance(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		written = subroutine.db.backup.take(engine, _settings())
+
+	finally:
+		engine.dispose()
+
+	# Appended to a real backup, exactly as the reviewer did: everything before this point is a
+	# file the program itself wrote and would happily restore.
+	with written.path.open("ab") as forged:
+		forged.write(f"\nSELECT 1; \\! touch {marker}\n".encode())
+
+	_forget_the_instance_row(own_database)
+
+	engine = subroutine.db.session.create_engine(own_database)
+
+	try:
+		# **Refusing is a fine outcome and so is restoring it as inert bytes.** The property is
+		# that nothing runs, not which way the file is declined — a corrupt archive and an
+		# ignored trailer are both honest answers, and pinning one would freeze an
+		# implementation detail of `pg_restore`.
+		with contextlib.suppress(subroutine.errors.SubroutineError):
+			_restored(engine, written.path, as_clone=False)
+
+	finally:
+		engine.dispose()
+
+	assert not marker.exists(), (
+		"a backup with a command appended to it executed that command when it was restored"
+	)
+
+	# And the restore either happened or did not; what must not happen is a half-restore that
+	# also ran something. Checked because `--single-transaction` is what makes that true.
+	assert _instance_id(own_database) in (identity, None)
 
 
 def test_a_clone_keeps_the_data_and_takes_a_new_identity (

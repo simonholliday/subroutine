@@ -50,6 +50,22 @@ DIRECTORY_NAME = "backups"
 SQLITE_SUFFIX = ".db"
 POSTGRESQL_SUFFIX = ".sql"
 
+#: What a PostgreSQL backup is written as since `#1554`, and the whole of that fix.
+#:
+#: **A plain dump is a script `psql` executes**, and `psql` interprets backslash meta-commands
+#: inside one — ``\!`` is a shell escape. :func:`refuse_unsafe_commands` tried to find them by
+#: reading the file the way `psql` reads it, and could not: five evasion shapes were driven
+#: past it. A custom-format archive is read by ``pg_restore``, **which has no meta-command
+#: lexer at all**, so the instruction cannot exist rather than having to be found.
+#:
+#: Measured before it was chosen: a row whose *content* is ``a row with a backslash \! echo
+#: pwned`` restores as data.
+#:
+#: **`.sql` is still read**, because every backup taken before this is one and refusing them
+#: would take somebody's only copy away on the worst day they will have. Nothing writes one
+#: any more, so that path empties as old files age out.
+POSTGRESQL_ARCHIVE_SUFFIX = ".dump"
+
 #: What the default instance calls itself in a filename. A profile is part of the name so that
 #: two instances' backups can share a directory without either overwriting the other.
 DEFAULT_LABEL = "default"
@@ -354,7 +370,12 @@ def _described (path: pathlib.Path) -> Backup | None:
 	list the backups it does have rather than refuse to list anything.
 	"""
 
-	if path.suffix not in {SQLITE_SUFFIX, POSTGRESQL_SUFFIX} or not path.is_file():
+	# **Derived from :data:`ENGINE_OF_SUFFIX` rather than listed** (`SR#1554`). This was a
+	# hardcoded pair and it went stale the moment there was a third suffix: archives were
+	# written correctly, restored correctly, and were invisible to `catalogue`, `prune` and
+	# every surface that lists what is there. Two declarations of one set, agreeing until
+	# somebody added to one of them.
+	if path.suffix not in ENGINE_OF_SUFFIX or not path.is_file():
 		return None
 
 	parts = path.stem.split("-")
@@ -411,9 +432,17 @@ def head_in (path: pathlib.Path) -> str:
 
 #: What each suffix says a backup was taken from, in the words an operator would use rather
 #: than the dialect names. Read from the *name* because that is what the writer chose it for:
-#: `.db` is a SQLite database and `.sql` is a script only ``psql`` can read, and the two are
-#: not interchangeable in either direction.
-ENGINE_OF_SUFFIX = {SQLITE_SUFFIX: "SQLite", POSTGRESQL_SUFFIX: "PostgreSQL"}
+#: `.db` is a SQLite database, `.sql` is a script only ``psql`` can read, and `.dump` is an
+#: archive only ``pg_restore`` can read. None of the three is interchangeable with another.
+#:
+#: **Two PostgreSQL entries, and the engine is not what tells them apart** — :func:`is_archive`
+#: is. The engine decides which server can read a file back; the *format* decides which tool
+#: does, and since `#1554` those are different questions.
+ENGINE_OF_SUFFIX = {
+	SQLITE_SUFFIX: "SQLite",
+	POSTGRESQL_SUFFIX: "PostgreSQL",
+	POSTGRESQL_ARCHIVE_SUFFIX: "PostgreSQL",
+}
 
 
 def engine_in (path: pathlib.Path) -> str:
@@ -424,10 +453,25 @@ def engine_in (path: pathlib.Path) -> str:
 	if found is None:
 		raise subroutine.errors.BadRequest(
 			f"'{path.name}' is not a Subroutine backup: expected a name ending in "
-			f"{SQLITE_SUFFIX} or {POSTGRESQL_SUFFIX}."
+			f"{SQLITE_SUFFIX}, {POSTGRESQL_ARCHIVE_SUFFIX} or {POSTGRESQL_SUFFIX}."
 		)
 
 	return found
+
+
+def is_archive (path: pathlib.Path) -> bool:
+	"""Report whether this backup is a ``pg_dump`` archive rather than a script or a database.
+
+	**The question `engine_in` cannot answer**, and since `#1554` it decides four things: which
+	tool restores the file, how its schema head and its tables are read out of it, and whether
+	the meta-command scan applies to it at all.
+
+	Asked of the name for :data:`ENGINE_OF_SUFFIX`'s reason. The archive also begins with a
+	``PGDMP`` magic number, and ``pg_restore`` refuses a text dump by name — so every read
+	below fails honestly on a renamed file rather than misreading it.
+	"""
+
+	return path.suffix == POSTGRESQL_ARCHIVE_SUFFIX
 
 
 def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> None:
@@ -798,10 +842,37 @@ def _text_of (path: pathlib.Path) -> str:
 		) from error
 
 
-def _head_in_dump (path: pathlib.Path) -> str:
-	"""Find ``alembic_version`` in a PostgreSQL text dump."""
+def _as_text (path: pathlib.Path, *arguments: str) -> str:
+	"""Return part of a custom-format archive as the plain text ``pg_dump`` would have written.
 
-	text = _text_of(path)
+	**This is what lets `#1554` change the format without changing what reads it.** The two
+	parsers below — one for ``alembic_version``, one for ``CREATE TABLE`` — were written
+	against a text dump and are unchanged; an archive is converted to the same text in front of
+	them, for the part being asked about rather than for the whole file.
+
+	Nothing here connects to a server: ``pg_restore`` writing to a file is a pure read of the
+	archive, so no credential is needed and none is passed.
+
+	A renamed text dump fails here by name — *"input file appears to be a text format dump"* —
+	rather than being misread, which is what makes :func:`is_archive` safe to ask of a suffix.
+	"""
+
+	return _run(
+		["pg_restore", *arguments, "--file", "-", str(path)], what="pg_restore"
+	)
+
+
+def _head_in_dump (path: pathlib.Path) -> str:
+	"""Find ``alembic_version`` in a PostgreSQL backup, whichever format it is in."""
+
+	# **One table out of the archive rather than all of it** — the answer is one short `COPY`
+	# block, and converting a whole dump to text to read six characters out of it would make
+	# `check_restorable` proportional to the size of the database.
+	text = (
+		_as_text(path, "--data-only", "--table=alembic_version")
+		if is_archive(path)
+		else _text_of(path)
+	)
 	found = _COPY_BLOCK.search(text) or _INSERT_STATEMENT.search(text)
 
 	if found is None:
@@ -833,9 +904,17 @@ def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
 	``SELECT version_num`` — the two checks beside this one were measured passing 112 of 121
 	deliberately corrupted copies. ``PRAGMA integrity_check`` is what actually reads the pages.
 
-	Only SQLite, because a PostgreSQL dump is a script rather than a database: what would
-	corrupt it is a truncated write, which the size comparison already catches.
+	**A custom-format archive is checked too, and by asking its own reader** (`#1554`).
+	``pg_restore --list`` reads the whole table of contents and fails on a truncated file —
+	measured: an archive cut short answers *"could not read from input file: end of file"*.
+	That is strictly better than what a plain dump gets, which is still only the size
+	comparison, because a script has no structure to check.
 	"""
+
+	if is_archive(path):
+		_refuse_an_unreadable_archive(path)
+
+		return
 
 	if engine_in(path) != "SQLite":
 		return
@@ -865,6 +944,28 @@ def _refuse_a_corrupt_copy (path: pathlib.Path) -> None:
 			f"contents do not hold together. It has been removed rather than left looking "
 			f"usable."
 		)
+
+
+def _refuse_an_unreadable_archive (path: pathlib.Path) -> None:
+	"""Refuse a delivered archive ``pg_restore`` cannot read back.
+
+	The archive's counterpart to ``PRAGMA integrity_check``: the table of contents is at the
+	end of the file, so listing it reads through the whole thing and a torn write cannot pass.
+
+	**Its message is the SQLite one's**, because it is the same fact about the same moment —
+	the copy is the right size, it names its schema, and it will not read back. What differs is
+	only which tool noticed.
+	"""
+
+	try:
+		_run(["pg_restore", "--list", str(path)], what="pg_restore")
+
+	except subroutine.errors.SubroutineError as error:
+		raise subroutine.errors.ServiceUnavailable(
+			f"The backup written to {path} is the right size and names its schema, and "
+			f"could not be read back: {error}. It has been removed rather than left looking "
+			f"usable."
+		) from error
 
 
 def tables_in (path: pathlib.Path) -> frozenset[str]:
@@ -909,9 +1010,16 @@ def _tables_in_sqlite (path: pathlib.Path) -> frozenset[str]:
 
 
 def _tables_in_dump (path: pathlib.Path) -> frozenset[str]:
-	"""List the tables a PostgreSQL dump creates."""
+	"""List the tables a PostgreSQL backup creates, whichever format it is in.
 
-	text = _text_of(path)
+	**The schema rather than ``pg_restore --list``**, deliberately. The archive's table of
+	contents would answer this too, and its columns are a report rather than a contract —
+	parsing it would be a second way of reading a table name, which is this codebase's
+	signature defect. Converting the schema back to text costs one subprocess and lets the
+	regex below stay the only place that knows what a table declaration looks like.
+	"""
+
+	text = _as_text(path, "--schema-only") if is_archive(path) else _text_of(path)
 
 	# The schema qualifier and the quoting are both optional and both appear in the wild, so
 	# the name is taken as the last dotted part with any quotes stripped.
@@ -942,18 +1050,25 @@ def refuse_unsafe_commands (path: pathlib.Path) -> None:
 	where psql is not — after which every remaining line is skipped until a lone ``\\.`` that a
 	forged file never provides.
 
-	**So this catches the shapes it knows and is not a boundary.** What closes the class is
-	`SR#1554`: ``pg_dump --format=custom`` with ``pg_restore``, which has no meta-command lexer
-	at all, so the instruction cannot exist rather than having to be found. Widening the scan
-	means reimplementing ``psqlscan.l`` and being wrong again — which is what this docstring
-	promised and did not do.
+	**`SR#1554` closed the class rather than widening this.** Every backup this program writes
+	is a ``pg_dump --format=custom`` archive now, restored by ``pg_restore``, which has no
+	meta-command lexer at all — so there is nowhere in a forged file to put an instruction, and
+	this returns immediately for one. Widening the scan would have meant reimplementing
+	``psqlscan.l`` and being wrong again, which is what this docstring used to promise.
+
+	**What is left is the files that already exist.** A plain `.sql` taken before that change is
+	still restorable, because refusing it would take away somebody's only copy on the worst day
+	they will have — so this still runs on those, still catches the shapes it knows, and is
+	still not a boundary. That path empties as old backups age out and nothing refills it.
 
 	The COPY tracking below is still right about what it does: inside such a block every line
 	is data and a leading backslash is an escape, so a scan without it would refuse ordinary
 	rows that happen to begin with one.
 	"""
 
-	if engine_in(path) != "PostgreSQL":
+	# **Not a scan that passes — a question that does not arise** (`SR#1554`). An archive is
+	# not a script, so there is no lexer to disagree with and nothing to read.
+	if is_archive(path) or engine_in(path) != "PostgreSQL":
 		return
 
 	inside_copy = False
@@ -1015,7 +1130,7 @@ def take (
 			"restored. Run 'subroutine db upgrade' first."
 		)
 
-	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_SUFFIX
+	suffix = SQLITE_SUFFIX if _is_sqlite(engine) else POSTGRESQL_ARCHIVE_SUFFIX
 	active = subroutine.config.profile()
 	into = directory(settings)
 	taken_at, target = _free_name(
@@ -1206,11 +1321,21 @@ def _take_sqlite (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> Non
 
 
 def _take_postgresql (engine: sqlalchemy.engine.Engine, target: pathlib.Path) -> None:
-	"""Write a plain-format ``pg_dump`` of the configured database."""
+	"""Write a custom-format ``pg_dump`` archive of the configured database.
+
+	**``--format=custom`` is the fix for `#1554` and not an optimisation.** A plain dump is a
+	script `psql` runs, and `psql` executes backslash meta-commands inside one; an archive is
+	read by ``pg_restore``, which has no meta-command lexer, so a forged file has nowhere to
+	put an instruction. :data:`POSTGRESQL_ARCHIVE_SUFFIX` carries the measurement.
+
+	The two flags beside it are unchanged and are about *restoring somewhere else*: a dump that
+	names its original owner and grants cannot be loaded by an account that is not that owner.
+	"""
 
 	_run(
 		[
 			"pg_dump",
+			"--format=custom",
 			"--no-owner",
 			"--no-privileges",
 			"--file",
@@ -1280,12 +1405,17 @@ def _secret_of (engine: sqlalchemy.engine.Engine) -> dict[str, str]:
 
 def _run (
 	command: list[str], *, what: str, secrets: dict[str, str] | None = None
-) -> None:
+) -> str:
 	"""Run one of the PostgreSQL tools, reporting its complaint rather than a traceback.
 
 	``secrets`` are added to the child's environment rather than written into ``command``,
 	because everything in a command line is readable by every process on the machine for as
 	long as this one runs (`#927`'s M-22).
+
+	**Returns what the tool wrote to standard output**, which was captured and discarded until
+	`#1554`. Reading a custom-format archive is done by asking ``pg_restore`` to write part of
+	it back as text, so the answer is the point rather than a by-product — and the pipe had to
+	be drained either way.
 	"""
 
 	try:
@@ -1305,12 +1435,14 @@ def _run (
 
 	# `communicate` rather than `wait`: a pipe left open trips the ResourceWarning this project
 	# turns into an error, and the traceback then points at the wrong place entirely.
-	_output, complaint = process.communicate(timeout=_SUBPROCESS_TIMEOUT_SECONDS)
+	output, complaint = process.communicate(timeout=_SUBPROCESS_TIMEOUT_SECONDS)
 
 	if process.returncode != 0:
 		reported = complaint.strip() or f"exit status {process.returncode}"
 
 		raise subroutine.errors.BadRequest(f"{what} failed: {reported}")
+
+	return output
 
 
 def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
@@ -1525,7 +1657,13 @@ def _discard_the_replaced_log (target: pathlib.Path) -> None:
 def _restore_postgresql (
 	engine: sqlalchemy.engine.Engine, source: pathlib.Path
 ) -> None:
-	"""Empty the PostgreSQL database and load the dump into it."""
+	"""Empty the PostgreSQL database and load the backup into it.
+
+	**Which tool does the loading is the whole of `SR#1554`.** An archive goes through
+	``pg_restore``, which executes no meta-commands; a plain script taken before that change
+	still goes through ``psql``, guarded by :func:`refuse_unsafe_commands` and by that
+	function's honest account of what it can and cannot see.
+	"""
 
 	# The dump recreates every table it holds, so what is there now has to go first. Dropping
 	# the *schema* rather than the database means no maintenance connection is needed, and the
@@ -1535,6 +1673,28 @@ def _restore_postgresql (
 		connection.exec_driver_sql("CREATE SCHEMA public")
 
 	engine.dispose()
+
+	if is_archive(source):
+		_run(
+			[
+				"pg_restore",
+				"--no-owner",
+				"--no-privileges",
+				# The same guarantee `--single-transaction` buys the script path: a restore
+				# that fails part-way leaves nothing rather than half a schema and no data.
+				"--single-transaction",
+				# Without this `pg_restore` reports errors and carries on, so a failed restore
+				# would exit zero and be reported as a success.
+				"--exit-on-error",
+				"--dbname",
+				_connectable(engine),
+				str(source),
+			],
+			what="pg_restore",
+			secrets=_secret_of(engine),
+		)
+
+		return
 
 	_run(
 		[

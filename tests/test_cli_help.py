@@ -747,8 +747,11 @@ def test_every_command_the_program_suggests_is_one_it_can_run () -> None:
 #: offered. Keyed by the file as well as the flag, because ``--quiet`` and ``--file`` are
 #: ordinary words: excusing them everywhere would wave through the next real mistake.
 NOT_OUR_OPTIONS = {
+	"db/backup.py::--data-only": "pg_restore's, passed to it",
 	"db/backup.py::--dbname": "psql's, passed to it",
+	"db/backup.py::--exit-on-error": "pg_restore's, passed to it",
 	"db/backup.py::--file": "psql's, passed to it",
+	"db/backup.py::--list": "pg_restore's, passed to it",
 	# Named in prose rather than passed: `SR#1554` records why the plain format is the vector
 	# and what replaces it, and a docstring that could not name the flag would be arguing
 	# about something it may not spell.
@@ -757,7 +760,9 @@ NOT_OUR_OPTIONS = {
 	"db/backup.py::--no-privileges": "pg_dump's, passed to it",
 	"db/backup.py::--no-psqlrc": "psql's, passed to it",
 	"db/backup.py::--quiet": "psql's, passed to it",
+	"db/backup.py::--schema-only": "pg_restore's, passed to it",
 	"db/backup.py::--set": "psql's, passed to it",
+	"db/backup.py::--table": "pg_restore's, passed to it",
 	"db/backup.py::--single-transaction": "psql's, passed to it",
 	"domain/palette.py::--accent": "the name of a colour role, not an option",
 	"domain/palette.py::--warn": "the name of a colour role, not an option",

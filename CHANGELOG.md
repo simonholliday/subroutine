@@ -320,6 +320,23 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+- **A tampered backup can no longer run commands when it is restored.** A PostgreSQL backup was
+  a plain script, and restoring one ran it through `psql`, which executes backslash
+  meta-commands written into it — so a backup file placed where the operator would restore it
+  was code, running as them. The scan meant to catch that read the file differently from `psql`
+  and could be evaded.
+
+  **Backups are now `pg_dump` archives, restored with `pg_restore`, which has no
+  meta-command notion at all** — the instruction has nowhere to go rather than having to be
+  found. New PostgreSQL backups end in `.dump` instead of `.sql`, and the archive is checked
+  when it is written by reading it back.
+
+  > **If you match backup files by name**, match `subroutine-*` rather than `*.sql`. A glob
+  > written against `*.sql` now selects only backups taken by an earlier version.
+
+  `.sql` backups you already have are still restored, and still scanned. Nothing writes one any
+  more.
+
 - **A board column says it is holding more than it shows, whether it is open or shut.** The
   `+` beside a column's count appeared only when the column was collapsed, so an expanded
   *Drafts* column read `25` while the same column folded read `25+`. The sentence saying so is

@@ -1433,7 +1433,7 @@ share. If that matters, the answer is on the share rather than here.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backup
-  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.sql
+  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.dump
   60,069 bytes, schema d5d0458f5ad5.
 
 # sudo -u subroutine env \
@@ -1442,15 +1442,24 @@ share. If that matters, the answer is on the share rather than here.
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backups
   Backups of instance 'default', in /srv/backups/subroutine:
-    subroutine-default-20260731T141853Z-d5d0458f5ad5.sql  2026-07-31 14:18 UTC  60,069 bytes  schema d5d0458f5ad5
+    subroutine-default-20260731T141853Z-d5d0458f5ad5.dump  2026-07-31 14:18 UTC  60,069 bytes  schema d5d0458f5ad5
 ```
 
-**The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says which
-engine took it** — `.sql` for a PostgreSQL dump, which is a script `psql` replays, and `.db`
-for a SQLite copy, which is a database. They are not interchangeable in either direction, and
-a restore refuses the wrong one rather than discovering it partway through. A retention script
-written against `*.sql` therefore matches nothing on SQLite; match both, or match on
-`subroutine-*`.
+**The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says how to
+read it back** — `.dump` for a PostgreSQL archive, which `pg_restore` loads, and `.db` for a
+SQLite copy, which is a database. They are not interchangeable in either direction, and a
+restore refuses the wrong one rather than discovering it partway through.
+
+**Match on `subroutine-*` in a retention script, never on one suffix.** A glob written against
+`*.sql` matches nothing on SQLite, nothing on a current PostgreSQL instance, and *only* the
+backups taken before 0.8.8 — which is the worst of the three, because it looks like it works.
+
+**`.sql` files taken by an earlier version still restore.** PostgreSQL backups used to be
+plain-format scripts, and they are still read; nothing writes one any more. The change is that
+a script is executed by `psql`, which runs backslash commands embedded in it, and an archive is
+loaded by `pg_restore`, which has no such notion — so a tampered backup has nowhere to put an
+instruction. If you keep old `.sql` backups where anybody else can write, take a fresh one and
+treat the old files as you would any other file you did not write.
 
 `--keep N` prunes to the newest N afterwards, which is the whole of the retention policy. Run
 it from a timer — it names every file it deletes, so the timer's log is the record of what
@@ -1468,7 +1477,7 @@ An agent can take one before attempting something bulk:
 
 ```console
 $ curl -s -X POST -H "Authorization: Bearer $TOKEN" https://tasks.example.com/v1/admin/backups
-  {"name":"subroutine-…-d5d0458f5ad5.sql","schema_head":"d5d0458f5ad5","size_bytes":61311,…}
+  {"name":"subroutine-…-d5d0458f5ad5.dump","schema_head":"d5d0458f5ad5","size_bytes":61311,…}
 ```
 
 That endpoint needs `instance:admin`, which **no role carries** — only an administrator of the
@@ -1514,8 +1523,8 @@ restore of the same instance underneath a running process is still silent, and s
 service first is still the answer.
 
 Two more things this will not do to you. **A backup from the other engine is refused before
-anything is dropped** — a `.db` is a SQLite database and a `.sql` is a PostgreSQL script, they
-cannot be read by each other's tools, and `subroutine db backups` names the engine when a
+anything is dropped** — a `.db` is a SQLite database and a `.dump` is a PostgreSQL archive,
+they cannot be read by each other's tools, and `subroutine db backups` names the engine when a
 directory holds both. To move an instance between engines, use `subroutine db copy`, not a
 backup. And **the safety copy taken before a restore is never allowed to block the restore**:
 if the database being replaced is too damaged to copy — which is the usual reason to be
@@ -1628,7 +1637,7 @@ answers, and when a backup was last taken.
   data     /var/lib/subroutine/data
   state    /var/lib/subroutine/state
   local    0.2.1, schema ce11c7d2df2f, as si (person)
-  backups  19 in /srv/backups/subroutine, newest subroutine-default-20260803T053711Z-d5d0458f5ad5.sql (4,046,848 bytes, today)
+  backups  19 in /srv/backups/subroutine, newest subroutine-default-20260803T053711Z-d5d0458f5ad5.dump (4,046,848 bytes, today)
 
   Nothing here needs attention.
 ```
@@ -1729,7 +1738,7 @@ copy where it landed, migrate, then read the schema back rather than assuming.
   Subroutine 0.7.1 expects schema 1f61c97bf2ca.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
-  Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.sql (63,584 bytes).
+  Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.dump (63,584 bytes).
   Nothing deletes that copy for you, and every upgrade leaves one.
   'subroutine db backup --keep N' prunes by age and counts these too.
   Upgraded from f159c8635e54 to 1f61c97bf2ca.

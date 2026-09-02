@@ -29,6 +29,7 @@ import subroutine.api.meta
 import subroutine.auth
 import subroutine.cli.main
 import subroutine.config
+import subroutine.db.backup
 import subroutine.db.migrate
 import subroutine.diagnosis
 import subroutine.domain.sessions
@@ -2284,7 +2285,16 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 	# The filename `db/backup` composes: the program, the instance, the instant, the revision
 	# it was taken at. The instance segment is what the old example had lost.
 	name = pathlib.PurePosixPath(quoted["backup"]).name
-	parts = name.removesuffix(".sql").split("-")
+
+	# **The suffix set comes from the module that writes it** (`SR#1554`). This was the literal
+	# `".sql"`, which is a third copy of a set `db/backup` already declares — and it went stale
+	# the day a PostgreSQL backup became a `.dump`, reporting that the revision was missing from
+	# a name that carried it.
+	parts = pathlib.PurePosixPath(name).stem.split("-")
+
+	assert (
+		pathlib.PurePosixPath(name).suffix in subroutine.db.backup.ENGINE_OF_SUFFIX
+	), f"{name} does not end the way a backup this program writes does"
 
 	assert parts[0] == "subroutine", name
 	assert parts[1] == "default", f"{name} names no instance, and every backup here does"
