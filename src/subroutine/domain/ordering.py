@@ -720,6 +720,15 @@ VIEW_READERS: dict[str, typing.Callable[[typing.Any], typing.Any]] = {
 	DEFERRED: put_off,
 	"ref": lambda item: item.ref,
 	"title": lambda item: item.title,
+	# **`#1805`, and the guard on this map is what asked for them.** Both became orderable when
+	# the registry made one declaration carry all three capabilities, and a merged listing would
+	# have accepted the name and ignored it — which is worse than refusing, because the page
+	# comes back in a plausible order that is not the one asked for.
+	#
+	# `getattr` with a default for the reason every entry here has one: a document shares the
+	# merged listing and has no `snoozed_until`, and an older instance may not send either.
+	"content_updated_at": lambda item: getattr(item, "content_updated_at", None),
+	"snoozed_until": lambda item: getattr(item, "snoozed_until", None),
 }
 
 #: Stands in for a null while sorting, so that two rows tied at "no value" compare as equal

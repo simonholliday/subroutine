@@ -46,6 +46,14 @@ upgrade involves.
 
   `GET /v1/meta` publishes every combination, as before.
 
+- **A listing can be ordered by two more of its own dates.** `?order=snoozed_until` is *coming
+  back soonest first*, which the deferral sort could not answer — that one puts deferred work
+  at the end rather than saying when it returns. `?order=content_updated_at` is *what has been
+  rewritten recently*, where `updated_at` moves whenever anything about an item does.
+
+  Both were already filterable. They were in one list and not the other, and nothing held the
+  two together until now.
+
 
 - **A board you had bookmarked gets the new behaviour too.** The grouping lives in the
   address, so an address written before it — a bookmark, a link somebody sent you, the one in

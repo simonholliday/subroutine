@@ -764,22 +764,23 @@ TASK_PROPERTIES: dict[str, Property] = {
 	# **Filterable and not orderable, and now it says why** — `#1803`. Both were simply in one
 	# list and not the other; neither absence had been argued, and `#1805` is where they are
 	# decided rather than inherited.
+	# **Both orderable since `#1805`**, which is that item's whole thesis: a field filterable
+	# and plausibly orderable *is* orderable, without a second list being edited. They were in
+	# one list and not the other and neither absence had ever been argued.
+	#
+	# **`snoozed_until` does not duplicate `ordering.DEFERRED`.** That is a *band* — startable
+	# against put-off — added per request because it is a fact about an instant rather than
+	# about a column. This is the date itself, so ascending with NULLS LAST is *coming back
+	# soonest first*, which is a question the band cannot answer at all.
+	#
+	# **And `content_updated_at` does not duplicate `updated_at`**: one is *when did the prose
+	# change* and the other *when did anything about this move*. `#815` made that distinction
+	# worth a filter; it is worth a sort for the same reason.
 	"snoozed_until": Property(
-		column=subroutine.db.models.work.Task.snoozed_until,
-		kind=INSTANT,
-		because=(
-			"`ordering.DEFERRED` is what a reader means by *sorted by whether it is put off*, "
-			"and it is a band added per request rather than a column — `#1805` decides whether "
-			"the raw date is worth a second answer to a question already settled."
-		),
+		column=subroutine.db.models.work.Task.snoozed_until, kind=INSTANT, orderable=True
 	),
 	"content_updated_at": Property(
-		column=subroutine.db.models.work.Task.content_updated_at,
-		kind=INSTANT,
-		because=(
-			"nothing has asked to sort by when the prose last changed, where `updated_at` "
-			"already answers *when did anything about this move* — `#1805`."
-		),
+		column=subroutine.db.models.work.Task.content_updated_at, kind=INSTANT, orderable=True
 	),
 	# `#319`. **No index, and here anyway on the same measured grounds as `completed_at` and
 	# `snoozed_until` above**: the question it was filed for — *what is short and not blocked* —
@@ -806,13 +807,13 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		created_at=subroutine.db.models.work.Document.created_at,
 		updated_at=subroutine.db.models.work.Document.updated_at,
 	),
+	# **Orderable since `#1805`**, and on a document the distinction is sharper still: a
+	# document is *read* for its prose, so *what changed recently* is a question about the body
+	# rather than about the row.
 	"content_updated_at": Property(
 		column=subroutine.db.models.work.Document.content_updated_at,
 		kind=INSTANT,
-		because=(
-			"nothing has asked to sort by when the prose last changed, where `updated_at` "
-			"already answers *when did anything about this move* — `#1805`."
-		),
+		orderable=True,
 	),
 	# **A document is worked on too**, and a comment on one moves nothing in its row — which is
 	# the whole reason this is an `EXISTS`. `#815`'s question is about items, and a ref names

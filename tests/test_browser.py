@@ -21,6 +21,7 @@ still run everything else, and in CI it would mean reporting success on half a t
 import functools
 import json
 import math
+import os
 import pathlib
 import re
 import shutil
@@ -230,6 +231,45 @@ if UNAVAILABLE is not None and conftest.required("SUBROUTINE_TEST_REQUIRE_BROWSE
 pytestmark = pytest.mark.skipif(
 	UNAVAILABLE is not None, reason=UNAVAILABLE or "a browser is available"
 )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _serially () -> None:
+	"""Refuse to run this file across workers, rather than letting it flake — `SR#1823`.
+
+	**The measurement is `SR#936`'s and is on
+	``test_the_browser_command_is_not_spread_across_workers``**: 9.9s serially against 15.7s
+	*and a red run* under ``-n auto``, because a worker apiece launches its own Chromium and
+	the machine saturates. What breaks is the page event in
+	:func:`test_a_modified_click_still_belongs_to_the_browser`, and `SR#1823` re-measured it
+	with the budget at **120 seconds** — it timed out there twice, so it is not a budget
+	anybody can widen.
+
+	**That guard protects the project's own commands and could not protect a person.** It
+	asserts no `CHECKS` entry and no workflow step carries ``-n`` beside this file, which is
+	the right shape for a tidy-up somebody makes in `scripts/check.py`. It says nothing about
+	``pytest tests/test_browser.py -n auto`` typed at a terminal — which is what `SR#1823` was
+	filed about, because **narrowing to one file is what you do while working on the browser**
+	and ``-n auto`` is in the muscle memory from the step next door.
+
+	**A fixture rather than a module-level check**, and that is not a style choice:
+	``tests/test_fixtures.py`` imports this module for :func:`_cannot_lay_out_text`, so a raise
+	at import fires in the *parallel* step — which excludes this file by name. Found by the
+	gate, which went red on a check written to keep it green.
+
+	**Refused rather than skipped**, which is `SR#795`'s rule fifty lines up: a skip here would
+	report success on a suite that did not run.
+	"""
+
+	workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+
+	if workers > 1:
+		raise RuntimeError(
+			f"tests/test_browser.py is run serially and this run has {workers} workers. Drop "
+			f"the '-n' — `scripts/check.py` and CI both run this file on its own, and the "
+			f"parallel step ignores it. A worker apiece launches its own Chromium, the machine "
+			f"saturates, and the tab a ctrl-click opens never arrives at any budget."
+		)
 
 
 @pytest.fixture(scope="module")
@@ -1157,7 +1197,12 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	opened, _written, _refusing, *_ = running
 	page = opened("/projects?view=list")
 
-	page.wait_for_selector("a[href]", timeout=10_000)
+	# **The anchor this test clicks, not any anchor** — `SR#1823`. `a[href]` is satisfied by the
+	# masthead, which `SR#868` made a link and which paints before the rows do; the wait
+	# returned and the click below then auto-waited on its own budget with nothing said about
+	# what it was waiting for. Waiting for the element about to be clicked is what makes the
+	# failure, when there is one, a statement about the click.
+	page.wait_for_selector("a[href*='42']", timeout=10_000)
 
 	# **The masthead is one of those anchors** (`#868`), and this is the only place that can
 	# say so: it lives in `App`, which uses hooks, so the render harness cannot call it and
@@ -1178,9 +1223,20 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 
 	assert tab is not page, "a ctrl-click was handled by the app instead of the browser"
 
-	# **Waited for, because a tab exists before it has been anywhere.** Read immediately it is
-	# `about:blank`, which would have made this assert about timing rather than about the click.
-	tab.wait_for_load_state("domcontentloaded")
+	# **Waited on the address rather than on a load state** — `SR#1823`, and the difference is
+	# the whole defect. A tab exists before it has been anywhere, and that state is
+	# `about:blank`, which is **already** `domcontentloaded`: the wait returned at once and the
+	# assertion below read the empty tab. It looked like a wait and was one only for as long as
+	# the navigation happened to have started first.
+	#
+	# **Under eight workers it does not.** `pytest tests/test_browser.py -n auto` on its own
+	# gives every worker a Chromium and, for this test, a real page context; the tab is opened
+	# and read before Chromium has begun the navigation. Reproduced on an unmodified tree,
+	# twice, which is why it was filed as nobody's change before it was fixed.
+	#
+	# `wait_for_url` is a glob rather than a predicate, so it is not the string evaluation the
+	# served policy forbids (`SR#1000`).
+	tab.wait_for_url("**/42", timeout=10_000)
 
 	assert "42" in tab.url, f"the new tab opened somewhere else: {tab.url}"
 
