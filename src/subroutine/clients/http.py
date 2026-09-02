@@ -1194,6 +1194,50 @@ class Client:
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
 		)
 
+	def share_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> subroutine.views.ProjectMember:
+		"""Let one more person see a private project."""
+
+		self._refuse_if_read_only()
+
+		body = self._json(
+			"POST",
+			f"/v1/projects/{project}/members",
+			json={"username": username},
+			params=_given(workspace_id=workspace),
+		)
+
+		return subroutine.views.ProjectMember.model_validate(body)
+
+	def unshare_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> None:
+		"""Take somebody's sight of a project away again."""
+
+		self._refuse_if_read_only()
+
+		self._json(
+			"DELETE",
+			f"/v1/projects/{project}/members/{username}",
+			params=_given(workspace_id=workspace),
+		)
+
+	def project_members (
+		self, project: str, *, workspace: str | None = None
+	) -> list[subroutine.views.ProjectMember]:
+		"""List who has been shared into a project."""
+
+		body = self._json(
+			"GET",
+			f"/v1/projects/{project}/members",
+			params=_given(workspace_id=workspace),
+		)
+
+		return [
+			subroutine.views.ProjectMember.model_validate(row) for row in body.get("items", [])
+		]
+
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
 	) -> subroutine.views.Project:

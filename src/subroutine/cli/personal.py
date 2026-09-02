@@ -5191,6 +5191,61 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 			_suggest(program.console, f"subroutine use --here --project {renamed.key}")
 
 
+def _project_shared (program: Program, *, key: str, username: str) -> None:
+	"""Let one more person see a private project — `#1444`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		member = where.client.share_project(key, username=username, workspace=workspace)
+
+		program.say(f"{member.user.username} can now see {member.project}.")
+
+		# **Sight is not authority, and this is where somebody will assume otherwise.** The
+		# row grants nothing but the ability to read the project; what they may *do* in it is
+		# still their workspace role, and `#1452` is where a project-scoped role would live.
+		program.say("What they may do there is still their workspace role.")
+
+
+def _project_unshared (program: Program, *, key: str, username: str) -> None:
+	"""Take somebody's sight of a project away again — `#1444`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		where.client.unshare_project(key, username=username, workspace=workspace)
+
+		program.say(f"{username} can no longer see {key}.")
+
+
+def _project_sharing (program: Program, *, key: str, json_output: bool) -> None:
+	"""Say who has been shared into a project — `#1444`."""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		workspace = _writing_workspace(world)
+
+		people = where.client.project_members(key, workspace=workspace)
+
+		if json_output:
+			program.say(json.dumps([one.model_dump(mode="json") for one in people], indent=2))
+
+			return
+
+		# **A project always has at least its owner**, so an empty answer here means the
+		# owner's account was deleted rather than that nobody can see it — `#1453`, and
+		# saying so is cheaper than leaving a blank.
+		if not people:
+			program.say(f"Nobody holds {key}. That is a project nobody can reach.")
+
+			return
+
+		for one in people:
+			program.say(f"  {one.user.username}{'  (agent)' if one.user.is_service_account else ''}")
+
+
 def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> None:
 	"""Retire a workspace's short name, naming the members it changes the address for."""
 
@@ -6632,11 +6687,14 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
 		private: bool = typer.Option(
 			# **"Only you", not "only its members"** (`#1444`). Both are true and one of them
-			# is misleading: §7.3a grants sight to holders of a `project_member` row, and
-			# nothing in this program writes one for anybody but the owner — no route, no
-			# command, no tool. So *members* names a set that cannot grow, and a reader takes
-			# it as an invitation to add somebody.
-			False, "--private", help="Only you can see it. Nothing can share it yet."
+			# is the wrong emphasis at the moment of choosing: §7.3a grants sight to holders
+			# of a `project_member` row, and creating one writes exactly one — the owner's. So
+			# *members* describes a set that starts at one, and the reader needs to know that
+			# before they file anything into it.
+			#
+			# **It now names the way in as well.** Until `#1444` there was no writer at all and
+			# this said "nothing can share it yet", which was true and is not.
+			False, "--private", help="Only you can see it, until you share it."
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
 	) -> None:
@@ -6677,20 +6735,23 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			program.say(f"Created {created.key} — {created.title}")
 
 			# **Said at the one moment it can be acted on** (`#1444`). A private project is
-			# visible to its owner and to nobody else, permanently: sight comes from a
-			# `project_member` row and nothing writes one except creation and a transfer of
-			# ownership. Nothing was wrong at any single site, which is why it survived since
-			# M1 — the specification, the enforcement and the owner's own row are all correct,
-			# and the writer that would let somebody share it was never built.
+			# visible to its owner and to nobody else until somebody is named, and this is the
+			# only point at which the person choosing it is thinking about who will read it.
 			#
-			# **Recoverable, and said so**, because the alternative reads as a refusal: a
-			# reader who has just been told a thing is invisible needs the sentence that puts
-			# it back more than they need the reason.
+			# **Both ways out, and said so**, because the alternative reads as a refusal: a
+			# reader who has just been told a thing is invisible needs to know what to do about
+			# it more than they need the reason. Naming one person and publishing it to the
+			# workspace are different acts with different consequences, so both are offered
+			# rather than the wider one standing in for the narrower.
+			#
+			# This paragraph used to say a private project was invisible *permanently* and that
+			# the writer "was never built". True when it was written, and the whole of `#1444`.
 			if created.visibility == "private":
 				program.say(
-					"Only you can see it. Nothing can add somebody else to a private project "
-					"yet — 'subroutine project update "
-					f"{_capture_name(world, created)} --public' undoes this."
+					f"Only you can see it. 'subroutine project share "
+					f"{_capture_name(world, created)} <username>' lets somebody else in, and "
+					f"'subroutine project update {_capture_name(world, created)} --public' "
+					f"shows it to the whole workspace."
 				)
 
 			# **The next command is the one that uses it**, not another one about projects.
@@ -6734,6 +6795,62 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		"""
 
 		_project_renamed(program, key=key, to=to, yes=yes)
+
+	@project_app.command("share")
+	def project_share (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		username: str = typer.Argument(..., help="Who to let in."),
+	) -> None:
+		"""Let somebody see a private project.
+
+		Examples:
+
+		  subroutine project share secret jo
+
+		This grants sight and nothing else — what they may do in the project is still their
+		role in the workspace, so they have to be in it already.
+
+		A project inside a private one is hidden by the parent, and a membership on the child
+		grants nothing while that is true. Sharing the parent is what opens it, and this says
+		which project that is rather than appearing to work.
+		"""
+
+		_project_shared(program, key=key, username=username)
+
+	@project_app.command("unshare")
+	def project_unshare (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		username: str = typer.Argument(..., help="Who to shut out."),
+	) -> None:
+		"""Stop somebody seeing a private project.
+
+		Examples:
+
+		  subroutine project unshare secret jo
+
+		The owner cannot be removed, and neither can the last person left: a private project
+		nobody holds is one nobody can see or make public again.
+		"""
+
+		_project_unshared(program, key=key, username=username)
+
+	@project_app.command("sharing")
+	def project_sharing (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show who can see a project.
+
+		Examples:
+
+		  subroutine project sharing secret
+
+		A public project usually shows just its owner. That is not a mistake — it says who
+		would still see it if somebody made it private, which is what anybody about to do
+		that is asking.
+		"""
+
+		_project_sharing(program, key=key, json_output=json_output)
 
 	@project_app.command("update")
 	def project_update (
@@ -6964,11 +7081,17 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	is about membership, and none reaches anything in it but ``program`` and the application.
 	"""
 
-	# **Membership lives under `user`, and there is deliberately no `workspace` group**
-	# (`#174`). Adding one would put the word "workspace" in the top-level help of somebody
-	# who has a to-do list and no colleagues, which is what §1.4 forbids — while `user` is a
-	# word anybody can read and ignore. The workspace is still where a membership *lives*;
-	# it is named by `--workspace` when there is more than one, and inferred otherwise.
+	# **Membership lives under `user`, and it is about the person rather than the place.**
+	# Who somebody is and where they may work is one question, asked of an account; what one
+	# project lets them see is another, and it is under `project` for the same reason. The
+	# workspace is still where a workspace membership *lives*; it is named by `--workspace`
+	# when there is more than one, and inferred otherwise.
+	#
+	# **This used to say "there is deliberately no `workspace` group" and cite `#174` for it,
+	# and it was false the day after it was written** — the comment is `cb7f655`, 2026-08-01;
+	# the group arrived in `d46490f`, 2026-08-02, and has six commands in the top-level help.
+	# It stood 26 days and was quoted as the thing deciding where `project share` should go
+	# (`#1444`). `#174` itself says nothing about command placement.
 	user_app = typer.Typer(
 		help="Add the people and agents this instance is for.", no_args_is_help=True
 	)

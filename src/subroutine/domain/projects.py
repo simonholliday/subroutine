@@ -765,6 +765,342 @@ def _ensure_member (
 	session.flush()
 
 
+def hidden_by (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user_id: uuid.UUID,
+) -> subroutine.db.models.project.Project | None:
+	"""Return the project whose privacy keeps this one out of one person's sight, or ``None``.
+
+	§7.3a hides a project when it is private **or any ancestor of it is**, unless the person
+	holds a ``project_member`` row on that private one. So what has to be shared is not always
+	the project somebody names: a public project under a private parent is hidden, and a row
+	on the child grants nothing at all.
+
+	Returns the **outermost** private ancestor this user has no row for, which is the one
+	blocking them today. Sharing that is what changes their answer — and if something further
+	in is private too, they are blocked by that next and this returns it instead. So a private
+	subtree opens one deliberate step at a time rather than all at once, which is the same
+	answer §7.3a gives and not a rule of this function's own.
+
+	Reads the materialised ``path`` rather than walking ``parent_id``, which is the choice
+	:func:`subroutine.domain.authorization.visible_projects` makes for the same reason — an
+	ancestor test is a prefix match there and a list of ids here.
+	"""
+
+	model = subroutine.db.models.project.Project
+	membership = subroutine.db.models.project.ProjectMember
+
+	identifiers = [
+		uuid.UUID(segment)
+		for segment in subroutine.domain.hierarchy.path_segments(project.path)
+	]
+
+	ancestors = {
+		row.id: row
+		for row in session.scalars(sqlalchemy.select(model).where(model.id.in_(identifiers)))
+	}
+
+	shared = set(
+		session.scalars(
+			sqlalchemy.select(membership.project_id).where(
+				membership.user_id == user_id, membership.project_id.in_(identifiers)
+			)
+		)
+	)
+
+	for identifier in identifiers:
+		ancestor = ancestors.get(identifier)
+
+		if ancestor is None:
+			continue
+
+		if ancestor.visibility == "private" and ancestor.id not in shared:
+			return ancestor
+
+	return None
+
+
+def _membership_of (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user_id: uuid.UUID,
+) -> subroutine.db.models.project.ProjectMember | None:
+	"""Return this user's membership row for this project, or ``None``."""
+
+	model = subroutine.db.models.project.ProjectMember
+
+	return session.scalars(
+		sqlalchemy.select(model).where(
+			model.project_id == project.id, model.user_id == user_id
+		)
+	).first()
+
+
+def _refuse_somebody_outside_the_workspace (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user: subroutine.db.models.identity.User,
+) -> None:
+	"""Refuse sharing with somebody who is not in the workspace, by name.
+
+	``ProjectMember`` has no workspace check of its own and ``workspaces.readable`` is an
+	inner join on membership — *membership is what grants reach*. So the row would be written,
+	the person would go on seeing nothing, and nothing anywhere would say why. Naming the
+	remedy is the whole of this: the answer is one command, and it is not this one.
+	"""
+
+	model = subroutine.db.models.identity.WorkspaceMember
+
+	inside = session.scalars(
+		sqlalchemy.select(model).where(
+			model.workspace_id == project.workspace_id, model.user_id == user.id
+		)
+	).first()
+
+	if inside is not None:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{user.username} is not in this workspace, so sharing a project with them would "
+		f"change nothing.",
+		hint=f"'subroutine user add {user.username} --role member' first.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="username",
+				code="invalid_field_value",
+				message=f"{user.username} is not a member of this workspace.",
+			)
+		],
+	)
+
+
+def share (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user: subroutine.db.models.identity.User,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> subroutine.db.models.project.ProjectMember:
+	"""Let one more person see a private project — item `#1444`.
+
+	**Requires ``project:write``, and so does :func:`unshare`.** Anybody holding it can already
+	publish the whole project to the workspace by setting its visibility, so naming one person
+	is strictly less disclosure than a flag they have anyway. The same gate covers revocation
+	**deliberately**: that argument is about disclosure and does not reach taking sight away,
+	but two gates on two halves of one feature is how the halves come to disagree, and somebody
+	trusted with a project's reach is trusted with it in both directions. The known cost is
+	that anybody shared in can evict anybody but the owner.
+
+	**Presence, never a role.** The row is written with ``role_id=None`` because §7.3a reads
+	nothing but its existence. `#1452` is where a project-scoped role belongs and it is a
+	different act: sight inherits down the tree and authority deliberately does not, so one
+	command granting both would carry two scoping rules and mean opposite things on a public
+	project and a private one.
+
+	**The event names the project as its subject**, which is what makes it visible to exactly
+	those who can see the project and to nobody else. ``scoping.visible_events`` already has
+	that clause, so this needs no scoping change — where recording it the way a *workspace*
+	membership is recorded would have published who can see a private project to the whole
+	workspace.
+	"""
+
+	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+
+	_refuse_somebody_outside_the_workspace(session, project, user)
+
+	# **Before asking what is hiding it**, because somebody already shared in is not hidden
+	# from it, and the question below would then answer about the workspace at large.
+	existing = _membership_of(session, project, user.id)
+
+	if existing is not None:
+		raise subroutine.errors.ValidationError(
+			f"{user.username} can already see {project.key}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="duplicate_key",
+					message=f"{user.username} is already shared into {project.key}.",
+				)
+			],
+		)
+
+	blocking = hidden_by(session, project, user.id)
+
+	if blocking is None:
+		raise subroutine.errors.ValidationError(
+			f"{project.key} is visible to everybody in this workspace, so there is nobody to "
+			f"share it with.",
+			hint=f"'subroutine project update {project.key} --private' first, if it should not "
+			f"be.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="id_or_key",
+					code="invalid_field_value",
+					message=f"{project.key} is not private.",
+				)
+			],
+		)
+
+	if blocking.id != project.id:
+		raise subroutine.errors.ValidationError(
+			f"{project.key} is hidden by {blocking.key}, which is the project to share.",
+			hint=f"Sharing {blocking.key} shows everything inside it that is not private in "
+			f"its own right.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="id_or_key",
+					code="invalid_field_value",
+					message=f"A membership on {project.key} grants nothing while {blocking.key} "
+					f"is private.",
+				)
+			],
+		)
+
+	membership = subroutine.db.models.project.ProjectMember(
+		workspace_id=project.workspace_id,
+		project_id=project.id,
+		user_id=user.id,
+		role_id=None,
+	)
+	session.add(membership)
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=project.workspace_id,
+		entity_type="project_member",
+		entity_id=membership.id,
+		action=subroutine.domain.events.EventAction.CREATED,
+		subject_type="project",
+		subject_id=project.id,
+		changes={"user_id": {"from": None, "to": user.id}},
+		actor=actor,
+	)
+
+	return membership
+
+
+def unshare (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	user: subroutine.db.models.identity.User,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> None:
+	"""Take somebody's sight of a private project away again — item `#1444`.
+
+	Gated by ``project:write``, like :func:`share`, and the reasoning is written there.
+
+	**Two refusals, and both protect against a project nobody can reach.** The owner's own row
+	is not removable — :func:`create` writes it *"so that making a project private later does
+	not lock its owner out"*, and this is that same sentence one command along. Neither is the
+	last row, whoever holds it: `#1453` is the state this avoids, where a private project has
+	no member and no surface can see it or make it public again.
+
+	**It works whatever the project's visibility is**, unlike :func:`share`. A row on a public
+	project grants nothing today and everything the day somebody makes it private, so leaving
+	it unremovable would make privacy a one-way door in the other direction.
+	"""
+
+	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+
+	membership = _membership_of(session, project, user.id)
+
+	if membership is None:
+		raise subroutine.errors.NotFound(
+			f"{project.key} is not shared with {user.username}.",
+			hint=f"'subroutine project share {project.key} {user.username}' would do that.",
+		)
+
+	if project.owner_id is not None and project.owner_id == user.id:
+		raise subroutine.errors.ValidationError(
+			f"{user.username} owns {project.key} and cannot be removed from it.",
+			# **No command is named here on purpose.** Ownership moves through
+			# `PATCH /v1/projects/{id_or_key}` and no terminal surface sets it, so naming one
+			# would be `#1709`'s defect — a remedy the reader cannot run.
+			hint="Hand the project over first, or make it public.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="invalid_field_value",
+					message=f"{user.username} is this project's owner.",
+				)
+			],
+		)
+
+	model = subroutine.db.models.project.ProjectMember
+
+	remaining = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count())
+		.select_from(model)
+		.where(model.project_id == project.id)
+	)
+
+	if remaining is not None and remaining <= 1:
+		raise subroutine.errors.ValidationError(
+			f"{user.username} is the only person who can see {project.key}, so removing them "
+			f"would leave it reachable by nobody.",
+			hint=f"'subroutine project update {project.key} --public' first, or share it with "
+			f"somebody else.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="invalid_field_value",
+					message=f"{project.key} has one member.",
+				)
+			],
+		)
+
+	identifier = membership.id
+
+	session.delete(membership)
+	session.flush()
+
+	subroutine.domain.events.record(
+		session,
+		workspace_id=project.workspace_id,
+		entity_type="project_member",
+		entity_id=identifier,
+		action=subroutine.domain.events.EventAction.DELETED,
+		subject_type="project",
+		subject_id=project.id,
+		changes={"user_id": {"from": user.id, "to": None}},
+		actor=actor,
+	)
+
+
+def members (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+) -> list[tuple[subroutine.db.models.project.ProjectMember, subroutine.db.models.identity.User]]:
+	"""Return who has been shared into a project, oldest first.
+
+	Requires ``project:read``. Nothing anywhere else answers *who can see this*, which is why
+	it is worth a route of its own even before `#1451` gives a project a page to render it on.
+
+	A public project ordinarily reports just its owner, and that is honest rather than
+	misleading: the rows say who would still see it if somebody made it private, which is the
+	question anybody about to do that is asking.
+	"""
+
+	_permitted(session, actor, subroutine.permissions.PROJECT_READ, project=project)
+
+	model = subroutine.db.models.project.ProjectMember
+	account = subroutine.db.models.identity.User
+
+	rows = session.execute(
+		sqlalchemy.select(model, account)
+		.join(account, account.id == model.user_id)
+		.where(model.project_id == project.id)
+		.order_by(model.created_at, account.username)
+	).all()
+
+	return [(membership, holder) for membership, holder in rows]
+
+
 def status_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None = None
 ) -> subroutine.db.models.vocabulary.Status:

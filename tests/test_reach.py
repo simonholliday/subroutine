@@ -110,6 +110,8 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("POST", "/v1/workspaces/{id_or_slug}/members"): "add_member",
 	("PATCH", "/v1/workspaces/{id_or_slug}/members/{username}"): "set_member_role",
 	("DELETE", "/v1/workspaces/{id_or_slug}/members/{username}"): "remove_member",
+	("POST", "/v1/projects/{id_or_key:path}/members"): "share_project",
+	("DELETE", "/v1/projects/{id_or_key:path}/members/{username}"): "unshare_project",
 	("POST", "/v1/documents/{id_or_ref}/comments"): "remark",
 	("DELETE", "/v1/comments/{comment_id}"): "uncomment",
 	("POST", "/v1/workspaces"): "create_workspace",
@@ -194,6 +196,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/calendars"): "calendars",
 	("GET", "/v1/users"): "users",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
+	("GET", "/v1/projects/{id_or_key:path}/members"): "project_members",
 }
 
 #: Routes no client reaches, and why. **Deleting an entry is what closes it.**
@@ -439,7 +442,16 @@ VOCABULARY_IS_NOT_DAILY_WORK = (
 )
 
 
+#: Sharing a private project is a person's act, and an agent already reaches the routes.
+SHARING_IS_A_PERSONS_ACT = (
+	"`SR#1444`, and the argument that carried it into scope was **false**. It was *an agent can create a private project and cannot undo it* — but `subroutine_call_api` takes GET, POST, PATCH or DELETE on any path, so an agent reaches these three the moment the routes exist, with no schema change. What was left was discoverability, against a surface at **15 of 15 tools** under \u00a721.2, and a poor host: `subroutine_project` is list-or-create by its own description, so membership properties would make it tri-modal.\n\n**And it is the wrong population.** No agent can see a private project it did not create — `visible_projects` reads `principal.user.id`, service accounts *are* users, and nothing writes their row. So an agent is the thing being **shared with**, and the act is a person's.\n\n**What would change it**: an installation where agents routinely admit each other to projects, which would make this daily work rather than a person's occasional decision. `SR#1450` carries the wording that tells an agent the route is there."
+)
+
+
 NOT_IN_MCP: dict[str, Excuse] = {
+	"share_project": ("budget", SHARING_IS_A_PERSONS_ACT),
+	"unshare_project": ("budget", SHARING_IS_A_PERSONS_ACT),
+	"project_members": ("budget", SHARING_IS_A_PERSONS_ACT),
 	"statuses": (
 		"budget",
 		VOCABULARY_IS_NOT_DAILY_WORK,

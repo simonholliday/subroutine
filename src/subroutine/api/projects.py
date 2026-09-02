@@ -31,12 +31,14 @@ import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.ordering
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
+import subroutine.domain.users
 import subroutine.errors
 import subroutine.views
 
@@ -53,6 +55,10 @@ router = fastapi.APIRouter(
 #: vocabularies, so that a client can offer the same sort — which is what `tasks.py` has always
 #: done and what left projects the only listing whose ``?order=`` no client could reach.
 SORTABLE = subroutine.domain.ordering.PROJECT_FIELDS
+
+#: What ``?fields=`` may name on the member listing, read off the view so a field added
+#: there is selectable without being written down twice.
+MEMBER_FIELDS = subroutine.api.shaping.selectable(subroutine.views.ProjectMember)
 DEFAULT_ORDER = subroutine.domain.ordering.DEFAULT_PROJECT_ORDER
 
 #: What ``?fields=`` may name, read from the view so the two cannot drift (docs/design.md §14.10).
@@ -272,6 +278,141 @@ def listing (
 		),
 		shape,
 	)
+
+
+class Share(subroutine.api.schemas.RequestModel):
+	"""What ``POST /v1/projects/{id_or_key}/members`` accepts."""
+
+	#: Whose sight of the project this grants. A username rather than an id, because that is
+	#: what somebody has in front of them and what every other membership route takes.
+	username: str
+
+
+@router.get(
+	"/{id_or_key:path}/members",
+	summary="Who can see this project",
+	response_model=subroutine.views.Collection[subroutine.views.ProjectMember],
+)
+def sharing (
+	id_or_key: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List who has been shared into this project.
+
+	Needs ``project:read``. Nothing anywhere else answers *who can see this*, and until this
+	existed the question had no home on any surface.
+
+	Enveloped and unpaginated, like a workspace's members and a task's links (§8.4) — a
+	project's membership is bounded by how many people somebody put in it.
+
+	**A public project ordinarily reports just its owner, and that is honest rather than
+	misleading.** The rows say who would still see it if somebody made it private, which is
+	exactly the question anybody about to do that is asking.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format,
+		fields=fields,
+		available=MEMBER_FIELDS,
+		entity="member",
+		timezone=subroutine.views.reader_zone(session, actor),
+	)
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	project = resolve(session, actor, workspace, id_or_key)
+	rows = subroutine.domain.projects.members(session, project, actor=actor)
+
+	# **One walk for the whole list** (`#1420`), rather than a chain lookup per row.
+	answerable = subroutine.domain.accountability.answerable_for_many(
+		session, [account.id for _row, account in rows]
+	)
+
+	return subroutine.api.shaping.response(
+		[
+			subroutine.views.project_member(
+				row,
+				account=account,
+				within=project,
+				answers_to=answerable.get(account.id),
+			)
+			for row, account in rows
+		],
+		# **Enveloped and never paginated**, like a workspace's members and a task's links
+		# (§8.4): a project's membership is bounded by how many people somebody put in it,
+		# so `has_more` is a statement rather than a shrug.
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)
+
+
+@router.post(
+	"/{id_or_key:path}/members",
+	status_code=201,
+	summary="Let somebody see a private project",
+	response_model=subroutine.views.ProjectMember,
+)
+def admit (
+	id_or_key: str,
+	body: Share,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.ProjectMember:
+	"""Share a private project with one more person.
+
+	Needs ``project:write``, and so does the DELETE. Anybody holding it can already publish
+	the whole project to the workspace by changing its visibility, so naming one person is
+	strictly less disclosure than a flag they have anyway.
+
+	**Sight only.** The row grants nothing but the ability to see the project and what is in
+	it; what somebody may *do* there is still their workspace role.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	project = resolve(session, actor, workspace, id_or_key)
+	account = subroutine.domain.users.by_username(session, body.username)
+	membership = subroutine.domain.projects.share(session, project, account, actor=actor)
+
+	return subroutine.views.project_member(
+		membership,
+		account=account,
+		within=project,
+		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+	)
+
+
+@router.delete(
+	"/{id_or_key:path}/members/{username}",
+	status_code=204,
+	summary="Stop somebody seeing a private project",
+)
+def evict (
+	id_or_key: str,
+	username: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> fastapi.Response:
+	"""Take one person's sight of a project away again.
+
+	Neither the owner's own row nor the last remaining one can be removed: a private project
+	with no member is one that nobody — including whoever runs the instance — can see or make
+	public again.
+
+	Works whatever the project's visibility is. A row on a public project grants nothing today
+	and everything the day somebody makes it private, so leaving it there is deliberate.
+	"""
+
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	project = resolve(session, actor, workspace, id_or_key)
+	account = subroutine.domain.users.by_username(session, username)
+
+	subroutine.domain.projects.unshare(session, project, account, actor=actor)
+
+	return fastapi.Response(status_code=204)
 
 
 @router.get(

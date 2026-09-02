@@ -10680,3 +10680,85 @@ def test_every_example_on_the_add_page_is_one_a_new_installation_can_run (
 		# wrong — the rent line failed at argument parsing and the plants line inside the
 		# service, and those want opposite fixes.
 		run(*arguments[1:])
+
+
+def test_a_private_project_says_both_ways_out_when_it_is_made (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""**Said at the one moment it can be acted on**, and it names two different acts.
+
+	Naming one person and publishing to the whole workspace are not the same decision, so the
+	wider one does not stand in for the narrower. Until `SR#1444` there was no writer at all
+	and this line said sharing was impossible, which was true and is exactly the kind of
+	sentence that outlives its cause.
+	"""
+
+	run("init")
+
+	made = run("project", "create", "secret", "Secret", "--private")
+
+	assert "Only you can see it" in made.output
+	assert "project share secret" in made.output
+	assert "--public" in made.output
+
+
+def test_somebody_can_be_let_into_a_private_project_and_out_again (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The terminal half of `SR#1444`, driven end to end rather than asserted per command.
+
+	The listing in the middle is what makes this more than two writes: before this there was
+	no surface anywhere that answered *who can see this*.
+	"""
+
+	run("init")
+	run("project", "create", "secret", "Secret", "--private")
+	run("user", "create", "jo", "--role", "member")
+
+	admitted = run("project", "share", "secret", "jo")
+
+	assert "jo can now see secret" in admitted.output
+	assert "workspace role" in admitted.output, "sight is not authority, and it says so"
+
+	listed = run("project", "sharing", "secret")
+
+	assert "jo" in listed.output
+
+	removed = run("project", "unshare", "secret", "jo")
+
+	assert "jo can no longer see secret" in removed.output
+	assert "jo" not in run("project", "sharing", "secret").output
+
+
+def test_sharing_a_project_hidden_by_its_parent_names_the_parent (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The refusal that stops somebody running a command which would do nothing.
+
+	A membership on the child grants nothing at all while the parent is private, so a
+	permissive answer here would be a write, a success message, and a colleague who still
+	cannot see anything.
+	"""
+
+	run("init")
+	run("project", "create", "secret", "Secret", "--private")
+	run("project", "create", "inner", "Inner", "--parent", "secret", "--private")
+	run("user", "create", "jo", "--role", "member")
+
+	refused = run("project", "share", "inner", "jo", expect=1)
+
+	assert "secret" in refused.output
+	assert "inner" in refused.output
+
+
+def test_the_last_person_who_can_see_a_project_is_not_removable (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The owner's own row is what makes a private project reachable at all."""
+
+	run("init")
+	run("project", "create", "secret", "Secret", "--private")
+
+	who = run("project", "sharing", "secret").output
+
+	assert who.strip(), "a private project always has at least its owner"

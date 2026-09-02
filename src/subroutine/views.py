@@ -2065,6 +2065,34 @@ class Member(pydantic.BaseModel):
 		)
 
 
+class ProjectMember(pydantic.BaseModel):
+	"""One person who has been shared into a project.
+
+	Sight of the project, and nothing else — what somebody may do in it is still their role in
+	the workspace. There is deliberately no ``role`` here, unlike a workspace membership:
+	project visibility reads whether the row exists and nothing that is in it, so a role would
+	be a published field no surface can set.
+	"""
+
+	user: User
+	project: str
+	created_at: datetime.datetime
+
+	def address (self) -> str:
+		"""Return what a caller addresses this by — the member's username."""
+
+		return self.user.username
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return one shared-in person as the cells of one compact line."""
+
+		return (
+			self.user.username,
+			"agent" if self.user.is_service_account else "person",
+			self.user.display_name or "",
+		)
+
+
 class Project(pydantic.BaseModel):
 	"""A project as the API reports it."""
 
@@ -4958,6 +4986,29 @@ def member (
 		user=user(account, answers_to=answers_to),
 		role=role.key,
 		workspace=workspace_ref(within, prioritised=prioritised),
+		created_at=row.created_at,
+	)
+
+
+def project_member (
+	row: subroutine.db.models.project.ProjectMember,
+	*,
+	account: subroutine.db.models.identity.User,
+	within: subroutine.db.models.project.Project,
+	answers_to: str | None,
+) -> ProjectMember:
+	"""Render one shared-in person, with the account and the project already resolved.
+
+	Handed the rows rather than fetching them, for the reason :func:`member` gives.
+
+	The project is reported as its **key**, which is the address somebody types, rather than
+	as a ref object: this is only ever read from a route that already names the project, so a
+	second identity for it would be two spellings of the thing in the URL.
+	"""
+
+	return ProjectMember(
+		user=user(account, answers_to=answers_to),
+		project=within.key,
 		created_at=row.created_at,
 	)
 

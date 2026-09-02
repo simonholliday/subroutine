@@ -814,3 +814,125 @@ def test_a_bare_workspace_name_is_an_ordinary_missing_project (
 	assert refused.status_code == 404, refused.text
 	assert "workspace you are in" not in refused.text
 	assert "another workspace" not in refused.text
+
+
+def _a_colleague (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> tuple[str, test_api_tasks.World]:
+	"""Add a second person to the workspace and return their name and their own caller."""
+
+	account = subroutine.domain.users.create(session, username=f"other-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, account, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=account, title="colleague"
+	)
+	session.flush()
+
+	return account.username, world._replace(secret=issued.value.get_secret_value())
+
+
+def test_a_private_project_can_be_shared_over_http (session: sqlalchemy.orm.Session) -> None:
+	"""The whole of `#1444` at the transport that everything else is built on.
+
+	Driven as the colleague rather than asserted on the response, because the claim is that
+	they can now *see* it — a 201 says a row was written and nothing about whether it granted
+	anything, which is exactly how this feature was missing for so long.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
+	)
+
+	username, colleague = _a_colleague(session, world)
+
+	assert colleague.call("GET", "/v1/projects/secret").status_code == 404
+
+	admitted = world.call("POST", "/v1/projects/secret/members", json={"username": username})
+
+	assert admitted.status_code == 201
+	assert admitted.json()["user"]["username"] == username
+	assert admitted.json()["project"] == "secret"
+
+	assert colleague.call("GET", "/v1/projects/secret").status_code == 200
+
+
+def test_who_can_see_a_project_is_readable_over_http (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Nothing answered *who can see this* on any surface before this route."""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
+	)
+
+	username, _colleague = _a_colleague(session, world)
+	world.call("POST", "/v1/projects/secret/members", json={"username": username})
+
+	body = world.call("GET", "/v1/projects/secret/members").json()
+
+	assert {row["user"]["username"] for row in body["items"]} == {
+		world.user.username,
+		username,
+	}
+	assert body["page"]["has_more"] is False, "a project's membership is bounded"
+
+
+def test_sharing_can_be_undone_over_http (session: sqlalchemy.orm.Session) -> None:
+	"""A membership that can only be granted is one whose mistakes are permanent."""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
+	)
+
+	username, colleague = _a_colleague(session, world)
+	world.call("POST", "/v1/projects/secret/members", json={"username": username})
+
+	assert colleague.call("GET", "/v1/projects/secret").status_code == 200
+
+	removed = world.call("DELETE", f"/v1/projects/secret/members/{username}")
+
+	assert removed.status_code == 204
+	assert colleague.call("GET", "/v1/projects/secret").status_code == 404
+
+
+def test_the_owner_cannot_be_removed_over_http (session: sqlalchemy.orm.Session) -> None:
+	"""A private project whose owner has been evicted is one nobody can repair."""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
+	)
+
+	username, _colleague = _a_colleague(session, world)
+	world.call("POST", "/v1/projects/secret/members", json={"username": username})
+
+	refused = world.call("DELETE", f"/v1/projects/secret/members/{world.user.username}")
+
+	assert refused.status_code == 422
+	assert "owns" in refused.json()["detail"]
+
+
+def test_a_project_nobody_can_see_is_not_sharable_by_a_stranger (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""§7.3a's concealment reaching the new route: 404, never 403.
+
+	A refusal naming a permission would confirm the project exists, which is the disclosure
+	privacy is for.
+	"""
+
+	world = test_api_tasks._world(session)
+	world.call(
+		"POST", "/v1/projects", json={"key": "secret", "title": "Secret", "visibility": "private"}
+	)
+
+	username, colleague = _a_colleague(session, world)
+
+	refused = colleague.call(
+		"POST", "/v1/projects/secret/members", json={"username": username}
+	)
+
+	assert refused.status_code == 404

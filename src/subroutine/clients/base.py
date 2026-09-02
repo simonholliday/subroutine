@@ -1090,6 +1090,40 @@ class Client(typing.Protocol):
 		mistake is somebody seeing a private project.
 		"""
 
+	def share_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> subroutine.views.ProjectMember:
+		"""Let one more person see a private project — item `#1444`.
+
+		**Sight, never authority.** What somebody may *do* in the project is still their
+		workspace role; this decides only whether they can see it at all. `#1452` is the other
+		half, and it is deliberately a different verb because sight inherits down the tree and
+		authority does not.
+		"""
+
+		raise NotImplementedError
+
+	def unshare_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> None:
+		"""Take somebody's sight of a project away again — item `#1444`.
+
+		Here rather than later, for the reason `#140` gives about anything that can be added:
+		a membership that can only be granted is one whose mistakes are permanent.
+		"""
+
+		raise NotImplementedError
+
+	def project_members (
+		self, project: str, *, workspace: str | None = None
+	) -> list[subroutine.views.ProjectMember]:
+		"""List who has been shared into a project — item `#1444`.
+
+		Nothing else answers *who can see this*, on any surface.
+		"""
+
+		raise NotImplementedError
+
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
 	) -> subroutine.views.Project:

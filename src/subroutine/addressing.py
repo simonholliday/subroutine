@@ -30,8 +30,22 @@ import typing
 #: ``tests/test_api_routing.py`` derives what these must contain from the real routers, so a
 #: sub-resource added later cannot leave this behind. It asserts containment rather than
 #: equality, which is what leaves room for ``sync``.
+#: **``members`` joined it with `#1444`**, which is the same arithmetic one route later: a
+#: project's address spans segments, so ``secret/members`` reads equally as a project keyed
+#: ``members`` inside ``secret`` and as who can see ``secret``. The route wins.
 RESERVED_PATH_WORDS = frozenset(
-	{"batch", "comments", "events", "move", "next", "parse", "restore", "search", "sync"}
+	{
+		"batch",
+		"comments",
+		"events",
+		"members",
+		"move",
+		"next",
+		"parse",
+		"restore",
+		"search",
+		"sync",
+	}
 )
 
 

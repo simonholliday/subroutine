@@ -1098,12 +1098,15 @@ def _tools (
 					"parent": {"type": "string", "description": "Put it inside this project."},
 					"private": {
 						"type": "boolean",
-						# **Not "only its members can see it"** (`#1450`). That was true and named
-						# a set that cannot grow — no route, command or tool writes a second
-						# `project_member` row — so it read as an invitation to add somebody.
-						# `#1444` corrected the same sentence on the CLI in `e98a848` and left
-						# this surface carrying it, which is the caller that can *create* one.
-						"description": "Only you can see it, and nothing can share it yet.",
+						# **`#1450`'s second edit, which `#1444` was always going to bring.**
+						# The first said "nothing can share it yet", which was true of every
+						# surface and is now false — so the sentence that stopped an agent
+						# looking for a way in has to name the one there is. That is a path
+						# rather than a tool because sharing is deliberately not on this
+						# surface: `subroutine_call_api` reaches it, and the act is a
+						# person's, since no agent can see a private project it did not make.
+						"description": "Only you can see it. "
+						"POST /v1/projects/{key}/members lets somebody else in.",
 					},
 					"workspace": WORKSPACE,
 				},

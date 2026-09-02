@@ -21,6 +21,42 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A private project can be shared. Until now it could not, by anybody, on any surface.**
+
+  `--private` has been offered since the first release and grants sight to holders of a project
+  membership row — of which exactly one was ever written, for the owner. So a private project
+  was a project of one, permanently, and nothing said so at the moment somebody chose it.
+
+  ```
+  subroutine project share secret jo
+  subroutine project sharing secret
+  subroutine project unshare secret jo
+  ```
+
+  Over HTTP that is `POST`, `GET` and `DELETE` on `/v1/projects/{key}/members`, gated by
+  `project:write` — anybody holding it can already publish the whole project by changing its
+  visibility, so naming one person is less disclosure than a flag they have anyway.
+
+  **It grants sight and nothing else.** What somebody may do in a project is still their role
+  in the workspace, so they have to be in it already; sharing with somebody who is not is
+  refused by name rather than writing a row that changes nothing.
+
+  Four things are refused because permitting them would look like working and do nothing: a
+  project everybody can already see, a project hidden by a private parent (the refusal names
+  the parent, which is the one to share), somebody outside the workspace, and removing either
+  the owner or the last person left — a private project nobody holds is one nobody can see or
+  make public again.
+
+  `subroutine project sharing` answers *who can see this*, which nothing anywhere answered
+  before. On a public project it reports the owner, which is who would still see it if you
+  made it private.
+
+  > **`members` is now a reserved project key.** A project's address spans path segments, so
+  > `secret/members` would read equally as a project keyed `members` inside `secret` and as
+  > who can see `secret` — and the route wins, leaving the project listed and reachable by
+  > nothing. New projects cannot be keyed that way; an existing one is unaffected until it is
+  > renamed. Nothing on any instance we know of uses it.
+
 - **`subroutine_whoami` reports the versions on your own machine, when your plugin says what
   they are.**
 

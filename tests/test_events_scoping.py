@@ -69,6 +69,12 @@ NARROWED_BY: dict[str, str] = {
 	"verification": "subject",
 	"workspace": "workspace",
 	"workspace_member": "workspace",
+	# **The project it is about, like a comment and a link** (`#1444`). A project membership
+	# row names a project and a person and nothing can decide who may see the event from that
+	# alone — and it must not be `workspace`, which is how a *workspace* membership is
+	# narrowed: that would publish who has been let into a private project to everybody in the
+	# workspace, which is the disclosure the row itself exists to control.
+	"project_member": "subject",
 }
 
 
@@ -374,6 +380,14 @@ def _recorded (session: sqlalchemy.orm.Session, world: World, kind: str) -> int:
 		"workspace_member": {
 			"entity_type": "workspace_member",
 			"entity_id": uuid.uuid4(),
+		},
+		# Narrowed by the project it happened on, so it reaches exactly those who can see that
+		# project — which for a private one is the people already in it (`#1444`).
+		"project_member": {
+			"entity_type": "project_member",
+			"entity_id": uuid.uuid4(),
+			"subject_type": "project",
+			"subject_id": world.project.id,
 		},
 	}[kind]
 

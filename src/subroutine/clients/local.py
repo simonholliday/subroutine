@@ -2378,6 +2378,60 @@ class Client:
 				session, chosen, account, actor=actor
 			)
 
+	def share_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> subroutine.views.ProjectMember:
+		"""Let one more person see a private project."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			account = subroutine.domain.users.by_username(session, username)
+			membership = subroutine.domain.projects.share(session, found, account, actor=actor)
+
+			return subroutine.views.project_member(
+				membership,
+				account=account,
+				within=found,
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+			)
+
+	def unshare_project (
+		self, project: str, *, username: str, workspace: str | None = None
+	) -> None:
+		"""Take somebody's sight of a project away again."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			account = subroutine.domain.users.by_username(session, username)
+
+			subroutine.domain.projects.unshare(session, found, account, actor=actor)
+
+	def project_members (
+		self, project: str, *, workspace: str | None = None
+	) -> list[subroutine.views.ProjectMember]:
+		"""List who has been shared into a project."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			rows = subroutine.domain.projects.members(session, found, actor=actor)
+			answerable = subroutine.domain.accountability.answerable_for_many(
+				session, [account.id for _row, account in rows]
+			)
+
+			return [
+				subroutine.views.project_member(
+					row, account=account, within=found, answers_to=answerable.get(account.id)
+				)
+				for row, account in rows
+			]
+
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
 	) -> subroutine.views.Project:

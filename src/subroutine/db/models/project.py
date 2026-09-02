@@ -155,10 +155,18 @@ class ProjectMember(
 	subroutine.db.mixins.WorkspaceScopedMixin,
 	subroutine.db.mixins.TimestampMixin,
 ):
-	"""Grants a user access to a private project.
+	"""Grants a user sight of a private project.
 
-	Empty for now — every project is public in the MVP. The table exists from the first
-	migration because adding it later is a migration, and having it costs nothing.
+	**Presence is the whole of what §7.3a reads** — ``authorization.visible_projects`` asks
+	whether a row exists and nothing about what is in it. ``role_id`` is a separate mechanism
+	that ``authorization._role_for`` does read, letting a project role replace the workspace
+	one, and it is NULL in every row anybody writes today; `#1452` is where exposing it
+	belongs, because sight inherits down the tree and authority deliberately does not.
+
+	**Written by ``projects.create`` for the owner, by ``projects.share``, and by
+	``projects._ensure_member`` when ownership moves.** This said *"empty for now — every
+	project is public in the MVP"* until `#1444`, which is what the table being unwritable by
+	any surface looked like from inside the model.
 	"""
 
 	__tablename__ = "project_member"

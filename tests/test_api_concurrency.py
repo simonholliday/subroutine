@@ -278,6 +278,18 @@ NOT_A_CHANGE_TO_THE_ENTITY: dict[str, str] = {
 	"DELETE /v1/documents/{id_or_ref}/links/{link_id}": (
 		"removes a link, addressed by its own id"
 	),
+	"POST /v1/projects/{id_or_key:path}/members": (
+		"writes a project membership, which is its own row — `#1444`. The project is not "
+		"touched: sharing changes who can see it and nothing about the project itself, so "
+		"its version does not move and there is no stale copy of it to be caught. What two "
+		"people could race over here is one membership, and the unique index on "
+		"(project_id, user_id) settles that — the second one is refused by name"
+	),
+	"DELETE /v1/projects/{id_or_key:path}/members/{username}": (
+		"removes a project membership, addressed by the person rather than by a row id, and "
+		"leaves the project untouched — `#1444`. Removing one twice is refused by name the "
+		"second time, which is what an `If-Match` would otherwise be asked to do here"
+	),
 }
 
 
