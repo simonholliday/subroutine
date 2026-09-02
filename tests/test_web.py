@@ -14056,6 +14056,62 @@ def test_a_column_says_when_it_was_the_one_that_was_cut (tmp_path: pathlib.Path)
 	)
 
 
+def test_a_column_heading_says_it_holds_more_whether_it_is_open_or_shut (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1845`, Simon 2026-09-02. The `+` was on the collapsed heading alone.
+
+	`SR#1790` put a sentence under each short column and a `+` beside the *shut* one's heading,
+	on the argument that a shut column has no room for the sentence. But the sentence sits
+	*below* the column, and a reader scanning four columns to see what is left never reaches it
+	— which is `SR#718`'s own reason for a tally in the heading at all. So an open column read
+	`25` where the same column shut read `25+`, and only the shut one answered the question
+	being asked.
+
+	**Both states are driven from one `cut`**, because what went wrong is that the two headings
+	derived the same fact separately and then parted company.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "title": "One", "status_category": "todo"},
+		{"ref": 2, "kind": "task", "title": "Two", "status_category": "todo"},
+		{"ref": 3, "kind": "task", "title": "Three", "status_category": "todo"},
+		{"ref": 4, "kind": "task", "title": "Underway", "status_category": "in_progress"},
+	]
+
+	# **Only `todo` was cut.** A board where every column is short cannot tell a mark that
+	# means something from one printed on every heading, which is §12.2a's rule and the reason
+	# the second half of this test exists.
+	account = {
+		"todo": {"more": True, "cursor": "abc", "total": None},
+		"in_progress": {"more": False, "cursor": None, "total": None},
+	}
+
+	def drawn (choices: dict[str, bool] | None) -> str:
+		"""Render the same board with these columns folded, and nothing else changed."""
+
+		return _rendered(tmp_path, {"Board": {
+			"items": rows, "workspace": "projects",
+			"selection": {"include_completed": "true"},
+			"cut": account, "choices": choices,
+		}})["Board"]
+
+	openly = drawn(None)
+	folded = drawn({"todo": True})
+
+	assert "3+" in openly, f"an open column that was cut did not say so in its heading: {openly}"
+	assert "3+" in folded, f"the same column shut stopped saying it: {folded}"
+
+	# **And a column nothing was held back from says the number alone**, in both states.
+	assert "1+" not in openly, f"a complete column claimed to hold more: {openly}"
+
+	shut_complete = drawn({"in_progress": True})
+
+	assert "1+" not in shut_complete, (
+		f"a complete column claimed to hold more once shut: {shut_complete}"
+	)
+
+
 def test_an_empty_column_only_claims_to_be_empty_when_it_was_asked_its_own_question (
 	tmp_path: pathlib.Path,
 ) -> None:

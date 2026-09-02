@@ -5616,6 +5616,27 @@ export function Board ({
 		return account && account.more ? account : null;
 	};
 
+	/*
+		**What a column's heading says it holds** — `#1845`, Simon 2026-09-02.
+
+		`#1790` gave every column its own allowance and a sentence under it for when that
+		allowance ran out, and the `+` went on the *collapsed* heading alone — on the argument
+		that a shut column has no room for the sentence the open one carries. That reads as
+		though the sentence is the instrument and the character is the fallback, and on a board
+		it is the other way round: the sentence is *below* the column, and a reader scanning
+		four columns to see what is left never reaches it. Which is `#718`'s own reason for
+		putting a tally in the heading at all. Simon met it on a *Drafts* column reading `25`
+		open and `25+` shut, where only the shut one answered the question he was asking.
+
+		**`#102` is untouched.** The `+` reinforces a fact the notice below still states in
+		words, which is the arrangement every mark in this app already uses.
+
+		**One derivation read by both headings**, rather than the same rule written twice. The
+		two spellings had already parted company once, which is how the open column came to say
+		less than the shut one.
+	*/
+	const tally = (column) => `${column.items.length}${held(column) ? "+" : ""}`;
+
 	const classFor = (column) =>
 		`column${over === column.key ? " over" : ""}`
 		+ (shut.has(column.key) ? " collapsed" : "");
@@ -5686,21 +5707,14 @@ export function Board ({
 											     *not shown* where that is why this is shut — otherwise a column
 											     nobody asked for would read as a column holding nothing, which is
 											     the false statement `#742` exists to prevent, said sideways. */ null}
-										${/* **A `+` where the column was cut**, because a shut column has no
-										     room for the sentence the open one carries. `#102` forbids saying
-										     something in a shape *alone*; this is reinforcement of a fact the
-										     expanded column states in words, which is the same arrangement
-										     every mark in this app already uses. */ null}
 										<span class="tally">
-											${unasked(column)
-												? NOT_SHOWN
-												: `${column.items.length}${held(column) ? "+" : ""}`}
+											${unasked(column) ? NOT_SHOWN : tally(column)}
 										</span>
 									</button>
 								</h2>`
 							: html`
 								<h2>${column.label}${!unasked(column) && html`${" "}
-									<span class="tally">${column.items.length}</span>`}
+									<span class="tally">${tally(column)}</span>`}
 									${onCollapse && html`<button type="button" class="shut reveal"
 										aria-expanded="true" aria-label=${`Collapse ${column.label}`}
 										onClick=${() => onCollapse(column.key, true)}>−</button>`}</h2>

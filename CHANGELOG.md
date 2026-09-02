@@ -320,6 +320,15 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+- **A board column says it is holding more than it shows, whether it is open or shut.** The
+  `+` beside a column's count appeared only when the column was collapsed, so an expanded
+  *Drafts* column read `25` while the same column folded read `25+`. The sentence saying so is
+  under the column, which is exactly where somebody scanning four headings to see what is left
+  does not look.
+
+  The count and the mark are one answer now, read by both headings. A column nothing was held
+  back from still shows the number alone.
+
 - **The agent tools stop offering the change feed filters it refuses.** `subroutine_changes`
   and `subroutine_journal` shared their filter description with `subroutine_list`, so both
   told an agent it could narrow a feed by a deadline, an estimate or a rank — and every one of
