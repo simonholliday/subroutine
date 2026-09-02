@@ -4581,13 +4581,53 @@ def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list
 	# **Nothing to compare, so nothing is claimed** (`#564`). Every clause below asks whether
 	# two versions agree, and there is only one version here — so they are skipped rather than
 	# fed the instance twice, which is precisely how this reported agreement with itself.
-	if program is None:
+	#
+	# **Keyed on knowing nothing about the caller, not on the program alone** (`#839`). Those
+	# were the same condition until the reading half shipped, and then they stopped being:
+	# `plugins/subroutine-remote/.mcp.json` sends `Subroutine-Plugin` and **no**
+	# `Subroutine-Program`, because nothing of ours runs on that machine — the editor posts
+	# straight to `/mcp` and the only version that exists is the literal in the manifest. Left
+	# keyed on the program, this refusal would have discarded the one version the caller *did*
+	# send and told the remote-plugin population exactly what it told them before, which is the
+	# population `#839` is most for.
+	if program is None and plugin is None:
 		return [
 			f"Instance {instance}{schema}.",
 			"What you are running is not visible from here — these tools answer on the "
 			"instance, and your plugin and program are on your own machine. Run 'subroutine "
 			"whoami' in a terminal there to compare all three.",
 		]
+
+	if program is None:
+		# **A plugin and no program is a whole answer rather than half of one**, and saying the
+		# program is not visible would be false: on this shape there is no program, so there is
+		# nothing to see. The comparison that survives is the plugin against the *instance* —
+		# `scripts/release.py` sets every manifest and the package to one number at a release,
+		# so a plugin behind the instance is a stale cached copy, which is the same fault the
+		# clause below names against the program and the only form of it this caller can have.
+		lines = [f"Plugin {plugin}, instance {instance}{schema}."]
+		cached = None if plugin is None else subroutine.installations.ordered(plugin)
+		serving = (
+			None
+			if me.instance_version is None
+			else subroutine.installations.ordered(me.instance_version)
+		)
+
+		if cached is not None and serving is not None and cached < serving:
+			lines.append(
+				"The plugin is older than the instance, so its skill and its configuration "
+				"describe an earlier version of these tools. Refreshing the plugin is the fix."
+			)
+
+		elif cached is None or serving is None:
+			# `#1617`'s rule, and it applies here for the same reason: silence has two causes
+			# and only one of them is agreement. A development build cannot be ranked at all.
+			lines.append(
+				"A development build's version is fixed at install time rather than "
+				"describing the code it runs, so it cannot be ranked."
+			)
+
+		return lines
 
 	seen = [] if plugin is None else [f"plugin {plugin}"]
 

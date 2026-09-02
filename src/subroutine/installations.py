@@ -25,6 +25,7 @@ follows, and for the same reason.
 import json
 import os
 import pathlib
+import typing
 
 import subroutine
 
@@ -154,3 +155,69 @@ def calling () -> dict[str, str]:
 		said[PLUGIN_HEADER] = cached
 
 	return said
+
+
+class Caller (typing.NamedTuple):
+	"""What a request said it was running, where it said anything at all — `SR#839`.
+
+	**Both halves are null-by-default and null means *the caller did not say*.** It never means
+	*the caller is running nothing*, and the difference is the whole reason `#564`'s refusal
+	exists: reporting a version we did not receive is how *"Program X, instance X"* happened,
+	with X the instance twice and one of them labelled as the caller's.
+
+	A missing program means nothing of ours is running there — the ``subroutine-remote`` shape,
+	where the editor posts straight to ``/mcp``. A missing plugin means no plugin contributed
+	the connection: a bare CLI, or a script.
+	"""
+
+	program: str | None = None
+	plugin: str | None = None
+
+	@property
+	def said_anything (self) -> bool:
+		"""Whether this caller named either of its installations."""
+
+		return self.program is not None or self.plugin is not None
+
+
+#: A caller that named neither of its installations — which is every caller before `SR#839`'s
+#: reading half shipped, and every caller one release behind after it.
+#:
+#: **Named rather than spelled as an empty constructor at each default**, because it is the
+#: value four signatures carry and *said nothing* is what it means at all four. It is also what
+#: `SR#564`'s refusal is written about: the honest answer when this side cannot see the caller's
+#: machine, which stays honest whatever else changes.
+SAID_NOTHING = Caller()
+
+
+def said_by (headers: typing.Mapping[str, str]) -> Caller:
+	"""Read what a caller said it is running, off the headers :func:`calling` writes.
+
+	**The reading half of `SR#839`, beside the writing half deliberately.** The sending half
+	shipped on 2026-08-24 and nothing read it for nine days; a reader written at the far end
+	would have been a second copy of the two header names, free to stop matching the day one
+	moved. One module owns both directions, and ``tests/test_installations.py`` drives them
+	against each other.
+
+	**Nothing here validates the strings.** They are the caller's claim about itself, in a
+	field the caller controls, and `SR#1426` §1 is explicit that this is worth having *because*
+	an honest client is the common case rather than because the value is trustworthy. What must
+	never happen is a claim reaching an authorisation decision, and nothing here can: the value
+	is rendered into one diagnostic line and stored nowhere.
+
+	**Case-insensitively**, because HTTP header names are — and because the two clients that
+	send these and the server that reads them are three different libraries' idea of a mapping.
+	Starlette's own headers are already case-insensitive; a plain dict from a test is not, and
+	that difference is exactly the kind that passes in a unit test and fails on the wire.
+	"""
+
+	folded = {name.lower(): value for name, value in headers.items()}
+
+	def stated (name: str) -> str | None:
+		"""Return one header's value, treating an empty string as nothing said."""
+
+		value = folded.get(name.lower())
+
+		return value.strip() or None if value is not None else None
+
+	return Caller(program=stated(PROGRAM_HEADER), plugin=stated(PLUGIN_HEADER))

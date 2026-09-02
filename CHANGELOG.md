@@ -21,6 +21,18 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **`subroutine_whoami` reports the versions on your own machine, when your plugin says what
+  they are.**
+
+  These tools run on the instance, so what is installed where you are was never visible to
+  them — the answer said so, honestly, and left you to check by hand. Both plugins have been
+  sending `Subroutine-Program` and `Subroutine-Plugin` on every request since 0.8.2, and the
+  instance now reads them: a plugin older than the program, or older than the instance where
+  you reached it by address and have no program of your own, is named as behind.
+
+  A caller that sends nothing is told exactly what it was told before. A version that cannot be
+  put in order still says so rather than staying silent.
+
 - **Every event records which door the request came in through.**
 
   An item's history now says whether each change arrived over MCP, over the HTTP API, from

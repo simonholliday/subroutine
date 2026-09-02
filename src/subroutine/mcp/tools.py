@@ -657,7 +657,10 @@ def _on_one_line (title: str) -> str:
 
 
 def catalogue (
-	client: subroutine.clients.base.Client, *, workspace: str | None = None
+	client: subroutine.clients.base.Client,
+	*,
+	workspace: str | None = None,
+	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
 ) -> list[subroutine.mcp.protocol.Tool]:
 	"""Return the tools, bound to one connection and — optionally — to one workspace.
 
@@ -673,7 +676,7 @@ def catalogue (
 	started. A setting somebody wrote down is a decision they can see.
 	"""
 
-	return _within(workspace, _tools(client))
+	return _within(workspace, _tools(client, caller=caller))
 
 
 def _within (
@@ -718,7 +721,11 @@ def _within (
 	return [bound(tool) for tool in tools]
 
 
-def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.protocol.Tool]:
+def _tools (
+	client: subroutine.clients.base.Client,
+	*,
+	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
+) -> list[subroutine.mcp.protocol.Tool]:
 	"""Return the tools themselves, bound to one connection."""
 
 	return [
@@ -1202,7 +1209,7 @@ def _tools (client: subroutine.clients.base.Client) -> list[subroutine.mcp.proto
 				"different principal, which is silent when it is wrong."
 			),
 			schema={"type": "object", "properties": {}},
-			call=lambda arguments: _whoami(client),
+			call=lambda arguments: _whoami(client, caller),
 			annotations=READS,
 		),
 		subroutine.mcp.protocol.Tool(
@@ -1417,7 +1424,10 @@ def _claimed (
 	return f"Claimed #{held.ref}  {held.title}{until}"
 
 
-def _whoami (client: subroutine.clients.base.Client) -> str:
+def _whoami (
+	client: subroutine.clients.base.Client,
+	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
+) -> str:
 	"""Return which principal these tools act as, and what it may do — item ``#347``.
 
 	**A tool rather than a line in the server instructions**, and the reason is that the two
@@ -1502,16 +1512,29 @@ def _whoami (client: subroutine.clients.base.Client) -> str:
 	# `#564` records, which this does not build.
 	beside_the_caller = subroutine.installations.plugin()
 
-	lines.append("")
-	lines.extend(
-		subroutine.views.versions(
-			me,
+	# **What the caller said outranks what this process can see** (`#839`). The two are never
+	# both available and never disagree: a value in `caller` means the request arrived over a
+	# transport carrying `installations.calling()`, and `beside_the_caller` means this code is
+	# running *in* the caller's own process, where no request was made at all. So this is a
+	# choice between two ways of knowing rather than a precedence rule to get right.
+	#
+	# **The sending half shipped on 2026-08-24 and nothing read it for nine days.** That was
+	# deliberate — a plugin is a cache key, so the stale copy is on somebody's machine, and a
+	# fix teaching only a *future* instance to notice would be useless for exactly the
+	# population it is for. This is the other half arriving.
+	said = (
+		caller
+		if caller.said_anything
+		else subroutine.installations.Caller(
 			program=(
 				None if beside_the_caller is None else subroutine.installations.program()
 			),
 			plugin=beside_the_caller,
 		)
 	)
+
+	lines.append("")
+	lines.extend(subroutine.views.versions(me, program=said.program, plugin=said.plugin))
 
 	# **`machine` follows `program`'s own test** (`#1089`, `#564`). Where the caller's
 	# installation is not visible from here the process is the *server*, so reading its zone

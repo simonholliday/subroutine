@@ -18,6 +18,7 @@ decision the caller can see rather than one a process makes on their behalf.
 import typing
 
 import subroutine.clients.base
+import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.tools
 
@@ -28,6 +29,7 @@ def over (
 	label: str,
 	workspace: str | None = None,
 	elsewhere: typing.Sequence[str] = (),
+	caller: subroutine.installations.Caller = subroutine.installations.SAID_NOTHING,
 ) -> subroutine.mcp.protocol.Server:
 	"""Return a server over a client somebody else opened.
 
@@ -39,10 +41,17 @@ def over (
 	``label`` is what the instructions call the thing being written to. Over stdio that is the
 	caller's own connection name; on a served endpoint it is the instance's, because the
 	caller's alias for it is private and this side has never heard it (`#330`).
+
+	``caller`` is what the request said it was running — `SR#839`. **Empty by default and empty
+	meaning the caller said nothing**, which is what every caller did before this shipped and
+	what a caller one release behind still does. It is threaded rather than read here because
+	only the transport has a request: since `#539` these tools run wherever the *instance* runs,
+	so :func:`subroutine.installations.plugin` in this process reads the server's environment
+	rather than the caller's.
 	"""
 
 	return subroutine.mcp.protocol.Server(
-		subroutine.mcp.tools.catalogue(client, workspace=workspace),
+		subroutine.mcp.tools.catalogue(client, workspace=workspace, caller=caller),
 		name="subroutine",
 		version=subroutine.__version__,
 		instructions=_instructions(label, elsewhere, workspace),

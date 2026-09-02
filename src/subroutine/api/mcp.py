@@ -56,6 +56,7 @@ import subroutine.connections
 import subroutine.domain.authentication
 import subroutine.domain.instances
 import subroutine.errors
+import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.session
 
@@ -182,7 +183,15 @@ def call (
 	# credential is resolved again, in the session that uses it.
 	name = _instance_name(session)
 	server = subroutine.mcp.session.over(
-		_client(request, settings, name=name), label=name, workspace=workspace
+		_client(request, settings, name=name),
+		label=name,
+		workspace=workspace,
+		# **The reading half of `#839`, and this is the only place it can be read.** The tools
+		# run wherever the *instance* runs (`#539`), so nothing below this line can see the
+		# caller's machine; the request is the one thing that came from it. A caller that sent
+		# nothing yields an empty `Caller`, which is what every caller did before this shipped
+		# and what `#564`'s refusal goes on saying.
+		caller=subroutine.installations.said_by(request.headers),
 	)
 
 	answer = subroutine.mcp.protocol.answer(server, body)

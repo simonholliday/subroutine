@@ -326,6 +326,74 @@ class TestTheRenderedLine:
 
 		assert lines == ["Program 1.0.0, instance 1.0.0, schema abcdef123456."]
 
+	def test_a_plugin_with_no_program_beside_it_is_still_reported (self) -> None:
+		"""`SR#839`, and the population it is most for sends exactly this.
+
+		``plugins/subroutine-remote/.mcp.json`` carries ``Subroutine-Plugin`` and **no**
+		``Subroutine-Program``, because nothing of ours runs on that machine — the editor posts
+		straight to ``/mcp`` and the only version that exists is the literal in the manifest.
+
+		**`#564`'s refusal was keyed on the program alone**, which was the same condition as
+		*knowing nothing about the caller* until the reading half shipped. Left that way it would
+		have discarded the one version this caller does send and answered *"not visible from
+		here"* to somebody announcing themselves on every request.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="1.0.0"), program=None, plugin="1.0.0"
+		)
+
+		assert lines == ["Plugin 1.0.0, instance 1.0.0, schema abcdef123456."]
+
+	def test_a_plugin_behind_the_instance_is_named_as_behind (self) -> None:
+		"""`#417`'s rule applied to the only comparison a remote caller can have.
+
+		**Behind, not merely different.** A manifest's version leads between releases by design
+		(`#396`), so warning about *ahead* trains a reader to ignore the line. With no program
+		on that machine the instance is the other side, and it is a fair one:
+		``scripts/release.py`` sets every manifest and the package to a single number at a
+		release, so a plugin behind the instance is a stale cached copy.
+		"""
+
+		behind = subroutine.views.versions(
+			_me(instance_version="1.4.0"), program=None, plugin="1.2.0"
+		)
+
+		assert any("older than the instance" in line for line in behind), behind
+
+		ahead = subroutine.views.versions(
+			_me(instance_version="1.2.0"), program=None, plugin="1.4.0"
+		)
+
+		assert not any("older than" in line for line in ahead), ahead
+
+	def test_a_plugin_that_cannot_be_ranked_says_so_rather_than_nothing (self) -> None:
+		"""`SR#1617`'s rule reaches the new branch: silence has two causes and one is agreement.
+
+		A development build's version is fixed at install time rather than describing the code
+		it runs, so ``installations.ordered`` declines it — and a branch that simply said
+		nothing would read as *compared and agreed*, which is the defect `#1617` was filed for
+		one clause along.
+		"""
+
+		lines = subroutine.views.versions(
+			_me(instance_version="0.8.8.dev45+g5ff2a01e0"), program=None, plugin="0.8.10"
+		)
+
+		assert any("cannot be ranked" in line for line in lines), lines
+
+	def test_neither_a_program_nor_a_plugin_is_still_refused (self) -> None:
+		"""`#564`'s answer survives for the caller that genuinely said nothing.
+
+		**This is what stops the branch above being reached by widening.** An instance reporting
+		its own version under the word *Program* is the defect `#564` exists for.
+		"""
+
+		lines = subroutine.views.versions(_me(instance_version="1.0.0"), program=None)
+
+		assert lines[0] == "Instance 1.0.0, schema abcdef123456."
+		assert "not visible from here" in lines[1]
+
 	def test_a_plugin_is_named_first (self) -> None:
 		"""An agent's session has three, and the one it can least easily check leads."""
 

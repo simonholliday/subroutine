@@ -210,13 +210,21 @@ Three answers are worth acting on:
   no work" rather than "you cannot see it".
 - **A line after the versions** names something worth acting on, and they are different
   problems: *the program and the instance disagree* means one of them has a field the other does
-  not; *the plugin is older than the program* means this skill and the plugin's settings describe
-  an earlier version of these tools; *a development build's version cannot be ranked* means the
-  comparison was not made at all, so read the numbers yourself rather than waiting to be told.
+  not; *the plugin is older than the program* — or *older than the instance*, where you reached
+  this by address and have no program of your own — means this skill and the plugin's settings
+  describe an earlier version of these tools; *a development build's version cannot be ranked*
+  means the comparison was not made at all, so read the numbers yourself rather than waiting to
+  be told.
 
 **That is why the versions are printed at all.** The plugin, the program and the instance
 upgrade separately, so you may be holding a tool description written for a program that has not
-been updated, or talking to an instance that has. You cannot tell a capability that does not
+been updated, or talking to an instance that has.
+
+**And *"what you are running is not visible from here"* now means you sent nothing, rather than
+that it could not be known.** These tools answer on the instance, so what is on your own machine
+reaches it only because your plugin announces it on every request. A plugin that names itself is
+reported and compared; one that does not is met with that sentence, and the remedy is the same as
+it ever was — run `subroutine whoami` in a terminal on your own machine. You cannot tell a capability that does not
 exist from one that is merely too old from where you sit, and guessing wrongly costs the person
 an hour. Report the line as it stands and let them fix it; refreshing any of them is theirs to
 do, not yours.
