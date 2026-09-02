@@ -329,7 +329,11 @@ def authenticate (
 		opened.last_used_at = moment
 		opened.expires_at = moment + SESSION_LIFETIME
 
-	return subroutine.domain.authentication.Principal(user=user, session=opened)
+	return subroutine.domain.authentication.Principal(
+		user=user,
+		session=opened,
+		interface=subroutine.domain.authentication.BROWSER,
+	)
 
 
 def sign_out (

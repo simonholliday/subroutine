@@ -101,6 +101,11 @@ def record (
 		workspace_id=workspace_id,
 		actor_user_id=None if actor is None else actor.user.id,
 		actor_token_id=None if actor is None or actor.token is None else actor.token.id,
+		# **One line reaches every event write, including ones nobody has written yet** —
+		# `#1415`, and `#405`'s rule about putting a check where everything must pass, applied
+		# to a field. This is the only place an `Event` is constructed, and it already reads
+		# the actor's other two identity facts off the principal.
+		actor_interface=None if actor is None else actor.interface,
 		entity_type=entity_type,
 		entity_id=entity_id,
 		subject_type=subject_type,

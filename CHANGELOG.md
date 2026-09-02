@@ -14,13 +14,29 @@ upgrade involves.
 
 ## Unreleased
 
-> **This release changes the database schema**, to `a986838fadc4`.
+> **This release changes the database schema**, to `937352bb16de`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **Every event records which door the request came in through.**
+
+  An item's history now says whether each change arrived over MCP, over the HTTP API, from
+  the browser, from a calendar feed, or from somebody at the machine with the database file.
+  `GET /v1/tasks/{ref}/events` and `GET /v1/changes` report it as `actor_interface`, beside
+  the account and the credential they already carried.
+
+  It is the one thing on that row nobody asserts. A credential's name is typed once by a
+  person and never changes, and a client announces whatever name it likes; this is what the
+  instance observed. **It is an audit trail and never an authorisation input** — nothing about
+  a door decides what anybody may do.
+
+  Null means nobody said, which is what a system write records — seeding, a migration's data
+  fix, `subroutine init` — and what every event written before this upgrade says. That is not
+  the same as `local`, which is a positive claim that there was no request at all.
+
 - **A listing can be narrowed by rank, and by whether a field is set at all.**
 
   `?urgency.gte=3` and `?importance.eq=5` work — both were sortable and unaskable, so you

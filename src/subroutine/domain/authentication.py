@@ -40,6 +40,41 @@ LAST_USED_INTERVAL = datetime.timedelta(minutes=1)
 #: explaining an integrity error to whoever hit it.
 PREFIX_ATTEMPTS = 5
 
+#: The doors a request can arrive through — decision `SR#1426` §2, and `SR#1415` is the item.
+#:
+#: **The one thing about a request that nobody asserts.** A credential's name is typed once by
+#: a human and never changes; a client's name is announced by the program on every connection.
+#: Both are worth recording and both are claims. This is neither: it is what we *observed* about
+#: where the request came in, so it is the fact an audit can lean on when the other two are
+#: disputed.
+#:
+#: **The CLI is not one of these, and that is the correction `SR#1426` §2 makes to its own
+#: question.** Talking to a served instance the CLI makes ordinary HTTP requests with a bearer
+#: token, indistinguishable at the door from any other API client. What identifies a *program*
+#: is the ``Subroutine-Program`` header, which is `SR#839`.
+MCP = "mcp"
+API = "api"
+BROWSER = "browser"
+FEED = "feed"
+
+#: No request at all — ``clients/local.py`` opening the database directly (§12.1a).
+#:
+#: **A real value rather than an absence to paper over.** It is the most privileged path in the
+#: product, because §12.4's recovery property depends on it working when the service will not,
+#: and it is therefore the origin an operator most wants named afterwards. An event that could
+#: not say *this happened at the machine* would be missing exactly that one.
+LOCAL = "local"
+
+#: Every door, for the guards that have to check one against the set.
+INTERFACES = frozenset({MCP, API, BROWSER, FEED, LOCAL})
+
+#: Which credential each door implies, where a door implies one at all.
+#:
+#: A bearer token arrives through two doors — ``/mcp`` and ``/v1`` — so the token is absent from
+#: this map in both directions: it is the one kind that does not name its own interface, which
+#: is why :func:`authenticate` has to be told.
+_CREDENTIAL_OF = {BROWSER: "session", FEED: "feed"}
+
 
 class AuthenticationFailure(enum.StrEnum):
 	"""Why a credential was refused.
@@ -109,12 +144,32 @@ class Principal:
 	#: kind that did not exist when it was written can be answered correctly.
 	feed: subroutine.db.models.identity.CalendarFeed | None = None
 
+	#: Which door this request came in through — `SR#1415`, decision `SR#1426`.
+	#:
+	#: **Null means *not stated*, never *unknown*** (§12.3's rule about the timezone chain,
+	#: which `SR#1426` restates for this field). The difference matters the moment anybody
+	#: filters on it: an instance a release behind, a caller this code has not been taught
+	#: about, and *we could not tell* are one answer, and *it arrived over MCP* is another.
+	#:
+	#: **Never an authorisation input.** :func:`authenticate` already checks revocation,
+	#: expiry, activity and the whole accountability chain on every request; this is what
+	#: lets somebody answer *what actually did this* afterwards, which is what an
+	#: accountability chain is for once a person disputes it.
+	interface: str | None = None
+
 	def __post_init__ (self) -> None:
 		"""Refuse a principal that claims to hold more than one credential at once.
 
 		Nothing constructs one, and that is the point: the properties below would have to
 		decide which of them narrows, and any answer to that is a rule in a second place.
+
+		**And refuse a door that disagrees with the credential presented at it.** A stated
+		interface is meant to be the one fact here nobody asserts, so a principal saying
+		``browser`` while holding an API token would make it an assertion like any other —
+		quietly, in the audit trail, where nothing else would ever compare the two.
 		"""
+
+		self._refuse_a_door_that_disagrees()
 
 		held = [
 			name
@@ -130,6 +185,58 @@ class Principal:
 			raise ValueError(
 				f"A principal presents one credential. {' and '.join(held)} together would "
 				f"leave it ambiguous which one bounds the caller."
+			)
+
+	def _refuse_a_door_that_disagrees (self) -> None:
+		"""Refuse a stated interface that the presented credential contradicts.
+
+		**A door is where a request arrived, not what it presented, and the two are easy to
+		conflate.** The first version of this refused ``local`` for any principal holding a
+		credential — reading :attr:`is_local` as the definition — and that is wrong in the
+		commonest agent setup there is: an agent on a personal machine holds a token in
+		``SUBROUTINE_TOKEN_LOCAL`` and reaches the database through ``clients/local.py``, which
+		opens the file directly. There is no request, so the door is ``local``; the token
+		narrows what it may do and says nothing about where it is.
+
+		That is `#364`'s lesson inverted. Its warning was that *the absence of a token stops
+		meaning the absence of a credential*; the mistake here was making ``local`` mean *no
+		credential* when `SR#1426` §2 defines it as *no request at all*.
+
+		**So what each door genuinely implies**: a browser session arrives at the browser and a
+		feed credential at the feed, both ways round; ``api`` and ``mcp`` are reached with a
+		bearer token, because a cookie at ``/v1`` is built as ``browser`` before this is ever
+		asked; and ``local`` is compatible with a token and with nothing, and with neither of
+		the two credentials that only exist over a transport.
+		"""
+
+		if self.interface is None:
+			return
+
+		if self.interface not in INTERFACES:
+			raise ValueError(
+				f"{self.interface!r} is not a door a request can arrive through. "
+				f"Expected one of: {', '.join(sorted(INTERFACES))}."
+			)
+
+		if self.interface == LOCAL and (self.session is not None or self.feed is not None):
+			raise ValueError(
+				"A local caller opens the database directly, so there is no request — and a "
+				"browser session and a calendar feed only exist over one."
+			)
+
+		wanted = _CREDENTIAL_OF.get(self.interface)
+
+		if wanted is not None and getattr(self, wanted) is None:
+			raise ValueError(
+				f"A principal that arrived at the {self.interface} door presents "
+				f"{'a browser session' if wanted == 'session' else 'a calendar feed'}, and "
+				f"this one does not."
+			)
+
+		if self.interface in (API, MCP) and self.token is None:
+			raise ValueError(
+				f"A request at the {self.interface} door authenticates with a token, and this "
+				f"principal presents none."
 			)
 
 	@property
@@ -588,6 +695,7 @@ def authenticate (
 	*,
 	now: datetime.datetime | None = None,
 	record_use: bool = True,
+	interface: str | None = None,
 ) -> Principal:
 	"""Resolve a presented token into the principal holding it.
 
@@ -603,6 +711,12 @@ def authenticate (
 
 	Recording it once per request is not a compromise reached to avoid that: a request is one
 	use, and counting it twice was always wrong. The deadlock is what made it visible.
+
+	**``interface`` is the one thing this function cannot work out for itself** — `SR#1415`. A
+	bearer token arrives at ``/mcp`` and at ``/v1`` alike, and which of them it was is a fact
+	about the transport, which the domain deliberately knows nothing about. So the caller that
+	holds the request says. ``None`` is *not stated* rather than *unknown*, and every other
+	construction site spells its own door as a literal because it has only one.
 	"""
 
 	parsed = subroutine.auth.parse_token(presented)
@@ -638,7 +752,7 @@ def authenticate (
 		_record_use(token, moment)
 
 
-	return Principal(user=user, token=token)
+	return Principal(user=user, token=token, interface=interface)
 
 
 def _refuse_an_agent_nobody_answers_for (

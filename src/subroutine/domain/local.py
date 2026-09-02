@@ -113,10 +113,22 @@ def _from_token (
 	A token that has expired or been revoked is an error, never a quiet fall-through to
 	rule 2. A credential that stops narrowing when it lapses is worse than no credential:
 	the agent would carry on working, with more authority than it had a moment ago.
+
+	**The door is still ``local``, and a token does not make one** — `SR#1415`, and
+	`SR#1426` §2's definition is the test: *there is no request at all*. A credential here
+	narrows what the caller may do; it does not change where the caller is, which is a process
+	opening the database file directly.
+
+	**This is the branch that would otherwise say nothing**, and it is the commonest agent
+	setup rather than an edge: an agent given its own identity on a personal machine holds
+	``SUBROUTINE_TOKEN_LOCAL`` and reaches the database through this function. Left unset, every
+	event it wrote would record no door while a person at the same terminal recorded ``local``.
 	"""
 
 	try:
-		return subroutine.domain.authentication.authenticate(session, token)
+		return subroutine.domain.authentication.authenticate(
+			session, token, interface=subroutine.domain.authentication.LOCAL
+		)
 
 	except subroutine.errors.SubroutineError as error:
 		# **Named from where it actually came from** (`#175`). This said "SUBROUTINE_TOKEN
@@ -166,7 +178,9 @@ def _named (
 			hint=_candidates_hint(session),
 		)
 
-	return subroutine.domain.authentication.Principal(user=found)
+	return subroutine.domain.authentication.Principal(
+		user=found, interface=subroutine.domain.authentication.LOCAL
+	)
 
 
 def _sole (session: sqlalchemy.orm.Session) -> subroutine.domain.authentication.Principal:
@@ -175,7 +189,9 @@ def _sole (session: sqlalchemy.orm.Session) -> subroutine.domain.authentication.
 	users = _live_users(session, limit=2)
 
 	if len(users) == 1:
-		return subroutine.domain.authentication.Principal(user=users[0])
+		return subroutine.domain.authentication.Principal(
+			user=users[0], interface=subroutine.domain.authentication.LOCAL
+		)
 
 	if not users:
 		raise subroutine.errors.NotFound(

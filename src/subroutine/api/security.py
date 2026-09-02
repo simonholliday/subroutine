@@ -124,7 +124,38 @@ def from_bearer_token (
 	_refuse_a_credential_of_another_kind(credential)
 
 	return subroutine.domain.authentication.authenticate(
-		session, credential, record_use=record_use
+		session, credential, record_use=record_use, interface=_door(request)
+	)
+
+
+#: Where the MCP server answers, for the one purpose of telling its door from the API's.
+#:
+#: **A literal with a guard rather than an import** — `api/mcp.py` imports this module, so
+#: reading ``subroutine.api.mcp.PATH`` here would be a cycle.
+#: ``tests/test_api_security.py`` holds this against that constant, which is what stops the two
+#: drifting: a copy nothing compares is this codebase's signature defect, and a copy something
+#: compares is a copy that cannot rot.
+MCP_PATH = "/mcp"
+
+
+def _door (request: starlette.requests.Request) -> str:
+	"""Say which door a bearer token was presented at — `SR#1415`, decision `SR#1426` §2.
+
+	**A token is the one credential that arrives at two of them**, so this is the only place
+	the interface has to be worked out rather than stated: a browser session, a calendar feed
+	and a local caller each know their own at the point they are constructed.
+
+	**Anything that is not the MCP endpoint is the API**, deliberately, rather than a third
+	value for *something else*. Every other authenticated route is under ``/v1`` and is the
+	HTTP API by definition — the CLI talking to a served instance included, which is
+	`SR#1426` §2's own correction: the CLI is a program, not a door, and what names a program
+	is ``Subroutine-Program`` (`SR#839`).
+	"""
+
+	return (
+		subroutine.domain.authentication.MCP
+		if request.url.path == MCP_PATH
+		else subroutine.domain.authentication.API
 	)
 
 

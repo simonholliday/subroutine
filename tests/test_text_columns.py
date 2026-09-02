@@ -355,6 +355,7 @@ NOT_TYPED: dict[str, str] = {
 	"comment.entity_type": "a discriminator this code writes, from a fixed set",
 	"document.path": "derived from the tree, and bounded by the depth limit instead",
 	"event.action": "a discriminator this code writes, from a fixed set",
+	"event.actor_interface": "observed, never sent — and `Principal` refuses a door that is not in `authentication.INTERFACES`",
 	"event.entity_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_b_type": "a discriminator this code writes, from a fixed set",
 	"event.subject_type": "a discriminator this code writes, from a fixed set",

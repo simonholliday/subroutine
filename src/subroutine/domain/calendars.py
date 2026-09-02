@@ -501,7 +501,9 @@ def occasions (
 	if owner is None:
 		return []
 
-	principal = subroutine.domain.authentication.Principal(user=owner, feed=feed)
+	principal = subroutine.domain.authentication.Principal(
+		user=owner, feed=feed, interface=subroutine.domain.authentication.FEED
+	)
 	task = subroutine.db.models.work.Task
 
 	# **Completed work is included and templates are asked for**, which is where this differs

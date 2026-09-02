@@ -142,6 +142,28 @@ class Event(subroutine.db.base.Base, subroutine.db.mixins.WorkspaceScopedMixin):
 		subroutine.db.types.uuid_column(),
 		nullable=True,
 	)
+
+	# Which door the request came in through — `#1415`, decision `#1426`. One of
+	# `domain.authentication.INTERFACES`: `mcp`, `api`, `browser`, `feed` or `local`.
+	#
+	# **The third axis of a question this table already asks in two.** It carries the account
+	# and the credential it presented as separate facts; *what actually made the request* is
+	# the same question again, and the two above it are both things somebody chose. A
+	# credential's name is typed once by a human and never changes. This is observed.
+	#
+	# **Null means nobody said, and that is not the same as `local`.** A system write — seeding,
+	# a migration's data fix, `subroutine init` — has no principal at all, and a principal built
+	# before this shipped states nothing. `local` is a positive claim that somebody was at the
+	# machine with the database file, which is §12.1a's most privileged path and the one an
+	# operator most wants named afterwards.
+	#
+	# **A string rather than an enum, matching `entity_type` and `action` beside it.** A door
+	# this code has not been taught about should be recordable by the release that learns it,
+	# without a migration; and the check that a *stated* one is coherent with the credential
+	# presented lives on `Principal`, where both facts are in the same object.
+	actor_interface: sqlalchemy.orm.Mapped[str | None] = sqlalchemy.orm.mapped_column(
+		sqlalchemy.String(16), nullable=True
+	)
 	entity_type: sqlalchemy.orm.Mapped[str] = sqlalchemy.orm.mapped_column(
 		sqlalchemy.String(32), nullable=False
 	)

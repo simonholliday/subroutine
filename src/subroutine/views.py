@@ -1098,6 +1098,25 @@ class Event(pydantic.BaseModel):
 	actor_user_id: uuid.UUID | None
 	actor_token_id: uuid.UUID | None
 
+	#: Which door the request came in through — `SR#1415`, decision `SR#1426`. One of ``mcp``,
+	#: ``api``, ``browser``, ``feed`` or ``local``.
+	#:
+	#: **The one identity fact on this row that nobody asserted.** The two above it are things
+	#: somebody chose: an account, and a credential whose name a human typed once. This is what
+	#: we observed about where the request arrived, which is what an audit can lean on when the
+	#: other two are disputed.
+	#:
+	#: **Reported here rather than held back, and the reason is the line above it.** This model
+	#: already publishes which *credential* was presented, and naming a specific credential says
+	#: strictly more about a colleague than naming a door does. Who may see an event at all is
+	#: `scoping.visible_events`, unchanged.
+	#:
+	#: **Null is *nobody said*, not *unknown*, and not ``local``.** A system write — seeding, a
+	#: migration's data fix, ``subroutine init`` — has no principal; so does an event recorded
+	#: before this shipped. ``local`` is the positive claim that somebody was at the machine
+	#: holding the database file, which is §12.1a's most privileged path.
+	actor_interface: str | None = None
+
 	created_at: datetime.datetime
 
 	def address (self) -> str:
@@ -3474,6 +3493,7 @@ def event (
 		changes=None if row.changes is None else dict(row.changes),
 		actor_user_id=row.actor_user_id,
 		actor_token_id=row.actor_token_id,
+		actor_interface=row.actor_interface,
 		created_at=row.created_at,
 	)
 
