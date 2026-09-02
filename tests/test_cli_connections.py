@@ -33,6 +33,7 @@ import sqlalchemy
 import typer.main
 import typer.testing
 
+import instance_templates
 import subroutine
 import subroutine.api.app
 import subroutine.auth
@@ -87,8 +88,20 @@ def home (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Pa
 
 
 @pytest.fixture
-def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
-	"""Return a runner for the real CLI, failing loudly on an unexpected exit code."""
+def run (
+	home: pathlib.Path, instances: instance_templates.Store
+) -> typing.Callable[..., typer.testing.Result]:
+	"""Return a runner for the real CLI, failing loudly on an unexpected exit code.
+
+	**A plain ``init`` is copied in rather than run** (`SR#1830`). This file calls it 77 times to
+	arrange an instance, at 456 ms against 0.5 ms to copy one, and every other command still runs
+	for real against the tree that arrives. ``tests/instance_templates.py`` carries what makes
+	that safe.
+
+	**The second installation is untouched by it**, and that is what keeps the two distinct:
+	:func:`served` runs ``init`` in a *subprocess* with an environment of its own, so it never
+	reaches this fixture and mints an ``instance.id`` nothing else shares.
+	"""
 
 	runner = typer.testing.CliRunner()
 
@@ -106,7 +119,7 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 		return result
 
-	return invoke
+	return instance_templates.caching(instances, invoke)
 
 
 def declare (home: pathlib.Path, text: str) -> None:

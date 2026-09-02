@@ -28,6 +28,7 @@ import rich.text
 import typer.main
 import typer.testing
 
+import instance_templates
 import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.cli.topics
@@ -99,8 +100,16 @@ def home (
 
 
 @pytest.fixture
-def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
-	"""Return a runner for the real CLI, failing loudly on an unexpected non-zero exit."""
+def run (
+	home: pathlib.Path, instances: instance_templates.Store
+) -> typing.Callable[..., typer.testing.Result]:
+	"""Return a runner for the real CLI, failing loudly on an unexpected non-zero exit.
+
+	**A plain ``init`` is copied in rather than run** (`SR#1830`). This file calls it 333 times
+	to arrange a fresh instance, at 456 ms against 0.5 ms to copy one — and every other command
+	still runs for real against the tree that arrives. ``tests/instance_templates.py`` carries
+	what makes that safe; a call expecting a failure or supplying input is never stood in for.
+	"""
 
 	runner = typer.testing.CliRunner()
 
@@ -121,7 +130,7 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 		return result
 
-	return invoke
+	return instance_templates.caching(instances, invoke)
 
 
 @pytest.mark.parametrize(

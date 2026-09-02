@@ -17,6 +17,7 @@ import sqlalchemy.engine
 import sqlalchemy.orm
 import typer.rich_utils
 
+import instance_templates
 import sample_models
 import subroutine.cli.main
 import subroutine.config
@@ -284,6 +285,21 @@ def sqlite_url (tmp_path_factory: pytest.TempPathFactory) -> str:
 	directory: pathlib.Path = tmp_path_factory.mktemp("sqlite")
 
 	return f"sqlite:///{directory / 'test.db'}"
+
+
+@pytest.fixture(scope="session")
+def instances (tmp_path_factory: pytest.TempPathFactory) -> instance_templates.Store:
+	"""Hold one initialised instance per shape, so the terminal tests copy rather than build.
+
+	Session-scoped because that is the whole point: `SR#1830` measured ``subroutine init`` at
+	456 ms against 0.5 ms to copy its result, run 479 times across the suite for a byte-identical
+	tree. Under ``-n auto`` this is one build per shape per worker.
+
+	``tests/instance_templates.py`` carries what makes the substitution safe and what would make it
+	unsafe; ``tests/test_instances_template.py`` is what holds it to that.
+	"""
+
+	return instance_templates.Store(tmp_path_factory.mktemp("instances"))
 
 
 @pytest.fixture(scope="session", params=["sqlite", "postgresql"])
