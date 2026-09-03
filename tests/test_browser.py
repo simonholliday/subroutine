@@ -1496,6 +1496,325 @@ def test_the_stale_half_of_the_excuse_list () -> None:
 	)
 
 
+#: Prose exercising every construct ``app.css`` writes a rule for, put through the app's *own*
+#: markdown renderer rather than written out as markup here — `#1723`.
+#:
+#: **A fixture that hand-wrote the elements would be checking itself.** The question is whether
+#: a rule reaches something the app can produce, so the elements have to come from the renderer
+#: the app ships; markup invented here would answer *is this selector well-formed*, which
+#: nobody asked. ``SAMPLES``' own ``Prose`` is one sentence with a bold word in it and exercises
+#: none of this, which is why eighteen rules first read as dead.
+#:
+#: The table's alignment markers are the only obscure part, and they are deliberate: the
+#: ``.align-left`` family exists for exactly them and is reachable no other way.
+RICH: dict[str, str] = {
+	"text": (
+		"### Three\n#### Four\n##### Five\n###### Six\n\n"
+		"A description with a **word** in it, a mention of #42, `code`, ~~struck~~ text "
+		"and [a link](/projects/sr).\n\n"
+		"> A quotation.\n\n"
+		"- one\n- two\n\n"
+		"1. first\n2. second\n\n"
+		"```\na block\n```\n\n"
+		"| left | middle | right |\n| :--- | :----: | ----: |\n| a | b | c |\n\n"
+		"---\n"
+	),
+	# **The class the app passes**, and without it this renders a `<div>` with no class at all,
+	# so every `.prose` rule reads as dead. `app.js` calls it three ways — `prose` for a
+	# description, `body` for a comment, `rendered` for a preview — and the rules are keyed on
+	# those, so the sample has to be one of them to reach any of them.
+	"className": "prose",
+}
+
+#: Every selector in ``app.css`` that reaches nothing the app renders in a first paint —
+#: `#1723`, measured rather than reasoned about, and frozen so that a *new* one is a decision.
+#:
+#: **This is the register `#1722` needed and nothing had.** A comment between a selector and its
+#: body merged two rules into one, so ``.rows li``'s separator became ``.meta .rows li`` and
+#: matched nothing on every list, board and agenda for eleven days. Each part of that selector
+#: exists, so a scan for classes the app never writes could not have caught it; only asking the
+#: cascade whether the whole selector reaches an element can. A rule that goes dead that way
+#: joins this set, and the test below fails because it is not in it.
+#:
+#: **What the entries are, and what would close each group.** These are not excuses in the sense
+#: the rest of this repository uses the word — none of them is argued individually, because
+#: seventy-nine arguments nobody reads is worse than one honest sentence:
+#:
+#: * ``App``'s own chrome — the masthead, the view switcher, the ordering and priority controls.
+#:   ``App`` renders its *pre-load* state here, so none of it is drawn. Closed by `#640`.
+#: * States only an interaction reaches — a column being dragged over, a disclosure opened, a
+#:   preview revealed. Closed by driving them, which is what the ``running`` fixture is for.
+#: * Renderings ``SAMPLES`` does not contain — a row with an assignee, a project with a colour,
+#:   markdown carrying an alignment or a mention. Closed by widening ``SAMPLES``, and each one
+#:   found this way is a gap in what the fast suite covers as much as in this one.
+#:
+#: **The set shrinks and must never silently grow.** An entry that starts matching also fails,
+#: so widening ``SAMPLES`` in a later item forces this list down rather than leaving a stale
+#: excuse behind — which is the failure `#405` names and this file has met twice.
+NOTHING_RENDERS: frozenset[str] = frozenset(
+	{
+		'.adding .details .reading',
+		'.adding .details .reading .next',
+		'.adding .details .reading.bad',
+		'.adding .details .repeats[open] summary::after',
+		'.adding .kind',
+		'.adding .kind label',
+		'.adding .kind span',
+		'.app.wide',
+		'.assignee',
+		'.board .column .cut',
+		'.board .column .empty a',
+		'.board .column .empty a:focus-visible',
+		'.board .column .empty a:hover',
+		'.broke',
+		'.broke .detail',
+		'.card .action',
+		'.card .quiet',
+		'.column.over',
+		'.comments .body .align-center',
+		'.comments .body .align-left',
+		'.comments .body .align-right',
+		'.comments .body .mention',
+		'.comments .body a',
+		'.comments .body blockquote',
+		'.comments .body code',
+		'.comments .body del',
+		'.comments .body li',
+		'.comments .body li > p',
+		'.comments .body ol',
+		'.comments .body pre',
+		'.comments .body pre code',
+		'.comments .body table',
+		'.comments .body td',
+		'.comments .body th',
+		'.comments .body ul',
+		'.cut .action',
+		'.focus',
+		'.holding',
+		'.holding .held',
+		'.linked .over',
+		'.linked a.over:hover',
+		'.linked button.over:hover',
+		'.mark.claimed',
+		'.mark.context',
+		'.meta .quiet',
+		'.meta .when',
+		'.narrowed a.widen',
+		'.narrowed a.widen:hover',
+		'.note.bad',
+		'.ordered',
+		'.ordered .says',
+		'.ordered label',
+		'.ordered select',
+		'.ordered select:disabled',
+		'.priority',
+		'.prose .mention',
+		'.prose h3',
+		'.prose h4',
+		'.prose li > p',
+		'.reveal .icon',
+		'.reveal[aria-expanded="true"] .icon',
+		'.row.with-assignee',
+		'.row.with-assignee .assignee',
+		'.rows .quiet',
+		'.top',
+		'.top h1',
+		'.top h1 .build',
+		'.top h1::before',
+		'.views',
+		'.views a',
+		'.views a.chosen',
+		'.views a:focus-visible',
+		'.views a:hover',
+		'.who',
+		'.who .link',
+		'.who .link:hover',
+		'.who strong',
+		'.written > .rendered',
+		'.written > .rendered:empty::before',
+		':root[data-theme="dark"]',
+		':root[data-theme="light"]',
+		'li[data-colour="amber"]',
+		'li[data-colour="cyan"]',
+		'li[data-colour="green"]',
+		'li[data-colour="indigo"]',
+		'li[data-colour="magenta"]',
+		'li[data-colour="slate"]',
+		'li[data-colour="teal"]',
+		'li[data-colour="violet"]',
+		'li[data-colour]',
+	}
+)
+
+
+@pytest.fixture(scope="module")
+def reaching (
+	looks: typing.Any, tmp_path_factory: pytest.TempPathFactory
+) -> typing.Iterator[typing.Any]:
+	"""A page holding the stylesheet, and every component as the markup a reader gets.
+
+	**Its own *markup* and ``looks``' *browser***, which are two separate decisions.
+
+	The markup has to differ: ``looks`` uses the text harness deliberately, so that a base
+	element rule is measured against a ``<button>`` carrying no class of ours. Feeding it real
+	markup would quietly turn every one of its assertions into a question about ``.action``.
+
+	**The browser must not.** A second ``sync_playwright()`` in this file raises *"you are using
+	Playwright Sync API inside the asyncio loop"* — the first session leaves its loop running, so
+	the next one refuses. It passes alone and errors in a full run, which is the worst shape a
+	failure can have: the fixture that opened its own session was green on every targeted run and
+	red only in the gate. ``bare.context.browser`` is how the two fixtures below already reach
+	it, and this follows them.
+
+	**One component to a page, for the reason ``looks`` records**: HTML parsing does not allow a
+	form inside a form, so concatenating the renderings drops most of them and every check over
+	the result passes by looking at almost nothing.
+	"""
+
+	_showing, bare = looks
+
+	staged = tmp_path_factory.mktemp("markup")
+	rendered = test_web._markup(staged, {**SAMPLES, "App": {}, "Prose": RICH})
+	stylesheet = (test_web.ASSETS / "app.css").read_text(encoding="utf-8")
+
+	context = bare.context.browser.new_context()
+
+	try:
+		page = context.new_page()
+
+		def showing (name: str) -> typing.Any:
+			"""Put one component's real markup on the page, under the real stylesheet."""
+
+			page.set_content(
+				f'<style>{stylesheet}</style><div class="app">{rendered[name]}</div>'
+			)
+
+			return page
+
+		yield showing, sorted(rendered)
+	finally:
+		context.close()
+
+
+#: Turn a selector into the structural question *is there an element like this at all*, by
+#: dropping the parts that describe a moment rather than a shape. ``:hover`` never matches
+#: without a pointer and ``::after`` matches nothing by construction, so leaving them in would
+#: report every such rule as dead and drown the answer.
+#:
+#: **Order matters and getting it wrong is silent**: functional pseudo-classes go first, because
+#: ``:not(:disabled)`` would otherwise leave a stray ``(...)`` behind, and a naive alternation
+#: over names turned ``:focus-visible`` into ``-visible`` and cost a measurement.
+_FUNCTIONAL = re.compile(r":[a-z-]+\([^()]*\)")
+_PSEUDO = re.compile(r"::?[a-z-]+")
+
+
+def _structural (selector: str) -> str | None:
+	"""Return what an element would have to look like to match, or ``None`` if nothing would."""
+
+	base = selector
+
+	while True:
+		shortened = _FUNCTIONAL.sub("", base)
+
+		if shortened == base:
+			break
+
+		base = shortened
+
+	base = re.sub(r"\s+", " ", _PSEUDO.sub("", base)).strip()
+	base = re.sub(r"[>+~]\s*$", "", base).strip()
+
+	# ``*``, ``:root`` and a bare ``::before`` say nothing about the app's own markup: the first
+	# two match every document ever written and the third matches no element at all. Asking about
+	# them would answer a question nobody has.
+	return base if base and base != "*" else None
+
+
+def test_every_selector_in_the_stylesheet_reaches_something (
+	reaching: typing.Any,
+) -> None:
+	"""No rule in ``app.css`` is dead, and the ones that reach nothing are the ones we know of.
+
+	**`#1722` is why this exists and it is the shape to hold in mind.** A CSS comment sitting
+	between a selector and its body merged two rules, so the separator every listing draws became
+	``.meta .rows li`` and matched nothing for eleven days. **CSS never errors**, so a selector
+	that matches nothing is indistinguishable from a rule that changes nothing — and the
+	neighbouring rules went on working, which is why rows ran together on every surface and
+	nobody could see why.
+
+	**Only a cascade can answer it.** Every part of ``.meta .rows li`` is a class the app really
+	writes, so the text scan `#1826` settled for cannot see it; ``tests/dom.js`` has no CSS
+	engine at all. This asks the browser the same question a reader's browser asks.
+
+	**Both directions, and the second is what keeps the register honest.** A selector that
+	reaches nothing and is not registered means a rule has just died. A registered one that now
+	reaches something means the sample set grew and the entry is stale — `#405`'s rule, which
+	this repository has twice had to learn by finding excuses that had outlived their reason.
+	"""
+
+	showing, names = reaching
+	stylesheet = (test_web.ASSETS / "app.css").read_text(encoding="utf-8")
+
+	page = showing(names[0])
+	declared = page.evaluate(
+		"""() => {
+			const out = [];
+			const walk = (rules) => {
+				for (const rule of rules) {
+					if (rule.selectorText) {
+						out.push(...rule.selectorText.split(",").map((s) => s.trim()));
+					} else if (rule.cssRules) {
+						walk(rule.cssRules);
+					}
+				}
+			};
+			walk(document.styleSheets[0].cssRules);
+			return [...new Set(out)];
+		}""",
+	)
+
+	assert len(declared) > 100, (
+		f"only {len(declared)} selectors were read out of {len(stylesheet)} bytes of CSS — "
+		f"has this stopped reaching the stylesheet?"
+	)
+
+	asked = {
+		selector: structural
+		for selector in declared
+		if (structural := _structural(selector)) is not None
+	}
+	reached: set[str] = set()
+
+	for name in names:
+		page = showing(name)
+		reached |= set(page.evaluate(
+			"""(pairs) => pairs
+				.filter(([, structural]) => {
+					try { return document.querySelector(structural) !== null; }
+					catch (bad) { return false; }
+				})
+				.map(([selector]) => selector)""",
+			[[selector, structural] for selector, structural in asked.items()],
+		))
+
+	assert reached, "no selector matched anything, so this is checking nothing"
+
+	dead = sorted(set(asked) - reached - NOTHING_RENDERS)
+
+	assert not dead, (
+		f"{dead} reach nothing the app renders. A rule that matches nothing changes nothing "
+		f"and never errors, which is how a row separator went missing for eleven days. Either "
+		f"it has just died, or something it needs is newly absent from SAMPLES"
+	)
+
+	revived = sorted(NOTHING_RENDERS & reached)
+
+	assert not revived, (
+		f"{revived} are registered as reaching nothing and now reach something. Delete them: "
+		f"an excuse outliving the thing it excused is how a register stops meaning anything"
+	)
+
+
 def test_this_file_stays_the_size_of_its_argument () -> None:
 	"""`#748`'s scope, held by a bound rather than by an intention.
 
@@ -1906,6 +2225,25 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	callback live in ``App``; ``tests/dom.js`` cannot execute it and will not dispatch an event.
 	The reload is the half that has ever actually broken.
 
+	**Raised to forty-one for `#1723`, and the case is that this file has been the only thing
+	able to see a whole class of defect and has never been asked.** `#1722` was a CSS comment
+	sitting between a selector and its body: the two rules merged, the separator every listing
+	draws became ``.meta .rows li``, and **no listing, board or agenda drew a line between two
+	rows for eleven days**. CSS never errors, so a selector matching nothing is indistinguishable
+	from a rule that changes nothing — and the neighbouring rules went on working, which is why
+	it was invisible.
+
+	**No other instrument here can reach it.** Every part of that selector is a class the app
+	really writes, so the text scan `#1826` settled for cannot see it; ``tests/dom.js`` has no
+	cascade at all and ``test_web.py``'s harness dropped every class until this item. The
+	question *does this selector reach an element* has an answer only inside a CSS engine, which
+	is this file's own definition of what it is for.
+
+	**Read for fat**: one test rather than one per rule, and both assertions are load-bearing —
+	the first catches a rule that has just died, the second catches a register entry that has
+	outlived its reason, which is the failure `#405` names and this file has already met twice.
+	It is falsified both ways: reinstating `#1722`'s comment reports ``.meta .rows li`` by name,
+	and registering a selector that does match fails the second.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -1913,7 +2251,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 40, (
+	assert len(tests) <= 41, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "

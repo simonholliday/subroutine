@@ -192,10 +192,15 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# trust boundary — the only `dangerouslySetInnerHTML` there is — and its template had never
 	# been rendered by the harness at all. What `markdown.render` emits is covered exhaustively;
 	# what wraps it was not.
-	"Prose": {
-		"text": "A description with a **word** in it, and a mention of #42.",
-		"where": "/projects",
-	},
+	# **No `where`, and it used to carry one.** `Prose` hands it to `markdown.render`, which
+	# *calls* it — `where` there is `(ref) => path`, while `Agenda`'s prop of the same name is a
+	# workspace's slug. A string here made every render of this component throw and fall back to
+	# *"This text could not be displayed. where is not a function"*, and no test could see it:
+	# the fallback still prints the source in a `<pre>`, so an assertion looking for the words
+	# passed, and `_rendered` drops the `broke` class that says what happened. Found by `#1723`'s
+	# renderer on its first real use. Absent is a state the component documents — a mention stays
+	# prose wherever the workspace is not known — so this renders the ordinary path.
+	"Prose": {"text": "A description with a **word** in it, and a mention of #42."},
 	"Facts": {
 		"item": {
 			"ref": 42,
@@ -633,6 +638,56 @@ def _rendered (
 
 		for (const [name, props] of Object.entries(asked)) {{
 			out[name] = flatten(app[name]({{ ...handlers, ...props }}));
+		}}
+
+		process.stdout.write(JSON.stringify(out));
+	"""))
+
+
+def _markup (
+	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
+) -> dict[str, str]:
+	"""Render each named component to real HTML — attributes, closing tags and all — `#1723`.
+
+	**Beside :func:`_rendered` rather than replacing it.** That one is a *text* harness by
+	decision: it carries `href` and a textarea's value and drops everything else, which is right
+	for a test asking *what does this say* and is `#1044`'s argument for keeping it narrow. This
+	one has a different audience — anything about a class, a layout, or which element contains
+	which — and it exists because there was no way to ask those at all.
+
+	**It is `preact-render-to-string`, not a renderer of ours, and that is the finding.** `#1723`
+	specifies a thirty-line vnode walk and says it has been written four times in scratchpads.
+	It never needed writing: `#640` vendored the real renderer on 2026-08-08 to make ``App``
+	testable, `_staged` already puts it beside the app, and ``scripts/check_licences.py``'s blind
+	spot for JavaScript is already covered for it by :data:`TEST_ONLY`. Every property that item
+	lists — closing tags, ``className`` to ``class``, ``dangerouslySetInnerHTML``, void elements
+	and **dropping handlers** — is behaviour of the library rather than something to maintain.
+
+	**Handlers are supplied the way `_rendered` supplies them**, derived from the app's own
+	source. Without them a component draws none of its controls, and a scan over the result
+	reports every rule about a button as dead — measured, and it accounted for 45 of the
+	selectors that first read as unmatched.
+
+	``App`` may be asked for by name. It takes no props and uses hooks, which is exactly what
+	this renderer can do and :func:`_rendered` cannot.
+	"""
+
+	module = _staged(tmp_path)
+	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _served_modules()["app.js"])))
+
+	return dict(_ran(tmp_path, f"""
+		import {{ h }} from "{(tmp_path / "preact.js").as_uri()}";
+		import {{ renderToString }} from "{(tmp_path / "render-to-string.js").as_uri()}";
+		import * as app from "{module.as_uri()}";
+
+		const asked = {json.dumps(dict(components))};
+		const handlers = {{}};
+		for (const name of {json.dumps(handlers)}) handlers[name] = () => {{}};
+
+		const out = {{}};
+
+		for (const [name, props] of Object.entries(asked)) {{
+			out[name] = renderToString(h(app[name], {{ ...handlers, ...props }}));
 		}}
 
 		process.stdout.write(JSON.stringify(out));
