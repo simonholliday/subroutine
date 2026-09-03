@@ -677,6 +677,32 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+- **Every card says whether it is work or a document, in a fixed place.**
+
+  A board or a list mixes tasks and documents, and nothing on a card said which. The type was
+  there — `bug`, `decision`, `finding` — but knowing that `spike` is work and `finding` is not
+  is a convention with no instructions: twelve types, six a side, and you had to have learnt
+  them.
+
+  Each card now opens with a strip carrying a glyph, the item's number and its kind:
+
+  ```
+  ☑ #42  TASK
+  The browser suite renders markup it cannot check
+  ```
+
+  The glyph is a fixed width, so the number starts in the same place on every card whatever it
+  is, and the title has the line to itself. On a board that is the larger half of the change:
+  the number used to flow inline ahead of the title, so a title began at a different place
+  depending on whether it wrapped.
+
+  **The type is now shown only when somebody chose it.** A card whose type is its kind's
+  default — `task`, or `note` for a document — no longer repeats it in a chip below, because
+  the strip has just said it. A `bug`, a `decision` or a `spike` still says so.
+
+  It costs about a fifth of a column's height on a board, measured at 25 cards a column, and
+  buys a card that answers *what is this* without being read.
+
 - **The agenda shows what is overdue second, under what is happening today.** It was fifth,
   below *In progress*, *Waiting on you* and *Waiting on somebody else* — which on a busy day
   put the late work off the first screen entirely, and on a phone about two screens down.

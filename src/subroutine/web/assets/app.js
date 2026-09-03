@@ -150,6 +150,11 @@ const TASK_FIELDS = [
 	/* How well a row answered a search, so a merged list can be put back into the order
 	   the server ranked it in (`#875`). Null on every listing that is not a ranked search. */
 	"relevance",
+	/* **Whether the type is its kind's default** — `#1148`. The card's strip says *Task* or
+	   *Document* on every row now, so a type chip reading `task` one line below would be the
+	   same word twice, which is §12.2a. A row cannot work it out: which type is default is a
+	   fact about the workspace's vocabulary rather than about this item. */
+	"type_is_default",
 	"ref", "title", "due_at", "due_is_all_day", "starts_at", "starts_is_all_day",
 	"blocked", "sub_tasks_done", "project_key",
 	"project_path",
@@ -232,6 +237,9 @@ const DOCUMENT_FIELDS = [
 	/* The task list's counterpart — `#875`. A search spans both kinds, so a key only one
 	   of them carries is no key at all. */
 	"relevance",
+	/* `#1148`, and both kinds ask for it for one reason: the strip says the kind on every card,
+	   so a chip repeating the default type is the same word twice (§12.2a). */
+	"type_is_default",
 	"ref", "title", "project_key", "project_path", "status", "status_is_default",
 	/* `#1027`, and both kinds ask for it: a document lives in a project exactly as a task
 	   does, so a listing of decisions is marked the same way a listing of bugs is. */
@@ -3996,6 +4004,21 @@ export function orderedAs (selection) {
 	and the keys it names are still renameable — but the silent-wrongness it warns about is what
 	the category answers. A type this has never heard of now draws by what *kind* of thing it is.
 */
+/* The picture of a *kind*, which is a coarser question than the type below and the one a
+   reader asks first — `#1148`. Two entries and there will only ever be two: `linkable_types`
+   is `["task", "document"]` and a kind is the model's own division rather than a workspace's
+   vocabulary, so this cannot grow the way `TYPE_ICONS` can.
+
+   **`check-square` is `CATEGORY_ICONS.work`'s glyph and that repetition is deliberate**: the
+   product already draws work that way, and a second picture for the same idea would be a
+   second thing for a reader to learn. A card showing a `bug` therefore carries two glyphs —
+   the kind's in the strip and the type's in the chip — which is two facts in two places
+   rather than one fact twice. */
+export const KIND_ICONS = {
+	task: "check-square",
+	document: "file-text",
+};
+
 export const TYPE_ICONS = {
 	task: "check-square",
 	bug: "bug",
@@ -4112,7 +4135,7 @@ export function Icon ({ name, decorative = true }) {
 }
 
 export function marks (
-	item, showKind, ordering = null, place = null, linkable = false, hideStatus = false,
+	item, ordering = null, place = null, linkable = false, hideStatus = false,
 	/* **The list draws who has this as a column of its own** (`#1424`), so a chip here
 	   would be the same fact twice on the one surface that aligns it. Absent means draw it,
 	   which is the board, the agenda and an item's own links. */
@@ -4142,8 +4165,19 @@ export function marks (
 		**The label comes from the item, not from a table here.** A workspace renames its types
 		(§5.5), so the text is whatever the server said; only the picture is this client's
 		opinion, and it degrades on its own.
+
+		**Silent about the default, because the strip above already said it** (`#1148`). Every
+		card now carries *Task* or *Document* in a fixed place, so a chip reading `task` one
+		line below is the same word twice on the commonest card in the product — §12.2a's rule,
+		and Simon's own words when he took the decision. A `bug`, a `decision`, a `finding` is
+		still news and still says so.
+
+		**This replaced a dead branch rather than adding a rule.** What was here drew *Task* or
+		*Document* when a page held both kinds — behind an `else` that could not run, because
+		every item has a type. `#1148` is that branch's own bug report; the strip is where the
+		fact went, and `showKind` went with it.
 	*/
-	if (item.type) {
+	if (item.type && !item.type_is_default) {
 		found.push({
 			text: item.type,
 			family: "identity",
@@ -4154,11 +4188,6 @@ export function marks (
 			icon: TYPE_ICONS[item.type]
 				|| CATEGORY_ICONS[item.type_category]
 				|| UNKNOWN_ICON,
-		});
-	} else if (showKind) {
-		found.push({
-			text: item.kind === "document" ? "Document" : "Task",
-			family: "identity",
 		});
 	}
 
@@ -5073,7 +5102,7 @@ export function Marks ({ badges, onGo = null }) {
 }
 
 export function Row ({
-	item, showKind, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
+	item, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
 	/* **What the address already said**, so the project label can leave it out — decision
 	   `#957` §4. Absent means the address named nothing, which is the agenda at `/`. */
 	place = null,
@@ -5093,7 +5122,9 @@ export function Row ({
 		**Whether the container has given who-has-this a column of its own** (`#1424`).
 
 		**The listing decides, because the answer is about the page rather than about this
-		item** — the same shape as `showKind`, one field along.
+		item** — which is now the only prop of that shape. `showKind` was the other and `#1148`
+		retired it: the kind is in the card's strip on every row, so nothing computes it
+		per page any more.
 
 		**A fixed track is the only thing that aligns.** Every row is its own grid, so
 		`max-content` is computed per row and would put the cell at a different x on each one
@@ -5103,7 +5134,7 @@ export function Row ({
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, showKind, ordering, place, !!onGo, hideStatus, showAssignee);
+	const badges = marks(item, ordering, place, !!onGo, hideStatus, showAssignee);
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -5207,8 +5238,35 @@ export function Row ({
 		? html`<span class="assignee"><${Icon} name=${item.assignee_is_agent ? MARK_ICONS.agent : MARK_ICONS.person} />${" "}${named(item.assignee, item.assignee_is_agent, item.assignee_answers_to)}</span>`
 		: null;
 
+	/*
+		**The card's identity, in a fixed place: a glyph, the number, and what kind of thing it
+		is** — `#1148`, and the order is Simon's.
+
+		The glyph is a fixed width, so the ref begins at the same x on every card whatever its
+		number, and the kind follows it. **The picture is what the eye catches and the word
+		beside it is what carries the meaning** — `#102` in full, which forbids saying anything
+		in a shape alone as firmly as it forbids saying it in a colour.
+
+		**Always, rather than only on documents.** A mark drawn on the exception alone leaves
+		work identified by an *absence*, and a reader cannot be asked to read a blank; two
+		glyphs that differ is two presences. It costs a line on every card and that was taken
+		knowingly — see the item, which measures it.
+
+		**It moves the ref off the title's line, and on a board that is the larger half.**
+		`.board .row` is `display: block`, so the ref has been flowing inline ahead of the
+		title: measured on a 327px card, a title beginning after a short ref starts at x=57 and
+		one that wraps starts at x=12. The title has the card to itself now, from one edge.
+	*/
+	const stamp = html`
+		<span class="stamp">
+			<${Icon} name=${KIND_ICONS[item.kind] || KIND_ICONS.task} />
+			<span class="ref">${where}#${item.ref}</span>
+			<span class="stamp-kind">${item.kind === "document" ? "Document" : "Task"}</span>
+		</span>
+	`;
+
 	const identity = html`
-		<span class="ref">${where}#${item.ref}</span>
+		${stamp}
 		<span class="title">${item.title}</span>
 		${holder}
 	`;
@@ -5511,7 +5569,7 @@ export function Agenda ({
 							     labelled `projects/subroutine`. The listing and the board took
 							     `place` all along; only this had the assumption baked in. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
-								showKind=${false} showWhere=${showWhere} workspace=${workspace}
+								showWhere=${showWhere} workspace=${workspace}
 								place=${place}
 								onGo=${onGo}
 								${/* **The agenda is the caller that asked** (`#1383`): its request
@@ -5579,7 +5637,6 @@ export function Board ({
 		what `#445` §6 recommended and what unblocked this from a `!2/2` item.
 	*/
 	const arranged = columns(items);
-	const showKind = new Set(items.map((item) => item.kind)).size > 1;
 
 	/*
 		**A column nothing was asked for must not report "Nothing"** (`#738`, and it is `#718`
@@ -5763,7 +5820,7 @@ export function Board ({
 										<ul class="rows">
 											${column.items.map((item) => html`
 												<${Row} key=${item.kind + item.ref} item=${item}
-													showKind=${showKind} workspace=${workspace}
+													workspace=${workspace}
 													place=${{ workspace, project }} onGo=${onGo}
 													onOpen=${onOpen} onComplete=${onComplete}
 													onDrag=${onDrag}
@@ -6522,11 +6579,16 @@ export function Listing ({
 	prioritised = [], onPrioritise = null,
 }) {
 	/*
-		**A column that says the same thing on every row says nothing** (§12.2a). The kind is
-		shown only on a mixed page: a blank beside "Document" would read as missing data rather
-		than as "ordinary", and the word "Task" on every line of a list of tasks is noise.
+		**The kind used to be dropped when a page held one of them** (§12.2a), and it is in the
+		card's strip now — always, on both kinds — because `#1148` needed it where a reader
+		could find it rather than where it happened to be news. The rule survives one field
+		along: the *type* chip is silent about the default, so a page of plain tasks says
+		`Task` once in a fixed place instead of `task` in a chip on every row.
+
+		**`showKind` computed this per page and is gone with the branch it fed.** That branch
+		sat behind an `else` that could not run, because every item has a type — which is the
+		defect `#1148` reported.
 	*/
-	const showKind = new Set(items.map((item) => item.kind)).size > 1;
 
 	/*
 		**Who has the work gets a column of its own, and it is *not* dropped when uniform**
@@ -6543,8 +6605,9 @@ export function Listing ({
 		**So the two surfaces agree, and this item's own description said they could not.**
 		It read `#957` §4 as refusing drop-if-uniform in the browser outright. §4 refuses it
 		for the *project label*, whose reason is that the label is **clickable** — a control
-		moving under the cursor while the page polls. `showKind` above drops-if-uniform in
-		this very function and is not a control, which is why both have always been true.
+		moving under the cursor while the page polls. The *status* chip above is silent when a
+		column holds one status and is not a control, which is why both have always been true.
+		`showKind` was this paragraph's example until `#1148` retired it.
 
 		**Empty everywhere still costs nothing**, because there is no column at all then —
 		which is §1.4 falling out of a layout rule rather than being enforced by one, and is
@@ -6628,7 +6691,7 @@ export function Listing ({
 				: html`
 					<ul class="rows">
 						${items.map((item) => html`
-							<${Row} key=${item.kind + item.ref} item=${item} showKind=${showKind}
+							<${Row} key=${item.kind + item.ref} item=${item}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
 								place=${{ workspace, project }} onGo=${onGo}
 								showAssignee=${showAssignee}
@@ -7204,7 +7267,7 @@ export function Detail ({
 						saying the status. `place` is null because an item page is not narrowed
 						to anything, so the project label says its whole address.
 					*/ null}
-					<${Marks} badges=${marks(item, true, null, null, !!onGo)}
+					<${Marks} badges=${marks(item, null, null, !!onGo)}
 						onGo=${onGo} />
 					<${Facts} item=${item} prioritised=${prioritised} />
 
@@ -7288,7 +7351,7 @@ export function Detail ({
 							that crosses out of it does.
 						*/
 						const badges = marks(
-							{ ...part, kind: "task" }, true, null, { workspace, project }, !!onGo,
+							{ ...part, kind: "task" }, null, { workspace, project }, !!onGo,
 						);
 
 						return html`
@@ -7392,7 +7455,7 @@ export function Detail ({
 							...(link.other.deleted_at
 								? [{ text: "Deleted", family: "state", tone: "blocked" }]
 								: []),
-							...marks(end, true, null, { workspace, project }, !!onGo),
+							...marks(end, null, { workspace, project }, !!onGo),
 						];
 
 						return html`

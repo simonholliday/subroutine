@@ -175,6 +175,12 @@ class LinkEnd(pydantic.BaseModel):
 	#: Here for the reason every field on this model is: ``marks`` reads it, and a link line
 	#: renders through the same function as a row.
 	type_category: str = ""
+
+	#: Whether the type is the default for its kind — `#1148`. ``marks`` draws the type chip
+	#: only when somebody chose the type, because the card's strip already says *Task* or
+	#: *Document*; without this a link line would print ``task`` where a row prints nothing,
+	#: which is the disagreement this model exists to prevent.
+	type_is_default: bool = False
 	project_path: str = ""
 
 	#: What state it is in. ``status_is_default`` is what stops every open item carrying a

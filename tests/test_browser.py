@@ -1291,7 +1291,21 @@ def test_dragging_a_card_to_another_column_moves_it (running: typing.Any) -> Non
 
 	# **Named rather than *the first one***, because the board holds a crowd since `#796` and
 	# whichever card is first is an accident of ordering rather than the subject of this test.
-	page.drag_and_drop(f"{CARD_ROW}", "section.column:nth-of-type(2)")
+	#
+	# **Aimed near the column's top, and that is not cosmetic** (`#1148`). Without a position
+	# Playwright hovers the target's *centre*, and a column is as tall as its cards — so it
+	# scrolls the page to reach that centre while the button is down, and Chromium then fires
+	# `dragstart` for whatever card has moved under the pointer. The card lifted was the one
+	# *below* the one named, deterministically, and the failure read as the board writing to the
+	# wrong item rather than as the harness dragging the wrong card.
+	#
+	# It surfaced when the kind strip made every card ~20px taller, which is the give-away: a
+	# gesture test whose subject changes with the height of something it is not about was
+	# always going to break on the first layout change. The product is unaffected — a reader's
+	# page does not scroll out from under their own pointer.
+	page.drag_and_drop(
+		f"{CARD_ROW}", "section.column:nth-of-type(2)", target_position={"x": 60, "y": 40}
+	)
 	page.wait_for_timeout(300)
 
 	moves = [one for one in written if one[0] == "PATCH"]
@@ -2918,13 +2932,22 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	)
 
 
-def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.Any) -> None:
-	"""`SR#965`, Simon 2026-08-17, from the agenda at `/`.
+def test_a_rows_address_does_not_touch_what_sits_beside_it (running: typing.Any) -> None:
+	"""`SR#965`, Simon 2026-08-17, from the agenda at `/` — and the neighbour has changed.
 
 	`projects/#94Recurring tasks` — the address ran into the title with nothing between them,
-	because the column it sits in was a fixed 4.5rem and twelve monospace characters do not fit
+	because the column it sat in was a fixed 4.5rem and twelve monospace characters do not fit
 	in nine. **A grid item does not wrap a track, it overflows it**, so there was no width at
 	which this got better rather than worse.
+
+	**The title is no longer that neighbour** (`#1148`). The ref moved into the card's strip and
+	the title dropped to its own line, so the two cannot collide at any width — which is checked
+	below rather than assumed, because *they are on different lines now* is the whole reason the
+	original assertion stopped applying and is exactly the kind of claim that rots silently.
+
+	**What inherited the hazard is the kind word**, which sits beside the ref in the strip and is
+	the thing a long workspace prefix can now run into. Same defect, one element along, and this
+	test follows it rather than being deleted with the geometry it was written for.
 
 	**Measured rather than looked at**, which is `SR#911`'s rule: the claim is that two boxes do
 	not touch, and `tests/dom.js` has no layout at all. Driven at `/`, because that is the one
@@ -2953,11 +2976,19 @@ def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.A
 
 			extent.selectNodeContents(ref);
 
+			const kind = row.querySelector(".stamp-kind");
+			const said = extent.getBoundingClientRect();
+
 			return {
 				said: ref.textContent.trim(),
-				gap: Math.round(
-					title.getBoundingClientRect().left - extent.getBoundingClientRect().right
-				),
+				/* **The kind is what sits beside the address now**, so it is what the address
+				   can run into. Null where a row draws none, which the assertion refuses. */
+				beside: kind
+					? Math.round(kind.getBoundingClientRect().left - said.right)
+					: null,
+				/* Below, not beside — the title has its own line, and a positive number here
+				   is what makes the collision this test was written for impossible. */
+				below: Math.round(title.getBoundingClientRect().top - said.bottom),
 			};
 		}).filter(Boolean)""",
 	)
@@ -2969,9 +3000,19 @@ def test_a_row_leaves_a_gap_between_its_address_and_its_title (running: typing.A
 	)
 
 	for row in measured:
-		assert row["gap"] > 0, (
-			f"the address {row['said']!r} touches the title beside it — its column is too "
-			f"narrow for it and a grid item overflows rather than wrapping: {measured}"
+		assert row["below"] >= 0, (
+			f"the title is back on the address's own line, where {row['said']!r} can overflow "
+			f"into it — which is the defect this test was written for: {measured}"
+		)
+
+		assert row["beside"] is not None, (
+			f"the row draws an address with no kind beside it, so this is measuring nothing "
+			f"about the neighbour it is named for: {measured}"
+		)
+
+		assert row["beside"] > 0, (
+			f"the address {row['said']!r} touches the kind beside it — the strip is a flex row "
+			f"and a long workspace prefix is what closes the gap: {measured}"
 		)
 
 

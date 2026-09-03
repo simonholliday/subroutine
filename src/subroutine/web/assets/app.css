@@ -1158,7 +1158,9 @@ fieldset {
 	padding: var(--space-5) var(--space-6) 0;
 }
 
-.board .row .ref { display: inline; margin-right: var(--space-3); }
+/* **The ref is in the strip now** (`#1148`), so the board no longer has to lay it inline
+   ahead of the title — which is what put the title at a different x depending on whether it
+   wrapped. What is left is the block display, which is right: a card is one column. */
 .board .meta { padding: var(--space-3) var(--space-6) var(--space-5); }
 
 /* How the rows are arranged (`#651`). Two words, so it reads as a choice rather than as a
@@ -1256,9 +1258,17 @@ fieldset {
    the upgrade if the raggedness reads worse than the overlap; it needs the page measured in the
    component, because the row's own font is not the monospace the ref is set in and `ch` here
    would be the wrong character. */
+/* **One column, and the strip spans it** — `#1148`. This was `minmax(4.5rem, max-content) 1fr`,
+   a track for the ref beside the title, which aligned a *list* correctly and did nothing for a
+   board: `.board .row` is `display: block`, so there the ref flowed inline ahead of the title
+   and the title began at a different x depending on whether it wrapped. Measured on a 327px
+   card: x=57 after a short ref, x=12 once it wrapped.
+
+   With the ref in the strip the title has the line to itself on both surfaces, from the card's
+   own edge, and the 4.5rem the ref used to reserve goes back to it. */
 .row {
 	display: grid;
-	grid-template-columns: minmax(4.5rem, max-content) 1fr;
+	grid-template-columns: 1fr;
 	gap: var(--space-2) var(--space-6);
 	align-items: baseline;
 	width: 100%;
@@ -1431,6 +1441,35 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 .finish:disabled { opacity: 0.5; cursor: default; }
 
 .row .ref { color: var(--ink-faint); font-size: var(--text-small); }
+
+/* **A glyph, the number, and what kind of thing it is** — `#1148`.
+
+   The glyph is a fixed width, so the ref starts at one x on every card whatever its number.
+   The kind is not padded to align in turn, and that was decided rather than overlooked: the
+   picture is the scanning instrument and it is already fixed, so a ragged word costs nothing,
+   where reserving five digits of width would spend the card's scarcest dimension and leave
+   `#42` sitting a long way from its own icon on an instance that never reaches four figures.
+
+   `baseline` rather than `center` so the number and the word sit on the row's own baseline
+   with the icon, which is the alignment every other line of the card uses. */
+.stamp {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-3);
+	min-width: 0;
+}
+
+.stamp .icon { align-self: center; color: var(--ink-soft); }
+
+/* Uppercase and one step down, because it labels the card rather than being read as part of
+   it — the same treatment `#906` gives every other structural label. */
+.stamp-kind {
+	font-size: var(--text-fine);
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--ink-soft);
+}
 .row .title { font-weight: 500; }
 
 /*
@@ -1450,7 +1489,11 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	worse answer than a two-line cell, and `align-items: baseline` keeps the first line on
 	the title's line either way.
 */
-.row.with-assignee { grid-template-columns: minmax(4.5rem, max-content) 1fr 11rem; }
+.row.with-assignee { grid-template-columns: 1fr 11rem; }
+
+/* **The strip spans whatever tracks the row has**, so who-has-this stays beside the title
+   rather than beside the number. */
+.stamp { grid-column: 1 / -1; }
 
 .assignee {
 	display: inline-flex;

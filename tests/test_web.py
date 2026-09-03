@@ -126,7 +126,6 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"status": "in_progress",
 			"status_is_default": False,
 		},
-		"showKind": True,
 		# **The workspace is here so the default sample renders a row as it actually ships**
 		# (`SR#722`). Without it `Row` has no address to link to and falls back to a button —
 		# which is a legitimate branch, and it silently absorbed the change from button to
@@ -1065,7 +1064,7 @@ def test_a_finished_row_says_when_it_finished_rather_than_when_it_was_due (
 	rendered = _rendered(tmp_path, {
 		"Row": {"item": {"ref": 42, "kind": "task", "title": "Late but finished",
 			"due_at": "2026-08-03T09:00:00+00:00", "status_category": "done",
-			"completed_at": "2026-08-09T14:00:00+00:00"}, "showKind": False},
+			"completed_at": "2026-08-09T14:00:00+00:00"}},
 		"Listing": {"items": [{"ref": 43, "kind": "task", "title": "Abandoned",
 			"status_category": "cancelled",
 			"completed_at": "2026-08-07T14:00:00+00:00"}]},
@@ -1111,7 +1110,7 @@ def test_a_deadline_with_an_o_clock_says_it_on_a_row_as_it_does_on_the_fact_shee
 		"timezone": "Europe/London"}
 
 	rendered = _rendered(tmp_path, {
-		"Row": {"item": timed, "showKind": False},
+		"Row": {"item": timed},
 		"Listing": {"items": [whole]},
 	})
 
@@ -1139,14 +1138,27 @@ def test_a_reader_who_is_not_signed_in_is_told_what_to_ask_for (
 	assert "subroutine login link" in markup
 
 
-def test_the_kind_is_shown_only_when_the_page_holds_more_than_one (
+def test_the_kind_is_on_every_row_and_the_default_type_is_on_none (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""§12.2a: a column that says the same thing on every row says nothing.
+	"""§12.2a, one field along from where it used to sit — `#1148`.
 
-	A blank beside "Document" reads as missing data rather than as "ordinary", and the word
-	"Task" on every line of a list of tasks is noise. The rule is the CLI's and this is it
-	holding on the other surface.
+	**This asserted the opposite until 2026-09-03, and the reversal was Simon's.** The kind was
+	dropped when a page held only one of them, on the rule that a column saying the same thing
+	on every row says nothing. That rule has not changed; what changed is which fact it applies
+	to.
+
+	The card carries a strip now — a glyph, the ref and the kind — and it is drawn always,
+	because a mark shown only on the exception leaves work identified by an *absence* and a
+	reader cannot be asked to read a blank. Two glyphs that differ is two presences.
+
+	**What pays for it is the type chip going silent about the default.** Without that, the
+	commonest card in the product would say ``Task`` in the strip and ``task`` in a chip one
+	line below — which is precisely what §12.2a forbids, and is Simon's own reason for taking
+	the adjustment. A ``bug`` or a ``decision`` is still somebody's choice and still says so.
+
+	So the rule is intact and its subject moved: the *kind* is structural and always shown, the
+	*type* is news and shown when it is.
 	"""
 
 	mixed = _rendered(tmp_path, {"Listing": SAMPLES["Listing"]})["Listing"]
@@ -1160,7 +1172,34 @@ def test_the_kind_is_shown_only_when_the_page_holds_more_than_one (
 	}
 	plain = _rendered(tmp_path, tasks_only)["Listing"]
 
-	assert "Task" not in plain, "the kind is on every row of a page that has only one kind"
+	assert "Task" in plain, (
+		f"a page of one kind stopped saying which kind, so a reader is left to infer it from "
+		f"the type — which is the convention with no instructions `#1148` was filed about: "
+		f"{plain}"
+	)
+
+	# The other half, and the pair is the point: the strip may only say `Task` on every row
+	# *because* nothing else does. Driven through a row rather than through `marks`, so it is
+	# the rendering that is checked and not the function's return value.
+	defaulted = _rendered(tmp_path, {"Row": dict(SAMPLES["Row"], item={
+		"ref": 3, "kind": "task", "title": "Ordinary work",
+		"type": "task", "type_is_default": True, "status_is_default": True,
+	})})["Row"]
+
+	chosen = _rendered(tmp_path, {"Row": dict(SAMPLES["Row"], item={
+		"ref": 4, "kind": "task", "title": "Something wrong",
+		"type": "bug", "type_is_default": False, "status_is_default": True,
+	})})["Row"]
+
+	assert "Task" in defaulted and "task" not in defaulted, (
+		f"the default type is drawn as a chip beside a strip that already said the kind, "
+		f"which is the same word twice on the commonest card there is: {defaulted}"
+	)
+
+	assert "bug" in chosen, (
+		f"a type somebody chose lost its chip, so the rule went from *silent about the "
+		f"default* to *silent*: {chosen}"
+	)
 
 
 def test_the_render_harness_would_notice_a_broken_template (
@@ -2053,7 +2092,6 @@ def test_what_is_holding_a_row_up_is_drawn_inside_that_row (
 				ref: 2, kind: "task", title: "My bit", workspace: "projects",
 				status: "open", status_is_default: true, blocked: true,
 			}},
-			showKind: false,
 			workspace: "projects",
 			waitingOn: [{{ entity_type: "task", ref: 1, title: "Their bit", assignee: "jo" }}],
 		}}))));
@@ -2152,7 +2190,6 @@ def test_a_row_nobody_asked_about_draws_no_waiting_line (tmp_path: pathlib.Path)
 				ref: 2, kind: "task", title: "My bit", workspace: "projects",
 				status: "open", status_is_default: true, blocked: true,
 			}},
-			showKind: false,
 			workspace: "projects",
 		}}))));
 	""")
@@ -2199,7 +2236,7 @@ def test_the_browser_says_a_row_is_waiting_on_a_person_as_a_state_not_a_status (
 			status_category: "todo", status_is_default: false,
 		}};
 
-		process.stdout.write(JSON.stringify(app.marks(row, false)));
+		process.stdout.write(JSON.stringify(app.marks(row)));
 	""")
 	drawn = shown
 	waiting_marks = [one for one in drawn if one["text"] == "Needs input"]
@@ -2234,7 +2271,7 @@ def test_an_ordinary_row_says_nothing_about_waiting_on_a_person (
 			status: "open", status_category: "todo", status_is_default: true,
 		}};
 
-		process.stdout.write(JSON.stringify(app.marks(row, false)));
+		process.stdout.write(JSON.stringify(app.marks(row)));
 	""")
 
 	assert not [one for one in shown if one["text"] == "Needs input"], shown
@@ -3670,10 +3707,10 @@ def test_only_a_task_offers_to_be_completed (tmp_path: pathlib.Path) -> None:
 	"""
 
 	task = _rendered(tmp_path, {
-		"Row": {"item": {"ref": 1, "kind": "task", "title": "A task"}, "showKind": True}
+		"Row": {"item": {"ref": 1, "kind": "task", "title": "A task"}}
 	})
 	document = _rendered(tmp_path, {
-		"Row": {"item": {"ref": 2, "kind": "document", "title": "A document"}, "showKind": True}
+		"Row": {"item": {"ref": 2, "kind": "document", "title": "A document"}}
 	})
 
 	assert "Complete" in task["Row"], "a task was not offered completion"
@@ -3721,7 +3758,7 @@ def test_a_finished_task_is_not_asked_to_finish_again (
 
 	rendered = _rendered(tmp_path, {
 		"Doing": {"item": item, "members": ["si"]},
-		"Row": {"item": item, "showKind": False},
+		"Row": {"item": item},
 	})
 
 	assert rendered["Doing"] == "", f"a {category} task still offered to be finished"
@@ -3737,7 +3774,7 @@ def test_an_unfinished_row_still_offers_the_control (tmp_path: pathlib.Path) -> 
 
 	rendered = _rendered(tmp_path, {
 		"Row": {"item": {"ref": 1, "kind": "task", "title": "Still going",
-			"status_category": "in_progress"}, "showKind": False},
+			"status_category": "in_progress"}},
 	})
 
 	assert "Complete" in rendered["Row"], "an open task was not offered completion"
@@ -5367,7 +5404,7 @@ def test_the_control_and_the_row_say_the_same_thing_about_an_agent (
 				"ref": 1, "title": "Held", "assignee": "gizmo",
 				"assignee_is_agent": True, "assignee_answers_to": "morgan",
 			},
-			"showKind": False, "ordering": None, "place": None,
+			"ordering": None, "place": None,
 			"linkable": False, "hideStatus": False,
 		}),
 	])
@@ -6234,7 +6271,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
 			: name === "marks" ? app.marks(
-				argument.item, argument.showKind, argument.ordering, argument.place,
+				argument.item, argument.ordering, argument.place,
 				argument.linkable, argument.hideStatus, argument.hideAssignee)
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
@@ -6828,7 +6865,7 @@ def _function_body (source: str, name: str) -> str:
 	**The parameter list is skipped rather than walked into, and that is `#860`.** This took
 	the first ``{`` after the name, which for a component declared
 
-	    export function Row ({ item, showKind, ... }) {
+	    export function Row ({ item, showWhere, ... }) {
 
 	is the *destructured parameter list* — so it returned at the brace closing the signature
 	and called 114 characters a function body. ``Row`` contributed nothing to the scan below
@@ -12581,13 +12618,18 @@ def test_a_type_this_client_has_never_seen_still_gets_a_chip (tmp_path: pathlib.
 	# than as a row that lost a picture every other row has.
 	#
 	# **Counted before the row's controls**, because `#1046` gave `Complete` a tick: a count
-	# over the whole row would be two either way and would stop saying anything about the type.
+	# over the whole row would be the same either way and would stop saying anything about the
+	# type.
 	def glyphs (markup: str) -> int:
-		"""How many glyphs the row's marks draw, which is this test's subject."""
+		"""How many glyphs the row draws before its controls, which is this test's subject."""
 
 		return markup[: markup.index("<button")].count("<svg")
 
-	assert glyphs(shown) == glyphs(known) == 1, (
+	# **Two, and it was one until `#1148`.** The card's strip draws the *kind*'s glyph on every
+	# row now, so the count is the strip's plus the type's. Neither of these types is its kind's
+	# default, so both keep a type chip — which is what makes the two numbers comparable at all,
+	# and is why this test says nothing about the rule that silences `task`.
+	assert glyphs(shown) == glyphs(known) == 2, (
 		f"a recognised type draws {glyphs(known)} glyphs and an unrecognised one "
 		f"{glyphs(shown)}"
 	)
@@ -12689,7 +12731,7 @@ def test_a_type_this_client_has_never_seen_is_drawn_by_what_kind_of_thing_it_is 
 		("marks", {
 			"item": {"ref": 1, "kind": "task", "title": "Something", "type": type_key,
 				"type_category": category, "status": "open", "status_is_default": True},
-			"showKind": True, "ordering": None, "place": None, "linkable": False,
+			"ordering": None, "place": None, "linkable": False,
 		}),
 	])[0]
 
@@ -12773,7 +12815,7 @@ def test_only_the_surface_with_a_column_for_it_drops_the_chip (
 				"ref": 1, "title": "Held by an agent", "assignee": "gizmo",
 				"assignee_is_agent": True, "assignee_answers_to": "morgan",
 			},
-			"showKind": False, "ordering": None, "place": None,
+			"ordering": None, "place": None,
 			"linkable": False, "hideStatus": False, "hideAssignee": False,
 		}),
 		("marks", {
@@ -12781,7 +12823,7 @@ def test_only_the_surface_with_a_column_for_it_drops_the_chip (
 				"ref": 1, "title": "Held by an agent", "assignee": "gizmo",
 				"assignee_is_agent": True, "assignee_answers_to": "morgan",
 			},
-			"showKind": False, "ordering": None, "place": None,
+			"ordering": None, "place": None,
 			"linkable": False, "hideStatus": False, "hideAssignee": True,
 		}),
 	])
@@ -12828,7 +12870,7 @@ def test_a_row_draws_a_different_glyph_for_a_person_and_for_an_agent (
 	person, agent = _addressing(tmp_path, [
 		("marks", {
 			"item": {"ref": 1, "title": "Ordinary", "assignee": "jo"},
-			"showKind": False, "ordering": None, "place": None,
+			"ordering": None, "place": None,
 			"linkable": False, "hideStatus": False,
 		}),
 		("marks", {
@@ -12836,7 +12878,7 @@ def test_a_row_draws_a_different_glyph_for_a_person_and_for_an_agent (
 				"ref": 2, "title": "Held by an agent", "assignee": "gizmo",
 				"assignee_is_agent": True, "assignee_answers_to": "morgan",
 			},
-			"showKind": False, "ordering": None, "place": None,
+			"ordering": None, "place": None,
 			"linkable": False, "hideStatus": False,
 		}),
 	])
@@ -13420,9 +13462,9 @@ def test_a_project_label_is_a_link_only_where_something_can_follow_it (
 		"project_key": "ui", "project_path": "subroutine/ui", "workspace": "projects"}
 
 	linked, plain = _addressing(tmp_path, [
-		("marks", {"item": item, "showKind": False, "ordering": None, "projects": None,
+		("marks", {"item": item, "ordering": None, "projects": None,
 			"place": {"workspace": "projects", "project": None}, "linkable": True}),
-		("marks", {"item": item, "showKind": False, "ordering": None, "projects": None,
+		("marks", {"item": item, "ordering": None, "projects": None,
 			"place": {"workspace": "projects", "project": None}, "linkable": False}),
 	])
 
@@ -13903,7 +13945,7 @@ def test_every_mark_says_which_family_it_belongs_to (tmp_path: pathlib.Path) -> 
 		"blocked": True, "blocking": True, "recurrence_description": "every monday",
 	}
 
-	found = _addressing(tmp_path, [("marks", {"item": item, "showKind": False})])[0]
+	found = _addressing(tmp_path, [("marks", {"item": item})])[0]
 
 	assert _families(found) == [
 		("identity", "bug"),
@@ -13948,7 +13990,7 @@ def test_a_tag_and_an_assignee_carry_the_sigil_a_person_would_type (
 		"tags": ["ops"], "assignee": "si",
 	}
 
-	found = _addressing(tmp_path, [("marks", {"item": item, "showKind": False})])[0]
+	found = _addressing(tmp_path, [("marks", {"item": item})])[0]
 	said = [mark["text"] for mark in found]
 
 	# The whole address, because nothing was narrowed — `place` is null, so the label keeps
@@ -13980,8 +14022,8 @@ def test_a_claim_says_who_holds_it_now_and_an_expired_one_says_nothing (
 	expired = {**live, "claim_expires_at": (now - datetime.timedelta(hours=1)).isoformat()}
 
 	held, gone = _addressing(tmp_path, [
-		("marks", {"item": live, "showKind": False}),
-		("marks", {"item": expired, "showKind": False}),
+		("marks", {"item": live}),
+		("marks", {"item": expired}),
 	])
 
 	assert _families(held) == [("state", "claimed by @agent")], held
@@ -14020,8 +14062,8 @@ def test_a_status_stands_down_where_a_state_already_says_the_word (
 	other = {**both, "status": "awaiting_parts"}
 
 	twice, kept = _addressing(tmp_path, [
-		("marks", {"item": both, "showKind": False}),
-		("marks", {"item": other, "showKind": False}),
+		("marks", {"item": both}),
+		("marks", {"item": other}),
 	])
 
 	assert _families(twice) == [("state", "Blocked")], twice
