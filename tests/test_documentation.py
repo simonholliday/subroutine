@@ -926,7 +926,6 @@ def test_every_setting_config_show_prints_is_documented () -> None:
 PUBLISHED_CREDENTIALS = frozenset(
 	{
 		"sr_d9fb02fa_UxzFqMe7i_NGb_eXRbOAsVhcm5_O-4pphVO6JhPe494",
-		"sr_7e6abdce_S2MRP1ehbK3imO9G5hPlGw3ABblhxSi6KUh0Xi4Zv24",
 	}
 )
 

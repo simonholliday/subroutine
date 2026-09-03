@@ -1575,7 +1575,9 @@ def test_a_token_can_be_stored_against_a_connection_on_request (
 	result = run("token", "create", "--store", "work")
 	secret = next(word for word in result.output.split() if word.startswith("sr_"))
 
-	assert subroutine.credentials.read_file() == {"work": secret}
+	assert subroutine.credentials.read_file() == {
+		"work": subroutine.credentials.Stored(token=secret)
+	}
 	assert subroutine.credentials.permission_warning() is None
 
 
@@ -1661,14 +1663,24 @@ def test_a_scoped_token_cannot_mint_itself_a_wider_one (
 	assert re.search(r"sr_[0-9a-f]{8}_", narrower.output)
 
 
-def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
+def test_one_command_sets_an_agent_up_and_what_it_records_works (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-	"""`#339`, and the whole of `#338` in one test: the printed line is the deliverable.
+	"""`#339`, and the whole of `#338` in one test: what the command records is the deliverable.
 
-	Not "a token was issued" — that was already true. The claim is that following this
-	command's output produces a shell that acts as the agent and is bounded to one project,
-	which is what `#346` measured was *not* happening.
+	Not "a token was issued" — that was already true. The claim is that following this command
+	produces a shell that acts as the agent and is bounded to one project, which is what `#346`
+	measured was *not* happening.
+
+	**The deliverable was a printed environment line until `#1449`**, and this test followed it
+	by setting the variable. It is ``--store`` now, because on the commonest setup — an agent
+	inside an editor — nobody launches a session, so there was no environment to set it in.
+
+	**The change makes this test stronger rather than equivalent.** Setting a variable replaced
+	the identity for everything in the process, so the old version could assert what the agent
+	sees and had nothing to say about the person; the last two assertions below could not have
+	been written. That the operator is still themselves, unbounded, in the same directory, is
+	half of what `#1449` is for.
 	"""
 
 	run("init", "--username", "si", "--workspace", "Projects")
@@ -1678,22 +1690,17 @@ def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
 	run("add", "Rotate the certificates +ops")
 
 	made = run(
-		"agent", "create", "claude", "--project", "web", "--scope", "task:read"
+		"agent", "create", "claude", "--project", "web", "--scope", "task:read", "--store"
 	).output
 
 	assert "Created service account claude" in made
-
-	line = re.search(r"(SUBROUTINE_TOKEN_[A-Z0-9_]+)=(sr_\S+)", made)
-
-	assert line is not None, "the environment line is the deliverable, not a nicety"
-
 	assert "claude (agent)" in made, "checked by presenting it, not by describing it"
 	assert "only within web" in made
-	assert "its shell acts as si" in made, "and it says what is not yet bounded"
+	assert "as the agent on connection 'local'" in made
 
-	# **Follow the instruction and see what happens** — the only version of this check worth
-	# anything. Both halves of the claim: the shell is the agent, and it is bounded.
-	monkeypatch.setenv(line.group(1), line.group(2))
+	# **Do what it says and see what happens** — the only version of this check worth anything.
+	# Both halves of the claim: the agent's shell is the agent, and it is bounded.
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
 
 	assert "claude (agent)" in run("whoami").output
 	assert "si (person)" not in run("whoami").output
@@ -1702,6 +1709,12 @@ def test_one_command_sets_an_agent_up_and_the_line_it_prints_works (
 
 	assert "Fix the header" in listed
 	assert "Rotate the certificates" not in listed, "the other project is out of reach"
+
+	# And the person, in the same directory, unchanged and unbounded.
+	monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN)
+
+	assert "si (person)" in run("whoami").output
+	assert "Rotate the certificates" in run("list").output
 
 
 def test_setting_an_agent_up_reaches_a_served_instance (
@@ -1712,11 +1725,75 @@ def test_setting_an_agent_up_reaches_a_served_instance (
 	made = run("-c", "work", "agent", "create", "claude").output
 
 	assert "Created service account claude" in made
-	assert "SUBROUTINE_TOKEN_WORK=" in made, "named for the connection it was minted against"
 	assert "claude (agent)" in made
+
+	# **This asserted `SUBROUTINE_TOKEN_WORK=` until `#1449`.** The command's answer used to be
+	# an environment line for somebody to set by hand, and on the commonest setup — an agent
+	# inside an editor — nobody launches the agent, so there was no environment to set it in and
+	# the instruction could not be followed. `--store` is the answer now, and the command still
+	# has to say that half the job is outstanding when it was not given.
+	assert "--store" in made, "the half that is not done is named"
+	assert "SUBROUTINE_TOKEN_WORK=" not in made
 
 	assert "claude" in run("-c", "work", "token", "list").output
 	assert "claude" not in run("-c", "local", "token", "list").output
+
+
+def test_an_agents_credential_is_stored_beside_the_operators_and_not_over_it (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#1449`: setting an agent up on a machine somebody works on takes nothing away.
+
+	The objection ``token create --store`` was written around is that a narrow credential written
+	under a connection silently narrows the operator's own CLI. **Two slots is what answers it**,
+	rather than an argument — and this drives the command rather than the function underneath,
+	because which slot is written is decided in the CLI.
+	"""
+
+	before = subroutine.credentials.read_file()["work"]
+
+	made = run("-c", "work", "agent", "create", "claude", "--store").output
+
+	assert "as the agent on connection 'work'" in made
+	assert "CLAUDECODE" in made, "the condition is named where it is set up, not only in a file"
+
+	after = subroutine.credentials.read_file()["work"]
+
+	assert after.agent_token is not None
+	assert after.token == before.token, "the operator's own credential is untouched"
+	assert after.agent_token != after.token
+
+
+def test_the_person_and_the_agent_at_one_machine_each_write_under_their_own_name (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#1449`'s done-when, driven: one machine, one directory, one file, two principals.
+
+	**Both directions or neither.** A test that only sets the marker cannot tell this apart from
+	the agent's token having simply replaced the operator's, which is the outcome the second slot
+	exists to avoid — and it is what a single-direction test of the old ``SUBROUTINE_TOKEN``
+	remedy would have reported as success.
+	"""
+
+	run("-c", "work", "agent", "create", "claude", "--store")
+
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+	as_agent = run("-c", "work", "whoami").output
+
+	monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN)
+	as_person = run("-c", "work", "whoami").output
+
+	assert "claude (agent)" in as_agent
+	assert "claude (agent)" not in as_person
+
+	# **And it says why, on the one surface that will be read.** `subroutine connections`
+	# reports the source for every connection and §1.4 hides it until there are two, which is
+	# exactly the machine this arrives on — so a credential chosen by an unseen condition would
+	# stay unseen. Said only where it happened, because a line true of every run is noise.
+	assert subroutine.connections.DEFAULT_AGENT_WHEN in as_agent
+	assert subroutine.connections.DEFAULT_AGENT_WHEN not in as_person
 
 
 def test_credentials_can_be_administered_on_a_machine_that_holds_no_database (

@@ -1108,7 +1108,20 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# rather than by adding a sentence. `token` took the slot, and it is the stronger kind of
 	# entry: `token create` is genuinely unreachable from here (`#484`), where `doc` and
 	# `explain` are the softer "better with a shell" case.
-	assert len(commands) <= 6, (
+	# **Raised to 7 for `#1449`, and this one is a different kind of entry — which is the part
+	# worth saying rather than the number.** `agent` is named so the agent can tell *the person*
+	# what to run: an agent that finds its shell and its tools answering with different accounts
+	# is the only party positioned to see that, and the remedy prints a credential, so it is
+	# explicitly not something to do on somebody's behalf. `issue_token` is already excused here
+	# as `budget`, so nothing is being routed around.
+	#
+	# **This scan cannot tell "run this" from "tell them to run this"**, because both spell the
+	# command the same way and only the prose around them differs. So what the count now measures
+	# is *commands the skill names*, which is wider than the docstring's "sends an agent to the
+	# CLI" — and narrowing it would mean parsing English, which is a check that would be wrong in
+	# ways nobody can enumerate. The ceiling still does its job: a seventh could not appear
+	# without somebody writing this paragraph.
+	assert len(commands) <= 7, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

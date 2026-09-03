@@ -2193,7 +2193,28 @@ def _project_named_by (world: World, marker: subroutine.directory.Marker) -> str
 	return subroutine.directory.resolve(marker, found)
 
 
-def _whoami_lines (me: subroutine.views.Me) -> list[str]:
+def _agent_because (
+	connection: subroutine.connections.Connection, default_connection: str
+) -> str | None:
+	"""Name the variable that made this an agent's credential, or ``None`` if it did not.
+
+	``describe_only`` because this is a report: without it, asking who you are would run every
+	connection's ``token_command`` — a ``pass show`` or a ``gpg`` that can prompt — purely to
+	build a line about a *different* source. It is the same reason ``subroutine connections``
+	passes it.
+
+	**The default is passed in rather than read here**, because this is called once per
+	connection and :func:`connections.roster` reads the configuration file each time.
+	"""
+
+	resolved = subroutine.credentials.resolve(
+		connection, default_connection=default_connection, describe_only=True
+	)
+
+	return connection.agent_variable if resolved.by_agent else None
+
+
+def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None) -> list[str]:
 	"""Describe one connection's answer to "who am I": the account, the credential, the room.
 
 	**What the credential withholds is stated; what it grants is not enumerated.** An
@@ -2211,6 +2232,16 @@ def _whoami_lines (me: subroutine.views.Me) -> list[str]:
 		else f"token {credential.title!r} ({credential.prefix}…)"
 	)
 	lines = [f"{me.user.username} ({kind}), via {how}."]
+
+	# **Said only when it happened, which is what makes it worth a line** (`#1715`). A
+	# credential chosen by a condition nobody can see is the defect `#1449` exists to fix, and
+	# fixing it by adding a second invisible condition would be no fix at all. `subroutine
+	# connections` reports the source for every connection and §1.4 hides that command until
+	# there are two — which is exactly the machine this arrives on.
+	if agent_because is not None:
+		lines.append(
+			f"This connection's agent credential, because {agent_because} is set here."
+		)
 
 	if credential is not None and credential.narrows:
 		lines.append(
@@ -6098,7 +6129,9 @@ def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:
 			if world.qualifies_connection:
 				program.console.print(rich.text.Text(answer.connection.label, style=HEADING))
 
-			for line in _whoami_lines(answer.value):
+			because = _agent_because(answer.connection, world.roster.default)
+
+			for line in _whoami_lines(answer.value, agent_because=because):
 				program.console.print(line)
 
 			# **A footer, and per connection rather than once** (`#381`). The program is

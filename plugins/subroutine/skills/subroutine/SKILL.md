@@ -272,6 +272,13 @@ credential with whatever that variable holds. Where the shell holds a person's t
 silently makes the agent that person, with everything they are allowed to do. Both `whoami`
 calls then agree, which reads exactly like the fix having worked.
 
+**The remedy to name is `subroutine agent create <name> --store`, and it is the person's to
+run** — it prints a credential, which is not something to do on their behalf. It records the
+agent's token beside theirs rather than in place of it, and `subroutine` then resolves the
+agent's in a process an agent started and theirs everywhere else, including in `git` hooks,
+which no editor setting reaches. Where an agent already has an identity through its tools and
+only the shell is wrong, that one command is the whole of it.
+
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:
 

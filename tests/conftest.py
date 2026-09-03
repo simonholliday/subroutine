@@ -21,6 +21,7 @@ import instance_templates
 import sample_models
 import subroutine.cli.main
 import subroutine.config
+import subroutine.connections
 import subroutine.db.migrate
 import subroutine.db.session
 import subroutine.installations
@@ -83,11 +84,13 @@ def _no_inherited_installation (
 
 	``SUBROUTINE_TEST_*`` is left alone — those configure the harness, not the product.
 
-	**And one variable that is nobody's here** (`#381`): an editor sets ``CLAUDE_PLUGIN_ROOT``
-	in the environment of any process a plugin starts, which includes an MCP server and
-	therefore any suite run from one. Left alone, ``installations.plugin()`` would report the
-	*developer's* installed plugin version inside a test — the same class of leak as the
-	`config.toml` above, arriving through a name this project does not own.
+	**And two variables that are nobody's here.** An editor sets ``CLAUDE_PLUGIN_ROOT`` in the
+	environment of any process a plugin starts, which includes an MCP server and therefore any
+	suite run from one (`#381`); left alone, ``installations.plugin()`` would report the
+	*developer's* installed plugin version inside a test. And ``CLAUDECODE`` decides which of a
+	connection's two stored tokens is resolved (`#1449`), so a suite run from inside an agent
+	would take the agent's where CI took the person's — a fixture whose answer depends on who
+	ran it, which is the same class of leak as the `config.toml` above.
 	"""
 
 	root = tmp_path_factory.mktemp("xdg")
@@ -96,6 +99,7 @@ def _no_inherited_installation (
 		monkeypatch.setenv(variable, str(root / variable.lower()))
 
 	monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
+	monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN, raising=False)
 
 	for name in list(os.environ):
 		if name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_"):

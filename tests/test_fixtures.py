@@ -15,6 +15,7 @@ import typer.testing
 
 import conftest
 import subroutine.cli.main
+import subroutine.connections
 import subroutine.installations
 import test_browser
 
@@ -73,6 +74,23 @@ def test_the_editors_plugin_variable_does_not_reach_a_test () -> None:
 
 	assert subroutine.installations.PLUGIN_ROOT not in os.environ
 	assert subroutine.installations.plugin() is None
+
+
+def test_the_editors_agent_variable_does_not_reach_a_test () -> None:
+	"""No test may resolve a different credential for being run from inside an agent — `#1449`.
+
+	``CLAUDECODE`` decides which of a connection's two stored tokens answers. A suite run from an
+	agent's own shell — which is how most of this project's tests are run — would take the
+	agent's where CI takes the person's, so a fixture storing one token and asserting on it would
+	mean two different things depending on who pressed return.
+
+	**Here rather than left to the fixture asserting its own good behaviour**, for the reason the
+	two checks around it are: a fixture nothing checks is a control that can be deleted in
+	silence, which is the shape `#303` is named for. Third variable this project does not own to
+	need clearing, after ``CLAUDE_PLUGIN_ROOT`` and the colour settings.
+	"""
+
+	assert subroutine.connections.DEFAULT_AGENT_WHEN not in os.environ
 
 
 def test_the_machines_colour_setting_does_not_reach_a_test () -> None:

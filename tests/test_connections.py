@@ -435,7 +435,10 @@ def test_storing_a_token_keeps_the_others (config_home: pathlib.Path) -> None:
 	subroutine.credentials.store("work", "sr_one")
 	path = subroutine.credentials.store("side", "sr_two")
 
-	assert subroutine.credentials.read_file() == {"work": "sr_one", "side": "sr_two"}
+	assert subroutine.credentials.read_file() == {
+		"work": subroutine.credentials.Stored(token="sr_one"),
+		"side": subroutine.credentials.Stored(token="sr_two"),
+	}
 	assert path == subroutine.credentials.credentials_file_path()
 
 
@@ -484,3 +487,177 @@ def test_an_unparseable_credentials_file_is_reported (config_home: pathlib.Path)
 		subroutine.credentials.read_file()
 
 	assert "credentials.toml" in raised.value.detail
+
+
+# --- Which of a connection's two tokens answers (`#1449`) --------------------------------
+#
+# The person and the agent at one machine are the same account, in the same directory,
+# reading the same two files. The only thing that differs is the environment each process was
+# started in, so that is what step 4 asks. Everything above it is untouched, which is what
+# makes removing the second token a complete undo.
+
+
+def test_the_agents_token_answers_where_the_marker_is_set (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The whole of `#1449`: one machine, one file, two principals."""
+
+	subroutine.credentials.store("work", "sr_person")
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+
+	resolved = subroutine.credentials.resolve(connection(), default_connection="local")
+
+	assert resolved.token == "sr_agent"
+	assert subroutine.connections.DEFAULT_AGENT_WHEN in resolved.source
+	assert "agent" in resolved.source
+
+
+def test_the_persons_token_answers_where_it_is_not (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The other half, and the pair is the point — either alone proves nothing."""
+
+	subroutine.credentials.store("work", "sr_person")
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN, raising=False)
+
+	resolved = subroutine.credentials.resolve(connection(), default_connection="local")
+
+	assert resolved.token == "sr_person"
+	assert "agent" not in resolved.source
+
+
+def test_an_agents_token_is_never_offered_to_the_person (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""A machine holding only an agent's credential gives the person nothing, not the agent's.
+
+	**"nowhere" rather than the file**, deliberately: there is no token *for them*, and naming
+	the file would send somebody to read a line that is not about them.
+	"""
+
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN, raising=False)
+
+	resolved = subroutine.credentials.resolve(connection(), default_connection="local")
+
+	assert not resolved.found
+	assert resolved.source == "nowhere"
+
+
+def test_a_connection_can_name_a_different_editors_variable (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``CLAUDECODE`` is a default rather than a constant, because it is somebody else's name.
+
+	`#1434`: a claim about another program is a promise no test of ours can keep. What is
+	testable is that the variable is ours to change, which is what keeps this from rotting into
+	a hard-coded dependency on one vendor.
+	"""
+
+	subroutine.credentials.store("work", "sr_person")
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+	monkeypatch.setenv("SOME_OTHER_EDITOR", "1")
+
+	named = connection(agent_when="SOME_OTHER_EDITOR")
+
+	assert subroutine.credentials.resolve(named, default_connection="local").token == "sr_agent"
+
+	monkeypatch.delenv("SOME_OTHER_EDITOR")
+
+	# The default is *replaced*, not added to — otherwise naming one editor would silently
+	# leave every other vendor's name live as well.
+	assert subroutine.credentials.resolve(named, default_connection="local").token == "sr_person"
+
+
+def test_a_variable_set_by_hand_still_beats_both (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Step 4 sits below every explicit source, which is what keeps `#1455` true.
+
+	Somebody who has said where the token is has said it, and a condition inferred from the
+	process must not overrule them. It is also what makes the mechanism reversible: unset the
+	variable and today's behaviour is back, exactly.
+	"""
+
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", "sr_by_hand")
+
+	assert (
+		subroutine.credentials.resolve(connection(), default_connection="local").token
+		== "sr_by_hand"
+	)
+
+
+def test_a_credential_helper_still_beats_both (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""``token_env`` is rule 2 and stays there — the same reasoning one source along."""
+
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+	monkeypatch.setenv("WORK_TASKS_TOKEN", "sr_named")
+
+	resolved = subroutine.credentials.resolve(
+		connection(token_env="WORK_TASKS_TOKEN"), default_connection="local"
+	)
+
+	assert resolved.token == "sr_named"
+
+
+def test_storing_one_token_leaves_the_other_alone (config_home: pathlib.Path) -> None:
+	"""Setting an agent up on a machine somebody works on must not take their own list away.
+
+	That is the objection ``token create --store`` was written around — a narrow credential
+	written under the local connection silently narrowing the operator's own CLI — and the
+	second slot is what answers it rather than an argument.
+	"""
+
+	subroutine.credentials.store("work", "sr_person")
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	assert subroutine.credentials.read_file()["work"] == subroutine.credentials.Stored(
+		token="sr_person", agent_token="sr_agent"
+	)
+
+	subroutine.credentials.store("work", "sr_person_again")
+
+	assert subroutine.credentials.read_file()["work"] == subroutine.credentials.Stored(
+		token="sr_person_again", agent_token="sr_agent"
+	)
+
+
+def test_a_file_written_before_any_of_this_still_reads (config_home: pathlib.Path) -> None:
+	"""Every credentials.toml in existence has one key per table, and must go on working."""
+
+	config_home.mkdir(parents=True, exist_ok=True)
+	(config_home / "credentials.toml").write_text(
+		'[work]\ntoken = "sr_old"\n', encoding="utf-8"
+	)
+
+	assert subroutine.credentials.read_file() == {
+		"work": subroutine.credentials.Stored(token="sr_old")
+	}
+
+
+def test_neither_token_is_in_a_repr (config_home: pathlib.Path) -> None:
+	"""A live local in ``_from_file`` reaches any traceback-with-locals renderer.
+
+	:class:`Resolved` was given a safe ``__repr__`` for exactly this and the second type would
+	have reintroduced it — a secret that is never written down anywhere except in a crash.
+	"""
+
+	shown = repr(subroutine.credentials.Stored(token="sr_person", agent_token="sr_agent"))
+
+	assert "sr_person" not in shown
+	assert "sr_agent" not in shown
+	assert "<set>" in shown

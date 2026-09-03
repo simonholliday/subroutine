@@ -1939,6 +1939,10 @@ def token_create (
 	narrow token into credentials.toml under the local connection would silently narrow your
 	own CLI to whatever the agent was given — a token that quietly takes authority away is
 	worse than one you have to paste somewhere.
+
+	With '--service-account' it is stored as that connection's agent instead, which is the one
+	case where the paragraph above does not apply: an agent's token is resolved only by a
+	process an agent started, so it narrows nothing of yours.
 	"""
 
 	shaped = _shaped_by_profile(
@@ -1993,13 +1997,22 @@ def token_create (
 	_say("That is the only time it is shown. Store it now.")
 
 	if target:
+		# **Which slot follows what was asked for, not a second flag.** A credential issued
+		# for a machine identity is an agent's by construction, so deriving it here means the
+		# two cannot be given inconsistently — and `agent create` reaches the same rule.
+		for_an_agent = bool(service_account.strip())
+
 		try:
-			written = subroutine.credentials.store(target, secret)
+			written = subroutine.credentials.store(target, secret, agent=for_an_agent)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
-		_say(f"Written to {written} for connection {target!r}.")
+		if for_an_agent:
+			_say(f"Written to {written} as the agent on connection {target!r}.")
+
+		else:
+			_say(f"Written to {written} for connection {target!r}.")
 
 	else:
 		_say(
@@ -2233,6 +2246,9 @@ def agent_create (
 		"", "--expires", help="Stop it working after this day, e.g. 2026-09-01 or now+30d."
 	),
 	title: str = typer.Option("", "--title", help="What this credential is for."),
+	store: bool = typer.Option(
+		False, "--store", help="Record it on this machine as this connection's agent."
+	),
 ) -> None:
 	"""Give an agent an identity of its own, and say how to hand it over.
 
@@ -2250,14 +2266,17 @@ def agent_create (
 	decision: an account with no membership authenticates and can do nothing, which reads as a
 	broken token rather than as a missing role.
 
-	It prints an environment line, and that line is half the work. An agent that can run
-	shell commands reaches this instance two ways — through the tools its editor wired up, and
-	by running 'subroutine' itself — and those resolve credentials separately. Give the token
-	only to the editor and the agent is itself over the tools and *you* in its shell, which is
-	worse than plainly acting as you: half its work is correctly attributed, so a spot check
-	finds its name and concludes the setup worked.
+	Handing the token over is half the work. An agent that can run shell commands reaches this
+	instance two ways — through the tools its editor wired up, and by running 'subroutine'
+	itself — and those resolve credentials separately. Give the token only to the editor and the
+	agent is itself over the tools and *you* in its shell, which is worse than plainly acting as
+	you: half its work is correctly attributed, so a spot check finds its name and concludes the
+	setup worked.
 
-	Setting the variable in the environment the agent's session starts from covers both halves.
+	'--store' covers both halves and is the only thing that covers the second. It records the
+	credential beside yours rather than in place of it, and 'subroutine' then acts as the agent
+	in a process the agent started and as you everywhere else — including in 'git' hooks, which
+	are the highest-volume writer here and the one no editor setting reaches.
 
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
@@ -2279,6 +2298,12 @@ def agent_create (
 			"For example: subroutine agent create claude --project WEB",
 		)
 
+	# Checked *before* anything is issued, for the reason `token create` records: a credential
+	# minted and then stranded by an unparseable file is a live token whose secret can never be
+	# recovered.
+	if store:
+		_refuse_unusable_credentials_file(wanted)
+
 	with _administering() as client:
 		try:
 			# **Who this machine acts as *now*, asked before anything is minted.** It is the
@@ -2298,7 +2323,7 @@ def agent_create (
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
-		variable = subroutine.credentials.variable_for(client.connection.name)
+		connection = client.connection
 		checked = _what_the_credential_can_do(client, minted.token)
 
 	if minted.account_created:
@@ -2308,25 +2333,49 @@ def agent_create (
 		)
 
 	_say("")
-	_say("Set this in the environment the agent's session starts from:")
-	_say("")
-	_say(f"  {variable}={minted.token}")
+	_say(f"  {minted.token}")
 	_say("")
 	_say("That is the only time the credential is shown. Nothing recovers it afterwards.")
+
+	# **Printed before it is stored**, which is `token create`'s rule and matters more here: if
+	# the write fails now, the secret is at least on screen and can be put somewhere by hand.
+	written: pathlib.Path | None = None
+
+	if store:
+		try:
+			written = subroutine.credentials.store(
+				connection.name, minted.token, agent=True
+			)
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
 	if checked is not None:
 		_say("")
 		_say(f"Checked, by presenting it: {checked}")
 
-	# **The sentence that stops this looking finished when it is not.** Until the variable is
-	# set, the agent's shell keeps resolving whatever the command line resolves — normally the
-	# operator's own credential, which on this machine is the *unbounded* one. Naming who that
-	# is makes the gap concrete rather than theoretical.
+	# **The sentence that stops this looking finished when it is not.** Until the credential is
+	# recorded, the agent's shell keeps resolving whatever the command line resolves — normally
+	# the operator's own, which on this machine is the *unbounded* one. Naming who that is makes
+	# the gap concrete rather than theoretical.
+	#
+	# **Two short lines rather than one long one**, because `_say` wraps at the terminal's width
+	# and a sentence that lands differently on every machine cannot be quoted in documentation.
 	_say("")
-	_say(
-		f"Until then its shell acts as {operator.user.username}, and nothing above bounds "
-		f"what it does there."
-	)
+
+	if written is None:
+		_say("Nothing here will use it yet — '--store' is what records it on this machine.")
+		_say(
+			f"Until then its shell acts as {operator.user.username}, and nothing above bounds "
+			f"what it does there."
+		)
+
+	else:
+		_say(f"Written to {written} as the agent on connection {connection.name!r}.")
+		_say(
+			f"'subroutine' here acts as {minted.username} wherever {connection.agent_variable} "
+			f"is set, and as {operator.user.username} otherwise."
+		)
 
 
 def _what_the_credential_can_do (

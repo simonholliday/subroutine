@@ -954,15 +954,24 @@ there and says so. Setting somebody up should not take something away from you.
     /opt/subroutine/bin/subroutine agent create claude --project web --scope task:read --scope task:write
   Created service account claude, with the contributor role.
 
-  Set this in the environment the agent's session starts from:
-
-    SUBROUTINE_TOKEN_WORK=sr_7e6abdce_S2MRP1ehbK3imO9G5hPlGw3ABblhxSi6KUh0Xi4Zv24
+    sr_…
 
   That is the only time the credential is shown. Nothing recovers it afterwards.
 
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
+  Nothing here will use it yet — '--store' is what records it on this machine.
   Until then its shell acts as si, and nothing above bounds what it does there.
+```
+
+The secret is the one thing masked on this page. Everything else is what the command printed.
+
+**Add `--store` and the second half is done too**, which is what you want on the machine the
+agent runs on:
+
+```console
+  Written to /var/lib/subroutine/config/subroutine/credentials.toml as the agent on connection 'local'.
+  'subroutine' here acts as claude wherever CLAUDECODE is set, and as si otherwise.
 ```
 
 Three things it does that doing it by hand does not.
@@ -977,8 +986,8 @@ before the command claims anything, so a scope naming a permission the role does
 a pin on a workspace the account cannot reach, is visible here rather than on the agent's first
 call.
 
-**The last line is not a warning, it is the other half of the job.** Until that variable is set,
-the agent's shell resolves whatever the command line resolves — normally your own credential —
+**The last line is not a warning, it is the other half of the job.** Until the credential is
+recorded, the agent's shell resolves whatever the command line resolves — normally your own —
 so the restriction above bounds the tools and nothing else.
 
 ### Saying what the credential is for
@@ -1104,24 +1113,41 @@ The result is an agent that is itself half the time and you the other half. That
 plainly acting as you, because it is partial: check the event log and the agent's own name is
 there, on the half that went through its tools.
 
-**One variable settles it.** Credentials are looked for in this order:
+**`--store` settles it, and it is the only thing that reaches both halves.** Credentials are
+looked for in this order:
 
 1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment — the connection name upper-cased, with
    anything that is not a letter or a digit as an underscore
 2. `SUBROUTINE_TOKEN`, for the default connection only
 3. whatever the connection's own `token_env` or `token_command` names
-4. `credentials.toml`
+4. `credentials.toml` — the **agent's** token where one is stored and this is an agent's
+   process, and yours otherwise
 
-The first wins, and **both the shell and the editor's tools inherit it** from the environment
-the session was started in. So set it where you launch the agent, and leave the token field in
-your editor's plugin settings empty:
+The first wins. Step 4 is where the two of you stop sharing a name, because it is the only step
+that can tell you apart: you are the same account, in the same directory, reading the same
+files, and the one thing that differs is the environment each process was started in.
 
-```console
-$ SUBROUTINE_TOKEN_WORK=sr_… claude
+**How it knows.** An editor sets a variable on every process it starts and on nothing above
+itself — `CLAUDECODE` for Claude Code, which is the shipped default. A connection can name a
+different one:
+
+```toml
+[connections.work]
+url = "https://tasks.example.com"
+agent_when = "SOME_OTHER_EDITOR"
 ```
 
-`credentials.toml` then holds *you*, which is the right default: the person is who is there
-when no session has claimed the terminal.
+Only its *presence* is read, never its value. It is not a place a token can live, and it decides
+attribution rather than authority — claiming to be the agent selects the *narrower* credential,
+so there is nothing to be gained by it.
+
+**It costs nothing until you use it.** With one token stored, every step behaves exactly as it
+did. Remove the agent's token and the mechanism is gone, completely.
+
+**An earlier version of this page told you to set `SUBROUTINE_TOKEN_<CONNECTION>` where you
+launch the agent.** That still works, and on the commonest setup there is nowhere to do it: in
+an editor extension nobody launches the agent, so there is no command to prefix — and a shell
+profile reaches *your* terminal and not the agent's, which is the wrong way round.
 
 **Check it rather than assuming it**, from inside the agent's own shell:
 
@@ -1133,7 +1159,9 @@ $ subroutine whoami
     projects  Contributor  may: task:read, task:write
 ```
 
-A person's name on that line is the split, and it is the only place it is visible.
+A person's name on that line is the split, and it is the only place it is visible. Run the same
+command in your own terminal: it should name *you*, and the pair is the check rather than either
+answer alone.
 
 **The cheaper answer, where it fits:** your own token does not have to be on a machine an agent
 uses. If you work from your laptop and only agents work on the build box, then

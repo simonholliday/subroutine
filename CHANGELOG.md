@@ -21,6 +21,40 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **An agent and the person whose machine it runs on stop signing each other's work.**
+
+  A machine holds one credential per instance, and two of you type at it: you, and the agent in
+  your editor. Whichever token was stored, the other one was recorded as it — so on our own
+  instance seven commits of an agent's work, and fifty-three of the backlinks it wrote, are
+  attributed to a person.
+
+  A connection can hold two tokens now, and `--store` writes the agent's beside yours rather
+  than in place of it:
+
+  ```
+  subroutine agent create claude --project web --store
+  ```
+
+  `subroutine` then acts as the agent in a process the agent started, and as you everywhere
+  else — including in `git` hooks, which are the highest-volume writer there is and the one no
+  editor setting reaches. Check it the only way worth checking: run `subroutine whoami` in the
+  agent's shell and in your own terminal, and read both answers.
+
+  **How it tells you apart.** An editor sets a variable on every process it starts and on
+  nothing above itself; `CLAUDECODE` is the shipped default, and a connection can name a
+  different one with `agent_when` in `config.toml`. Only its presence is read, never its value.
+  It decides attribution and not authority: claiming to be the agent selects the *narrower*
+  credential.
+
+  **Nothing changes until you store a second token**, and removing it undoes this completely. A
+  variable you set by hand still wins, as it always did.
+
+  > The advice this replaces was to set `SUBROUTINE_TOKEN_<CONNECTION>` where the agent's
+  > session starts. That still works and, on the commonest setup, names a place that does not
+  > exist: in an editor extension nobody launches the agent, so there is no command to prefix —
+  > and a shell profile reaches your own terminal rather than the agent's, which is backwards.
+  > `subroutine agent create` no longer prints an instruction that cannot be followed.
+
 - **An instance administrator can find out what workspaces exist here.**
 
   Anybody who can create a workspace can create one the instance owner is not a member of —

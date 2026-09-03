@@ -46,6 +46,15 @@ LOCAL_LABEL = "Local"
 #: giving up early is one line saying which server did not answer.
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
+#: The environment variable whose *presence* means the process asking is an agent's rather
+#: than the person's, when a connection has not named a different one. Claude Code sets it on
+#: every process it starts and on nothing above itself, which is what makes it a discriminator
+#: at all: measured on 2026-09-03, it is in the agent's shell and in the MCP server it starts,
+#: and absent from the person's integrated terminal, the extension host and a plain login
+#: shell. **A claim about somebody else's program** (`#1434`), which is why it is a default a
+#: connection can replace rather than a constant nothing can reach.
+DEFAULT_AGENT_WHEN = "CLAUDECODE"
+
 #: A connection name, which becomes the first segment of an address — ``work/acme/42``. The
 #: shape is a workspace slug's, plus a required leading letter: a name of all digits would
 #: read as a ref to every human who saw it, and the point of a name is to be typed.
@@ -62,6 +71,7 @@ KNOWN_KEYS = frozenset(
 		"read_only",
 		"token_env",
 		"token_command",
+		"agent_when",
 		"timeout_seconds",
 		"enabled",
 	}
@@ -99,6 +109,12 @@ class Connection:
 	token_env: str | None = None
 	token_command: str | None = None
 
+	#: The environment variable whose presence means this process is the agent's, overriding
+	#: :data:`DEFAULT_AGENT_WHEN`. **Not a second ``token_env``**, and the parallel name was
+	#: refused for that reason: ``token_env`` names a variable holding a token's *value*, and
+	#: this one is never read for its contents — only for whether it is there at all.
+	agent_when: str | None = None
+
 	timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
 
 	#: Turned off without being deleted, which is the only reason to declare ``local``
@@ -110,6 +126,17 @@ class Connection:
 		"""Report whether this connection is this installation's own database."""
 
 		return self.url is None
+
+	@property
+	def agent_variable (self) -> str:
+		"""Return the variable whose presence means the agent is asking, not the person.
+
+		The default lives here rather than in the field so that a connection written before this
+		existed behaves like one written after it. It costs nothing where nobody has stored a
+		second token, because the whole mechanism is inert until somebody does.
+		"""
+
+		return self.agent_when or DEFAULT_AGENT_WHEN
 
 	@property
 	def label (self) -> str:
@@ -408,6 +435,7 @@ def _connection (name: str, table: dict[str, typing.Any]) -> Connection:
 		read_only=_flag(name, table, "read_only", default=False),
 		token_env=_text(name, table, "token_env"),
 		token_command=_text(name, table, "token_command"),
+		agent_when=_text(name, table, "agent_when"),
 		timeout_seconds=_timeout(name, table),
 		enabled=_flag(name, table, "enabled", default=True),
 	)

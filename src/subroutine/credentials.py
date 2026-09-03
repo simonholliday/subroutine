@@ -5,7 +5,9 @@ Two files, on the SSH model, because they have different lifetimes and different
 ===================================================  ======  =====================================
 ``$XDG_CONFIG_HOME/subroutine/config.toml``          0600    connections, urls, defaults, and
                                                              ``secret_key``. **No tokens.**
-``$XDG_CONFIG_HOME/subroutine/credentials.toml``     0600    one token per connection name.
+``$XDG_CONFIG_HOME/subroutine/credentials.toml``     0600    the tokens for each connection
+                                                             name: the person's, and the
+                                                             agent's (`#1449`).
 ===================================================  ======  =====================================
 
 **Both are 0600, and this table said ``config.toml`` was 0644 and held no secrets until `#831`.**
@@ -67,6 +69,31 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9]")
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
+class Stored:
+	"""What the credentials file holds for one connection: a person's token, and an agent's.
+
+	**Two tokens under one connection, rather than two connections** — `#1449`. A second
+	connection naming the same instance is what `#327` and `#337` measured and refused: the
+	merged read refuses a duplicate instance, so ``subroutine today`` stops working while
+	``list``, ``show`` and ``whoami`` go on answering.
+
+	Either may be absent. A machine where only agents work legitimately holds the agent's alone,
+	which is the arrangement ``docs/hosting.md`` already recommends where it fits.
+	"""
+
+	token: str | None = None
+	agent_token: str | None = None
+
+	def __repr__ (self) -> str:
+		"""Describe this without either secret in it, for the reason :class:`Resolved` does."""
+
+		return (
+			f"Stored(token={'<set>' if self.token else None}, "
+			f"agent_token={'<set>' if self.agent_token else None})"
+		)
+
+
+@dataclasses.dataclass(frozen=True, repr=False)
 class Resolved:
 	"""One connection's token, and which of the four places supplied it.
 
@@ -77,6 +104,12 @@ class Resolved:
 
 	token: str | None
 	source: str
+
+	#: Whether this is the connection's *agent* credential, chosen because the process asking
+	#: was started by an agent. A flag rather than something read back out of ``source``,
+	#: because a caller matching on that string would be reading a sentence written for a
+	#: person and would break the day the wording improved.
+	by_agent: bool = False
 
 	@property
 	def found (self) -> bool:
@@ -93,7 +126,10 @@ class Resolved:
 		purpose is that the token is never written down anywhere.
 		"""
 
-		return f"Resolved(token={'<set>' if self.found else None}, source={self.source!r})"
+		return (
+			f"Resolved(token={'<set>' if self.found else None}, source={self.source!r}, "
+			f"by_agent={self.by_agent})"
+		)
 
 
 def credentials_file_path () -> pathlib.Path:
@@ -121,7 +157,15 @@ def resolve (
 	   connection.
 	2. ``token_env`` on the connection, naming a variable explicitly.
 	3. ``token_command`` on the connection: a command whose standard output is the token.
-	4. The connection's entry in ``credentials.toml``.
+	4. The connection's entry in ``credentials.toml`` — the **agent's** token where one is
+	   stored and the connection's ``agent_when`` variable is set in this process's
+	   environment, and the ordinary one otherwise.
+
+	**Step 4 is where an agent and the person at one machine stop sharing a name** (`#1449`).
+	They are the same account, in the same directory, reading the same two files; the only thing
+	that differs is the environment each process was started in, so that is what is asked. It
+	sits *below* every explicit source deliberately: a variable somebody set by hand still wins,
+	which keeps `#1455` true and makes removing the second token a complete undo.
 
 	``describe_only`` answers *where* the token would come from without fetching it, which is
 	all ``subroutine connections`` needs. Without it, listing connections spawned every
@@ -171,11 +215,45 @@ def resolve (
 			source=f"{connection.token_command!r} (token_command)",
 		)
 
+	return _from_file(connection)
+
+
+def _from_file (connection: subroutine.connections.Connection) -> Resolved:
+	"""Return the stored token for this connection, choosing by who is asking — `#1449`.
+
+	**The condition is the presence of a variable, never its contents.** Reading a value would
+	make this a fifth place a token can live; reading only whether it is set keeps it a question
+	about the process, which is the one fact that separates the agent from the person here.
+
+	**Attribution, not authority** (`#1426`). Setting the variable by hand selects the *narrower*
+	credential — an agent's is bounded and the operator's is not — so there is nothing to gain by
+	claiming to be the agent, and the token still carries whatever it carries.
+
+	The source says which half answered and why. A credential chosen by an invisible condition is
+	the defect this exists to fix, and it must not be fixed by adding a second invisible one.
+	"""
+
 	stored = read_file().get(connection.name)
 
-	if stored:
-		return Resolved(token=stored, source=str(credentials_file_path()))
+	if stored is None:
+		return Resolved(token=None, source="nowhere")
 
+	path = credentials_file_path()
+	variable = connection.agent_variable
+
+	if stored.agent_token and os.environ.get(variable):
+		return Resolved(
+			token=stored.agent_token,
+			source=f"{path} (agent, {variable} is set)",
+			by_agent=True,
+		)
+
+	if stored.token:
+		return Resolved(token=stored.token, source=str(path))
+
+	# Reached where the file holds an agent's token alone and the person is asking. "nowhere"
+	# is the honest answer: there is no token *for them*, and saying the file supplied one would
+	# send somebody to read a line that is not about them.
 	return Resolved(token=None, source="nowhere")
 
 
@@ -247,8 +325,8 @@ def _from_command (connection: subroutine.connections.Connection) -> str:
 	return token[0].strip()
 
 
-def read_file () -> dict[str, str]:
-	"""Return every stored token, keyed by connection name.
+def read_file () -> dict[str, Stored]:
+	"""Return what the file holds for each connection, keyed by connection name.
 
 	A file that cannot be parsed is reported rather than treated as empty. Treating it as
 	empty would present as "401 unauthorized" against every remote at once, which is a long
@@ -279,17 +357,39 @@ def read_file () -> dict[str, str]:
 			hint="Check the file's ownership and permissions.",
 		) from None
 
-	tokens: dict[str, str] = {}
+	held: dict[str, Stored] = {}
 
 	for name, table in data.items():
-		if isinstance(table, dict) and isinstance(table.get("token"), str):
-			tokens[name] = str(table["token"]).strip()
+		if not isinstance(table, dict):
+			continue
 
-	return tokens
+		entry = Stored(token=_token_in(table, "token"), agent_token=_token_in(table, "agent_token"))
+
+		# A table holding neither is not an entry. Keeping it would make `store` write a bare
+		# `[name]` header back, which reads as a connection whose token somebody removed.
+		if entry.token or entry.agent_token:
+			held[name] = entry
+
+	return held
 
 
-def store (name: str, token: str) -> pathlib.Path:
+def _token_in (table: dict[str, typing.Any], key: str) -> str | None:
+	"""Return one token from a connection's table, or ``None`` where there is not one."""
+
+	value = table.get(key)
+
+	if not isinstance(value, str) or not value.strip():
+		return None
+
+	return value.strip()
+
+
+def store (name: str, token: str, *, agent: bool = False) -> pathlib.Path:
 	"""Record one connection's token, and return where it was written.
+
+	``agent`` writes the credential an agent's own process will resolve, leaving the person's
+	untouched — and the other way round, which is what makes setting up an agent on a machine
+	somebody already works on a safe act rather than one that takes their own list away.
 
 	The whole file is rewritten from the tokens it held, which loses any comments in it —
 	the one place in this program where that is the right trade. A comment in a secrets file
@@ -301,16 +401,30 @@ def store (name: str, token: str) -> pathlib.Path:
 	path = credentials_file_path()
 	path.parent.mkdir(parents=True, exist_ok=True)
 
-	tokens = read_file() if path.is_file() else {}
-	tokens[name] = token.strip()
+	held = read_file() if path.is_file() else {}
+	existing = held.get(name, Stored())
+	secret = token.strip()
+
+	held[name] = (
+		dataclasses.replace(existing, agent_token=secret)
+		if agent
+		else dataclasses.replace(existing, token=secret)
+	)
 
 	lines = [
 		"# Subroutine credentials. Keep this file private and out of any repository.",
 		"# See 'subroutine connections' for which token each connection is using.",
 	]
 
-	for key in sorted(tokens):
-		lines.extend(("", f"[{key}]", f'token = "{_escaped(tokens[key])}"'))
+	for key in sorted(held):
+		entry = held[key]
+		lines.extend(("", f"[{key}]"))
+
+		if entry.token:
+			lines.append(f'token = "{_escaped(entry.token)}"')
+
+		if entry.agent_token:
+			lines.append(f'agent_token = "{_escaped(entry.agent_token)}"')
 
 	# Created 0600 *before* anything is written, so the secret is never briefly readable by
 	# anyone else. Writing and then tightening leaves a window, and it is exactly the kind of
