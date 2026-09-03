@@ -1457,12 +1457,39 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	align-items: baseline;
 	gap: var(--space-3);
 	min-width: 0;
+	/* **Wraps rather than overflowing**, because a board card is as narrow as a quarter of the
+	   content width and the strip grew a second half (`#2026`). A flex item's `min-width` is
+	   `auto`, so without this a long type word on a narrow column pushes past the card's edge
+	   instead of moving to a line of its own. The ref is the second child either way, so what
+	   wraps is the type — the fixed position `#1148` bought is not what gives. */
+	flex-wrap: wrap;
 }
 
 .stamp .icon { align-self: center; color: var(--ink-soft); }
 
+/* **A middot between the kind and the type, and deliberately not a slash** — `#2026`.
+   `.ref` renders the workspace prefix as `personal/#2`, so a slash three characters earlier
+   already means *workspace*; a second one meaning *and also* is `#1267` §2's naming hazard
+   spelled in punctuation. Dimmer than either word it separates, because it is the one mark
+   here that says nothing. */
+.stamp-sep { color: var(--line); }
+
+/* **The type half is one flex item, so wrapping moves all three parts together.** Measured
+   before this existed, on a 260px column with a workspace prefix: the strip broke between the
+   glyph and its own word, leaving `· ⋄` stranded at the end of one line and `FEATURE` alone on
+   the next. A separator with nothing after it is the worst of the three outcomes — it promises
+   a fact the line does not carry. */
+.stamp-type {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-3);
+	white-space: nowrap;
+}
+
 /* Uppercase and one step down, because it labels the card rather than being read as part of
-   it — the same treatment `#906` gives every other structural label. */
+   it — the same treatment `#906` gives every other structural label. Both halves take it:
+   the kind and the type are the same *sort* of fact, so a reader meets one label pair rather
+   than a label and a value. */
 .stamp-kind {
 	font-size: var(--text-fine);
 	font-weight: 600;

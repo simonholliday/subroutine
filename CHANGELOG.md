@@ -677,28 +677,37 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
-- **Every card says whether it is work or a document, in a fixed place.**
+- **Every card says what it is in a fixed place — its number, whether it is work or a
+  document, and what sort of thing it is.**
 
   A board or a list mixes tasks and documents, and nothing on a card said which. The type was
   there — `bug`, `decision`, `finding` — but knowing that `spike` is work and `finding` is not
   is a convention with no instructions: twelve types, six a side, and you had to have learnt
-  them.
+  them. What type it was sat in a chip below the title, among the project, the tags and the
+  priority, so the two halves of *what is this* were in two places and neither was aligned.
 
-  Each card now opens with a strip carrying a glyph, the item's number and its kind:
+  Each card now opens with one strip:
 
   ```
-  ☑ #42  TASK
-  The browser suite renders markup it cannot check
+  ☑ #42  TASK · 🐞 BUG
+  A board offers dragging only to a reader who may write it
   ```
 
-  The glyph is a fixed width, so the number starts in the same place on every card whatever it
-  is, and the title has the line to itself. On a board that is the larger half of the change:
-  the number used to flow inline ahead of the title, so a title began at a different place
-  depending on whether it wrapped.
+  A document reads the same way, with its own glyph and the word `DOCUMENT` in place of
+  `TASK` — so the two are told apart by two differences rather than by one absence.
 
-  **The type is now shown only when somebody chose it.** A card whose type is its kind's
-  default — `task`, or `note` for a document — no longer repeats it in a chip below, because
-  the strip has just said it. A `bug`, a `decision` or a `spike` still says so.
+  The leading glyph is a fixed width, so the number starts in the same place on every card
+  whatever it is, and the title has the line to itself. On a board that is the larger half of
+  the change: the number used to flow inline ahead of the title, so a title began at a
+  different place depending on whether it wrapped.
+
+  **The type is shown only when somebody chose it.** A card whose type is its kind's default —
+  `task`, or `note` for a document — ends at the kind, because the strip has just said it. A
+  `bug`, a `decision` or a `spike` still says so.
+
+  **An item's own page opens with the same strip**, so what you read on a card is what you
+  read on the page you reach from it. It replaces a heading that ran the number and the title
+  together.
 
   It costs about a fifth of a column's height on a board, measured at 25 cards a column, and
   buys a card that answers *what is this* without being read.

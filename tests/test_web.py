@@ -114,6 +114,20 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"text": "subroutine/ui", "href": "/projects/subroutine/ui"},
 		],
 	},
+	# **A document with a type whose glyph is its own**, which is the sample that renders every
+	# branch of the strip at once: the kind's picture and word, the separator, a type picture
+	# that differs from the kind's, and the type's word. The collision rule — a `spec`, whose
+	# glyph *is* `document`'s — is driven separately, by
+	# `test_the_strip_draws_no_type_glyph_when_it_would_repeat_the_kinds`.
+	"Stamp": {
+		"item": {
+			"ref": 1848,
+			"kind": "document",
+			"type": "design",
+			"type_category": "reference",
+			"type_is_default": False,
+		},
+	},
 	"Row": {
 		"item": {
 			"ref": 42,
@@ -691,6 +705,71 @@ def _markup (
 
 		process.stdout.write(JSON.stringify(out));
 	"""))
+
+
+def test_the_strip_draws_no_type_glyph_when_it_would_repeat_the_kinds (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A `spec` carries `document`'s own picture, so the strip says it once — `#2026`.
+
+	**The collision is by construction rather than by coincidence**, which is why the rule is a
+	comparison and not a list of exceptions. ``TYPE_ICONS.spec`` and ``KIND_ICONS.document`` are
+	both ``file-text``; ``CATEGORY_ICONS`` deliberately reuses each kind's picture, so *every*
+	workspace type this client has never heard of under ``work`` or ``reference`` resolves to
+	the glyph its kind already drew. Naming today's one would leave tomorrow's uncovered.
+
+	**Counted in real markup rather than asserted about the map**, because the map agreeing with
+	itself is not the property — what a reader meets is two ``<svg>`` elements or one. `#1723`
+	is what makes that askable at all: the text harness drops every attribute but ``href``, so
+	the class this counts would not survive it.
+
+	**Falsified** by deleting the ``type !== kind`` condition, which puts a second ``file-text``
+	on the ``spec`` case and fails here alone.
+	"""
+
+	def stamp (kind: str, type_: str, category: str, default: bool = False) -> dict[str, object]:
+		"""Build a Stamp sample for one kind-and-type pair."""
+
+		return {"item": {
+			"ref": 42, "kind": kind, "type": type_,
+			"type_category": category, "type_is_default": default,
+		}}
+
+	shown = _markup(tmp_path, {
+		"Stamp": stamp("task", "task", "work", default=True),
+	})
+	plain = shown["Stamp"]
+
+	shown = _markup(tmp_path, {"Stamp": stamp("task", "bug", "defect")})
+	bug = shown["Stamp"]
+
+	shown = _markup(tmp_path, {"Stamp": stamp("document", "spec", "reference")})
+	spec = shown["Stamp"]
+
+	shown = _markup(tmp_path, {"Stamp": stamp("document", "design", "reference")})
+	design = shown["Stamp"]
+
+	assert plain.count('class="icon"') == 1 and "·" not in plain, (
+		f"a default type is not a fact somebody chose, so the strip should end at the kind: {plain}"
+	)
+
+	assert bug.count('class="icon"') == 2 and "bug" in bug, (
+		f"a type whose picture differs from its kind's should draw both: {bug}"
+	)
+
+	assert design.count('class="icon"') == 2 and "design" in design, (
+		f"a type whose picture differs from its kind's should draw both: {design}"
+	)
+
+	assert spec.count('class="icon"') == 1, (
+		f"`spec` and `document` are both `file-text`, so the strip drew one picture twice "
+		f"in a row: {spec}"
+	)
+
+	assert "·" in spec and "spec" in spec, (
+		f"dropping the repeated glyph must not drop the word, which is what `#102` says "
+		f"carries the meaning: {spec}"
+	)
 
 
 def test_no_component_renders_its_own_apology (tmp_path: pathlib.Path) -> None:
@@ -6271,8 +6350,12 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
 			: name === "marks" ? app.marks(
-				argument.item, argument.ordering, argument.place,
-				argument.linkable, argument.hideStatus, argument.hideAssignee)
+				argument.item, argument.ordering, argument.place, argument.linkable,
+				{{
+					hideStatus: argument.hideStatus,
+					hideAssignee: argument.hideAssignee,
+					hideType: argument.hideType,
+				}})
 			: app.addressOf(argument.item, argument.workspace, argument.place || null))));
 	"""))
 

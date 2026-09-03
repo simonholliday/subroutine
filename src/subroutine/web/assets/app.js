@@ -4011,9 +4011,15 @@ export function orderedAs (selection) {
 
    **`check-square` is `CATEGORY_ICONS.work`'s glyph and that repetition is deliberate**: the
    product already draws work that way, and a second picture for the same idea would be a
-   second thing for a reader to learn. A card showing a `bug` therefore carries two glyphs —
-   the kind's in the strip and the type's in the chip — which is two facts in two places
-   rather than one fact twice. */
+   second thing for a reader to learn.
+
+   **What that repetition costs was paid when the type joined the kind in one strip** —
+   `#2026`. The sentence here used to argue that a `bug` card carrying two glyphs was *two
+   facts in two places rather than one fact twice*, which was true while one sat in the strip
+   and the other in a chip a line below. Side by side it is not: a `spec` would draw
+   `file-text` twice in a row, and so would every unknown type under `work` or `reference`.
+   `Stamp` drops the second when it would repeat the first, which is why this map can go on
+   reusing a kind's picture without owing anything to the strip. */
 export const KIND_ICONS = {
 	task: "check-square",
 	document: "file-text",
@@ -4135,12 +4141,28 @@ export function Icon ({ name, decorative = true }) {
 }
 
 export function marks (
-	item, ordering = null, place = null, linkable = false, hideStatus = false,
-	/* **The list draws who has this as a column of its own** (`#1424`), so a chip here
-	   would be the same fact twice on the one surface that aligns it. Absent means draw it,
-	   which is the board, the agenda and an item's own links. */
-	hideAssignee = false
+	item, ordering = null, place = null, linkable = false,
+	/*
+		**Named rather than positional, and that is a defect being removed rather than a
+		preference.** `c107538` took `showKind` out of this list and shifted every argument
+		after it at **three** call sites — the item page, its sub-tasks and its links — each
+		silently moving `ordering` into `place`. Nothing type-checks this file, so four tests
+		caught it and reported symptoms that read like unrelated defects.
+
+		A key this does not know is ignored; a key spelled wrongly is `undefined`, which is
+		falsey and therefore fails the same way a missing argument would. Neither is as bad as
+		a value arriving in the wrong parameter and meaning something else.
+
+		- `hideStatus` — the caller has a column saying it already.
+		- `hideAssignee` — **the list draws who has this as a column of its own** (`#1424`), so
+		  a chip here would be the same fact twice on the one surface that aligns it. Absent
+		  means draw it, which is the board, the agenda and an item's own links.
+		- `hideType` — the caller draws a `Stamp`, which says the type in a fixed place.
+	*/
+	options = {}
 ) {
+	const { hideStatus = false, hideAssignee = false, hideType = false } = options;
+
 	/*
 		The small labels under a title.
 
@@ -4177,7 +4199,7 @@ export function marks (
 		every item has a type. `#1148` is that branch's own bug report; the strip is where the
 		fact went, and `showKind` went with it.
 	*/
-	if (item.type && !item.type_is_default) {
+	if (!hideType && item.type && !item.type_is_default) {
 		found.push({
 			text: item.type,
 			family: "identity",
@@ -5101,6 +5123,81 @@ export function Marks ({ badges, onGo = null }) {
 	`;
 }
 
+/*
+	**The card's identity, in a fixed place: a glyph, the number, what kind of thing it is,
+	and what sort of thing it is** — `#1148` for the first three, `#2026` for the fourth, and
+	both orders are Simon's.
+
+	The kind glyph is a fixed width, so the ref begins at the same x on every card whatever
+	its number, and everything else follows it. **The picture is what the eye catches and the
+	word beside it is what carries the meaning** — `#102` in full, which forbids saying
+	anything in a shape alone as firmly as it forbids saying it in a colour.
+
+	**The kind is drawn always, rather than only on documents.** A mark drawn on the exception
+	alone leaves work identified by an *absence*, and a reader cannot be asked to read a
+	blank; two glyphs that differ is two presences. It costs a line on every card and that was
+	taken knowingly — `#1148` measures it.
+
+	**It moves the ref off the title's line, and on a board that is the larger half.**
+	`.board .row` is `display: block`, so the ref had been flowing inline ahead of the title:
+	measured on a 327px card, a title beginning after a short ref started at x=57 and one that
+	wrapped started at x=12. The title has the card to itself, from one edge.
+
+	**A component rather than markup inside `Row`, because two surfaces draw it.** An item's
+	own page had `<h2>#42 Title</h2>` — the ref inline before the title, which is exactly the
+	arrangement `#1148` moved off the board card and never came back for. `#1019`'s rule is
+	that a row and the page a reader lands on from it say the same things; that now includes
+	this strip.
+*/
+export function Stamp ({ item, where = "" }) {
+	const kind = KIND_ICONS[item.kind] || KIND_ICONS.task;
+
+	/*
+		**Silent about a default type, because the kind beside it already said it** — `#1148`'s
+		rule, and worse here than where it was found: a plain task would read `TASK · TASK`
+		with one word's gap rather than one line's.
+	*/
+	const typed = item.type && !item.type_is_default;
+
+	/*
+		**Key, then category, then unknown** — decision `#1133`'s chain, `#1134`'s column, and
+		the same resolution the chip used before this strip took the fact over.
+	*/
+	const type = typed
+		? TYPE_ICONS[item.type] || CATEGORY_ICONS[item.type_category] || UNKNOWN_ICON
+		: null;
+
+	return html`
+		<span class="stamp">
+			<${Icon} name=${kind} />
+			<span class="ref">${where}#${item.ref}</span>
+			<span class="stamp-kind">${item.kind === "document" ? "Document" : "Task"}</span>
+			${typed && html`
+				${/* **Hidden from assistive technology**, which reads the two words in
+				     sequence and needs no punctuation between them. A `::before` was the
+				     other option and is worse: some screen readers announce generated
+				     content, and a text scan cannot see it at all. */ null}
+				<span class="stamp-type">
+					<span class="stamp-sep" aria-hidden="true">·</span>
+				${/*
+					**No glyph when it would be the kind's own.** `TYPE_ICONS.spec` and
+					`KIND_ICONS.document` are both `file-text`, and `CATEGORY_ICONS`
+					deliberately reuses each kind's picture — so an unknown type under `work`
+					or `reference` collides by construction rather than by coincidence, and
+					this rule covers every one of them without naming any.
+
+					It reads true rather than reading as a gap: the type adds no picture
+					beyond what the kind already said. `#102` is untouched, because the
+					information was never in the glyph — the word beside it carries it.
+				*/ null}
+					${type !== kind && html`<${Icon} name=${type} />`}
+					<span class="stamp-kind">${item.type}</span>
+				</span>
+			`}
+		</span>
+	`;
+}
+
 export function Row ({
 	item, showWhere, workspace, onOpen, onComplete, ordering = null, onDrag = null,
 	/* **What the address already said**, so the project label can leave it out — decision
@@ -5134,7 +5231,13 @@ export function Row ({
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
-	const badges = marks(item, ordering, place, !!onGo, hideStatus, showAssignee);
+	const badges = marks(item, ordering, place, !!onGo, {
+		hideStatus,
+		/* `showAssignee` is *this row draws the column*, so the chip is the duplicate. */
+		hideAssignee: showAssignee,
+		/* The strip above says it, in a fixed place — `#2026`. */
+		hideType: true,
+	});
 
 	/*
 		**Draggable only where something can receive it** (`#711`), which is the board. A card
@@ -5238,32 +5341,7 @@ export function Row ({
 		? html`<span class="assignee"><${Icon} name=${item.assignee_is_agent ? MARK_ICONS.agent : MARK_ICONS.person} />${" "}${named(item.assignee, item.assignee_is_agent, item.assignee_answers_to)}</span>`
 		: null;
 
-	/*
-		**The card's identity, in a fixed place: a glyph, the number, and what kind of thing it
-		is** — `#1148`, and the order is Simon's.
-
-		The glyph is a fixed width, so the ref begins at the same x on every card whatever its
-		number, and the kind follows it. **The picture is what the eye catches and the word
-		beside it is what carries the meaning** — `#102` in full, which forbids saying anything
-		in a shape alone as firmly as it forbids saying it in a colour.
-
-		**Always, rather than only on documents.** A mark drawn on the exception alone leaves
-		work identified by an *absence*, and a reader cannot be asked to read a blank; two
-		glyphs that differ is two presences. It costs a line on every card and that was taken
-		knowingly — see the item, which measures it.
-
-		**It moves the ref off the title's line, and on a board that is the larger half.**
-		`.board .row` is `display: block`, so the ref has been flowing inline ahead of the
-		title: measured on a 327px card, a title beginning after a short ref starts at x=57 and
-		one that wraps starts at x=12. The title has the card to itself now, from one edge.
-	*/
-	const stamp = html`
-		<span class="stamp">
-			<${Icon} name=${KIND_ICONS[item.kind] || KIND_ICONS.task} />
-			<span class="ref">${where}#${item.ref}</span>
-			<span class="stamp-kind">${item.kind === "document" ? "Document" : "Task"}</span>
-		</span>
-	`;
+	const stamp = html`<${Stamp} item=${item} where=${where} />`;
 
 	const identity = html`
 		${stamp}
@@ -7251,7 +7329,13 @@ export function Detail ({
 					where=${where} previewing=${previewing} onPreviewing=${onPreviewing}
 					reading=${reading} onReading=${onReading} />`
 				: html`
-					<h2>#${item.ref} ${item.title}</h2>
+					${/* **The same strip a card wears** — `#2026`. This was
+					     `<h2>#42 Title</h2>`, a ref inline ahead of a title, which is the
+					     arrangement `#1148` moved off the board card and did not come back
+					     for; a reader landing here from a card met the two facts in a
+					     different shape from the one they had just clicked. */ null}
+					<${Stamp} item=${item} />
+					<h2>${item.title}</h2>
 					${/*
 						**The same marks a row draws, directly under the title** — `#1019`,
 						Simon: *"I think yes, we should be consistent."*
@@ -7267,7 +7351,7 @@ export function Detail ({
 						saying the status. `place` is null because an item page is not narrowed
 						to anything, so the project label says its whole address.
 					*/ null}
-					<${Marks} badges=${marks(item, null, null, !!onGo)}
+					<${Marks} badges=${marks(item, null, null, !!onGo, { hideType: true })}
 						onGo=${onGo} />
 					<${Facts} item=${item} prioritised=${prioritised} />
 
