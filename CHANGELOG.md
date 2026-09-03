@@ -689,14 +689,16 @@ upgrade involves.
   Each card now opens with one strip:
 
   ```
-  ☑ #42  TASK · 🐞 BUG
+  ☑ #42  TASK  🐞 BUG
   A board offers dragging only to a reader who may write it
   ```
 
   A document reads the same way, with its own glyph and the word `DOCUMENT` in place of
   `TASK` — so the two are told apart by two differences rather than by one absence.
 
-  The leading glyph is a fixed width, so the number starts in the same place on every card
+  Each half opens with its own picture, and the type's is what separates the two words — so
+  nothing on the strip is there only to be punctuation. The leading glyph is a fixed width, so
+  the number starts in the same place on every card
   whatever it is, and the title has the line to itself. On a board that is the larger half of
   the change: the number used to flow inline ahead of the title, so a title began at a
   different place depending on whether it wrapped.

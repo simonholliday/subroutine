@@ -1467,18 +1467,12 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .stamp .icon { align-self: center; color: var(--ink-soft); }
 
-/* **A middot between the kind and the type, and deliberately not a slash** — `#2026`.
-   `.ref` renders the workspace prefix as `personal/#2`, so a slash three characters earlier
-   already means *workspace*; a second one meaning *and also* is `#1267` §2's naming hazard
-   spelled in punctuation. Dimmer than either word it separates, because it is the one mark
-   here that says nothing. */
-.stamp-sep { color: var(--line); }
-
-/* **The type half is one flex item, so wrapping moves all three parts together.** Measured
-   before this existed, on a 260px column with a workspace prefix: the strip broke between the
-   glyph and its own word, leaving `· ⋄` stranded at the end of one line and `FEATURE` alone on
-   the next. A separator with nothing after it is the worst of the three outcomes — it promises
-   a fact the line does not carry. */
+/* **The type half is one flex item, so wrapping moves both parts together.** Measured on a
+   260px column with a workspace prefix: the strip broke between the glyph and its own word,
+   leaving the picture stranded at the end of one line and `FEATURE` alone on the next. That is
+   worse here than it was under `#2026`'s middot, because the glyph *is* the separator — a line
+   ending in one promises a fact the line does not carry, and the next line opens with a word
+   nothing introduces. */
 .stamp-type {
 	display: inline-flex;
 	align-items: baseline;

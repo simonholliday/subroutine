@@ -4013,13 +4013,16 @@ export function orderedAs (selection) {
    product already draws work that way, and a second picture for the same idea would be a
    second thing for a reader to learn.
 
-   **What that repetition costs was paid when the type joined the kind in one strip** —
-   `#2026`. The sentence here used to argue that a `bug` card carrying two glyphs was *two
-   facts in two places rather than one fact twice*, which was true while one sat in the strip
-   and the other in a chip a line below. Side by side it is not: a `spec` would draw
-   `file-text` twice in a row, and so would every unknown type under `work` or `reference`.
-   `Stamp` drops the second when it would repeat the first, which is why this map can go on
-   reusing a kind's picture without owing anything to the strip. */
+   **The strip made that repetition visible and then made it load-bearing**, in two steps on
+   one afternoon. This paragraph first argued that a `bug` card carrying two glyphs was *two
+   facts in two places rather than one fact twice* — true while one sat in the strip and the
+   other in a chip a line below. `#2026` put them side by side and dropped the second wherever
+   it repeated the first. `#2032` put it back, because the glyph became the separator between
+   the two words and a delimiter cannot be conditional.
+
+   So a `spec` draws `file-text` twice, deliberately, and **this map owes the strip nothing**:
+   an unknown type under `work` or `reference` resolving to its own kind's picture is now
+   simply how the strip looks rather than a case anybody handles. */
 export const KIND_ICONS = {
 	task: "check-square",
 	document: "file-text",
@@ -5173,24 +5176,28 @@ export function Stamp ({ item, where = "" }) {
 			<span class="ref">${where}#${item.ref}</span>
 			<span class="stamp-kind">${item.kind === "document" ? "Document" : "Task"}</span>
 			${typed && html`
-				${/* **Hidden from assistive technology**, which reads the two words in
-				     sequence and needs no punctuation between them. A `::before` was the
-				     other option and is worse: some screen readers announce generated
-				     content, and a text scan cannot see it at all. */ null}
-				<span class="stamp-type">
-					<span class="stamp-sep" aria-hidden="true">·</span>
 				${/*
-					**No glyph when it would be the kind's own.** `TYPE_ICONS.spec` and
-					`KIND_ICONS.document` are both `file-text`, and `CATEGORY_ICONS`
-					deliberately reuses each kind's picture — so an unknown type under `work`
-					or `reference` collides by construction rather than by coincidence, and
-					this rule covers every one of them without naming any.
+					**The glyph is what separates the two words, so it is drawn always** — `#2032`,
+					Simon's, and it replaces a middot that stood for one hour.
 
-					It reads true rather than reading as a gap: the type adds no picture
-					beyond what the kind already said. `#102` is untouched, because the
-					information was never in the glyph — the word beside it carries it.
+					`#2026` shipped a `·` between them and dropped the type's glyph wherever it would
+					repeat the kind's, arguing that *the type adds no picture beyond what the kind
+					already said*. Two things were wrong with that. The middot took its colour from
+					`--line`, the hairline-border token, and was invisible in both themes. And the
+					argument held only while the glyph had one job: here it has a second — *here comes
+					the type* — and **a delimiter that appears conditionally is not a delimiter.**
+					Dropped on a `spec`, whose picture is `document`'s own, the strip read
+					`DOCUMENT SPEC`: two uppercase words with nothing between them, parsing as one
+					phrase rather than as two facts.
+
+					**So a `spec` draws `file-text` twice and that is the design.** Photographed at
+					340px board width in both themes before it was decided: it barely registers,
+					because the two words differ and the second glyph reads as punctuation that
+					happens to carry a fact. `#102` is untouched either way — the information was
+					never in the picture, and the word beside it is what carries it.
 				*/ null}
-					${type !== kind && html`<${Icon} name=${type} />`}
+				<span class="stamp-type">
+					<${Icon} name=${type} />
 					<span class="stamp-kind">${item.type}</span>
 				</span>
 			`}

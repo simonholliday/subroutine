@@ -707,24 +707,30 @@ def _markup (
 	"""))
 
 
-def test_the_strip_draws_no_type_glyph_when_it_would_repeat_the_kinds (
-	tmp_path: pathlib.Path,
-) -> None:
-	"""A `spec` carries `document`'s own picture, so the strip says it once — `#2026`.
+def test_the_strip_always_draws_the_types_own_glyph (tmp_path: pathlib.Path) -> None:
+	"""The glyph is what separates the kind's word from the type's, so it is never dropped.
 
-	**The collision is by construction rather than by coincidence**, which is why the rule is a
-	comparison and not a list of exceptions. ``TYPE_ICONS.spec`` and ``KIND_ICONS.document`` are
-	both ``file-text``; ``CATEGORY_ICONS`` deliberately reuses each kind's picture, so *every*
-	workspace type this client has never heard of under ``work`` or ``reference`` resolves to
-	the glyph its kind already drew. Naming today's one would leave tomorrow's uncovered.
+	**This asserted the opposite for one hour, and the history is why it is worth reading.**
+	`#2026` put a `·` between the two words and dropped the type's picture wherever it would
+	repeat the kind's — `TYPE_ICONS.spec` and `KIND_ICONS.document` are both ``file-text``, and
+	``CATEGORY_ICONS`` deliberately reuses each kind's picture, so the collision is by
+	construction rather than by coincidence. The argument was that the type adds no picture
+	beyond what the kind already said.
 
-	**Counted in real markup rather than asserted about the map**, because the map agreeing with
-	itself is not the property — what a reader meets is two ``<svg>`` elements or one. `#1723`
-	is what makes that askable at all: the text harness drops every attribute but ``href``, so
-	the class this counts would not survive it.
+	**`#2032` reversed it, and the reversal is a change of the glyph's job rather than a change
+	of mind about redundancy.** Simon's separator is the picture itself, which gives it a second
+	duty — *here comes the type* — and a delimiter that appears conditionally is not one. With
+	the middot gone and the glyph dropped, a ``spec`` rendered ``DOCUMENT SPEC``: two uppercase
+	words with nothing between them, parsing as one phrase.
 
-	**Falsified** by deleting the ``type !== kind`` condition, which puts a second ``file-text``
-	on the ``spec`` case and fails here alone.
+	So the property is now **a strip showing a type has exactly two pictures**, whatever they
+	are, and the ``spec`` case is the one that decides it rather than an exception to it.
+
+	**Counted in real markup** through `#1723`'s renderer, because the maps agreeing with
+	themselves is not the property — what a reader meets is two ``<svg>`` elements or one, and
+	the text harness drops every attribute this counts.
+
+	**Falsified** by restoring the ``type !== kind`` condition, which fails on ``spec`` alone.
 	"""
 
 	def stamp (kind: str, type_: str, category: str, default: bool = False) -> dict[str, object]:
@@ -735,41 +741,33 @@ def test_the_strip_draws_no_type_glyph_when_it_would_repeat_the_kinds (
 			"type_category": category, "type_is_default": default,
 		}}
 
-	shown = _markup(tmp_path, {
-		"Stamp": stamp("task", "task", "work", default=True),
-	})
-	plain = shown["Stamp"]
+	plain = _markup(tmp_path, {"Stamp": stamp("task", "task", "work", default=True)})["Stamp"]
+	bug = _markup(tmp_path, {"Stamp": stamp("task", "bug", "defect")})["Stamp"]
+	spec = _markup(tmp_path, {"Stamp": stamp("document", "spec", "reference")})["Stamp"]
+	design = _markup(tmp_path, {"Stamp": stamp("document", "design", "reference")})["Stamp"]
 
-	shown = _markup(tmp_path, {"Stamp": stamp("task", "bug", "defect")})
-	bug = shown["Stamp"]
-
-	shown = _markup(tmp_path, {"Stamp": stamp("document", "spec", "reference")})
-	spec = shown["Stamp"]
-
-	shown = _markup(tmp_path, {"Stamp": stamp("document", "design", "reference")})
-	design = shown["Stamp"]
-
-	assert plain.count('class="icon"') == 1 and "·" not in plain, (
+	assert plain.count('class="icon"') == 1 and "task" not in plain, (
 		f"a default type is not a fact somebody chose, so the strip should end at the kind: {plain}"
 	)
 
-	assert bug.count('class="icon"') == 2 and "bug" in bug, (
-		f"a type whose picture differs from its kind's should draw both: {bug}"
+	for name, markup in (("bug", bug), ("spec", spec), ("design", design)):
+		#: Counted into a name first, because an f-string may not nest the same quote or carry a
+		#: backslash until 3.12 and this project's floor is 3.11 — `ruff` is what says so, since
+		#: the local interpreter runs it happily.
+		drawn = markup.count('class="icon"')
+
+		assert drawn == 2, (
+			f"a strip showing a type draws two pictures, and the second one is what separates "
+			f"the two words — {name} drew {drawn}: {markup}"
+		)
+
+		assert name in markup, f"the picture must not arrive instead of the word: {markup}"
+
+	assert "·" not in spec, (
+		f"the middot `#2026` shipped was invisible in both themes and the glyph replaced it, so "
+		f"nothing on this strip should say nothing: {spec}"
 	)
 
-	assert design.count('class="icon"') == 2 and "design" in design, (
-		f"a type whose picture differs from its kind's should draw both: {design}"
-	)
-
-	assert spec.count('class="icon"') == 1, (
-		f"`spec` and `document` are both `file-text`, so the strip drew one picture twice "
-		f"in a row: {spec}"
-	)
-
-	assert "·" in spec and "spec" in spec, (
-		f"dropping the repeated glyph must not drop the word, which is what `#102` says "
-		f"carries the meaning: {spec}"
-	)
 
 
 def test_no_component_renders_its_own_apology (tmp_path: pathlib.Path) -> None:
