@@ -5315,7 +5315,7 @@ export function Row ({
 
 export function Agenda ({
 	buckets, more, heldUp = 0, later = 0, deferred = 0, paused = 0, gone = 0, theirs = 0,
-	where, onAdd, onOpen,
+	workspace, onAdd, onOpen,
 	onComplete, busy,
 	adding,
 	/* Where to send a reader who clicks a project label — `#959`. */
@@ -5443,7 +5443,7 @@ export function Agenda ({
 	*/
 	const box = onAdd && html`
 		<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}}
-			note=${where ? `Adds to ${where}.` : null} />
+			note=${workspace ? `Adds to ${workspace}.` : null} />
 	`;
 
 	if (buckets.length === 0) {
@@ -5482,10 +5482,19 @@ export function Agenda ({
 					<h2 class=${bucket.key}>${bucket.label}</h2>
 					<ul class="rows">
 						${bucket.items.map((item) => html`
-							${/* `where` is the workspace the switcher holds, and it is the
+							${/* `workspace` is the one the switcher holds, and it is the
 							     fallback only — a row that knows its own uses that, which is
 							     what keeps an agenda row's address pointing at the workspace
-							     it actually came from. */ null}
+							     it actually came from.
+
+							     **It was called `where` until `#1936`**, which is the name ten
+							     other components use for an *address builder* — a function
+							     `markdown.render` calls to turn a `#42` into a link. One name,
+							     two types, and the failure is silent both ways: a string where
+							     a function is wanted renders an apology, and a function where
+							     a string is wanted renders `function () {}` into a sentence.
+							     `Row` has called this exact value `workspace` all along, so
+							     the rename is the two agreeing rather than a new word. */ null}
 							${/* **What the address says, and that is a fact about the address
 							     rather than about the rows** (`#966`, decision `#957` §4). This
 							     asked whether the rows *happened* to span workspaces — a
@@ -5502,7 +5511,7 @@ export function Agenda ({
 							     labelled `projects/subroutine`. The listing and the board took
 							     `place` all along; only this had the assumption baked in. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
-								showKind=${false} showWhere=${showWhere} workspace=${where}
+								showKind=${false} showWhere=${showWhere} workspace=${workspace}
 								place=${place}
 								onGo=${onGo}
 								${/* **The agenda is the caller that asked** (`#1383`): its request
@@ -10068,7 +10077,7 @@ export function App () {
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} heldUp=${heldUp}
 						later=${later}
 						deferred=${deferred} paused=${paused} gone=${gone} theirs=${theirs}
-						onAdd=${mayWrite ? add : null} busy=${busy} where=${workspace} adding=${adding}
+						onAdd=${mayWrite ? add : null} busy=${busy} workspace=${workspace} adding=${adding}
 						onGo=${narrow}
 						${/* **What the address already said** (`#957` §4, `#1215`). The merged
 						     agenda at `/` names no place, so its rows carry their whole address;

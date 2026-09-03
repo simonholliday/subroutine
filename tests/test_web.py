@@ -186,7 +186,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			},
 		],
 		"more": 12,
-		"where": "projects",
+		"workspace": "projects",
 	},
 	# **Found by the completeness guard on its first run** (`SR#652`): this is the app's whole
 	# trust boundary — the only `dangerouslySetInnerHTML` there is — and its template had never
@@ -692,6 +692,40 @@ def _markup (
 
 		process.stdout.write(JSON.stringify(out));
 	"""))
+
+
+def test_no_component_renders_its_own_apology (tmp_path: pathlib.Path) -> None:
+	"""Nothing in ``SAMPLES`` falls back to *"this could not be displayed"* — `#1936`.
+
+	**A component that catches its own failure and renders an explanation is invisible to every
+	other test here**, which is what this exists for. `Prose` did it throughout this suite: its
+	sample passed ``where`` as a string where ``markdown.render`` *calls* it, and two things
+	hid the result. The fallback deliberately still prints the source in a ``<pre>`` — *"a
+	description a reader cannot see at all is worse than one that lost its formatting"* — so
+	every assertion looking for the words in the text passed. And :func:`_rendered` drops the
+	``broke`` class that says what happened, so the markup did not carry the evidence either.
+
+	**It is the general form rather than a guard against that one prop.** Any component that
+	grows a fallback of this shape gets the same protection on the day it is written, and the
+	failure it catches is the one nobody looks for: a render that succeeds at rendering an
+	apology.
+
+	**Here rather than in the browser suite**, because it needs no cascade and no layout — only
+	markup that keeps its classes, which is what :func:`_markup` is. `#748`'s bound is for
+	questions only a browser can answer, and this is not one.
+	"""
+
+	shown = _markup(tmp_path, {**SAMPLES, "App": {}})
+
+	apologising = sorted(
+		name for name, markup in shown.items() if 'class="broke"' in markup
+	)
+
+	assert not apologising, (
+		f"{apologising} render their own error message rather than their content. A component "
+		f"that catches its failure and explains it is invisible to every other test here — the "
+		f"fallback still prints the text, so an assertion looking for the words passes"
+	)
 
 
 def _markdown (tmp_path: pathlib.Path, sources: typing.Sequence[str]) -> list[str]:
@@ -1637,7 +1671,7 @@ def test_a_row_says_where_its_item_lives (tmp_path: pathlib.Path) -> None:
 					filed, project_key="sr", project_path="sr", workspace="projects"
 				)],
 			}],
-			"where": "projects",
+			"workspace": "projects",
 		},
 	})
 
@@ -1885,7 +1919,7 @@ def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 		return re.sub(r"<[^>]*>", " ", markup)
 
 	scoped = words(_rendered(tmp_path, {"Agenda": {
-		"buckets": rows, "where": "projects",
+		"buckets": rows, "workspace": "projects",
 		"place": {"workspace": "projects", "project": "subroutine"},
 	}})["Agenda"])
 
@@ -1903,7 +1937,7 @@ def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	)
 
 	merged = words(_rendered(tmp_path, {"Agenda": {
-		"buckets": rows, "where": "projects",
+		"buckets": rows, "workspace": "projects",
 	}})["Agenda"])
 
 	assert "projects/subroutine/ui" in merged, (
@@ -9086,7 +9120,7 @@ def test_a_day_with_nothing_in_it_can_still_be_added_to (tmp_path: pathlib.Path)
 	"""The empty state is the one most likely to be somebody's first sight of the product."""
 
 	markup = _rendered(
-		tmp_path, {"Agenda": {"buckets": [], "more": 0, "where": "projects"}}
+		tmp_path, {"Agenda": {"buckets": [], "more": 0, "workspace": "projects"}}
 	)["Agenda"]
 
 	assert "Nothing is due" in markup
