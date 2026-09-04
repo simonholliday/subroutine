@@ -465,6 +465,22 @@ If you find out later that something is not what you filed it as, say so — `ty
 on both `subroutine_add` and `subroutine_update`. What something is often becomes clear only
 after it has been looked at, so reclassifying is normal rather than an admission.
 
+**A title has to fit on a card, so aim at about a hundred characters.** Not a number to count
+to — a board draws each item as a card about three lines wide, and a title that runs past that
+pushes every other item down the page. The person reading it is scanning fifty of them.
+
+The limit is 200 and you will be refused past it, but the limit is a floor of decency rather
+than the target: a title needing 180 characters is nearly always two sentences, and the second
+one belongs in `description`, which is an argument on the same call.
+
+    ✗  Superintendent v1 is one co-located Starlette service holding the page store, the
+       transport and the adapter registry, with the panel served from the same origin so the
+       socket needs no CORS, and page files kept beside the composition file
+    ✓  Superintendent v1 is one co-located service serving the panel from its own origin
+
+**What you cut is not lost.** It goes in `description`, which is where the next reader looks
+and where nothing is competing for width.
+
 **Comment as you go, especially when something fails.** A comment is what happened.
 
 ```

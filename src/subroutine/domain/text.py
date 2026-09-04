@@ -156,6 +156,18 @@ def readable (value: str | None, *, field: str, label: str | None = None) -> str
 	return value
 
 
+def one_line (value: str) -> str:
+	"""Return ``value`` with every run of whitespace, newlines included, as one space.
+
+	**Named because two callers need the same answer** — `#2022`. :func:`fit` normalises before
+	measuring, and a caller deciding *whether the limit applies at all* has to compare what was
+	sent against what is stored, in the same shape. Written out twice they would agree until a
+	rule changed, which is this codebase's signature defect.
+	"""
+
+	return " ".join(value.split())
+
+
 def fit (
 	value: str,
 	*,
@@ -163,6 +175,7 @@ def fit (
 	limit: int,
 	label: str | None = None,
 	multiline: bool = False,
+	hint: str | None = None,
 ) -> str:
 	"""Return ``value`` on one line and stripped, or refuse it for being too long.
 
@@ -194,7 +207,7 @@ def fit (
 	# one function.
 	_refuse_a_character_nobody_can_read(value, field=field, label=label)
 
-	cleaned = value.strip() if multiline else " ".join(value.split())
+	cleaned = value.strip() if multiline else one_line(value)
 
 	if len(cleaned) <= limit:
 		return cleaned
@@ -203,6 +216,10 @@ def fit (
 
 	raise subroutine.errors.PayloadTooLarge(
 		f"That {name} is {len(cleaned)} characters, and the limit is {limit}.",
+		# **What to do with the rest, where the caller has somewhere to put it** (`#2022`).
+		# A number alone tells somebody they are wrong and not what the remedy is, and this
+		# refusal's commonest reader is an agent that has `description` in the same call.
+		hint=hint,
 		errors=[
 			subroutine.errors.FieldError(
 				field=field,

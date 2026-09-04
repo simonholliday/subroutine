@@ -135,6 +135,74 @@ def _events (
 	)
 
 
+def test_a_title_too_long_to_scan_is_refused_when_it_is_written (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2022`. Simon, reading his own board: a 412-character title filling a whole card.
+
+	**The number is measured, not chosen.** Across 200 open items the median was 96 and the p90
+	238 — bimodal, and the second mode was one project. Ninety-one items across five other
+	projects and not one over 140, so the boundary was missing rather than wrong.
+
+	**Guidance alone had been tried and is not the answer.** `SKILL.md` already says a title
+	says the outcome and *"stays one line"*, and those titles were written by an agent, into
+	this instance, past that guidance. `#499`'s rule decides it: the guaranteed channel has to
+	carry what the optional ones do, and a cap in the domain reaches MCP, the CLI, HTTP and the
+	browser where a paragraph in a skill reaches an agent that loaded a skill.
+
+	**The refusal has to say where the rest goes.** A number tells a caller they are wrong and
+	not what to do instead, and this refusal's commonest reader is an agent that has
+	`description` in the same call.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	over = "x" * (subroutine.domain.tasks.MAX_TITLE_LENGTH + 1)
+
+	with pytest.raises(subroutine.errors.PayloadTooLarge) as refused:
+		subroutine.domain.tasks.create(session, project=project, title=over)
+
+	assert "description" in (refused.value.hint or ""), (
+		f"the refusal says the title is too long and not what to do with the rest: "
+		f"{refused.value.hint!r}"
+	)
+
+
+def test_a_title_that_is_already_too_long_can_still_have_its_status_changed (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2022`, and this is the half that is not about this instance at all.
+
+	**A cap applied to rows that already exist, through a surface that resends everything, is
+	`#1291`'s family.** The browser's edit form sends every control it shows (`#1250`), so a
+	naive lowering makes an unrelated change — a status, a project — fail on a title nobody
+	touched. `#2024` shortened every title here; another instance upgrading has whatever it has,
+	and it is *their* rows this protects.
+
+	So the rule fires on a title being **written**. A title resent unchanged is held only to
+	what the column can store, and changing one *by even a character* brings the real limit
+	back — which is the second assertion, and without it this would pass against a version that
+	simply stopped checking on update.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace, key="SR")
+	long = "x" * (subroutine.domain.tasks.MAX_TITLE_LENGTH + 50)
+
+	#: Written past the door, because the door is what this is about: the row exists the way an
+	#: upgrading instance's rows exist, rather than the way this version would let one be made.
+	task = subroutine.domain.tasks.create(session, project=project, title="Short enough")
+	task.title = long
+	session.flush()
+
+	kept = subroutine.domain.tasks.update(session, task=task, title=long)
+
+	assert kept.title == long, "a title resent unchanged was refused for a length nobody added"
+
+	with pytest.raises(subroutine.errors.PayloadTooLarge):
+		subroutine.domain.tasks.update(session, task=task, title=long + "x")
+
+
 def test_creating_a_task_allocates_a_ref_an_event_and_a_path (
 	session: sqlalchemy.orm.Session,
 ) -> None:

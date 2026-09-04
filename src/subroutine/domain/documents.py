@@ -38,14 +38,22 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.refs
 import subroutine.domain.tags
+import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.versions
 import subroutine.errors
 import subroutine.permissions
 
-#: docs/design.md §6.10, matching tasks.
-MAX_TITLE_LENGTH = 512
+#: docs/design.md §6.10, matching tasks — including the reasoning, which is on
+#: :data:`subroutine.domain.tasks.MAX_TITLE_LENGTH` and is not repeated here.
+MAX_TITLE_LENGTH = subroutine.domain.tasks.MAX_TITLE_LENGTH
+
+#: What the column holds, and what a title nobody is changing may still be — see tasks.
+STORED_TITLE_LENGTH = subroutine.domain.tasks.STORED_TITLE_LENGTH
+
+#: What to do with the rest, in the words tasks uses.
+TITLE_HINT = subroutine.domain.tasks.TITLE_HINT
 
 #: The status of a document that is in force — ``active``, by category (`#506`).
 CURRENT_CATEGORY = "current"
@@ -428,7 +436,7 @@ def update (
 	cleaned_title: typing.Any = (
 		subroutine.domain.patch.UNSET
 		if title is subroutine.domain.patch.UNSET
-		else _clean_title(title)
+		else _clean_title(title, was=document.title)
 	)
 	body = (
 		body
@@ -989,11 +997,29 @@ def _permitted (
 	)
 
 
-def _clean_title (title: str) -> str:
-	"""Return a usable document title, or refuse with a reason."""
+def _clean_title (title: str, *, was: str | None = None) -> str:
+	"""Return a usable document title, or refuse with a reason.
+
+	**``was`` is what is stored, and passing it is what makes a lower cap safe on rows that
+	already exist** — `#2022`. The browser's edit form sends every control it shows (`#1250`),
+	so without this, lowering the limit would make an unrelated change — a status, a project —
+	fail on a title nobody touched. A title being *resent unchanged* is held only to what the
+	column can store; a title being **written** is held to what a board can show.
+
+	Compared through :func:`text.one_line` rather than raw, because that is the shape `fit`
+	measures: a title resent with a newline collapsed is the same title, and refusing it would
+	be the defect this argument exists to prevent, arriving through whitespace.
+	"""
+
+	asked = subroutine.domain.text.require(title, field="title")
 
 	return subroutine.domain.text.fit(
-		subroutine.domain.text.require(title, field="title"),
+		asked,
 		field="title",
-		limit=MAX_TITLE_LENGTH,
+		limit=(
+			STORED_TITLE_LENGTH
+			if was is not None and subroutine.domain.text.one_line(asked) == was
+			else MAX_TITLE_LENGTH
+		),
+		hint=TITLE_HINT,
 	)

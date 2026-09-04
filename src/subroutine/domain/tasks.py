@@ -54,7 +54,32 @@ FINISHED_CATEGORIES = frozenset({"done", "cancelled"})
 #: docs/design.md §6.10. Enforced here so the message names the field and the limit, rather than
 #: arriving as a driver error from PostgreSQL — and arriving not at all on SQLite, which
 #: does not enforce VARCHAR lengths.
-MAX_TITLE_LENGTH = 512
+#:
+#: **200 since `#2022`, down from 512, and the number is measured rather than chosen.** Simon
+#: read his own board and found a 412-character title filling a whole card: *"These are
+#: ridiculous… It reduces the number of items visible in the viewport."* Across 200 open items
+#: the median was 96 and the p90 238 — bimodal, and the second mode was **one project**. Ninety
+#: -one items across five other projects and not one over 140. So the boundary was missing
+#: rather than wrong. `domain.calendars` and `domain.authentication` cap the same field at 128,
+#: which is what somebody chose when they thought about it.
+MAX_TITLE_LENGTH = 200
+
+#: What the column holds, and what a title **nobody is changing** may still be — `#2022`.
+#:
+#: **A cap applied to rows that already exist, through a surface that resends everything, is
+#: `#1291`'s family.** The browser's edit form sends every control it shows (`#1250`), so
+#: lowering the limit naively makes an unrelated change — a status, a project — fail on a title
+#: nobody touched. This instance has none over 200 because `#2024` shortened them; another
+#: instance upgrading has whatever it has, and it is *their* rows this protects.
+#:
+#: So the rule fires on a title being **written**, and a title being resent unchanged is held
+#: only to what the column can store.
+STORED_TITLE_LENGTH = 512
+
+#: What to do with the rest — `#2022`. A number alone says the caller is wrong without saying
+#: what to do instead, and both `subroutine_add` and `subroutine_update` take a `description`
+#: in the same call, so there is no second step to teach.
+TITLE_HINT = "A title is one line — put the detail in the description."
 
 #: The range §6.3 gives both priority axes, where 5 is highest. There is a CHECK constraint
 #: for each on the table, and until 2026-07-29 that was the *only* thing enforcing them — so
@@ -144,18 +169,35 @@ def _permitted (
 	)
 
 
-def _clean_title (title: str) -> str:
+def _clean_title (title: str, *, was: str | None = None) -> str:
 	"""Return a usable task title, or refuse with a reason.
 
 	One rule, applied by both create and update. A task whose title has been blanked is
 	not a task anybody can find again, so an update is held to the same standard as a
 	create.
+
+	**``was`` is what is stored, and passing it is what makes a lower cap safe on rows that
+	already exist** — `#2022`. The browser's edit form sends every control it shows (`#1250`),
+	so without this, lowering the limit would make an unrelated change — a status, a project —
+	fail on a title nobody touched. A title resent unchanged is held only to what the column
+	can store; a title being **written** is held to what a board can show.
+
+	Compared through :func:`text.one_line` rather than raw, because that is the shape `fit`
+	measures: a title resent with a newline collapsed is the same title, and refusing it would
+	be the defect this argument exists to prevent, arriving through whitespace.
 	"""
 
+	asked = subroutine.domain.text.require(title, field="title")
+
 	return subroutine.domain.text.fit(
-		subroutine.domain.text.require(title, field="title"),
+		asked,
 		field="title",
-		limit=MAX_TITLE_LENGTH,
+		limit=(
+			STORED_TITLE_LENGTH
+			if was is not None and subroutine.domain.text.one_line(asked) == was
+			else MAX_TITLE_LENGTH
+		),
+		hint=TITLE_HINT,
 	)
 
 
@@ -1190,7 +1232,11 @@ def update (
 	refuse_an_edit_that_does_not_say(task, applies_to, named=named)
 
 	# Validation pass. Nothing below this point may raise.
-	cleaned_title: typing.Any = subroutine.domain.patch.UNSET if title is subroutine.domain.patch.UNSET else _clean_title(title)
+	cleaned_title: typing.Any = (
+		subroutine.domain.patch.UNSET
+		if title is subroutine.domain.patch.UNSET
+		else _clean_title(title, was=task.title)
+	)
 	description = (
 		description
 		if description is subroutine.domain.patch.UNSET

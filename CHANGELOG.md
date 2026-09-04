@@ -21,6 +21,22 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A title longer than 200 characters is refused, with the remedy in the message.**
+
+  It was 512, which is long enough to fill a whole card on a board and push everything else off
+  the screen. Measured across 200 items before choosing: the median title is 96 characters and
+  nothing in five of six projects exceeded 140, so this refuses what nobody was writing.
+
+  > That title is 412 characters, and the limit is 200.
+  > A title is one line — put the detail in the description.
+
+  **An item you already have is not affected unless you change its title.** A title resent
+  unchanged — which is what the browser's edit form does on every save — is accepted as it
+  stands, so an item written before this can still have its status or project changed.
+
+  The skill now aims lower than the cap, at about a hundred characters, framed as *a card is
+  about three lines wide* rather than as a number to count to.
+
 - **A tab you are not looking at stops asking the instance for changes.**
 
   The browser polled every ten seconds for as long as a page was open, whether or not anybody
