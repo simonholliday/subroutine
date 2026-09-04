@@ -1,6 +1,6 @@
 """What ``CLAUDE.md`` says about this repository has to be something that is still true.
 
-`#926`. **It is loaded automatically at the start of every session, it is 466 KB, and until
+`#926`. **It is loaded automatically at the start of every session, it is 285 KB, and until
 this file nothing read a byte of it.** ``tests/test_references.py`` names it, but only as a
 path that must *not* be cited by tracked files — the ratchet is about who points at it, never
 about what it says. So it was simultaneously the most-read document in the project and the only
@@ -100,6 +100,35 @@ _SUFFIXES = frozenset({".py", ".md", ".toml", ".json", ".js", ".css", ".yml", ".
 #: `#405`'s floor. The assertions below report *offenders*, so a scan that reads nothing reports
 #: none and is indistinguishable from a clean file. Fifty-eight at the time of writing.
 _FEWEST_PATHS = 40
+
+#: The most the notes may weigh, in bytes.
+#:
+#: **`#1200`, and it is an instrument rather than a preference.** Every other budget in this
+#: repository is a number a test compares against — the agent guide is capped at 15 KB by §13.3
+#: with the reason written beside it, the MCP tool surface is capped by count so that raising it
+#: has to be an act, and `docs/design.md` is frozen. This file, which is loaded automatically at
+#: the start of **every** session and is therefore the largest fixed context cost in the project,
+#: had no number at all.
+#:
+#: **What that cost, measured rather than argued.** `#64` was filed on 2026-07-30 calling the
+#: file too large at **77,043** bytes. It reached **367 KB**; `#1110` moved 430 KB of narrative
+#: into the instance on 2026-08-22 and `#1705`/`#1706` another 116 KB on 2026-08-31, leaving
+#: 252 KB — and it was **375 KB four days later**, about 25 KB a day. Three cuts and no
+#: instrument, so each one bought a fortnight.
+#:
+#: **Derived, and here is the arithmetic.** The cut of 2026-09-04 (`#2061`, `#2062`) left
+#: **284,926** bytes; that session then recorded itself in **5,082**. So the allowance is two
+#: session records — enough that a session can write down what it did without turning the gate
+#: red for doing its job, and not enough to absorb a week of it. Bytes, not characters: this
+#: file is full of em-dashes and curly quotes and the two counts differ by about 1,700.
+#:
+#: **Lower it after a cut, never raise it after a session.** That is the whole discipline, and
+#: it is the same one `#943`'s command-surface ratchet runs on: the remedy for a red build here
+#: is to move a dated section into the instance — `subroutine doc create`, verified byte for
+#: byte, the way all four of the existing records were made — rather than to change this number.
+#: Growth refused on the day it happens is the point; `#64` is the paying-down half, and it
+#: stays open because 285 KB is smaller than 375 and is not yet *what only this file can say*.
+_LARGEST = 300_200
 
 pytestmark = pytest.mark.skipif(
 	not NOTES.exists(),
@@ -280,4 +309,50 @@ def test_the_schema_head_it_reports_is_the_one_this_code_is_at () -> None:
 		f"the newest section of CLAUDE.md does not name the current schema head {live!r}. It "
 		f"names {sorted(set(re.findall(r'[0-9a-f]{12}', current)))}, so either a migration has "
 		f"landed since that section was written or the section is about an older tree."
+	)
+
+
+def test_the_notes_stay_inside_the_budget_they_are_read_under () -> None:
+	"""`#1200`. The one context cost every session pays, with a number against it at last.
+
+	**A file whose whole job is to stop duplication grew 21 KB of narrative in a day**, twice,
+	and each time it was noticed at the next deliberate re-read rather than on the day. Three
+	weeks apart, twice. That is not a discipline failure — it is a missing instrument, and this
+	is the instrument.
+
+	**The remedy when this fails is a cut, not a larger number.** The dated narrative belongs in
+	the instance and four documents already hold it (`#1705`, `#1706`, `#2061`, `#2062`); the
+	sections that must stay are the rules and the open questions, which is `#64`'s own test:
+	*is the same fact somewhere else that survives?* — never *does it read long?*
+	"""
+
+	weight = len(NOTES.read_bytes())
+
+	assert weight <= _LARGEST, (
+		f"CLAUDE.md is {weight:,} bytes against a budget of {_LARGEST:,}. Move a dated section "
+		"into the instance rather than raising this: `subroutine doc create` with the run "
+		"piped in, verified byte for byte before anything is deleted, then lower `_LARGEST` to "
+		"what is left. `#64` is the item, and `#2061` is the worked example."
+	)
+
+
+def test_the_budget_is_not_so_far_above_the_file_that_it_refuses_nothing () -> None:
+	"""A ceiling nothing can reach is theatre, and this one is meant to bite within days.
+
+	**The failure this guards is the plausible one**: somebody meets the budget, raises it by a
+	comfortable margin, and the number stops being a measurement. At 25 KB of growth a day —
+	which is what 2026-09-01 to 2026-09-04 actually ran at — a 50 KB allowance is a fortnight of
+	silence, which is exactly the interval the three cuts before this were spaced at.
+
+	So the headroom is asserted as well as the size. Falsified both ways: it fails if the file
+	grows past the budget, and it fails if the budget is lifted away from the file.
+	"""
+
+	weight = len(NOTES.read_bytes())
+	headroom = _LARGEST - weight
+
+	assert headroom <= 40_000, (
+		f"the budget is {headroom:,} bytes above the file, which is more than a fortnight of "
+		f"the growth this exists to refuse. Lower `_LARGEST` towards {weight:,}; a cut is what "
+		"buys room, not an allowance."
 	)

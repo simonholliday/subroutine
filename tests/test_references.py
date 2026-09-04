@@ -116,7 +116,12 @@ ABSENT: dict[str, Absent] = {
 		# rather than a pointer: the file is what that module is about, so naming it is the
 		# opposite of leaving a dangling reference. That distinction is not derivable, which is
 		# why it is written here rather than pattern-matched.
-		ceiling=22,
+		#
+		# **23 for `SR#1200`**, which added a byte budget to that same module: one mention in the
+		# failure message, beside the four already there that name the file so a red gate says
+		# which one is wrong. The constant's own docstring was reworded to *the notes* instead,
+		# so this is the one that could not be avoided rather than the two it started as.
+		ceiling=23,
 		why=(
 			"Stays a file and stays out of the repository (#411). It is loaded from a known "
 			"path at session start, which an instance document would not be."
