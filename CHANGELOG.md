@@ -21,6 +21,21 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **The browser can show one person's work.**
+
+  `GET /v1/tasks` has taken `?assignee=` since the first release and the terminal has had
+  `--assignee`; the browser was the only surface without it, so the only way to see one
+  person's work was to find a row of theirs and click the chip beside it. Both the list and
+  the board now carry an **Assigned to** control, built from the same roster that assigns
+  work — so an agent is marked as one here too, rather than looking like a colleague.
+
+  **The address carries a username, never `me`.** `?assignee=me` works and resolves to
+  whoever asks, which is why the control does not write it: a link you send somebody has to
+  show them what you were looking at, not their own work. Pick your own name like any other.
+
+  It stays on an empty page, unlike the order — a page narrowed to somebody with nothing to
+  do is exactly where you need the way back.
+
 - **What binds you says how many documents nearly do.**
 
   `subroutine://conventions` lists what is in force here and said nothing about what is not, so
@@ -500,6 +515,14 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+
+- **A board narrowed by a tag says so, and offers the way back.**
+
+  Clicking a tag on a board narrowed it and then said nothing about it — and with no project
+  in the address there was no *Show everything* either, so the only way out was the browser's
+  back button. The list has said this since the chips shipped; the board was passing the same
+  component less than it had.
+
 - **An item shows the word your workspace uses for its state, not the key underneath it.**
 
   A status carries both — `needs_input` and *Needs input* — and everything that showed one on a

@@ -2118,6 +2118,42 @@ export function App () {
 		}
 	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
+	const chooseWhose = useCallback(async (asked) => {
+		/*
+			**Whose work the page shows, and it goes in the address for `chooseOrder`'s reason**
+			— decision `#649`, and `#1284`. The path decides *place*; the query decides
+			*selection*, and this narrows a set `domain/scoping` has already narrowed, so it
+			widens nothing a reader could not already read.
+
+			**A username, never `me`.** The endpoint accepts `me` and resolves it to the calling
+			account, which works perfectly until the address is shared — and `#745`'s narrowing
+			is that what you send somebody has to be what you were looking at. `?assignee=me`
+			hands its recipient *their* work instead, which is the same failure the order writes
+			itself out to avoid.
+
+			**Null clears it rather than sending an empty value**, so *Anyone* leaves the key out
+			of the address entirely and one screen keeps producing one string — the property
+			`withShowing` emits in `SELECTABLE` order to protect.
+		*/
+		const selection = { ...showing.selection };
+
+		if (asked) selection.assignee = asked;
+		else delete selection.assignee;
+
+		const wanted = { view: showing.view, selection };
+
+		if (!reloads(showing, wanted)) return;
+
+		nowShowing(wanted);
+		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
+
+		try {
+			await load(workspace, project);
+		} catch (failure) {
+			setNote({ text: `That could not be shown. ${failure.message}`, tone: "bad" });
+		}
+	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+
 	const chooseView = useCallback(async (wanted) => {
 		/*
 			**Switching refetches, and the comment here used to say it must not.**
@@ -2537,6 +2573,9 @@ export function App () {
 							ordering=${orderedAs(showing.selection)}
 							order=${showing.selection.order || null}
 							onOrder=${finishedOnly ? null : chooseOrder}
+							members=${furnished.members}
+							whose=${showing.selection.assignee || null}
+							onWhose=${chooseWhose}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
 							     touched. `Board` works the set out against the columns it has
@@ -2588,6 +2627,13 @@ export function App () {
 							     narrowed to finished work ordered by when it was written — an
 							     ordering that contradicts the selection it sits inside. */ null}
 							onOrder=${finishedOnly ? null : chooseOrder}
+							${/* **Offered on the finished view, unlike the order** (`#782`). That
+							     chip asks for finished work and says nothing about whose, so
+							     narrowing it to a person composes with it rather than
+							     contradicting it. */ null}
+							members=${furnished.members}
+							whose=${showing.selection.assignee || null}
+							onWhose=${chooseWhose}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
 							selection=${showing.selection}

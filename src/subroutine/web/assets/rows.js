@@ -11,7 +11,7 @@ import { render } from "preact";
 import { html } from "./html.js";
 import { addressOf } from "./address.js";
 import { FINISHED, completable, day, deferred, excluded, holding, named } from "./dates.js";
-import { Adding, Narrowed, Ordered } from "./forms.js";
+import { Adding, Narrowed, Ordered, Whose } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
@@ -644,6 +644,8 @@ export function Board ({
 	over = null, onOver = null,
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
+	/* Whose work to show, and who there is to choose from — `#1284`. */
+	members = [], whose = null, onWhose = null,
 	/* What the reader has explicitly chosen about collapsed columns, and how to change it —
 	   `#1008`. `App` holds the state and the storage because this component stays hook-free so
 	   the harness can call it (`#640`); the *defaults* are worked out below, where the columns
@@ -765,9 +767,22 @@ export function Board ({
 			     very much does. */ null}
 			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
 				busy=${busy} empty=${items.length === 0} />
+
+			${/* **The board takes the same control as the list, from the same component** —
+			     `#1284`, and it is `#1783`'s argument one parameter along: a board fetches one
+			     page and partitions it, so narrowing decides what is in *every* column. Two
+			     copies of this markup was the alternative and is this codebase's signature
+			     defect. */ null}
+			<${Whose} members=${members} whose=${whose} onWhose=${onWhose} busy=${busy} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
+			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the
+			     sentences that say a page was narrowed by a tag or a person, and passed it from
+			     `Listing` alone. On a board with no project in the address the component then
+			     decided it had nothing to say and returned null, taking *Show everything* with
+			     it — so a reader who clicked a tag chip on a board had no way back out. */ null}
 			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
+				selection=${selection}
 				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
 
 			<div class="columns">

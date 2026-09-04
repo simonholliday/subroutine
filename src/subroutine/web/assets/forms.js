@@ -785,6 +785,57 @@ export function Ordered ({ ordering, order, onOrder, busy = false, empty = false
 	`;
 }
 
+/*
+	Whose work a listing is showing, and the control that changes it — `#1284`.
+
+	**Wiring an existing parameter to a control, not new capability.** `GET /v1/tasks` has taken
+	`?assignee=` since M1 and the terminal has `--assignee`; the browser was the only surface
+	without it, so the only way to see one person's work here was to find a row of theirs and
+	click the chip `#1020` added.
+
+	**The address carries a username and never `me`**, and that is the decision inside this.
+	`me` is accepted by the endpoint and resolves to the calling account, so offering it would
+	work — for the reader. It breaks the moment the address is shared, which is what an address
+	is for: `#745`'s narrowing says what you send somebody has to be what you were looking at,
+	and `?assignee=me` hands its recipient *their* work instead. That is the same failure the
+	order writes itself out to avoid, one parameter along.
+
+	**So there is no *Me* entry**, and a reader picks their own name like any other. One option
+	per answer: an account that appeared both as *Me* and as itself would be two ways to ask one
+	question, which is what this codebase keeps paying for.
+
+	**Absent when there is nobody to choose from.** The roster is its own request and its failure
+	is survivable by design — a picker that cannot be filled is worse than no picker, which is
+	the argument `roster` already makes for the assignment control.
+
+	**The labels are the roster's own**, from `places.people`, so this control and the one that
+	*assigns* work say the same words about the same account — `#1420`'s finding, which is that
+	two vocabularies for one roster is a defect even when both are correct.
+*/
+export function Whose ({ members, whose, onWhose, busy = false }) {
+	if (!onWhose || !members || members.length === 0) return null;
+
+	return html`
+		<div class="whose">
+			<label>
+				<span>Assigned to</span>
+				<select value=${whose || ""} disabled=${busy}
+					onChange=${(event) => onWhose(event.currentTarget.value || null)}>
+					${/* **"Anyone" rather than "All" or an empty option.** The listing is not
+					     showing everybody's work as a set; it is not narrowed at all, and a
+					     blank option reads as a value nobody chose rather than as the absence
+					     of one. */ null}
+					<option value="" selected=${!whose}>Anyone</option>
+					${members.map((one) => html`
+						<option value=${one.username} selected=${one.username === whose}
+							>${one.label}</option>
+					`)}
+				</select>
+			</label>
+		</div>
+	`;
+}
+
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	/* Passed through to `Narrowed`, which is the one thing here that reads it — `#1020`. */
@@ -794,6 +845,8 @@ export function Listing ({
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
 	/* Which projects are prioritised, and how to change it — `#986`. */
 	prioritised = [], onPrioritise = null,
+	/* Whose work to show, and who there is to choose from — `#1284`. */
+	members = [], whose = null, onWhose = null,
 }) {
 	/*
 		**The kind used to be dropped when a page held one of them** (§12.2a), and it is in the
@@ -860,6 +913,18 @@ export function Listing ({
 			*/ null}
 			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
 				busy=${busy} empty=${items.length === 0} />
+
+			${/*
+				**Under the order and above what is showing**, which is the sequence a reader
+				needs them in: how the page is arranged, then what it was narrowed to, then the
+				sentence saying so and the way back out.
+
+				**Offered on an empty page, unlike the order.** An order describes rows and has
+				nothing to describe when there are none; this one is how a reader got here, and
+				a page narrowed to somebody with no work is exactly where the control has to
+				stay reachable.
+			*/ null}
+			<${Whose} members=${members} whose=${whose} onWhose=${onWhose} busy=${busy} />
 
 			${/*
 				**Said only where it changes the answer** (`#986`). A prioritised project raises work

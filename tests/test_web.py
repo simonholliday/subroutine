@@ -152,7 +152,12 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"items": [
 			{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True},
 			{"ref": 2, "kind": "document", "title": "A document", "status_is_default": True},
-		]
+		],
+		# **Whose work the page shows** (`SR#1284`). `Whose` renders through this sample rather
+		# than having one of its own, exactly as `Ordered` does — and it needs a roster, because
+		# a control with nobody to choose from is deliberately absent. `_rendered` supplies
+		# `onWhose` itself, as it does every `on…` prop.
+		"members": [{"id": "u1", "username": "si", "label": "si"}],
 	},
 	# The bar the list and the board share — one component since `SR#986`, because they held it
 	# byte for byte and a second control in it would have been the moment they drifted.
@@ -13696,21 +13701,33 @@ def test_a_page_narrowed_by_a_tag_says_so_and_offers_the_way_back (
 	answers = {"tasks": {"items": [row], "page": {
 		"has_more": False, "next_cursor": None, "total": 1}}}
 
-	tagged = _driven(tmp_path, pathname="/projects", search="?tag=ops", answers=answers)
+	# **Both arrangements, and driving one of them was the defect** — `SR#2070`. `Narrowed` is
+	# rendered by `Listing` and by `Board`, and `#1020` passed `selection` to the first and not
+	# the second — so a board reached by clicking a tag chip said nothing about the narrowing
+	# and, with no project in the address, rendered no `Narrowed` at all and took *Show
+	# everything* with it. This guard drove the list and was green for eleven days.
+	#
+	# A prop two arrangements share, where one passes it and one does not, is invisible to a
+	# test that drives either alone.
+	for view in ("list", "board"):
+		narrowing = f"?tag=ops&view={view}" if view != "list" else "?tag=ops"
+		tagged = _driven(tmp_path, pathname="/projects", search=narrowing, answers=answers)
+
+		assert "Showing anything tagged #ops." in tagged["said"], (
+			f"on the {view} a reader narrowed by a tag was not told what narrowed the page: "
+			f"{tagged['said']!r}"
+		)
+
+		assert "Show everything" in tagged["said"], (
+			f"on the {view} a narrowing with no way back is a page a reader can only leave "
+			f"backwards: {tagged['said']!r}"
+		)
+
+		assert "Prioritise" not in tagged["said"], (
+			f"on the {view} a page with no project offered to prioritise one: {tagged['said']!r}"
+		)
+
 	plain = _driven(tmp_path, pathname="/projects", answers=answers)
-
-	assert "Showing anything tagged #ops." in tagged["said"], (
-		f"a reader narrowed by a tag was not told what narrowed the page: {tagged['said']!r}"
-	)
-
-	assert "Show everything" in tagged["said"], (
-		f"a narrowing with no way back is a page a reader can only leave backwards: "
-		f"{tagged['said']!r}"
-	)
-
-	assert "Prioritise" not in tagged["said"], (
-		f"a page with no project offered to prioritise one: {tagged['said']!r}"
-	)
 
 	assert "Showing anything tagged" not in plain["said"], (
 		f"a page nothing narrowed claimed a narrowing: {plain['said']!r}"
@@ -14929,4 +14946,180 @@ def test_an_old_board_address_and_the_chips_own_address_fetch_the_same_thing (
 	assert all("group_limit=" in one["path"] for one in before), (
 		f"the saved address still asked for one page across every column: "
 		f"{[one['path'] for one in before]}"
+	)
+
+
+def test_both_arrangements_offer_a_control_for_whose_work_they_show (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1284`. The browser was the only surface that could not ask *what is Jo's*.
+
+	`GET /v1/tasks` has taken `?assignee=` since M1 and the terminal has `--assignee`; here the
+	only way to see one person's work was to find a row of theirs and click the chip `#1020`
+	added — which needs a row of theirs to be on the page you are already looking at.
+
+	**Both arrangements, derived rather than named.** `SR#2070` is what happens when a guard
+	drives one of two arrangements that share a component: the list was asserted, the board was
+	not, and a passed-through prop went missing for eleven days. The board wants this control
+	*more* than the list does, for `#1783`'s reason — it fetches one page and partitions it, so
+	a narrowing decides what is in every column.
+
+	**The labels are the roster's own** (`places.people`, `#1420`), so the control that chooses
+	whose work to show and the control that *assigns* work say the same words about the same
+	account — including *(agent)* on the ones that are not colleagues.
+	"""
+
+	roster = {"items": [
+		{"user": {"id": "u1", "username": "si", "is_service_account": False,
+		          "answers_to": None}},
+		{"user": {"id": "u2", "username": "claude-super", "is_service_account": True,
+		          "answers_to": "si"}},
+	]}
+	answers = {
+		"members": roster,
+		"tasks": {"items": [], "page": {"has_more": False, "next_cursor": None, "total": 0}},
+	}
+
+	for view in ("list", "board"):
+		page = _driven(
+			tmp_path, pathname="/projects", search=f"?view={view}", answers=answers
+		)
+
+		assert "Assigned to" in page["said"], (
+			f"the {view} offered no way to ask whose work it is showing: {page['said']!r}"
+		)
+
+		assert "Anyone" in page["said"], (
+			f"the {view}'s control had no way back to everybody's work: {page['said']!r}"
+		)
+
+		for username in ("si", "claude-super"):
+			assert username in page["said"], (
+				f"the {view}'s control did not offer {username}, who is on the roster: "
+				f"{page['said']!r}"
+			)
+
+		# **The agent is marked as one here too** — `#1420`'s finding is that two vocabularies
+		# for one roster is a defect even when both are correct, and this control is built from
+		# `places.people` for exactly that reason rather than from the usernames alone.
+		assert "(agent" in page["said"], (
+			f"the {view}'s control offered an agent as though it were a colleague: "
+			f"{page['said']!r}"
+		)
+
+	# **And the address the control writes is one the instance answers**, which is the half a
+	# rendered control cannot show. The parameter has existed since M1; what was missing was
+	# anything in the browser that produced it, so a control that drew perfectly and emitted a
+	# key `api/query.py` refuses would look identical on the page and 422 on the wire.
+	for view in ("list", "board"):
+		narrowed = _driven(
+			tmp_path,
+			pathname="/projects",
+			search=f"?view={view}&assignee=claude-super",
+			answers=answers,
+		)
+		listings = [
+			one["path"] for one in narrowed["asked"]
+			if one["method"] == "GET" and "/tasks" in one["path"]
+		]
+
+		assert listings, f"the {view} asked for no tasks at all: {narrowed['asked']!r}"
+
+		assert all("assignee=claude-super" in path for path in listings), (
+			f"the {view} was addressed to one person's work and asked the instance for "
+			f"everybody's: {listings!r}"
+		)
+
+
+def test_the_control_for_whose_work_offers_no_entry_for_the_reader_themselves (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1284`, and the decision inside it: an address carries a username and never ``me``.
+
+	``?assignee=me`` is accepted by the endpoint and resolves to the calling account, so an
+	entry for it would work — for the reader who chose it. **It breaks the moment the address is
+	shared**, which is what an address is for: `#745`'s narrowing says what you send somebody
+	has to be what you were looking at, and ``me`` hands its recipient *their* work instead.
+	That is the same failure the order writes itself out to avoid, one parameter along.
+
+	**So there is no *Me* entry and the reader picks their own name like any other.** An account
+	offered both as *Me* and as itself is two ways to ask one question, which is the shape this
+	codebase keeps paying for — and it is the reason this is asserted rather than left to a
+	comment.
+
+	**A text assertion cannot see an option's *value*.** `said` is the mounted page flattened,
+	so what this proves is that no such entry is *offered*; the scan below is what holds the
+	value, and it is the weaker half stated as such rather than implied.
+	"""
+
+	roster = {"items": [
+		{"user": {"id": "u1", "username": "si", "is_service_account": False,
+		          "answers_to": None}},
+	]}
+	page = _driven(
+		tmp_path,
+		pathname="/projects",
+		search="?view=list",
+		answers={"members": roster,
+		         "tasks": {"items": [], "page": {"has_more": False, "next_cursor": None,
+		                                         "total": 0}}},
+	)
+
+	offered = page["said"]
+
+	assert "Assigned to" in offered and "si" in offered, (
+		f"the control did not render, so this asserts nothing: {offered!r}"
+	)
+
+	for wording in ("Me", "Mine", "Yours"):
+		assert f">{wording}<" not in offered and f"{wording}<" not in offered, (
+			f"the control offered {wording!r}, which writes a per-caller value into an address "
+			f"other people are meant to be able to open: {offered!r}"
+		)
+
+	# **The value half, by a scan, because the harness drops attributes.** Narrow on purpose:
+	# the literal is looked for inside `Whose` alone rather than across the app, where `me` is
+	# an ordinary word and `/me` is a real route.
+	whose = _served_modules()["forms.js"]
+	start = whose.index("export function Whose (")
+	body = whose[start:whose.index("export function Listing (", start)]
+
+	assert '"me"' not in body and "'me'" not in body, (
+		"the control writes `me` into the address, which resolves to whoever opens it rather "
+		"than to the person the sender was looking at"
+	)
+
+
+def test_the_control_for_whose_work_is_absent_when_there_is_nobody_to_choose (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A picker that cannot be filled is worse than no picker.
+
+	The roster is its own request and **its failure is survivable by design** — `App.roster`
+	catches and sets an empty list, which is the argument already made for the control that
+	*assigns* work. This is the same rule one control along: on an instance whose roster could
+	not be read, the honest page is one with no control rather than one with an empty menu.
+	"""
+
+	page = _driven(
+		tmp_path,
+		pathname="/projects",
+		search="?view=list",
+		answers={"tasks": {"items": [], "page": {"has_more": False, "next_cursor": None,
+		                                         "total": 0}}},
+	)
+
+	# **The listing really rendered**, or this asserts the absence of a control on a page that
+	# has no listing at all — which is true of the agenda and says nothing about this rule.
+	#
+	# Its *empty* sentence rather than the order, and the difference is the point: `Ordered`
+	# returns null when there are no rows, because an order describes rows. `Whose` does not,
+	# because it is how a reader got here and a page narrowed to somebody with no work is
+	# exactly where the way back has to stay reachable.
+	assert "Nothing here yet." in page["said"], (
+		f"no listing was drawn, so an absent control proves nothing: {page['said']!r}"
+	)
+
+	assert "Assigned to" not in page["said"], (
+		f"a control was drawn with nobody to choose from: {page['said']!r}"
 	)

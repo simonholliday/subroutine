@@ -1644,7 +1644,14 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	chose* and offers the way out, so it is a notice. This describes the state a list is always
 	in, so on the ordinary page it must read as a caption rather than as news.
 */
-.ordered {
+/*
+	Two controls, one appearance (`#1284`). The selectors are grouped rather than the class
+	reused: `.ordered` names what it does, and a control that narrows by person is not an
+	ordering — but nothing about how either looks should differ, which is `#1855`'s direction
+	and the reason `#2057` exists.
+*/
+.ordered,
+.whose {
 	display: flex;
 	align-items: center;
 	flex-wrap: wrap;
@@ -1655,7 +1662,8 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	font-size: var(--text-small);
 }
 
-.ordered label {
+.ordered label,
+.whose label {
 	display: flex;
 	align-items: center;
 	gap: var(--space-3);
@@ -1666,7 +1674,8 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	choice made in place rather than a form being filled in, and a new element landing on the
 	user agent's default is what `#747` is about — browser chrome, blind to both themes.
 */
-.ordered select {
+.ordered select,
+.whose select {
 	padding: var(--control-tight);
 	background: var(--bg-raised);
 	border: 1px solid var(--line-strong);
@@ -1676,7 +1685,8 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	font-size: var(--text-small);
 }
 
-.ordered select:disabled { opacity: 0.5; }
+.ordered select:disabled,
+.whose select:disabled { opacity: 0.5; }
 
 /* What the page is *doing*, beside what you may choose. A select names the options and says
    nothing about the consequence — which for a ranked page is that it holds no documents. */
