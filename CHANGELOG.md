@@ -21,6 +21,19 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A tab you are not looking at stops asking the instance for changes.**
+
+  The browser polled every ten seconds for as long as a page was open, whether or not anybody
+  was there. It now asks every five seconds while you are working, drops to every thirty once
+  the page has been visible and untouched for two minutes, and **stops entirely when the tab is
+  hidden** — the timer is removed rather than left to fire.
+
+  Coming back to the tab asks once, immediately, so what you see is current. That costs a
+  single request however long you were away, because the feed is read from where you left off
+  rather than re-fetched.
+
+  It matters most on a phone, where the app can be installed and left running.
+
 - **A board says how it is ordered, and lets you change it.**
 
   The list has had an Order control and a sentence saying what it is showing since `0.8.0`; a

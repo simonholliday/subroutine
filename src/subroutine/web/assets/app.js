@@ -55,18 +55,19 @@ import {
 	statusFor, treeOrdered, unmovable, vocabularyRequest,
 } from "./places.js";
 import {
-	DOCUMENT_SAID, NEVER_CLEARED, RELEASE_CHECK_POLLS, REPEATED, SAID_AS_NUMBERS,
-	SAID_AS_WRITTEN, addRequest, allowedIn, assignRequest, authorOf, collectionsFor,
-	commentRequest, completeRequest, conflictIn, dateFor, documentRequest, edited, filed,
-	freshly, fromItem, headRequest, identityRequest, itemRequests, linkAsked, linkChoices,
-	linkRequest, linkableTypes, listingRequests, localMoment, pollRequest,
-	prioritiseRequest, readForm, readingRequest, releaseMoved, repeating, repeats,
-	restoreRequest, rosterRequest, scoped, sent, signOutRequest, statusRequest, timeFor,
-	touching, unlinkRequest, updateRequest, withTime, written,
+	DOCUMENT_SAID, NEVER_CLEARED, RELEASE_CHECK_POLLS, REPEATED, SAID_AS_NUMBERS, SAID_AS_WRITTEN,
+	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
+	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
+	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
+	linkableTypes, listingRequests, localMoment, pollRequest, prioritiseRequest, readForm,
+	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
+	signOutRequest, statusRequest, timeFor, touching, unlinkRequest, updateRequest, withTime,
+	written,
 } from "./requests.js";
 import { Agenda, Board, Marks, Row, Stamp } from "./rows.js";
 import {
-	BOARD_COLUMNS_REMEMBERED, COLUMN, HORIZON_DAYS, POLL_MS, SECTIONS_REMEMBERED, WIDER,
+	ATTENTIVE_MS, BOARD_COLUMNS_REMEMBERED, BUSY_POLL_MS, COLUMN, HORIZON_DAYS, POLL_MS,
+	SECTIONS_REMEMBERED, WIDER,
 } from "./settings.js";
 
 export function App () {
@@ -761,6 +762,76 @@ export function App () {
 		}
 	}, [editing, fetched, nowOpen]);
 
+	/*
+		**How often to ask, or `null` for not at all** — `#1850`, and `#445` §3's cadence.
+
+		Held as state rather than read inside the poll, because it is what the poll *depends*
+		on: changing it is what tears one timer down and puts the right one up. Read inside, it
+		would be sampled once when the interval was made and never again.
+	*/
+	const [attention, setAttention] = useState(BUSY_POLL_MS);
+
+	/* Whether a catch-up is owed — set when the tab goes away, spent when it comes back.
+	   **Not `behind`**: `App` binds that to a listing address 1,300 lines below, and the parser
+	   refuses a file declaring one name twice, which is `#1409` catching this rather than a
+	   near miss. */
+	const owed = useRef(false);
+
+	useEffect(() => {
+		/*
+			**Two inputs, one answer**: whether the tab is in front, and when somebody last
+			touched it. Both are read here and nowhere else, so the poll depends on a number
+			rather than sampling two globals at whatever moment its interval was created.
+
+			**`pointerdown` and `keydown`, passive.** Not `mousemove`: a cursor crossing a
+			window is not somebody working, and a listener firing on every pixel to write a
+			timestamp is the cost this item exists to remove.
+
+			**`decide` runs on a timer as well as on events**, because going idle is the passage
+			of time rather than something that happens — without it a tab left alone stays on
+			the fast cadence for ever, which is most of what this is about.
+
+			**Guarded on `addEventListener` rather than on `document`**, because the mount
+			harness supplies a shim that is deliberately not a browser (`dom.js`, capped at 120
+			lines): where there is nothing to listen to, the cadence it was born with is right.
+		*/
+		const page = globalThis.document;
+
+		if (!page || !page.addEventListener) return undefined;
+
+		let touched = Date.now();
+
+		const decide = () => {
+			const hidden = page.visibilityState === "hidden";
+
+			if (hidden) owed.current = true;
+
+			setAttention(cadence(hidden, Date.now() - touched));
+		};
+
+		const stirred = () => {
+			touched = Date.now();
+
+			decide();
+		};
+
+		page.addEventListener("visibilitychange", decide);
+		page.addEventListener("pointerdown", stirred, { passive: true });
+		page.addEventListener("keydown", stirred, { passive: true });
+
+		const watch = setInterval(decide, ATTENTIVE_MS);
+
+		decide();
+
+		return () => {
+			page.removeEventListener("visibilitychange", decide);
+			page.removeEventListener("pointerdown", stirred);
+			page.removeEventListener("keydown", stirred);
+
+			clearInterval(watch);
+		};
+	}, []);
+
 	useEffect(() => {
 		/*
 			**`project` is a dependency because the interval closes over it, not because it is
@@ -782,7 +853,11 @@ export function App () {
 		*/
 		if (error || !workspace) return undefined;
 
-		const tick = setInterval(async () => {
+		/*
+			**Named rather than written inline, because two things call it** — `#1850`: the
+			interval, and a tab coming back to the front.
+		*/
+		const poll = async () => {
 			/* **Before the request, not after it.** A poll that fails changes nothing on
 			   screen by design, and the clock has still moved — so a mark that should have
 			   gone must go whether or not the instance answered. */
@@ -853,10 +928,37 @@ export function App () {
 				   it is the one that has to reach the reader. */
 				if (failure.status === 401) setError(failure);
 			}
-		}, POLL_MS);
+		};
+
+		/*
+			**A hidden tab polls not at all, and an idle one backs off** — `#445` §3, specified
+			and never built. `#657` closed as *worth doing once a page that stays open is the
+			normal case*, and `#1665` is when that arrived: the app installs on a phone, so a
+			tab nobody is looking at was six requests a minute against somebody's battery
+			rather than against a 600-a-minute allowance.
+
+			**The timer is torn down rather than made to return early**, which is what *stop
+			entirely when hidden* means — a timer that fires is throttled in a background tab
+			and not stopped. `attention` is a dependency, so changing it is what swaps the
+			cadence and what removes the timer when the tab goes away.
+		*/
+		if (attention === null) return undefined;
+
+		/* **The catch-up, and it is why a page left open can be trusted.** Without it a tab
+		   returning to the front shows rows as stale as the moment it was hidden for as long
+		   as one cadence — and it looks exactly like a page that is working.
+		   `GET /v1/changes?since=<seq>` is cursor-based, so six hours asleep costs one
+		   request and there is nothing to make up. */
+		if (owed.current) {
+			owed.current = false;
+
+			poll();
+		}
+
+		const tick = setInterval(poll, attention);
 
 		return () => clearInterval(tick);
-	}, [error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh]);
+	}, [error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh, attention]);
 
 	const signOut = useCallback(async () => {
 		/* **The answer is asked for and then acted on**, rather than the page being blanked
@@ -2709,6 +2811,7 @@ export {
 	allowedIn,
 	assignRequest,
 	authorOf,
+	cadence,
 	collectionsFor,
 	commentRequest,
 	completeRequest,

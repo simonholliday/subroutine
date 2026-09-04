@@ -1,4 +1,22 @@
 /*
+	How long to wait before asking again, or `null` for not at all — `#1850`, `#445` §3.
+
+	**A function rather than three branches inside the effect**, which is `#640`'s own pattern
+	and the reason this file has any of the others: a decision written inside `App` is reachable
+	by nothing. `dom.js` is capped at 120 lines and forbidden from implementing `dispatchEvent`
+	— *"dispatching an event is where a shim stops being honest"* — so the mount cannot be made
+	to hide a tab, and a rule left in there would ship guarded by a source scan.
+
+	**Hidden beats idle**, and the order matters: a tab put away while somebody was typing is
+	still a tab nobody is looking at.
+*/
+export function cadence (hidden, idleFor) {
+	if (hidden) return null;
+
+	return idleFor < ATTENTIVE_MS ? BUSY_POLL_MS : IDLE_POLL_MS;
+}
+
+/*
 	Every request this app makes, built rather than issued: each returns what to send, so a
 	caller can be driven and asserted on without a server.
 
@@ -13,7 +31,7 @@ import { ORDERINGS, calendarDay, day } from "./dates.js";
 import { TIMED } from "./forms.js";
 import { columns } from "./grouping.js";
 import {
-	COLUMN, DOCUMENT_FIELDS, MAX_PARTS, PAGE, POLL_FIELDS, POLL_PAGE, TASK_FIELDS,
+	ATTENTIVE_MS, BUSY_POLL_MS, COLUMN, DOCUMENT_FIELDS, IDLE_POLL_MS, MAX_PARTS, PAGE, POLL_FIELDS, POLL_PAGE, TASK_FIELDS,
 } from "./settings.js";
 
 export function sent (request) {

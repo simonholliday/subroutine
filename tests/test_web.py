@@ -6224,9 +6224,12 @@ def test_the_release_check_is_actually_inside_the_poll () -> None:
 	goes through the rule, and the rule's `true` reaches the state the notice renders from.
 	"""
 
+	#: **The poll's body is a named function since `#1850`**, because two things call it: the
+	#: interval, and a tab coming back to the front. It was written inline as
+	#: `setInterval(async () => {`, and this read from there to `}, POLL_MS);`.
 	source = _without_prose(_our_source())
-	opened = source.index("const tick = setInterval(async () => {")
-	body = source[opened:source.index("}, POLL_MS);", opened)]
+	opened = source.index("const poll = async () => {")
+	body = source[opened:source.index("const tick = setInterval(poll,", opened)]
 
 	for wanted in (
 		"polled.current += 1",
@@ -6374,6 +6377,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
+			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
 			: name === "marks" ? app.marks(
 				argument.item, argument.ordering, argument.place, argument.linkable,
 				{{
@@ -13458,6 +13462,57 @@ _A_CARD = {"ref": 1, "kind": "task", "title": "Cache the roster", "status": "ope
            "status_category": "todo", "status_is_default": True}
 
 
+def test_a_hidden_tab_polls_not_at_all_and_an_idle_one_backs_off (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1850`, and `#445` §3 specified this cadence before any of it was built.
+
+	The poll was a flat ten seconds with no `visibilityState` anywhere. `#657` closed as *worth
+	doing once a page that stays open is the normal case*, and `#1665` is when that arrived: the
+	app installs on a phone now, so a tab nobody is looking at was six requests a minute against
+	somebody's battery rather than against a 600-a-minute allowance.
+
+	**`null` is a timer torn down, not a callback that returns early**, which is what *stop
+	entirely when hidden* means — a timer that fires is throttled in a background tab and not
+	stopped. `App` passes this straight into its effect's dependency list, so the value changing
+	is what removes the interval.
+
+	**Hidden beats idle, and the order is the interesting half.** A tab put away mid-keystroke
+	is still a tab nobody is looking at, so the two conditions are not symmetric and a rule that
+	checked idleness first would poll a hidden tab at five seconds.
+
+	**A pure function so it can be driven at all.** Written inside the effect it was reachable
+	by nothing: `dom.js` is capped at 120 lines and forbidden from implementing `dispatchEvent`
+	— *"dispatching an event is where a shim stops being honest"* — so the mount cannot be made
+	to hide a tab, and the rule would have shipped guarded by a source scan. That is `#640`'s
+	pattern, which is why every other decision in `App` already lives outside it.
+	"""
+
+	asked = _addressing(tmp_path, [
+		("cadence", {"hidden": False, "idleFor": 0}),
+		("cadence", {"hidden": False, "idleFor": 119000}),
+		("cadence", {"hidden": False, "idleFor": 120000}),
+		("cadence", {"hidden": False, "idleFor": 6 * 60 * 60 * 1000}),
+		("cadence", {"hidden": True, "idleFor": 0}),
+		("cadence", {"hidden": True, "idleFor": 6 * 60 * 60 * 1000}),
+	])
+
+	working, nearly, over, long, away, gone = asked
+
+	assert working == 5000 and nearly == 5000, (
+		f"a tab somebody is working in backed off: {working}, {nearly}"
+	)
+
+	assert over == 30000 and long == 30000, (
+		f"a tab left alone for two minutes went on asking every five seconds: {over}, {long}"
+	)
+
+	assert away is None and gone is None, (
+		f"a hidden tab was still given a cadence, so the timer stays up and the point of the "
+		f"item is lost: {away}, {gone}"
+	)
+
+
 def test_a_board_says_how_it_is_ordered_and_lets_a_reader_change_it (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -13831,10 +13886,13 @@ def test_the_poll_re_renders_so_those_marks_are_recomputed () -> None:
 	times and would satisfy a scan for it — `#427`'s trap, met three times in this repository.
 	"""
 
+	#: **The poll is a named function since `#1850`**, which gave a hidden tab no timer at all
+	#: — so there is no `setInterval(async` to read from any more, and the body to search is
+	#: `poll`'s.
 	source = _without_comments(_our_source())
-	interval = source[source.index("setInterval(async") :]
+	interval = source[source.index("const poll = async") :]
 
-	assert "retick(" in interval[: interval.index("}, POLL_MS)")], (
+	assert "retick(" in interval[: interval.index("const tick = setInterval(poll,")], (
 		"the poll no longer bumps state, so a page left open stops recomputing `overdue` and "
 		"`deferred` — which is what `deferred`'s own comment says computing them is for"
 	)

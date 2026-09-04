@@ -28,6 +28,23 @@ export const HORIZON_DAYS = 7;
 */
 
 /*
+	The three cadences a poll runs at — `#1850`, and `#445` §3 specified them long before any
+	of this existed.
+
+	`BUSY_POLL_MS` while somebody is working, `IDLE_POLL_MS` once a visible tab has gone
+	`ATTENTIVE_MS` untouched, and **nothing at all while it is hidden** — a timer torn down
+	rather than one that fires and returns, because a timer that fires is throttled in a
+	background tab and not stopped.
+
+	**`POLL_MS` stays and is not dead**, which is worth saying because it looks it: the release
+	check counts in *polls* rather than in minutes (`RELEASE_CHECK_POLLS`), so it is the unit
+	that number is denominated in.
+*/
+export const BUSY_POLL_MS = 5000;
+export const IDLE_POLL_MS = 30000;
+export const ATTENTIVE_MS = 120000;
+
+/*
 	How often to ask what has changed. `GET /v1/changes?since=` was built for exactly this and
 	is what SSE's own reconnection protocol reduces to — `Last-Event-ID` *is* `?since=`. So the
 	catch-up path is needed either way, and polling first means it runs on every tick rather
