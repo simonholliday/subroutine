@@ -672,6 +672,9 @@ export function Conflict ({ theirs }) {
 
 export function Narrowed ({
 	project, onWiden, widenTo, prioritised = [], onPrioritise = null, busy = false,
+	/* What else narrowed the page — `#1020`. Defaulted, because most callers narrow by
+	   project alone and a missing selection means *nothing else*. */
+	selection = {},
 }) {
 	/*
 		What narrowed this page, how to undo it, and — since `#986` — whether this project is the
@@ -691,15 +694,34 @@ export function Narrowed ({
 		argument made visible: choosing this project is also the other one stopping, and a reader
 		who is not shown the trade is the reader who sets a fifth one.
 	*/
-	if (!project) return null;
+	/*
+		**A tag and a person narrow it too, and until `#1020` neither said so.** A reader
+		clicking a chip landed on a filtered page with nothing explaining why and no way back
+		but the browser's own — which is worse than not offering the link at all, and is why
+		this shipped with the chips rather than after them.
+	*/
+	const tag = selection.tag || null;
+	const who = selection.assignee || null;
+
+	if (!project && !tag && !who) return null;
 
 	const raised = prioritised.includes(project);
 	const displaces = prioritised.find((one) => one !== project) || null;
 
 	return html`
 		<div class="narrowed">
-			<span>Showing <strong>${project}</strong> and anything under it.</span>
-			${onPrioritise && html`
+			${project && html`
+				<span>Showing <strong>${project}</strong> and anything under it.</span>
+			`}
+			${tag && html`<span>Showing anything tagged <strong>#${tag}</strong>.</span>`}
+			${who && html`<span>Showing <strong>@${who}</strong>'s work.</span>`}
+			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
+			     While the only way into this component was a project narrowing, `if (!project)
+			     return null` also guaranteed the argument below; now a tag or a person can
+			     bring a reader here, and without this a page with no project offered
+			     *Prioritise* and would have called `onPrioritise(null)`. A rule can be doing a
+			     second job, and relaxing it breaks the case nobody wrote down. */ null}
+			${project && onPrioritise && html`
 				<button type="button" class="prioritise action" disabled=${busy}
 					onClick=${() => onPrioritise(raised ? null : project)}
 					title=${raised
@@ -719,6 +741,8 @@ export function Narrowed ({
 
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
+	/* Passed through to `Narrowed`, which is the one thing here that reads it — `#1020`. */
+	selection = {},
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
 	empty = "Nothing here yet.", adding, ordering = null, order = null, onOrder = null,
@@ -824,6 +848,7 @@ export function Listing ({
 			`}
 
 			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}
+				selection=${selection}
 				prioritised=${prioritised} onPrioritise=${onPrioritise} busy=${busy} />
 
 			${/*

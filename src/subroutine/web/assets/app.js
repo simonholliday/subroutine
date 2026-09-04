@@ -23,7 +23,7 @@ import {
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, chips,
 	chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
-	showingOf, titlesByPath, viewOf, withShowing,
+	showingOf, titlesByPath, viewOf, withShowing, widened,
 } from "./address.js";
 import {
 	Boundary, accumulated, inOrder, mergeOrder, newestFirst, refusal, sunkOrder, unpacked,
@@ -2406,7 +2406,28 @@ export function App () {
 							prioritised=${prioritisedHere(me ? me.workspaces : [], workspace)}
 							onPrioritise=${mayWrite ? prioritise : null}
 							selection=${showing.selection}
-							onDrag=${dragged} onMove=${moved} over=${over} onOver=${setOver}
+							${/*
+							     **Gated like every other control on this call** — `#1781`, and
+							     it is `#927`'s M-25 one control along. The board's drop is
+							     `statusRequest`'s PATCH, the same write the Complete button
+							     makes, and that button has been gated since M-25 shipped; this
+							     was not, because the sweep went through the *visible* controls
+							     and a drag has no button to leave undrawn.
+
+							     **Both halves, for different reasons.** Without `onMove` a card
+							     still lifts and the drop is silently inert, which is a gesture
+							     that reads as working and does nothing. Without `onDrag` the
+							     columns still light as targets for a card nobody can pick up.
+							     `Row` draws `draggable` only when it has `onDrag`, and `Board`
+							     attaches its drop handlers only when it has `onMove`, so
+							     withholding both is what removes the affordance rather than
+							     hiding it.
+
+							     `over` stays as it is: it is state rather than a handler, and
+							     with `onOver` withheld nothing ever sets it. */ null}
+							onDrag=${mayWrite ? dragged : null}
+							onMove=${mayWrite ? moved : null}
+							over=${over} onOver=${mayWrite ? setOver : null}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
 							     touched. `Board` works the set out against the columns it has
@@ -2430,7 +2451,7 @@ export function App () {
 							finishedTo=${showing.selection.status_category === undefined
 								? withShowing(behind, { view: "board", selection: BOARD })
 								: null}
-							widenTo=${withShowing(listingAddress({ workspace }), showing)} />`
+							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))} />`
 						/*
 							**No capture box while only finished work is showing** (`#706`).
 							Adding from here would report success over a page the new item cannot
@@ -2459,7 +2480,8 @@ export function App () {
 							     ordering that contradicts the selection it sits inside. */ null}
 							onOrder=${finishedOnly ? null : chooseOrder}
 							onWiden=${widen}
-							widenTo=${withShowing(listingAddress({ workspace }), showing)}
+							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
+							selection=${showing.selection}
 							empty=${finishedOnly
 								? "Nothing has been finished here yet."
 								: "Nothing here yet."} />`}

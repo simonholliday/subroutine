@@ -21,6 +21,19 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A tag or a person on a row is a link, and clicking one narrows the list to it.**
+
+  Tags have been shown on every row since they reached one, and there was no way to act on
+  them: the filter existed on the API and nothing in the browser could produce it. The same
+  went for who a row is assigned to.
+
+  Clicking `#ops` shows everything tagged `ops` in that workspace; clicking a name shows that
+  person's work. The page then says which — *"Showing anything tagged #ops"* — with **Show
+  everything** beside it, the same way it already reports being narrowed to a project.
+
+  A page narrowed to a person holds tasks only, and that is not a choice: a document has no
+  assignee. Narrowing by a tag keeps both, because a document can carry one.
+
 - **An agent and the person whose machine it runs on stop signing each other's work.**
 
   A machine holds one credential per instance, and two of you type at it: you, and the agent in
@@ -431,6 +444,13 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+- **A board no longer offers to drag cards to somebody who may not move them.**
+
+  A reader with a read-only role — or anybody using a credential narrowed to reads, which is
+  most agents — was shown cards that lift and columns that accept them, and the drop was
+  refused. The gesture is withheld now, both halves of it: the card does not lift and the
+  columns are not targets.
+
 - **A tampered backup can no longer run commands when it is restored.** A PostgreSQL backup was
   a plain script, and restoring one ran it through `psql`, which executes backslash
   meta-commands written into it — so a backup file placed where the operator would restore it

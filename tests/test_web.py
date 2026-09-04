@@ -7629,7 +7629,11 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	# Two tasks, so a page of one has something after it and the cursor below is a real one.
 	refs = []
 
-	for title in ("Read the backlog", "Write it down"):
+	#: **One of them is tagged**, because `#1020` admitted `tag` to the address and the guard
+	#: below drives every admitted selection against this instance — and `GET /v1/tasks` refuses
+	#: a tag nothing carries by name (422, *"No tag called 'backlog' is used here"*) rather than
+	#: answering with an empty page.
+	for title in ("Read the backlog #backlog", "Write it down"):
 		answer = call(
 			"POST", "/v1/tasks", json={"text": f"{title} +web", "workspace_id": slug}
 		)
@@ -7770,7 +7774,7 @@ def _view_names () -> list[str]:
 	return re.findall(r'"([^"]+)"', found.group(1))
 
 
-def _selections () -> list[dict[str, str]]:
+def _selections (place: Instance) -> list[dict[str, str]]:
 	"""Every selection this app's address grammar admits, derived from `SELECTABLE`.
 
 	**Derived from what is being measured, not from a list kept beside it** (`SR#738`). This used
@@ -7798,7 +7802,24 @@ def _selections () -> list[dict[str, str]]:
 	# **A free-text parameter has no values to enumerate, so one is supplied** (`SR#775`). The
 	# derivation above reads array entries only, so `q: null` would have fallen out of it
 	# silently — every case still passing, and the one new parameter driven by nothing.
-	singles += [{name: "backlog"} for name in re.findall(r"\n\t(\w+): null,", block.group(1))]
+	#
+	# **One word will not do for all of them, which `SR#1020` is what established.** A search
+	# term can be anything; a tag has to *be* a tag this instance uses and an assignee has to
+	# *be* somebody it has, and both are refused by name rather than answered with an empty
+	# page. So the sample is per parameter, and a new free-text entry fails here until somebody
+	# says what a real one looks like — derived membership rather than a default, because a
+	# default is what would have let `tag` be driven with a value the route refuses.
+	free_text = {"q": "backlog", "tag": "backlog", "assignee": place.username}
+	named_here = set(re.findall(r"\n\t(\w+): null,", block.group(1)))
+
+	assert named_here <= set(free_text), (
+		f"{sorted(named_here - set(free_text))} is admitted to the address as free text and "
+		f"this does not know a value the instance would accept for it. Add one — the point of "
+		f"this test is that the request is driven, and an unenumerable parameter cannot be "
+		f"sampled by pattern."
+	)
+
+	singles += [{name: free_text[name]} for name in sorted(named_here)]
 
 	assert singles, "no selectable parameter was found, so nothing would be driven"
 
@@ -7856,7 +7877,7 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 
 	return [
 		("listingRequests", [place.slug, None, None, selection])
-		for selection in _selections()
+		for selection in _selections(place)
 	] + [
 		("identityRequest", []),
 		("headRequest", []),
@@ -10425,9 +10446,22 @@ def _driven (
 			return found.concat(...of.childNodes.map(addresses));
 		}}
 
+		/* **What can be picked up** (`SR#1781`). The board's drag is the one affordance on the
+		   page that is not a button, so `said` cannot see it and neither can `addresses` — and
+		   `dom.js` is forbidden from implementing `querySelector`, deliberately, because
+		   finding nodes by selector is a browser's job. This walks the same tree those two
+		   walk and reads a property off it, which is the difference between asking the mount a
+		   question it can answer and turning it into a bad browser. */
+		function lifting (of) {{
+			const here = of.draggable ? 1 : 0;
+
+			return here + of.childNodes.map(lifting).reduce((a, b) => a + b, 0);
+		}}
+
 		process.stdout.write(JSON.stringify(
 			{{
-				asked, written, said: text(root), links: addresses(root), rounds,
+				asked, written, said: text(root), links: addresses(root),
+				lifting: lifting(root), rounds,
 				/* **What the tab says** (`SR#1214`). The rule that decides it is pure and asked
 				   directly next door; this is the wiring, which is where every fault this arc
 				   shipped actually was. `document` is the shim's, so an unassigned title reads
@@ -13415,6 +13449,165 @@ def test_a_reader_who_may_not_write_is_offered_no_control_that_would_refuse (
 	assert "Add" in writing["said"], "the capture box is §1.4's primary path and must be there"
 	assert "Add" not in reading["said"], (
 		f"a reader who may not write was offered the capture box: {reading['said']!r}"
+	)
+
+
+#: One task, in the shape a grouped board asks for. Enough to draw a card and no more — the
+#: question is whether it can be picked up, not what it says.
+_A_CARD = {"ref": 1, "kind": "task", "title": "Cache the roster", "status": "open",
+           "status_category": "todo", "status_is_default": True}
+
+
+def test_a_tag_and_an_assignee_are_links_that_narrow_the_view (tmp_path: pathlib.Path) -> None:
+	"""`#1020`, Simon: *"these probably should be links, and view should support filtering."*
+
+	**The design question this item was filed to settle is closed by shipped code rather than by
+	a decision here.** It asked whether a chip should reach a narrowing or a search; `#1319`
+	answered it by shipping — `GET /v1/tasks` filters on `tag` (with `eq` and `in`) and on
+	`assignee`, read out of the endpoint's own refusal. `#649` then decides the *form* with
+	nothing left to judge: the path says which rows there are and the query says how they are
+	shown, and neither a tag nor a person is a place. So both are query parameters on the
+	workspace the item lives in.
+
+	**This exists because a missing import passed the suite.** `marks` called `withShowing`
+	without importing it, and every test here stayed green — nothing rendered a *tagged* row
+	with navigation on, so the call was never reached. A chip that is a control on no surface
+	any test drives is `#251`'s inert control wearing an anchor.
+
+	**`linkable` is asserted in both directions**, because a page with no links is also what a
+	surface that cannot navigate produces, and that is the correct answer there rather than a
+	fault (`#251`).
+	"""
+
+	item = {
+		"ref": 7, "kind": "task", "title": "Cache the roster", "workspace": "projects",
+		"tags": ["ops"], "assignee": "si", "status": "open", "status_is_default": True,
+	}
+
+	drawn = _addressing(tmp_path, [("marks", {
+		"item": item, "ordering": None, "place": {}, "linkable": True,
+	})])[0]
+
+	quiet = _addressing(tmp_path, [("marks", {
+		"item": item, "ordering": None, "place": {}, "linkable": False,
+	})])[0]
+
+	addressed = {mark["text"]: mark.get("href") for mark in drawn}
+
+	assert addressed.get("#ops") == "/projects?tag=ops", (
+		f"a tag chip should narrow the workspace it lives in: {addressed}"
+	)
+
+	assert addressed.get("@si") == "/projects?assignee=si", (
+		f"an assignee chip should narrow to that person's work — and carry the account rather "
+		f"than what `named` shows a reader: {addressed}"
+	)
+
+	assert all(mark.get("href") is None for mark in quiet), (
+		f"a surface that cannot navigate was handed an anchor whose only outcome is a page "
+		f"that has not moved: {quiet}"
+	)
+
+
+def test_a_page_narrowed_by_a_tag_says_so_and_offers_the_way_back (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1020`'s third part, and the one that makes the other two safe to ship.
+
+	A chip that narrows a page and says nothing about it is worse than no chip: the reader lands
+	on a shorter list with no explanation and no way out but the browser's own back button.
+	`Narrowed` has said this for a project since `#959`; a tag and a person are narrowings by the
+	same definition and said nothing.
+
+	**And *Prioritise* is asserted absent, because relaxing one rule broke another.**
+	`Narrowed` opened with `if (!project) return null`, which was also what guaranteed the
+	argument to `onPrioritise` further down. Letting a tag bring a reader into the component
+	left that button drawn on a page with no project, where pressing it would have called
+	`onPrioritise(null)` — a control whose subject does not exist. A rule can be doing a second
+	job, and the second one is never the one written down.
+	"""
+
+	row = {"ref": 1, "kind": "task", "title": "Cache the roster", "tags": ["ops"],
+	       "status": "open", "status_category": "todo", "status_is_default": True}
+	answers = {"tasks": {"items": [row], "page": {
+		"has_more": False, "next_cursor": None, "total": 1}}}
+
+	tagged = _driven(tmp_path, pathname="/projects", search="?tag=ops", answers=answers)
+	plain = _driven(tmp_path, pathname="/projects", answers=answers)
+
+	assert "Showing anything tagged #ops." in tagged["said"], (
+		f"a reader narrowed by a tag was not told what narrowed the page: {tagged['said']!r}"
+	)
+
+	assert "Show everything" in tagged["said"], (
+		f"a narrowing with no way back is a page a reader can only leave backwards: "
+		f"{tagged['said']!r}"
+	)
+
+	assert "Prioritise" not in tagged["said"], (
+		f"a page with no project offered to prioritise one: {tagged['said']!r}"
+	)
+
+	assert "Showing anything tagged" not in plain["said"], (
+		f"a page nothing narrowed claimed a narrowing: {plain['said']!r}"
+	)
+
+	assert any("tag=ops" not in address for address in tagged["links"]), (
+		"every way out of the page carried the narrowing that made it"
+	)
+
+
+def test_a_board_offers_the_drag_only_to_a_reader_who_could_finish_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1781`. The one control on the page that is not a button, and the one M-25 missed.
+
+	`App` handed the board `onDrag` and `onMove` unconditionally while gating every neighbour on
+	the same call — `onComplete`, `onAdd`, `onPrioritise` — so a `viewer`, or anybody holding a
+	credential narrowed to reads, was shown cards that lift and columns that accept them, and
+	the drop answered 403. The write is real and not a special one: `moved` calls the same
+	`statusRequest` PATCH the Complete button makes, deliberately one path since `#758`.
+
+	**Why the M-25 sweep missed it**: that pass went through the visible controls, and a drag
+	has no button to leave undrawn. The affordance is `draggable` on a card and `preventDefault`
+	on a column, so a reviewer reading for controls saw nothing to gate.
+
+	**The first version of this test passed against the defect and is worth recording.** It
+	rendered `Board` twice through `_markup`, once with the handlers and once without, and
+	asserted `draggable` appeared only in the first. That is a true statement about `Board` and
+	says nothing about this bug: it supplies `onDrag=null` itself, which is the exact decision
+	`App` was failing to make. Removing the gate left it green. **A harness that supplies the
+	input its subject is meant to obtain cannot fail.**
+
+	**So it drives the mounted app instead**, and asks the one question `said` cannot answer.
+	`lifting` walks the same tree `text` and `addresses` walk and reads a property off it —
+	rather than `querySelector`, which `dom.js` is forbidden from implementing on the grounds
+	that finding nodes by selector is a browser's job and not a mount's.
+
+	**Both readers, because the empty case is not the interesting one.** A board with nothing
+	draggable is also what a failed read produces, so the writer is asserted first.
+	"""
+
+	page = {"has_more": False, "next_cursor": None, "total": 1}
+	answers = {"tasks": {
+		"groups": [{"key": "todo", "items": [_A_CARD], "page": page}],
+		"items": [_A_CARD], "page": page,
+	}}
+
+	writing = _driven(tmp_path, pathname="/projects", search="?view=board", answers=answers)
+	reading = _driven(
+		tmp_path, pathname="/projects", search="?view=board", answers=answers, permissions=(),
+	)
+
+	assert writing["lifting"] == 1, (
+		f"a reader who may write was offered no drag at all, so the other half of this checks "
+		f"nothing: {writing['said']!r}"
+	)
+
+	assert reading["lifting"] == 0, (
+		f"a card lifts for a reader whose drop would be refused — `allowedIn`'s own rule is "
+		f"that a control which refuses when pressed is worse than one that is not there: "
+		f"{reading['said']!r}"
 	)
 
 

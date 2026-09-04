@@ -9,7 +9,7 @@
 
 import * as phosphor from "./phosphor.js";
 import { html } from "./html.js";
-import { encodedPath, projectLabel } from "./address.js";
+import { encodedPath, projectLabel, withShowing } from "./address.js";
 import { day, deferred, holding, named, orderingValue, overdue } from "./dates.js";
 import { repeats } from "./requests.js";
 
@@ -480,14 +480,35 @@ export function marks (
 		Measured before deciding whether to cap them: four is the most any item here carries,
 		so there is no overflow to design.
 	*/
+	/*
+		**Narrowing to one of them is a query on the place, not a path** — `#1020`, and `#649`
+		decides it with nothing left to judge: the path says which rows there are and the query
+		says how they are shown, and neither a tag nor a person is a *place*. So both of these
+		reach the workspace they live in, carrying the narrowing, where the project chip above
+		reaches a path.
+
+		**`withShowing` rather than a string**, because it is the one place that knows how a
+		selection is written and emits it in `SELECTABLE` order — two writers of that string
+		would be `#651`'s four all over again, and the second one always drops something.
+
+		**A link only where somebody is listening**, exactly as the project chip has it: a
+		surface that cannot navigate renders the word and no anchor (`#251`).
+	*/
+	const narrowing = (selection) => (linkable && home
+		? withShowing(`/${encodeURIComponent(home)}`, { selection })
+		: null);
+
 	for (const tag of item.tags || []) {
-		address.push({ text: `#${tag}`, family: "address" });
+		address.push({ text: `#${tag}`, family: "address", href: narrowing({ tag }) });
 	}
 
 	if (item.assignee && !hideAssignee) {
 		address.push({
 			text: named(item.assignee, item.assignee_is_agent, item.assignee_answers_to),
 			family: "address",
+			/* **The account, not what the reader sees** — `named` puts *(agent)* and who
+			   answers for it into the text, and none of that is what the endpoint takes. */
+			href: narrowing({ assignee: item.assignee }),
 			/* **The glyph reinforces the word and never replaces it** — `#102` as the
 			   stylesheet states it: *nothing may be said in colour alone, and nothing may be
 			   said in a shape alone either*. `named` above has already put *(agent)* in the

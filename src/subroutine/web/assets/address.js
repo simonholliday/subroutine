@@ -237,6 +237,24 @@ export const SELECTABLE = {
 		its selection, exactly as it already carries `include_completed`.
 	*/
 	group_by: ["status_category"],
+	/*
+		**A tag and a person, free text like `q` and for the same reason** — `#1020`. Neither
+		can be enumerated: a tag is whatever somebody typed and an account name is whatever the
+		instance has, so `null` says *any value* and `permits` refuses only the empty one.
+
+		**Both clear `#738`'s bound, which this file states twice above**: a selection parameter
+		may only be one the caller could have sent anyway, and may never widen what a credential
+		can see. `GET /v1/tasks` has filtered on `tag` since `#1319` and on `assignee` since M1 —
+		read out of the endpoint's own refusal rather than assumed — and both are extra
+		predicates on a query `domain/scoping` has already narrowed, so admitting them here
+		admits nothing a reader could not already read.
+
+		**Query rather than path** (`#649`), and that is the whole of the design question this
+		item was filed to settle: the path says which rows there are and the query says how they
+		are shown, and neither a tag nor a person is a *place*.
+	*/
+	tag: null,
+	assignee: null,
 };
 
 /*
@@ -285,6 +303,14 @@ export const ANSWERED_BY = {
 	   `cannot` because a *value* of it has no honest document half, the axis itself is answered
 	   by each collection in its own terms. */
 	group_by: { task: "sent", document: "sent" },
+	/* **A document carries tags and can be narrowed by one**, so this is `sent` on both sides
+	   and a tagged page keeps its document half. */
+	tag: { task: "sent", document: "sent" },
+	/* **A document has no assignee at all** — the column does not exist on it, and
+	   `GET /v1/documents` refuses the parameter. So `cannot`, which `collectionsFor` already
+	   reads: a page narrowed to a person is tasks only, and it is that way because the rows do
+	   not exist rather than because somebody chose to hide them. */
+	assignee: { task: "sent", document: "cannot" },
 };
 
 export function answers (kind, name) {
@@ -509,6 +535,28 @@ export function withShowing (path, showing) {
 			.map((name) => `${name}=${encodeURIComponent(selection[name])}`));
 
 	return parts.length === 0 ? path : `${path}?${parts.join("&")}`;
+}
+
+/*
+	**What a narrowing is, as opposed to an arrangement** — `#1020`. `Narrowed` says these out
+	loud and *Show everything* is what drops them, so both need the same list and neither should
+	carry its own copy.
+
+	`project` is not here because it is on the *path* (`#649`) — widening drops it by addressing
+	the workspace instead, which is what `listingAddress` already does. `q` is not here either:
+	the search box shows the term and clears it, so it has a way back of its own and a second
+	one would be two controls for one state.
+*/
+export const NARROWINGS = ["tag", "assignee"];
+
+export function widened (showing) {
+	/* The same showing with every narrowing dropped — what *Show everything* goes to. */
+
+	const selection = { ...((showing && showing.selection) || {}) };
+
+	for (const name of NARROWINGS) delete selection[name];
+
+	return { ...showing, selection };
 }
 
 export function reloads (before, after) {
