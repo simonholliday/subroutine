@@ -57,6 +57,15 @@ the other.
 statuses, comment, link items together, and search. If you also want a terminal or an agent,
 every section below still applies and you want a token as well as a link.
 
+**Unless your account is a *viewer*, in which case you read and nothing else.** The page is
+drawn from what you are allowed to do, so the controls for writing are **absent** rather than
+present and refused — no capture box, no *Complete*, no *Edit*, no comment box. If that is not
+what you expected, it is a role and not a fault: ask whoever set you up.
+
+**A read-only account is also how a wall display or a kiosk is done**, which is worth knowing if
+you are the one being asked to set a screen up rather than the one using it. That is in
+[hosting.md](hosting.md#a-screen-that-only-reads), because it is the instance owner's end.
+
 ### On a phone or tablet
 
 **The same address installs as an app.** You get an icon on the home screen, a window of its

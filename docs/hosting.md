@@ -942,6 +942,45 @@ On a single-person instance, adding the second account would leave the CLI unabl
 to-do list to show. It does not: `user create` pins `local_user` to the account that was already
 there and says so. Setting somebody up should not take something away from you.
 
+### A screen that only reads
+
+**A wall display, a kiosk, a dashboard in a corridor — that is an account with the `viewer`
+role**, and it needs nothing built:
+
+```console
+# … subroutine user create standup --role viewer --workspace acme --browser
+```
+
+**The browser genuinely hides the controls rather than refusing them.** What a reader may do is
+resolved per workspace — the role narrowed by whatever the credential allows — and the page is
+drawn from that answer, so the capture box, *Complete*, *Edit*, the status and assignee
+controls, the comment box and the link controls are **absent**. A control that appears and then
+says no is worse than one that is not there, and this is the same mechanism that decides it for
+everybody else.
+
+**Read-only does not mean inert.** Controls that change how the page is *read* stay — revealing
+the rest of a truncated list, for one — because that is a fact about the reader rather than
+about the item. A viewer looking at five of twenty-six links with no way to see the rest would
+be a different complaint with the same shape.
+
+**And a screen nobody touches stays signed in.** The session's fortnight measures neglect rather
+than age: every use puts it back, so a display polling all day never lapses, while the same
+device left in a drawer stops working two weeks later.
+
+**Two things to know before you set one up**, because neither is obvious and both are the cost
+of doing it this way:
+
+- **Getting it signed in is a person's job, at the machine.** A sign-in link works once and
+  lasts half an hour, so the first sign-in — and any after a lapse — means somebody standing at
+  the screen with a fresh link. There is no long-lived read-only credential a browser can hold;
+  a token is for a terminal and will not sign a browser in.
+- **It is an account, so it is a row in `user list`.** On an instance where accounts are people
+  that is a small lie, and the remedy is only to name it as what it is — `standup`, `foyer`,
+  `wallboard` — so nobody later wonders who that is.
+
+**Give it its own account rather than sharing somebody's.** It is revocable on its own, it says
+who did what if the screen is ever used to write, and turning it off does not lock a person out.
+
 ## Giving an agent a token
 
 **One command does all of it**, and it is the one to reach for:

@@ -21,6 +21,19 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A wall display or kiosk is a documented thing you can set up.**
+
+  It always worked and nothing said so. An account with the `viewer` role gets a browser that
+  genuinely *hides* the writing controls rather than refusing them when pressed — no capture
+  box, no *Complete*, no *Edit*, no comment box — while controls that change how the page is
+  read stay, because those are about the reader rather than the item. A screen that is polled
+  all day never lapses, since the session's fortnight measures neglect and not age.
+
+  `docs/hosting.md` now has *A screen that only reads*, with the two costs stated: getting it
+  signed in is a person's job at the machine, and it is an account, so it is a row in
+  `user list`. `docs/connecting.md` says what a viewer sees, so somebody handed a read-only
+  link knows it is a role rather than a fault.
+
 - **The browser can show one person's work.**
 
   `GET /v1/tasks` has taken `?assignee=` since the first release and the terminal has had
