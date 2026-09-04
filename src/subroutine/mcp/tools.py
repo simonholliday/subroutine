@@ -560,6 +560,26 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		"section is worth reading before re-raising something it already cleared.",
 	]
 
+	drafted, more = _drafted(client, meta, workspace)
+
+	if drafted:
+		counted = (
+			"One more is still a draft and is not listed above."
+			if drafted == 1 and not more
+			else f"{'At least ' if more else ''}{drafted} more are still drafts and are not "
+			"listed above."
+		)
+
+		lines += [
+			"",
+			f"**{counted}**",
+			"",
+			"A design whose questions are still open is correctly one and belongs there. A design",
+			"whose questions were answered and whose status was never moved is not, and is",
+			"indistinguishable from it here. `subroutine_list` with a `type` shows every one,",
+			"whatever its status.",
+		]
+
 	return "\n".join(lines)
 
 
@@ -654,6 +674,49 @@ def _on_one_line (title: str) -> str:
 	"""
 
 	return " ".join(title.split())
+
+
+def _drafted (
+	client: subroutine.clients.base.Client,
+	meta: subroutine.views.Meta,
+	workspace: str | None,
+) -> tuple[int, bool]:
+	"""Return how many governing documents are drafts here, and whether that count is a floor.
+
+	**What this exists to prevent is somebody acting without a document that is finished**
+	(`#1852`). A design whose questions are still open is correctly a draft and correctly absent
+	from the index above; a design whose questions were *answered* — in a revision, or by
+	somebody replying — and whose status was never moved is indistinguishable from it, and stays
+	invisible to the one channel that claims to say what binds you. Measured on this project's
+	own instance: `#851` governs how work is ordered, had all six of its questions answered on
+	2026-08-13, and reached neither of the two sessions that reordered the agenda three weeks
+	later.
+
+	**Nothing here decides which of the two a draft is**, deliberately. That is a judgement about
+	prose, it is wrong often enough to matter, and a resource that guessed would either promote
+	research nobody agreed or go on hiding a settled design with more confidence than before. A
+	number and a way to look is the whole of what can be said honestly.
+
+	**One request covering every governing type, rather than one each.** ``type`` takes a single
+	value, so the types are filtered here instead; four more round trips to carry a number that
+	prompts a look rather than an action is the wrong trade on a page read once a session.
+
+	The count is a **floor** when the page fills. Drafts of every type share it, so the governing
+	ones are a subset of what came back and there may be more behind it — which is why the caller
+	says *at least* rather than reporting a number it cannot stand behind.
+	"""
+
+	listed = client.documents(
+		workspace=workspace,
+		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
+		limit=meta.limits.max_page_size,
+	)
+
+	governing = [
+		one for one in listed if one.type in subroutine.domain.documents.GOVERNS
+	]
+
+	return len(governing), listed.has_more
 
 
 def catalogue (

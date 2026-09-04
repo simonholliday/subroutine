@@ -58,6 +58,14 @@ TITLE_HINT = subroutine.domain.tasks.TITLE_HINT
 #: The status of a document that is in force — ``active``, by category (`#506`).
 CURRENT_CATEGORY = "current"
 
+#: The status of a document nobody has put in force yet — ``draft``, by category.
+#:
+#: **The complement of :data:`CURRENT_CATEGORY` for one question only**: which governing
+#: documents exist and do not bind. ``superseded`` and ``archived`` are deliberately not this —
+#: those were in force and were replaced, which is a finished lifecycle rather than an unfinished
+#: one, so surfacing them would ask a reader to act on something already settled.
+DRAFT_CATEGORY = "draft"
+
 #: The types that are true the moment they are written, and so start *active* rather than
 #: *draft* (`#506`, Simon 2026-08-05; widened to every seeded type by `#537`, Simon
 #: 2026-08-24).

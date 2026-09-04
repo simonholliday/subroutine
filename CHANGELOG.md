@@ -21,6 +21,22 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **What binds you says how many documents nearly do.**
+
+  `subroutine://conventions` lists what is in force here and said nothing about what is not, so
+  a design whose questions had been answered and whose status was never moved stayed invisible
+  to the one channel built to deliver it. It now closes with a count and a way to look:
+
+  > **20 more are still drafts and are not listed above.**
+  >
+  > A design whose questions are still open is correctly one and belongs there. A design whose
+  > questions were answered and whose status was never moved is not, and is indistinguishable
+  > from it here. `subroutine_list` with a `type` shows every one, whatever its status.
+
+  Deliberately a number rather than a judgement: which of the two a draft is depends on reading
+  its prose, and a resource that guessed would either promote research nobody agreed to or hide
+  a settled design with more confidence than before. Silent where there are none.
+
 - **A title longer than 200 characters is refused, with the remedy in the message.**
 
   It was 512, which is long enough to fill a whole card on a board and push everything else off

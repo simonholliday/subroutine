@@ -371,16 +371,37 @@ def test_a_status_somebody_asked_for_still_wins (session: sqlalchemy.orm.Session
 
 
 def _listing (
-	count: int, *, has_more: bool = False, first: int = 1
+	count: int, *, has_more: bool = False, first: int = 1, kind: str = "decision"
 ) -> subroutine.clients.base.Listing[typing.Any]:
-	"""Return one page of documents, saying whether the instance held more."""
+	"""Return one page of documents, saying whether the instance held more.
+
+	``kind`` is read by the drafts pass alone, which counts only the governing types — so a page
+	standing in for the *drafts* request has to carry a real one or it counts as nothing. It
+	defaults to a governing type rather than to a mock attribute so that a listing written for
+	one of the in-force requests, where the type is never read, cannot silently become a page
+	the drafts pass declines to count.
+	"""
 
 	return subroutine.clients.base.Listing(
 		[
-			unittest.mock.MagicMock(ref=ref, title=f"Decision {ref}")
+			unittest.mock.MagicMock(ref=ref, title=f"Decision {ref}", type=kind)
 			for ref in range(first, first + count)
 		],
 		has_more=has_more,
+	)
+
+
+def _drafts_request (workspace: str | None = None) -> unittest.mock._Call:
+	"""Return the one request the conventions index makes about drafts.
+
+	Written once because six tests pin the exact set of requests this resource issues, and a
+	shape restated six times is this codebase's signature defect at the scale of a test file.
+	"""
+
+	return unittest.mock.call(
+		workspace=workspace,
+		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
+		limit=200,
 	)
 
 
@@ -412,19 +433,23 @@ def test_the_conventions_resource_lists_what_is_in_force_and_nothing_else () -> 
 			]
 		),
 		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
 	text = answer["result"]["contents"][0]["text"]
 
 	assert client.documents.call_args_list == [
-		unittest.mock.call(
-			workspace=None,
-			type=kind.key,
-			status_category=subroutine.domain.documents.CURRENT_CATEGORY,
-			limit=200,
-		)
-		for kind in subroutine.domain.documents.GOVERNING
+		*[
+			unittest.mock.call(
+				workspace=None,
+				type=kind.key,
+				status_category=subroutine.domain.documents.CURRENT_CATEGORY,
+				limit=200,
+			)
+			for kind in subroutine.domain.documents.GOVERNING
+		],
+		_drafts_request(),
 	]
 
 	assert "#47" in text and "No work without an item first" in text
@@ -469,6 +494,7 @@ def test_a_planted_title_cannot_open_a_heading_in_the_conventions () -> None:
 			]
 		),
 		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
@@ -660,6 +686,7 @@ def test_a_type_the_instance_had_more_of_says_it_could_not_show_everything () ->
 	client.documents.side_effect = [
 		_listing(200, has_more=True),
 		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
@@ -680,6 +707,7 @@ def test_a_type_the_instance_showed_whole_claims_nothing_about_more () -> None:
 	client.documents.side_effect = [
 		_listing(1),
 		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
@@ -700,6 +728,7 @@ def test_a_page_that_is_exactly_full_and_complete_claims_nothing (
 	client.documents.side_effect = [
 		_listing(200, has_more=False),
 		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
@@ -733,13 +762,19 @@ def test_a_second_in_force_status_costs_no_second_request (
 
 	client = _client()
 	client.documents.side_effect = [
-		_listing(100, first=1 + 100 * index)
-		for index, _kind in enumerate(subroutine.domain.documents.GOVERNING)
+		*[
+			_listing(100, first=1 + 100 * index)
+			for index, _kind in enumerate(subroutine.domain.documents.GOVERNING)
+		],
+		_listing(0),
 	]
 
 	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
 
-	assert client.documents.call_count == len(subroutine.domain.documents.GOVERNING), (
+	# **One per governing type, plus the single drafts pass** — which is counted here rather
+	# than excused, because the property this guards is *one request per type* and a second
+	# whole-index request is exactly the shape that would break it.
+	assert client.documents.call_count == len(subroutine.domain.documents.GOVERNING) + 1, (
 		"the index asked more than once per governing type, so it is merging pages again and "
 		"whatever it says about being cut is an inference rather than the instance's answer"
 	)
@@ -747,3 +782,136 @@ def test_a_second_in_force_status_costs_no_second_request (
 	assert "a full page" not in answer["result"]["contents"][0]["text"], (
 		"short pages were added up and reported as one truncated page"
 	)
+
+
+def _in_force_then_drafts (
+	drafts: subroutine.clients.base.Listing[typing.Any],
+) -> list[subroutine.clients.base.Listing[typing.Any]]:
+	"""Return an answer for every request the conventions index makes, ending in ``drafts``.
+
+	One document is in force so the index takes its populated path, which is the only one that
+	counts drafts — the empty path has its own two sentences and its own guards above.
+	"""
+
+	return [
+		_listing(1),
+		*[_listing(0) for _ in subroutine.domain.documents.GOVERNING[1:]],
+		drafts,
+	]
+
+
+def test_a_governing_document_left_as_a_draft_is_counted_where_somebody_would_act_without_it () -> (
+	None
+):
+	"""`#1852`. The index says what binds you, and said nothing about what nearly does.
+
+	**Measured on this project's own instance: 22 governing documents sat at ``draft``** and the
+	resource that claims to say what binds an agent mentioned none of them. Most were correctly
+	drafts — research filed as ``design`` because its conclusions are one person short, which is
+	this project's own type rule. The ones that were not are the reason this exists: `#851`
+	governs how work is ordered, had all six of its questions answered on 2026-08-13, and was
+	still a draft three weeks later when two sessions reordered the agenda without it.
+
+	**The number is the whole of the mechanism, and deliberately so.** Nothing here judges which
+	kind of draft one is: that is a judgement about prose, and a resource that guessed would
+	either promote research nobody agreed or hide a settled design with more confidence than
+	before.
+	"""
+
+	client = _client()
+	client.documents.side_effect = _in_force_then_drafts(_listing(3, kind="design"))
+
+	answer = _ask(_server(client), "resources/read", uri="subroutine://conventions")
+	text = answer["result"]["contents"][0]["text"]
+
+	assert "3 more are still drafts" in text, text
+
+	# **A count with no way to look is a fact the reader cannot act on**, which is the failure
+	# `#1851`'s title names — found *before* somebody acts without it, not merely counted.
+	assert "subroutine_list" in text
+	assert "whatever its status" in text
+
+
+def test_one_draft_is_described_in_the_singular () -> None:
+	"""A count of one that reads ``1 more are`` is the tell that nobody drove it.
+
+	Cheap, and it is the half of a plural that never gets exercised: the fixture that is easiest
+	to write has several.
+	"""
+
+	client = _client()
+	client.documents.side_effect = _in_force_then_drafts(_listing(1, kind="spec"))
+
+	text = _ask(_server(client), "resources/read", uri="subroutine://conventions")["result"][
+		"contents"
+	][0]["text"]
+
+	assert "One more is still a draft and is not listed above." in text, text
+
+
+def test_a_draft_that_would_bind_nobody_is_not_counted_among_them () -> None:
+	"""Only the governing types are counted, because only they would have bound the reader.
+
+	A ``note`` or a ``finding`` at draft is not a document somebody is about to act without —
+	those describe rather than bind, and the index says so in the sentence above this one. So
+	the count reads :data:`~subroutine.domain.documents.GOVERNS` rather than *every draft*, and
+	this is the difference: on the instance that prompted `#1852` there were 32 drafts and 22 of
+	them governed anything.
+
+	**Falsified against dropping the filter**, which reports every draft in the workspace and
+	sends a reader looking for rules among somebody's meeting notes.
+	"""
+
+	client = _client()
+	client.documents.side_effect = _in_force_then_drafts(_listing(4, kind="note"))
+
+	text = _ask(_server(client), "resources/read", uri="subroutine://conventions")["result"][
+		"contents"
+	][0]["text"]
+
+	assert "drafts" not in text.split("in force.")[-1], (
+		"a draft of a type that binds nobody was counted as one somebody might act without"
+	)
+
+
+def test_a_full_page_of_drafts_says_at_least_rather_than_a_number_it_cannot_stand_behind () -> (
+	None
+):
+	"""The count is a floor when the page fills, and the sentence has to say so.
+
+	The drafts request covers every governing type at once, so a full page is a page of drafts
+	of *any* type and the governing ones are a subset of it. Reporting that subset as a total
+	would be a number the resource cannot stand behind — `#1075`'s lesson one request along,
+	where a count inferred from a full page was wrong in both directions.
+	"""
+
+	client = _client()
+	client.documents.side_effect = _in_force_then_drafts(
+		_listing(200, kind="design", has_more=True)
+	)
+
+	text = _ask(_server(client), "resources/read", uri="subroutine://conventions")["result"][
+		"contents"
+	][0]["text"]
+
+	assert "At least 200 more are still drafts" in text, text
+
+
+def test_a_workspace_with_nothing_drafted_says_nothing_about_drafts () -> None:
+	"""Silence when there are none, rather than a line saying zero.
+
+	Same rule the per-type sections follow: a workspace that has never left a design unfinished
+	does not need telling so on every read. `#1617` is the neighbouring argument — a
+	permanently-true sentence on a page read once a session is noise, and the reason that one
+	was kept is that it answered the question its command was run to ask.
+	"""
+
+	client = _client()
+	client.documents.side_effect = _in_force_then_drafts(_listing(0))
+
+	text = _ask(_server(client), "resources/read", uri="subroutine://conventions")["result"][
+		"contents"
+	][0]["text"]
+
+	assert "drafts" not in text.split("in force.")[-1], text
+	assert "still a draft" not in text, text
