@@ -1660,15 +1660,29 @@ answers, and when a backup was last taken.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine doctor
-  program  0.2.1, at /opt/subroutine/bin/subroutine
-  config   /var/lib/subroutine/config
-  data     /var/lib/subroutine/data
-  state    /var/lib/subroutine/state
-  local    0.2.1, schema ce11c7d2df2f, as si (person)
-  backups  19 in /srv/backups/subroutine, newest subroutine-default-20260803T053711Z-d5d0458f5ad5.dump (4,046,848 bytes, today)
+  program       0.8.8.dev74+gec0b98131, at /opt/subroutine/bin/subroutine
+  config        /var/lib/subroutine/config/subroutine
+  data          /var/lib/subroutine/data/subroutine
+  state         /var/lib/subroutine/state/subroutine
+  signing key   set
+  cors_origins  empty, so only this instance's own pages may call it
+  rate_limit    on, because this instance is published
+  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as si (person)
+  backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.
 ```
+
+That is a real run on a published instance, pasted whole. **One token in it is not what the
+command printed**: the backup directory, which on the machine this came from names a host, and
+a public page may not carry somebody's machine name. Everything else — the versions, the schema
+revision, the counts, the alignment — is as it came out.
+
+**A published instance prints these nine lines. An unpublished one prints eight**, and the
+difference is not the one you would guess: it shows a single `exposure` line saying nothing is
+reachable from outside, *instead of* `cors_origins` and `rate_limit`, because neither setting is
+in force when nothing can reach it. So if you are comparing this against a machine you have not
+published yet, expect that substitution rather than a missing line.
 
 Run it **as the service account, with the same three variables** as everything else in this
 section — that is the whole point of the `config`, `data` and `state` lines. If they are not

@@ -36,6 +36,10 @@ import subroutine.domain.sessions
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
+
+#: The module whose findings the hosting page quotes, read as text so the areas it can report
+#: are recoverable without importing a diagnosis that would go looking at this machine.
+DIAGNOSIS = ROOT / "src" / "subroutine" / "diagnosis.py"
 CONNECTING = ROOT / "docs" / "connecting.md"
 README = ROOT / "README.md"
 CHANGELOG = ROOT / "CHANGELOG.md"
@@ -2677,4 +2681,116 @@ def test_no_search_hint_names_the_places_a_search_looks () -> None:
 		"a search hint lists where a search looks, which is a claim that goes stale the next "
 		f"time it reads somewhere else: {'; '.join(naming)}. Say what the reader gets instead "
 		"— 'Search anything' is the browser's, and Simon's, answer."
+	)
+
+
+#: Why an area ``diagnosis`` can report is absent from the ``doctor`` transcript in
+#: ``docs/hosting.md``.
+#:
+#: **The transcript is the page's before-and-after instrument** (`SR#1581`): an operator runs
+#: `doctor` before an upgrade and after it, and compares. So a line the program prints and the
+#: page does not reads as damage on a healthy machine — which is exactly what happened when
+#: `#1263` added `signing key` and `#1558` added the exposure pair, and neither was carried into
+#: the quotation. It went three lines and two features behind, and nothing noticed for a week.
+#:
+#: An entry here has to say why the *published server* this page describes does not print it —
+#: never merely that the transcript is missing it.
+NOT_IN_THE_DOCTOR_TRANSCRIPT = {
+	"exposure": (
+		"the unpublished half of the same check. `_the_settings` returns this *instead of* "
+		"`cors_origins` and `rate_limit` when `public_url` is unset, so a machine cannot print "
+		"both sets, and this page describes a published one"
+	),
+	"plugin": (
+		"reported only when a plugin started the process, which a command line never is — see "
+		"`_the_program`, which declines to say 'no plugin' on the one command somebody runs "
+		"when something is already wrong"
+	),
+	"connections": (
+		"the failure and empty cases. A roster that loads and holds connections reports one "
+		"line per connection under its own name, which is the `local` line in the transcript"
+	),
+}
+
+
+def _doctor_transcript () -> list[str]:
+	"""Return the areas the quoted ``doctor`` run reports, in the order it prints them."""
+
+	page = HOSTING.read_text(encoding="utf-8")
+	start = page.index("/opt/subroutine/bin/subroutine doctor\n")
+	block = page[start:page.index("Nothing here needs attention.", start)]
+
+	found = []
+
+	for line in block.split("\n"):
+		if not line.startswith("  ") or not line.strip():
+			continue
+
+		# Two spaces, the area, then two or more before the detail — which is what makes the
+		# area recoverable at all, and why a one-word detail cannot be mistaken for one.
+		area = re.split(r"\s{2,}", line.strip(), maxsplit=1)[0]
+
+		if area:
+			found.append(area)
+
+	return found
+
+
+def test_the_doctor_transcript_shows_every_line_a_published_instance_prints () -> None:
+	"""`SR#1581`. The page's own before-and-after instrument, held to what the program emits.
+
+	**A quoted output promises the command above it produced it** (`#189`), and this one is
+	compared line by line by somebody mid-upgrade. It showed six lines while a published
+	instance printed nine — missing `signing key`, which the *same page* argues for four hundred
+	lines earlier, and which says `needs attention` when it is absent. Two lines an operator was
+	not told about, one of them a warning, read as damage on a healthy machine.
+
+	**Areas, not values.** What the machine prints — versions, paths, counts — is the machine's
+	and cannot be asserted from here. What it *can* print is the program's, and that is what
+	goes stale silently when somebody adds a check.
+
+	Falsify by deleting the `signing key` line from the transcript, which is the exact omission
+	this was written for.
+	"""
+
+	shown = _doctor_transcript()
+
+	assert len(shown) >= 8, (
+		f"only {len(shown)} lines were recovered from the transcript, so this is reading "
+		f"something other than a doctor run: {shown!r}"
+	)
+
+	emitted = set(re.findall(r'area="([^"]+)"', DIAGNOSIS.read_text(encoding="utf-8")))
+	missing = sorted(emitted - set(shown) - set(NOT_IN_THE_DOCTOR_TRANSCRIPT))
+
+	assert not missing, (
+		f"doctor reports {missing} and docs/hosting.md's transcript does not. An operator "
+		f"comparing their screen against that block sees a line they were not told about, and "
+		f"reads it as damage. Re-run doctor on a published instance and paste it whole, or "
+		f"record here why that machine cannot print it"
+	)
+
+
+def test_nothing_is_excused_from_the_doctor_transcript_that_it_actually_shows () -> None:
+	"""`#405`. An excuse that has stopped being true is worse than none.
+
+	Each entry claims the published server this page describes cannot print that area. The day
+	one of them appears in the transcript, the reason beside it is false and is sitting there
+	looking considered.
+	"""
+
+	shown = set(_doctor_transcript())
+	contradicted = sorted(shown & set(NOT_IN_THE_DOCTOR_TRANSCRIPT))
+
+	assert not contradicted, (
+		f"{contradicted} are excused from the transcript and are in it. Either the machine it "
+		f"was taken on is not the one the excuse describes, or the excuse outlived its reason"
+	)
+
+	emitted = set(re.findall(r'area="([^"]+)"', DIAGNOSIS.read_text(encoding="utf-8")))
+	unknown = sorted(set(NOT_IN_THE_DOCTOR_TRANSCRIPT) - emitted)
+
+	assert not unknown, (
+		f"{unknown} are excused from the transcript and diagnosis.py no longer reports them at "
+		f"all, so the entries excuse nothing"
 	)

@@ -516,6 +516,18 @@ upgrade involves.
 
 ### Fixed
 
+- **The hosting guide's `doctor` transcript is what a published instance actually prints.**
+
+  It showed six lines; a published instance prints nine. The three it was missing include
+  `signing key`, which says *needs attention* when it is absent — so an operator comparing
+  their screen against the page mid-upgrade saw two lines they had not been told about, one of
+  them a warning, and read a healthy machine as damaged. That page's whole purpose there is
+  before-and-after comparison.
+
+  The block is now a real run, pasted whole, with the one redacted token declared beside it,
+  and the page says what an *unpublished* machine prints instead. A guard fails the build the
+  next time `doctor` grows a check the transcript does not carry.
+
 - **A board narrowed by a tag says so, and offers the way back.**
 
   Clicking a tag on a board narrowed it and then said nothing about it — and with no project
