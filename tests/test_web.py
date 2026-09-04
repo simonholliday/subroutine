@@ -13458,6 +13458,71 @@ _A_CARD = {"ref": 1, "kind": "task", "title": "Cache the roster", "status": "ope
            "status_category": "todo", "status_is_default": True}
 
 
+def test_a_board_says_how_it_is_ordered_and_lets_a_reader_change_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1783`. `#661`'s rule reaching the one arrangement it was never applied to.
+
+	**The argument that kept it out is half right, and the half that is wrong is load-bearing.**
+	`chips` says an order means nothing on a board, because a board groups rows into columns and
+	discards the sequence they arrived in — true of the sequence *within* a column, and false of
+	the page. The order decides which rows are fetched at all, and therefore what is in every
+	column. On a list a bad order costs you scrolling; on a board it costs you rows, silently,
+	which is the sibling item `#1782` measured: *In progress* read 1 against a true 3.
+
+	**And a remedy existed that nobody could reach.** `?order=-priority_score` has always been a
+	legal address and would fill the columns with the most important work; a reader typing it
+	got it, and no control produced it. That is `#651`'s rule — a filter with no control is a
+	feature nobody finds.
+
+	**The sentence is asserted on a ranked board, not just the control.** A board choosing that
+	order loses its document columns entirely, because `ORDERINGS["-priority_score"].both` is
+	false and `collectionsFor` drops the collection — a whole column gone rather than some rows
+	missing. Simon's call was to *say so* rather than refuse the order, and `Listing`'s sentence
+	already carried the words; sharing the component is what brings them here.
+
+	**The default is asserted unchanged**, which is `#646`'s objection and must not be
+	re-broken: `-priority_score` sorts in three bands with unranked last (§6.3a), so a
+	just-captured item would go to the bottom of its own page. This offers the choice; it does
+	not change what a reader gets without making one.
+	"""
+
+	row = {"ref": 1, "kind": "task", "title": "Cache the roster", "status": "open",
+	       "status_category": "todo", "status_is_default": True}
+	page = {"has_more": False, "next_cursor": None, "total": 1}
+	answers = {"tasks": {
+		"groups": [{"key": "todo", "items": [row], "page": page}],
+		"items": [row], "page": page,
+	}}
+
+	board = _driven(tmp_path, pathname="/projects", search="?view=board", answers=answers)
+	ranked = _driven(
+		tmp_path, pathname="/projects",
+		search="?view=board&order=-priority_score", answers=answers,
+	)
+
+	assert "Order" in board["said"], (
+		f"a board says nothing about the order that decided what is in its columns: "
+		f"{board['said']!r}"
+	)
+
+	assert "Newest first" in board["said"], (
+		f"the board offers an order and does not say which one it is on: {board['said']!r}"
+	)
+
+	assert "documents have no importance" in ranked["said"], (
+		f"a ranked board dropped its document columns and said nothing — which is this "
+		f"backlog's signature defect rather than a new one: {ranked['said']!r}"
+	)
+
+	asked = [call["path"] for call in board["asked"] if "/v1/tasks" in call["path"]]
+
+	assert asked and all("order=-priority_score" not in path for path in asked), (
+		f"offering the choice changed what a reader gets without making one — `#646` says the "
+		f"default stays newest-first: {asked}"
+	)
+
+
 def test_a_status_chip_says_the_workspaces_word_for_it (tmp_path: pathlib.Path) -> None:
 	"""`#1717`. The row said the key while the control beside it said the label.
 

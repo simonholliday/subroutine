@@ -2428,6 +2428,13 @@ export function App () {
 							onDrag=${mayWrite ? dragged : null}
 							onMove=${mayWrite ? moved : null}
 							over=${over} onOver=${mayWrite ? setOver : null}
+							${/* **The same three the list is handed** — `#1783`, and the same
+							     `finishedOnly` gate: the finished view fixes its own order
+							     (`#782`), so offering to change it there would be a control
+							     whose only outcome is leaving that view. */ null}
+							ordering=${orderedAs(showing.selection)}
+							order=${showing.selection.order || null}
+							onOrder=${finishedOnly ? null : chooseOrder}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
 							     touched. `Board` works the set out against the columns it has

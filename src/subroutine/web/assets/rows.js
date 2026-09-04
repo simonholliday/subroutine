@@ -11,7 +11,7 @@ import { render } from "preact";
 import { html } from "./html.js";
 import { addressOf } from "./address.js";
 import { FINISHED, completable, day, deferred, excluded, holding, named } from "./dates.js";
-import { Adding, Narrowed } from "./forms.js";
+import { Adding, Narrowed, Ordered } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
@@ -636,6 +636,10 @@ export function Board ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace,
 	/* Where to send a reader who clicks a project label — `#959`. */
 	onGo = null,
+	/* How the page is arranged, the value behind it and how to change it — `#1783`. Defaulted
+	   because the render harness builds this component directly, and a board with no ordering
+	   to describe is a real state rather than a missing argument. */
+	ordering = null, order = null, onOrder = null,
 	widenTo, selection, finishedTo, adding, onDrag = null, onMove = null,
 	over = null, onOver = null,
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
@@ -751,6 +755,16 @@ export function Board ({
 
 	return html`
 		<div class="listing board">
+			${/* **A board says how it is ordered, and lets a reader change it** — `#1783`.
+			     `#661`'s rule reaching the one arrangement it was never applied to, and the
+			     one where it matters most: a column shows what the page fetched, so an order
+			     nobody can see decides what is in every column and says nothing about it.
+
+			     `empty` is the whole page rather than a column: a board with nothing on it has
+			     no order to describe, and a board with one full column and three empty ones
+			     very much does. */ null}
+			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
+				busy=${busy} empty=${items.length === 0} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}

@@ -739,6 +739,52 @@ export function Narrowed ({
 	`;
 }
 
+/*
+	How a page is arranged, and the control that changes it — `#661`, and `#1783` is why it is
+	a component rather than markup inside `Listing`.
+
+	**A board wants exactly this and had none of it.** The argument that kept it out was that an
+	order means nothing on a board, because a board groups rows into columns and discards the
+	sequence they arrived in — true of the sequence *within* a column, and false of the page:
+	the order decides which rows are fetched at all, and therefore what is in every column. On a
+	200-item board it is doing more work than it does on a list, not less. A bad order costs a
+	list some scrolling; it costs a board rows, silently.
+
+	**Two copies of this markup was the alternative and is this codebase's signature defect** —
+	`#970` records what it cost the last time twenty lines were copied rather than lifted.
+*/
+export function Ordered ({ ordering, order, onOrder, busy = false, empty = false }) {
+	/*
+		**Not on an empty page**, where there is no order to describe and the sentence would be
+		a claim about nothing.
+	*/
+	if (!ordering || empty) return null;
+
+	return html`
+		<div class="ordered">
+			${onOrder
+				? html`
+					<label>
+						<span>Order</span>
+						<select value=${order || DEFAULT_ORDER} disabled=${busy}
+							onChange=${(event) => onOrder(event.currentTarget.value)}>
+							${offeredOrders().map(([key, one]) => html`
+								<option value=${key} selected=${key === (order || DEFAULT_ORDER)}
+									>${one.offer}</option>
+							`)}
+						</select>
+					</label>
+				`
+				: html`<span>${ordering.sentence}</span>`}
+			${/* **The sentence stays beside the control rather than being replaced by it.** A
+			     select says what you may choose; it does not say what the page is doing, and
+			     `#661` is about the second. It also carries the part a control cannot — that a
+			     ranked page holds no documents, which on a board is a whole column gone. */ null}
+			${onOrder && html`<span class="says">${ordering.sentence}</span>`}
+		</div>
+	`;
+}
+
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	/* Passed through to `Narrowed`, which is the one thing here that reads it — `#1020`. */
@@ -812,29 +858,8 @@ export function Listing ({
 				*before* reading the first one — and not on an empty page, where there is no
 				order to describe and the sentence would be a claim about nothing.
 			*/ null}
-			${ordering && items.length > 0 && html`
-				<div class="ordered">
-					${onOrder
-						? html`
-							<label>
-								<span>Order</span>
-								<select value=${order || DEFAULT_ORDER} disabled=${busy}
-									onChange=${(event) => onOrder(event.currentTarget.value)}>
-									${offeredOrders().map(([key, one]) => html`
-										<option value=${key} selected=${key === (order || DEFAULT_ORDER)}
-											>${one.offer}</option>
-									`)}
-								</select>
-							</label>
-						`
-						: html`<span>${ordering.sentence}</span>`}
-					${/* **The sentence stays beside the control rather than being replaced by it.**
-					     A select says what you may choose; it does not say what the page is
-					     doing, and `#661` is about the second. It also carries the part a
-					     control cannot — that a ranked page holds no documents. */ null}
-					${onOrder && html`<span class="says">${ordering.sentence}</span>`}
-				</div>
-			`}
+			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
+				busy=${busy} empty=${items.length === 0} />
 
 			${/*
 				**Said only where it changes the answer** (`#986`). A prioritised project raises work

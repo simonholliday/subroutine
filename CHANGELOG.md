@@ -21,6 +21,17 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+- **A board says how it is ordered, and lets you change it.**
+
+  The list has had an Order control and a sentence saying what it is showing since `0.8.0`; a
+  board had neither. It matters more there, not less: a board fetches one page and splits it
+  into columns, so the order decides what is *in* every column rather than only what comes
+  first. `?order=-priority_score` was already a legal address that nothing could produce.
+
+  The default is unchanged — newest first. Choosing *Most important first* says, beside the
+  control, that documents have no importance and so are not on the page; that has always been
+  true of a ranked list and on a board it is a whole column.
+
 - **A tag or a person on a row is a link, and clicking one narrows the list to it.**
 
   Tags have been shown on every row since they reached one, and there was no way to act on
