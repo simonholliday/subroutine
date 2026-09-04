@@ -246,14 +246,27 @@ CEILING_MS = 250.0
 #: What a composite view may cost outright, in milliseconds, on either backend.
 #:
 #: **The agenda is not one query and cannot be held to one query's number.** It issues
-#: seventeen statements against a one-statement baseline, which is exactly why `#1295` excused
+#: thirty-two statements against a one-statement baseline, which is exactly why `#1295` excused
 #: it from the *ratio* — *"the ratio measures the machine"* — and an absolute millisecond
 #: figure measures the machine harder still. What that item did not do was give it a ceiling of
 #: its own, so it kept the one written for a single page and quietly used up its margin.
 #:
-#: **Measured rather than chosen**: 78 ms here, 257 ms on a contended two-core CI runner. Five
-#: hundred is about 2x the worst reading we have and 6x the local one — tight enough that an
-#: order-of-magnitude regression fails, loose enough that a busy runner does not.
+#: **Measured rather than chosen, and re-measured by `SR#1764` — the margin is smaller than
+#: this comment claimed and the ceiling is unchanged.** It said *"78 ms here … about 2x the
+#: worst reading we have"*. That 78 ms was the agenda's **build alone**, because ``_agenda``
+#: stopped there; the whole page measures **104 ms on SQLite and 108 ms on PostgreSQL** on this
+#: workstation. A CI runner is about 3.3x slower, so the worst reading to expect is **~355 ms**
+#: and five hundred is **~1.4x** it, not 2x.
+#:
+#: **The agenda did not get slower — three tenths of it were never being measured**, so the
+#: real margin has always been this and the sentence above was the reason nobody knew. That is
+#: `#1724` recurring in the constant `#1724` created, caught this time before it fired rather
+#: than after.
+#:
+#: **Left at five hundred deliberately.** Raising a ceiling because we started measuring more
+#: of its subject is how a budget becomes theatre, and this project distrusts an excuse written
+#: on the day a number moves. If it does fire, the fix is `SR#2060` rather than a larger number:
+#: the three readiness scans are one statement's worth of work asked three times.
 #:
 #: **It is not the only guard on this view, which is what makes it affordable to be generous.**
 #: :data:`AGENDA_STATEMENTS` bounds the question count and is a fact about the code rather than
@@ -267,8 +280,9 @@ COMPOSITE_CEILING_MS = 500.0
 #: statement count that justifies it, which is what stops this becoming somewhere to park
 #: anything that went red.
 COMPOSITE: dict[str, str] = {
-	"agenda": "seventeen statements — eight buckets, six counts, the prioritised-project "
-	"lookup, the zone lookup and the blocker lookup. `#1295` and `AGENDA_STATEMENTS`.",
+	"agenda": "thirty-two statements — seventeen to build (eight buckets, six counts, the "
+	"prioritised-project lookup, the zone lookup and the blocker lookup) and fifteen to render "
+	"the page through one vocabulary. `#1295`, `SR#1764` and `AGENDA_STATEMENTS`.",
 	"marks": "a dozen statements — statuses, types, projects, parents and tags for the page, "
 	"then the three readiness scans (blocked, blocking, finished underneath). `SR#1800`.",
 }
@@ -806,16 +820,26 @@ def _searched_including_comments (
 
 
 def _agenda (context: Context) -> typing.Any:
-	"""Build the whole agenda, which is six queries and what ``subroutine agenda`` runs.
+	"""Build a whole agenda **and render it**, which is what ``subroutine agenda`` runs.
 
-	Five buckets and two counts, less one: ``upcoming`` and the two totals are three
-	statements against five bucket queries, and ``in_progress`` shares its base with the rest.
-	The number is here because it is the thing this file exists to notice moving — `#997`
-	added the second count, and a count per agenda is the cost that was weighed against
-	silently leaving dated work out of the view.
+	**It stopped at the build until `#1764`, and said it was the command.** Every real caller
+	then hands the result to :func:`subroutine.views.agenda`, which loads one
+	:class:`~subroutine.views.Vocabulary` across every bucket — and that is where a page's most
+	expensive questions are asked. Measured at the time: **17 statements built, 32 rendered**, so
+	fifteen of them were outside a ceiling whose own docstring named the command.
+
+	That is `#1724`'s finding one layer along, and the reason it is worth stating rather than
+	quietly fixing: **a guard naming a wider subject than it measures is what stops anybody
+	looking.** There the comment claimed 15x headroom against a real 20%; here the docstring
+	claimed to bound a command and bounded half of one.
+
+	The rows are still counted off the buckets afterwards, which works unchanged because
+	:data:`subroutine.views.AGENDA_BUCKETS` **is** ``domain.agenda.BUCKETS`` rather than a copy
+	of it (`#1244`) — so the floor that stops this passing by measuring an empty agenda survives
+	the change.
 	"""
 
-	return subroutine.domain.agenda.build(
+	built = subroutine.domain.agenda.build(
 		context.session,
 		principal=context.principal,
 		workspace_ids=[context.workspace_id],
@@ -823,6 +847,8 @@ def _agenda (context: Context) -> typing.Any:
 		timezone="UTC",
 		horizon_days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
 	)
+
+	return subroutine.views.agenda(context.session, built)
 
 
 def _measured (
@@ -961,26 +987,46 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 
 #: How many statements a whole agenda may issue, at any number of rows (`#1295`).
 #:
-#: **Seventeen measured**, at :data:`TASKS`, and the same on both backends: eight bucket
-#: queries — one is skipped when no look-ahead is asked for — and six counts, plus the
-#: prioritised-project lookup the ordering resolves once, the zone lookup `#1296` added and the
-#: blocker lookup `#1287` added. The allowance above that is deliberately small, because the
-#: thing this catches is not a statement or two: an N+1 here would be two thousand.
+#: **Thirty-two measured**, at :data:`TASKS`, and the same on both backends. Seventeen of them
+#: build it and fifteen render it:
 #:
-#: **It was fourteen until `#1296`, fifteen until `#1265` and sixteen until `#1287`**, and the
-#: number is restated each time rather than left, because a comment that says *measured* has to
-#: say what was measured. `#1296` added a lookup asking which zones the whole-day rows in scope
-#: were dated in, so each can be compared as a date rather than against somebody else's
-#: midnight. `#1265` added the sixth count: an agenda is one person's now, so the work it leaves
-#: out because it belongs to somebody else has to be counted on the scope *before* that rule,
-#: which is a question the agenda's own select can no longer be asked. `#1287` added one
-#: statement naming what is holding the *Waiting on somebody else* rows up — **and needed the
-#: fixture changed to be seen at all**, because that bucket was empty here and the lookup
-#: returns without asking anything when it is. See ``_fill``.
+#: - **build**: eight bucket queries — one is skipped when no look-ahead is asked for — and six
+#:   counts, plus the prioritised-project lookup the ordering resolves once, the zone lookup
+#:   `#1296` added and the blocker lookup `#1287` added;
+#: - **render**: one :class:`~subroutine.views.Vocabulary` across every bucket at once —
+#:   statuses, item types, tags, the project addresses and their ancestors (five, because an
+#:   address resolves a chain), the reader's zone, the accounts on the page and the
+#:   accountability chain above them, and the three readiness scans `blocked_among`,
+#:   `blocking_among` and `finished_underneath_among`.
+#:
+#: The allowance above that is deliberately small, because the thing this catches is not a
+#: statement or two: an N+1 here would be two thousand.
+#:
+#: **Fifteen of these were outside this ceiling until `SR#1764`**, which is why the jump from
+#: eighteen is not a regression. ``_agenda`` stopped at the build and this docstring described
+#: the command — so eleven of the vocabulary's loads had never been counted by anything, and a
+#: twelfth would have been added on the same argument as the eleventh with no ceiling to cross.
+#:
+#: **It was fourteen until `#1296`, fifteen until `#1265`, sixteen until `#1287` and seventeen
+#: until the render was counted**, and the number is restated each time rather than left,
+#: because a comment that says *measured* has to say what was measured. `#1296` added a lookup
+#: asking which zones the whole-day rows in scope were dated in, so each can be compared as a
+#: date rather than against somebody else's midnight. `#1265` added the sixth count: an agenda
+#: is one person's now, so the work it leaves out because it belongs to somebody else has to be
+#: counted on the scope *before* that rule, which is a question the agenda's own select can no
+#: longer be asked. `#1287` added one statement naming what is holding the *Waiting on somebody
+#: else* rows up — **and needed the fixture changed to be seen at all**, because that bucket was
+#: empty here and the lookup returns without asking anything when it is. See ``_fill``.
+#:
+#: **Two of the render's fifteen move with the fixture rather than with the code**, and that is
+#: worth knowing before reading a failure as a regression: the project chain costs one statement
+#: per level of nesting, and ``accountability.answerable_for_many`` walks agent ownership by
+#: level, so it asks nothing at all when no agent holds anything on the page. Both are one query
+#: per *level* and never per row, which is the property this ceiling exists to hold.
 #:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
-AGENDA_STATEMENTS = 18
+AGENDA_STATEMENTS = 33
 
 
 def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
@@ -1134,6 +1180,20 @@ def test_a_composite_view_asks_a_bounded_number_of_questions (
 
 		finally:
 			sqlalchemy.event.remove(engine, "before_cursor_execute", count)
+
+	# **The subject is asserted, because the ceiling below cannot notice losing half of it.**
+	# `SR#1764`: ``_agenda`` measured the build alone while its docstring named the command, and
+	# a count of seventeen against an allowance of eighteen looked like a guard with headroom
+	# rather than one watching thirty-two statements from behind a wall. Unwinding the render
+	# would take the count back to seventeen and **pass more comfortably than before**, which is
+	# the one failure an upper bound is structurally unable to report.
+	# Qualified, because ``domain.agenda.Agenda`` and ``views.Agenda`` share a name — so the
+	# bare one names nothing and the failure reads as a tautology (`#1409`'s family).
+	assert isinstance(built, subroutine.views.Agenda), (
+		f"_agenda returned {type(built).__module__}.{type(built).__name__} rather than a "
+		"rendered view, so this is measuring the build alone again and the allowance below is "
+		"bounding half a page"
+	)
 
 	shown = sum(len(getattr(built, bucket)) for bucket in subroutine.domain.agenda.BUCKETS)
 

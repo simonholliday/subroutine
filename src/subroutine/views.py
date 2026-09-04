@@ -2858,8 +2858,12 @@ class Vocabulary:
 		# immediately on an empty page.
 		self.blocking = subroutine.domain.readiness.blocking_among(session, wanted, now=now)
 		# **A third scan of the same shape** (`#1615`). Folding the three into one query would
-		# be better and is not this item: each returns immediately on an empty page, and
-		# `AGENDA_STATEMENTS` is what says whether the count has become a problem.
+		# be better and is `#2060` rather than this: each returns immediately on an empty page.
+		#
+		# **`AGENDA_STATEMENTS` is what says whether the count has become a problem — and it
+		# could not see these three until `#1764`**, which is why that sentence stood here for
+		# three days while being false. The guard measured `agenda.build` and stopped; every one
+		# of this constructor's loads was outside it. It counts the render now.
 		self.finished_underneath = subroutine.domain.readiness.finished_underneath_among(
 			session, wanted, now=now
 		)
