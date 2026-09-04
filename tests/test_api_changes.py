@@ -217,23 +217,69 @@ def test_the_feed_reports_what_happened (world: test_api_tasks.World) -> None:
 	assert [item["action"] for item in mine] == ["created"]
 
 
-def test_an_event_written_this_instant_is_withheld (world: test_api_tasks.World) -> None:
+def test_an_event_written_this_instant_is_withheld (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
 	"""**The watermark, and the reason a history may not inherit it** (docs/design.md §5.11).
 
 	``seq`` is allocated at insert and becomes visible at commit. A reader that advances its
 	cursor past a number still uncommitted never sees that event again, so the feed reports
 	nothing newer than ``now() - 1s`` and gives the slower transaction time to land.
 
-	Deliberately **not** back-dated. This is the one test whose subject is the clock.
+	Deliberately **not** back-dated. This is the one test whose subject is the clock — and
+	until `SR#1808` that meant it *raced* the clock rather than controlling it.
+
+	**It failed CI on Python 3.14 for `73a09dd`** and passed on the runs either side with
+	nothing changed. It wrote a task and immediately asked whether the feed withheld it, which
+	is only true while **less than a second** has passed between the two calls: on a contended
+	two-core runner it is not, the event is old enough to be returned, and the failure reads as
+	a broken query. A test that fails on a slow machine and passes on a re-run is how a suite
+	teaches people to re-run rather than read, which this project's own rule forbids.
+
+	**So the clock the feed reads is pinned, and both halves are asserted against one row.**
+	``events.feed`` computes its bound as ``db.types.utcnow() - WATERMARK``, fully qualified, so
+	pinning that name is enough — and it is what `SR#1245`'s ``wall_clock`` fixture already does
+	one module along, for a defect of the same family.
+
+	**The instant is read back rather than pinned before the write**, which is the part worth
+	knowing: ``created_at`` is declared ``default=subroutine.db.types.utcnow``, so SQLAlchemy
+	captured the function object when the class was defined and a patch on the module attribute
+	never reaches it. Reading the stored value works however that default is wired.
+
+	**Elapsed time is now irrelevant to the outcome** — the assertion holds if the machine takes
+	an hour between the two calls, which is the whole of the fix.
 	"""
 
 	task = world.call("POST", "/v1/tasks", json={"title": "Written just now"}).json()
 
-	assert [item for item in _feed(world) if item["entity_id"] == task["id"]] == []
+	written = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.activity.Event.created_at)
+		.where(subroutine.db.models.activity.Event.entity_id == uuid.UUID(task["id"]))
+		.order_by(subroutine.db.models.activity.Event.seq.desc())
+	).first()
 
-	_settled(world.session)
+	assert written is not None, "the write recorded no event, so there is nothing to withhold"
 
-	assert [item for item in _feed(world) if item["entity_id"] == task["id"]] != []
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: written)
+
+	assert [item for item in _feed(world) if item["entity_id"] == task["id"]] == [], (
+		"an event written at the instant the feed is read was returned, so a reader could "
+		"advance its cursor past a seq that is still uncommitted"
+	)
+
+	# **Past the watermark by moving the reader's clock, not the row.** `_settled` back-dates
+	# the rows, which is right for every other test here and would prove less in this one: the
+	# subject is the bound the feed computes, so the same row has to be withheld and returned
+	# with nothing about it changed.
+	monkeypatch.setattr(
+		subroutine.db.types,
+		"utcnow",
+		lambda: written + subroutine.domain.events.WATERMARK * 2,
+	)
+
+	assert [item for item in _feed(world) if item["entity_id"] == task["id"]] != [], (
+		"the same event stayed hidden once the watermark had passed it"
+	)
 
 
 def test_the_feed_runs_oldest_first (world: test_api_tasks.World) -> None:
