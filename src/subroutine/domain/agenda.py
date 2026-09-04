@@ -401,6 +401,48 @@ class Agenda:
 		return not any(getattr(self, bucket) for bucket in BUCKETS)
 
 
+def _named_blockers (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	rows: dict[str, tuple[subroutine.db.models.work.Task, ...]],
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	now: datetime.datetime,
+) -> dict[uuid.UUID, tuple[subroutine.db.models.work.Task, ...]]:
+	"""Return what is holding each row up, for every row on the page — `SR#1847`.
+
+	**An empty answer means two different things, and which one depends on the bucket.**
+	:func:`~subroutine.domain.readiness.blockers_among` keys its answer by every identifier it
+	was handed, so handing it the page would put ``blocking: []`` on every row — *nothing is
+	holding this up*, asserted, about rows that were never in question. That is a claim where
+	silence was meant, and §13's context economy pays for it by the row.
+
+	**Except in ``blocked_by_others``, where an empty answer is the point** (`#1287`). Every row
+	there is blocked by construction, so naming nobody says *somebody you cannot see* — and
+	dropping it would hide work the reader really is waiting on. That distinction is guarded and
+	is why this cannot simply filter on truth.
+
+	**Elsewhere the row is not known to be blocked**, and finding out would cost a statement to
+	save one, so absent goes on meaning *nothing to say here* — which is what every bucket
+	outside that section has always meant.
+	"""
+
+	found = subroutine.domain.readiness.blockers_among(
+		session,
+		principal,
+		{row.id for bucket in BUCKETS for row in rows[bucket]},
+		workspace_ids=workspace_ids,
+		now=now,
+	)
+	blocked = {row.id for row in rows["blocked_by_others"]}
+
+	return {
+		held: blockers
+		for held, blockers in found.items()
+		if blockers or held in blocked
+	}
+
+
 def build (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -882,15 +924,27 @@ def build (
 		upcoming=rows["upcoming"],
 		unscheduled=rows["unscheduled"],
 		blocked_by_others=rows["blocked_by_others"],
-		# **Resolved for one bucket, after the rows are known** (`#1287`). One statement, and
-		# none at all when nothing on the page is held up — which is the ordinary state of a
-		# solo instance and is what keeps `#1295`'s bounded count where it was.
-		blockers=subroutine.domain.readiness.blockers_among(
-			session,
-			principal,
-			{row.id for row in rows["blocked_by_others"]},
-			workspace_ids=workspace_ids,
-			now=now,
+		# **Every row on the page, not one bucket** (`SR#1847`, Simon 2026-09-04). `#1287`
+		# resolved this for *Waiting on somebody else* alone, which was the argued exception to
+		# *a listing says that and a detail view says what* — and `#1846` then moved `overdue`
+		# above that section, so a task both blocked and late landed there with its **Blocked**
+		# mark and without the line naming who. The mark says the useless half.
+		#
+		# **The exception was always about a row.** `#1267` §3c argues from *a mark cannot carry
+		# the thing that makes this useful, which is who you are waiting on* — a statement about
+		# a blocked row, and the section was only ever the carrier because it was the bucket
+		# that needed it first.
+		#
+		# **Still one statement**, and the set is handed over whole rather than narrowed to the
+		# blocked rows first: asking which are blocked would cost a statement to save one, and
+		# `blockers_among` already returns nothing for a row with no live edge.
+		#
+		# **What it does cost is that the statement now runs on any page with rows on it**,
+		# where before it ran only when that one bucket was populated. That is the trade taken
+		# knowingly: `#1295`'s count is unmoved, and the property it used to have — *none at all
+		# when nothing is held up* — is now *none at all when the page is empty*.
+		blockers=_named_blockers(
+			session, principal, rows, workspace_ids=workspace_ids, now=now
 		),
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],

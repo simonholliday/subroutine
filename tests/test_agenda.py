@@ -1512,16 +1512,29 @@ def test_a_blocker_the_reader_may_not_see_is_not_named (
 	)
 
 
-def test_no_other_section_is_told_what_is_holding_its_rows_up (
+def test_a_blocked_row_is_told_who_is_holding_it_up_wherever_it_lands (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""**`SR#1287`.** One section is the argued exception; the rest keep the rule.
+	"""**`SR#1847`, Simon 2026-09-04. The exception is about a row, not about a section.**
 
 	*A listing says that and a detail view says what* is written on ``views.Task.blocking`` and
-	is what `SR#856` cost. This section is carved out of it by decision `SR#1267` §3c, whose
-	whole subject is the far end. Nothing else is, so a row in another bucket must be absent
-	from this mapping altogether — ``None`` rather than an empty list, because *nobody asked*
-	and *nothing holds this up* are two answers.
+	is what `SR#856` cost. Decision `SR#1267` §3c carves an exception out of it, and `SR#1287`
+	applied that to the one bucket whose subject is the far end.
+
+	**`SR#1846` then moved `overdue` above that bucket**, and the buckets are disjoint in list
+	order — so a task both blocked and late landed under *Overdue* carrying the **Blocked** mark
+	and *not* the line naming who. The mark says the half a reader cannot act on.
+
+	§3c argues from *"a mark cannot carry the thing that makes this useful, which is who you are
+	waiting on"*, which is a statement about a **blocked row**. The section was only ever the
+	carrier because it was the bucket that needed it first.
+
+	**A row nothing holds up is still absent from the mapping** — ``None`` rather than an empty
+	list, because *nobody asked* and *nothing holds this up* are two answers, and that half of
+	`SR#1287` is untouched.
+
+	Falsify by narrowing the set back to ``rows["blocked_by_others"]``, which is the shipped
+	behaviour: the late row drops out of the mapping and keeps a mark it cannot explain.
 	"""
 
 	world = World(session)
@@ -1533,14 +1546,37 @@ def test_no_other_section_is_told_what_is_holding_its_rows_up (
 
 	_blocks(world, theirs, mine)
 
+	# **Late as well as blocked, which is the row `SR#1846` moved.** `overdue` sits above
+	# `blocked_by_others` and the buckets subtract what their predecessors took, so this lands
+	# under *Overdue* and never reaches the section the exception used to belong to.
+	late = world.task("Late and held up")
+	late.due_at = NOW - datetime.timedelta(days=2)
+	blocking_the_late_one = world.task("What is holding the late one up")
+	blocking_the_late_one.assignee_id = other.id
+
+	_blocks(world, blocking_the_late_one, late)
+
 	loose = world.task("Something to pick up")
 
 	built = world.agenda()
 
-	assert set(built.blockers) == {mine.id}, (
-		"resolved for the one section whose subject is the far end, and for nothing else"
+	assert late.id in {row.id for row in built.overdue}, (
+		"the fixture did not put the blocked row under Overdue, so this asserts nothing about "
+		"the case it was written for"
 	)
-	assert loose.id not in built.blockers
+
+	assert late.id in built.blockers, (
+		"a blocked row outside the Waiting on somebody else section was marked blocked and not "
+		"told who by, which is the mark carrying the half a reader cannot act on"
+	)
+	assert {row.id for row in built.blockers[late.id]} == {blocking_the_late_one.id}
+
+	assert mine.id in built.blockers, "the original section still resolves its own rows"
+
+	assert loose.id not in built.blockers, (
+		"a row nothing holds up appeared in the mapping, so 'nobody asked' and 'nothing holds "
+		"this up' have stopped being two answers"
+	)
 
 
 def test_a_blocker_of_your_own_is_not_somebody_else (session: sqlalchemy.orm.Session) -> None:
@@ -1619,10 +1655,16 @@ def test_work_held_up_by_somebody_else_is_reported_as_late_once_its_deadline_pas
 	that against the composition — three such pairwise decisions between them put *Overdue*
 	below the fold — and reverses it.
 
-	**The row keeps its `blocked` mark and loses the far end**, which is `SR#1847` and is
-	asserted here so it cannot happen a second time in silence: ``blockers`` is resolved for
-	``blocked_by_others`` alone (`SR#1287`), so a row that moves out of that bucket goes back
-	under the ordinary rule that a listing says *that* and a detail view says *what*.
+	**The row kept its `blocked` mark and lost the far end, and that was `SR#1847`.** This
+	asserted the loss so it could not recur in silence; Simon decided on 2026-09-04 that the
+	exception belongs to the **row** rather than to the section, so the assertion is inverted
+	here rather than deleted. `SR#1267` §3c argues from *"a mark cannot carry the thing that
+	makes this useful, which is who you are waiting on"* — about a blocked row, not a heading —
+	and the section only ever held the carve-out because it was the bucket that needed it first.
+
+	**The reordering's own consequence is unchanged**, which is what this test is still for: the
+	row leaves ``blocked_by_others`` and reports under *Overdue*. What it no longer loses is the
+	line saying who by.
 	"""
 
 	world = World(session)
@@ -1639,10 +1681,11 @@ def test_work_held_up_by_somebody_else_is_reported_as_late_once_its_deadline_pas
 	assert _titles(agenda.overdue) == ["My bit"]
 	assert agenda.blocked_by_others == (), "the buckets are not disjoint"
 
-	assert mine.id not in agenda.blockers, (
-		"SR#1847: the far end is resolved for the blocked section, so a row that leaves it "
-		"loses the line naming who is holding it up"
+	assert mine.id in agenda.blockers, (
+		"SR#1847: a row that left the blocked section lost the line naming who is holding it "
+		"up, so the mark is carrying the half a reader cannot act on"
 	)
+	assert {row.id for row in agenda.blockers[mine.id]} == {theirs.id}
 
 	# **And work held up with no deadline still gets the section it was written for**, which is
 	# what stops this reordering emptying the bucket it moved past.

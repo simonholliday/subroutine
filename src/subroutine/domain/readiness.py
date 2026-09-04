@@ -671,11 +671,14 @@ def blockers_among (
 
 	**It is the direct edges and never the ancestor rule** (`#1610`), which is worth knowing
 	before reading an empty answer as a contradiction: a row can be marked ``blocked`` because
-	something above it cannot start, and there is no edge on *that* row to name. Nothing here
-	reaches such a row today — the agenda's section is built from
-	:func:`blocked_by_somebody_else`, which is direct edges too — and the remedy if anything
-	ever does is to read the parent, which is what the count beside a readiness listing already
-	says.
+	something above it cannot start, and there is no edge on *that* row to name.
+
+	**Something reaches such a row now**, and this paragraph said nothing did until `SR#1847`.
+	The agenda hands over every row on the page rather than one bucket built from
+	:func:`blocked_by_somebody_else`, so a descendant of a blocked ancestor arrives here and
+	this returns nothing for it — correctly. What a reader sees is the **Blocked** mark with no
+	name beside it, which is the same answer they get for a blocker they may not see, and the
+	remedy is the one `#1610`'s count already points at: read the parent.
 	"""
 
 	wanted = set(identifiers)

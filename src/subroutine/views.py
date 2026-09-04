@@ -638,9 +638,18 @@ class Task(pydantic.BaseModel):
 	#: answered by decision `#1267` §3c, which is what asked for this: a mark *"cannot carry
 	#: the thing that makes this useful, which is who you are waiting on"*.
 	#:
-	#: **So it is resolved for the agenda's `blocked_by_others` section and for nothing else.**
-	#: A listing marked `blocked` still says only *that*, and `subroutine show` still says
-	#: *what* — this is the one section whose entire subject is the far end.
+	#: **So it is resolved for every blocked row on the agenda, and for nothing else** — for a
+	#: *row*, not for a section (`SR#1847`, Simon 2026-09-04). It was one bucket until then,
+	#: and `#1846` moved `overdue` above that bucket: a task both blocked and late landed there
+	#: carrying the **Blocked** mark and not the line naming who, which is the mark saying the
+	#: useless half of what it knows.
+	#:
+	#: The §3c sentence above is why the section was never the right carrier — *a mark cannot
+	#: carry the thing that makes this useful* is a statement about a blocked row, and the
+	#: section only held the exception because it was the bucket that needed it first.
+	#:
+	#: Every other listing is unchanged: marked `blocked` still says only *that*, and
+	#: `subroutine show` still says *what*.
 	#:
 	#: **Null means nobody asked; an empty list would mean nothing is holding this up.** Two
 	#: different answers, and a listing that resolved neither must not claim the second — which
@@ -4032,10 +4041,15 @@ def _holding_up (
 ) -> list[LinkEnd] | None:
 	"""Return what is holding this agenda row up, or ``None`` where nobody asked — `#1287`.
 
-	**The distinction this keeps is between two silences.** ``built.blockers`` holds an entry
-	for every row of the one section that resolves them, so a row absent from it was never
-	asked about and a row present with nothing left is one whose blockers the caller may not
-	see. The first is ``None`` and the second is ``[]``, and a client can tell them apart.
+	**The distinction this keeps is between two silences**, and which rows carry which changed
+	with `SR#1847`. ``built.blockers`` now holds an entry for **every blocked row on the page**
+	that has something nameable, plus every row of *Waiting on somebody else* whether or not it
+	has. So a row present with nothing left is one whose blockers the caller may not see — the
+	`#1287` case, in the one section where being blocked is true by construction — and a row
+	absent from it either was never blocked or is blocked with nothing to name, which read the
+	same way here and did before.
+
+	The first is ``None`` and the second is ``[]``, and a client can still tell them apart.
 	"""
 
 	held = built.blockers.get(row.id)

@@ -10382,11 +10382,15 @@ def _because (
 def _waiting_on (item: Item) -> list[rich.text.Text]:
 	"""Return a line per item holding this row up, or nothing where none is named — `#1287`.
 
-	**Only the agenda's *Waiting on somebody else* section resolves this**, so everywhere else
-	``blocked_by`` is null and this returns nothing at all. That is the rule rather than an
-	accident of where it is called: a listing marks a row blocked and says *that*, and naming
-	the far end is `#856`'s line. :attr:`subroutine.views.Task.blocked_by` carries why this one
-	section is the argued exception.
+	**Only the agenda resolves this**, so on every other listing ``blocked_by`` is null and this
+	returns nothing at all. That is the rule rather than an accident of where it is called: a
+	listing marks a row blocked and says *that*, and naming the far end is `#856`'s line.
+	:attr:`subroutine.views.Task.blocked_by` carries why the agenda is the argued exception.
+
+	**It was one section of the agenda until `SR#1847`** and is now any blocked row on it,
+	Simon's decision of 2026-09-04: `#1846` moved ``overdue`` above *Waiting on somebody else*,
+	so a task both blocked and late reported with its **Blocked** mark and without this line —
+	the mark carrying the half a reader cannot act on.
 
 	**A line each rather than one line of refs**, because an agent is written
 	``@claude-super (agent, @si)`` wherever a surface names a principal (`#1414`) and three of

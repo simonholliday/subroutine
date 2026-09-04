@@ -529,6 +529,17 @@ upgrade involves.
 
 ### Fixed
 
+- **A blocked task that is also late still says who is holding it up.**
+
+  The agenda names the far end of a blocker — `waiting on #42 @jo` — and that was resolved for
+  the *Waiting on somebody else* section alone. Putting *Overdue* above it meant a task that
+  was both landed there instead, keeping its **Blocked** mark and losing the line: the half you
+  cannot act on, without the half you can.
+
+  It is now resolved for any blocked row on the agenda, wherever it lands. Nothing else
+  changes — every other listing still marks a row blocked and says only *that*, and a row whose
+  blockers you are not allowed to see is still reported as blocked with nobody named.
+
 - **The hosting guide's `doctor` transcript is what a published instance actually prints.**
 
   It showed six lines; a published instance prints nine. The three it was missing include
