@@ -2611,8 +2611,11 @@ _SEARCH_MECHANISM = ("title", "description", "body", "bodies", "comment", "prose
 #: The one place each surface tells a reader what search does. A fourth surface with a hint of
 #: its own belongs here; the floor below is what refuses a scan that stopped finding them.
 SEARCH_HINTS = {
+	#: `Seeking` moved out of `app.js` with the rest of the item page when `#1849` split the
+	#: browser into modules. The floor below is what caught the path going stale on the day it
+	#: moved, rather than this quietly checking nothing for a month.
 	"browser": (
-		ROOT / "src" / "subroutine" / "web" / "assets" / "app.js",
+		ROOT / "src" / "subroutine" / "web" / "assets" / "detail.js",
 		re.compile(r'placeholder="(Search[^"]*)"'),
 	),
 	"agent": (

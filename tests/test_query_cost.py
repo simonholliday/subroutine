@@ -123,7 +123,7 @@ DELETED_COMMENT_IN = 10
 #: One page, as every listing here serves one.
 #:
 #: **A hundred, because that is what the browser asks for** — ``PAGE`` and ``POLL_PAGE`` in
-#: ``web/assets/app.js`` are both 100, on every listing and on every poll. It was 50, and
+#: ``web/assets/settings.js`` are both 100, on every listing and on every poll. It was 50, and
 #: `SR#1800` is what that cost: measured on this fixture, a page of 50 estimates at **491,514**
 #: and a page of 100 at over 500,000, which is PostgreSQL's ``jit_inline_above_cost`` and
 #: ``jit_optimize_above_cost``. So the guard sat **1.7% under the cliff** it existed to notice,

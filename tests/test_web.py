@@ -368,6 +368,33 @@ def _bare_imports (text: str) -> set[str]:
 	}
 
 
+#: The app's own modules — `app.js` and the twelve `#1849` split out of it.
+#:
+#: **A scan over "the app's source" means all of them now**, and before the split it meant one
+#: file. `markdown.js` and `sw.js` sit in the same directory and are deliberately *not* here:
+#: the first has its own tests and the second is a different program, and neither was inside
+#: these scans before the split either. `test_every_module_we_wrote_is_accounted_for` is what
+#: stops this list going stale the day somebody adds a fourteenth.
+APP_MODULES = (
+	"app.js", "address.js", "answers.js", "chrome.js", "dates.js", "detail.js", "forms.js",
+	"grouping.js", "html.js", "marks.js", "places.js", "requests.js", "rows.js", "settings.js",
+)
+
+#: Ours, in this directory, and not part of the app: each needs a reason to be here.
+NOT_THE_APP = {
+	"markdown.js": "its own module with its own tests, imported by the app rather than part of it",
+	"sw.js": "the service worker — a different program, with no import of the app at all",
+}
+
+
+def _our_source () -> str:
+	"""Every line of the app's own JavaScript, as one text, for a scan over the whole of it."""
+
+	served = _served_modules()
+
+	return "\n".join(served[name] for name in APP_MODULES)
+
+
 def _served_modules () -> dict[str, str]:
 	"""Return every JavaScript module this instance serves, by name."""
 
@@ -599,7 +626,7 @@ def _rendered (
 	# about what it says would pass vacuously.
 	# Every `onSomething=` the app passes to a component. Read off the source so a new one is
 	# supplied the moment it is written, rather than the next time a test notices.
-	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _served_modules()["app.js"])))
+	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _our_source())))
 
 	return dict(_ran(tmp_path, f"""
 		import * as app from "{module.as_uri()}";
@@ -686,7 +713,7 @@ def _markup (
 	"""
 
 	module = _staged(tmp_path)
-	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _served_modules()["app.js"])))
+	handlers = sorted(set(re.findall(r"\b(on[A-Z][A-Za-z]*)=", _our_source())))
 
 	return dict(_ran(tmp_path, f"""
 		import {{ h }} from "{(tmp_path / "preact.js").as_uri()}";
@@ -2090,7 +2117,7 @@ def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 	the one being guarded.
 	"""
 
-	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	source = _without_comments(_our_source())
 	marks = re.search(r"export function marks \(.*?\n\}", source, re.DOTALL)
 
 	assert marks is not None, "`marks` has moved, so this is scanning nothing"
@@ -2294,7 +2321,7 @@ def test_the_browser_says_a_row_is_waiting_on_a_person_as_a_state_not_a_status (
 	two case-blind and could not see that a key's underscore is a mark's space.
 	"""
 
-	body = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	body = _without_comments(_our_source())
 	waiting = re.search(r'export const WAITING_STATUS = "([^"]+)"', body)
 
 	assert waiting is not None, "the browser's copy of the key has moved"
@@ -2856,7 +2883,7 @@ def test_the_worker_may_control_the_page_it_was_written_for (
 		"/app/, so registering it is refused and the app is not installable"
 	)
 
-	registration = (ASSETS / "app.js").read_text(encoding="utf-8")
+	registration = _our_source()
 
 	assert f'register("/app/{subroutine.api.web.WORKER}", {{ scope: "/" }})' in registration, (
 		"the app no longer registers the worker at the scope the header permits, so the two "
@@ -2953,7 +2980,7 @@ def test_the_app_reaches_only_the_public_api () -> None:
 	tidiness one.
 	"""
 
-	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	source = _our_source()
 
 	assert 'fetch(`/v1${path}`' in source, "the one place a request is made has moved"
 	assert source.count("fetch(") == 1, "a second fetch would be a second set of rules"
@@ -3383,7 +3410,7 @@ def test_a_navigation_that_changes_which_rows_there_are_also_loads_them () -> No
 	put back. The record of what it cannot see is in `_pushes_without_moving`.
 	"""
 
-	bare = _pushes_without_moving(_served_modules()["app.js"])
+	bare = _pushes_without_moving(_our_source())
 
 	assert not bare, "the address moves and the page does not: " + ", ".join(
 		f"line {line} — {why}" for line, why in bare
@@ -3404,7 +3431,7 @@ def test_nothing_in_the_browser_app_is_declared_and_never_read () -> None:
 	about JavaScript that reading would not have supplied.
 	"""
 
-	dead = _declared_and_never_read(_served_modules()["app.js"])
+	dead = _declared_and_never_read(_our_source())
 
 	assert not dead, (
 		"declared and never read in app.js: "
@@ -3439,7 +3466,7 @@ def test_every_prose_box_offers_a_preview () -> None:
 	# **`_without_comments`, not `_without_prose`**: the markup lives inside template
 	# literals, and the version that blanks strings blanks every element with them — measured,
 	# it found no textareas at all and the guard passed for the wrong reason.
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 	boxes = re.findall(r"<textarea", source)
 	written = re.findall(r"<\$\{Written\}", source)
 
@@ -3766,7 +3793,7 @@ def test_the_renderer_is_the_only_way_html_is_injected () -> None:
 	holds while there is one call site. A second would be a second thing to be sure about.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 
 	assert app.count("dangerouslySetInnerHTML") == 1, "a second injection point has appeared"
 	assert "markdown.render" in app, "the one injection point stopped going through the renderer"
@@ -3870,7 +3897,7 @@ def test_the_browser_and_the_instance_agree_on_what_finished_means () -> None:
 	the control on work that is still open, which is the more expensive way round.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	found = re.search(r"const FINISHED = new Set\(\[([^\]]*)\]\)", source)
 
 	assert found, "the browser's set of finished categories could not be read from app.js"
@@ -3902,7 +3929,7 @@ def test_the_add_box_teaches_the_capture_grammar (tmp_path: pathlib.Path) -> Non
 	# `name="text"` until `SR#761` gave that attribute a ternary — a document's title asks a
 	# different question — and a regex over the markup would then find whichever branch was
 	# written first and check the wrong one.
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	placeholder = re.search(r'export const CAPTURE_HINT = "([^"]+)";', source)
 
 	assert placeholder is not None, "the add box stopped saying what can be typed into it"
@@ -3949,7 +3976,7 @@ def test_the_capture_box_is_the_same_box_whether_the_form_is_open_or_not (
 	# `_without_prose`**: the attribute lives inside a template literal, and the version that
 	# empties strings takes the thing being counted with it. Measured, after writing the wrong
 	# one first — it reported zero, which reads exactly like the box losing its `required`.
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 	form = source[source.index("export function Adding ("):source.index("export function Editing (")]
 
 	assert form.count("required") == 1, (
@@ -4911,7 +4938,7 @@ def test_a_comment_can_be_written_and_says_what_it_is_for (tmp_path: pathlib.Pat
 	# that cannot fail. The screen-reader half of Simon's point lives entirely in attributes,
 	# so it has to be checked where it is written. Prose is stripped first: the reasoning
 	# beside these strings quotes the words they no longer use.
-	assert "What happened" not in _without_comments(_served_modules()["app.js"]), (
+	assert "What happened" not in _without_comments(_our_source()), (
 		"a label or placeholder still tells somebody what their comment has to be about"
 	)
 
@@ -5352,7 +5379,7 @@ def _date_fields () -> list[tuple[str, str, str]]:
 	reader are still read — and compared — exactly.
 	"""
 
-	app = _served_modules()["app.js"]
+	app = _our_source()
 	found = re.search(r"export const DATE_FIELDS = \[(.*?)\n\];", app, re.S)
 
 	assert found is not None, "DATE_FIELDS is gone, so this is checking nothing"
@@ -5426,7 +5453,7 @@ def test_the_priority_scale_says_which_way_it_runs (tmp_path: pathlib.Path) -> N
 	control that ever lists *Very high* against 1 fails here.
 	"""
 
-	app = _served_modules()["app.js"]
+	app = _our_source()
 	found = re.search(r"export const PRIORITIES = \[(.*?)\n\];", app, re.S)
 
 	assert found is not None, "PRIORITIES is gone, so this is checking nothing"
@@ -5999,7 +6026,7 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 	to apply to.
 	"""
 
-	app = _served_modules()["app.js"]
+	app = _our_source()
 	# **Each form against its own rule** (`SR#761`). A document's fields are a different set
 	# from a task's — no priority, no dates, no estimate, no assignee — so one slice spanning
 	# both would compare each against the other's list and pass on the union.
@@ -6117,7 +6144,7 @@ def test_the_release_check_rides_the_poll_about_once_an_hour () -> None:
 	is checked by anything that renders.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	poll = re.search(r"const POLL_MS = (\d+);", source)
 	every = re.search(r"const RELEASE_CHECK_POLLS = (\d+);", source)
 
@@ -6171,7 +6198,7 @@ def test_the_page_offers_a_reload_and_never_takes_one () -> None:
 	throwing it away for a version bump is the same loss from a friendlier direction.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	reloads = re.findall(r"window\.location\.reload\(\)", source)
 
 	assert len(reloads) == 1, f"the page reloads itself from {len(reloads)} places"
@@ -6197,7 +6224,7 @@ def test_the_release_check_is_actually_inside_the_poll () -> None:
 	goes through the rule, and the rule's `true` reaches the state the notice renders from.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	opened = source.index("const tick = setInterval(async () => {")
 	body = source[opened:source.index("}, POLL_MS);", opened)]
 
@@ -6224,7 +6251,7 @@ def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 	endpoint fails this until somebody has decided whether the form offers it.
 	"""
 
-	app = _served_modules()["app.js"]
+	app = _our_source()
 
 	def listed (name: str) -> list[str]:
 		"""Read one exported array out of the served app, by its name."""
@@ -6314,7 +6341,7 @@ def test_every_write_goes_through_one_request_function () -> None:
 	is when it starts to matter.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 
 	assert app.count("fetch(") == 1, "a second request path has appeared"
 	assert app.count("credentials:") == 1
@@ -6732,7 +6759,7 @@ def test_a_mention_of_something_that_is_not_there_is_a_note (tmp_path: pathlib.P
 	render.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 
 	assert "failure.status === 404" in app, "a missing ref stopped being told apart"
 	assert app.count("setError(failure)") == 4, (
@@ -6791,29 +6818,41 @@ def test_nothing_is_named_in_a_dependency_array_before_it_exists () -> None:
 	component puts one every time.
 	"""
 
-	source = _served_modules()["app.js"]
-	declared: dict[str, int] = {}
+	#: **A module at a time, because the dead zone is a scope rather than a codebase.** Reading
+	#: the app's thirteen modules as one text compares an offset in `app.js` against one in
+	#: `rows.js`, which says nothing at all — a name declared in another module is bound by its
+	#: import before a line of this one runs. `#1849` is where that stopped being hypothetical:
+	#: run over the concatenation, this reported twelve failures and every one was the join.
+	served = _served_modules()
+	declared_anywhere, hooks_anywhere, problems = 0, 0, []
 
-	for found in re.finditer(r"^\t*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", source, re.M):
-		declared.setdefault(found.group(1), found.start())
+	for module in APP_MODULES:
+		source = served[module]
+		declared: dict[str, int] = {}
 
-	problems = []
+		for found in re.finditer(r"^\t*(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=", source, re.M):
+			declared.setdefault(found.group(1), found.start())
 
-	for call in _DEPENDENCIES.finditer(source):
-		array = _deps_after(source, call.end() - 1)
+		declared_anywhere += len(declared)
 
-		if array is None:
-			continue
+		for call in _DEPENDENCIES.finditer(source):
+			hooks_anywhere += 1
+			array = _deps_after(source, call.end() - 1)
 
-		listed, _closes = array
+			if array is None:
+				continue
 
-		for name in re.findall(r"[A-Za-z_$][\w$]*", listed):
-			if name in declared and declared[name] > call.start():
-				problems.append(f"{name!r} is a dependency of the hook at offset {call.start()}, "
-				                f"but is not declared until {declared[name]}")
+			listed, _closes = array
 
-	assert declared, "no declarations were found, so this is checking nothing"
-	assert _DEPENDENCIES.search(source), "no hook calls were found, so this is checking nothing"
+			for name in re.findall(r"[A-Za-z_$][\w$]*", listed):
+				if name in declared and declared[name] > call.start():
+					problems.append(
+						f"in {module}, {name!r} is a dependency of the hook at offset "
+						f"{call.start()}, but is not declared until {declared[name]}"
+					)
+
+	assert declared_anywhere, "no declarations were found, so this is checking nothing"
+	assert hooks_anywhere, "no hook calls were found, so this is checking nothing"
 	assert not problems, "\n".join(problems)
 
 
@@ -6850,7 +6889,7 @@ def test_a_hook_that_reads_the_project_filter_declares_it () -> None:
 	counts its own documentation measures nothing.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	problems = []
 	reading = 0
 
@@ -6901,7 +6940,7 @@ def test_what_is_showing_has_one_writer () -> None:
 	for a machine that could answer the rest.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	writers = [found.start() for found in re.finditer(r"(?<![\w$.])setShowing\s*\(", source)]
 
 	assert writers, "no write of the showing state was found, so this is checking nothing"
@@ -7096,7 +7135,7 @@ def test_a_links_far_end_carries_every_field_the_marks_read () -> None:
 	A literal list there grew silently and this would too.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	bodies, read = _item_fields_read(source, ["marks"])
 
 	assert read, "no fields were found, so this is checking nothing"
@@ -7163,7 +7202,7 @@ def test_a_listing_asks_for_every_field_its_rows_render () -> None:
 	scanner which read most things. See :func:`_function_body` for what it was returning.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	surface = ["Row", "marks", "when", "overdue"]
 	bodies, rendered = _item_fields_read(source, surface)
 
@@ -7308,7 +7347,7 @@ def test_the_page_size_is_a_page_and_not_a_ceiling (tmp_path: pathlib.Path) -> N
 
 	# Comments stripped, because this file *documents* why a total is not asked for — and a
 	# guard that counts the word in its own explanation measures the prose, not the code.
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 
 	assert "next_cursor" in source, "the cursor stopped being read, so there is no way onwards"
 	assert "cursor=" in source, "the cursor is read and never sent"
@@ -7362,7 +7401,7 @@ def test_a_project_filter_sends_what_the_route_accepts () -> None:
 	it was driving a real instance**, and nothing available to this file could have.
 	"""
 
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 
 	assert "project=$" in source, "the listing stopped narrowing by project at all"
 	assert "subtree" not in source, (
@@ -7385,7 +7424,7 @@ def test_a_project_that_is_gone_does_not_take_the_page_with_it () -> None:
 	Source-level, for `SR#640`'s reason: the branch is inside `App`.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 
 	assert "failure.status !== 404 || !key" in app, (
 		"a project that no longer exists no longer falls back to the workspace"
@@ -7723,7 +7762,7 @@ def _built (
 def _view_names () -> list[str]:
 	"""The arrangements the app offers, read from `VIEWS` rather than listed here."""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	found = re.search(r"export const VIEWS = \[([^\]]*)\]", source)
 
 	assert found, "the app's list of views could not be read from app.js"
@@ -7745,7 +7784,7 @@ def _selections () -> list[dict[str, str]]:
 	cannot express and `SR#710` measured on the live instance.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
 
 	assert block, "the app's selectable parameters could not be read from app.js"
@@ -8274,7 +8313,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 	that makes adding a fifth write cost something.
 	"""
 
-	declared = _builders(_served_modules()["app.js"])
+	declared = _builders(_our_source())
 	place = Instance(
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
@@ -8298,8 +8337,8 @@ def test_the_app_reaches_the_network_only_through_a_built_request () -> None:
 	a component would have to be written past both, rather than merely forgotten about.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
-	declared = _builders(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
+	declared = _builders(_our_source())
 
 	assert app.count("api(") == 1, (
 		"something other than `sent` reaches the network, so a request exists that no builder "
@@ -8485,7 +8524,7 @@ def test_what_a_reader_is_told_when_something_will_not_render () -> None:
 	four times.
 	"""
 
-	module_source = _served_modules()["app.js"]
+	module_source = _our_source()
 
 	assert "export function unrenderable (" in module_source, (
 		"the boundary's decision has gone back inside the component, where nothing can reach it"
@@ -8522,7 +8561,7 @@ def test_the_app_is_mounted_inside_something_that_can_catch_it () -> None:
 	`App` would have caught neither, so the mount is what has to be wrapped.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 	mount = app[app.index("render(html`"):]
 
 	assert "Boundary" in mount[:200], (
@@ -8779,7 +8818,7 @@ def test_every_spelling_of_the_tiebreak_points_the_same_way () -> None:
 
 	assert terminal[-1] == ("ref", False), f"the terminal breaks a tie with {terminal[-1]}"
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 
 	assert "return one.ref - other.ref;" in source, (
 		"the browser's inOrder no longer breaks a tie by ascending ref, so it disagrees with "
@@ -8804,7 +8843,7 @@ def test_showing_more_does_not_append_a_page_below_older_rows () -> None:
 	the source. The *decision* it is checking — `newestFirst` — is pure and driven above.
 	"""
 
-	app = _without_comments(_served_modules()["app.js"])
+	app = _without_comments(_our_source())
 	setting = [
 		body for _, body in re.findall(r"setItems\(\(?(\w+)\)? =>\s*(.+?)\);", app, re.S)
 	]
@@ -8843,7 +8882,7 @@ def test_the_listing_asks_for_the_field_it_orders_on () -> None:
 	needs saying out loud rather than being left to look like an oversight.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 
 	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
 		start = source.index(f"const {name} = [")
@@ -8872,15 +8911,33 @@ def _components () -> set[str]:
 
 	source = _served_modules()["app.js"]
 
-	# **Exported components only, because those are the ones the harness can reach** — it looks
-	# them up as `app[name]`. `Boundary` is a class and is deliberately not exported, so it is
-	# outside this question entirely rather than excused from it; `SR#680` measured that
-	# `preact-render-to-string` does not run error boundaries anyway, which is why the sentence
-	# it shows is a pure function checked on its own.
+	# **`app.js` alone, and that is the whole point of the population** — the harness reaches a
+	# component as `app[name]`, so what it can render is what this one module publishes. `#1849`
+	# split the app into thirteen files and a scan over all of them reported `Held`, which
+	# `grouping.js` has to export for `detail.js` to call and which `app.js` deliberately does
+	# not re-export. A wider scan named two components the harness cannot look up at all.
+	#
+	# `Boundary` is a class and is deliberately not re-exported, so it is outside this question
+	# entirely rather than excused from it; `SR#680` measured that `preact-render-to-string`
+	# does not run error boundaries anyway, which is why the sentence it shows is a pure
+	# function checked on its own.
 	#
 	# `class` is matched as well as `function` so that an exported class component cannot slip
-	# past a scan that only ever looked for one of the two spellings.
-	return set(re.findall(r"^export (?:function|class) ([A-Z]\w*)", source, re.M))
+	# past a scan that only ever looked for one of the two spellings — and the re-export blocks
+	# are read too, because since the split that is how most of them leave this file.
+	written = set(re.findall(r"^export (?:function|class) ([A-Z]\w*)", source, re.M))
+
+	passed_on = {
+		name
+		for block in re.findall(r"^export \{(.*?)\} from ", source, re.M | re.S)
+		# **A capital then a lower case**, which is Preact's own convention and what separates a
+		# component from a constant. A re-export block carries both, and `[A-Z]\w*` alone reads
+		# `BOARD` and `ANCHORS` as components — where the `function|class` anchor above did the
+		# separating for free.
+		for name in re.findall(r"\b([A-Z][a-z]\w*)\b", block)
+	}
+
+	return written | passed_on
 
 
 def test_every_component_the_app_exports_is_rendered_by_the_harness () -> None:
@@ -9353,7 +9410,7 @@ def test_stepping_back_asks_whether_the_selection_changed (tmp_path: pathlib.Pat
 	`SR#767` carries what a real one would need.
 	"""
 
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 	opens, closes = _braced(source, "const arrive = () => {")
 	inside = source[opens:closes]
 
@@ -9943,7 +10000,7 @@ def test_every_day_scale_date_is_rendered_with_its_timezone () -> None:
 	it is written rather than the next time somebody notices.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	naked = re.findall(rf"day\(\s*\w+\.({'|'.join(DAY_SCALE)})\s*\)", source)
 
 	assert not naked, (
@@ -11002,7 +11059,7 @@ def test_the_open_item_has_one_writer (tmp_path: pathlib.Path) -> None:
 	`nowOpen` writes them correctly. The tests above drive that.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	writers = [found.start() for found in re.finditer(r"(?<![\w$.])setOpen\s*\(", source)]
 
 	assert writers, "no write of the open item was found, so this is checking nothing"
@@ -11029,7 +11086,7 @@ def test_the_open_item_has_one_writer (tmp_path: pathlib.Path) -> None:
 def _orderings () -> dict[str, dict[str, str]]:
 	"""Every order the app has a sentence for, read from `ORDERINGS` itself."""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	block = re.search(r"export const ORDERINGS = \{(.*?)\n\};", source, re.S)
 
 	assert block, "the app's orderings could not be read from app.js"
@@ -11055,7 +11112,7 @@ def test_every_order_an_address_can_carry_says_how_it_reads () -> None:
 	the commonest page in the product is the one with nothing in its address to look up.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
 
 	assert block, "the app's selectable parameters could not be read from app.js"
@@ -11091,7 +11148,7 @@ def test_every_field_an_ordering_names_is_one_the_listing_asks_for () -> None:
 	the rows cannot show is an order only half the page can be checked against.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	lists = {}
 
 	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
@@ -11132,7 +11189,7 @@ def test_every_ordering_says_whether_deferred_work_sinks_in_it () -> None:
 	"""
 
 	orderings = _orderings()
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	lists = {}
 
 	for name in ("TASK_FIELDS", "DOCUMENT_FIELDS"):
@@ -11174,7 +11231,7 @@ def test_every_ordering_renders_by_a_name_the_app_knows () -> None:
 	is here: every name in the table is one that function handles.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	body = _function_body(source, "orderingValue")
 	handled = set(re.findall(r'ordering\.render === "(\w+)"', body)) | {"none"}
 
@@ -11291,7 +11348,7 @@ def test_every_order_a_reader_can_choose_is_one_the_api_can_sort_by (
 		"task": set(subroutine.api.tasks.SORTABLE),
 		"document": set(subroutine.api.documents.SORTABLE),
 	}
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	block = re.search(r"export const SELECTABLE = \{(.*?)\n\};", source, re.S)
 
 	assert block, "the app's selectable parameters could not be read"
@@ -11895,7 +11952,7 @@ def test_a_control_that_writes_a_listing_address_leaves_the_open_item () -> None
 	could. What it buys is that removing the call fails a test rather than nothing.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 
 	for name in ("chooseSearch", "chooseView"):
 		opens, closes = _braced(source, f"const {name} = useCallback(")
@@ -11929,7 +11986,7 @@ def test_a_background_read_stands_off_and_does_not_lose_what_it_skipped () -> No
 	this does buy is that removing either half fails a test rather than nothing at all.
 	"""
 
-	source = _without_prose(_served_modules()["app.js"])
+	source = _without_prose(_our_source())
 	opens, closes = _braced(source, "const refresh = useCallback(")
 	inside = source[opens:closes]
 
@@ -12244,7 +12301,7 @@ def test_every_selection_parameter_says_which_collections_answer_it (
 	guards.
 	"""
 
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 
 	def declared (name: str) -> set[str]:
 		"""Return the keys of a module-level object literal, by name."""
@@ -12452,7 +12509,7 @@ def test_every_button_wears_exactly_one_role () -> None:
 	# **`_without_comments`, never `_without_prose`.** The second blanks the text of a template
 	# literal — and in this app the markup *is* that text, so the scan would read nothing and
 	# report a clean page. `#776` met the same thing and this is the second instance.
-	found = re.findall(r"<button\b[^>]*>", _without_comments(_served_modules()["app.js"]), re.S)
+	found = re.findall(r"<button\b[^>]*>", _without_comments(_our_source()), re.S)
 
 	assert len(found) >= 15, (
 		f"only {len(found)} buttons were found, so this scan is broken rather than the page"
@@ -12524,7 +12581,7 @@ def test_a_reveal_says_so_in_a_glyph_as_well_as_in_a_word () -> None:
 	nothing to a reader who cannot see it, and `aria-expanded` with no caret is what there was.
 	"""
 
-	source = _without_comments(_served_modules()["app.js"])
+	source = _without_comments(_our_source())
 	reveals = re.findall(r"<button\b[^>]*\bclass=\"[^\"]*\breveal\b[^\"]*\"[^>]*>", source, re.S)
 
 	assert len(reveals) >= 2, f"only {len(reveals)} reveals found, so this scan reads nothing"
@@ -12728,7 +12785,7 @@ def test_every_seeded_item_type_has_a_glyph () -> None:
 	this is what says when it stops being.
 	"""
 
-	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	source = _our_source()
 	mapping = re.search(r"export const TYPE_ICONS = \{(.*?)\n\};", source, re.DOTALL)
 
 	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
@@ -12773,7 +12830,7 @@ def _unknown_icon () -> str:
 
 	found = re.search(
 		r'export const UNKNOWN_ICON = "([a-z-]+)"',
-		(ASSETS / "app.js").read_text(encoding="utf-8"),
+		_our_source(),
 	)
 
 	assert found is not None, "`UNKNOWN_ICON` has moved, so this is reading nothing"
@@ -12835,7 +12892,7 @@ def test_the_glyph_each_seeded_type_draws_has_not_changed () -> None:
 	one line and a moment's thought, and the alternative costs a reader their landmarks.
 	"""
 
-	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	source = _our_source()
 	mapping = re.search(r"export const TYPE_ICONS = \{(.*?)\n\};", source, re.DOTALL)
 
 	assert mapping is not None, "`TYPE_ICONS` has moved, so this is scanning nothing"
@@ -12858,7 +12915,7 @@ def test_every_category_a_workspace_can_seed_has_a_glyph_to_fall_back_to () -> N
 	apart, and this one is the level that survives a workspace inventing a type.
 	"""
 
-	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	source = _our_source()
 	mapping = re.search(r"export const CATEGORY_ICONS = \{(.*?)\n\};", source, re.DOTALL)
 
 	assert mapping is not None, "`CATEGORY_ICONS` has moved, so this is scanning nothing"
@@ -12999,7 +13056,7 @@ def test_every_glyph_this_client_names_is_one_that_was_vendored () -> None:
 	blank.
 	"""
 
-	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	source = _our_source()
 	vendored = (
 		subroutine.web.vendored.DIRECTORY / "phosphor.js"
 	).read_text(encoding="utf-8")
@@ -13189,7 +13246,7 @@ def test_a_browser_row_reports_what_the_command_lines_row_reports () -> None:
 	surface says what the others say.
 	"""
 
-	source = _served_modules()["app.js"]
+	source = _our_source()
 	surface = ["Row", "marks", "when", "overdue"]
 	bodies = {name: _function_body(source, name) for name in surface}
 
@@ -13378,7 +13435,7 @@ def test_every_select_has_a_name_a_screen_reader_can_read () -> None:
 	attribute instead.
 	"""
 
-	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	source = _without_comments(_our_source())
 	nameless = []
 
 	for found in re.finditer(r"<select\b([^>]*)>", source):
@@ -13472,7 +13529,7 @@ def test_the_poll_re_renders_so_those_marks_are_recomputed () -> None:
 	times and would satisfy a scan for it — `#427`'s trap, met three times in this repository.
 	"""
 
-	source = _without_comments((ASSETS / "app.js").read_text(encoding="utf-8"))
+	source = _without_comments(_our_source())
 	interval = source[source.index("setInterval(async") :]
 
 	assert "retick(" in interval[: interval.index("}, POLL_MS)")], (

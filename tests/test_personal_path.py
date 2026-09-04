@@ -10591,9 +10591,12 @@ def test_the_line_the_browser_suggests_is_one_a_new_installation_can_run (
 	project was read, and `SR#1438` is why the echo says it at all.
 	"""
 
+	#: `forms.js` since `#1849` split the browser into modules — the capture box went with the
+	#: rest of what a reader types into. The assertion below is what caught the path going
+	#: stale on the day it moved, which is the shape a scan over a path needs.
 	source = (
 		pathlib.Path(__file__).resolve().parent.parent
-		/ "src" / "subroutine" / "web" / "assets" / "app.js"
+		/ "src" / "subroutine" / "web" / "assets" / "forms.js"
 	).read_text(encoding="utf-8")
 
 	declared = re.search(r'export const CAPTURE_HINT = "([^"]+)";', source)
