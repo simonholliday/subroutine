@@ -85,7 +85,7 @@ export function people (roster) {
 		id: row.user.id,
 		username: row.user.username,
 		/* **`named` rather than a second wording** (`#1420`). This control said
-		   `claude-nuc14 (agent)` while a row beside it said `@claude-nuc14 (agent, @si)` —
+		   `claude-nuc14 (agent)` while a row beside it said `@claude-nuc14 (agent, @morpheus)` —
 		   two vocabularies for one roster, which is the thing the paragraph above objects to
 		   about *(bot)*, one field along. The accountable person is resolved on the server and
 		   arrives as `answers_to`; the browser holds no copy of the chain rule (`#925`).

@@ -1492,7 +1492,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 	**Wide enough for the longest thing it can say**, which is not a username: `#1414` puts
 	the agent marker and the accountable person in the same string, so the cell has to hold
-	`@claude-super (agent, @si)`. It wraps rather than truncating — a name cut mid-word is a
+	`@claude-super (agent, @morpheus)`. It wraps rather than truncating — a name cut mid-word is a
 	worse answer than a two-line cell, and `align-items: baseline` keeps the first line on
 	the title's line either way.
 */
@@ -1566,7 +1566,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	  fill is affordable and is what makes the left edge of every row scannable.
 	* **state** — what is true *now*: blocked, blocker, overdue, deferred, claimed, repeats.
 	  An outline, and colour only for the two that are problems.
-	* **address** — where it lives and whose it is. No box at all: `#ops` and `@si` carry
+	* **address** — where it lives and whose it is. No box at all: `#ops` and `@morpheus` carry
 	  quick capture's own sigils, and a project is the bare word beside them.
 */
 .mark.identity {

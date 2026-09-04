@@ -208,14 +208,14 @@ export function named (username, isAgent = false, answersTo = null, sigil = "@")
 		shares it between the two clients. `tests/test_assignee_surfaces.py` is what holds the
 		two to the same answer, which is `#1266`'s arrangement extended rather than a new one.
 
-		    @si                         a person
-		    @claude-super (agent, @si)  an agent, and who answers for it
-		    @claude-super (agent)       an agent whose chain does not reach a person
+		    @morpheus                         a person
+		    @claude-super (agent, @morpheus)  an agent, and who answers for it
+		    @claude-super (agent)             an agent whose chain does not reach a person
 
 		**The word, not a glyph** — `#102`, and the roster below already made this call in
 		writing. An icon may sit beside this and never instead of it.
 
-		**`sigil` is the caller's** (`#1420`). On a row `@si` sits beside `#ops` and a project
+		**`sigil` is the caller's** (`#1420`). On a row `@morpheus` sits beside `#ops` and a project
 		path, and the sigil is what makes three addresses tell themselves apart (`#1019`). In a
 		control whose every option is an account it distinguishes nothing, and a marker on every
 		row of a list is §12.2a's column that says the same thing everywhere. **The accountable

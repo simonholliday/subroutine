@@ -4437,7 +4437,7 @@ small response:
 {
   "api_version": "1.0",
   "server_time": "2026-07-28T14:03:11Z",
-  "principal": {"user": "si", "workspaces": [{"id": "…", "slug": "personal"}]},
+  "principal": {"user": "morpheus", "workspaces": [{"id": "…", "slug": "personal"}]},
   "statuses": {
     "task": [{"key": "open", "label": "Open", "category": "todo", "is_default": true}, …],
     "project": [ … ]

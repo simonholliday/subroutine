@@ -51,7 +51,7 @@ terminal:
 
 ```console
 $ subroutine login link
-  A sign-in link for si, good for the next 30 minutes.
+  A sign-in link for morpheus, good for the next 30 minutes.
 
   http://127.0.0.1:8471/signin?link=sr_lnk_…
 ```

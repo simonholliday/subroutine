@@ -143,7 +143,7 @@ export const MARK_ICONS = {
 	repeats: "repeat",
 	/* **Who the name on a row belongs to** (`#1421`, design `#1422`). Not a *state* — an
 	   assignee is an address, and these ride the address mark rather than making it a chip:
-	   `#1019`'s families are what stop a boxed `@si` reading as the same kind of thing as a
+	   `#1019`'s families are what stop a boxed `@morpheus` reading as the same kind of thing as a
 	   boxed status, which is the confusion those families were introduced to end. */
 	person: "user",
 	agent: "robot",
@@ -455,7 +455,7 @@ export function marks (
 		address.push({
 			text: label,
 			/* **No sigil, deliberately** (`#1019`, Simon). A project is the only mark that is
-			   an address, and `#ops` and `@si` beside it carry theirs — so a bare word is
+			   an address, and `#ops` and `@morpheus` beside it carry theirs — so a bare word is
 			   already the third distinguishable thing, and the collision this was written for
 			   (a sub-project sharing a tag's name) is settled by the *tag's* sigil.
 			   **Simon's stated reason expires**: he gave it as *the only linked item without a

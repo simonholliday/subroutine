@@ -819,7 +819,7 @@ breath.
     /opt/subroutine/bin/subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
   Created thomas
   thomas is now member in acme
-  Local commands will go on acting as si.
+  Local commands will go on acting as morpheus.
 
   They cannot get in yet. Either of these hands it over, and both is fine:
 
@@ -833,8 +833,8 @@ breath.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine user list --workspace acme
-  si      owner
-  thomas  member  Thomas Anderson
+  morpheus  owner
+  thomas    member  Thomas Anderson
 ```
 
 **The role is `member` unless you say otherwise**, and `--workspace` can be left out when there
@@ -1000,7 +1000,7 @@ who did what if the screen is ever used to write, and turning it off does not lo
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
   Nothing here will use it yet — '--store' is what records it on this machine.
-  Until then its shell acts as si, and nothing above bounds what it does there.
+  Until then its shell acts as morpheus, and nothing above bounds what it does there.
 ```
 
 The secret is the one thing masked on this page. Everything else is what the command printed.
@@ -1010,7 +1010,8 @@ agent runs on:
 
 ```console
   Written to /var/lib/subroutine/config/subroutine/credentials.toml as the agent on connection 'local'.
-  'subroutine' here acts as claude wherever CLAUDECODE is set, and as si otherwise.
+  'subroutine' here acts as claude wherever CLAUDECODE is set, and as morpheus
+  otherwise.
 ```
 
 Three things it does that doing it by hand does not.
@@ -1232,7 +1233,7 @@ a token is shown once and stored nowhere, so there is nothing to go back and loo
 ```console
 $ subroutine connections add work --url http://127.0.0.1:8471
 Token for work:
-Reached workshop as si, in acme.
+Reached workshop as morpheus, in acme.
 Added work to …/config.toml
 Its token is in …/credentials.toml, readable only by you.
 ```
@@ -1620,9 +1621,9 @@ there is nothing in that listing to leak, and the prefix is what revoking takes:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine token list
-  a1b2c3d4  si      My laptop        no expiry
+  a1b2c3d4  morpheus  My laptop        no expiry
             everything its owner can do · last used 2026-07-31
-  e5f6a7b8  claude  claude's token   until 2026-08-30
+  e5f6a7b8  claude    claude's token   until 2026-08-30
             task:read, task:write · in acme only · never used
 
 # sudo -u subroutine env \
@@ -1706,16 +1707,17 @@ answers, and when a backup was last taken.
   signing key   set
   cors_origins  empty, so only this instance's own pages may call it
   rate_limit    on, because this instance is published
-  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as si (person)
+  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as morpheus (person)
   backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.
 ```
 
-That is a real run on a published instance, pasted whole. **One token in it is not what the
+That is a real run on a published instance, pasted whole. **Two tokens in it are not what the
 command printed**: the backup directory, which on the machine this came from names a host, and
-a public page may not carry somebody's machine name. Everything else — the versions, the schema
-revision, the counts, the alignment — is as it came out.
+the account name, which was a real login — a public page carries neither, and `morpheus` is the
+operator throughout these pages. Everything else — the versions, the schema revision, the
+counts, the alignment — is as it came out.
 
 **A published instance prints these nine lines. An unpublished one prints eight**, and the
 difference is not the one you would guess: it shows a single `exposure` line saying nothing is

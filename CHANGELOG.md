@@ -354,7 +354,7 @@ upgrade involves.
   item itself said nothing, so a fifth draft read exactly like a first.
 
   ```
-    #42  active · revised 2 times by @si on Tue 1 Sep
+    #42  active · revised 2 times by @morpheus on Tue 1 Sep
   ```
 
   That mattered more than it sounds, because it decided which way people wrote. Correcting a
