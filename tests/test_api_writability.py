@@ -264,6 +264,11 @@ DERIVED: dict[str, str] = {
 		"thing a lease must not allow."
 	),
 	"status_category": "The fixed category of the status (§5.5); an installation names statuses, not categories.",
+	"status_label": (
+		"The workspace's own word for the status this item is in (`SR#1717`). Settable, but on "
+		"the *status* — `PATCH /v1/statuses/{id}` — and renaming one moves it for every item "
+		"in that state at once, which is the whole point of it being a vocabulary."
+	),
 	"type_category": "The fixed category of the type (`#1133`); the same rule one vocabulary along, and what a client draws by when it does not know the key.",
 	"status_id": "The id of the status named by `status`.",
 	"status_is_default": (

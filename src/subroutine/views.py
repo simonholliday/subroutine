@@ -188,6 +188,12 @@ class LinkEnd(pydantic.BaseModel):
 	#: *done* — a distinction ``is_complete`` deliberately does not make and which read as
 	#: `done` on the item page until this landed.
 	status: str = ""
+	#: The workspace's own word for that state, which is what a person is shown — `#1717`.
+	#: ``status`` stays the key because **an agent reads keys and sends them back**, and the
+	#: two are the same word only by luck: three of the four seeded task statuses are single
+	#: words whose key passes for a name, and ``needs_input`` is the first where it does not.
+	#: A workspace that renames one moves this and not the key.
+	status_label: str = ""
 	status_category: str = ""
 	status_is_default: bool = False
 
@@ -680,6 +686,9 @@ class Task(pydantic.BaseModel):
 	#: to print `blocked` while staying quiet about `open`, so it printed neither — and a
 	#: status somebody set was stored and then invisible everywhere.
 	status_is_default: bool = False
+	#: The workspace's own word for that state — `#1717`, and see :class:`Task` for why
+	#: the key stays beside it.
+	status_label: str = ""
 	type: str
 
 	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
@@ -2169,6 +2178,9 @@ class Project(pydantic.BaseModel):
 	status_id: uuid.UUID
 	#: Whether this is the status it starts in — see :class:`Task`, same reason (`#168`).
 	status_is_default: bool = False
+	#: The workspace's own word for that state — `#1717`, and see :class:`Task` for why
+	#: the key stays beside it.
+	status_label: str = ""
 
 	settings: dict[str, typing.Any]
 
@@ -2296,6 +2308,9 @@ class Document(pydantic.BaseModel):
 	status_id: uuid.UUID
 	#: Whether this is the status it starts in — see :class:`Task`, same reason (`#168`).
 	status_is_default: bool = False
+	#: The workspace's own word for that state — `#1717`, and see :class:`Task` for why
+	#: the key stays beside it.
+	status_label: str = ""
 	type: str
 
 	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
@@ -2771,7 +2786,11 @@ class Vocabulary:
 			session,
 			subroutine.db.models.vocabulary.Status,
 			status_ids,
-			("key", "category", "is_default"),
+			# **``label`` is the workspace's own word for this state** (`#1717`). One more
+			# column on a query that already runs, rather than a second query or a per-row
+			# read — a page of fifty rows would otherwise be fifty lookups for a string that
+			# is the same on most of them.
+			("key", "category", "is_default", "label"),
 		)
 		self.types = _by_id(
 			session,
@@ -3121,6 +3140,7 @@ def task (
 		parent_ref=_parent_field(vocabulary, row.parent_task_id, "ref"),
 		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
 		status=str(status.get("key", "")),
+		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
@@ -3256,6 +3276,7 @@ def document (
 		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_id=row.parent_id,
 		status=str(status.get("key", "")),
+		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
@@ -3819,6 +3840,7 @@ def project (
 		is_inbox=row.is_inbox,
 		owner_id=row.owner_id,
 		status=str(status.get("key", "")),
+		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,

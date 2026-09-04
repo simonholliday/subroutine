@@ -542,7 +542,13 @@ export function marks (
 	const said = new Set(states.map((mark) => mark.text.toLowerCase().replace(/[_ ]/g, " ")));
 	const status = item.status && !item.status_is_default && !hideStatus
 		&& !said.has(String(item.status).toLowerCase().replace(/[_ ]/g, " "))
-		? [{ text: item.status, family: "identity" }]
+		/* **The workspace's own word, falling back to the key** — `#1717`. The drop-down
+		   beside this has said the label since `offered` was written, so a row reading
+		   `needs_input` next to a control reading *Needs input* was one thing with two names on
+		   one screen. The fallback is not defensive tidiness: a client is upgraded before an
+		   instance is, which is the ordinary order, and an instance that does not send the
+		   field yet must render as it did rather than blank. */
+		? [{ text: item.status_label || item.status, family: "identity" }]
 		: [];
 
 	/*

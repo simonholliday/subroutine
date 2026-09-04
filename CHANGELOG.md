@@ -444,6 +444,16 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+- **An item shows the word your workspace uses for its state, not the key underneath it.**
+
+  A status carries both — `needs_input` and *Needs input* — and everything that showed one on a
+  row showed the key. In the browser you could see both at once: the chip on a card said
+  `needs_input` while the Status control beside it said *Needs input*.
+
+  It matters most for a status you named yourself. Rename one and every item in that state says
+  the new word; before, they went on showing the name it was created with. An agent still reads
+  and sends the key, which is what it is for.
+
 - **A board no longer offers to drag cards to somebody who may not move them.**
 
   A reader with a read-only role — or anybody using a credential narrowed to reads, which is

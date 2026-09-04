@@ -13458,6 +13458,50 @@ _A_CARD = {"ref": 1, "kind": "task", "title": "Cache the roster", "status": "ope
            "status_category": "todo", "status_is_default": True}
 
 
+def test_a_status_chip_says_the_workspaces_word_for_it (tmp_path: pathlib.Path) -> None:
+	"""`#1717`. The row said the key while the control beside it said the label.
+
+	`offered` has read ``label || key`` since it was written, so an open item's Status
+	drop-down said *Needs input* and the chip on the same page said ``needs_input`` — one thing
+	with two names, on one screen, which is `#913`.
+
+	**The fallback is asserted too, and it is a real case rather than defensive tidiness.** A
+	client is upgraded before an instance is — that is the ordinary order — so a browser served
+	by an instance a release behind receives no label, and must render as it did rather than
+	drawing a blank chip where a status used to be.
+
+	**The item's own example no longer reproduces, and the defect does.** `#1717` names
+	``needs_input``; `#1383` then gave that status a *Needs input* state mark, and `#1019`'s
+	silencing suppresses a status chip whose word a state mark has already said — so the pair
+	it was reported on cannot both appear any more. The fixture here is a status a workspace
+	invented, which is the case that matters most: this client cannot know its label by any
+	rule, only by being told.
+	"""
+
+	def chip (item: dict[str, typing.Any]) -> list[str]:
+		"""The identity-family mark, which is where a status lands."""
+
+		drawn = _addressing(tmp_path, [("marks", {
+			"item": item, "ordering": None, "place": {}, "linkable": False,
+		})])[0]
+
+		return [one["text"] for one in drawn if one["family"] == "identity"]
+
+	labelled = {"ref": 1, "kind": "task", "title": "Ask", "status": "in_review",
+	            "status_label": "In review", "status_is_default": False}
+
+	assert chip(labelled) == ["In review"], (
+		f"the row shows the key where the control beside it shows the label: {chip(labelled)}"
+	)
+
+	behind = {key: value for key, value in labelled.items() if key != "status_label"}
+
+	assert chip(behind) == ["in_review"], (
+		f"an instance that does not send the label yet left the chip blank rather than "
+		f"rendering as it did before: {chip(behind)}"
+	)
+
+
 def test_a_tag_and_an_assignee_are_links_that_narrow_the_view (tmp_path: pathlib.Path) -> None:
 	"""`#1020`, Simon: *"these probably should be links, and view should support filtering."*
 

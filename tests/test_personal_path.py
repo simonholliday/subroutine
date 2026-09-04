@@ -516,6 +516,38 @@ def test_a_listing_says_which_rows_are_waiting_on_a_person (
 	)
 
 
+def test_show_says_the_workspaces_word_for_a_state_not_its_key (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1717`. `needs_input` reads as a database field; *Needs input* is what was seeded.
+
+	**§13.5b's own subject**, one field along: this path is the one a person meets before they
+	have learnt any of the vocabulary, and a snake_case key is exactly the kind of word that
+	tells them they are looking at somebody's schema. `SR#168` made `show` print a status
+	somebody chose; it printed the wrong spelling of it from that day.
+
+	**The browser said both at once**, which is how it surfaced: a row's chip said the key while
+	the Status control beside it said the label, because `offered` reads ``label || key`` and
+	`marks` read the key.
+
+	**The key is asserted absent, not merely the label present.** Printing both would satisfy a
+	test that only looked for the word, and would be the same defect with more of it.
+	"""
+
+	run("init")
+	run("add", "Needs a decision from you")
+	run("update", "1", "--status", "needs_input")
+
+	shown = run("show", "1").output
+
+	assert "Needs input" in shown, (
+		f"the state is shown as the key rather than the word this workspace uses:\n{shown}"
+	)
+	assert "needs_input" not in shown, (
+		f"the key reached a path §13.5b keeps its vocabulary off:\n{shown}"
+	)
+
+
 def test_the_mark_and_the_agendas_section_read_one_key (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

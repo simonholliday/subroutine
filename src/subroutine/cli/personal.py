@@ -11527,7 +11527,14 @@ def _facts (located: Located) -> list[str]:
 	# written out here and in `mcp/tools._more` identically, which is fine for two and is how
 	# every duplicated rule in this codebase started.
 	if subroutine.views.status_is_news(item):
-		facts.append(item.status)
+		# **The workspace's own word, falling back to the key** (`#1717`). This printed
+		# `needs_input` — snake_case, reading as a database field — while the browser's control
+		# beside it said *Needs input*. Three of the four seeded task statuses are single words
+		# whose key passes for a name, which is why it took a fifth to notice.
+		#
+		# **The fallback carries a real case rather than being defensive**: a client is
+		# upgraded before an instance is, and one that is a release behind sends no label.
+		facts.append(item.status_label or item.status)
 
 	if isinstance(item, subroutine.views.Task):
 		# **`_priority_cell`, not a second literal.** This printed `!4/u3` where the listing

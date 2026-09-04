@@ -86,6 +86,70 @@ def test_a_status_can_be_added_renamed_and_removed (world: test_api_tasks.World)
 	assert not [row for row in _statuses(world, entity_type="task") if row["key"] == "reviewing"]
 
 
+def test_a_task_reports_the_word_its_workspace_uses_for_its_state (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1717`. The key is for an agent; the label is what a person is shown.
+
+	A status carries a ``label`` — seeded as *Needs input*, *Blocked*, *On hold*, and settable
+	here — and every surface that showed a status on a row rendered the **key** instead. The
+	browser did both at once on one page: the row's chip said ``needs_input`` and the Status
+	drop-down beside it said *Needs input*, because the control read ``label || key`` and the
+	row read the key. One thing, two names, one screen.
+
+	**Nobody noticed because three of the four seeded task statuses are single words whose key
+	passes for a name** — ``open``/*Open*, ``blocked``/*Blocked*, ``done``/*Done*. ``needs_input``
+	is the first where it does not.
+
+	**The rename is what makes this unfakeable.** Asserting the seeded label alone would pass
+	against a surface that title-cases the key and replaces underscores, which is a rendering
+	that looks right until somebody uses this route — and then goes on showing the old word for
+	every item in that state.
+
+	**``status`` must not move with it**, and that is not symmetry for its own sake:
+	`state_is_news_in_a_listing`'s rule is that an agent reads keys and sends them back, so a
+	view that swapped one for the other would break every caller round-tripping a status.
+	"""
+
+	made = world.call(
+		"POST",
+		"/v1/statuses",
+		json={
+			"entity_type": "task", "key": "in_review",
+			"label": "In review", "category": "in_progress",
+		},
+	)
+
+	assert made.status_code == 201, made.text
+	which = made.json()["id"]
+
+	task = world.call("POST", "/v1/tasks", json={"title": "Cache the roster"})
+
+	assert task.status_code == 201, task.text
+	ref = task.json()["ref"]
+
+	moved = world.call("PATCH", f"/v1/tasks/{ref}", json={"status": "in_review"})
+
+	assert moved.status_code == 200, moved.text
+	assert moved.json()["status"] == "in_review", "the key is what a caller sends and reads back"
+	assert moved.json()["status_label"] == "In review", moved.text
+
+	renamed = world.call("PATCH", f"/v1/statuses/{which}", json={"label": "Being reviewed"})
+
+	assert renamed.status_code == 200, renamed.text
+
+	after = world.call("GET", f"/v1/tasks/{ref}")
+
+	assert after.status_code == 200, after.text
+	assert after.json()["status_label"] == "Being reviewed", (
+		f"a workspace renamed a status and the item still reports the old word: {after.text}"
+	)
+	assert after.json()["status"] == "in_review", (
+		f"the key moved with the label, so an agent round-tripping a status would send a name "
+		f"the endpoint does not take: {after.text}"
+	)
+
+
 def test_a_status_cannot_change_what_it_means (world: test_api_tasks.World) -> None:
 	"""``category`` is settable once and is refused on a change.
 

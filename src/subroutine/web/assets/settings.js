@@ -175,7 +175,7 @@ export const TASK_FIELDS = [
 	   of the sentence is the fact and asking for `recurrence_rule` instead would make the
 	   browser hold a copy of the grammar to read it. */
 	"recurrence_description",
-	"status", "status_is_default", "status_category",
+	"status", "status_label", "status_is_default", "status_category",
 	/* **What kind of thing this is** (`#764`) — a bug, a decision, a chore. A row showed
 	   `Task` or `Document`, which answers what shape it has and not what it is about, and
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
@@ -238,7 +238,7 @@ export const DOCUMENT_FIELDS = [
 	/* `#1148`, and both kinds ask for it for one reason: the strip says the kind on every card,
 	   so a chip repeating the default type is the same word twice (§12.2a). */
 	"type_is_default",
-	"ref", "title", "project_key", "project_path", "status", "status_is_default",
+	"ref", "title", "project_key", "project_path", "status", "status_label", "status_is_default",
 	/* `#1027`, and both kinds ask for it: a document lives in a project exactly as a task
 	   does, so a listing of decisions is marked the same way a listing of bugs is. */
 	"project_colour",

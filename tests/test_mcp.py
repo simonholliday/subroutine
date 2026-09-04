@@ -6185,6 +6185,14 @@ def _read_by (module: typing.Any, function: str, variable: str) -> set[str]:
 #: and why. Each has to say what an agent gets instead — `#820`'s rule, applied to a register
 #: about a rendering rather than about a column.
 NOT_SHOWN_TO_AN_AGENT: dict[str, str] = {
+	"status_label": (
+		"The workspace's own word for the state, which is what a *person* is shown (`SR#1717`). "
+		"An agent gets `status`, the key, in the same place — and that is the whole point of "
+		"there being two: `state_is_news_in_a_listing`'s rule is that an agent reads a key and "
+		"sends it back, so handing it *Needs input* where it must send `needs_input` would be "
+		"a value the endpoint refuses. Sharing the *question* is what keeps the two surfaces "
+		"honest; sharing the rendering would be the fault."
+	),
 	"timezone": (
 		"Used to render an instant in the zone that stored it, which is a courtesy to a "
 		"person reading a day name. This surface sends ISO instants and lets the model do "
