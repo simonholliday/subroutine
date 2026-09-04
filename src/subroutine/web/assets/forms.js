@@ -125,10 +125,10 @@ export function Fields ({
 	const day = ([name, label, hint, timed]) => html`
 		<label key=${name}><span>${label}</span>
 			<span class="when">
-				<input type="date" name=${name} disabled=${busy}
+				<input class="field" type="date" name=${name} disabled=${busy}
 					defaultValue=${held[name] || ""} />
 				${timed && html`
-					<input type="time" name=${`${name}_time`} disabled=${busy}
+					<input class="field" type="time" name=${`${name}_time`} disabled=${busy}
 						aria-label=${`${label}, time`} defaultValue=${held[`${name}_time`] || ""} />
 				`}
 			</span>
@@ -137,7 +137,7 @@ export function Fields ({
 
 	const rank = (name, label) => html`
 		<label><span>${label}</span>
-			<select name=${name} disabled=${busy}>
+			<select class="field" name=${name} disabled=${busy}>
 				<option value="" selected=${!held[name]}>—</option>
 				${PRIORITIES.map((one) => html`
 					<option key=${one.value} value=${one.value}
@@ -148,7 +148,7 @@ export function Fields ({
 
 	const vocabularySelect = (name, label, options) => html`
 		<label><span>${label}</span>
-			<select name=${name} disabled=${busy || options.length === 0}>
+			<select class="field" name=${name} disabled=${busy || options.length === 0}>
 				${options.map((one) => html`
 					<option key=${one.key} value=${one.key}
 						selected=${held[name] ? held[name] === one.key : one.chosen}>
@@ -185,7 +185,7 @@ export function Fields ({
 			))}
 
 			<label><span>Assignee</span>
-				<select name="assignee" disabled=${busy}>
+				<select class="field" name="assignee" disabled=${busy}>
 					<option value="" selected=${!held.assignee}>Nobody</option>
 					${(members || []).map((one) => html`
 						<option key=${one.username} value=${one.username}
@@ -197,7 +197,7 @@ export function Fields ({
 			${rank("urgency", "Urgency")}
 
 			<label><span>Estimate</span>
-				<input name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d"
+				<input class="field" name="estimate" disabled=${busy} placeholder="2h, 90m, 1w2d"
 					defaultValue=${held.estimate || ""} /></label>
 
 			${/*
@@ -221,7 +221,7 @@ export function Fields ({
 			${DATE_FIELDS.map(day)}
 
 			<label class="wide"><span>Tags</span>
-				<input name="tags" disabled=${busy} placeholder="health, admin"
+				<input class="field" name="tags" disabled=${busy} placeholder="health, admin"
 					defaultValue=${held.tags || ""} /></label>
 
 			<${Repeats} busy=${busy} held=${held} reading=${reading} onReading=${onReading} />
@@ -291,7 +291,7 @@ export function Repeats ({ busy, held, reading, onReading }) {
 			     which is what makes the shim's answer look right. */ null}
 			<div class="fields">
 				<label class="wide"><span>How often</span>
-					<input name="recurrence" disabled=${busy} defaultValue=${rule}
+					<input class="field" name="recurrence" disabled=${busy} defaultValue=${rule}
 						placeholder="every other tuesday"
 						onInput=${onReading && ((event) => onReading(event.target.value))} />
 					<small>Leave it empty to stop repeating.</small></label>
@@ -301,7 +301,7 @@ export function Repeats ({ busy, held, reading, onReading }) {
 				     rent and three days after you last did it to somebody watering plants,
 				     and there is no way to tell those apart from the words. */ null}
 				<label><span>Measured from</span>
-					<select name="recurrence_anchor" disabled=${busy}>
+					<select class="field" name="recurrence_anchor" disabled=${busy}>
 						${ANCHORS.map(([value, label]) => html`
 							<option key=${value} value=${value}
 								selected=${anchor ? anchor === value : value === "schedule"}
@@ -404,7 +404,7 @@ export function DocumentFields ({
 
 	const pick = (name, label, options) => html`
 		<label><span>${label}</span>
-			<select name=${name} disabled=${busy || options.length === 0}>
+			<select class="field" name=${name} disabled=${busy || options.length === 0}>
 				${options.map((one) => html`
 					<option key=${one.key} value=${one.key}
 						selected=${held[name] ? held[name] === one.key : one.chosen}>
@@ -485,7 +485,7 @@ export function Adding ({
 				     is a line of prose exactly as a task's is, and the capture grammar is
 				     simply not applied to it — so the control does not move, change size or
 				     acquire a second spelling for what somebody types into it. */ null}
-				<input name="text" required disabled=${busy}
+				<input class="field" name="text" required disabled=${busy}
 					aria-label=${writing ? "The document's title" : "Add an item"}
 					placeholder=${writing ? DOCUMENT_HINT : CAPTURE_HINT} />
 				<button type="submit" class="primary" disabled=${busy}
@@ -508,7 +508,7 @@ export function Adding ({
 			${expanded && onWriting && html`
 				<div class="kind">
 					<label><span>Writing</span>
-						<select disabled=${busy}
+						<select class="field" disabled=${busy}
 							onChange=${(event) => onWriting(event.target.value === "document")}>
 							<option value="task" selected=${!writing}>A task</option>
 							<option value="document" selected=${Boolean(writing)}
@@ -564,7 +564,7 @@ export function Editing ({
 	return html`
 		<form class="adding editing" onSubmit=${submit}>
 			<div class="line">
-				<input name="title" required disabled=${busy} aria-label="Title"
+				<input class="field" name="title" required disabled=${busy} aria-label="Title"
 					defaultValue=${item.title} />
 				<button type="submit" class="primary" disabled=${busy}>Save</button>
 				${/* **Quiet, because it changes nothing** — design `#1045`. It wore `More`'s

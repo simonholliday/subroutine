@@ -562,6 +562,50 @@ fieldset {
 	keeps its size, its place and its primacy whether or not the rest is open — a form that
 	pushed it aside would be the replacement §1.4 forbids rather than the disclosure it is.
 */
+/*
+	**One appearance for every control a reader types into** — `#1855`, the first of `#1848`'s
+	primitives and the one the measurement asked for.
+
+	Four screens each wrote this out: `.adding`, `.seeking`, `.linking` and `.saying`, and the
+	same four declarations appeared in all of them — the border and padding, the focus ring, the
+	placeholder colour and the disabled treatment. `#1445`'s three settings scopes would have
+	made it seven. Four idioms for four screens is one per screen, which is the definition of
+	not scaling.
+
+	**And they had already drifted, which is what makes this a defect rather than tidiness.**
+	`.adding :disabled` said `opacity: 0.5` where `.seeking` and `.linking` said
+	`opacity: 0.5; cursor: default`, so a disabled control in the capture box showed a text
+	cursor and the identical control in the search box showed an arrow. Nobody chose that; it is
+	what four copies do.
+
+	**`font: inherit` on all three** because a browser's defaults for an input, a select and a
+	textarea are three different fonts at three different sizes.
+
+	**A class rather than an element selector**, so a control that wants to look like something
+	else — a bare checkbox, a range — is not fighting a rule it never asked for. `#906`'s tokens
+	are unchanged: this composes them rather than replacing any.
+*/
+.field {
+	min-width: 0;
+	padding: var(--control-field);
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink);
+	font: inherit;
+}
+
+textarea.field { resize: vertical; }
+
+.field:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
+
+.field::placeholder { color: var(--ink-faint); }
+
+/* **`cursor` only**, because `button:disabled, input:disabled, …` above already dims every
+   control on the page — the four copies of `opacity: 0.5` this replaces were all restating a
+   rule they had inherited. */
+.field:disabled { cursor: default; }
+
 /* **A form keeps the reading measure wherever it is opened** (`#863`). `#846`'s own comment
    says 1100px is "right for a list, a document and a form, and wrong for a board" — and then
    put `wide` on the *frame*, so the board's width reached the form standing above it. The
@@ -584,30 +628,6 @@ fieldset {
 }
 
 .adding .line input { flex: 1 1 auto; }
-
-/* One appearance for every control, so a field in the form and the box above it read as the
-   same kind of thing. `font: inherit` on all three because a browser's defaults for an input,
-   a select and a textarea are three different fonts at three different sizes. */
-.adding input,
-.adding select,
-.adding textarea {
-	min-width: 0;
-	padding: var(--control-field);
-	background: var(--bg-raised);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink);
-	font: inherit;
-}
-
-.adding textarea { resize: vertical; }
-
-.adding input:focus-visible,
-.adding select:focus-visible,
-.adding textarea:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
-
-.adding input::placeholder { color: var(--ink-faint); }
-.adding :disabled { opacity: 0.5; }
 
 /* Layout only; the look is `.primary` (design `#1045`). */
 .adding button { flex: 0 0 auto; }
@@ -769,19 +789,8 @@ fieldset {
 	max-width: 420px;
 }
 
-.seeking input {
-	flex: 1 1 auto;
-	min-width: 0;
-	padding: var(--control-field);
-	background: var(--bg-raised);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink);
-	font: inherit;
-}
-
-.seeking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
-.seeking input::placeholder { color: var(--ink-faint); }
+/* Layout only; the appearance is `.field` (`#1855`). */
+.seeking input { flex: 1 1 auto; }
 
 /* Layout only; the look is `.action`. */
 .seeking button { flex: 0 0 auto; }
@@ -813,21 +822,9 @@ fieldset {
 	flex-wrap: wrap;
 }
 
-.linking select,
-.linking input {
-	padding: var(--control-field);
-	background: var(--bg-raised);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink);
-	font: inherit;
-}
-
+/* Layout only; the appearance is `.field` (`#1855`). A ref is short, so this one control is
+   sized to what it holds rather than to the row. */
 .linking input { width: 7em; }
-
-.linking select:focus-visible,
-.linking input:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
-.linking input::placeholder { color: var(--ink-faint); }
 
 
 .linking :disabled { opacity: 0.5; cursor: default; }
@@ -870,19 +867,8 @@ fieldset {
 	margin-top: var(--space-6);
 }
 
-.saying textarea {
-	width: 100%;
-	padding: var(--control-field);
-	background: var(--bg-raised);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius);
-	color: var(--ink);
-	font: inherit;
-	resize: vertical;
-}
-
-.saying textarea:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
-.saying textarea::placeholder { color: var(--ink-faint); }
+/* Layout only; the appearance is `.field` (`#1855`). */
+.saying textarea { width: 100%; }
 
 
 

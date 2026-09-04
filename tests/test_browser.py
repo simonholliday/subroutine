@@ -1744,6 +1744,64 @@ def _structural (selector: str) -> str | None:
 	return base if base and base != "*" else None
 
 
+def test_every_control_a_reader_types_into_looks_the_same (reaching: typing.Any) -> None:
+	"""One appearance, in one place — `#1855`, the first of `#1848`'s primitives.
+
+	**Four screens each wrote it out**: `.adding`, `.seeking`, `.linking` and `.saying`, and the
+	same declarations appeared in all four — the border and padding, the focus ring, the
+	placeholder colour, the disabled treatment. Four idioms for four screens is one per screen,
+	which is the definition of not scaling; `#1445`'s three settings scopes would have made it
+	seven.
+
+	**And they had already drifted, which is what makes it a defect rather than tidiness.**
+	`.adding :disabled` said `opacity: 0.5` where two siblings said
+	`opacity: 0.5; cursor: default`, so a disabled control in the capture box showed a text
+	cursor and the identical control in the search box showed an arrow. Nobody chose that.
+
+	**Computed rather than read out of the stylesheet**, which is the whole reason `#1723`
+	exists: a scan can see that four copies became one and cannot see whether the survivor
+	reaches every control. What a reader meets is a border, and this asks the browser for it.
+
+	**Falsified** by putting one screen's copy back, which changes nothing a stylesheet scan
+	would notice and moves nothing here either — because the copies were identical. What it
+	catches is the *next* divergence, which is the one that matters: drop `class="field"` from
+	any of the four and its controls fall back to the browser's own look.
+	"""
+
+	showing, _names = reaching
+	looked = {}
+
+	for component, selector in (
+		("Adding", "input.field"),
+		("Seeking", "input.field"),
+		("Linking", "select.field"),
+		("Written", "textarea.field"),
+	):
+		page = showing(component)
+		looked[component] = _computed(page, selector, 0)
+
+		assert looked[component], (
+			f"{component} draws no control carrying `field`, so its appearance is whatever the "
+			f"browser decided rather than what this app did"
+		)
+
+	first, *rest = looked.items()
+
+	for component, style in rest:
+		assert style == first[1], (
+			f"a control in {component} does not look like the one in {first[0]}, which is the "
+			f"four idioms drifting again:\n  {first[0]}: {first[1]}\n  {component}: {style}"
+		)
+
+	#: **`TELLS` is the register this file measures with**, and `border-top-width` in it is what
+	#: makes the agreement above mean something: four controls agreeing on *no* border is also
+	#: what an unstyled page looks like, and is the shape a check like this passes by accident.
+	assert first[1]["border-top-width"] not in ("", "0px"), (
+		f"every control agreed on having no border at all, which is what a page with no "
+		f"stylesheet looks like: {first[1]}"
+	)
+
+
 def test_every_selector_in_the_stylesheet_reaches_something (
 	reaching: typing.Any,
 ) -> None:
@@ -1853,6 +1911,15 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**And a list of forbidden words was the version before that**, which failed on its own
 	list — `#546`'s shape for the third time here, and ``tests/dom.js`` records the same trap
 	arriving through the word *click* inside the sentence forbidding it.
+
+	**Raised again on 2026-09-04 for `#1855`, and the case is the one this file was written
+	for.** The addition asks whether a control in each of four screens *looks the same* — a
+	computed border, padding and font, taken from a real cascade. `#1855` folded four copies of
+	that appearance into one class, and a stylesheet scan can see that four became one while
+	being structurally unable to see whether the survivor reaches every control: `#1826` settled
+	for exactly such a scan and recorded that it could not see a scoped rule reaching a heading,
+	and ``tests/dom.js`` has no CSS engine at all. What a reader meets is a border, and only a
+	browser knows what it is.
 
 	**Raised to twelve on 2026-08-13 for `#846`, and it is the clearest raise so far.**
 	``#748`` named three things this file exists for — a modified click, **layout**, and
@@ -2265,7 +2332,7 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 41, (
+	assert len(tests) <= 42, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "

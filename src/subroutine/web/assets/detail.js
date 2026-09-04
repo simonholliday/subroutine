@@ -586,12 +586,12 @@ export function Linking ({ onLink, types, busy }) {
 
 	return html`
 		<form class="linking" onSubmit=${submit}>
-			<select name="link_type" disabled=${busy} aria-label="How they are related">
+			<select class="field" name="link_type" disabled=${busy} aria-label="How they are related">
 				${types.map((one) => html`
 					<option key=${one.value} value=${one.value}>${one.label}</option>
 				`)}
 			</select>
-			<input name="target" required disabled=${busy} inputMode="numeric"
+			<input class="field" name="target" required disabled=${busy} inputMode="numeric"
 				aria-label="Which item" placeholder="#42" />
 			<button type="submit" class="primary" disabled=${busy}>Link</button>
 		</form>
@@ -624,7 +624,7 @@ export function Seeking ({ onSearch, asked, busy }) {
 
 	return html`
 		<form class="seeking" onSubmit=${submit} role="search">
-			<input key=${asked} name="q" type="search" disabled=${busy}
+			<input class="field" key=${asked} name="q" type="search" disabled=${busy}
 				defaultValue=${asked} aria-label="Search"
 				placeholder="Search anything" />
 			${/* **An action, not a primary** — Simon, 2026-08-20. It is this form's submit, and
@@ -712,7 +712,7 @@ export function Written ({
 			${/* **Hidden rather than unmounted**, so an uncontrolled field keeps what is in
 			     it — see above. `hidden` and not a class, because a hidden form control is
 			     still submitted and still readable, which is exactly what is wanted. */ null}
-			<textarea name=${name} rows=${rows} disabled=${busy} required=${required}
+			<textarea class="field" name=${name} rows=${rows} disabled=${busy} required=${required}
 				hidden=${showing} placeholder=${placeholder} aria-label=${label}
 				defaultValue=${value}></textarea>
 
