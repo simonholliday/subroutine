@@ -140,8 +140,17 @@ def test_the_probe_would_notice_a_shape_that_is_wrong (tmp_path: pathlib.Path) -
 		json.dumps({"name": "broken", "version": "0.0.1", "description": "shape probe"}),
 		encoding="utf-8",
 	)
+	# **A real event with the wrong shape, not an event nobody has heard of** (`#2097`). This
+	# declared `WhenTheMoonIsFull`, and Claude Code 2.1.260 downgraded an unrecognised event
+	# name to a warning — *unknown hook event; entry ignored at runtime*, then
+	# `✔ Validation passed with warnings` and exit 0. So the probe stopped probing, silently,
+	# because somebody else's program got more lenient.
+	#
+	# A malformed `PreToolUse` is refused outright and is the better subject anyway: this test
+	# is named for a *shape* that is wrong, and what it drove was an unknown *name*. The two
+	# were one thing until the validator started treating them differently.
 	(plugin / "hooks" / "hooks.json").write_text(
-		json.dumps({"hooks": {"WhenTheMoonIsFull": "not a list"}}), encoding="utf-8"
+		json.dumps({"hooks": {"PreToolUse": "not a list"}}), encoding="utf-8"
 	)
 
 	checked = subprocess.run(
@@ -151,7 +160,11 @@ def test_the_probe_would_notice_a_shape_that_is_wrong (tmp_path: pathlib.Path) -
 		timeout=120,
 	)
 
-	assert checked.returncode != 0, "the validator accepts anything, so the check above is empty"
+	assert checked.returncode != 0, (
+		"the validator accepts anything, so the check above is empty. If it now merely warns "
+		"about this, find a fault it still refuses rather than deleting the probe — the gate's "
+		"validate steps are worth nothing unless something is known to fail them."
+	)
 
 
 def test_it_writes_a_session_end_hook_and_says_what_it_cannot_check (
