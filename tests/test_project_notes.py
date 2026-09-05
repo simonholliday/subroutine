@@ -116,19 +116,30 @@ _FEWEST_PATHS = 40
 #: 252 KB — and it was **375 KB four days later**, about 25 KB a day. Three cuts and no
 #: instrument, so each one bought a fortnight.
 #:
-#: **Derived, and here is the arithmetic.** The cut of 2026-09-04 (`#2061`, `#2062`) left
-#: **284,926** bytes; that session then recorded itself in **5,082**. So the allowance is two
-#: session records — enough that a session can write down what it did without turning the gate
-#: red for doing its job, and not enough to absorb a week of it. Bytes, not characters: this
-#: file is full of em-dashes and curly quotes and the two counts differ by about 1,700.
+#: **Derived, and here is the arithmetic.** `#64`'s careful pass on 2026-09-05 left **226,650**
+#: bytes; a session that puts its findings on the items records itself in about **5,000**. The
+#: allowance is two of those — enough that a session can write down what it did without turning
+#: the gate red for doing its job, and not enough to absorb a week of it. Bytes, not characters:
+#: this file is full of em-dashes and curly quotes and the two counts differ by about 1,700.
+#:
+#: **The previous number was 300,200 against 297,286, and that was too tight to be useful.** It
+#: went red on the very next session, which forced an unplanned cut in the middle of unrelated
+#: work. A ceiling wants to be reachable on schedule rather than by ambush, so 10 KB of headroom
+#: is deliberate — one session records, the next is warned, the third has to cut.
 #:
 #: **Lower it after a cut, never raise it after a session.** That is the whole discipline, and
 #: it is the same one `#943`'s command-surface ratchet runs on: the remedy for a red build here
 #: is to move a dated section into the instance — `subroutine doc create`, verified byte for
-#: byte, the way all four of the existing records were made — rather than to change this number.
-#: Growth refused on the day it happens is the point; `#64` is the paying-down half, and it
-#: stays open because 285 KB is smaller than 375 and is not yet *what only this file can say*.
-_LARGEST = 300_200
+#: byte, the way all six of the existing records were made — rather than to change this number.
+#:
+#: **The method, because the cut is the hard part and it is not a range.** Rules and traps are
+#: interleaved with the narrative at section granularity, so it is a per-section judgement:
+#: assert every heading unique, remove in reverse order so an earlier removal cannot shift a
+#: later anchor, then account for every removed line against the stored document. And **lift out
+#: anything a section is the only copy of before moving it** — the 2026-09-05 pass rescued four
+#: live traps and one outstanding action that way, each of which would otherwise have gone
+#: silently, which is the failure this instrument cannot itself detect.
+_LARGEST = 237_000
 
 pytestmark = pytest.mark.skipif(
 	not NOTES.exists(),
