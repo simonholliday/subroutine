@@ -36,6 +36,7 @@ import starlette.requests
 
 import api_support
 import conftest
+import subroutine.addressing
 import subroutine.api.app
 import subroutine.api.documents
 import subroutine.api.pagination
@@ -336,6 +337,68 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	"Wordmark": {"version": "0.6.7"},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
+	# **The directory `#1397` draws, and the three samples divide its branches between them.**
+	#
+	# `Roles` renders the populated half — two roles, so the separator between them is drawn and
+	# not only the pair it separates. The *empty* half cannot be a second sample of the same
+	# component, so it is reached through `People` below, which holds somebody with no role
+	# anywhere; that is the row the em dash exists for.
+	"Roles": {
+		"held": [
+			{"slug": "projects", "title": "Projects", "role": "admin"},
+			{"slug": "personal", "title": "Personal", "role": "member"},
+		],
+	},
+	# An agent, because that is the row with the most in it: the glyph, the word *agent*, and
+	# the person it answers for — which `named` composes and this only has to place.
+	#
+	# **Two roles rather than one**, and the stylesheet guard is what settled that. The
+	# separator between them is styled as `.principal .roles .between` — a descendant of the
+	# row — so `Roles` on its own cannot reach it however many roles it is given, and a
+	# `Principal` holding one role draws no separator at all. The rule matched nothing, which
+	# is exactly the death `test_every_selector_in_the_stylesheet_reaches_something` exists to
+	# report.
+	"Principal": {
+		"person": {
+			"username": "claude-super",
+			"is_service_account": True,
+			"is_active": True,
+			"answers_to": "morpheus",
+		},
+		"held": [
+			{"slug": "projects", "title": "Projects", "role": "member"},
+			{"slug": "sandbox", "title": "Sandbox", "role": "viewer"},
+		],
+	},
+	# **The page, and the three branches no other sample reaches**: the caveat shown when a
+	# workspace could not be read, somebody who has left, and somebody holding no role at all.
+	# `asked` above `reached` on purpose — a directory that read every workspace says nothing,
+	# and the sentence only exists for the case where it could not.
+	"People": {
+		"people": [
+			{
+				"username": "morpheus",
+				"is_service_account": False,
+				"is_active": True,
+				"answers_to": None,
+			},
+			{
+				"username": "thomas",
+				"is_service_account": False,
+				"is_active": False,
+				"answers_to": None,
+			},
+		],
+		"rosters": [
+			{
+				"slug": "projects",
+				"title": "Projects",
+				"members": [{"user": {"username": "morpheus"}, "role": "admin"}],
+			},
+		],
+		"asked": 2,
+		"reached": 1,
+	},
 }
 
 #: The one case with its own branch, and the one a reader is likeliest to meet: a page loaded
@@ -382,7 +445,8 @@ def _bare_imports (text: str) -> set[str]:
 #: stops this list going stale the day somebody adds a fourteenth.
 APP_MODULES = (
 	"app.js", "address.js", "answers.js", "chrome.js", "dates.js", "detail.js", "forms.js",
-	"grouping.js", "html.js", "marks.js", "places.js", "requests.js", "rows.js", "settings.js",
+	"grouping.js", "html.js", "marks.js", "people.js", "places.js", "requests.js", "rows.js",
+	"settings.js",
 )
 
 #: Ours, in this directory, and not part of the app: each needs a reason to be here.
@@ -7901,6 +7965,11 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# failures is what made it permanent.
 		("pollRequest", [place.slug, None]),
 		("rosterRequest", [place.slug]),
+		# **The directory `#1397` draws, and it is deliberately not the roster above.**
+		# `rosterRequest` answers *who can be handed work in this workspace*; this answers *who is
+		# on this installation*, which includes an agent belonging to no workspace at all. Two
+		# questions, two routes, and the people page asks both — so both are driven.
+		("peopleRequest", []),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -15122,4 +15191,203 @@ def test_the_control_for_whose_work_is_absent_when_there_is_nobody_to_choose (
 
 	assert "Assigned to" not in page["said"], (
 		f"a control was drawn with nobody to choose from: {page['said']!r}"
+	)
+
+
+# --------------------------------------------------------------------------------------
+# Who is on this instance — `#1397`, the browser's administrative area
+# --------------------------------------------------------------------------------------
+
+
+def test_every_area_the_browser_claims_is_refused_as_a_workspace_name (
+	tmp_path: pathlib.Path
+) -> None:
+	"""The two copies of *what the browser has taken* are held against each other.
+
+	**This is the guard the feature turns on.** `/people` reaches the page through no route at
+	all — `api.web.unmatched` answers a 404 with the shell whenever the request is a navigation
+	— so nothing derived from the routing table can see it, and `ROUTED_WORKSPACE_WORDS` is
+	asserted *equal* to those root segments and therefore cannot hold it either.
+
+	What is left is two hand-written lists on two surfaces, which is this codebase's signature
+	defect waiting to happen: `AREAS` in the browser and `BROWSER_WORKSPACE_WORDS` on the
+	server. **Let them part company and a workspace can be created that is listed and
+	unreachable** — `#678`, verbatim, whose own words are that such a workspace "exists, is
+	listed, and can never be reached".
+
+	Containment rather than equality, in that direction: a word may be reserved before the page
+	that claims it exists, and reserving ahead costs nothing where un-reserving would cost
+	somebody their workspace name. An area with no reservation is the defect.
+	"""
+
+	claimed = set(_ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.AREAS));
+	"""))
+
+	assert claimed, "the browser claims no areas, so this is checking nothing"
+	assert claimed <= subroutine.addressing.BROWSER_WORKSPACE_WORDS, (
+		f"{sorted(claimed - subroutine.addressing.BROWSER_WORKSPACE_WORDS)} are addresses the "
+		f"browser answers and names a workspace may still be given. A workspace called one of "
+		f"them would be listed and unreachable, which is `#678` exactly."
+	)
+
+
+def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
+	"""`parseAddress` must refuse an area, or every caller downstream acts on a place.
+
+	The address is read twice for two different questions and exactly one answer is non-null.
+	Without the refusal `/people` resolves to a workspace called `people`, and the title, the
+	switcher and the listing's scope would each narrow to somewhere that does not exist —
+	silently, because a slug this reader cannot see falls back rather than failing.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			area: app.areaOf("/people"),
+			deeper: app.areaOf("/people/anything"),
+			workspace: app.areaOf("/projects"),
+			root: app.areaOf("/"),
+			parsed: app.parseAddress("/people"),
+			ordinary: app.parseAddress("/projects/1712"),
+		}}));
+	""")
+
+	assert answers["area"] == "people"
+	assert answers["deeper"] == "people", "an area owns everything under it, not just its root"
+	assert answers["workspace"] is None, "a workspace must not be read as an area"
+	assert answers["root"] is None
+
+	assert answers["parsed"] is None, (
+		"`/people` resolved to a place, so every caller reading the address as a workspace "
+		"would act on one that does not exist"
+	)
+	assert answers["ordinary"]["workspace"] == "projects", (
+		"an ordinary address stopped resolving, so the refusal above is too wide"
+	)
+
+
+def test_the_directory_folds_every_workspace_into_one_answer_per_person (
+	tmp_path: pathlib.Path
+) -> None:
+	"""Roles arrive one workspace at a time and are read one person at a time.
+
+	The page asks each workspace who is in it; a reader scans down a column asking what one
+	person may do. Those are opposite shapes, and this is the fold between them.
+	"""
+
+	held = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const folded = app.rolesByUsername([
+			{{ slug: "projects", title: "Projects", members: [
+				{{ user: {{ username: "morpheus" }}, role: "admin" }},
+				{{ user: {{ username: "thomas" }}, role: "member" }},
+			]}},
+			{{ slug: "personal", title: "Personal", members: [
+				{{ user: {{ username: "morpheus" }}, role: "owner" }},
+			]}},
+		]);
+
+		process.stdout.write(JSON.stringify(Object.fromEntries(folded)));
+	""")
+
+	assert [one["role"] for one in held["morpheus"]] == ["admin", "owner"], (
+		"a person in two workspaces must carry both roles, in the order they were asked for"
+	)
+	assert [one["title"] for one in held["morpheus"]] == ["Projects", "Personal"]
+	assert [one["role"] for one in held["thomas"]] == ["member"]
+	assert "claude-super" not in held, "nobody gained a role they do not hold"
+
+
+def test_the_directory_says_when_it_could_not_read_every_workspace (
+	tmp_path: pathlib.Path
+) -> None:
+	"""A column assembled from several answers must say what it left out — `#1305`'s rule.
+
+	Roles come one call per workspace and any of them may be refused. Without the sentence,
+	*holds no role* and *we could not look* render identically — and on a page about authority
+	those are opposite conclusions.
+	"""
+
+	partial = _rendered(tmp_path, {"People": {
+		"people": [{"username": "morpheus", "is_service_account": False, "is_active": True}],
+		"rosters": [{"slug": "projects", "title": "Projects", "members": []}],
+		"asked": 3,
+		"reached": 1,
+	}})["People"]
+
+	# **Whitespace-normalised, because the sentence wraps in the template and a substring
+	# spanning that wrap can never match.** Written without this, the negative assertion below
+	# was vacuous — it passed against a mutation that rendered the sentence unconditionally,
+	# which is the one failure a test is structurally unable to report.
+	said = " ".join(partial.split())
+
+	assert "1 of 3" in said, f"the shortfall is not said: {said!r}"
+	assert "could not be read" in said, f"the reason is not said: {said!r}"
+
+	whole = " ".join(_rendered(tmp_path, {"People": {
+		"people": [{"username": "morpheus", "is_service_account": False, "is_active": True}],
+		"rosters": [{"slug": "projects", "title": "Projects", "members": []}],
+		"asked": 1,
+		"reached": 1,
+	}})["People"].split())
+
+	assert "could not be read" not in whole, (
+		f"a directory that read everything still apologised: {whole!r}"
+	)
+
+
+def test_the_directory_names_an_agent_as_one_with_the_person_it_answers_to (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`#1414`'s rule, on the page whose whole subject is who answers for whom.
+
+	**Through `named` rather than a wording of its own** (`#1420`): the assignee control, every
+	row and this page render one vocabulary, and the accountable person is resolved on the
+	server. The browser holds no copy of the chain rule (`#925`).
+	"""
+
+	shown = _rendered(tmp_path, {"Principal": {
+		"person": {
+			"username": "claude-super",
+			"is_service_account": True,
+			"is_active": True,
+			"answers_to": "morpheus",
+		},
+		"held": [{"slug": "projects", "title": "Projects", "role": "member"}],
+	}})["Principal"]
+
+	assert "@claude-super (agent, @morpheus)" in shown, (
+		f"an agent is not named as one with the person it answers to: {shown!r}"
+	)
+	assert "member" in shown and "Projects" in shown
+
+
+def test_somebody_who_has_left_is_shown_rather_than_hidden (tmp_path: pathlib.Path) -> None:
+	"""`users.listed` returns them and this page draws them, which is the point.
+
+	It filters deleted accounts and **not** inactive ones, deliberately: an account marked as
+	having left is the record of somebody having left, and a directory that omitted them could
+	not answer *who used to hold this* — the question an audit starts from.
+
+	**And it is said in a word as well as a tone** (`#102`): nothing may be information only in
+	how it looks, so the dimming is reinforcement and the sentence is what carries it.
+	"""
+
+	shown = _rendered(tmp_path, {"People": {
+		"people": [
+			{"username": "thomas", "is_service_account": False, "is_active": False},
+		],
+		"rosters": [],
+		"asked": 0,
+		"reached": 0,
+	}})["People"]
+
+	assert "thomas" in shown, f"somebody who has left was dropped: {shown!r}"
+	assert "has left" in shown, (
+		f"their state is drawn in a tone alone, which `#102` refuses: {shown!r}"
 	)

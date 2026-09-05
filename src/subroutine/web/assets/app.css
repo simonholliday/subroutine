@@ -2226,3 +2226,89 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	content: "Nothing written yet.";
 	color: var(--ink-faint);
 }
+
+/* ---------------------------------------------------------------------------------------
+   Who is on this instance — `#1397`, the browser's administrative area.
+
+   **Two aligned columns and nothing else**, which is `#1424`'s finding applied before the
+   defect rather than after it: that item's whole subject was an assignee rendered as a chip
+   in a flow, unscannable *because it was not aligned*. A directory is read by running an eye
+   down one column, so who-they-are and what-they-may-do each get a track.
+   --------------------------------------------------------------------------------------- */
+
+.people {
+	padding: var(--space-5) var(--space-7);
+}
+
+/* The area's own heading takes the step a section takes, not the step a page takes: this sits
+   under the masthead, which is the page's name. `#1818`'s rule — a structural heading is one
+   step above the content it heads, and no more. */
+.people h2.area {
+	margin: 0 0 var(--space-5);
+	font-size: var(--text-section);
+}
+
+/* **Said when a column is assembled from several answers and one did not arrive** (`#1305`).
+   Faint because it is a caveat rather than a warning: the page is still true, it is narrower
+   than it should be. */
+.people .partial {
+	margin: 0 0 var(--space-5);
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
+.principal {
+	display: grid;
+	grid-template-columns: 1fr 16rem;
+	gap: var(--space-2) var(--space-6);
+	align-items: baseline;
+	padding: var(--space-3) 0;
+	border-block-end: 1px solid var(--line);
+}
+
+/* The name, its glyph and — for an agent — who answers for it, as one cell. `named` composes
+   the words; this only keeps them on one line with the picture.
+
+   **`account` rather than `who`, and the stylesheet guard is what caught it.** The masthead
+   owns a *bare* `.who` — `--ink-soft` at `--text-small` — so a second element wearing that
+   class inherited it, and every principal's name on this page rendered at 13px in soft ink
+   while being the row's primary content. That is `#1826` reproduced: a class written for one
+   place reaching a second, looking nearly right, and reported by nothing a markup test can see.
+
+   **Renamed rather than scoped**, which is `#1826`'s own decision: scoping fixes today and
+   leaves one word meaning two things, which breaks again the moment either is drawn somewhere
+   new. */
+.principal .account {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+/* **Somebody who has left is dimmed and also says so** (`#102`): nothing may be information
+   only in how it looks, so the word carries it and the tone is reinforcement. */
+.principal.gone {
+	color: var(--ink-faint);
+}
+
+.principal .left {
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
+.principal .roles {
+	font-size: var(--text-small);
+}
+
+/* *admin* **in** *Projects* — the preposition is quieter than either half it joins, because
+   the two nouns are what a reader is scanning for. */
+.principal .roles .in,
+.principal .roles .between {
+	color: var(--ink-faint);
+}
+
+/* An em dash where somebody holds no role anywhere, rather than an empty cell: on a page that
+   fetches its roles a workspace at a time, blank reads as *not loaded*. */
+.principal .norole {
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}

@@ -921,6 +921,40 @@ export function frame (showing, open) {
 }
 
 
+/*
+	The browser's administrative areas, which are the first segments that are **not** a
+	workspace — `#1397`, design `#2110` §3.
+
+	**An area rather than a fourth view.** `VIEWS` is three arrangements of *work*, selected by
+	`?view=` under a workspace; a directory of principals is not an arrangement of work. Putting
+	one in `VIEWS` would make `viewOf` accept it, `showingOf` carry narrowings that mean nothing
+	there, and a board's `group_by` legal on a page with no rows.
+
+	**These reach the browser through no route at all.** `api/web.unmatched` answers a 404 with
+	the app shell whenever the request is a navigation, so every real route wins and whatever is
+	left over is a page — which is what makes `/people` work and what makes it invisible to any
+	list derived from routes.
+
+	**Held against the server's reservation by a test**, because that is the whole risk: a
+	workspace named after one of these would be listed and unreachable, which is `#678` verbatim.
+	`addressing.BROWSER_WORKSPACE_WORDS` is the other copy and the guard asserts they agree.
+*/
+export const AREAS = ["people"];
+
+
+export function areaOf (pathname) {
+	/*
+		Which administrative area an address names, or null for one that names none.
+
+		Read before `parseAddress` and never instead of it: the two answer different questions
+		and exactly one of them is non-null for any address.
+	*/
+	const parts = String(pathname || "").split("/").filter((part) => part !== "");
+
+	return parts.length > 0 && AREAS.includes(parts[0]) ? parts[0] : null;
+}
+
+
 export function parseAddress (pathname) {
 	/*
 		Read an address into the place it names, or null for one that names nowhere.
@@ -943,6 +977,13 @@ export function parseAddress (pathname) {
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
 	if (parts.length === 0) return null;
+
+	/* **An area is not a workspace, and this is where that is enforced rather than remembered.**
+	   Without it `/people` resolves to a workspace called `people`, and every caller downstream
+	   — the title, the switcher, the listing's scope — would act on a place that does not
+	   exist. The server refuses to *create* such a workspace; this is the same rule on the
+	   surface that reads the address. */
+	if (AREAS.includes(parts[0])) return null;
 
 	const last = parts[parts.length - 1];
 	/* `[1-9][0-9]*`, which is `refs._TYPED` and `mentions.REF_PATTERN` — no leading zero.

@@ -19,9 +19,9 @@ import { render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { html } from "./html.js";
 import {
-	AGENDA_VIEW, ANSWERED_BY, BOARD, DEFAULT_VIEW, EVERYTHING, MAX_REF, ONLY_FINISHED,
-	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, chips,
-	chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
+	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, MAX_REF, ONLY_FINISHED,
+	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
+	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
 	showingOf, titlesByPath, viewOf, withShowing, widened,
 } from "./address.js";
@@ -49,6 +49,7 @@ import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, WAITING_STATUS,
 	marks, moment, when,
 } from "./marks.js";
+import { People } from "./people.js";
 import {
 	addressedProjects, filableFor, notOffered, offered, people, placesToGo, prioritisedHere,
 	prioritisedSentence, projectName, projectsRequest, rankedByPriority, soleStatusIn,
@@ -59,7 +60,8 @@ import {
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
-	linkableTypes, listingRequests, localMoment, pollRequest, prioritiseRequest, readForm,
+	linkableTypes, listingRequests, localMoment, peopleRequest, pollRequest, prioritiseRequest,
+	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, touching, unlinkRequest, updateRequest, withTime,
 	written,
@@ -79,6 +81,28 @@ export function App () {
 	const [ready, setReady] = useState(false);
 	const [members, setMembers] = useState([]);
 	const [note, setNote] = useState(null);
+
+	/* **Which administrative area the address names, or null for the work views** — `#1397`,
+	   design `#2110` §3. Read from the address rather than chosen by a control, because it *is*
+	   the address: `/people` is a place, and a reader who bookmarks it gets the page back.
+
+	   Initialised from the location rather than from an effect, so the first paint is already
+	   the right page — an area that arrived one render late would flash the agenda first.
+
+	   **Guarded on `window` because this runs during render, which is the one place that
+	   matters.** Every other read of the location here is inside a callback or an effect, and
+	   `tests/test_web.py` renders the real components in node with no DOM at all — so a bare
+	   read makes the whole app throw on its first render, which is what `#643`'s guard caught
+	   within a minute of this being written. Nowhere means the work views, which is what a
+	   harness rendering `App` with no address is asking for. */
+	const [area, setArea] = useState(
+		() => (typeof window === "undefined" ? null : areaOf(window.location.pathname)),
+	);
+
+	/* **Everyone on this instance and what they may do**, fetched only where it is drawn. Null
+	   is *not asked yet*, which is what the page renders as *Reading…*; an empty roster is a
+	   different answer and arrives as an object with no people in it. */
+	const [directory, setDirectory] = useState(null);
 
 	/* **Which prose box is being previewed, and what it held when the button was pressed**
 	   (`#776`). One answer for the page rather than one per box: two previews at once is a
@@ -554,6 +578,59 @@ export function App () {
 			setMembers(people(found.items));
 		} catch (_) {
 			setMembers([]);
+		}
+	}, []);
+
+
+	const directoryFor = useCallback(async (identity) => {
+		/*
+			Who is on this instance and what each may do — `#1397`.
+
+			**Two calls of different shapes, and neither is an N+1 over rows.** One
+			`GET /v1/users` answers *who exists*, unpaginated because an instance's people are
+			bounded by how many somebody hired. Then one roster per workspace **the reader can
+			already see**, which is what `/v1/me` just listed — so the count is the reader's own
+			workspaces, not the instance's, and it does not grow with the size of the backlog.
+
+			**A workspace that refuses is dropped rather than guessed at**, and the page is told
+			how many of how many were read. `#1305`'s rule: a column assembled from several
+			answers must be able to say what it left out, or *holds no role* and *we could not
+			look* render identically — and on this page those are opposite conclusions about
+			somebody's authority.
+
+			**`Promise.all`, because they are independent.** One slow workspace should not delay
+			the others, and the users call does not depend on any of them.
+		*/
+		const spaces = (identity && identity.workspaces) || [];
+
+		setDirectory(null);
+
+		try {
+			const [found, rosters] = await Promise.all([
+				sent(peopleRequest()),
+				Promise.all(spaces.map(async (space) => {
+					try {
+						const members = await sent(rosterRequest(space.slug));
+
+						return { slug: space.slug, title: space.title, members: members.items };
+					} catch (_) {
+						return null;
+					}
+				})),
+			]);
+			const reached = rosters.filter(Boolean);
+
+			setDirectory({
+				people: found.items,
+				rosters: reached,
+				asked: spaces.length,
+				reached: reached.length,
+			});
+		} catch (_) {
+			/* **An empty page rather than a broken one.** The roster half is survivable on its
+			   own; the users call is not, because without it there is nothing to draw at all —
+			   so this reports no people rather than leaving *Reading…* on screen for ever. */
+			setDirectory({ people: [], rosters: [], asked: spaces.length, reached: 0 });
 		}
 	}, []);
 
@@ -1149,6 +1226,25 @@ export function App () {
 			const asked = parseAddress(window.location.pathname);
 			const narrowed = (asked && asked.project) ?? null;
 
+			/*
+				**An administrative area is answered first and nothing below it runs** — `#1397`.
+
+				Everything after this reads the address as a place holding *work*: the workspace
+				it names, the arrangement, the project it is narrowed to, the item it opens.
+				`/people` names none of those — `parseAddress` returns null for it deliberately —
+				so falling through would step the reader back to the everywhere-agenda while the
+				address said otherwise, which is `#652`'s defect arriving from a new direction.
+			*/
+			const stepped = areaOf(window.location.pathname);
+
+			setArea(stepped);
+
+			if (stepped !== null) {
+				nowOpen(null);
+
+				return;
+			}
+
 			/* The arrangement is in the address too (`#651`), so stepping back into a board
 			   restores the board rather than leaving the list under an address saying otherwise
 			   — which is the disagreement `close` used to create for the agenda. */
@@ -1235,6 +1331,27 @@ export function App () {
 		return () => window.removeEventListener("popstate", arrive);
 	}, [ready, error, workspace, project, agenda, everywhere, me, enter, load, nowOpen, nowShowing,
 		readAgenda, show]);
+
+
+	useEffect(() => {
+		/*
+			**Read when the page is opened and not before** — `#1397`.
+
+			The directory is two calls plus one per workspace, and every reader who never opens
+			this page should pay none of them. So it hangs off `area` rather than being fetched
+			on arrival with the rest: `/v1/me` is what says which workspaces to ask about, and it
+			has already answered by the time this can run.
+
+			**It re-reads on every arrival rather than caching.** Who is on an instance and what
+			they may do is exactly the kind of fact that changes while a page is open — somebody
+			is added, an agent is handed over, a credential is revoked — and a stale directory is
+			the one thing this page must not show. It is a page a reader opens deliberately, not
+			one they sit on, so re-reading costs a request they asked for.
+		*/
+		if (area !== "people" || !me) return;
+
+		directoryFor(me);
+	}, [area, me, directoryFor]);
 
 	/*
 		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
@@ -2458,7 +2575,18 @@ export function App () {
 					onCancel=${() => setAsking(null)} />
 			`}
 
-			${open
+			${/*
+				**The administrative area is the first branch, and it takes no arguments from
+				the work views** (`#1397`). It is inside the frame rather than a page of its own
+				because a reader needs the masthead to get back — `#868`'s anchor home is the
+				only way out of here — and the footer is where the way *in* is.
+
+				`directory` is null until the read lands, which `People` renders as *Reading…*;
+				an instance with no accounts is a different answer and arrives as an empty list.
+			*/ null}
+			${area !== null
+				? html`<${People} ...${directory || {}} />`
+				: open
 				? html`<${Detail} ...${open} members=${furnished.members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${mayWriteThere ? save : null}
 					reading=${reading} onReading=${readRepeat}
@@ -2702,6 +2830,7 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
 export {
 	AGENDA_VIEW,
 	ANSWERED_BY,
+	AREAS,
 	BOARD,
 	DEFAULT_VIEW,
 	EVERYTHING,
@@ -2714,6 +2843,7 @@ export {
 	addressOf,
 	agendaRequest,
 	answers,
+	areaOf,
 	chips,
 	chosenWorkspace,
 	encodedPath,
@@ -2847,6 +2977,12 @@ export {
 	vocabularyRequest,
 } from "./places.js";
 export {
+	People,
+	Principal,
+	Roles,
+	rolesByUsername,
+} from "./people.js";
+export {
 	DOCUMENT_SAID,
 	NEVER_CLEARED,
 	RELEASE_CHECK_POLLS,
@@ -2877,6 +3013,7 @@ export {
 	linkableTypes,
 	listingRequests,
 	localMoment,
+	peopleRequest,
 	pollRequest,
 	prioritiseRequest,
 	readForm,

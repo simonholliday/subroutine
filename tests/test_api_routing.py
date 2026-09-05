@@ -493,6 +493,34 @@ def test_a_workspace_cannot_be_named_after_a_root_path (
 	assert "reserved" in raised.value.errors[0].message
 
 
+@pytest.mark.parametrize("word", sorted(subroutine.addressing.BROWSER_WORKSPACE_WORDS))
+def test_a_workspace_cannot_be_named_after_an_address_the_browser_answers (
+	session: sqlalchemy.orm.Session, word: str
+) -> None:
+	"""The other half of `#1397`'s reservation, refused where a workspace is created.
+
+	**These cannot be derived the way the test above derives its words**, and that is why they
+	are a third list rather than an addition to :data:`ROUTED_WORKSPACE_WORDS`. The browser's
+	pages reach it through ``api.web.unmatched`` — a 404 answered with the app shell whenever
+	the request is a navigation — so **no route claims them and none ever will**, which is
+	exactly what makes them invisible to a check derived from the routing table.
+
+	So this is parametrised over the list, with the cost that emptying the list would generate
+	no cases. ``tests/test_web.py`` is what refuses that: it reads the browser's own ``AREAS``
+	and requires every one of them to be reserved here, so the two lists cannot part company
+	without one of the two failing.
+
+	**The defect being prevented is `#678` verbatim** — a workspace that "exists, is listed,
+	and can never be reached", because the browser routes its address somewhere else.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as raised:
+		subroutine.domain.workspaces.validated_slug(session, word)
+
+	assert raised.value.errors[0].field == "slug"
+	assert "reserved" in raised.value.errors[0].message
+
+
 def test_a_title_that_derives_a_claimed_slug_falls_back () -> None:
 	"""``init --workspace "MCP"`` sets an instance up; it does not refuse to.
 

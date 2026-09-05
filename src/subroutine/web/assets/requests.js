@@ -219,6 +219,31 @@ export function rosterRequest (slug) {
 	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
 }
 
+export function peopleRequest () {
+	/*
+		Every account on this instance — `#1397`.
+
+		**Not narrowed to a workspace, which is the difference from `rosterRequest`.** That one
+		answers *who can be handed work here*; this answers *who is on this installation*, and an
+		agent belonging to no workspace still belongs to somebody. The two are deliberately
+		different questions and the page shows both: the roster call supplies the roles, this one
+		supplies the population.
+
+		**No `?fields=`, against the habit `#645` established**, and the reason is that this
+		listing is unpaginated by decision — `GET /v1/users` says an instance's people are
+		bounded by how many somebody hired, exactly as a task's links are. The row renders
+		username, agent-or-person, who it answers to and whether it is active, which is nearly
+		the whole of a small model; asking for a subset would buy nothing and would have to be
+		kept in step with what the page draws.
+
+		**Readable by anyone signed in, deliberately** — `#161` and `#174`: identifiers are
+		unique and public, content is neither, and this view carries no email address and no
+		content. So the page needs no permission of its own, which is why there is none to check
+		before drawing it.
+	*/
+	return { path: "/users", method: "GET" };
+}
+
 export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.

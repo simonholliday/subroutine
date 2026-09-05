@@ -189,6 +189,23 @@ export function Foot ({ count, theme, onTheme }) {
 		<footer class="foot">
 			${/* **Counts what is on screen, not what was last fetched** (`#652`). */ null}
 			<span>${count} items</span>
+			${/*
+				**The way into the administrative area** (`#1397`), and it is here rather than in
+				the masthead because that is what it is: a page a reader opens deliberately and
+				rarely, not a fourth arrangement of their work. §1.4's whole constraint is that
+				somebody keeping a to-do list never has to meet a workspace, a role or a
+				credential — putting this beside the workspace switcher would make it the first
+				thing they read.
+
+				**A plain anchor, exactly like its two neighbours.** Every internal navigation in
+				this app goes through `followed` so that a click updates the address without a
+				reload; this one deliberately does not, because a full load of a page read once
+				an hour costs nothing and threading a handler through `Foot` would give this
+				component its first reason to know what the app is. The 404 fallback in
+				`api/web.unmatched` serves the shell for it, which is what makes the address work
+				typed, bookmarked or shared.
+			*/ null}
+			<a href="/people">People</a>
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
 			<${Theme} chosen=${theme} onChoose=${onTheme} />

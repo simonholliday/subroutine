@@ -21,6 +21,30 @@ upgrade involves.
 > first if you are running one; expect it to be down for the length of the migration.
 
 ### Added
+
+- **The browser can show who is on this instance, what they may do, and which agents answer to
+  whom.**
+
+  There is a *People* link in the footer, and a page behind it at `/people`. Every account,
+  oldest first: whether it is a person or an agent, the person an agent answers for, the role
+  it holds in each of your workspaces, and whether it has left.
+
+  None of this is new machinery. Permissions have been enforced on every request since the
+  first release and the accountability chain has been walked on every authenticated one; there
+  was simply no surface anywhere that showed a principal or who answers for whom, so the answer
+  to *who can do what here* was a database query. It is a rendering of two calls that already
+  existed — `GET /v1/users` and `GET /v1/workspaces/{slug}/members`.
+
+  **Anybody signed in can read it**, which is a decision rather than an oversight: identifiers
+  are unique and public, and this page carries no email address and no content. Roles are shown
+  for the workspaces *you* can see, and the page says so when it could not read one of them —
+  *holds no role* and *we could not look* are opposite conclusions about somebody's authority,
+  and a column assembled from several answers has to be able to tell you which it is.
+
+  **Two words are now refused as workspace short names**, `people` and `settings`, because the
+  browser answers those addresses. A workspace named after one would be listed and unreachable.
+  Existing workspaces are unaffected; this applies when one is created.
+
 - **A wall display or kiosk is a documented thing you can set up.**
 
   It always worked and nothing said so. An account with the `viewer` role gets a browser that

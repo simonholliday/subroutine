@@ -85,11 +85,38 @@ _CONFUSING_WORKSPACE_WORDS = frozenset(
 ROUTED_WORKSPACE_WORDS = frozenset({"app", "healthz", "mcp", "readyz", "signin", "v1"})
 
 
+#: Words the **browser** claims at the root of its own address space — `#1397`, design `#2110`.
+#:
+#: **A third list because there is a third reason, and neither of the others can hold these.**
+#: :data:`ROUTED_WORKSPACE_WORDS` is asserted *equal* to the real routers' root segments, so a
+#: word listed there for something the server does not route fails the build — and these are
+#: routed by nothing. The browser's deep links work through ``api.web.unmatched``, a **404
+#: fallback** keyed on ``Accept: text/html``: every real route wins, and whatever is left over
+#: is served the app shell. That is what makes ``/people`` reachable without a route, and it is
+#: exactly what makes it invisible to a list derived from routes.
+#:
+#: **Nor are they confusing to read.** ``people`` and ``settings`` name places perfectly well;
+#: what they are is *taken*, on one surface, by something that is not a workspace.
+#:
+#: **The defect this prevents is `#678`, verbatim.** A workspace named after a claimed segment
+#: "exists, is listed, and can never be reached" — because ``parseAddress`` reads the first
+#: segment as a workspace and the browser would route it to the administrative area instead.
+#: Reserving costs nothing today and un-reserving would cost somebody their workspace name.
+#:
+#: **Reserved ahead of the page in the same commit as the page**, never earlier: a word held
+#: for a screen nobody built is the declared-and-read-by-nothing family this project keeps
+#: finding, one list along.
+BROWSER_WORKSPACE_WORDS = frozenset({"people", "settings"})
+
+
 #: Everything a workspace short name may not be, and the list the refusal offers back to
-#: whoever tried. Two lists behind it because there are two reasons, and only one of them is
-#: a fact a test can go and check; a caller asking whether a name is free does not care
-#: which, so this is the name every caller uses.
-RESERVED_WORKSPACE_WORDS = _CONFUSING_WORKSPACE_WORDS | ROUTED_WORKSPACE_WORDS
+#: whoever tried. Three lists behind it because there are three reasons — how a person reads
+#: it, what the server routes, and what the browser claims — and only one of them is a fact a
+#: test can go and check; a caller asking whether a name is free does not care which, so this
+#: is the name every caller uses.
+RESERVED_WORKSPACE_WORDS = (
+	_CONFUSING_WORKSPACE_WORDS | ROUTED_WORKSPACE_WORDS | BROWSER_WORKSPACE_WORDS
+)
 
 
 def is_reserved_workspace_word (value: str) -> bool:
