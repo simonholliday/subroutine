@@ -398,6 +398,74 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		],
 		"asked": 2,
 		"reached": 1,
+		# **Credentials and the create control, because two selectors are reachable from
+		# nowhere else** — the per-row count and the *Add an agent* button both hang off state
+		# this page owns, so a sample without them leaves two rules matching nothing and the
+		# stylesheet guard correctly reporting them dead.
+		"credentials": [
+			{
+				"id": "c1", "title": "Nightly triage", "prefix": "sr_abc123",
+				"username": "morpheus", "scopes": [], "narrows": False, "usable": True,
+			},
+		],
+		"mayCreate": True,
+	},
+	# **A usable credential, so the act it carries is drawn.** The spent branch is reached
+	# through `Holdings` below, which holds one of each — a component gets one sample and this
+	# is the branch with a control in it.
+	"Credential": {
+		"credential": {
+			"id": "c1",
+			"title": "Nightly triage",
+			"prefix": "sr_abc123",
+			"username": "claude-super",
+			"scopes": ["task:read", "task:write"],
+			"narrows": True,
+			"usable": True,
+			"project_scope_keys": ["subroutine"],
+		},
+	},
+	# **One of each state**, which is what reaches `.spent` and the word beside it. A revoked
+	# credential is listed rather than hidden: `usable` asks whether it would be accepted now,
+	# and an operator auditing an instance needs the ones that would not be.
+	"Holdings": {
+		"username": "claude-super",
+		"credentials": [
+			{
+				"id": "c1", "title": "Nightly triage", "prefix": "sr_abc123",
+				"username": "claude-super", "scopes": [], "narrows": False, "usable": True,
+			},
+			{
+				"id": "c2", "title": "Old key", "prefix": "sr_def456",
+				"username": "claude-super", "scopes": [], "narrows": False, "usable": False,
+				"revoked_at": "2026-08-01T09:00:00Z",
+			},
+		],
+	},
+	# **The creating branch**, because it renders one field more than the other and every class
+	# the plain branch uses is in it too.
+	"Issuing": {
+		"subject": {"creating": True},
+		"offers": ["task:read", "task:write"],
+		"workspaces": [{"slug": "projects", "title": "Projects"}],
+	},
+	# **Last used is set**, so the sentence that decides a revocation is the one drawn — the
+	# alternative branch says it has never been used and carries no class of its own.
+	"Stopping": {
+		"credential": {
+			"id": "c1", "title": "Nightly triage", "prefix": "sr_abc123",
+			"last_used_at": "2026-09-01T09:00:00Z",
+		},
+	},
+	# **With an account created**, which is the extra paragraph. The token here is not a
+	# credential and never was: nothing in this repository may carry a real one, and a sample
+	# is read by a renderer rather than by an instance.
+	"Secret": {
+		"issued": {
+			"username": "claude-nuc14",
+			"account_created": True,
+			"token": "sr_not-a-real-credential",
+		},
 	},
 }
 
@@ -6416,7 +6484,15 @@ def test_every_write_goes_through_one_request_function () -> None:
 	app = _without_comments(_our_source())
 
 	assert app.count("fetch(") == 1, "a second request path has appeared"
-	assert app.count("credentials:") == 1
+
+	# **The option, not the word** (`#1396`). This counted bare `credentials:` as a proxy for
+	# *one place sets the cookie rule*, and the word became ambiguous the day the app grew a
+	# field holding somebody's credentials — a domain noun crossing into a guard's namespace,
+	# which is `#1826`'s shape one layer up. Naming the option is strictly more precise and
+	# loses nothing: a second `fetch` is still refused by the line above, whatever it passes.
+	assert app.count('credentials: "same-origin"') == 1, (
+		"the cookie rule is written in more than one place, so a request can be made without it"
+	)
 
 
 # ---- addresses (`SR#638`) ------------------------------------------------------------------
@@ -7648,6 +7724,7 @@ class Instance(typing.NamedTuple):
 	#: so it is the fixture that was pretending otherwise, and this guard is what said so.
 	document_cursor: str
 	since: int
+	credential: str
 
 	def call (self, method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
 		"""Make one request, authenticated the way this app's session cookie would be."""
@@ -7779,6 +7856,13 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 
 	assert newest is not None, "no events were written, so there is no seq to resume from"
 
+	# **One credential, so that revoking has something real to name** (`#1396`). Minted for the
+	# caller themselves, which is the case needing no permission beyond having authenticated —
+	# the guard below drives every builder and this one addresses a thing rather than a shape,
+	# so a literal id would be refused as *not found* and prove nothing about the path.
+	credential = call("POST", "/v1/tokens", json={"title": "Driven against the instance"})
+	assert credential.status_code == 201, credential.text
+
 	return Instance(
 		application=application,
 		secret=secret,
@@ -7799,6 +7883,7 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		cursor=page.json()["page"]["next_cursor"],
 		document_cursor=documents.json()["page"]["next_cursor"],
 		since=int(newest),
+		credential=credential.json()["id"],
 	)
 
 
@@ -7970,6 +8055,14 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# on this installation*, which includes an agent belonging to no workspace at all. Two
 		# questions, two routes, and the people page asks both — so both are driven.
 		("peopleRequest", []),
+		("credentialsRequest", []),
+		# **Driven with the narrowings left out, which is the ordinary case and the subtle one**
+		# (`#1396`). `scopes: []` means *no narrowing* and `project_scope: []` is **refused**
+		# outright, so a form with nothing ticked must send neither field rather than sending
+		# both empty — the builder decides that, and this is what drives the decision rather
+		# than the shape.
+		("issueRequest", [{"title": "Driven from the browser"}]),
+		("revokeRequest", [{"id": place.credential}]),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -8418,6 +8511,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
 		document=2, spare_document=5, document_status="archived", document_link="dl",
 		username="si", status="open", cursor="c", document_cursor="d", since=1,
+		credential="cr",
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 
@@ -15390,4 +15484,287 @@ def test_somebody_who_has_left_is_shown_rather_than_hidden (tmp_path: pathlib.Pa
 	assert "thomas" in shown, f"somebody who has left was dropped: {shown!r}"
 	assert "has left" in shown, (
 		f"their state is drawn in a tone alone, which `#102` refuses: {shown!r}"
+	)
+
+
+# --------------------------------------------------------------------------------------
+# Granting, narrowing and revoking authority — `#1396`
+# --------------------------------------------------------------------------------------
+
+
+def test_the_browser_and_the_terminal_say_the_same_thing_about_an_unnarrowed_credential (
+	tmp_path: pathlib.Path
+) -> None:
+	"""One fact, two surfaces, one wording — `#1266`'s rule on the most misreadable field here.
+
+	``scopes: []`` means *no narrowing*, and reading it as *no permissions* is the fastest route
+	to a wrong conclusion about what a leaked credential could do — which is why ``narrows``
+	exists as a field at all. Both surfaces therefore have to *say* it rather than show an empty
+	list, and if they say it differently then one of them is teaching a reader a second
+	vocabulary for the same thing.
+
+	**Driven against the view rather than compared against a literal**, so rewording
+	``views.Token.columns`` fails here rather than leaving two sentences that merely used to
+	agree.
+	"""
+
+	rendered = subroutine.views.Token(
+		id=uuid.uuid4(),
+		title="Driven",
+		prefix="sr_abc",
+		user_id=uuid.uuid4(),
+		username="morpheus",
+		scopes=[],
+		project_scope=None,
+		workspace_id=None,
+		narrows=False,
+		usable=True,
+		created_at=datetime.datetime.now(datetime.UTC),
+		expires_at=None,
+		last_used_at=None,
+		revoked_at=None,
+	).columns(None)
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			constant: app.UNNARROWED,
+			reach: app.reachOf({{ narrows: false, scopes: [] }}),
+		}}));
+	""")
+
+	assert said["constant"] in rendered, (
+		f"the terminal says {rendered!r} and the browser says {said['constant']!r} — one fact "
+		f"in two vocabularies, which is what `#1266` is about"
+	)
+	assert said["reach"] == said["constant"], (
+		"a credential that narrows nothing is described as narrowing something"
+	)
+
+
+def test_a_credential_that_narrows_nothing_is_read_off_narrows_not_off_the_list (
+	tmp_path: pathlib.Path
+) -> None:
+	"""The field exists because the list is ambiguous, so the list must not be what is read.
+
+	A credential carrying scopes it does not narrow with, or narrowing with an empty list, are
+	both states this model permits — and reading `scopes.length` would describe the first as
+	narrowed and the second as unnarrowed, which is backwards for exactly the case somebody is
+	worried about when they ask what a leaked credential could do.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			narrowed: app.reachOf({{ narrows: true, scopes: ["task:read"] }}),
+			empty: app.reachOf({{ narrows: true, scopes: [] }}),
+			wide: app.reachOf({{ narrows: false, scopes: ["task:read"] }}),
+		}}));
+	""")
+
+	assert said["narrowed"] == "task:read"
+	assert said["empty"] == app_unnarrowed(said), (
+		"a credential that says it narrows and names nothing must not be described as bounded"
+	)
+	assert said["wide"] == app_unnarrowed(said), (
+		f"scopes were read instead of `narrows`, so an unnarrowed credential is described as "
+		f"bounded: {said['wide']!r}"
+	)
+
+
+def app_unnarrowed (said: dict[str, str]) -> str:
+	"""The phrase both branches above fall back to, named once rather than written twice."""
+
+	return "everything its owner can do"
+
+
+def test_the_scopes_offered_are_the_operators_own_and_come_from_the_instance (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`_refuse_amplification` makes the operator's reach the only honest offer — `#1396`.
+
+	A credential may never be wider than the one asking for it, so a form offering more is
+	drawing controls the server will refuse — the shape `app.js` states the rule against three
+	times. And the set has to come from `/v1/me`, which already publishes it per workspace and
+	over the installation: a list written into this file would be a second copy of the
+	permission vocabulary, which is this codebase's signature defect.
+	"""
+
+	offered = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			offers: app.offeredScopes({{
+				instance_permissions: ["instance:user_create"],
+				workspaces: [
+					{{ slug: "a", permissions: ["task:write", "task:read"] }},
+					{{ slug: "b", permissions: ["task:read", "project:write"] }},
+				],
+			}}),
+			none: app.offeredScopes(null),
+		}}));
+	""")
+
+	assert offered["offers"] == [
+		"instance:user_create", "project:write", "task:read", "task:write",
+	], f"the union across workspaces is wrong or unsorted: {offered['offers']!r}"
+
+	assert offered["none"] == [], (
+		"a reader whose identity has not arrived was offered permissions from somewhere else"
+	)
+
+	# **And the set is derived rather than filtered**, which is the property that matters and
+	# is not the same as *no permission name appears in this app*. Naming one to gate a control
+	# is legitimate and there are several; what must not exist is a *vocabulary* the form draws
+	# from. So the test is that a permission this app has never heard of is offered anyway.
+	invented = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.offeredScopes({{
+			instance_permissions: [],
+			workspaces: [{{ slug: "a", permissions: ["nothing:this-app-knows"] }}],
+		}})));
+	""")
+
+	assert invented == ["nothing:this-app-knows"], (
+		f"a permission the instance published was dropped, so this is filtering against a list "
+		f"of its own rather than reporting what the operator holds: {invented!r}"
+	)
+
+
+def test_an_unnarrowed_form_sends_no_narrowing_rather_than_an_empty_one (
+	tmp_path: pathlib.Path
+) -> None:
+	"""``[]`` means opposite things on two fields, so neither may be sent by accident — `#1396`.
+
+	``scopes: []`` means *no narrowing* — read as literal set algebra it would mean the
+	opposite, which is the easiest way to issue a credential that can do nothing at all — while
+	``project_scope: []`` is **refused outright**, because one reading widens it to everything
+	and the other denies it everything and picking either on the caller's behalf gets a security
+	control wrong in silence.
+
+	So a form with nothing ticked must send **neither field**, which is the only spelling that
+	means the same thing to both.
+	"""
+
+	built = _built(tmp_path, [
+		("issueRequest", [{"title": "Nothing ticked", "scopes": [], "projects": []}]),
+		("issueRequest", [{"title": "Narrowed", "scopes": ["task:read"]}]),
+	])
+
+	assert "scopes" not in built[0]["body"], (
+		f"an empty scope set was sent, which means *no narrowing* and reads as *no "
+		f"permissions*: {built[0]['body']!r}"
+	)
+	assert "project_scope" not in built[0]["body"], (
+		f"an empty project scope was sent, and the instance refuses it outright rather than "
+		f"guessing which of the two opposite readings was meant: {built[0]['body']!r}"
+	)
+	assert built[1]["body"]["scopes"] == ["task:read"], (
+		"a scope that was chosen did not survive"
+	)
+
+
+def test_revoking_says_what_stops_and_the_cheap_answer_is_not_now (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`#1382` §4.4, on the one control here that cannot be undone.
+
+	That section's warning is that a screen offering *Approve?* manufactures rubber-stamping,
+	and **a rubber stamp is worse than no control because it produces a record saying a human
+	checked**. So this asks a question answerable from what is on screen — what the credential
+	is, and when it was last used — and the answer that costs nothing is the one that changes
+	nothing, which is why *Cancel* is drawn first.
+
+	**When it was last used is the fact that decides it**, and this page is the first thing
+	anywhere to read that column: `#1395` measured `last_used_at` as written and read by nothing.
+	"""
+
+	shown = " ".join(_rendered(tmp_path, {"Stopping": {
+		"credential": {
+			"id": "c1",
+			"title": "Nightly triage",
+			"prefix": "sr_abc123",
+			"last_used_at": "2026-09-01T09:00:00Z",
+		},
+	}})["Stopping"].split())
+
+	assert "Nightly triage" in shown and "sr_abc123" in shown, (
+		f"the credential being stopped is not named: {shown!r}"
+	)
+	assert "last used" in shown, f"nothing says when it was last used: {shown!r}"
+	assert "Nothing recovers it" in shown, f"the act reads as undoable: {shown!r}"
+
+	assert shown.index("Cancel") < shown.index("Revoke it"), (
+		f"the committing answer is offered before the one that changes nothing: {shown!r}"
+	)
+
+
+def test_the_secret_is_said_to_be_shown_once_before_it_is_minted (
+	tmp_path: pathlib.Path
+) -> None:
+	"""Told afterwards it is an apology; told on the form it is a warning.
+
+	A terminal's scrollback belongs to the reader and a page's does not, so this is the one
+	control in the area that has to be dismissed deliberately — and the sentence has to be where
+	somebody reads it *before* pressing, which is the form rather than the box that follows.
+	"""
+
+	form = " ".join(_rendered(tmp_path, {"Issuing": {
+		"subject": {"creating": True},
+		"offers": ["task:read"],
+		"workspaces": [{"slug": "projects", "title": "Projects"}],
+	}})["Issuing"].split())
+
+	assert "shown once" in form, f"the form does not warn before minting: {form!r}"
+
+	# **And the form says what an untouched control means**, because an empty set of tick boxes
+	# reads as *none* and means *not narrowed* — opposite readings of the same picture.
+	assert "everything its owner can" in form, (
+		f"nothing says what ticking nothing does, so the default is left to be inferred: {form!r}"
+	)
+
+	box = " ".join(_rendered(tmp_path, {"Secret": {
+		"issued": {
+			"username": "claude-nuc14",
+			"account_created": True,
+			"token": "sr_not-a-real-credential",
+		},
+	}})["Secret"].split())
+
+	assert "only time" in box, f"the box does not say the secret is unrecoverable: {box!r}"
+	assert "claude-nuc14" in box, "an account was created and the page does not say so"
+
+
+def test_a_spent_credential_is_listed_rather_than_hidden (tmp_path: pathlib.Path) -> None:
+	"""``usable`` asks whether it would be accepted now, which is not whether it is worth showing.
+
+	An operator auditing an instance needs the credentials that no longer work: one that stopped
+	last week is how you find out what an agent lost access to, and hiding it makes the list
+	agree with itself and disagree with the record.
+
+	**And it is said in a word as well as a tone** (`#102`).
+	"""
+
+	shown = " ".join(_rendered(tmp_path, {"Holdings": {
+		"username": "claude-super",
+		"credentials": [
+			{
+				"id": "c1", "title": "Working", "prefix": "sr_aaa",
+				"username": "claude-super", "scopes": [], "narrows": False, "usable": True,
+			},
+			{
+				"id": "c2", "title": "Old key", "prefix": "sr_bbb",
+				"username": "claude-super", "scopes": [], "narrows": False, "usable": False,
+				"revoked_at": "2026-08-01T09:00:00Z",
+			},
+		],
+	}})["Holdings"].split())
+
+	assert "Old key" in shown, f"a revoked credential was dropped from the list: {shown!r}"
+	assert "revoked" in shown, f"its state is drawn in a tone alone, which `#102` refuses: {shown!r}"
+	assert shown.count(">Revoke") == 1, (
+		f"an act was offered on a credential that is already spent: {shown!r}"
 	)

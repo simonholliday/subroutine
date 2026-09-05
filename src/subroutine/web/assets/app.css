@@ -205,7 +205,7 @@ body {
 	-webkit-font-smoothing: antialiased;
 }
 
-code, .ref, .priority, .broke .detail {
+code, .ref, .priority, .broke .detail, .credential .prefix {
 	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
@@ -2311,4 +2311,143 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 .principal .norole {
 	color: var(--ink-faint);
 	font-size: var(--text-small);
+}
+
+/* ---------------------------------------------------------------------------------------
+   Granting, narrowing and revoking authority — `#1396`.
+
+   **The look is the administrative area's, not a form's**, because these controls are read
+   rarely and carefully rather than typed into all day. Nothing here is louder than the row it
+   belongs to: `#1046`'s six roles decide every button, and the fill is spent on the one act
+   that commits.
+   --------------------------------------------------------------------------------------- */
+
+/* How many credentials one principal holds, on their row. A reveal, so the caret turns. */
+.principal .holdscount {
+	font-size: var(--text-small);
+}
+
+.holdings {
+	margin: var(--space-5) 0;
+	padding: var(--space-5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+	background: var(--bg-sunken);
+}
+
+.holdings h3 {
+	margin: 0 0 var(--space-4);
+	font-size: var(--text-body);
+}
+
+.credential {
+	display: grid;
+	grid-template-columns: 1fr 2fr auto;
+	gap: var(--space-2) var(--space-6);
+	align-items: baseline;
+	padding: var(--space-3) 0;
+}
+
+/* **Revoked or expired is dimmed and also says which** (`#102`): the tone is reinforcement and
+   the word beside it is what carries the fact. It is still listed, because *would this be
+   accepted right now* is the question `usable` answers, and an audit needs the ones that would
+   not be. */
+.credential.spent {
+	color: var(--ink-faint);
+}
+
+.credential .spentword {
+	font-size: var(--text-small);
+	color: var(--ink-faint);
+}
+
+.credential .prefix {
+	margin-inline-start: var(--space-3);
+	font-size: var(--text-small);
+	color: var(--ink-faint);
+}
+
+/* What it may do and where, which is the cell a reader is actually scanning. */
+.credential .reach {
+	font-size: var(--text-small);
+	color: var(--ink-soft);
+}
+
+/* **Asked before it happens, and it looks like a question rather than a warning.** The colour
+   is spent on the act, not on the asking — a panel that shouts before anybody has decided
+   anything is how a reader learns to dismiss it. */
+.stopping,
+.issuing,
+.secret {
+	margin: var(--space-5) 0;
+	padding: var(--space-6);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	background: var(--bg-raised);
+}
+
+.stopping p,
+.issuing p {
+	margin: 0 0 var(--space-4);
+}
+
+.stopping .lastused {
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+}
+
+/* Cancel first and the act second, so the reading order is the safe order. */
+.acts {
+	display: flex;
+	gap: var(--space-4);
+	margin-block-start: var(--space-6);
+}
+
+.issuing h3,
+.secret p {
+	margin: 0 0 var(--space-4);
+}
+
+.issuing .scopes {
+	margin: var(--space-5) 0;
+	padding: var(--space-5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+}
+
+.issuing .scope {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-3);
+	padding: var(--space-1) 0;
+	font-size: var(--text-small);
+}
+
+/* **Says what an untouched control means**, because an empty set of tick boxes reads as *none*
+   and means *not narrowed* — the opposite. */
+.issuing .hint {
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+}
+
+/* **The warning is before the act.** Told afterwards it is an apology. */
+.issuing .warn {
+	color: var(--warn);
+	font-size: var(--text-small);
+}
+
+/* The one moment the secret exists in readable form. Selectable, and offered by nothing else —
+   no copy button, which would be a promise about a permission this page cannot check. */
+.secret .credentialvalue {
+	display: block;
+	padding: var(--space-5);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	background: var(--bg-sunken);
+	overflow-wrap: anywhere;
+	user-select: all;
+}
+
+.people .adding {
+	margin-block-start: var(--space-5);
 }

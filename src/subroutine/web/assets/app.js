@@ -60,7 +60,8 @@ import {
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
-	linkableTypes, listingRequests, localMoment, peopleRequest, pollRequest, prioritiseRequest,
+	credentialsRequest, issueRequest, linkableTypes, listingRequests, localMoment,
+	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
 	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, touching, unlinkRequest, updateRequest, withTime,
@@ -103,6 +104,16 @@ export function App () {
 	   is *not asked yet*, which is what the page renders as *Reading…*; an empty roster is a
 	   different answer and arrives as an object with no people in it. */
 	const [directory, setDirectory] = useState(null);
+
+	/* **The four pieces of state the authority acts need** — `#1396`. Whose credentials are
+	   shown, which one is being revoked, what is being issued and for whom, and the secret at
+	   the one moment it exists. Each is null-when-absent rather than a flag, because every one
+	   of them carries *what* as well as *whether*, and a boolean beside a subject is two
+	   variables that can disagree. */
+	const [chosen, setChosen] = useState(null);
+	const [confirming, setConfirming] = useState(null);
+	const [issuing, setIssuing] = useState(null);
+	const [issued, setIssued] = useState(null);
 
 	/* **Which prose box is being previewed, and what it held when the button was pressed**
 	   (`#776`). One answer for the page rather than one per box: two previews at once is a
@@ -606,7 +617,7 @@ export function App () {
 		setDirectory(null);
 
 		try {
-			const [found, rosters] = await Promise.all([
+			const [found, rosters, credentials] = await Promise.all([
 				sent(peopleRequest()),
 				Promise.all(spaces.map(async (space) => {
 					try {
@@ -617,6 +628,10 @@ export function App () {
 						return null;
 					}
 				})),
+				/* **Its own failure, caught here rather than with the page** (`#1396`). Without
+				   the credentials the directory is still the directory; null says *not asked*
+				   so no row claims somebody holds none, which is a different and wrong answer. */
+				sent(credentialsRequest()).then((answer) => answer.items).catch(() => null),
 			]);
 			const reached = rosters.filter(Boolean);
 
@@ -625,12 +640,15 @@ export function App () {
 				rosters: reached,
 				asked: spaces.length,
 				reached: reached.length,
+				credentials,
 			});
 		} catch (_) {
 			/* **An empty page rather than a broken one.** The roster half is survivable on its
 			   own; the users call is not, because without it there is nothing to draw at all —
 			   so this reports no people rather than leaving *Reading…* on screen for ever. */
-			setDirectory({ people: [], rosters: [], asked: spaces.length, reached: 0 });
+			setDirectory({
+				people: [], rosters: [], asked: spaces.length, reached: 0, credentials: null,
+			});
 		}
 	}, []);
 
@@ -1352,6 +1370,59 @@ export function App () {
 
 		directoryFor(me);
 	}, [area, me, directoryFor]);
+
+
+	const issue = useCallback(async (form) => {
+		/*
+			Mint a credential — `#1396`.
+
+			**The secret is held in state for exactly as long as the reader needs it**, and in
+			nothing else: not the address, not storage, not a note. `#1382` §4.4's neighbour —
+			a page is not scrollback, so this is the one thing here that has to be dismissed
+			deliberately rather than replaced by whatever happens next.
+
+			**The directory is re-read afterwards rather than patched.** A mint may have created
+			an account, and inventing the row locally would be this browser deciding what the
+			server did; `account_created` says *whether*, and only a read says *what*.
+		*/
+		setBusy(true);
+
+		try {
+			const minted = await sent(issueRequest(form));
+
+			setIssuing(null);
+			setIssued(minted);
+			setChosen(minted.username);
+			await directoryFor(me);
+		} catch (bad) {
+			setNote(refusal(bad));
+		} finally {
+			setBusy(false);
+		}
+	}, [me, directoryFor]);
+
+
+	const revoke = useCallback(async (credential) => {
+		/*
+			Stop one credential working — `#1396`, and it is asked before it is done.
+
+			**Anything the page drew can be revoked**, which is `GET /v1/tokens`' own guarantee
+			rather than a check made here: it is *narrowed the same way revoking is*, so there is
+			no arrangement in which this refuses.
+		*/
+		setBusy(true);
+
+		try {
+			await sent(revokeRequest(credential));
+
+			setConfirming(null);
+			await directoryFor(me);
+		} catch (bad) {
+			setNote(refusal(bad));
+		} finally {
+			setBusy(false);
+		}
+	}, [me, directoryFor]);
 
 	/*
 		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
@@ -2585,7 +2656,21 @@ export function App () {
 				an instance with no accounts is a different answer and arrives as an empty list.
 			*/ null}
 			${area !== null
-				? html`<${People} ...${directory || {}} />`
+				? html`<${People} ...${directory || {}}
+					${/* **The offer is the operator's own reach** (`#1396`). A credential may
+					     never be wider than the one asking for it — `_refuse_amplification`,
+					     four axes — so the set this form may honestly show *is* what `/v1/me`
+					     already published. Offering more and letting the server refuse is the
+					     shape `allowedIn`'s own comment calls worse than not drawing them. */ null}
+					offers=${offeredScopes(me)} workspaces=${me ? me.workspaces : []}
+					mayCreate=${Boolean(me && (me.instance_permissions || []).includes(
+						"instance:user_create",
+					))}
+					chosen=${chosen} onChoose=${setChosen}
+					issuing=${issuing} onIssuing=${setIssuing}
+					confirming=${confirming} onConfirming=${setConfirming}
+					issued=${issued} onIssued=${() => setIssued(null)}
+					onIssue=${issue} onRevoke=${revoke} busy=${busy} />`
 				: open
 				? html`<${Detail} ...${open} members=${furnished.members} onOpen=${show} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${mayWriteThere ? save : null}
@@ -2977,9 +3062,17 @@ export {
 	vocabularyRequest,
 } from "./places.js";
 export {
+	Credential,
+	Holdings,
+	Issuing,
 	People,
 	Principal,
 	Roles,
+	Secret,
+	Stopping,
+	UNNARROWED,
+	offeredScopes,
+	reachOf,
 	rolesByUsername,
 } from "./people.js";
 export {
@@ -2998,6 +3091,7 @@ export {
 	commentRequest,
 	completeRequest,
 	conflictIn,
+	credentialsRequest,
 	dateFor,
 	documentRequest,
 	edited,
@@ -3013,6 +3107,7 @@ export {
 	linkableTypes,
 	listingRequests,
 	localMoment,
+	issueRequest,
 	peopleRequest,
 	pollRequest,
 	prioritiseRequest,
@@ -3022,6 +3117,7 @@ export {
 	repeating,
 	repeats,
 	restoreRequest,
+	revokeRequest,
 	rosterRequest,
 	signOutRequest,
 	statusRequest,

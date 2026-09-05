@@ -244,6 +244,74 @@ export function peopleRequest () {
 	return { path: "/users", method: "GET" };
 }
 
+export function credentialsRequest () {
+	/*
+		The credentials this reader may act on — `#1396`.
+
+		**Whatever comes back can be revoked, which is a property of the route rather than of
+		this page.** Its own docstring: *"narrowed the same way revoking is, so nothing appears
+		here that the caller could not then act on — an inventory you can read and not revoke is
+		a worse answer than a short one."* So the page needs no second question before offering
+		the act, and there is no arrangement in which it draws a control that would 403.
+
+		Unpaginated for `GET /v1/users`' reason: an instance's credentials are bounded by how
+		many somebody issued.
+	*/
+	return { path: "/tokens", method: "GET" };
+}
+
+export function issueRequest (form) {
+	/*
+		Mint a credential, and create the machine identity to hold it if there is none — `#1396`.
+
+		**One call, because that is what `agent create` is.** The terminal's whole *give an agent
+		an identity* command is this route with `service_account` set: the account is created if
+		it does not exist and the credential is issued in the same act, and the answer says
+		whether an account was made. Two calls here would be a second implementation of a
+		sequence the server already performs atomically.
+
+		**`service_account` and `username` are different fields and must not be conflated**
+		(`#207`): the first creates, the second never does, and naming a person in the first is
+		refused rather than quietly issuing their credential under an argument whose stated
+		subject is machines.
+
+		**An absent narrowing is omitted rather than sent as empty**, and the two are not the
+		same thing anywhere in this model. `scopes: []` means *no narrowing* — §7.3, and reading
+		it as *no permissions* is the easiest way to issue a credential that can do nothing —
+		while `project_scope: []` is **refused** outright, because one reading widens it to
+		everything and the other denies it everything. Sending nothing says *not narrowed* on
+		both, which is the only spelling that means the same to each.
+	*/
+	const body = { title: form.title };
+
+	if (form.serviceAccount) body.service_account = form.serviceAccount;
+	if (form.username) body.username = form.username;
+	if (form.workspace) body.workspace = form.workspace;
+	if (form.expires) body.expires = form.expires;
+	if (form.scopes && form.scopes.length > 0) body.scopes = form.scopes;
+	if (form.projects && form.projects.length > 0) body.project_scope = form.projects;
+
+	return { path: "/tokens", method: "POST", body };
+}
+
+export function revokeRequest (credential) {
+	/*
+		Stop one credential working — `#1396`.
+
+		**Addressed by id rather than by prefix**, though the route takes either. A prefix is
+		what an operator reads off a terminal and types; this page is holding the row it is
+		acting on, so it can name the thing exactly and never resolve a short string to the
+		wrong credential.
+
+		**There is no undo and the page says so before asking.** Revocation is immediate and a
+		replacement is a different credential with a different secret — which is also why
+		*narrowing* an existing one is revoke-and-reissue rather than an edit: the API has no
+		`PATCH` here, deliberately, because changing what a credential may do without changing
+		the credential would leave a secret in the wild whose authority had silently moved.
+	*/
+	return { path: `/tokens/${encodeURIComponent(credential.id)}`, method: "DELETE" };
+}
+
 export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.

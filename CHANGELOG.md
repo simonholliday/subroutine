@@ -22,6 +22,35 @@ upgrade involves.
 
 ### Added
 
+- **Credentials can be issued, seen and revoked from the browser, and an agent can be added
+  there.**
+
+  On the *People* page, each account says how many credentials it holds. Opening one lists them
+  — what each is for, what it may do and where, and whether it still works — with *Revoke* on
+  the ones that do. *Issue a credential* mints one; *Add an agent* creates a machine identity
+  and its first credential in a single act, which is what `subroutine agent create` has always
+  been.
+
+  This is the gap that was largest and oldest: `agent create` and `token create` were
+  command-line only, so the accountable person — the one the permission model is built for —
+  could not grant, narrow or revoke authority at all without a terminal.
+
+  **The permissions offered are your own, and that is not a convenience.** A credential may
+  never be wider than the one issuing it, so the set a form can honestly show is exactly what
+  you hold — which the instance already tells the page. Ticking nothing means *not narrowed*
+  rather than *nothing permitted*, and the form says so, because an empty set of tick boxes
+  reads as the opposite of what it means.
+
+  **Revoking asks first and says what it stops**, including when the credential was last used —
+  which is the fact that decides it, and which nothing has ever shown before. There is no undo,
+  and the page says that before you press rather than afterwards. A credential that has been
+  revoked or has expired stays in the list: what an agent *lost* access to is what an audit is
+  looking for.
+
+  **The credential is shown once**, and the form says so before minting rather than after.
+  Nothing stores it, nothing offers to copy it for you, and nothing recovers it.
+
+
 - **The browser can show who is on this instance, what they may do, and which agents answer to
   whom.**
 

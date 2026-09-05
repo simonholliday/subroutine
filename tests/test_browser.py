@@ -1626,7 +1626,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.prose h3',
 		'.prose h4',
 		'.prose li > p',
-		'.reveal .icon',
 		'.reveal[aria-expanded="true"] .icon',
 		'.row.with-assignee',
 		'.row.with-assignee .assignee',
