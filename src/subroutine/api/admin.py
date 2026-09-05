@@ -51,6 +51,16 @@ class Backup(pydantic.BaseModel):
 	#: Null for the default instance, which has no profile name (docs/design.md §12.5).
 	profile: str | None
 
+	#: What this copy was taken for — ``routine``, ``upgrade`` or ``restore`` — and **null for
+	#: one taken before anything recorded it**, which is not the same as routine (`#1712`).
+	#:
+	#: Reported because it decides how long the copy lives, and a caller choosing between
+	#: several has no other way to tell an operator's deliberate backup from a rollback point
+	#: the program took by itself. Null is the answer that most needs saying: those are the
+	#: copies that accumulated before any of this existed, they are treated as routine, and
+	#: nothing removes them until somebody asks.
+	taken_for: str | None = None
+
 
 class Backups(pydantic.BaseModel):
 	"""Every backup this instance holds, newest first."""
@@ -67,6 +77,7 @@ def _rendered (backup: subroutine.db.backup.Backup) -> Backup:
 		schema_head=backup.schema_head,
 		size_bytes=backup.size_bytes,
 		profile=backup.profile,
+		taken_for=backup.taken_for,
 	)
 
 
@@ -78,7 +89,11 @@ def create_backup (
 	keep: int | None = fastapi.Body(
 		None,
 		embed=True,
-		description="Afterwards, keep only this many of the newest backups.",
+		description=(
+			"Afterwards, keep only this many of the newest routine backups. Copies taken "
+			"before an upgrade or a restore are kept under their own rules and are not "
+			"counted here."
+		),
 	),
 ) -> Backup:
 	"""Take a datetime-stamped copy of the database and report what it is called."""
@@ -87,7 +102,18 @@ def create_backup (
 		actor, subroutine.permissions.INSTANCE_ADMIN
 	)
 
-	return _rendered(subroutine.db.backup.take(_engine_behind(session), settings, keep=keep))
+	# **Routine, because somebody asked for it** (`#1712`). A copy taken through this endpoint is
+	# one an operator or their agent requested deliberately, which is exactly what the routine
+	# lifetime describes — the other two are copies the program takes on its own initiative
+	# during an upgrade or a restore, and nothing reaches those from here.
+	return _rendered(
+		subroutine.db.backup.take(
+			_engine_behind(session),
+			settings,
+			taken_for=subroutine.db.backup.ROUTINE,
+			keep=keep,
+		)
+	)
 
 
 def _engine_behind (session: sqlalchemy.orm.Session) -> sqlalchemy.engine.Engine:

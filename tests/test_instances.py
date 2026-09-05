@@ -9,6 +9,7 @@ shared session-scoped one: the PostgreSQL path drops and recreates `public`, and
 database is where every other test in the suite lives.
 """
 
+import ast
 import contextlib
 import datetime
 import errno
@@ -2185,3 +2186,224 @@ def test_a_url_with_no_password_adds_nothing_to_the_environment () -> None:
 	engine = sqlalchemy.create_engine("postgresql+psycopg:///subroutine")
 
 	assert subroutine.db.backup._secret_of(engine) == {}
+
+
+# --------------------------------------------------------------------------------------
+# Three lifetimes in one directory (`#1712`)
+# --------------------------------------------------------------------------------------
+
+
+def _taken (
+	engine: sqlalchemy.engine.Engine, reason: str, minutes: int
+) -> subroutine.db.backup.Backup:
+	"""Take one backup of a given kind, that many minutes before the fixed moment."""
+
+	return subroutine.db.backup.take(
+		engine,
+		_settings(),
+		taken_for=reason,
+		moment=_RETENTION_MOMENT - datetime.timedelta(minutes=minutes),
+	)
+
+
+#: A fixed instant these tests date everything from, so nothing here reads a wall clock.
+#: `#1245` is the recorded cost of a fixture that pairs a frozen constant with a real one.
+_RETENTION_MOMENT = datetime.datetime(2026, 7, 30, 12, 0, tzinfo=datetime.UTC)
+
+
+def test_an_operators_keep_never_reaches_a_copy_the_program_took_itself (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path
+) -> None:
+	"""``--keep`` counts routine backups, and only routine backups (`#1712`).
+
+	**This is the defect the item was filed for.** ``prune`` deleted ``catalogue()[keep:]`` —
+	every copy in the directory by age — so an hourly timer asking for the newest twenty-four
+	reached back one day and deleted the rollback point for an upgrade that had gone wrong the
+	day before, which is the copy somebody wants precisely then.
+	"""
+
+	rollback = _taken(engine, subroutine.db.backup.BEFORE_UPGRADE, 50)
+	safety = _taken(engine, subroutine.db.backup.BEFORE_RESTORE, 40)
+
+	for offset in (30, 20, 10):
+		_taken(engine, subroutine.db.backup.ROUTINE, offset)
+
+	removed = subroutine.db.backup.prune(_settings(), keep=1)
+
+	assert [backup.taken_for for backup in removed] == ["routine", "routine"], (
+		f"--keep reached something it does not own: {[b.taken_for for b in removed]}. It "
+		f"counts routine backups; a rollback point and a restore-safety copy have their own "
+		f"lifetimes and are not in the running."
+	)
+
+	left = {backup.path for backup in subroutine.db.backup.catalogue(_settings())}
+
+	assert rollback.path in left, "an operator's --keep deleted an upgrade's rollback point"
+	assert safety.path in left, "an operator's --keep deleted a restore-safety copy"
+
+
+def test_an_upgrades_own_copies_bound_themselves_and_leave_routine_backups_alone (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path
+) -> None:
+	"""An upgrade prunes its own rollback points and may never touch anybody else's copies.
+
+	Both halves matter and they pull opposite ways. Nothing bounded these before, so one
+	accumulated per upgrade for ever (`#1676`) — and the obvious remedy, passing a plain
+	``keep``, would have deleted twenty-seven of somebody's thirty nightly copies as a side
+	effect of upgrading.
+	"""
+
+	settings = _settings().model_copy(update={"backup_keep_upgrades": 2})
+	routine = [
+		_taken(engine, subroutine.db.backup.ROUTINE, offset) for offset in (60, 50, 40)
+	]
+	oldest = _taken(engine, subroutine.db.backup.BEFORE_UPGRADE, 30)
+
+	_taken(engine, subroutine.db.backup.BEFORE_UPGRADE, 20)
+
+	written = subroutine.db.backup.take(
+		engine,
+		settings,
+		taken_for=subroutine.db.backup.BEFORE_UPGRADE,
+		moment=_RETENTION_MOMENT,
+	)
+
+	assert [backup.path for backup in written.removed] == [oldest.path], (
+		"a third rollback point against a ceiling of two should evict the first and nothing "
+		f"else, and it removed {[b.name for b in written.removed]}"
+	)
+
+	# The record goes with the copy, or a directory accumulates one note per deleted backup.
+	assert not subroutine.db.backup._record_beside(oldest.path).is_file()
+
+	surviving = {backup.path for backup in subroutine.db.backup.catalogue(settings)}
+
+	assert all(backup.path in surviving for backup in routine), (
+		"upgrading deleted a routine backup, which is the door this deliberately keeps shut"
+	)
+
+
+def test_a_restore_safety_copy_lives_a_week_and_is_measured_by_age (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path
+) -> None:
+	"""What a pre-restore copy protects against is discovered on a human timescale.
+
+	By age rather than by count, so somebody restoring three times in an afternoon keeps all
+	three ways back, and somebody who restored in March is not still carrying it.
+	"""
+
+	week = subroutine.db.backup.RESTORE_SAFETY_LIFETIME
+	stale = _taken(
+		engine, subroutine.db.backup.BEFORE_RESTORE, int(week.total_seconds() // 60) + 1
+	)
+	inside = _taken(
+		engine, subroutine.db.backup.BEFORE_RESTORE, int(week.total_seconds() // 60) - 1
+	)
+	routine = _taken(engine, subroutine.db.backup.ROUTINE, 60 * 24 * 365)
+
+	written = subroutine.db.backup.take(
+		engine,
+		_settings(),
+		taken_for=subroutine.db.backup.BEFORE_RESTORE,
+		moment=_RETENTION_MOMENT,
+	)
+
+	assert [backup.path for backup in written.removed] == [stale.path], (
+		f"only the copy past the week should go, and {[b.name for b in written.removed]} did"
+	)
+
+	left = {backup.path for backup in subroutine.db.backup.catalogue(_settings())}
+
+	assert inside.path in left, "a restore-safety copy inside the week was deleted"
+	assert routine.path in left, (
+		"a year-old routine backup was deleted by age, and age governs restore copies alone"
+	)
+
+
+def test_a_copy_taken_before_any_of_this_counts_as_routine_and_says_it_is_unrecorded (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path
+) -> None:
+	"""Retention treats an unlabelled copy as routine; a listing must still tell them apart.
+
+	Every copy on every disk predates this, so the reading has to be the one that keeps more
+	than it deletes. But rendering *unrecorded* as *routine* would let a directory of
+	accumulated pre-upgrade copies describe itself as a directory of deliberate backups — and
+	it is the sentence that explains why retention is not clearing them.
+	"""
+
+	written = _taken(engine, subroutine.db.backup.ROUTINE, 10)
+
+	subroutine.db.backup._record_beside(written.path).unlink()
+
+	found = subroutine.db.backup.catalogue(_settings())[0]
+
+	assert found.taken_for is None, "a missing record must read as unrecorded, not as routine"
+	assert subroutine.db.backup.taken_for(found, subroutine.db.backup.ROUTINE), (
+		"an unlabelled copy has to count as routine, or nothing would ever remove one"
+	)
+	assert not subroutine.db.backup.taken_for(
+		found, subroutine.db.backup.BEFORE_UPGRADE
+	), "an unlabelled copy must not answer to a kind nobody recorded"
+
+
+def test_keeping_no_rollback_points_is_refused_because_it_would_eat_the_one_just_taken (
+	engine: sqlalchemy.engine.Engine, home: pathlib.Path
+) -> None:
+	"""An upgrade takes its copy and then prunes, so nought would leave it with no way back."""
+
+	_taken(engine, subroutine.db.backup.BEFORE_UPGRADE, 10)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.db.backup.prune_rollback_points(_settings(), keep=0)
+
+	assert len(subroutine.db.backup.catalogue(_settings())) == 1
+
+
+def test_every_backup_this_program_takes_says_what_it_is_for () -> None:
+	"""Each caller under ``src`` names the lifetime its copy has (`#1712`).
+
+	``take`` has a default so that a copy taken by something which never considered the question
+	is counted as routine — the safe direction, since routine copies are removed only on
+	request. **The default must never be reached by accident**, though: a rollback point filed
+	as routine is one an operator's hourly ``--keep`` can delete, which is the whole defect.
+	So the decision is required where it is actually made, and this is what requires it.
+
+	This is `test_actor_discipline`'s shape, and for the same reason: the parameter that must
+	not be forgotten is the one nothing else can check.
+	"""
+
+	root = pathlib.Path(__file__).resolve().parent.parent / "src"
+	unsaid = []
+	found = 0
+
+	for path in sorted(root.rglob("*.py")):
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if not isinstance(node, ast.Call):
+				continue
+
+			called = node.func
+
+			if not isinstance(called, ast.Attribute) or called.attr != "take":
+				continue
+
+			if not (
+				isinstance(called.value, ast.Attribute) and called.value.attr == "backup"
+			):
+				continue
+
+			found += 1
+
+			if not any(word.arg == "taken_for" for word in node.keywords):
+				unsaid.append(f"{path.relative_to(root)}:{node.lineno}")
+
+	assert not unsaid, (
+		f"{len(unsaid)} call(s) to backup.take do not say what the copy is for: "
+		f"{', '.join(unsaid)}. Pass taken_for=ROUTINE, BEFORE_UPGRADE or BEFORE_RESTORE — "
+		f"the default exists for a caller nobody has written yet, not for these."
+	)
+
+	# A floor, because a scan that reads nothing has no offenders either and looks identical.
+	assert found >= 3, (
+		f"this walked {found} call(s) to backup.take and there are at least three — one per "
+		f"kind. The scan has stopped finding them rather than the callers having gone."
+	)

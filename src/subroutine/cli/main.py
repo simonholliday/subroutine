@@ -1384,34 +1384,38 @@ def upgrade (
 	# "backed up" here means a file somebody could actually restore, not a write that returned.
 	with _database(settings) as engine:
 		try:
-			written = subroutine.db.backup.take(engine, settings)
+			written = subroutine.db.backup.take(
+				engine, settings, taken_for=subroutine.db.backup.BEFORE_UPGRADE
+			)
 
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
 	_say(f"Backed up to {written.path} ({written.size_bytes:,} bytes).")
 
-	# **Say that nothing removes it, because nothing does** (`#1676`). `take` prunes only when
-	# it is given a `keep`, and this call deliberately gives none — so every upgrade leaves a
-	# full copy behind for ever. On one machine with a large disk that is a footnote; where
-	# several instances share a volume and a fleet upgrades weekly it fills the disk, and the
-	# symptom is the database refusing writes rather than anything pointing at backups.
+	# **Say what the rule is, because an operator cannot otherwise find out** (`#1676`, `#1712`).
+	# This used to say that nothing removed the copy and that every upgrade left one, which was
+	# true and was not a bound: a leak per upgrade fills a volume shared by several instances,
+	# and reports itself as the database refusing writes rather than as anything to do with
+	# backups.
 	#
-	# **The obvious fix is passing a `keep` here, and it is worse than the leak.** `prune`
-	# deletes `catalogue(settings)[keep:]` — every backup in the directory by recency — so an
-	# operator who keeps thirty nightly copies and runs `db upgrade --keep 3` would lose
-	# twenty-seven of them *as a side effect of upgrading*. Destroying somebody's backups is
-	# not something an upgrade may do quietly. A pre-upgrade copy is the rollback point for the
-	# upgrade that just happened and wants a lifetime of its own, which is `#1712`.
-	#
-	# **So this says the thing an operator cannot otherwise find out**, in both directions:
-	# these accumulate, and the command that prunes counts them alongside routine backups.
+	# **The copy now bounds itself and only itself.** `take` reads the kind it was given and
+	# prunes rollback points against `backup_keep_upgrades` — never routine backups, which stay
+	# the operator's to remove. That door is deliberately shut: passing a plain `keep` here
+	# would have deleted `catalogue(settings)[keep:]`, so somebody keeping thirty nightly copies
+	# would lose twenty-seven of them *as a side effect of upgrading*.
 	#
 	# **Two short lines rather than one long one**, because `_say` prints through a console
 	# that wraps at the terminal's width — so a single sentence lands differently on every
 	# machine and `docs/hosting.md`'s quoted transcript could not be true of all of them.
-	_say("Nothing deletes that copy for you, and every upgrade leaves one.")
-	_say("'subroutine db backup --keep N' prunes by age and counts these too.")
+	_say(f"The newest {settings.backup_keep_upgrades} of these are kept, and older ones go.")
+	_say("Your routine backups are untouched by that; only an upgrade's own copies count.")
+
+	# Named, not counted, for the reason `db backup` gives: an upgrade is often run from a
+	# package manager's hook, and its log is the only record there will be of what stopped
+	# existing. Nothing is printed when nothing went, which is every upgrade until the fourth.
+	for gone in written.removed:
+		_say(f"Deleted {gone.path}, an older rollback point.")
 
 	try:
 		subroutine.db.migrate.upgrade(settings.database_url)
@@ -1494,7 +1498,8 @@ def database_backup (
 		"--keep",
 		show_default=False,
 		help=(
-			"Afterwards, delete all but this many of the newest backups. "
+			"Afterwards, delete all but this many of the newest routine backups. "
+			"Copies taken before an upgrade or a restore are not counted. "
 			"Nothing is deleted unless you ask."
 		),
 	),
@@ -1513,7 +1518,10 @@ def database_backup (
 	with _database(settings) as engine:
 		try:
 			written = subroutine.db.backup.take(
-				engine, settings, keep=keep if keep > 0 else None
+				engine,
+				settings,
+				taken_for=subroutine.db.backup.ROUTINE,
+				keep=keep if keep > 0 else None,
 			)
 
 		except subroutine.errors.SubroutineError as error:
@@ -1532,6 +1540,21 @@ def database_backup (
 	# record there will ever be of which backups stopped existing.
 	for gone in written.removed:
 		_say(f"Deleted {gone.path} to keep {keep}.")
+
+
+def _taken_for_cell (backup: subroutine.db.backup.Backup) -> str:
+	"""Say what a copy was taken for, in the words an operator would use.
+
+	**Unrecorded is said as unrecorded, never as routine** — even though retention treats the
+	two the same. Every copy on every disk predates this, so rendering them as *routine* would
+	describe a directory of accumulated pre-upgrade copies as a directory of deliberate
+	backups, which is the one thing somebody looking at an unexplained pile needs told apart.
+	"""
+
+	if backup.taken_for is None:
+		return "purpose not recorded"
+
+	return subroutine.db.backup.TAKEN_FOR_WORDS[backup.taken_for]
 
 
 def _what_it_held (written: subroutine.db.backup.Backup) -> str:
@@ -1612,13 +1635,25 @@ def database_backups () -> None:
 	# wrong row, which was `#172`. When they are all the same, no wrong row exists to pick.
 	engines = {subroutine.db.backup.engine_in(backup.path) for backup in found}
 
+	# **Why each copy is here, shown whenever they are not all routine** (`#1712`). §12.2a's
+	# rule that a uniform column says nothing applies to the ordinary case and not to this one:
+	# a directory where every copy is routine needs no column, and a directory where every copy
+	# is *unrecorded* needs one badly — those are the pre-upgrade copies that accumulated before
+	# any of this existed, and dropping the column would let them describe themselves as
+	# deliberate backups. It is also the sentence that explains why retention is not clearing
+	# them: nothing knows what they are, so they are kept.
+	purposes = any(
+		backup.taken_for != subroutine.db.backup.ROUTINE for backup in found
+	)
+
 	for backup in found:
 		when = backup.taken_at.strftime("%Y-%m-%d %H:%M UTC")
 		kind = f"  {subroutine.db.backup.engine_in(backup.path)}" if len(engines) > 1 else ""
+		why = f"  {_taken_for_cell(backup)}" if purposes else ""
 
 		_say(
 			f"  {backup.name}  {when}  {backup.size_bytes:,} bytes  "
-			f"schema {backup.schema_head}{kind}"
+			f"schema {backup.schema_head}{why}{kind}"
 		)
 		_say(f"    {_holdings_cell(backup)}")
 
@@ -3108,7 +3143,9 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 		engine = subroutine.db.session.create_engine(settings.database_url)
 
 		try:
-			kept = subroutine.db.backup.take(engine, settings)
+			kept = subroutine.db.backup.take(
+				engine, settings, taken_for=subroutine.db.backup.BEFORE_RESTORE
+			)
 
 		finally:
 			engine.dispose()

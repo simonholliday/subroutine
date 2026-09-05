@@ -183,6 +183,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
 | `source_url` | this project | Where this instance's source can be had. A promise the product makes, not a licence obligation |
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
+| `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone — never your routine backups, which go only when `db backup --keep N` asks |
 | `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |
 | `local_user` | unset | Which account to act as when the database holds more than one and nobody logged in |
@@ -1529,9 +1530,28 @@ loaded by `pg_restore`, which has no such notion — so a tampered backup has no
 instruction. If you keep old `.sql` backups where anybody else can write, take a fresh one and
 treat the old files as you would any other file you did not write.
 
-`--keep N` prunes to the newest N afterwards, which is the whole of the retention policy. Run
-it from a timer — it names every file it deletes, so the timer's log is the record of what
-went.
+`--keep N` prunes to the newest N *routine* backups afterwards. Run it from a timer — it names
+every file it deletes, so the timer's log is the record of what went.
+
+**Three kinds of copy share this directory and each has its own lifetime.** A routine backup is
+one you asked for, and nothing removes it unless `--keep` says so. The other two are copies the
+program takes on its own initiative at a moment it knows is risky, and they bound themselves:
+`db upgrade` keeps the newest `backup_keep_upgrades` rollback points, three unless you say
+otherwise, and `db restore` keeps its safety copy for a week. Neither ever counts or deletes a
+routine backup, and `--keep` never counts or deletes either of them.
+
+That separation is the point rather than a detail. One shared counter meant an hourly
+`--keep 24` reached back a day and deleted the rollback point for the upgrade that had gone
+wrong the day before — the copy you want precisely then. It also meant nothing ever removed a
+rollback point at all, so one accumulated per upgrade for ever.
+
+**A copy taken before this rule existed says `purpose not recorded`, and counts as routine.**
+Nothing recorded what it was for, and keeping it is the safer of the two readings. If a pile of
+those has built up from past upgrades, one deliberate `db backup --keep N` clears it — until
+you run that, they stay.
+
+**This governs the copies on this machine.** Anything shipping backups off the node keeps its
+own retention, and the two are separate mechanisms with separate lifetimes.
 
 Backups are written owner-only, like the database and `config.toml`. A backup is the whole
 database, so it is exactly as sensitive as the thing it copies.
@@ -1822,8 +1842,8 @@ copy where it landed, migrate, then read the schema back rather than assuming.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.dump (63,584 bytes).
-  Nothing deletes that copy for you, and every upgrade leaves one.
-  'subroutine db backup --keep N' prunes by age and counts these too.
+  The newest 3 of these are kept, and older ones go.
+  Your routine backups are untouched by that; only an upgrade's own copies count.
   Upgraded from f159c8635e54 to 1f61c97bf2ca.
 ```
 

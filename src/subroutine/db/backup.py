@@ -170,6 +170,17 @@ class Backup:
 	#: d5d0458f5ad5" and nothing about that sentence was false.
 	holdings: dict[str, int] | None = None
 
+	#: What this copy was taken for — :data:`ROUTINE`, :data:`BEFORE_UPGRADE` or
+	#: :data:`BEFORE_RESTORE` — or ``None`` for one taken before anything recorded it.
+	#:
+	#: **``None`` is *not recorded*, and it is not *routine***, which is `#432`'s distinction one
+	#: field along. Retention treats the two the same on purpose: an unlabelled copy is kept
+	#: unless somebody asks for it to go, the reading that keeps more than it deletes. A
+	#: *listing* must still tell them apart, because a directory of pre-upgrade copies taken
+	#: before this existed would otherwise describe itself as a directory of routine backups —
+	#: which is the one thing an operator looking at an unexplained pile needs to know.
+	taken_for: str | None = None
+
 	#: What taking this one *deleted*, when ``--keep`` asked for it. Carried back rather than
 	#: discarded because ``hosting.md`` recommends running the backup from a timer, and a timer's
 	#: log is the only record there will ever be of what went (`#175`). A deletion nothing
@@ -297,6 +308,40 @@ def _free_name (
 	)
 
 
+#: What a copy was taken for, recorded beside it so that retention can tell three lifetimes
+#: apart (`#1712`). One directory holds all three and they are not interchangeable: a routine
+#: backup is one the operator asked for, and the other two are copies the program took on its
+#: own initiative at a moment it knew was risky.
+#:
+#: **Recorded rather than spelled into the filename**, which was the alternative and costs a
+#: contract change: the name is what ``catalogue`` parses, ``restore`` reads,
+#: ``docs/hosting.md`` quotes and a guard checks. A reason written *beside* the copy also
+#: survives the one thing a path cannot — the same file is ``/var/lib/subroutine/<slug>``
+#: inside a systemd unit and ``/var/lib/private/subroutine/<slug>`` outside it, so anything
+#: joining on the path matches nothing, ever, and nothing complains about it.
+ROUTINE = "routine"
+BEFORE_UPGRADE = "upgrade"
+BEFORE_RESTORE = "restore"
+
+#: What each reason is called in something a person reads. The stored value is a key and the
+#: rendered value is a word (`#1717`) — an operator listing a directory should not have to know
+#: which of the two they are looking at.
+TAKEN_FOR_WORDS = {
+	ROUTINE: "routine",
+	BEFORE_UPGRADE: "before an upgrade",
+	BEFORE_RESTORE: "before a restore",
+}
+
+#: How long a restore-safety copy lives before the next restore clears it away (`#1712`).
+#:
+#: **A constant rather than a setting**, deliberately. How many upgrades back somebody might
+#: want to go is a question about a disk, and varies between a laptop and a fleet sharing a
+#: volume — so that one is configurable. How long until you know a restore was right is a
+#: question about a person, and does not. An operator who wants a copy kept past this has
+#: ``db backup``, which takes one they own and which nothing here removes.
+RESTORE_SAFETY_LIFETIME = datetime.timedelta(days=7)
+
+
 #: What a backup's own record of itself is called. **Beside the copy rather than inside it**:
 #: a `pg_dump` script is not a database anything can open without restoring it somewhere first,
 #: and writing into a SQLite copy would break the property §12.6 verifies — that the file on
@@ -310,19 +355,27 @@ def _record_beside (path: pathlib.Path) -> pathlib.Path:
 	return path.with_name(path.name + RECORD_SUFFIX)
 
 
-def _record (target: pathlib.Path, holdings: dict[str, int]) -> None:
-	"""Write what the source held, so the listing can say it without opening every copy.
+def _record (target: pathlib.Path, holdings: dict[str, int], taken_for: str) -> None:
+	"""Write what the source held and what this copy is for, beside the copy.
 
 	**Failure is swallowed, for `#505`'s reason.** The bytes have already landed by the time
 	this runs; a backup that arrived intact must never be reported as failed because a note
 	about it could not be written. The listing degrades to *not recorded*, which is what every
 	backup taken before this existed says anyway.
+
+	**What that costs once retention reads this** (`#1712`): a copy whose note could not be
+	written is unlabelled, so it is treated as routine, so nothing removes it unless the
+	operator asks. That is the safe direction — a rollback point nobody can identify is kept
+	rather than deleted — and it is why this may stay best-effort.
 	"""
 
 	with contextlib.suppress(OSError, TypeError, ValueError):
 		beside = _record_beside(target)
 
-		beside.write_text(json.dumps({"holdings": holdings}, indent=1), encoding="utf-8")
+		beside.write_text(
+			json.dumps({"holdings": holdings, "taken_for": taken_for}, indent=1),
+			encoding="utf-8",
+		)
 
 		# **The same mode as the backup it describes** (`#927`'s L-8). This was written at
 		# whatever umask was in force, so a directory of `-rw-------` copies carried one
@@ -332,8 +385,21 @@ def _record (target: pathlib.Path, holdings: dict[str, int]) -> None:
 		subroutine.config.keep_private(beside)
 
 
-def _recorded (path: pathlib.Path) -> dict[str, int] | None:
-	"""Return what a backup recorded holding, or ``None`` when nothing recorded it.
+@dataclasses.dataclass(frozen=True)
+class _Note:
+	"""What a backup's own record says about it, with every part of it optional.
+
+	Both fields are absent from some real file on some real disk: ``holdings`` from any copy
+	taken before `#432`, and ``taken_for`` from any taken before `#1712`. Reading a note is
+	therefore never all-or-nothing — an old copy answers the first question and not the second.
+	"""
+
+	holdings: dict[str, int] | None = None
+	taken_for: str | None = None
+
+
+def _recorded (path: pathlib.Path) -> _Note:
+	"""Return what a backup recorded about itself, with ``None`` for anything nothing recorded.
 
 	**``None`` is *not recorded*, and it is not *empty*** — the distinction `#432` is about.
 	Every backup taken before this existed has no record, and reporting those as holding
@@ -343,24 +409,37 @@ def _recorded (path: pathlib.Path) -> dict[str, int] | None:
 	record = _record_beside(path)
 
 	if not record.is_file():
-		return None
+		return _Note()
 
 	try:
 		loaded = json.loads(record.read_text(encoding="utf-8"))
 
 	except (OSError, ValueError):
-		return None
+		return _Note()
 
-	held = loaded.get("holdings") if isinstance(loaded, dict) else None
+	if not isinstance(loaded, dict):
+		return _Note()
 
-	if not isinstance(held, dict):
-		return None
+	held = loaded.get("holdings")
+	reason = loaded.get("taken_for")
 
-	return {
-		str(name): int(count)
-		for name, count in held.items()
-		if isinstance(count, int)
-	}
+	return _Note(
+		holdings=(
+			{
+				str(name): int(count)
+				for name, count in held.items()
+				if isinstance(count, int)
+			}
+			if isinstance(held, dict)
+			else None
+		),
+
+		# **Anything not in the vocabulary is read as unrecorded**, rather than carried through
+		# as itself. A note is a file on a disk somebody else administers, so it can hold a word
+		# from a later version or a word somebody typed — and an unknown reason matching no
+		# retention rule would be a copy nothing ever removes, which is the leak this closes.
+		taken_for=reason if reason in TAKEN_FOR_WORDS else None,
+	)
 
 
 def _described (path: pathlib.Path) -> Backup | None:
@@ -389,6 +468,7 @@ def _described (path: pathlib.Path) -> Backup | None:
 		return None
 
 	label = "-".join(parts[1:-2])
+	note = _recorded(path)
 
 	return Backup(
 		path=path,
@@ -396,7 +476,8 @@ def _described (path: pathlib.Path) -> Backup | None:
 		schema_head=parts[-1],
 		size_bytes=path.stat().st_size,
 		profile=None if label == DEFAULT_LABEL else label,
-		holdings=_recorded(path),
+		holdings=note.holdings,
+		taken_for=note.taken_for,
 	)
 
 
@@ -1100,14 +1181,27 @@ def take (
 	engine: sqlalchemy.engine.Engine,
 	settings: subroutine.config.Settings,
 	*,
+	taken_for: str = ROUTINE,
 	keep: int | None = None,
 	moment: datetime.datetime | None = None,
 ) -> Backup:
 	"""Copy the database into a datetime-stamped file and return what was written.
 
-	``keep`` prunes to that many most recent backups afterwards. Nothing is deleted unless it is
-	asked for: a backup command that quietly removes old backups is one bad default away from
-	causing the loss it exists to prevent.
+	``keep`` prunes to that many most recent **routine** backups afterwards, and applies to
+	nothing else. Nothing routine is deleted unless it is asked for: a backup command that
+	quietly removes old backups is one bad default away from causing the loss it exists to
+	prevent.
+
+	``taken_for`` says which of three lifetimes this copy has, and **the two the program takes
+	on its own initiative bound themselves** (`#1712`). That is not a contradiction of the
+	sentence above: an operator's routine copies are theirs and are removed only on request,
+	while a pre-upgrade rollback point and a pre-restore safety copy are copies nobody asked
+	for, and something has to bound them or they accumulate for ever — which was `#1676`.
+
+	**The retention rule is chosen here, at the one place every writer passes through**, so a
+	surface that has not been written yet inherits it. It has a default because a copy taken by
+	something that never considered the question is safest counted as routine, and a guard in
+	``tests/test_instances.py`` requires every caller under ``src`` to say which it means anyway.
 	"""
 
 	try:
@@ -1160,7 +1254,7 @@ def take (
 	# off the *source*, and by the time somebody lists this directory the source may have moved
 	# on or gone. A listing that derived them instead would have to open every copy, which turns
 	# a directory scan into reading every file in it — and cannot do it at all for a `pg_dump`.
-	_record(target, held)
+	_record(target, held, taken_for)
 
 	return Backup(
 		path=target,
@@ -1169,8 +1263,36 @@ def take (
 		size_bytes=size,
 		holdings=held,
 		profile=active,
-		removed=() if keep is None else tuple(prune(settings, keep=keep)),
+		taken_for=taken_for,
+		removed=tuple(_pruned_after(settings, taken_for=taken_for, keep=keep, now=taken_at)),
 	)
+
+
+def _pruned_after (
+	settings: subroutine.config.Settings,
+	*,
+	taken_for: str,
+	keep: int | None,
+	now: datetime.datetime,
+) -> list[Backup]:
+	"""Apply the retention rule for the kind of copy that was just taken.
+
+	**Each kind counts only its own** (`#1712`), which is the whole of the fix. An hourly timer
+	asking for the newest twenty-four cannot then evict the rollback point for the upgrade that
+	most recently went wrong, and an upgrade cannot evict a month of somebody's nightly copies
+	as a side effect of upgrading — the two failures that made one shared counter unworkable.
+	"""
+
+	if taken_for == BEFORE_UPGRADE:
+		return prune_rollback_points(settings, keep=settings.backup_keep_upgrades)
+
+	if taken_for == BEFORE_RESTORE:
+		return prune_restore_copies(settings, now=now)
+
+	# `keep` is the operator's, and it is the only one of the three that is opt-in. Its absence
+	# means they did not ask, which is different from asking for everything to be kept — but
+	# not here, because the two have the same answer.
+	return [] if keep is None else prune(settings, keep=keep)
 
 
 #: What is counted to say whether a backup holds anything — item `#395`. The tables that carry
@@ -1445,18 +1567,26 @@ def _run (
 	return output
 
 
-def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
-	"""Delete all but the ``keep`` most recent backups, returning what was removed."""
+def taken_for (backup: Backup, reason: str) -> bool:
+	"""Say whether a copy counts as one taken for ``reason``.
 
-	if keep < 1:
-		raise subroutine.errors.ValidationError(
-			f"--keep must be 1 or more, not {keep}: pruning to nothing would delete every "
-			f"backup this instance has."
-		)
+	**An unlabelled copy is routine** (`#1712`), which is the reading that keeps more than it
+	deletes: every copy on every disk predates this, so the alternative — counting unlabelled
+	as *none of the three* — would make them all immortal, and the alternative to that would
+	have an upgrade delete backups it cannot identify. Neither is a thing to do to somebody
+	else's data.
+	"""
 
-	removed = catalogue(settings)[keep:]
+	if backup.taken_for is None:
+		return reason == ROUTINE
 
-	for backup in removed:
+	return backup.taken_for == reason
+
+
+def _removed (backups: list[Backup]) -> list[Backup]:
+	"""Delete these copies along with their records, and return what went."""
+
+	for backup in backups:
 		backup.path.unlink(missing_ok=True)
 
 		# The record goes with the copy it describes. Left behind it would accumulate one file
@@ -1464,7 +1594,67 @@ def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
 		# the same name would inherit somebody else's counts.
 		_record_beside(backup.path).unlink(missing_ok=True)
 
-	return removed
+	return backups
+
+
+def prune (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
+	"""Delete all but the ``keep`` most recent *routine* backups, returning what was removed.
+
+	**Routine only, since `#1712`.** This counted every copy in the directory by age, so an
+	hourly timer with ``--keep 24`` reached back one day and deleted the pre-upgrade copy for
+	an upgrade that had gone wrong the day before — the copy somebody wants precisely then.
+	"""
+
+	if keep < 1:
+		raise subroutine.errors.ValidationError(
+			f"--keep must be 1 or more, not {keep}: pruning to nothing would delete every "
+			f"routine backup this instance has."
+		)
+
+	routine = [backup for backup in catalogue(settings) if taken_for(backup, ROUTINE)]
+
+	return _removed(routine[keep:])
+
+
+def prune_rollback_points (settings: subroutine.config.Settings, *, keep: int) -> list[Backup]:
+	"""Delete all but the ``keep`` most recent pre-upgrade copies, returning what was removed.
+
+	**This may never reach a routine backup**, which is the door `#1712` deliberately kept shut:
+	an operator with thirty nightly copies must not lose twenty-seven of them as a side effect
+	of upgrading. Destroying somebody's backups is not something an upgrade may do quietly.
+	"""
+
+	if keep < 1:
+		raise subroutine.errors.ValidationError(
+			f"backup_keep_upgrades must be 1 or more, not {keep}: an upgrade takes a rollback "
+			f"point and then keeps this many, so nought would delete the copy it just took — "
+			f"leaving the upgrade with no way back at the moment one is most likely wanted."
+		)
+
+	points = [backup for backup in catalogue(settings) if taken_for(backup, BEFORE_UPGRADE)]
+
+	return _removed(points[keep:])
+
+
+def prune_restore_copies (
+	settings: subroutine.config.Settings, *, now: datetime.datetime | None = None
+) -> list[Backup]:
+	"""Delete pre-restore safety copies older than :data:`RESTORE_SAFETY_LIFETIME`.
+
+	**By age rather than by count**, because what this copy protects against is a restore that
+	turns out to have been the wrong one — and that is discovered on a human timescale rather
+	than after a certain number of further restores. Somebody who restores three times in an
+	afternoon keeps all three ways back; somebody who restored in March does not still carry it.
+	"""
+
+	edge = (now or datetime.datetime.now(datetime.UTC)) - RESTORE_SAFETY_LIFETIME
+	stale = [
+		backup
+		for backup in catalogue(settings)
+		if taken_for(backup, BEFORE_RESTORE) and backup.taken_at < edge
+	]
+
+	return _removed(stale)
 
 
 def check_restorable (path: pathlib.Path) -> str:

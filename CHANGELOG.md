@@ -822,6 +822,40 @@ upgrade involves.
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
 
 ### Changed
+- **A backup directory holds three kinds of copy, and each now has its own lifetime.**
+
+  > **`db backup --keep N` counts routine backups only.** It counted every copy in the
+  > directory, so the number named the whole directory; it now names your routine backups and
+  > the directory can hold more files than it says. A crontab keeps working unchanged.
+
+  Three things write backups and only one of them is something you asked for. `db backup` takes
+  a routine copy; `db upgrade` takes a rollback point for the upgrade it is about to attempt;
+  `db restore` takes a safety copy of what it is about to replace. They shared one counter, and
+  that was wrong in both directions at once. An hourly `--keep 24` reached back a day and
+  deleted the rollback point for the upgrade that had gone wrong the day before — the copy you
+  want precisely then — while nothing ever removed a rollback point at all, so one accumulated
+  per upgrade for ever until the volume filled.
+
+  Each kind is now counted separately. **Your routine backups are still removed only when you
+  ask**, which is unchanged and is the point: what the program bounds automatically is what the
+  program took on its own initiative, never what you did. An upgrade keeps the newest
+  `backup_keep_upgrades` rollback points, three unless you say otherwise, and can no longer
+  reach a routine backup — the obvious fix of passing a `keep` to the upgrade would have
+  deleted twenty-seven of your thirty nightly copies as a side effect of upgrading. A restore's
+  safety copy lives a week, measured by age rather than count, because what it protects against
+  is a restore that turns out to have been the wrong one, and you find that out on a human
+  timescale.
+
+  What a copy is for is recorded in the small `.counts.json` written beside it, so **no
+  filename changes** and every existing backup still restores. A copy taken before this says
+  *purpose not recorded* and counts as routine, which is the reading that keeps more than it
+  deletes — so a pile left over from past upgrades stays until you clear it with a deliberate
+  `db backup --keep N`. `db backups` says what each copy was taken for whenever they are not
+  all routine, which is where you will see that pile for the first time.
+
+  This governs the copies on the machine. Anything shipping backups off the node keeps its own
+  retention, and the two are separate mechanisms.
+
 - **Every card says what it is in a fixed place — its number, whether it is work or a
   document, and what sort of thing it is.**
 

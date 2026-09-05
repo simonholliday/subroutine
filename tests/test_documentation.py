@@ -2266,11 +2266,15 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 		r"\s*About to upgrade[^\n]*\n"
 		r"\s*Backed up to (?P<backup>\S+) \([\d,]+ bytes\)\.\n"
 		# **The retention footnote, and it is quoted because it is what the command prints**
-		# (`#1676`). Two fixed lines, so a transcript can carry them verbatim on any machine —
-		# which is why they are two: `_say` wraps at the terminal's width, and one long
-		# sentence would land differently for every reader.
-		r"\s*(?P<retention>Nothing deletes that copy for you[^\n]*)\n"
-		r"\s*(?P<pruning>'subroutine db backup --keep N'[^\n]*)\n"
+		# (`#1676`, `#1712`). Two fixed lines, so a transcript can carry them verbatim on any
+		# machine — which is why they are two: `_say` wraps at the terminal's width, and one
+		# long sentence would land differently for every reader.
+		#
+		# It said *nothing deletes that copy for you* until `#1712` gave the copy a lifetime.
+		# That was true and was not a bound; what the page must now carry is the rule, and
+		# both halves of it — how many are kept, and whose copies are not counted.
+		r"\s*(?P<retention>The newest (?P<kept>\d+) of these are kept[^\n]*)\n"
+		r"\s*(?P<pruning>Your routine backups are untouched[^\n]*)\n"
 		r"\s*Upgraded from (?P<origin>\w+) to (?P<reached>\w+)\.",
 		page,
 	)
@@ -2283,6 +2287,18 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 	)
 	assert quoted["head"] == quoted["reached"], (
 		f"it expects {quoted['head']} and reaches {quoted['reached']}"
+	)
+
+	# **The number is read from the setting rather than believed** (`#1712`). A transcript
+	# quoting a default is a copy of it, and this page's whole promise is that the output is
+	# what the command printed — so changing `backup_keep_upgrades` has to fail here rather
+	# than leave a page confidently stating last release's policy.
+	default = subroutine.config.Settings.model_fields["backup_keep_upgrades"].default
+
+	assert int(quoted["kept"]) == default, (
+		f"the transcript says {quoted['kept']} rollback points are kept and the shipped "
+		f"default is {default}. The page quotes a run on a default instance, so the two "
+		f"cannot differ — re-run the command and paste what it says."
 	)
 
 	# The filename `db/backup` composes: the program, the instance, the instant, the revision
@@ -2311,10 +2327,29 @@ def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> Non
 		pathlib.Path(subroutine.cli.main.__file__).read_text(encoding="utf-8")
 	)
 
-	for name in ("retention", "pruning"):
-		assert f'_say("{quoted[name]}")' in spoken, (
-			f"the transcript quotes {quoted[name]!r}, which `db upgrade` does not say"
-		)
+	assert f'_say("{quoted["pruning"]}")' in spoken, (
+		f"the transcript quotes {quoted['pruning']!r}, which `db upgrade` does not say"
+	)
+
+	# **The other line interpolates the setting, so the template is rendered rather than
+	# matched** (`#1712`). Comparing it as a literal is impossible and relaxing the check to a
+	# substring would accept a reworded sentence — which is the whole thing `#189` is about. So
+	# the source's own f-string is read, the one value it carries is filled in, and the result
+	# has to be the line on the page character for character.
+	template = re.search(
+		r'_say\(f"(The newest \{settings\.backup_keep_upgrades\}[^"]*)"\)', spoken
+	)
+
+	assert template is not None, (
+		"`db upgrade` no longer says how many rollback points it keeps in the shape this "
+		"reads. If the sentence moved, this guard has to move with it."
+	)
+	assert quoted["retention"] == template[1].replace(
+		"{settings.backup_keep_upgrades}", str(default)
+	), (
+		f"the transcript says {quoted['retention']!r} and the command says "
+		f"{template[1]!r} with {default} filled in"
+	)
 
 	published = {
 		release["version"] for release in json.loads(RELEASES.read_text(encoding="utf-8"))["releases"]

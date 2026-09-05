@@ -805,6 +805,20 @@ class Settings(pydantic_settings.BaseSettings):
 	# itself — so this is a separate setting rather than a directory beside `database_url`.
 	backup_directory: str | None = None
 
+	# How many pre-upgrade rollback points survive (`#1712`). `db upgrade` takes a copy nobody
+	# asked for, and until this existed nothing ever removed one — a leak per upgrade, which on
+	# a volume shared by several instances fills the disk and reports itself as the database
+	# refusing writes rather than as anything to do with backups.
+	#
+	# **It counts rollback points and nothing else.** Routine backups are the operator's and go
+	# only when `db backup --keep N` asks; a restore's safety copy has its own week. Three
+	# lifetimes in one directory, which is the whole reason one shared counter could not work.
+	#
+	# **One is the floor rather than nought**, because an upgrade takes its copy and then prunes
+	# to this number — so nought would delete the copy it had just taken, leaving no way back at
+	# the moment one is most likely to be wanted.
+	backup_keep_upgrades: int = pydantic.Field(3, ge=1)
+
 	# The https:// address a TLS-terminating proxy serves this instance on. Unset is the
 	# ordinary case — one person on a laptop, listening on loopback. Setting it is what makes
 	# a non-loopback bind something `serve` will agree to (docs/design.md §12.4).
