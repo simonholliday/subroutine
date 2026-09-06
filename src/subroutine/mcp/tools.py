@@ -486,6 +486,30 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	rules it was never shown is worse off than one reading a long list. If it grows
 	uncomfortable the answer is to supersede what no longer applies, which is the product's own
 	mechanism, rather than to pick a number.
+
+	**Narrowed to the checkout's project since `#2136`, and that needs arguing, because the
+	handler one along refuses exactly this.** ``_listed`` is excused from reading the marker
+	on §13.7's rule — *a marker decides where a write goes and never what a read shows*, so a
+	listing that narrowed by it would hide work from an agent standing in the wrong directory.
+	This is a read too. Three things make it a different case, and the third is the one that
+	decides it:
+
+	- **What it lists is not work.** *Which rules bind me* has a project-scoped answer where
+	  *what is there to do* does not: a dedup threshold for bird recordings binds nobody
+	  working here, and on this instance 53 of 138 entries were of that kind.
+	- **A missed rule and a missed item fail differently.** Forgetting your context must never
+	  cost you an item you would have done — that is what `use` protects. It cannot cost you a
+	  rule here, because of the third point.
+	- **It says what it left out.** ``_listed``'s reason turns on the word *silently*, and a
+	  listing cannot report its own omission. This can, so it does — which is the whole of why
+	  narrowing is honest here and would not be there.
+
+	**The Inbox is named in that sentence rather than queried for.** Every document has a
+	project (`#301`), so one written from an unmarked context lands in the workspace Inbox and a
+	narrowed index does not show it — measured 2026-09-06 as zero on this instance, and it is a
+	fact about today rather than a guarantee. Fetching it as well is a second request per
+	governing type on a resource read once a session, for a case that has not yet happened; the
+	closing line names it instead, which is what makes the trade visible rather than forgotten.
 	"""
 
 	meta = client.meta(workspace=workspace)
@@ -499,6 +523,16 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		# is worth more than an error explaining nothing the reader can act on.
 		return "\n".join([CONVENTIONS_HEADING, "", _choose_a_workspace(names)])
 
+	# **Which project this checkout is, by the same reading `subroutine_add` has always done**
+	# (`#2136`). A workspace holds many projects — measured on this instance, 138 documents in
+	# force of which roughly 53 belong to five other projects — and an index headed *everything
+	# below is in force here* was answering about all of them.
+	#
+	# **`overridden=False` because a resource has no caller to override it.** A tool takes a
+	# `project` argument or a `+key`; this is read by URI and carries nothing, so the marker is
+	# the only thing that can speak.
+	chosen = _checkout(client, workspace=workspace, overridden=False)
+
 	lines = [
 		CONVENTIONS_HEADING,
 		"",
@@ -510,7 +544,7 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 	total = 0
 
 	for kind in subroutine.domain.documents.GOVERNING:
-		section, held = _governing(client, meta, workspace, kind)
+		section, held = _governing(client, meta, workspace, kind, chosen.project)
 
 		lines += section
 		total += held
@@ -561,12 +595,34 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 
 	lines += [
 		"",
-		f"{total} in force. Findings and notes are not listed here: they describe rather than",
+		f"{total} in force"
+		+ (f" in {chosen.project}" if chosen.project is not None else "")
+		+ ". Findings and notes are not listed here: they describe rather than",
 		"bind, and `subroutine_list` with a `type` finds those. A code review's *Not issues*",
 		"section is worth reading before re-raising something it already cleared.",
 	]
 
-	drafted, more = _drafted(client, meta, workspace)
+	if chosen.project is not None:
+		# **A narrowing that does not say so is the omission this resource refuses** — its own
+		# rule, written when Simon settled that the index is curated by superseding rather than
+		# truncated: *an agent held to ten rules it was never shown is worse off than one reading
+		# a long list.* Narrowing is worth doing and may not be silent, so the reader is told
+		# which project answered, **where that came from**, and how to see past it.
+		#
+		# **Naming the source is what makes `#1438` visible.** Over `subroutine-remote` these
+		# handlers run on the *server*, so `directory.find()` reads the server's working
+		# directory rather than the reader's — and a narrowing to a project they have never
+		# heard of is then legible on sight instead of looking like a workspace that has decided
+		# very little.
+		lines += [
+			"",
+			f"**Narrowed to {chosen.project}**, from `{subroutine.directory.FILE_NAME}` in this",
+			"checkout. Anything in force elsewhere in this workspace — under another project, or",
+			"in the Inbox — is not listed above; `subroutine_list` with a `type` and a `project`",
+			"shows it.",
+		]
+
+	drafted, more = _drafted(client, meta, workspace, chosen.project)
 
 	if drafted:
 		counted = (
@@ -600,6 +656,7 @@ def _governing (
 	meta: subroutine.views.Meta,
 	workspace: str | None,
 	kind: subroutine.domain.documents.Governing,
+	project: str | None,
 ) -> tuple[list[str], int]:
 	"""Return one type's section of the conventions index, and how many it lists.
 
@@ -618,11 +675,16 @@ def _governing (
 	# time — a copy of a rule the server should be answering, and it existed only because
 	# `GET /v1/documents` took a renameable key and nothing else. The dedupe that went with it
 	# is gone too: a status belongs to one category, so one call cannot return a row twice.
+	# **Narrowed by the server rather than by filtering what comes back** (`#925`, `#848`'s
+	# neighbour). A project filter reaches what is *under* a project too — `#320` settled that
+	# `--project subroutine` covers `subroutine/UI` — so comparing `project_path` here would
+	# quietly drop every sub-project's conventions, which is the omission this resource refuses.
 	listed = client.documents(
 		workspace=workspace,
 		type=kind.key,
 		status_category=subroutine.domain.documents.CURRENT_CATEGORY,
 		limit=meta.limits.max_page_size,
+		project=project,
 	)
 	found = list(listed)
 	cut = listed.has_more
@@ -686,6 +748,7 @@ def _drafted (
 	client: subroutine.clients.base.Client,
 	meta: subroutine.views.Meta,
 	workspace: str | None,
+	project: str | None = None,
 ) -> tuple[int, bool]:
 	"""Return how many governing documents are drafts here, and whether that count is a floor.
 
@@ -716,6 +779,10 @@ def _drafted (
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
 		limit=meta.limits.max_page_size,
+		# **The same narrowing as the index above**, or the two halves of one answer would
+		# describe different sets — *85 in force here* beside *23 drafts somewhere in this
+		# workspace* invites the reader to subtract one from the other.
+		project=project,
 	)
 
 	governing = [

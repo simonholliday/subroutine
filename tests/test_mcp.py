@@ -53,6 +53,7 @@ import subroutine.domain.capture
 import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.filtering
+import subroutine.domain.projects
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -4636,6 +4637,20 @@ class _Recorded:
 #: Each entry is a decision with its reason; deleting one is what closes it, and
 #: :func:`test_no_excused_handler_reads_the_checkout` fails when a reason expires.
 NOT_FROM_THE_CHECKOUT = {
+	# **Both take the project from their caller, which read the checkout** — `SR#2136`. They are
+	# helpers of `_conventions` rather than handlers, and threading the answer down is what makes
+	# the index and its draft count describe the same set; calling `_checkout` again in each
+	# would be three reads of one fact per session, free to disagree if any of them grew a
+	# condition. **The entry expires when they stop taking a `project`**, which is what makes it
+	# a statement rather than a permanent hole.
+	"_governing": (
+		"a helper of `_conventions`, which reads the checkout and hands the answer down. Reading "
+		"it again here would be a second consultation of one fact inside one render."
+	),
+	"_drafted": (
+		"the same, and it must narrow to exactly what `_conventions` narrowed to — a draft count "
+		"for the whole workspace beside an index for one project invites subtraction."
+	),
 	"_listed": (
 		"A marker decides where a write goes and never what a read shows. That is `use`'s own "
 		"rule — reads span everything reachable, writes target the current context — and a "
@@ -6467,6 +6482,132 @@ def _bound_to (session: sqlalchemy.orm.Session, workspace: str) -> str:
 	published: str = answered[0]["result"]["contents"][0]["text"]
 
 	return published
+
+
+def _marked_as (
+	monkeypatch: pytest.MonkeyPatch, project: str | None, connection: str = "local"
+) -> None:
+	"""Make this checkout look marked for one project, or for none.
+
+	**The marker is a fact about the filesystem, not about what is under test.** Reading one is
+	``_checkout``'s job and is covered where that lives; what these cases hold is what the index
+	does with the answer. Patching the module's own lookup is the seam that leaves everything
+	else — the connection guard, resolving by id, the request, the wording — running for real.
+	"""
+
+	found = (
+		None if project is None
+		else subroutine.directory.Marker(
+			path=pathlib.Path(".subroutine"), connection=connection, project=project
+		)
+	)
+
+	monkeypatch.setattr(subroutine.directory, "find", lambda *args, **kwargs: found)
+
+
+def _two_projects (session: sqlalchemy.orm.Session) -> str:
+	"""Return a workspace holding two projects, each with one decision in force.
+
+	**Two, because one cannot fail** — ``_two_workspaces``' argument one level down. With a
+	single project every assertion below passes against a resource that ignores the marker
+	entirely, which is the blindness `SR#333` sat in for as long as every instance had one
+	workspace.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+
+	for key, title in (
+		("mine", "The rule this checkout follows"),
+		("theirs", "A rule about somebody else's bird recordings"),
+	):
+		project = subroutine.domain.projects.create(
+			session,
+			workspace_id=setup.workspace.id,
+			key=key,
+			title=key.title(),
+			owner_id=setup.user.id,
+		)
+		subroutine.domain.documents.create(
+			session, project=project, title=title, body="Decided.", type_key="decision"
+		)
+
+	session.flush()
+
+	return str(setup.workspace.slug)
+
+
+def test_the_conventions_index_answers_for_the_project_this_checkout_is (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2136`. A workspace holds many projects, and the index was answering about all of them.
+
+	**Measured on this project's own instance before the change**: 138 documents in force, of
+	which roughly 53 belonged to five other projects — bird-call dedup thresholds, GM drum-map
+	naming, ambisonic capture — under a heading reading *everything below is in force here*.
+
+	**Narrowed by the server, because `SR#320` settled that a project filter reaches what is
+	under a project.** Comparing ``project_path`` in the resource would drop every sub-project's
+	conventions, which is the omission this index exists to refuse.
+	"""
+
+	slug = _two_projects(session)
+
+	_marked_as(monkeypatch, None)
+	wide = _bound_to(session, slug)
+
+	# **Both, unnarrowed** — or the case below proves nothing about narrowing and everything
+	# about a fixture that never had two projects in it.
+	assert "The rule this checkout follows" in wide
+	assert "A rule about somebody else's bird recordings" in wide
+
+	_marked_as(monkeypatch, "mine")
+	narrow = _bound_to(session, slug)
+
+	assert "The rule this checkout follows" in narrow
+	assert "A rule about somebody else's bird recordings" not in narrow, (
+		f"another project's conventions were listed as binding this one: {narrow!r}"
+	)
+
+
+def test_a_narrowed_conventions_index_says_so_and_says_where_it_came_from (
+	session: sqlalchemy.orm.Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""An index of what binds you may narrow and may never do it silently — `SR#2136`.
+
+	**This resource's own rule, and it argues against the obvious implementation** (Simon,
+	2026-08-20): *everything in force is listed, and it is curated by superseding rather than
+	truncated — an agent held to ten rules it was never shown is worse off than one reading a
+	long list.* Narrowing is worth doing; hiding is not, and the difference is one sentence.
+
+	**Naming the *source* is what makes `SR#1438` legible.** Over ``subroutine-remote`` these
+	handlers run on the **server**, so ``directory.find()`` reads the server's working directory
+	rather than the reader's. A narrowing to a project they have never heard of then reads as a
+	mistake on sight, instead of as a workspace that has decided very little.
+	"""
+
+	slug = _two_projects(session)
+
+	_marked_as(monkeypatch, "mine")
+	narrow = _bound_to(session, slug)
+
+	assert "Narrowed to mine" in narrow, (
+		f"the index narrowed and did not say so, which is indistinguishable from a project that "
+		f"has decided very little: {narrow!r}"
+	)
+	assert subroutine.directory.FILE_NAME in narrow, (
+		f"the index did not say what chose the project, so a narrowing nobody intended reads as "
+		f"an empty workspace: {narrow!r}"
+	)
+
+	# **And a way past it**, because the sentence is only honest if the rest is reachable.
+	assert "subroutine_list" in narrow
+
+	# **Unmarked is unchanged**, so nobody who has not opted in sees a different answer.
+	_marked_as(monkeypatch, None)
+
+	assert "Narrowed to" not in _bound_to(session, slug)
 
 
 def test_the_conventions_resource_carries_what_was_abandoned_as_well (

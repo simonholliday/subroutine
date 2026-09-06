@@ -391,7 +391,30 @@ def _listing (
 	)
 
 
-def _drafts_request (workspace: str | None = None) -> unittest.mock._Call:
+def _governing_request (
+	kind: subroutine.domain.documents.Governing,
+	workspace: str | None = None,
+	project: str | None = None,
+) -> unittest.mock._Call:
+	"""Return the one request the conventions index makes about a governing type.
+
+	Written beside :func:`_drafts_request` and for its reason: the shape was inline in the one
+	test that pins it, so `SR#2136` adding a ``project`` argument failed there and would have
+	failed in five more places had they spelled it out too.
+	"""
+
+	return unittest.mock.call(
+		workspace=workspace,
+		type=kind.key,
+		status_category=subroutine.domain.documents.CURRENT_CATEGORY,
+		limit=200,
+		project=project,
+	)
+
+
+def _drafts_request (
+	workspace: str | None = None, project: str | None = None
+) -> unittest.mock._Call:
 	"""Return the one request the conventions index makes about drafts.
 
 	Written once because six tests pin the exact set of requests this resource issues, and a
@@ -402,6 +425,9 @@ def _drafts_request (workspace: str | None = None) -> unittest.mock._Call:
 		workspace=workspace,
 		status_category=subroutine.domain.documents.DRAFT_CATEGORY,
 		limit=200,
+		# **The same narrowing the index above used** — `SR#2136`. An unmarked checkout sends
+		# ``None`` and the request is what it always was.
+		project=project,
 	)
 
 
@@ -440,15 +466,7 @@ def test_the_conventions_resource_lists_what_is_in_force_and_nothing_else () -> 
 	text = answer["result"]["contents"][0]["text"]
 
 	assert client.documents.call_args_list == [
-		*[
-			unittest.mock.call(
-				workspace=None,
-				type=kind.key,
-				status_category=subroutine.domain.documents.CURRENT_CATEGORY,
-				limit=200,
-			)
-			for kind in subroutine.domain.documents.GOVERNING
-		],
+		*[_governing_request(kind) for kind in subroutine.domain.documents.GOVERNING],
 		_drafts_request(),
 	]
 
