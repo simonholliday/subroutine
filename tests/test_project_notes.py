@@ -141,8 +141,9 @@ _FEWEST_PATHS = 40
 #: under it on purpose.
 _LIMIT = 150_000
 
-#: What this repository refuses to grow past — **5,000 characters below the limit since
-#: 2026-09-06** (`SR#2138`, design `SR#2137`).
+#: What this repository refuses to grow past — **10,000 characters below the limit since
+#: 2026-09-06** (`SR#2138` then `SR#2141`, design `SR#2137`). Lowered twice in a day, each time
+#: because a stage of the migration had already banked the room.
 #:
 #: **The two were the same number until Stage 1 bought room to separate them**, and equal is the
 #: wrong value: the build then failed at exactly the character where a session stopped getting
@@ -153,7 +154,7 @@ _LIMIT = 150_000
 #: The gap is a warning band rather than an allowance. It is the room a cut has already bought,
 #: not room to grow into — the test below refuses a budget that drifts far above the file for
 #: exactly that reason.
-_LARGEST = 145_000
+_LARGEST = 140_000
 
 pytestmark = pytest.mark.skipif(
 	not NOTES.exists(),
