@@ -101,45 +101,44 @@ _SUFFIXES = frozenset({".py", ".md", ".toml", ".json", ".js", ".css", ".yml", ".
 #: none and is indistinguishable from a clean file. Fifty-eight at the time of writing.
 _FEWEST_PATHS = 40
 
-#: The most the notes may weigh, in bytes.
+#: The most the notes may run to, in **characters**.
+#:
+#: **The unit is characters because that is the unit the limit is enforced in.** Claude Code
+#: refuses to load more than **150,000 characters** of an agent file and warns when it is
+#: exceeded — measured on v2.1.263, in a session Simon was running, with the notes at 231,615.
+#: This ceiling was 237,000 *bytes* until 2026-09-06, which is a number above a limit somebody
+#: else already enforced: the file had been over it for days and was being truncated in every
+#: session, and nothing here could see that because it was measuring the wrong thing in the
+#: wrong unit.
+#:
+#: **Bytes and characters differ by about 1,400 here** — every em-dash and curly quote is
+#: multi-byte — so the two are not interchangeable at this scale even as an approximation.
 #:
 #: **`#1200`, and it is an instrument rather than a preference.** Every other budget in this
-#: repository is a number a test compares against — the agent guide is capped at 15 KB by §13.3
-#: with the reason written beside it, the MCP tool surface is capped by count so that raising it
-#: has to be an act, and `docs/design.md` is frozen. This file, which is loaded automatically at
-#: the start of **every** session and is therefore the largest fixed context cost in the project,
-#: had no number at all.
+#: repository is a number a test compares against — the agent guide is capped at 15 KB by §13.3,
+#: the MCP tool surface is capped by count so that raising it has to be an act, and
+#: `docs/design.md` is frozen. This file, which is loaded automatically at the start of **every**
+#: session and is therefore the largest fixed context cost in the project, had no number at all
+#: until `#1200` and the wrong one until now.
 #:
 #: **What that cost, measured rather than argued.** `#64` was filed on 2026-07-30 calling the
-#: file too large at **77,043** bytes. It reached **367 KB**; `#1110` moved 430 KB of narrative
-#: into the instance on 2026-08-22 and `#1705`/`#1706` another 116 KB on 2026-08-31, leaving
-#: 252 KB — and it was **375 KB four days later**, about 25 KB a day. Three cuts and no
-#: instrument, so each one bought a fortnight.
+#: file too large at 77,043 bytes. It reached **556 KB**. Four cuts moved 430 KB, then 116 KB,
+#: then 89 KB, then 74 KB into the instance — and it grew back at about 25 KB a day each time,
+#: because nothing refused the regrowth.
 #:
-#: **Derived, and here is the arithmetic.** `#64`'s careful pass on 2026-09-05 left **226,650**
-#: bytes; a session that puts its findings on the items records itself in about **5,000**. The
-#: allowance is two of those — enough that a session can write down what it did without turning
-#: the gate red for doing its job, and not enough to absorb a week of it. Bytes, not characters:
-#: this file is full of em-dashes and curly quotes and the two counts differ by about 1,700.
+#: **Derived, and here is the arithmetic.** The cut of 2026-09-06 left **145,848** characters
+#: against a hard limit of 150,000. The allowance is what is left of that limit and nothing
+#: more — there is no room to award, which is the honest position: the next session that records
+#: its work has about 4,000 characters, and after that something has to go.
 #:
-#: **The previous number was 300,200 against 297,286, and that was too tight to be useful.** It
-#: went red on the very next session, which forced an unplanned cut in the middle of unrelated
-#: work. A ceiling wants to be reachable on schedule rather than by ambush, so 10 KB of headroom
-#: is deliberate — one session records, the next is warned, the third has to cut.
-#:
-#: **Lower it after a cut, never raise it after a session.** That is the whole discipline, and
-#: it is the same one `#943`'s command-surface ratchet runs on: the remedy for a red build here
-#: is to move a dated section into the instance — `subroutine doc create`, verified byte for
-#: byte, the way all six of the existing records were made — rather than to change this number.
-#:
-#: **The method, because the cut is the hard part and it is not a range.** Rules and traps are
-#: interleaved with the narrative at section granularity, so it is a per-section judgement:
-#: assert every heading unique, remove in reverse order so an earlier removal cannot shift a
-#: later anchor, then account for every removed line against the stored document. And **lift out
-#: anything a section is the only copy of before moving it** — the 2026-09-05 pass rescued four
-#: live traps and one outstanding action that way, each of which would otherwise have gone
-#: silently, which is the failure this instrument cannot itself detect.
-_LARGEST = 237_000
+#: **Lower it after a cut, never raise it after a session**, and **never above 150,000**, which
+#: is not ours to move. The remedy for a red build is `subroutine doc create` with the section
+#: piped in, verified byte for byte, then a lower number. `#2117` and `#2118` are the worked
+#: examples, and `#64` carries the method: assert every heading unique, remove in reverse so an
+#: earlier removal cannot shift a later anchor, account for every removed line against the
+#: stored document, and **lift out anything a section is the only copy of before moving it**.
+_LIMIT = 150_000
+_LARGEST = 150_000
 
 pytestmark = pytest.mark.skipif(
 	not NOTES.exists(),
@@ -337,10 +336,11 @@ def test_the_notes_stay_inside_the_budget_they_are_read_under () -> None:
 	*is the same fact somewhere else that survives?* — never *does it read long?*
 	"""
 
-	weight = len(NOTES.read_bytes())
+	weight = len(NOTES.read_text(encoding="utf-8"))
 
 	assert weight <= _LARGEST, (
-		f"CLAUDE.md is {weight:,} bytes against a budget of {_LARGEST:,}. Move a dated section "
+		f"CLAUDE.md is {weight:,} characters against a budget of {_LARGEST:,}, and Claude Code "
+		f"refuses to load more than {_LIMIT:,}. Move a dated section "
 		"into the instance rather than raising this: `subroutine doc create` with the run "
 		"piped in, verified byte for byte before anything is deleted, then lower `_LARGEST` to "
 		"what is left. `#64` is the item, and `#2061` is the worked example."
@@ -359,11 +359,11 @@ def test_the_budget_is_not_so_far_above_the_file_that_it_refuses_nothing () -> N
 	grows past the budget, and it fails if the budget is lifted away from the file.
 	"""
 
-	weight = len(NOTES.read_bytes())
+	weight = len(NOTES.read_text(encoding="utf-8"))
 	headroom = _LARGEST - weight
 
 	assert headroom <= 40_000, (
-		f"the budget is {headroom:,} bytes above the file, which is more than a fortnight of "
+		f"the budget is {headroom:,} characters above the file, which is more than a fortnight of "
 		f"the growth this exists to refuse. Lower `_LARGEST` towards {weight:,}; a cut is what "
 		"buys room, not an allowance."
 	)
