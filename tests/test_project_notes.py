@@ -137,8 +137,23 @@ _FEWEST_PATHS = 40
 #: examples, and `#64` carries the method: assert every heading unique, remove in reverse so an
 #: earlier removal cannot shift a later anchor, account for every removed line against the
 #: stored document, and **lift out anything a section is the only copy of before moving it**.
+#: What Claude Code refuses to load past. **Not ours to move**, and the budget below sits
+#: under it on purpose.
 _LIMIT = 150_000
-_LARGEST = 150_000
+
+#: What this repository refuses to grow past — **5,000 characters below the limit since
+#: 2026-09-06** (`SR#2138`, design `SR#2137`).
+#:
+#: **The two were the same number until Stage 1 bought room to separate them**, and equal is the
+#: wrong value: the build then failed at exactly the character where a session stopped getting
+#: the file, so there was no interval in which a commit was refused *before* anybody was
+#: degraded. A ceiling that fires simultaneously with the failure it exists to prevent gives
+#: nobody time to act.
+#:
+#: The gap is a warning band rather than an allowance. It is the room a cut has already bought,
+#: not room to grow into — the test below refuses a budget that drifts far above the file for
+#: exactly that reason.
+_LARGEST = 145_000
 
 pytestmark = pytest.mark.skipif(
 	not NOTES.exists(),
@@ -362,8 +377,21 @@ def test_the_budget_is_not_so_far_above_the_file_that_it_refuses_nothing () -> N
 	weight = len(NOTES.read_text(encoding="utf-8"))
 	headroom = _LARGEST - weight
 
-	assert headroom <= 40_000, (
-		f"the budget is {headroom:,} characters above the file, which is more than a fortnight of "
-		f"the growth this exists to refuse. Lower `_LARGEST` towards {weight:,}; a cut is what "
-		"buys room, not an allowance."
+	assert headroom <= 8_000, (
+		f"the budget is {headroom:,} characters above the file, which is a week of the growth "
+		f"this exists to refuse. Lower `_LARGEST` towards {weight:,}; a cut is what buys room, "
+		"not an allowance."
+	)
+
+	# **And the budget has to sit under the limit, which is the half that was missing.** The two
+	# were the same number until 2026-09-06, so this test's stated purpose — that the ceiling
+	# bites within days — was true of growth and false of the moment that matters: a file at
+	# 150,001 failed the build *and* stopped loading, with no interval between. A ceiling that
+	# fires at the same instant as the failure it guards gives nobody time to act.
+	#
+	# **Falsified by raising `_LARGEST` to `_LIMIT`**, which is where it stood for four days.
+	assert _LIMIT - _LARGEST >= 5_000, (
+		f"the budget is {_LIMIT - _LARGEST:,} characters below the limit, so the build stops "
+		f"refusing growth at about the point a session stops getting the file at all. Leave a "
+		f"band: lower `_LARGEST`, which needs a cut first."
 	)
