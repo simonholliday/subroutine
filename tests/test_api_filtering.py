@@ -31,6 +31,8 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.filtering
 import subroutine.domain.instances
+import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 
 #: Far enough from "now" that nothing here depends on the hour the suite runs at.
@@ -442,6 +444,138 @@ def test_a_listing_is_narrowed_by_rank_by_reference_and_by_whether_a_field_is_se
 	assert "set or unset" in nonsense.text
 
 
+def _an_agent_of (world: World, name: str) -> subroutine.db.models.identity.User:
+	"""Return a live service account answerable to ``world.user`` and able to hold work.
+
+	**Created through the domain rather than the route**, because ``POST /v1/users`` takes no
+	``responsible`` — accountability is *inherited from the creator* (`SR#473`), and an actor is
+	how that is expressed. The membership is separate and is needed: resolving a name for a
+	*filter* spans the instance (`SR#501`), where assigning work does not.
+	"""
+
+	agent = subroutine.domain.users.create(
+		session=world.session,
+		username=name,
+		is_service_account=True,
+		actor=subroutine.domain.authentication.Principal(user=world.user, token=None),
+	)
+	subroutine.domain.workspaces.add_member(
+		world.session, world.workspace, agent, role_key="member"
+	)
+	world.session.flush()
+
+	return agent
+
+
+def test_a_listing_answers_what_a_persons_agents_are_holding (world: World) -> None:
+	"""**`SR#848`, and it is the read half of `SR#473`'s model** — Simon's decision, 2026-09-06.
+
+	Handing work *to* an agent has worked since M1 and the accountability chain is walked on
+	every authenticated request. Asking *what came of it* reached nothing at all: ``assignee``
+	names **one** account, so *mine and my agents'* meant fetching a roster and joining it in
+	whichever client wanted the answer — which is a second copy of the chain rule, refused for
+	`SR#925`'s reason on `SR#1420`.
+
+	**The caller is in their own set**, which is the difference between this and `SR#518`.
+	``--assignee me`` shipped *assigned to me*; this is *mine and theirs*, and leaving the person
+	out would answer a question nobody asked and cost two requests to ask the one they did.
+	"""
+
+	agent = _an_agent_of(world, f"agent-{uuid.uuid4().hex[:8]}")
+	stranger = subroutine.domain.users.create(
+		session=world.session, username=f"other-{uuid.uuid4().hex[:8]}"
+	)
+	subroutine.domain.workspaces.add_member(
+		world.session, world.workspace, stranger, role_key="member"
+	)
+	world.session.flush()
+
+	for title, holder in (
+		("Mine", world.user.username),
+		("My agent's", agent.username),
+		("Somebody else's", stranger.username),
+	):
+		made = world.call("POST", "/v1/tasks", json={"title": title, "assignee": str(holder)})
+
+		assert made.status_code == 201, made.text
+
+	assert world.titles(f"/v1/tasks?answers_to.eq={world.user.username}") == [
+		"Mine", "My agent's"
+	]
+
+	# **And it is narrower than the listing**, which is what says the filter ran at all: the
+	# fixture's own three tasks are unassigned and the stranger's is held by somebody outside
+	# the chain, so none of the four appears above.
+	assert "Somebody else's" in world.titles("/v1/tasks")
+
+	# **A person with no agents gets their own work and no more**, so the set is resolved rather
+	# than waved at. This is the case that fails if the walk is dropped and everybody is
+	# returned.
+	assert world.titles(f"/v1/tasks?answers_to.eq={stranger.username}") == ["Somebody else's"]
+
+
+def test_whose_responsibility_walks_the_chain_rather_than_one_hop (world: World) -> None:
+	"""An agent's own agent is answerable to the person at the end — `SR#473`, `SR#848`.
+
+	``agents_answering_to`` walks outward level by level and this is the caller that makes the
+	difference visible: a one-hop implementation passes every assertion in the case above and
+	fails here, which is why the two are separate.
+	"""
+
+	agent = _an_agent_of(world, f"agent-{uuid.uuid4().hex[:8]}")
+	agent.is_superuser = True
+	world.session.flush()
+
+	sub = subroutine.domain.users.create(
+		session=world.session,
+		username=f"sub-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		actor=subroutine.domain.authentication.Principal(user=agent, token=None),
+	)
+	subroutine.domain.workspaces.add_member(
+		world.session, world.workspace, sub, role_key="member"
+	)
+	world.session.flush()
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Two hops away", "assignee": str(sub.username)}
+	)
+
+	assert made.status_code == 201, made.text
+	assert world.titles(f"/v1/tasks?answers_to.eq={world.user.username}") == ["Two hops away"]
+
+
+def test_asking_whose_responsibility_names_an_account_that_does_not_exist (
+	world: World,
+) -> None:
+	"""A name nobody holds is refused by name, never answered with an empty page — §7.3a.
+
+	The same resolver the flat ``?assignee=`` uses, which is what keeps this from being a second
+	and narrower door onto one column.
+	"""
+
+	refused = world.call("GET", "/v1/tasks?answers_to.eq=nobody-at-all")
+
+	assert refused.status_code == 404, refused.text
+	assert "nobody-at-all" in refused.text
+
+
+def test_whose_responsibility_offers_no_condition_of_its_own (world: World) -> None:
+	"""``answers_to.is`` is refused, because ``assignee.is`` is already that question — `SR#848`.
+
+	**One question with two spellings is what this refuses**, and the narrower one would lie
+	about its subject: *unset* on this field could only mean *has no assignee at all*, which says
+	nothing about anybody's responsibility. `SR#1804` drew the line between a field's **value**
+	and its **condition**; this keeps the condition where the column is.
+	"""
+
+	refused = world.call("GET", "/v1/tasks?answers_to.is=unset")
+
+	assert refused.status_code == 422, refused.text
+	assert "answers_to.is" not in subroutine.domain.filtering.names("task")
+	assert "assignee.is" in subroutine.domain.filtering.names("task")
+
+
 def test_a_tag_cannot_be_named_in_a_way_a_filter_could_not_ask_for (
 	world: World,
 ) -> None:
@@ -544,6 +678,9 @@ _SAMPLES: dict[str, str] = {
 	# completeness check stays real: a kind absent from this map is one nobody has thought
 	# about, and leaving this one out would make that indistinguishable.
 	"REFERENCE": _A_TAG,
+	# **`ANSWERABLE` is answered above too**, because it needs an account this instance really
+	# has. Here so the completeness check stays real — `SR#848`.
+	"ANSWERABLE": "",
 }
 
 
@@ -566,6 +703,11 @@ def _sample (
 		return subroutine.domain.filtering.UNSET
 
 	if kind is subroutine.domain.filtering.WHO:
+		return str(world.user.username)
+
+	# **A username, like `WHO`, and answered here rather than in the map for the same reason**:
+	# the value has to be an account this instance really has, which only `world` knows. `SR#848`.
+	if kind is subroutine.domain.filtering.ANSWERABLE:
 		return str(world.user.username)
 
 	if kind is subroutine.domain.filtering.REFERENCE:

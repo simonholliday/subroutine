@@ -702,8 +702,10 @@ export function Narrowed ({
 	*/
 	const tag = selection.tag || null;
 	const who = selection.assignee || null;
+	/* **And whose *responsibility*, which is a wider set than whose name is on it** — `#848`. */
+	const answerable = selection.answers_to || null;
 
-	if (!project && !tag && !who) return null;
+	if (!project && !tag && !who && !answerable) return null;
 
 	const raised = prioritised.includes(project);
 	const displaces = prioritised.find((one) => one !== project) || null;
@@ -715,6 +717,8 @@ export function Narrowed ({
 			`}
 			${tag && html`<span>Showing anything tagged <strong>#${tag}</strong>.</span>`}
 			${who && html`<span>Showing <strong>@${who}</strong>'s work.</span>`}
+			${answerable && html`<span>Showing <strong>@${answerable}</strong>'s work and
+				anything their agents are holding.</span>`}
 			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
 			     While the only way into this component was a project narrowing, `if (!project)
 			     return null` also guaranteed the argument below; now a tag or a person can
@@ -812,24 +816,104 @@ export function Ordered ({ ordering, order, onOrder, busy = false, empty = false
 	*assigns* work say the same words about the same account — `#1420`'s finding, which is that
 	two vocabularies for one roster is a defect even when both are correct.
 */
-export function Whose ({ members, whose, onWhose, busy = false }) {
+/*
+	The two questions this one control answers, as the selection parameter each sets — `#848`.
+
+	**Named rather than spelled inline**, because the value of an `<option>` is a string and the
+	encoding below is the only place that string is built or read. Two copies of a scheme like
+	this one is how a control comes to set a parameter nothing narrows on.
+*/
+export const ASSIGNED_TO = "assignee";
+export const ANSWERABLE_TO = "answers_to";
+
+export function whoseValue (whose, answerable) {
+	/*
+		Which option is selected, given what the address carries — `#848`.
+
+		**Responsibility wins where both are somehow set**, which the address should never
+		produce and which a hand-typed one can. It is the wider of the two, so showing it is
+		the answer that does not hide rows the reader asked for.
+	*/
+
+	if (answerable) return `${ANSWERABLE_TO}:${answerable}`;
+
+	return whose ? `${ASSIGNED_TO}:${whose}` : "";
+}
+
+export function whoseAsked (value) {
+	/*
+		What a chosen option means, or ``null`` for *Anyone* — `#848`.
+
+		**A field this does not know is `null` rather than a guess**, so a value that reached
+		here from anywhere but the options below clears the narrowing instead of writing a key
+		`SELECTABLE` would refuse. A username cannot contain a colon — `users.username` is
+		constrained — so splitting on the first one is unambiguous.
+	*/
+
+	const mark = String(value || "").indexOf(":");
+
+	if (mark < 0) return null;
+
+	const field = value.slice(0, mark);
+	const username = value.slice(mark + 1);
+
+	if (!username || (field !== ASSIGNED_TO && field !== ANSWERABLE_TO)) return null;
+
+	return { field, username };
+}
+
+export function Whose ({ members, whose, answerable = null, onWhose, busy = false }) {
+	/*
+		**Two answers per account, and they are two questions rather than two spellings of one**
+		— `#848`. *@si's work* and *@si's work and their agents'* are different sets, and the
+		second had no surface at all: an assignment names **one** account, so a person with a
+		fleet could see each agent's work one at a time and never the whole of what they were
+		answerable for.
+
+		**`#1284`'s rule is kept rather than broken.** It refuses *an account that appeared both
+		as Me and as itself*, because those are two ways to ask one question. These are not: the
+		sets differ for anybody who has an agent, and are identical for everybody who has none —
+		which is the honest cost of offering the pair for every account rather than deriving who
+		has a fleet. **Deriving it here is refused** (`#925`, `#1420`): a roster carries each
+		account's *immediate* responsible, so reading it for *who has agents* would miss a
+		sub-agent's person and would name agents as though they were people. The chain is the
+		server's and this asks it.
+
+		**The groups carry the distinction and the outer label carries the question.** `#1284`
+		chose *Assigned to* against a real naming hazard — a calendar feed's `assigned_to_me` and
+		the agenda's *assigned or unassigned or held by me* are two other things — so that word
+		stays on the half it was chosen for, and the control above it asks whose work this is.
+	*/
+
 	if (!onWhose || !members || members.length === 0) return null;
+
+	const chosen = whoseValue(whose, answerable);
 
 	return html`
 		<div class="whose">
 			<label>
-				<span>Assigned to</span>
-				<select value=${whose || ""} disabled=${busy}
-					onChange=${(event) => onWhose(event.currentTarget.value || null)}>
+				<span>Whose work</span>
+				<select value=${chosen} disabled=${busy}
+					onChange=${(event) => onWhose(whoseAsked(event.currentTarget.value))}>
 					${/* **"Anyone" rather than "All" or an empty option.** The listing is not
 					     showing everybody's work as a set; it is not narrowed at all, and a
 					     blank option reads as a value nobody chose rather than as the absence
 					     of one. */ null}
-					<option value="" selected=${!whose}>Anyone</option>
-					${members.map((one) => html`
-						<option value=${one.username} selected=${one.username === whose}
-							>${one.label}</option>
-					`)}
+					<option value="" selected=${!chosen}>Anyone</option>
+					<optgroup label="Assigned to">
+						${members.map((one) => html`
+							<option value=${`${ASSIGNED_TO}:${one.username}`}
+								selected=${chosen === `${ASSIGNED_TO}:${one.username}`}
+								>${one.label}</option>
+						`)}
+					</optgroup>
+					<optgroup label="Answerable to">
+						${members.map((one) => html`
+							<option value=${`${ANSWERABLE_TO}:${one.username}`}
+								selected=${chosen === `${ANSWERABLE_TO}:${one.username}`}
+								>${one.label} and their agents</option>
+						`)}
+					</optgroup>
 				</select>
 			</label>
 		</div>

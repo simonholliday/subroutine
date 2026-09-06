@@ -360,6 +360,26 @@ export function collectionsFor (selection) {
 	return ordering && !ordering.both ? ["task"] : ["task", "document"];
 }
 
+/*
+	Where the address's word for a narrowing is not the endpoint's — `#848`.
+
+	**An override rather than a table of every parameter**, so a name absent from here is sent
+	under its own spelling, which is nearly all of them. A complete map would be a second copy of
+	`SELECTABLE` free to disagree with it; this says only what differs.
+
+	**`answers_to` differs because it was never a flat route parameter and should not become
+	one.** `assignee`, `tag`, `status` and `type` each predate the filter registry and have both
+	spellings for that reason — `#1829` is the item that gives them the dotted one. A parameter
+	arriving *after* the registry gets one spelling on the wire, and the address keeps a word a
+	person can read in a shared link.
+
+	**Held to the endpoint by a guard rather than by care**: every builder here is driven against
+	a real instance, so a spelling the route refuses fails the build with the 422 in the message.
+*/
+export const SENT_AS = {
+	answers_to: "answers_to.eq",
+};
+
 export function listingRequests (slug, key = null, after = null, selection = null, columns = COLUMN) {
 	/*
 		The list, which is tasks *and* documents — except where it cannot be.
@@ -443,7 +463,7 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 	const sending = (kind) => Object.keys(SELECTABLE)
 		.filter((name) => asking[name] !== undefined && asking[name] !== null)
 		.filter((name) => answers(kind, name) === "sent")
-		.map((name) => `&${name}=${encodeURIComponent(asking[name])}`)
+		.map((name) => `&${SENT_AS[name] || name}=${encodeURIComponent(asking[name])}`)
 		.join("");
 
 	const rows = sending("task");

@@ -7967,7 +7967,15 @@ def _selections (place: Instance) -> list[dict[str, str]]:
 	# page. So the sample is per parameter, and a new free-text entry fails here until somebody
 	# says what a real one looks like — derived membership rather than a default, because a
 	# default is what would have let `tag` be driven with a value the route refuses.
-	free_text = {"q": "backlog", "tag": "backlog", "assignee": place.username}
+	free_text = {
+		"q": "backlog",
+		"tag": "backlog",
+		"assignee": place.username,
+		# **A person, exactly like `assignee`, and refused by name for the same reason**
+		# (`SR#848`). What differs is the *set* it stands for — the named account and every agent
+		# answerable to it — which is the server's walk and nothing this sample has to know.
+		"answers_to": place.username,
+	}
 	named_here = set(re.findall(r"\n\t(\w+): null,", block.group(1)))
 
 	assert named_here <= set(free_text), (
@@ -15148,8 +15156,19 @@ def test_both_arrangements_offer_a_control_for_whose_work_they_show (
 			tmp_path, pathname="/projects", search=f"?view={view}", answers=answers
 		)
 
-		assert "Assigned to" in page["said"], (
+		# **The control's own label, not a group's** — `SR#848` gave it a second question and
+		# *Assigned to* became an `<optgroup label>`, which this harness drops with every other
+		# attribute. The two groups are asserted in `tests/test_browser.py`, where they can be
+		# seen; here what is held is that the control is on the page at all.
+		assert "Whose work" in page["said"], (
 			f"the {view} offered no way to ask whose work it is showing: {page['said']!r}"
+		)
+
+		# **And that it offers both questions**, which is what `SR#848` added: an assignment names
+		# one account, so *everything this person is answerable for* had no spelling here at all.
+		assert "si and their agents" in page["said"], (
+			f"the {view} offered no way to ask what somebody's agents are holding: "
+			f"{page['said']!r}"
 		)
 
 		assert "Anyone" in page["said"], (
@@ -15230,7 +15249,10 @@ def test_the_control_for_whose_work_offers_no_entry_for_the_reader_themselves (
 
 	offered = page["said"]
 
-	assert "Assigned to" in offered and "si" in offered, (
+	# **The visible label, because the group labels are attributes this harness drops** —
+	# `SR#848` moved *Assigned to* onto an `<optgroup>` when the control grew its second
+	# question. `tests/test_browser.py` is where an attribute can be seen at all.
+	assert "Whose work" in offered and "si" in offered, (
 		f"the control did not render, so this asserts nothing: {offered!r}"
 	)
 
@@ -15250,6 +15272,141 @@ def test_the_control_for_whose_work_offers_no_entry_for_the_reader_themselves (
 	assert '"me"' not in body and "'me'" not in body, (
 		"the control writes `me` into the address, which resolves to whoever opens it rather "
 		"than to the person the sender was looking at"
+	)
+
+
+def test_the_control_asks_two_questions_and_sets_one_of_them (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#848`: *assigned to @si* and *answerable to @si* are different sets, one control.
+
+	**They are two questions rather than two spellings of one**, which is the line `SR#1284`
+	drew when it refused a *Me* entry beside an account's own name. Those were two ways to ask
+	one question; these differ for anybody who has an agent — an assignment names **one**
+	account, so a person with a fleet could see each agent's work one at a time and never the
+	whole of what they were answerable for.
+
+	**Exactly one is ever set.** Both narrow the same listing, so leaving the other in the
+	address would AND them and answer about neither — which on a fleet is an empty page rather
+	than an error.
+	"""
+
+	answered = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			assigned: app.whoseValue("si", null),
+			answerable: app.whoseValue(null, "si"),
+			both: app.whoseValue("si", "oli"),
+			neither: app.whoseValue(null, null),
+			read: app.whoseAsked("assignee:si"),
+			read_answerable: app.whoseAsked("answers_to:si"),
+			anyone: app.whoseAsked(""),
+			unknown: app.whoseAsked("something:si"),
+			nameless: app.whoseAsked("assignee:"),
+		}}));
+	""")
+
+	assert answered["assigned"] == "assignee:si"
+	assert answered["answerable"] == "answers_to:si"
+	assert answered["neither"] == ""
+
+	# **The wider of the two wins where an address somehow carries both**, which the control
+	# cannot produce and a hand-typed address can. Showing the narrower one would hide rows the
+	# reader asked for, and there is no third state to render.
+	assert answered["both"] == "answers_to:oli"
+
+	assert answered["read"] == {"field": "assignee", "username": "si"}
+	assert answered["read_answerable"] == {"field": "answers_to", "username": "si"}
+
+	# **Anything this does not recognise clears the narrowing rather than guessing**, so a value
+	# from outside the options below cannot write a key `SELECTABLE` would refuse.
+	assert answered["anyone"] is None
+	assert answered["unknown"] is None
+	assert answered["nameless"] is None
+
+
+def test_choosing_whose_agents_writes_the_responsibility_key_and_drops_the_other (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The address carries one of the two keys, and the request carries the endpoint's spelling.
+
+	**`SR#848`, and the second half is what a rendered control cannot show.** `answers_to` was
+	never a flat route parameter and should not become one — it arrived after the filter
+	registry, so it has one spelling on the wire — while the address keeps a word a person can
+	read in a link they were sent. `SENT_AS` is that translation and this drives it.
+	"""
+
+	roster = {"items": [
+		{"user": {"id": "u1", "username": "si", "is_service_account": False,
+		          "answers_to": None}},
+	]}
+	page = _driven(
+		tmp_path,
+		pathname="/projects",
+		search="?view=list&answers_to=si",
+		answers={"members": roster,
+		         "tasks": {"items": [], "page": {"has_more": False, "next_cursor": None,
+		                                         "total": 0}}},
+	)
+
+	listings = [
+		one["path"] for one in page["asked"]
+		if one["method"] == "GET" and "/tasks" in one["path"]
+	]
+
+	assert listings, f"no tasks listing was requested: {page['asked']!r}"
+	assert all("answers_to.eq=si" in one for one in listings), (
+		f"the address's word reached the wire unchanged, where the endpoint declares the dotted "
+		f"spelling: {listings!r}"
+	)
+
+	# **And the reader is told what they are looking at**, which is `SR#1020`'s rule: a narrowed
+	# page with nothing explaining why and no way back is worse than not offering the link.
+	# **Whitespace-normalised, because the sentence spans a line break in the template** and a
+	# substring crossing one can never match what this harness returns.
+	said = " ".join(page["said"].split())
+
+	assert "and anything their agents are holding" in said, (
+		f"the page did not say it was narrowed by responsibility: {said!r}"
+	)
+	assert "Show everything" in said, (
+		f"a narrowing was applied with no way back: {said!r}"
+	)
+
+
+def test_a_wire_spelling_override_names_a_parameter_that_still_exists (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SENT_AS` is an allow-list, so it has to fail when its reason expires — `SR#405`.
+
+	**Not a completeness check**, deliberately: a name absent from it is sent under its own
+	spelling, which is nearly every parameter, so demanding an entry each would make it a second
+	copy of `SELECTABLE` free to disagree with it. What is checked is the other direction — an
+	entry naming a selection parameter the browser no longer has is a translation for something
+	nobody sends, and it would sit there looking deliberate.
+	"""
+
+	source = _served_modules()
+	declared = re.search(
+		r"export const SENT_AS = \{(.*?)\n\};", source["requests.js"], re.S
+	)
+	admitted = re.search(
+		r"export const SELECTABLE = \{(.*?)\n\};", source["address.js"], re.S
+	)
+
+	# **Both blocks are found before either is read**, so a rename that moves one reports itself
+	# rather than leaving the comparison to run over an empty set and pass — `SR#405`'s floor.
+	assert declared, "SENT_AS could not be read from requests.js"
+	assert admitted, "SELECTABLE could not be read from address.js"
+
+	overrides = set(re.findall(r"\n\t(\w+): \"", declared.group(1)))
+	selectable = set(re.findall(r"\n\t(\w+): ", admitted.group(1)))
+
+	assert overrides, "no override was found, so this is comparing against an empty set"
+	assert overrides <= selectable, (
+		f"{sorted(overrides - selectable)} is translated for the wire and is not a selection "
+		f"parameter any more — delete the entry, which is what closes it"
 	)
 
 
@@ -15283,7 +15440,7 @@ def test_the_control_for_whose_work_is_absent_when_there_is_nobody_to_choose (
 		f"no listing was drawn, so an absent control proves nothing: {page['said']!r}"
 	)
 
-	assert "Assigned to" not in page["said"], (
+	assert "Whose work" not in page["said"], (
 		f"a control was drawn with nobody to choose from: {page['said']!r}"
 	)
 

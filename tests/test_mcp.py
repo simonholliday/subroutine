@@ -1340,6 +1340,17 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: tool reported a version at all, so the argument would have been unusable and the bytes spent
 #: on a control nobody could reach. Reading for fat found a defect rather than a saving, which
 #: is `SR#1129`'s pattern: a byte budget is worth keeping because of what re-reading turns up.
+#: **14,521 unchanged on 2026-09-06, and the surface measured 14,219 against it** (`SR#848`).
+#: ``subroutine_list``'s filter description gained ``answers_to`` — 64 bytes for the one
+#: question `SR#473`'s model made true and nothing could ask: *what are the agents answerable to
+#: this person holding*. It is derived from the registry like every other field named there, and
+#: it takes its own sentence rather than joining the ``REFERENCE`` list, because it takes a
+#: username and means something a reference does not — `SR#1828`'s defect one axis along.
+#:
+#: **The 302 bytes of slack are worth knowing about**, because the sentence above says this
+#: number is *today's measured size* and it has not been since `SR#1697` shortened the surface
+#: it was raised for. It is a ceiling that still refuses unobserved growth, which is the claim
+#: that matters; it is no longer a measurement, and lowering it is `SR#1565`'s to do.
 TOOL_BYTE_CEILING = 14_521
 
 

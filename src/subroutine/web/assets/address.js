@@ -255,6 +255,21 @@ export const SELECTABLE = {
 	*/
 	tag: null,
 	assignee: null,
+	/*
+		**Whose *responsibility* this is, which is not whose name is on it** — `#848`. The value
+		names a person and the listing answers with their work *and* the work of every agent
+		answerable to them, resolved on the server by the same walk every authenticated request
+		makes.
+
+		**`null` for the same reason `assignee` is**: an account name cannot be enumerated at
+		build time, and `#738`'s bound is cleared the same way — this is a predicate on a query
+		`domain/scoping` has already narrowed, so admitting it admits nothing a reader could not
+		already read.
+
+		**A username and never `me`**, exactly as `assignee` is (`#745`): what you send somebody
+		has to be what you were looking at, and `me` hands its recipient their own fleet.
+	*/
+	answers_to: null,
 };
 
 /*
@@ -311,6 +326,8 @@ export const ANSWERED_BY = {
 	   reads: a page narrowed to a person is tasks only, and it is that way because the rows do
 	   not exist rather than because somebody chose to hide them. */
 	assignee: { task: "sent", document: "cannot" },
+	/* **A document has no assignee either**, so it can have no responsibility chain — `#848`. */
+	answers_to: { task: "sent", document: "cannot" },
 };
 
 export function answers (kind, name) {
@@ -547,7 +564,7 @@ export function withShowing (path, showing) {
 	the search box shows the term and clears it, so it has a way back of its own and a second
 	one would be two controls for one state.
 */
-export const NARROWINGS = ["tag", "assignee"];
+export const NARROWINGS = ["tag", "assignee", "answers_to"];
 
 export function widened (showing) {
 	/* The same showing with every narrowing dropped — what *Show everything* goes to. */

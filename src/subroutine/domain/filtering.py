@@ -40,6 +40,7 @@ import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.durations
 import subroutine.domain.events
@@ -494,6 +495,31 @@ CONDITION = Kind(
 )
 
 
+#: *Whose responsibility is this*, asked one hop through the assignee — `#848`.
+#:
+#: **The value names a person and the question is about a chain**, so it resolves to a *set*:
+#: the person named, plus every live service account whose responsibility chain terminates at
+#: them. ``domain.accountability.agents_answering_to`` is that walk and this gives it its first
+#: caller — the read half of `#473`'s model, which has been enforced on every authenticated
+#: request since M1 and surfaced nowhere.
+#:
+#: **``eq`` alone, and both of the others are refused for their own reason.** ``is`` would have
+#: to mean *has an assignee at all*, which is exactly ``assignee.is=unset`` — one question with
+#: two spellings, and the narrower one lying about its subject. ``in`` — *work answerable to
+#: si or to oli* — is coherent and nothing has asked for it, which is `#1804`'s own test for
+#: ``all`` and ``contains``; it is one word here when something does.
+#:
+#: **Not a second copy of the chain rule** (`#925`, `#1420`). The browser could walk it —
+#: ``views.User`` carries ``responsible_user_id`` and ``GET /v1/users`` is unpaginated — and a
+#: governance rule with two implementations is what that pair refuses. The walk stays in
+#: :mod:`subroutine.domain.accountability` and this asks it.
+ANSWERABLE = Kind(
+	predicate=_no_predicate_of_its_own,
+	expects="a username",
+	operators=frozenset({"eq"}),
+)
+
+
 class Filterable (typing.NamedTuple):
 	"""One field a listing can be asked about.
 
@@ -544,6 +570,10 @@ WHO_HOLDS_IT = "holder"
 
 #: Which group compiles ``tag``, whose predicate is a subquery over a join table — `#1804`.
 TAGGED = "tagged"
+
+#: Which group compiles ``answers_to``, which resolves a username to the people it stands for
+#: — `#848`. Alone, like a reference: what it needs from :class:`Where` is the session.
+ANSWERABLE_TO = "answerable"
 
 #: *When was this worked on* — created, edited, completed, commented on, linked, status
 #: changed. `#815`'s third and fourth questions, and the two this file exists for.
@@ -789,6 +819,26 @@ TASK_PROPERTIES: dict[str, Property] = {
 	# when it stops being true.
 	"estimate_minutes": Property(
 		column=subroutine.db.models.work.Task.estimate_minutes, kind=DURATION, orderable=True
+	),
+	# **The read half of `#473`'s model, which had no question at all** — `#848`. Handing work
+	# *to* an agent has been built since M1 and the accountability chain is walked on every
+	# authenticated request; asking *what came of it* reached nothing. `answers_to.eq=si` is si's
+	# work and si's agents' work, in one request rather than a roster fetch and a join done by
+	# whichever client wanted it.
+	#
+	# **Declared beside `assignee` rather than inside it**, because it is a different question
+	# about the same column: `assignee` compares a value the caller names, and this resolves a
+	# relation the instance holds. One field answering both would need an operator meaning
+	# *and everybody who answers to them*, which is a rule hiding in a comparison.
+	"answers_to": Property(
+		column=subroutine.db.models.work.Task.assignee_id,
+		kind=ANSWERABLE,
+		group=ANSWERABLE_TO,
+		because=(
+			"ordering by an account id means nothing, and this names a set of them rather than "
+			"one — there is no single value on the row to sort by. *Whose work is oldest* is "
+			"`claimed_at` and `created_at`, both of which are orderable."
+		),
 	),
 	**_worked_on(subroutine.db.models.work.Task.id),
 	**_ORDER_ONLY,
@@ -1604,6 +1654,45 @@ def _tagged (comparisons: list[Comparison], where: Where) -> typing.Any:
 	return sqlalchemy.and_(*narrowing)
 
 
+def _answerable_to (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile *whose responsibility is this* — ``answers_to`` — `#848`.
+
+	**One username resolved to a set of accounts**, by the same walk every authenticated request
+	makes: the person named, plus every live service account answerable to them directly or
+	through another. So ``answers_to.eq=si`` is *si's work and si's agents' work*, which is the
+	question `#473`'s model made true and nothing could ask.
+
+	**Resolved by `selection.user`, exactly as ``assignee`` is.** That is what makes this accept
+	the same values the flat spelling accepts — a username or an id, ``me`` understood, refused
+	by name rather than answered emptily — instead of being a second, narrower door onto one
+	column.
+
+	**The person is in their own set**, which is the whole point: `#518` shipped *assigned to
+	me* and this is *mine and theirs*, so leaving the caller out would make it answer a question
+	nobody asked and force two requests to ask the one they did.
+	"""
+
+	if where.session is None:
+		raise AssertionError("answers_to needs a session to resolve a username")
+
+	narrowing = []
+
+	for comparison in comparisons:
+		person = subroutine.domain.selection.user(
+			where.session, comparison.value, caller=where.caller
+		)
+		standing = [person.id] + [
+			agent.id
+			for agent in subroutine.domain.accountability.agents_answering_to(
+				where.session, person
+			)
+		]
+
+		narrowing.append(comparison.against.column.in_(standing))
+
+	return sqlalchemy.and_(*narrowing)
+
+
 #: Which fields compile through a function that needs more than the value they carry — and,
 #: where several name one group, together.
 #:
@@ -1616,6 +1705,7 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	"touched": _touched,
 	WHO_HOLDS_IT: _held_by,
 	TAGGED: _tagged,
+	ANSWERABLE_TO: _answerable_to,
 }
 
 

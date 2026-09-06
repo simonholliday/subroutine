@@ -2323,10 +2323,18 @@ export function App () {
 			of the address entirely and one screen keeps producing one string — the property
 			`withShowing` emits in `SELECTABLE` order to protect.
 		*/
+		/*
+			**One control, two parameters, and exactly one of them set** — `#848`. *Assigned to
+			@si* and *answerable to @si* are different sets and both narrow the same listing, so
+			leaving the other in place would AND them and answer about neither. `asked` arrives
+			from `whoseAsked`, which names the field or returns null; nothing here parses it.
+		*/
 		const selection = { ...showing.selection };
 
-		if (asked) selection.assignee = asked;
-		else delete selection.assignee;
+		delete selection.assignee;
+		delete selection.answers_to;
+
+		if (asked) selection[asked.field] = asked.username;
 
 		const wanted = { view: showing.view, selection };
 
@@ -2788,6 +2796,7 @@ export function App () {
 							onOrder=${finishedOnly ? null : chooseOrder}
 							members=${furnished.members}
 							whose=${showing.selection.assignee || null}
+							answerable=${showing.selection.answers_to || null}
 							onWhose=${chooseWhose}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
@@ -2846,6 +2855,7 @@ export function App () {
 							     contradicting it. */ null}
 							members=${furnished.members}
 							whose=${showing.selection.assignee || null}
+							answerable=${showing.selection.answers_to || null}
 							onWhose=${chooseWhose}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
@@ -2998,6 +3008,13 @@ export {
 	Seeking,
 	Written,
 } from "./detail.js";
+/* **`#848` adds the two halves of one control's encoding**, reachable so they can be driven —
+   the control itself is exercised through a mounted page, where an option's *value* is an
+   attribute the text harness drops.
+
+   **This note sits outside the braces on purpose.** The guard pairing an exported component
+   with a sample reads names out of the block's own text, so a comment between them is counted
+   as exports — which is exactly what it did to the first version of this one. */
 export {
 	ANCHORS,
 	Adding,
@@ -3015,6 +3032,8 @@ export {
 	Reading,
 	Repeats,
 	TIMED,
+	whoseAsked,
+	whoseValue,
 } from "./forms.js";
 export {
 	CLOSED_BY_DEFAULT,

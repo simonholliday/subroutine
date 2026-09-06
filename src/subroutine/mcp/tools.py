@@ -144,6 +144,12 @@ DATE_FILTER = _filter_schema(
 	f"{_fields_of(subroutine.domain.filtering.NUMBER)} are 1-5. "
 	f"{_fields_of(subroutine.domain.filtering.REFERENCE)} take a name, and '.in' takes "
 	"several separated by commas. "
+	# **`#848`. Its own sentence rather than a name in the list above**, which is the defect
+	# `#1828` records one axis along: this takes a username like a `REFERENCE` does and means
+	# something a `REFERENCE` does not, so listing it there would publish a contract the
+	# instance refuses — `.in` and `.is` are both absent from it.
+	f"{_fields_of(subroutine.domain.filtering.ANSWERABLE)} takes a username and reaches "
+	"their agents' work too. "
 	# **`#1804`. Named because `is` is the half an agent cannot discover by being corrected**:
 	# it would have to guess the word before the refusal could teach it, and *unassigned* and
 	# *not a sub-task* are two of the four questions that had no spelling at all —

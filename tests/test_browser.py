@@ -1243,6 +1243,55 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 	tab.close()
 
 
+def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.Any) -> None:
+	"""`SR#848`. The control's two groups, and the address it writes when a reader uses it.
+
+	**Two things only a browser can say, and both were reached by nothing.** An `<optgroup>`'s
+	label is an *attribute*, which `tests/test_web.py`'s harness drops by decision — so *Assigned
+	to* and *Answerable to* are invisible there and the reader would be facing an ungrouped list
+	of twice as many names with nothing verifying otherwise. And `chooseWhose` lives inside
+	`App`, which uses hooks: the render harness cannot call it, which is `SR#640`'s gap and the
+	source of four shipped faults.
+
+	**The rule being driven is that exactly one key survives.** Both narrow the same listing, so
+	switching from *assigned to* to *answerable to* while leaving the first in the address would
+	AND them — on a fleet, an empty page rather than an error, and the address would go on saying
+	something the reader never asked for.
+	"""
+
+	opened, _written, _refusing, *_ = running
+	page = opened("/projects?view=list&assignee=si")
+
+	page.wait_for_selector(".whose select", timeout=10_000)
+
+	# **The group labels, which is the half the text harness cannot see at all.**
+	groups = [
+		one.get_attribute("label") for one in page.query_selector_all(".whose optgroup")
+	]
+
+	assert groups == ["Assigned to", "Answerable to"], (
+		f"the control did not group its two questions, so a reader meets one list of names "
+		f"twice over: {groups!r}"
+	)
+
+	# **And the second question really is offered per account**, rather than the group being an
+	# empty heading.
+	answerable = page.query_selector_all(".whose optgroup:nth-of-type(2) option")
+
+	assert answerable, "the *Answerable to* group offered nobody"
+
+	page.select_option(".whose select", "answers_to:si")
+	page.wait_for_url("**answers_to=si**", timeout=10_000)
+
+	# **Exactly one of the two keys**, which is the rule `App` carries and nothing else could
+	# drive.
+	assert "answers_to=si" in page.url, f"the address did not record the question: {page.url}"
+	assert "assignee=" not in page.url, (
+		f"both narrowings are in the address at once, so the listing is asking for work that is "
+		f"assigned to somebody *and* answerable to them: {page.url}"
+	)
+
+
 def test_a_card_is_draggable_on_the_board_and_nowhere_else (running: typing.Any) -> None:
 	"""`#711`. A card that lifts with nowhere to drop it puts itself back.
 
@@ -1889,6 +1938,17 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 def test_this_file_stays_the_size_of_its_argument () -> None:
 	"""`#748`'s scope, held by a bound rather than by an intention.
 
+	**Raised to 43 on 2026-09-06 for `SR#848`, and it fails the *could a DOM do this* test twice
+	over.** The addition drives the control that asks whose work a listing is showing, which grew
+	a second question — *answerable to* beside *assigned to*. Both halves need a browser and for
+	different reasons: the two groups are `<optgroup label>` **attributes**, which
+	``test_web.py``'s harness drops by decision and cannot be made to see, and the rule that
+	exactly one of the two keys survives a change lives in ``chooseWhose`` **inside `App`**,
+	which uses hooks — the render harness cannot call it, which is `SR#640`'s recorded gap and
+	the source of four shipped faults. Falsified by deleting one of the two `delete` lines: the
+	address then carries both narrowings and the listing asks for work that is assigned to
+	somebody *and* answerable to them, which on a fleet is an empty page rather than an error.
+
 	A browser is 400MB, a minute of CI and a new class of flakiness. It earns that by answering
 	what a DOM without a cascade cannot — computed styles, layout, real events. The moment it
 	starts re-rendering components or asserting on markup it is a slower copy of
@@ -2331,11 +2391,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 42, (
+	assert len(tests) <= 43, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 34 in nine days."
+		f"read every raise in this docstring as a set: it has moved 17 to 43 in eleven days."
 	)
 
 

@@ -22,6 +22,17 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be narrowed to somebody's work *and* their agents'.**
+
+  `answers_to` takes a username and answers with everything assigned to that person plus
+  everything held by any agent answerable to them, however many steps down the chain. In the
+  browser it is the second half of the *Whose work* control; at a terminal it is
+  `subroutine list --filter answers_to.eq=si`, and over HTTP `?answers_to.eq=si`.
+
+  Handing work to an agent has always been possible and asking what came of it was not: an
+  assignment names one account, so somebody running a fleet could look at each agent in turn
+  and never at the whole of what they were responsible for.
+
 - **Credentials can be issued, seen and revoked from the browser, and an agent can be added
   there.**
 
