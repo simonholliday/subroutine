@@ -1401,79 +1401,15 @@ def _resolve (
 	workspace: subroutine.db.models.identity.Workspace,
 	id_or_ref: str,
 ) -> subroutine.db.models.work.Task:
-	"""Find one task by id or ref, or report that there is no such thing.
+	"""Find one task by id or ref — the domain's, kept under its old name here.
 
-	Searched **through the scoping helper**, so a task the caller may not see is reported
-	as absent rather than forbidden — saying "forbidden" about a task in a private project
-	would confirm that it exists (docs/design.md §7.3a).
-
-	Deleted tasks resolve. A reference to something in the trash is more useful than a
-	dangling one, and ``deleted_at`` is in the response for the caller to see.
+	**A delegate rather than fifteen edited call sites** (`#1829`). The body moved to
+	``domain.selection.task`` because the filter registry needs it and may not import ``api``;
+	this name has fifteen callers in this module and changing them would be churn with no
+	reader's question behind it.
 	"""
 
-	model = subroutine.db.models.work.Task
-	wanted = id_or_ref.strip()
-	statement = subroutine.domain.scoping.readable_tasks(
-		actor,
-		workspace_ids=[workspace.id],
-		include_deleted=True,
-		include_archived=True,
-		include_templates=True,
-	)
-
-	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
-	# the two path spaces cannot overlap and the order of these branches is not a guess.
-	ref = subroutine.domain.refs.parse_ref(wanted)
-
-	if ref is not None:
-		found = session.scalars(statement.where(model.ref == ref)).first()
-
-	else:
-		try:
-			found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
-
-		except ValueError:
-			# Neither a ref nor an id, so nothing can answer to it.
-			found = None
-
-	if found is None:
-		instead = subroutine.domain.scoping.the_other_kind(
-			session, actor, workspace_id=workspace.id, ref=ref, asked_for="task"
-		)
-
-		if instead is not None:
-			# `#488`. Saying "there is no task 480" about a document the caller has just listed
-			# is a refusal naming a cause it has not established, and it is the one an agent
-			# meets when it tries to revise a conclusion — which is how `#293`'s reporter came
-			# to believe documents were immutable and stopped filing them at all.
-			raise subroutine.errors.NotFound(
-				f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a task "
-				f"— {instead.title}",
-				errors=[
-					subroutine.errors.FieldError(
-						field="id_or_ref",
-						code="not_found",
-						message=f"{id_or_ref!r} names a document in {workspace.slug}.",
-						hint=f"Read it at GET /v1/documents/{instead.ref}, or revise it with "
-						f"PATCH /v1/documents/{instead.ref}.",
-					)
-				],
-			)
-
-		raise subroutine.errors.NotFound(
-			f"There is no task {id_or_ref!r} here.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="id_or_ref",
-					code="not_found",
-					message=f"No task in {workspace.slug} answers to {id_or_ref!r}.",
-					hint="Use a ref like '42' or a task id. GET /v1/tasks lists what you "
-					"can see.",
-				)
-			],
-		)
-
-	return found
+	return subroutine.domain.selection.task(session, actor, workspace, id_or_ref)
 
 
 def _page (

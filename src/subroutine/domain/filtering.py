@@ -44,6 +44,7 @@ import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.durations
 import subroutine.domain.events
+import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.schedule
 import subroutine.domain.scoping
@@ -630,6 +631,29 @@ FROM_THE_VOCABULARY = "vocabulary"
 #: against what this *caller* may see, which needs the principal and the workspace object.
 IN_PROJECT = "in_project"
 
+#: Which group compiles ``parent`` and ``under``, the two questions a tree is asked — `#1829`,
+#: decided on `#2180`.
+#:
+#: **Two fields rather than one and a modifier**, Simon's decision of 2026-09-07. ``?parent=7``
+#: is *directly under #7* and ``?parent=7&subtree=true`` is *anywhere below it* — one parameter
+#: answering two questions, which a :class:`Property` cannot express. A boolean that modifies
+#: another field is not a field, so keeping ``subtree`` would have left the second question
+#: outside the registry: the search line could say *direct children* and could not say
+#: *everything below*, which is `#2174`'s own complaint recreated inside the work meant to fix
+#: it, and `#1801` §4's rule stated outright.
+#:
+#: **Spelled ``under`` rather than ``ancestor``, and the reason changed while the item waited.**
+#: ``ancestor.eq=7`` names the relation from the row's point of view exactly as ``parent`` does,
+#: which was the recommendation when `#2180` was filed. `#1806` shipped in between and made a
+#: filter something people *type*, so how a name reads in a written line went from minor to
+#: primary: ``under:7 deploy`` is immediately clear and ``ancestor:7 deploy`` needs a beat.
+#: ``answers_to`` had already broken the all-nouns convention, so this is not the odd one out.
+IN_THE_TREE = "tree"
+
+#: The two fields that group compiles, spelled once so the predicate can tell them apart.
+PARENT = "parent"
+UNDER = "under"
+
 #: The two field names that group resolves, spelled once so the predicate can tell them apart.
 #:
 #: **Named here rather than compared as literals**, because the predicate branches on which of
@@ -856,14 +880,30 @@ _CONDITION_ONLY: dict[str, Property] = {
 		because="a type key sorts alphabetically, which puts `bug` above `spike` and means "
 		"nothing. Nothing has asked to order by it.",
 	),
-	"parent": Property(
+	# **The two questions a tree is asked, settled on `#2180`** — `#1829`'s fourth and last.
+	# This entry took `is` alone until 2026-09-07, because `?parent=` carried `subtree` with it
+	# and one parameter answering two questions is not a field. It is two fields now.
+	PARENT: Property(
 		column=subroutine.db.models.work.Task.parent_task_id,
-		kind=CONDITION,
-		because=(
-			"`parent=<ref>` is the flat spelling and resolves a ref to an id, and it carries "
-			"`subtree` with it — one parameter, two questions, which has to be settled before "
-			"this can take a value. Ordering by a parent id means nothing."
-		),
+		kind=REFERENCE,
+		group=IN_THE_TREE,
+		because="ordering by a parent id means nothing, and *what is under what* is a shape "
+		"rather than a sort — `#1790`'s grouping is where a tree would be drawn.",
+	),
+	# **Its column is the item's own identity, and that is what refuses `is`** — the idiom
+	# `tag` established for the same reason. The predicate walks `path` and never compares this
+	# column, so it is here for `_allowed` to read: `Task.id` is `NOT NULL`, so `under.is` is
+	# refused without anybody saying so.
+	#
+	# **Which matters, because `under.is=unset` would be `parent.is=unset`.** Both would compile
+	# to *has no parent* — one question with two spellings, on a pair of fields added in the
+	# same commit. Written with `parent_task_id` here first, and the operator was offered.
+	UNDER: Property(
+		column=subroutine.db.models.work.Task.id,
+		kind=REFERENCE,
+		group=IN_THE_TREE,
+		because="the same reason `parent` gives, and there is no one value to sort a subtree "
+		"by at all.",
 	),
 }
 
@@ -1911,6 +1951,63 @@ def _the_user (where: Where) -> subroutine.db.models.identity.User | None:
 	return None if where.principal is None else where.principal.user
 
 
+def _in_the_tree (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``parent`` and ``under`` — one level, and everything below it, `#1829`.
+
+	**Two fields, one predicate, because they resolve identically and differ only in how far
+	down they look.** Each turns a ref into a task through
+	:func:`subroutine.domain.selection.task`, which refuses one the caller cannot see **by
+	name** — an unresolved ref answered with an empty listing would say the subtree is empty,
+	which is a different and false claim (§7.3a).
+
+	**``under`` excludes the item itself**, which is what the flat ``subtree=true`` has always
+	done: *everything below #7* is not *#7 and everything below it*, and a reader asking what a
+	milestone contains does not want the milestone in the answer.
+
+	**Through :func:`subroutine.domain.hierarchy.subtree`**, so the ``LIKE``-not-a-range
+	decision is made once — a half-open range over ``path`` silently drops descendants under a
+	non-byte-wise collation, correctly on SQLite and wrongly on PostgreSQL.
+	"""
+
+	if where.session is None or where.principal is None or where.workspace is None:
+		raise subroutine.errors.ValidationError(
+			"A parent can only be asked about inside one workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=comparisons[0].field,
+					code="invalid_field_value",
+					message="A ref is numbered within a workspace, and this listing reads "
+					"more than one.",
+					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+				)
+			],
+		)
+
+	owner = typing.cast(typing.Any, comparisons[0].against.column).parent.class_
+	narrowing = []
+
+	for comparison in comparisons:
+		clauses = []
+
+		for value in _values(comparison):
+			above = subroutine.domain.selection.task(
+				where.session, where.principal, where.workspace, value
+			)
+
+			clauses.append(
+				sqlalchemy.and_(
+					subroutine.domain.hierarchy.subtree(owner, above),
+					owner.id != above.id,
+				)
+				if comparison.field == UNDER
+				else comparison.against.column == above.id
+			)
+
+		narrowing.append(sqlalchemy.or_(*clauses))
+
+	return sqlalchemy.and_(*narrowing)
+
+
 def _in_project (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile ``project`` — one project *and everything filed underneath it*, `#1829`.
 
@@ -2151,6 +2248,7 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	TAGGED: _tagged,
 	FROM_THE_VOCABULARY: _vocabulary_key,
 	IN_PROJECT: _in_project,
+	IN_THE_TREE: _in_the_tree,
 	ANSWERABLE_TO: _answerable_to,
 }
 

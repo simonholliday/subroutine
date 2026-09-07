@@ -2995,6 +2995,46 @@ def test_both_read_a_written_search_line_the_same_way (pair: Pair) -> None:
 		), asked
 
 
+def test_both_read_a_tree_the_same_way (pair: Pair) -> None:
+	"""`SR#1829`'s last quarter, decided on `SR#2180` — two fields rather than a modifier.
+
+	`parent.eq` is one level and `under.eq` is everything below it, and both resolve a ref
+	through ``domain.selection.task`` — which moved out of ``api/tasks`` for exactly this: the
+	filter registry has to refuse an unreachable task *by name* and may not import ``api``.
+
+	**Both transports, because the resolver is now shared and the predicate is one.** A tree
+	read differently over HTTP and locally would put ``subroutine list --filter under.eq=7`` and
+	the endpoint on different rows, silently.
+	"""
+
+	above = make(pair, "the parent")
+	middle = make(pair, "the child")
+	below = make(pair, "the grandchild")
+
+	for row, onto in ((middle, above), (below, middle)):
+		moving = pair.session.get(subroutine.db.models.work.Task, row.id)
+		destination = pair.session.get(subroutine.db.models.work.Task, onto.id)
+
+		assert moving is not None and destination is not None
+
+		subroutine.domain.tasks.move(
+			pair.session, moving, parent=destination, actor=None
+		)
+
+	pair.session.flush()
+
+	local, remote = pair.both()
+
+	for asked, wanted in (
+		({"parent.eq": str(above.ref)}, [middle.ref]),
+		({"under.eq": str(above.ref)}, sorted([middle.ref, below.ref])),
+	):
+		here = sorted(task.ref for task in local.tasks(filters=asked, limit=50))
+
+		assert here == wanted, f"{asked} answered {here} locally"
+		assert here == sorted(task.ref for task in remote.tasks(filters=asked, limit=50))
+
+
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
 	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.

@@ -609,6 +609,11 @@ def test_a_tag_cannot_be_named_in_a_way_a_filter_could_not_ask_for (
 #: A tag the case above makes before it drives a filter that names one.
 _A_TAG = "ops"
 
+#: An item that exists, for the filters whose value is a ref rather than a name — `SR#1829`.
+#:
+#: **The first of the fixture's three**, in a fresh workspace where refs start at 1 (§6.2).
+_A_REF = "1"
+
 def _default_status (entity_type: str) -> str:
 	"""Return the status something of this kind gets when nobody says.
 
@@ -649,6 +654,15 @@ _REFERENCES: dict[tuple[str, str], str] = {
 	# filed with no project. Any other key would be a fixture this map cannot see.
 	("task", "project"): subroutine.domain.workspaces.INBOX_KEY,
 	("document", "project"): subroutine.domain.workspaces.INBOX_KEY,
+	# **A ref, which is a fourth vocabulary wearing this one kind** — `SR#1829`. Driven with a
+	# username, `parent.eq` answered *there is no task 'si-7c09b9c3'*, which is the route working
+	# correctly and reads as a broken one. The comment above predicted exactly this.
+	#
+	# **`#1` because the fixture makes its three tasks in a fresh workspace**, where refs start
+	# at 1 (§6.2) — an assumption this file already rests on, since two cases above complete
+	# `/v1/tasks/1`.
+	("task", "parent"): _A_REF,
+	("task", "under"): _A_REF,
 }
 
 
@@ -1284,14 +1298,15 @@ NOT_A_PROPERTY: dict[tuple[str, str], str] = {
 	# **`project` has gone too**, and it is what widened `Where`: a project is resolved against
 	# what this *caller* may see, so the predicate needs a principal and the workspace object
 	# rather than the ids a subquery narrows by.
-	# **`parent` is absent from here and that is the measurement correcting the list.**
-	# `SR#1829` is written as four flat parameters, and a task's `parent` is already a
-	# `CONDITION` property whose own `because` says what is left to settle — so the entry this
-	# register wants is the *other* half of that one parameter. Writing `#1829`'s four down from
-	# memory put `parent` here and this file's stale-entry test refused it, which is `SR#2175`
-	# working on the person writing `SR#2175`.
-	("task", "subtree"): "the second question `parent` carries — *one level or all of them* — "
-	"which is an operator rather than a field, and SR#1829 is where it is settled",
+	# **`subtree` is the last flat narrowing on a task, and it is now an older spelling rather
+	# than a gap** — `SR#2180`, Simon's decision of 2026-09-07. The second question `parent`
+	# carried is `under`, a field of its own, so the registry answers both; this stays because
+	# it is shipped and published, exactly as `due_before` and `due_after` do.
+	#
+	# **It cannot become a `Property` and that is why it needed a decision**: a boolean that
+	# modifies another field is not a field, so leaving it as the only way to ask would have put
+	# the question outside the grammar for good.
+	("task", "subtree"): "an older spelling of `under`, kept because it is published — SR#2180",
 	# A project is *reached* by its address rather than narrowed to by its name, which is the
 	# reason `PROJECT_PROPERTIES` already gives for `key`, `title` and `path` being orderable
 	# and unaskable. `SR#1804` is where a REFERENCE kind would change that; nobody has asked.
@@ -1750,3 +1765,88 @@ def test_a_document_can_be_narrowed_to_what_somebody_created (world: World) -> N
 
 	assert made.status_code == 201, made.text
 	assert world.titles("/v1/documents?created_by.eq=me") == ["written by the caller"]
+
+
+def test_parent_is_one_level_and_under_is_the_whole_tree (world: World) -> None:
+	"""**`SR#1829`'s fourth, decided on `SR#2180`** — Simon, 2026-09-07: two fields, and the
+	second one is `under`.
+
+	``?parent=7`` is *directly under #7* and ``?parent=7&subtree=true`` is *anywhere below it*:
+	one parameter answering two questions, which a `Property` cannot express because a boolean
+	modifying another field is not a field. Keeping `subtree` would have left the second
+	question outside the registry — the search line could say *direct children* and could not
+	say *everything below*, which is `SR#2174`'s own complaint recreated inside the work meant
+	to fix it.
+
+	**`under` excludes the item itself**, which is what the flat spelling has always done: a
+	reader asking what a milestone contains does not want the milestone in the answer.
+	"""
+
+	# **Built with `move` rather than a create field**, because a task is filed at the top and
+	# put under something afterwards — "no parent" and "unchanged" have to be distinguishable,
+	# which is why that is a body rather than a query parameter (§8.3).
+	made = {}
+
+	for title in ("the parent", "the child", "the grandchild"):
+		answer = world.call("POST", "/v1/tasks", json={"title": title})
+
+		assert answer.status_code == 201, answer.text
+
+		made[title] = answer.json()
+
+	for title, above in (("the child", "the parent"), ("the grandchild", "the child")):
+		moved = world.call(
+			"POST",
+			f"/v1/tasks/{made[title]['ref']}/move",
+			json={"parent": str(made[above]["ref"])},
+		)
+
+		assert moved.status_code == 200, moved.text
+
+	parent = made["the parent"]
+
+	one = f"/v1/tasks?parent.eq={parent['ref']}"
+	all_of_it = f"/v1/tasks?under.eq={parent['ref']}"
+
+	assert world.titles(one) == ["the child"]
+	assert world.titles(all_of_it) == ["the child", "the grandchild"]
+
+	# **The two really are different questions**, or the pair is one field under two names.
+	assert world.titles(one) != world.titles(all_of_it)
+
+	# **And the older flat spelling still answers both**, documented rather than removed —
+	# `due_before` and `due_after` are the precedent.
+	assert world.titles(f"/v1/tasks?parent={parent['ref']}") == world.titles(one)
+	assert world.titles(
+		f"/v1/tasks?parent={parent['ref']}&subtree=true"
+	) == world.titles(all_of_it)
+
+	# **Through the written line too**, because the grammar compiles to the registry — which is
+	# the whole reason this was two fields rather than a modifier (`SR#1806`).
+	assert world.titles(f"/v1/tasks?q=under:{parent['ref']}") == world.titles(all_of_it)
+
+
+def test_under_refuses_the_question_parent_already_answers (world: World) -> None:
+	"""**One question may not have two spellings** — `SR#1829`, and it nearly did.
+
+	``under``'s predicate walks ``path`` and never compares a column, so the column on its
+	declaration is only there for ``_allowed`` to read. Written with ``parent_task_id`` — the
+	obvious choice — it made ``under.is=unset`` legal, and that compiles to *has no parent*,
+	which is exactly ``parent.is=unset``: two spellings of one question, on a pair of fields
+	added in the same commit.
+
+	**The column is the item's own identity instead**, which is the idiom ``tag`` established
+	for the same reason: ``Task.id`` is ``NOT NULL``, so ``_allowed`` refuses ``is`` without
+	anybody writing a rule.
+	"""
+
+	assert "is" in subroutine.domain.filtering.filters("task")["parent"].operators
+	assert "is" not in subroutine.domain.filtering.filters("task")["under"].operators
+
+	refused = world.call("GET", "/v1/tasks?under.is=unset")
+
+	assert refused.status_code == 422, refused.text
+	assert "under" in refused.text
+
+	# **The question it would have answered is still askable, by its one spelling.**
+	assert world.call("GET", "/v1/tasks?parent.is=unset").status_code == 200

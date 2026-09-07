@@ -23,10 +23,12 @@ import sqlalchemy.orm
 
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.hierarchy
 import subroutine.domain.projects
+import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.users
 import subroutine.domain.workspaces
@@ -247,6 +249,96 @@ def project (
 		return _files_where(session, actor, workspace)
 
 	return addressed(session, actor, workspace, wanted, field="project")
+
+
+def task (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	id_or_ref: str,
+) -> subroutine.db.models.work.Task:
+	"""Find one task by id or ref, or report that there is no such thing.
+
+	**In the domain since `#1829`, and it was ``api/tasks._resolve``.** The filter registry
+	compiles ``parent`` and ``under`` and has to refuse an unreachable task by *name*, exactly
+	as this does — and `api` is a place :mod:`subroutine.domain.filtering` may not import. So it
+	moved here beside :func:`project`, for the reason that one is here: both transports resolve
+	the same address the same way or they grow two answers to one question (`#501`).
+
+	The endpoint keeps a one-line delegate rather than fifteen call sites changing, which is
+	what makes this a move rather than a rewrite.
+
+	Searched **through the scoping helper**, so a task the caller may not see is reported
+	as absent rather than forbidden — saying "forbidden" about a task in a private project
+	would confirm that it exists (docs/design.md §7.3a).
+
+	Deleted tasks resolve. A reference to something in the trash is more useful than a
+	dangling one, and ``deleted_at`` is in the response for the caller to see.
+	"""
+
+	model = subroutine.db.models.work.Task
+	wanted = id_or_ref.strip()
+	statement = subroutine.domain.scoping.readable_tasks(
+		actor,
+		workspace_ids=[workspace.id],
+		include_deleted=True,
+		include_archived=True,
+		include_templates=True,
+	)
+
+	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
+	# the two path spaces cannot overlap and the order of these branches is not a guess.
+	ref = subroutine.domain.refs.parse_ref(wanted)
+
+	if ref is not None:
+		found = session.scalars(statement.where(model.ref == ref)).first()
+
+	else:
+		try:
+			found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
+
+		except ValueError:
+			# Neither a ref nor an id, so nothing can answer to it.
+			found = None
+
+	if found is None:
+		instead = subroutine.domain.scoping.the_other_kind(
+			session, actor, workspace_id=workspace.id, ref=ref, asked_for="task"
+		)
+
+		if instead is not None:
+			# `#488`. Saying "there is no task 480" about a document the caller has just listed
+			# is a refusal naming a cause it has not established, and it is the one an agent
+			# meets when it tries to revise a conclusion — which is how `#293`'s reporter came
+			# to believe documents were immutable and stopped filing them at all.
+			raise subroutine.errors.NotFound(
+				f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a task "
+				f"— {instead.title}",
+				errors=[
+					subroutine.errors.FieldError(
+						field="id_or_ref",
+						code="not_found",
+						message=f"{id_or_ref!r} names a document in {workspace.slug}.",
+						hint=f"Read it at GET /v1/documents/{instead.ref}, or revise it with "
+						f"PATCH /v1/documents/{instead.ref}.",
+					)
+				],
+			)
+
+		raise subroutine.errors.NotFound(
+			f"There is no task {id_or_ref!r} here.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="id_or_ref",
+					code="not_found",
+					message=f"No task in {workspace.slug} answers to {id_or_ref!r}.",
+					hint="Use a ref like '42' or a task id. GET /v1/tasks lists what you "
+					"can see.",
+				)
+			],
+		)
+
+	return found
 
 
 def addressed (
