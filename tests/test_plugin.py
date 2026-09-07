@@ -27,8 +27,10 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.domain.projects
+import subroutine.errors
 import subroutine.installations
 import subroutine.mcp.tools
+import subroutine.releases
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
@@ -48,6 +50,10 @@ PLUGIN_DIRECTORIES = tuple(
 
 #: Their manifests, in the same order.
 MANIFESTS = tuple(path / ".claude-plugin" / "plugin.json" for path in PLUGIN_DIRECTORIES)
+
+#: The published record, which says what is current as well as what has been released
+#: (`SR#2221`).
+RELEASES = ROOT / "docs" / "releases.json"
 
 
 def _read (path: pathlib.Path) -> dict[str, typing.Any]:
@@ -698,6 +704,78 @@ def test_every_command_the_skill_shows_exists () -> None:
 	# somebody gets a `subroutine` to run at all.
 	assert shown, "found no commands at all in the skill — has this test stopped reaching them?"
 	assert shown <= registered, f"the skill shows {sorted(shown - registered)}, which do not exist"
+
+
+def test_the_published_record_names_every_plugin_at_the_version_it_carries () -> None:
+	"""`SR#2221`. A cached plugin had no number to be behind, and a release could not supply one.
+
+	`SR#1437` needs three installations to be able to say they are stale — the program, the
+	plugin and the service — and the published record carried nothing about a plugin. Its own
+	proposal was that a release should write the version it shipped, and **that number is
+	always the release's own**: `_write_plugin_version` sets every manifest to it, and
+	`_reasons_to_stop` refuses a release below the highest manifest, so the two can only meet
+	as equals. A per-release field would have been a second copy of `version`.
+
+	**And it would not have answered the question.** Measured 2026-09-07: both manifests carried
+	`0.8.15` while the newest release was `0.8.7`, because a manifest is a *cache key* that must
+	move on any change under `plugins/` (`SR#380`, `SR#393`) where a release is an act with a
+	changelog. The marketplace serves the plugin from the repository, so what somebody could
+	install that day was a number in no release and never would be.
+
+	So the map is **beside** the releases rather than inside one, and this is what keeps it
+	current: `docs/errors.md` is the precedent — generated, published, and held by a test that
+	refuses to let the file and the code part company.
+
+	**Derived from the filesystem**, so a third plugin is covered the day somebody creates it.
+	"""
+
+	record = json.loads(RELEASES.read_text(encoding="utf-8"))
+	named = record.get("plugins")
+
+	assert isinstance(named, dict), (
+		f"{RELEASES.name} does not say what the current plugin versions are, so a cached copy "
+		f"has nothing to compare itself against"
+	)
+
+	carried = {path.parent.parent.name: _read(path)["version"] for path in MANIFESTS}
+
+	assert named == carried, (
+		f"{RELEASES.name} says {named} and the manifests carry {carried}. A change under "
+		f"plugins/ moves a manifest — that is what makes it a cache key — so the record has to "
+		f"move with it, or it advertises a version nobody can install. Write exactly "
+		f"{json.dumps(carried, indent=2)} into its 'plugins' key."
+	)
+
+
+def test_the_reader_that_will_read_the_record_can_read_this_one () -> None:
+	"""`SR#2221`. The file is published and parsed by clients this repository does not control.
+
+	**Driven through the real parser** rather than compared field by field, which is the same
+	argument `test_it_parses_with_the_reader_that_will_read_it` makes about the releases half:
+	a shape this repository is happy with and the shipped reader refuses is a check that
+	passed and a feature that did not work.
+	"""
+
+	whole = subroutine.releases._whole(
+		json.loads(RELEASES.read_text(encoding="utf-8")), "docs/releases.json"
+	)
+
+	assert whole.plugins, "the shipped reader found no plugin versions in the published record"
+	assert whole.releases, "the shipped reader found no releases in the published record"
+
+	# **Every published record before this one has no `plugins` key**, and a reader that
+	# refused those would be unable to read any of them — skew pointing the wrong way
+	# (`SR#250`). Absent is empty; present and malformed is refused.
+	older = subroutine.releases._whole(
+		{"releases": [{"version": "0.1.0", "schema": "abc", "date": "2026-01-01"}]}, "older"
+	)
+
+	assert older.plugins == {} and len(older.releases) == 1, (
+		f"a record written before this feature is no longer readable: {older}"
+	)
+
+	with pytest.raises(subroutine.errors.ServiceUnavailable):
+		subroutine.releases._whole({"releases": [], "plugins": {"subroutine": 3}}, "wrong")
 
 
 @pytest.mark.parametrize(

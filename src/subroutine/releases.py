@@ -145,6 +145,44 @@ class Standing:
 		return "behind us" if self.knows_the_newest_schema else "ahead of us"
 
 
+@dataclasses.dataclass(frozen=True)
+class Published:
+	"""Everything the published record says, which is two different kinds of fact — `#2221`.
+
+	**``releases`` is history and ``plugins`` is the present**, and the second is not derivable
+	from the first. A release sets every plugin manifest to the release's own version, so a
+	per-release plugin number would be a second copy of ``version``; between releases a
+	manifest runs *ahead*, because it is a cache key that has to move on any change under
+	``plugins/`` (`#380`, `#393`) where a release is an act with a changelog behind it.
+
+	Measured 2026-09-07: both manifests carried ``0.8.15`` while the newest release was
+	``0.8.7``, and the marketplace serves the plugin from the **repository** — so what somebody
+	could install that day was a number in no release and never would be.
+
+	**It is current because of where the record is fetched from.** :data:`DEFAULT_URL` is
+	pinned to the default branch rather than to a tag, so a value tracking ``main`` is right
+	the moment it is pushed.
+	"""
+
+	#: Newest first, exactly as published.
+	releases: tuple[Release, ...]
+
+	#: Each plugin's current version, by the name of its directory under ``plugins/``. Empty
+	#: for every record published before `#2221`, which is not an error and is why this is
+	#: read leniently where a release row is not.
+	plugins: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+def record (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) -> Published:
+	"""Fetch the whole published record.
+
+	:func:`published` is the older, narrower way in and is kept because it is what the
+	terminal's check and every test that stands in for the network already call.
+	"""
+
+	return _fetched(url, client=client)
+
+
 def published (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) -> list[Release]:
 	"""Fetch the published record, newest first.
 
@@ -156,7 +194,17 @@ def published (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) ->
 	**A client handed in is borrowed, not taken** (`#422`). This closed whatever it was given,
 	so a caller reusing one got it shut underneath them — invisible today because only the tests
 	pass one, and exactly the kind of thing the second caller discovers rather than the first.
+
+	**One fetch, in :func:`_fetched`.** This held its own copy of the request until `#2221`
+	added a second way in, and two copies of *how the record is read* is the pair that comes to
+	disagree about a timeout, a redirect or which failures are one failure.
 	"""
+
+	return list(_fetched(url, client=client).releases)
+
+
+def _fetched (url: str, *, client: httpx.Client | None) -> Published:
+	"""Read the document at ``url`` and parse it, or say the check could not be made."""
 
 	try:
 		with contextlib.ExitStack() as closing:
@@ -173,7 +221,38 @@ def published (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) ->
 			hint="Check the machine's network, or upgrade without checking first.",
 		) from failure
 
-	return _parsed(body, url)
+	return _whole(body, url)
+
+
+def _whole (body: typing.Any, url: str) -> Published:
+	"""Turn the fetched document into everything it says — `#2221`.
+
+	**The two halves are read with different strictness, and that is a decision rather than an
+	oversight.** A release row is refused rather than salvaged, for the reason
+	:func:`_parsed` gives: a partial read answers *no migration* for an entry it could not
+	parse, which costs somebody an unplanned outage. An **absent** ``plugins`` key is the
+	ordinary state of every record published before this and is simply empty — refusing it
+	would make a new client unable to read any older record, which is the skew `#250` is
+	about pointing the wrong way.
+
+	**Present and malformed is refused**, though, because that can only mean the file was
+	written by something that disagrees with this reader — the same conclusion a bad release
+	row leads to, and the same remedy.
+	"""
+
+	given = body.get("plugins", {}) if isinstance(body, dict) else {}
+
+	if not isinstance(given, dict) or not all(
+		isinstance(name, str) and isinstance(version, str)
+		for name, version in given.items()
+	):
+		raise subroutine.errors.ServiceUnavailable(
+			f"{url} names its plugins in a way this version cannot read.",
+			hint="It may have been written by a newer release. Upgrade without checking "
+			"first, or read it yourself.",
+		)
+
+	return Published(releases=tuple(_parsed(body, url)), plugins=dict(given))
 
 
 def _parsed (body: typing.Any, url: str) -> list[Release]:

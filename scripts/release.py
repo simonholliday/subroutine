@@ -398,10 +398,37 @@ def _record_release (version: str, head: str, on: str) -> None:
 
 	record["releases"] = [{"version": version, "schema": head, "date": on}, *rows]
 
+	# **What is current, beside what has been released** (`#2221`). The two are different kinds
+	# of fact and neither derives the other: a release sets every manifest to its own version,
+	# so a per-release plugin number would be a second copy of `version` — while *between*
+	# releases a manifest runs ahead, because it is a cache key and a release is an act.
+	#
+	# **Written here as well as guarded**, because at this moment the numbers are about to
+	# become equal and the map has to say so before the commit that tags them. Between releases
+	# `tests/test_plugin.py` is what keeps it right, and it names the value to write.
+	record["plugins"] = _current_plugins()
+
 	# The directory may not be there on a fork cutting its first release, and refusing for
 	# that would be a release tool stopping on something it can fix.
 	RELEASES.parent.mkdir(parents=True, exist_ok=True)
 	RELEASES.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+
+def _current_plugins () -> dict[str, str]:
+	"""Return each plugin's version now, by the name of its directory under ``plugins/``.
+
+	**Discovered rather than listed**, like :data:`PLUGINS` itself and for `#540`'s reason: two
+	plugins ship from this repository and a third would otherwise be published without one.
+
+	**Sorted, so the file does not churn.** A dict written in filesystem order would produce a
+	different diff on a different machine, and a record whose only change is key order is the
+	shape `#749` shipped once already.
+	"""
+
+	return {
+		manifest.parent.parent.name: json.loads(manifest.read_text(encoding="utf-8"))["version"]
+		for manifest in sorted(PLUGINS)
+	}
 
 
 def _write_plugin_version (version: str) -> None:
