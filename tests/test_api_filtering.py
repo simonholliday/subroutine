@@ -1685,3 +1685,69 @@ def test_a_term_that_cannot_be_read_is_searched_for_and_reported (world: World) 
 
 	for operator in ("gt", "gte", "lt", "lte"):
 		assert operator in reported[0], reported[0]
+
+
+def test_a_listing_can_be_narrowed_to_what_somebody_created (world: World) -> None:
+	"""`SR#1577` — Simon's question (a) of 2026-08-29, *items created by me*.
+
+	**Missing on every surface at once until now.** `created_by` is reported on every row and
+	in `selectable`, and no listing accepted it — the `test_api_writability` family with the
+	direction reversed, where a caller reads a field on every row and cannot ask for the rows
+	carrying it.
+
+	**`touched_by` is the nearest thing that worked and answers a different question.** It
+	reads the event feed, so it means *worked on* rather than *created*, and on this instance
+	it returned the same items for two accounts because both had touched them.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "filed by the caller"})
+
+	assert made.status_code == 201, made.text
+
+	# **`me` is the calling account**, resolved exactly as `SR#518` made it for `assignee` — or
+	# one word means two things across two surfaces.
+	assert "filed by the caller" in world.titles("/v1/tasks?created_by.eq=me")
+	assert "filed by the caller" in world.titles(
+		f"/v1/tasks?created_by.eq={world.user.username}"
+	)
+
+	# **And through the written line**, because the grammar compiles to the registry — one
+	# entry gave three spellings and nothing was written twice (`SR#1806`).
+	assert "filed by the caller" in world.titles("/v1/tasks?q=created_by:me")
+
+	# **`is` means something real here because the column is nullable** — a row the system
+	# wrote during setup, before any user existed to attribute it to. Made explicitly rather
+	# than assumed: the fixture's own tasks *are* attributed, which the first version of this
+	# case discovered by asserting that it had found something.
+	orphan = world.call("POST", "/v1/tasks", json={"title": "written during setup"})
+
+	assert orphan.status_code == 201, orphan.text
+
+	# **The id comes back as text and the column is a UUID**, so it is converted rather than
+	# passed through — `session.get` on the raw string raises inside the driver rather than
+	# answering *not found*.
+	row = world.session.get(
+		subroutine.db.models.work.Task, uuid.UUID(orphan.json()["id"])
+	)
+
+	assert row is not None
+
+	row.created_by = None
+	world.session.flush()
+
+	unattributed = world.titles("/v1/tasks?created_by.is=unset")
+
+	assert unattributed == ["written during setup"]
+	assert "filed by the caller" in world.titles("/v1/tasks?created_by.is=set")
+
+
+def test_a_document_can_be_narrowed_to_what_somebody_created (world: World) -> None:
+	"""The same question on the other entity — `SR#1577`.
+
+	`GET /v1/documents` did not accept `created_by` either, so this was one gap and not two.
+	"""
+
+	made = world.call("POST", "/v1/documents", json={"title": "written by the caller"})
+
+	assert made.status_code == 201, made.text
+	assert world.titles("/v1/documents?created_by.eq=me") == ["written by the caller"]

@@ -560,14 +560,21 @@ class Filterable (typing.NamedTuple):
 	group: str | None = None
 
 
-#: Which group compiles the two fields naming an account that *holds* an item — `#1804`.
+#: Which group compiles every field whose value is the name of an account — `#1804`.
 #:
-#: **A group of one field at a time, and that is what the mechanism is for.** ``assignee`` and
-#: ``claimed_by`` never compile together — they are separate questions about separate columns —
-#: but each needs the session to turn a username into an id, and a kind's predicate is handed a
-#: value and a clock. :data:`GROUPS` is where a field whose compilation needs more than its
-#: value goes, which `#817` built for ``touched_at`` and which needed nothing rewritten here.
-WHO_HOLDS_IT = "holder"
+#: **A group of one field at a time, and that is what the mechanism is for.** ``assignee``,
+#: ``claimed_by`` and ``created_by`` never compile together — they are separate questions about
+#: separate columns — but each needs the session to turn a username into an id, and a kind's
+#: predicate is handed a value and a clock. :data:`GROUPS` is where a field whose compilation
+#: needs more than its value goes, which `#817` built for ``touched_at`` and which needed
+#: nothing rewritten here.
+#:
+#: **Was ``WHO_HOLDS_IT``, renamed by `#1577`.** It carried ``assignee`` and ``claimed_by``,
+#: which are both about *holding*, and ``created_by`` is not — so the old name would have been
+#: one word covering two things, which is the hazard decision `#1267` §2 records and this
+#: registry exists to keep out of the vocabulary. What the group is really about is that the
+#: value is a username, and that is what it says now.
+NAMES_AN_ACCOUNT = "account"
 
 #: Which group compiles ``tag``, whose predicate is a subquery over a join table — `#1804`.
 TAGGED = "tagged"
@@ -579,7 +586,7 @@ TAGGED = "tagged"
 #: *key* into the id of a row in a per-workspace table, so each needs the session and exactly
 #: one workspace, and each has to refuse an unknown key by listing what the workspace really
 #: has. They never compile together — they are separate columns — which is what :data:`GROUPS`
-#: is for and is the same shape :data:`WHO_HOLDS_IT` has carried for ``assignee`` and
+#: is for and is the same shape :data:`NAMES_AN_ACCOUNT` has carried for ``assignee`` and
 #: ``claimed_by`` since `#1804`.
 #:
 #: **The resolvers belong to the entity and are reached late.** ``domain.tasks`` imports
@@ -739,15 +746,37 @@ _CONDITION_ONLY: dict[str, Property] = {
 	"assignee": Property(
 		column=subroutine.db.models.work.Task.assignee_id,
 		kind=REFERENCE,
-		group=WHO_HOLDS_IT,
+		group=NAMES_AN_ACCOUNT,
 		because="ordering by an account id means nothing; ordering by who has what is `#1805`.",
 	),
 	"claimed_by": Property(
 		column=subroutine.db.models.work.Task.claimed_by_id,
 		kind=REFERENCE,
-		group=WHO_HOLDS_IT,
+		group=NAMES_AN_ACCOUNT,
 		because="ordering by an account id means nothing — `claimed_at` is the sort that "
 		"answers *taken longest ago*, and it is orderable.",
+	),
+	# **What did I file, against what did my agent file** — `#1577`, Simon's question (a) of
+	# 2026-08-29. Reported on every row and in `selectable`, and askable by nothing: the
+	# `test_api_writability` family with the direction reversed, where a caller reads a field
+	# on every row and cannot ask for the rows carrying it.
+	#
+	# **`touched_by` is the nearest thing that worked and answers a different question.** It
+	# reads the event feed, so it means *worked on*: driven on this instance, three items came
+	# back for both accounts because both had touched them. That is right for what it is and is
+	# an over-approximation of *created*.
+	#
+	# **`is` comes free and means something real here**, because the column is nullable:
+	# `created_by.is=unset` is what the system wrote during setup, before any user existed.
+	"created_by": Property(
+		column=subroutine.db.models.work.Task.created_by,
+		kind=REFERENCE,
+		group=NAMES_AN_ACCOUNT,
+		because=(
+			"ordering by an account id means nothing, and *whose backlog is oldest* is "
+			"`created_at`, which is orderable. Grouping by it is `#1803`'s third capability "
+			"and wants a bounded axis, which an account list is not."
+		),
 	),
 	"tag": Property(
 		column=subroutine.db.models.work.Task.id,
@@ -941,6 +970,14 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 	# the whole reason this is an `EXISTS`. `#815`'s question is about items, and a ref names
 	# either kind (§6.2).
 	**_worked_on(subroutine.db.models.work.Document.id),
+	# **The same question on the other entity** — `#1577`. `GET /v1/documents` did not accept
+	# `created_by` either, so this was missing on every surface at once.
+	"created_by": Property(
+		column=subroutine.db.models.work.Document.created_by,
+		kind=REFERENCE,
+		group=NAMES_AN_ACCOUNT,
+		because="the task entry's reason, unchanged.",
+	),
 	# **The entry a task has carried since `#1804`, and the mechanism was already generic** —
 	# `#2175`. `_tagged` reads the join table out of `tags.JOINS`, which has held `Document`
 	# since `#1319`, so this is a declaration rather than an implementation.
@@ -1728,8 +1765,9 @@ def _values (comparison: Comparison) -> list[str]:
 	return given
 
 
-def _held_by (comparisons: list[Comparison], where: Where) -> typing.Any:
-	"""Compile *whose is this* — ``assignee`` and ``claimed_by`` — `#1804`.
+def _an_account (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile a field whose value names an account — ``assignee``, ``claimed_by``,
+	``created_by`` — `#1804`, `#1577`.
 
 	**One username resolved to one account, by the same function the flat parameter uses.**
 	`selection.user` takes a username *or* an id, understands ``me``, and refuses by name — so
@@ -2018,7 +2056,7 @@ def _answerable_to (comparisons: list[Comparison], where: Where) -> typing.Any:
 #: :class:`Kind`'s own signature cannot express.
 GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	"touched": _touched,
-	WHO_HOLDS_IT: _held_by,
+	NAMES_AN_ACCOUNT: _an_account,
 	TAGGED: _tagged,
 	FROM_THE_VOCABULARY: _vocabulary_key,
 	IN_PROJECT: _in_project,
