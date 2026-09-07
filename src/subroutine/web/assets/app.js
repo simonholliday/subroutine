@@ -39,7 +39,8 @@ import {
 import { Detail, Doing, Failed, Linking, Saying, Seeking, Written } from "./detail.js";
 import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
-	DocumentFields, Editing, Fields, Listing, Narrowed, PRIORITIES, Reading, Repeats, TIMED,
+	DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, Narrowed, PRIORITIES,
+	Reading, Repeats, TIMED,
 } from "./forms.js";
 import {
 	CLOSED_BY_DEFAULT, NOT_SHOWN, agendaBuckets, blockersDone, choicesIn, collapsedColumns,
@@ -2333,6 +2334,7 @@ export function App () {
 
 		delete selection.assignee;
 		delete selection.answers_to;
+		delete selection[NOT_GIVEN_OUT];
 
 		if (asked) selection[asked.field] = asked.username;
 
@@ -2797,6 +2799,7 @@ export function App () {
 							members=${furnished.members}
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
+							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
 							onWhose=${chooseWhose}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
@@ -2856,6 +2859,7 @@ export function App () {
 							members=${furnished.members}
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
+							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
 							onWhose=${chooseWhose}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
@@ -3027,6 +3031,8 @@ export {
 	Editing,
 	Fields,
 	Listing,
+	NOBODY,
+	NOT_GIVEN_OUT,
 	Narrowed,
 	PRIORITIES,
 	Reading,

@@ -270,6 +270,23 @@ export const SELECTABLE = {
 		has to be what you were looking at, and `me` hands its recipient their own fleet.
 	*/
 	answers_to: null,
+	/*
+		**Work nobody has been given** — `#2182`, Simon's request of 2026-09-07. It matters more
+		than the general case: `#1600` drove `list --ready` on this instance to 219 rows, 195 of
+		them unassigned, so this is the pile triage is actually done from rather than an edge.
+
+		**The wire spelling is the key**, which is why there is no `SENT_AS` entry beside
+		`answers_to`'s: `assignee.is` is what `GET /v1/tasks` accepts, so the address a reader
+		shares is the request the instance answers. Every other name here predates the dotted
+		grammar and needs a translation; this one does not.
+
+		**Enumerated rather than `null`, and one value rather than two.** `is` takes exactly two
+		reserved words (`#1804`) and only one of them is a question anybody asks: `set` would be
+		*work somebody has been given*, which is a listing minus its most interesting rows and
+		which nothing has asked for. Admitting it because the operator has it would be publishing
+		an address nothing has driven.
+	*/
+	"assignee.is": ["unset"],
 };
 
 /*
@@ -328,6 +345,10 @@ export const ANSWERED_BY = {
 	assignee: { task: "sent", document: "cannot" },
 	/* **A document has no assignee either**, so it can have no responsibility chain — `#848`. */
 	answers_to: { task: "sent", document: "cannot" },
+	/* **And it cannot have *no* assignee either** — `#2182`. The column does not exist on a
+	   document, so *unassigned* is not false of one, it is unaskable: a page narrowed to work
+	   nobody has been given is tasks only, for the same reason `assignee` above is. */
+	"assignee.is": { task: "sent", document: "cannot" },
 };
 
 export function answers (kind, name) {
@@ -564,7 +585,7 @@ export function withShowing (path, showing) {
 	the search box shows the term and clears it, so it has a way back of its own and a second
 	one would be two controls for one state.
 */
-export const NARROWINGS = ["tag", "assignee", "answers_to"];
+export const NARROWINGS = ["tag", "assignee", "answers_to", "assignee.is"];
 
 export function widened (showing) {
 	/* The same showing with every narrowing dropped — what *Show everything* goes to. */

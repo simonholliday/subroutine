@@ -7536,6 +7536,44 @@ def test_a_project_in_the_address_narrows_the_list_and_says_so (tmp_path: pathli
 	)
 
 
+def test_a_page_narrowed_to_work_nobody_has_says_so (tmp_path: pathlib.Path) -> None:
+	"""`SR#2182`, and it is `SR#1020`'s rule applied to the newest narrowing.
+
+	A reader arrives here from a control or from a link somebody sent, and a short list with no
+	explanation is indistinguishable from an empty backlog. This narrowing is the one most
+	likely to be arrived at rather than typed, because it is what triage is done from — 195 of
+	219 ready rows on this instance.
+
+	**The wording is the outcome and not the field.** *Unassigned* names the column; *work
+	nobody has been given* names what the reader is looking at, which is §13.5b's rule and the
+	Voice section's.
+	"""
+
+	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+
+	quiet = _rendered(tmp_path, {"Listing": {"items": rows, "project": None}})
+	narrow = _rendered(tmp_path, {
+		"Listing": {"items": rows, "project": None, "selection": {"assignee.is": "unset"}},
+	})
+
+	assert "Showing" not in quiet["Listing"], "an unnarrowed list claimed to be narrowed"
+	assert "nobody" in narrow["Listing"], (
+		f"the page did not say what it was narrowed to: {narrow['Listing']}"
+	)
+
+	# **A value the control cannot produce says nothing**, rather than half-rendering. `is`
+	# takes two reserved words and only one is offered; `set` reaching this component from a
+	# hand-typed address must not draw a chip claiming the opposite of what it means.
+	other = _rendered(tmp_path, {
+		"Listing": {"items": rows, "project": None, "selection": {"assignee.is": "set"}},
+	})
+
+	assert "nobody" not in other["Listing"], (
+		f"a chip claimed nobody has this work on a page narrowed to work somebody has: "
+		f"{other['Listing']}"
+	)
+
+
 def test_a_project_filter_sends_what_the_route_accepts () -> None:
 	"""`SR#320`: `project=` already covers what is under a project, and `subtree` is not it.
 
@@ -7932,6 +7970,14 @@ def _view_names () -> list[str]:
 	return re.findall(r'"([^"]+)"', found.group(1))
 
 
+#: How a `SELECTABLE` key is written: a bare word, or a quoted one carrying an operator.
+#:
+#: **One pattern for all three scans below** — `SR#2183`. They were three copies of `\w+` and
+#: all three were blind to `"assignee.is"` together, which is why the completeness check
+#: comparing two of them was satisfied.
+_NAMED = r"\n\t\"?([\w.]+)\"?:"
+
+
 def _selections (place: Instance) -> list[dict[str, str]]:
 	"""Every selection this app's address grammar admits, derived from `SELECTABLE`.
 
@@ -7951,9 +7997,12 @@ def _selections (place: Instance) -> list[dict[str, str]]:
 
 	assert block, "the app's selectable parameters could not be read from app.js"
 
+	# **A key that is not a bare word is still a key** — `SR#2183`. `SELECTABLE` gained
+	# `"assignee.is"` and every scan here read `\w+`, which matches neither the quotes nor the
+	# dot — so the new parameter was driven by nothing and the whole suite stayed green.
 	singles = [
 		{name: value}
-		for name, values in re.findall(r"\n\t(\w+): \[([^\]]*)\]", block.group(1))
+		for name, values in re.findall(_NAMED + r" \[([^\]]*)\]", block.group(1))
 		for value in re.findall(r'"([^"]+)"', values)
 	]
 
@@ -7976,7 +8025,7 @@ def _selections (place: Instance) -> list[dict[str, str]]:
 		# answerable to it — which is the server's walk and nothing this sample has to know.
 		"answers_to": place.username,
 	}
-	named_here = set(re.findall(r"\n\t(\w+): null,", block.group(1)))
+	named_here = set(re.findall(_NAMED + r" null,", block.group(1)))
 
 	assert named_here <= set(free_text), (
 		f"{sorted(named_here - set(free_text))} is admitted to the address as free text and "
@@ -7992,12 +8041,25 @@ def _selections (place: Instance) -> list[dict[str, str]]:
 	# **Every name in `SELECTABLE` is represented**, whatever shape its values take. Without
 	# this the derivation is only as complete as the shapes somebody thought to match, which is
 	# how `q` would have arrived undriven.
-	declared = set(re.findall(r"\n\t(\w+): ", block.group(1)))
+	declared = set(re.findall(_NAMED + r" ", block.group(1)))
 	covered = {name for one in singles for name in one}
 
 	assert declared == covered, (
 		f"{sorted(declared - covered)} is selectable and is driven by nothing, and "
 		f"{sorted(covered - declared)} is driven and is not selectable"
+	)
+
+	# **A floor, because the check above compares two scans that share a pattern** (`SR#2183`).
+	# `declared` and `covered` were equal while both were blind to `"assignee.is"` — the usual
+	# duplicated-rule failure is disagreement, and this one is agreement by shared blindness. So
+	# the names are counted against something read a different way: every line in the block that
+	# opens a key. A shape neither scan understands fails here rather than passing both.
+	keys = len(re.findall(r"\n\t[\"\w][\w.\"]*:", block.group(1)))
+
+	assert len(declared) == keys, (
+		f"{keys} keys are declared in SELECTABLE and {len(declared)} were read: "
+		f"{sorted(declared)}. A name this scan cannot see is a parameter driven by nothing, "
+		f"which is what SR#2183 was filed for."
 	)
 
 	return [{}] + singles + [

@@ -704,8 +704,13 @@ export function Narrowed ({
 	const who = selection.assignee || null;
 	/* **And whose *responsibility*, which is a wider set than whose name is on it** — `#848`. */
 	const answerable = selection.answers_to || null;
+	/* **And work nobody has been given at all** — `#2182`. It has to be said for the reason
+	   `#1020` gives above: a reader who arrives on a narrowed page with nothing explaining why
+	   has no way back but the browser's own, and this narrowing is the one most likely to be
+	   arrived at from a control rather than typed. */
+	const nobody = selection[NOT_GIVEN_OUT] === NOBODY;
 
-	if (!project && !tag && !who && !answerable) return null;
+	if (!project && !tag && !who && !answerable && !nobody) return null;
 
 	const raised = prioritised.includes(project);
 	const displaces = prioritised.find((one) => one !== project) || null;
@@ -719,6 +724,10 @@ export function Narrowed ({
 			${who && html`<span>Showing <strong>@${who}</strong>'s work.</span>`}
 			${answerable && html`<span>Showing <strong>@${answerable}</strong>'s work and
 				anything their agents are holding.</span>`}
+			${/* **"nobody has been given" rather than "unassigned"** — §13.5b's rule that a
+			     surface says the outcome in the reader's terms. *Unassigned* names the field;
+			     this names what the reader is looking at, which is the pile to hand out. */ null}
+			${nobody && html`<span>Showing work <strong>nobody</strong> has been given.</span>`}
 			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
 			     While the only way into this component was a project narrowing, `if (!project)
 			     return null` also guaranteed the argument below; now a tag or a person can
@@ -826,14 +835,29 @@ export function Ordered ({ ordering, order, onOrder, busy = false, empty = false
 export const ASSIGNED_TO = "assignee";
 export const ANSWERABLE_TO = "answers_to";
 
-export function whoseValue (whose, answerable) {
+/*
+	**Work nobody has been given** — `#2182`. The field is the *wire* name and the value is the
+	reserved word `is` takes, so this option encodes exactly the request it produces and the
+	pair below needs no case of its own to read it back.
+*/
+export const NOT_GIVEN_OUT = "assignee.is";
+export const NOBODY = "unset";
+
+export function whoseValue (whose, answerable, unassigned = false) {
 	/*
-		Which option is selected, given what the address carries — `#848`.
+		Which option is selected, given what the address carries — `#848`, `#2182`.
 
 		**Responsibility wins where both are somehow set**, which the address should never
 		produce and which a hand-typed one can. It is the wider of the two, so showing it is
 		the answer that does not hide rows the reader asked for.
+
+		**And *nobody* wins over both**, for the same reason read the other way: it is the
+		narrowest of the three and it is the only one whose rows an assignee filter cannot also
+		be describing, so a hand-typed address carrying two is showing the one that is certainly
+		true of what came back.
 	*/
+
+	if (unassigned) return `${NOT_GIVEN_OUT}:${NOBODY}`;
 
 	if (answerable) return `${ANSWERABLE_TO}:${answerable}`;
 
@@ -857,12 +881,17 @@ export function whoseAsked (value) {
 	const field = value.slice(0, mark);
 	const username = value.slice(mark + 1);
 
-	if (!username || (field !== ASSIGNED_TO && field !== ANSWERABLE_TO)) return null;
+	if (
+		!username
+		|| (field !== ASSIGNED_TO && field !== ANSWERABLE_TO && field !== NOT_GIVEN_OUT)
+	) return null;
 
 	return { field, username };
 }
 
-export function Whose ({ members, whose, answerable = null, onWhose, busy = false }) {
+export function Whose ({
+	members, whose, answerable = null, unassigned = false, onWhose, busy = false,
+}) {
 	/*
 		**Two answers per account, and they are two questions rather than two spellings of one**
 		— `#848`. *@si's work* and *@si's work and their agents'* are different sets, and the
@@ -887,7 +916,7 @@ export function Whose ({ members, whose, answerable = null, onWhose, busy = fals
 
 	if (!onWhose || !members || members.length === 0) return null;
 
-	const chosen = whoseValue(whose, answerable);
+	const chosen = whoseValue(whose, answerable, unassigned);
 
 	return html`
 		<div class="whose">
@@ -906,6 +935,24 @@ export function Whose ({ members, whose, answerable = null, onWhose, busy = fals
 								selected=${chosen === `${ASSIGNED_TO}:${one.username}`}
 								>${one.label}</option>
 						`)}
+						${/* **Under this heading and not the other, and the asymmetry is the
+						     answer rather than an oversight** — `#2182`, Simon's question of
+						     2026-09-07. *Nobody* is a value the assignee column really takes;
+						     under *Answerable to* it is a value of nothing. `answers_to`'s own
+						     declaration says why in one line (`#848`): `is` there "would have
+						     to mean has an assignee at all, which is exactly
+						     `assignee.is=unset` — one question with two spellings, and the
+						     narrower one lying about its subject". The instance refuses it by
+						     name, and `_answerable_to` puts a person in their own set, so
+						     every assigned item is answerable to somebody and the two would
+						     return identical rows from an identical clause on one column.
+
+						     **Last in the group** because the people are the ordinary answers
+						     and this is the leftovers; a reader scanning for a name should not
+						     have to step over it. */ null}
+						<option value=${`${NOT_GIVEN_OUT}:${NOBODY}`}
+							selected=${chosen === `${NOT_GIVEN_OUT}:${NOBODY}`}
+							>Nobody</option>
 					</optgroup>
 					<optgroup label="Answerable to">
 						${members.map((one) => html`

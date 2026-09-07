@@ -1244,7 +1244,14 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 
 
 def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.Any) -> None:
-	"""`SR#848`. The control's two groups, and the address it writes when a reader uses it.
+	"""`SR#848`, `SR#2182`. The control's groups, and the address it writes when a reader uses it.
+
+	**One test because it is one control.** `SR#2182`'s *Nobody* arrived as a second case here
+	and the file's own size ratchet refused it — rightly: what is being driven is that this
+	control offers three answers, groups them so the two questions are told apart, and leaves
+	exactly one narrowing in the address. Split across two tests that is one property asserted
+	twice and a browser started twice, for a suite whose whole risk is being slow enough to stop
+	being run.
 
 	**Two things only a browser can say, and both were reached by nothing.** An `<optgroup>`'s
 	label is an *attribute*, which `tests/test_web.py`'s harness drops by decision — so *Assigned
@@ -1274,11 +1281,45 @@ def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.
 		f"twice over: {groups!r}"
 	)
 
+	assigned = [
+		one.get_attribute("value")
+		for one in page.query_selector_all(".whose optgroup:nth-of-type(1) option")
+	]
 	# **And the second question really is offered per account**, rather than the group being an
 	# empty heading.
-	answerable = page.query_selector_all(".whose optgroup:nth-of-type(2) option")
+	answerable = [
+		one.get_attribute("value")
+		for one in page.query_selector_all(".whose optgroup:nth-of-type(2) option")
+	]
 
 	assert answerable, "the *Answerable to* group offered nobody"
+
+	# **The third answer, and the asymmetry is the answer rather than an oversight** — `SR#2182`,
+	# Simon's question of 2026-09-07: should the control accept *Assigned to: nobody* **and**
+	# *Answerable to: nobody*? The second is impossible and the instance refuses it by name.
+	# Three measurements say the same thing: `answers_to`'s declared column **is**
+	# `Task.assignee_id`, so `answers_to.is=unset` would compile to the identical clause
+	# `assignee.is=unset` already produces; `_answerable_to` puts a person in their own set, so
+	# every assigned item is answerable to somebody — driven live, `answers_to=si` was 29 rows
+	# against `assignee=si`'s 26; and `SR#848` wrote it down when the field was built, that `is`
+	# there *"would have to mean has an assignee at all … one question with two spellings, and
+	# the narrower one lying about its subject"*.
+	#
+	# **So this is here to stop a later reader adding it for symmetry**: a list of people with
+	# one non-person entry looks unfinished beside a list of people with none, and the repair
+	# that suggests itself is the wrong one.
+	assert "assignee.is:unset" in assigned, (
+		f"work nobody has been given cannot be asked for, which is the majority of the backlog "
+		f"on this instance — 195 of 219 ready rows: {assigned!r}"
+	)
+	assert not [one for one in answerable if one.endswith(":unset")], (
+		f"*Answerable to* offers a nobody, which is the same rows as *Assigned to: nobody* "
+		f"under a second name: {answerable!r}"
+	)
+	# **Last in its group**, so a reader scanning for a name does not step over it.
+	assert assigned[-1] == "assignee.is:unset", (
+		f"the leftovers are offered before the people: {assigned!r}"
+	)
 
 	page.select_option(".whose select", "answers_to:si")
 	page.wait_for_url("**answers_to=si**", timeout=10_000)
@@ -1289,6 +1330,15 @@ def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.
 	assert "assignee=" not in page.url, (
 		f"both narrowings are in the address at once, so the listing is asking for work that is "
 		f"assigned to somebody *and* answerable to them: {page.url}"
+	)
+
+	# **And the third writes the request the instance answers**, rather than a flat
+	# `assignee=unset` that would be resolved as a username and refused by name — `SR#2182`.
+	page.select_option(".whose select", "assignee.is:unset")
+	page.wait_for_url("**assignee.is=unset**", timeout=10_000)
+
+	assert "answers_to=" not in page.url, (
+		f"a second narrowing survived beside it: {page.url}"
 	)
 
 
