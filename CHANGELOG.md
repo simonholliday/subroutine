@@ -22,6 +22,83 @@ upgrade involves.
 
 ### Added
 
+- **Every surface that prints a version says how to find out whether it is old.**
+
+  `subroutine --version`, `subroutine whoami` and `subroutine doctor` now name
+  `subroutine db upgrade --check`, which reports whether a newer release exists and whether
+  it changes the database schema. The agent tools say it too, because the version line is one
+  rendering shared by both.
+
+  The check itself has worked since 0.3.0 and was a flag on a *database* command, which is the
+  last place anybody looks for *am I out of date*. Naming it is not asking: nothing here
+  reaches the network, and nothing ever will without you typing the command.
+
+- **An item's page says what it is filed under and what is filed under it, on every surface.**
+
+  The browser's item page, `subroutine show` and `subroutine_show` each name the parent and
+  list the children. A listing marks a filed item `^57` whether it is a task or a document,
+  and a document's row says `13 sub-documents` when it holds others.
+
+  Until now a parent's contents were visible only by opening every row in turn, and filing
+  work under something made it look like the work had gone.
+
+- **The browser can file an item under another, and take it out again.**
+
+  Adding or editing an item offers a *Parent* box that takes an item's number; emptying it
+  makes the item top-level. It refuses a parent of the wrong kind, one in another project, one
+  too deep, and one that would make a loop — each by name, so the answer says what to do next.
+
+- **A list can be collapsed to its top level.**
+
+  *Top level only* on a listing hides everything filed under something else, which is how a
+  project reads once its work is grouped. The page says it is narrowed and offers the way back.
+
+- **A document can be filed under another document.**
+
+  Documents nest the way tasks always have: `subroutine move 42 --under 7` takes either kind,
+  the browser's *Parent* box takes either kind, and `POST /v1/documents/{ref}/move` is the
+  endpoint. A parent's own page lists what is under it.
+
+  A task lives under a task and a document under a document — two trees, and one cannot hold
+  the other. Driven on real work the day it shipped: thirteen instrument specifications filed
+  under one parent took that project's top level from twenty-one documents to nine.
+
+- **A search line can narrow as well as search.**
+
+  `subroutine search "type:bug urgency>3 deploy"` finds the word *deploy* among open bugs above
+  urgency three. A term is a field, a symbol and a value: `:` means equals, `>` `<` `>=` `<=`
+  and `!=` compare, a comma means any of them, and `set` and `unset` ask whether a field has a
+  value at all. It works wherever a search does — the terminal, the browser's box, the agent
+  tools and `?q=` over HTTP.
+
+  **Anything that is not a term is looked for as written**, so `15:30` is a time rather than a
+  field called 15 and an ordinary search needs no escaping. A term naming a field that cannot
+  be compared that way is looked for as text *and* reported, rather than quietly dropped.
+
+  `subroutine explain searching` lists the fields, derived from what the endpoint accepts.
+
+- **A listing can be narrowed to what is yours to act on.**
+
+  `subroutine list --to-act-on` answers with what is assigned to you, what is assigned to
+  nobody, and what you are holding — which is the question *what could I pick up* rather than
+  *what has my name on it*. Over HTTP it is `?to_act_on=true`.
+
+  Deliberately not called `--mine`: `assignee=me` already means strictly assigned, which is a
+  much narrower question than it sounds. On the workspace this was measured against, 195 of
+  the 219 items that could be started were assigned to nobody at all — so a familiar word
+  reading narrowly fails silently, and by almost the whole list.
+
+- **A listing can be narrowed to what nobody has picked up.**
+
+  *Nobody* in the browser's *Whose work* control, and `assignee:unset` in a written line. This
+  is the triage question — what has been filed and never assigned — and it had no answer on any
+  surface.
+
+- **A listing can be narrowed by who created something, and a feed by who acted.**
+
+  `created_by` on tasks and documents, and `actor` on the change feed. Who filed something and
+  who is doing it are different questions, and only the second could be asked.
+
 - **A listing can be narrowed to somebody's work *and* their agents'.**
 
   `answers_to` takes a username and answers with everything assigned to that person plus
@@ -592,6 +669,37 @@ upgrade involves.
   restriction and nothing was relying on it, but it is a real thing to have given up.
 
 ### Fixed
+
+- **An item's page drew its project, its tags and its assignee as plain text.**
+
+  Those chips are links on every row, board card and agenda line, and were dead on the page you
+  reach by clicking one — so following a project from a list worked everywhere except where you
+  had just arrived. The fact sheet's *Project* and *Parent* are links now too.
+
+- **The *Parent* box appeared to say every item was filed under #7.**
+
+  It offered `7` as a placeholder, and the field takes an item's number — so on everything with
+  no parent a reader saw *Parent* followed by a grey `7`. The hint is under the box now, where
+  it also has room to say that emptying it removes the parent.
+
+- **A list narrowed to *Nobody*, or to somebody's agents, said it was showing anyone's work.**
+
+  The control drew *Anyone* while the page was narrowed, on the list and the board but not the
+  agenda — so the state was right, the rows were right, and the one thing telling you which
+  question had been asked was wrong.
+
+- **`subroutine upgrade --check` refused to parse instead of saying where the command went.**
+
+  `subroutine upgrade` moved under `db` and left a signpost behind. The signpost took no
+  options, so the spelling in every note written before the move — the one with `--check` on it
+  — answered *No such option* and never reached the redirect. It still upgrades nothing.
+
+- **`subroutine://conventions` answered with other projects' rules.**
+
+  The index of what is in force was per workspace, and a workspace holds many projects. Measured
+  on a real installation before the change: 138 documents in force, of which roughly 53
+  belonged to five other projects — under a heading reading *everything below is in force
+  here*. It answers for the project you are in now, and says what it left out.
 
 - **A blocked task that is also late still says who is holding it up.**
 
