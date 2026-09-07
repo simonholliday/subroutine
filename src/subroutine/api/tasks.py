@@ -498,6 +498,12 @@ def listing (
 	# listing reaches finished work has to see either. Resolving the dotted values here as well
 	# is a second lookup of the same key by the same resolver, which cannot disagree with the
 	# predicate's — where reading the category off a raw id could not be done at all.
+	# **The search line's terms have already been taken out of `q`** (`#1806`), so everything
+	# below reads the residue. Using the raw parameter would search for `type:bug` as *text* on
+	# a request that had already been narrowed by it — every filtered search answering nothing,
+	# which is a plausible, complete, wrong answer rather than a visible break.
+	q = dates.words
+
 	named = [
 		subroutine.domain.tasks.status_for(session, workspace.id, key)
 		for key in ([] if status is None else [status])
@@ -771,6 +777,7 @@ def listing (
 		actor=actor,
 		workspace_id=workspace.id,
 		held_back=held_back,
+		unread=dates.unread,
 		group_by=group_by,
 		group_limit=group_limit,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
@@ -1482,6 +1489,7 @@ def _page (
 	actor: subroutine.domain.authentication.Principal,
 	workspace_id: uuid.UUID,
 	held_back: int | None = None,
+	unread: typing.Sequence[str] = (),
 	with_links: bool = False,
 	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	default: typing.Sequence[str] | None = None,
@@ -1598,6 +1606,11 @@ def _page (
 			),
 			total=total,
 			held_back=held_back,
+			# **Null rather than an empty list when the line held nothing** — `#1806`. A
+			# listing that reported `[]` on every ordinary search would put an always-empty
+			# field in front of every caller, which is §12.2a's column that says the same
+			# thing on every row, one surface along.
+			unread=list(unread) or None,
 		),
 		shape,
 		links,

@@ -17,6 +17,7 @@ import typing
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
+import subroutine.domain.filtering
 
 
 @dataclasses.dataclass(frozen=True)
@@ -260,6 +261,43 @@ This is not a deadline. An estimate says how long, and a deadline says by
 when; 'subroutine explain dates' is the other one."""
 
 
+def _searching_body () -> str:
+	"""Explain the written search line — item `#1806`, design `#1801` §6.
+
+	**The field names are read from the registry rather than written here**, which is the whole
+	shape of `#1803`: a list in a help string is a second copy that falls behind, and this one
+	would fall behind on the day somebody declares a field. Six were declared while this item
+	was being built.
+	"""
+
+	names = _wrapped(sorted(subroutine.domain.filtering.filters("task")), indent=2)
+
+	return f"""A search is words, and it can also carry terms that narrow it.
+
+  subroutine search "deploy script"
+  subroutine search "type:bug urgency>3 deploy"
+
+A term is a field, a symbol and a value. ':' means equals; '>' '<' '>='
+'<=' and '!=' compare. A comma means any of them, so 'status:open,done'
+is either. 'set' and 'unset' ask whether the field has a value at all,
+so 'assignee:unset' is what nobody has picked up.
+
+The fields a task can be narrowed by:
+
+  {names}
+
+Anything that is not a term is looked for as written. '15:30' is a time,
+not a field called 15, so an ordinary search needs no escaping and works
+exactly as it always has.
+
+If you write a term the field cannot take — 'created_at:today', where a
+date is compared with '>' or '<' rather than matched exactly — it is
+looked for as text and you are told, rather than quietly dropped.
+
+To mean a value that happens to be a reserved word, quote it:
+'assignee:"unset"' is the person called unset."""
+
+
 TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="dates",
@@ -275,6 +313,11 @@ TOPICS: tuple[Topic, ...] = (
 		name="estimates",
 		summary="How long something will take, and what a day means when you write one.",
 		body=_estimates_body(),
+	),
+	Topic(
+		name="searching",
+		summary="Finding things by their words, and narrowing the same line by their fields.",
+		body=_searching_body(),
 	),
 	Topic(
 		name="refs",

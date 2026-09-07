@@ -8176,7 +8176,7 @@ def register (
 
 	@app.command()
 	def search (
-		terms: str = typer.Argument("", help="What to look for."),
+		terms: str = typer.Argument("", help="What to look for. See 'explain searching'."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
 		merged: bool = typer.Option(

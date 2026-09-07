@@ -304,6 +304,10 @@ def listing (
 			)
 		)
 
+	# **The search line's terms are already out of `q`** (`#1806`) — see the tasks listing for
+	# why the residue is what everything below reads.
+	q = dates.words
+
 	if type is not None:
 		statement = statement.where(
 			model.type_id
@@ -503,6 +507,8 @@ def listing (
 				else None
 			),
 			total=total,
+			# Null rather than an empty list — the tasks listing says why (`#1806`).
+			unread=list(dates.unread) or None,
 		),
 		shape,
 		links,

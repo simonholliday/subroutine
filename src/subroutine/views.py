@@ -103,6 +103,19 @@ class Page(pydantic.BaseModel):
 	#: number for it would put a figure on the ordinary shape of every plan.
 	held_back: int | None = None
 
+	#: Terms in a written search line that named a real field and could not be honoured, each
+	#: saying why — `SR#1806`, and null when the line held none.
+	#:
+	#: **Beside ``held_back`` because it is the same kind of fact**: something the server did
+	#: with the request that the rows alone cannot show. `SR#615`'s rule is that a term which
+	#: was not understood must stay in the text *and be said*, and a listing has nowhere else to
+	#: say it — a refusal would be wrong, because the line was answered.
+	#:
+	#: **A term naming no field at all is not reported here**, deliberately. ``15:30`` is words,
+	#: not a filter that failed, and reporting it would put a line of explanation under every
+	#: ordinary search that happens to contain a colon.
+	unread: list[str] | None = None
+
 
 # ``LinkEnd`` and ``Edge`` sit above ``Collection`` because ``Collection.links`` annotates
 # a field with ``Edge``, and a pydantic field annotation is evaluated when the class body

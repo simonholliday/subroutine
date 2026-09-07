@@ -51,6 +51,7 @@ import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.filtering
+import subroutine.domain.grammar
 import subroutine.domain.instances
 import subroutine.domain.links
 import subroutine.domain.ordering
@@ -817,6 +818,34 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 			vocabulary=list(subroutine.domain.dates.KEYWORDS),
 			examples=["today", "now+90m", "end_of_week", "start_of_month+1M"],
 		),
+		# **`#1806`, and the fields are deliberately not here.** They are per entity and already
+		# published — `listings.<entity>.filters` is the vocabulary of *names*, and this is the
+		# vocabulary of *punctuation*. Repeating the names would be a second copy that agrees
+		# today, on the one table an agent reads to know what it may send.
+		"search_line": subroutine.views.Grammar(
+			description=(
+				"What 'q' accepts on a listing: terms, then words. A term is "
+				"<field><symbol><value> where the field is one this listing filters on; ':' is "
+				"equality, or 'is' when the value is a reserved word, or 'in' when the value "
+				"holds commas. Everything else is searched for as text, including a term "
+				"naming no field — so an ordinary query is unchanged. A term naming a field "
+				"that cannot compare that way is searched for too, and reported in "
+				"page.unread."
+			),
+			vocabulary=[
+				subroutine.domain.grammar.NAMES,
+				*(symbol for symbol, _operator in subroutine.domain.grammar.SYMBOLS),
+				subroutine.domain.grammar.BETWEEN_VALUES,
+				*subroutine.domain.filtering.CONDITIONS,
+				'"value" to mean a value rather than a reserved word',
+			],
+			examples=[
+				"type:bug urgency>3 deploy script",
+				"assignee:unset",
+				"status:open,in_progress",
+				'assignee:"unset"',
+			],
+		),
 		"durations": subroutine.views.Grammar(
 			description=(
 				"A number and a unit, largest first, each unit at most once. A unit is "
@@ -960,6 +989,27 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		"on the item itself. Add `touched_by.eq=<username>` for one person's.",
 		"GET",
 		"/v1/tasks?touched_at.gte=now-7d&fields=ref,title&limit=5",
+		None,
+	),
+	# `#1806`. Two entries, because the pair is what a reader needs: the first shows a line
+	# doing both jobs at once, and the second is the reassurance that an ordinary query is
+	# untouched — which is the question anybody with an existing client will ask first.
+	(
+		"Narrow and search in one string. `q` takes terms as well as words: "
+		"`<field><symbol><value>` where the field is one this listing filters on, and "
+		"everything else is searched for. `grammars.search_line` in /v1/meta has the "
+		"punctuation and `listings.task.filters` has the names.",
+		"GET",
+		"/v1/tasks?q=type:bug+urgency>3+deploy&fields=ref,title,type&limit=5",
+		None,
+	),
+	(
+		"A term naming no field is searched for verbatim, so a query written before this "
+		"grammar existed asks exactly what it always did — `15:30` is a time, not a filter "
+		"on a field called `15`. A term that names a field and cannot be read is searched "
+		"for too, and reported in `page.unread`.",
+		"GET",
+		"/v1/tasks?q=15:30&fields=ref,title&limit=5",
 		None,
 	),
 	(

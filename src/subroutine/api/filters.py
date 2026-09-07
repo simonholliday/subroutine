@@ -28,6 +28,17 @@ import subroutine.db.models.identity
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.filtering
+import subroutine.domain.grammar
+
+#: The query parameter a written search line arrives in — `#1806`.
+#:
+#: **``q``, the one a search box has always sent, rather than a second parameter beside it.**
+#: `#1801` §6 says the words matching no term *become* ``q``, which is one input rather than
+#: two, and two parameters both about words would make an agent choose between them for no
+#: reason. Reinterpreting a shipped parameter is only safe because of the unreadable-term rule:
+#: a term naming no field stays in the text verbatim, so every query written before this one
+#: behaves exactly as it did.
+SEARCH = "q"
 
 
 class Asked (typing.NamedTuple):
@@ -36,8 +47,25 @@ class Asked (typing.NamedTuple):
 	#: Which registry the names came from, so a refusal can say what this endpoint filters on.
 	entity: str
 
-	#: One per dotted parameter, in the order they arrived.
+	#: One per dotted parameter, in the order they arrived — **and one per term a written
+	#: search line carried** (`#1806`), which is what makes the grammar sugar over the registry
+	#: rather than a second path to the same rows. By the time an endpoint sees this it cannot
+	#: tell which spelling a comparison arrived in, and nothing downstream should.
 	comparisons: list[subroutine.domain.filtering.Comparison]
+
+	#: What is left of ``q`` once its terms are taken out: the words to search for, or ``None``.
+	#:
+	#: **The endpoint uses this rather than its own ``q`` parameter.** Reading the raw one would
+	#: search for ``type:bug`` as text on a request that had already been narrowed by it —
+	#: every filtered search answering nothing, which is a plausible, complete, wrong answer.
+	words: str | None = None
+
+	#: Terms the line carried that named a field and could not be read. See
+	#: :attr:`subroutine.views.Page.unread`.
+	#:
+	#: **A tuple because this is a NamedTuple**: a `[]` default is evaluated once and shared by
+	#: every instance, which is a class attribute wearing the look of a per-request field.
+	unread: tuple[str, ...] = ()
 
 	def narrowing (
 		self, where: subroutine.domain.filtering.Where
@@ -94,13 +122,29 @@ class Reader:
 		self.entity = entity
 
 	def __call__ (self, request: starlette.requests.Request) -> Asked:
-		"""Resolve every dotted parameter this request carried, refusing anything unknown."""
+		"""Resolve every dotted parameter this request carried, and every term ``q`` held.
+
+		**One place, so no endpoint has to remember** (`#1806`). The grammar is sugar over the
+		registry, so a term compiles to a comparison indistinguishable from one somebody typed
+		in dotted form — which is what stops it becoming a second road to the same rows.
+
+		**Read here rather than in the endpoint because the dependency has the request.** The
+		endpoint still declares ``q`` so it is documented and refused when misspelled; what it
+		must use afterwards is :attr:`Asked.words`.
+		"""
+
+		line = subroutine.domain.grammar.read(
+			request.query_params.get(SEARCH), entity=self.entity
+		)
 
 		return Asked(
 			entity=self.entity,
 			comparisons=subroutine.domain.filtering.understood(
-				request.query_params.multi_items(), entity=self.entity
+				list(request.query_params.multi_items()) + line.parameters,
+				entity=self.entity,
 			),
+			words=line.words,
+			unread=tuple(line.unread),
 		)
 
 

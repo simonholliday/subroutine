@@ -1610,3 +1610,78 @@ def test_a_named_project_means_that_area_of_work_however_it_is_spelled (
 	refused = world.call("GET", "/v1/tasks?project.eq=nosuchproject")
 
 	assert refused.status_code == 404, refused.text
+
+
+def test_a_written_line_narrows_and_searches_in_one_parameter (world: World) -> None:
+	"""**The grammar over the wire** — `SR#1806`, design `SR#1801` §6.
+
+	``q`` is the parameter a search box has always sent, and the line is parsed out of it: terms
+	naming a registry field become comparisons, and what is left is searched for. So a caller
+	writes one thing and the server does both, which is what *sugar over the registry* means —
+	by the time the endpoint sees a comparison it cannot tell which spelling it arrived in.
+	"""
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "deploy script", "type": "bug", "urgency": 4}
+	)
+
+	assert made.status_code == 201, made.text
+
+	other = world.call(
+		"POST", "/v1/tasks", json={"title": "deploy script", "type": "chore", "urgency": 4}
+	)
+
+	assert other.status_code == 201, other.text
+
+	# The term narrows and the words search, from one string.
+	found = world.call("GET", "/v1/tasks?q=type:bug deploy").json()["items"]
+
+	assert [item["title"] for item in found] == ["deploy script"]
+	assert found[0]["type"] == "bug", "the term did not narrow"
+
+	# Without the term, both are found — so the narrowing above was real.
+	assert len(world.call("GET", "/v1/tasks?q=deploy").json()["items"]) == 2
+
+
+def test_a_search_that_means_nothing_to_the_grammar_behaves_exactly_as_before (
+	world: World,
+) -> None:
+	"""**The property that makes reusing ``q`` safe** — `SR#1806`.
+
+	Reinterpreting a shipped parameter is how a caller comes to believe it asked something it
+	did not, and this one is published, documented and in every client. It is safe because only
+	a term naming a field the registry *really carries* is taken out of the text: a colon in an
+	ordinary query is ordinary text, so every search written before this grammar existed asks
+	the same question it always did.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "stand-up at 15:30 on Monday"})
+
+	assert made.status_code == 201, made.text
+
+	found = world.call("GET", "/v1/tasks?q=15:30").json()
+
+	assert [item["title"] for item in found["items"]] == ["stand-up at 15:30 on Monday"]
+	assert found["page"]["unread"] is None, "words are not a term that failed"
+
+
+def test_a_term_that_cannot_be_read_is_searched_for_and_reported (world: World) -> None:
+	"""`SR#615`'s rule, over the wire and in the envelope — `SR#1806`.
+
+	``created_at:today`` names a real field with an operator it deliberately refuses: two
+	instants are equal to the microsecond and almost never to the caller (`SR#815`). Dropping
+	the term would be a plausible, complete, wrong answer and refusing the request would be
+	wrong about a line that *was* answered — so it is searched for as text and said.
+
+	**And a listing has nowhere else to say it**, which is why ``page.unread`` exists at all.
+	"""
+
+	answer = world.call("GET", "/v1/tasks?q=created_at:today").json()
+	reported = answer["page"]["unread"]
+
+	assert reported is not None and len(reported) == 1, answer["page"]
+	# The report names the term and the operators the field really takes.
+	assert "created_at:today" in reported[0]
+
+	for operator in ("gt", "gte", "lt", "lte"):
+		assert operator in reported[0], reported[0]

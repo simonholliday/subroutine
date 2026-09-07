@@ -52,6 +52,7 @@ import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.filtering
+import subroutine.domain.grammar
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.links
@@ -412,6 +413,14 @@ class Client:
 		model = subroutine.db.models.work.Task
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		choice = subroutine.domain.readiness.refuse_unknown_deferral(deferred)
+
+		# **The written search line, parsed by the domain rather than here** (`#1806`). The
+		# grammar is one implementation on purpose: three clients parsing one language would
+		# disagree about the interesting half, and the endpoint reads exactly this function
+		# through `api/filters.Reader`. What is left of `q` afterwards is what is searched for.
+		line = subroutine.domain.grammar.read(q, entity="task")
+		filters = dict(filters or {}) | dict(line.parameters)
+		q = line.words
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
@@ -1080,6 +1089,13 @@ class Client:
 
 		model = subroutine.db.models.work.Document
 		size = subroutine.domain.paging.asked_for(limit, self.settings)
+
+		# The same written line the task listing reads, on this entity's own registry — a field
+		# filterable on one and not the other is a term on the first and words on the second,
+		# with no list anywhere saying so (`#1806`).
+		line = subroutine.domain.grammar.read(q, entity="document")
+		filters = dict(filters or {}) | dict(line.parameters)
+		q = line.words
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)

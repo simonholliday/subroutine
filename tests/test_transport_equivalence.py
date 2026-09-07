@@ -2967,6 +2967,34 @@ def test_both_find_finished_work_by_the_dotted_status_filter (pair: Pair) -> Non
 	assert found == sorted(task.ref for task in remote.tasks(filters=asked, limit=50))
 
 
+def test_both_read_a_written_search_line_the_same_way (pair: Pair) -> None:
+	"""`SR#1806`, and it is the reason the grammar lives in the domain — `SR#1801` §6.
+
+	*The server parses, or three clients grow three parsers of one language.* Both transports
+	call ``grammar.read`` and neither has a rule of its own, so a line narrows to the same rows
+	whichever door it came through. A parser written twice would agree on the easy half —
+	``type:bug`` — and part company on the interesting one, which is what it does with a term it
+	cannot read.
+	"""
+
+	wanted = make(pair, "deploy script")
+	make(pair, "deploy pipeline")
+
+	local, remote = pair.both()
+	line = "deploy script"
+
+	assert sorted(task.ref for task in local.tasks(q=line, limit=50)) == [wanted.ref]
+	assert sorted(task.ref for task in remote.tasks(q=line, limit=50)) == [wanted.ref]
+
+	# **A term naming a real field narrows on both**, and one that names none is words on both.
+	# The second is the property that makes reusing `q` safe, so it is worth pinning here where
+	# a transport could quietly disagree.
+	for asked in ("type:task deploy", "15:30 deploy"):
+		assert sorted(task.ref for task in local.tasks(q=asked, limit=50)) == sorted(
+			task.ref for task in remote.tasks(q=asked, limit=50)
+		), asked
+
+
 @pytest.mark.parametrize("choice", ["include", "exclude", "only"])
 def test_both_treat_deferred_work_the_same_way (pair: Pair, choice: str) -> None:
 	"""All three of §6.5's deferral narrowings, because ``only`` is the one that reports.

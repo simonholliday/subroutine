@@ -912,11 +912,20 @@ def _tools (
 		subroutine.mcp.protocol.Tool(
 			name="subroutine_search",
 			title="Search",
-			description="Find items by their words. Tasks and documents both.",
+			# **One string literal, and that is load-bearing** (`#1806`). `test_documentation`
+			# scans this hint with a pattern anchored on `description="Find items…"`, and a
+			# parenthesised concatenation broke it — the guard failed by name rather than
+			# quietly checking nothing, which is what it was built to do. The grammar's own
+			# detail belongs in `grammars.search_line`, not in a tool description that every
+			# session pays for.
+			description="Find items by their words, and terms — 'type:bug deploy'. Tasks and documents both.",
 			schema={
 				"type": "object",
 				"properties": {
-					"q": {"type": "string", "description": "Words to look for."},
+					"q": {
+						"type": "string",
+						"description": "Words to look for, and terms — 'type:bug deploy'.",
+					},
 					"project": PROJECT,
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
 					"workspace": WORKSPACE,
