@@ -869,6 +869,26 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 	# the whole reason this is an `EXISTS`. `#815`'s question is about items, and a ref names
 	# either kind (§6.2).
 	**_worked_on(subroutine.db.models.work.Document.id),
+	# **The entry a task has carried since `#1804`, and the mechanism was already generic** —
+	# `#2175`. `_tagged` reads the join table out of `tags.JOINS`, which has held `Document`
+	# since `#1319`, so this is a declaration rather than an implementation.
+	#
+	# **It was missed for the reason `#1803` exists to remove.** The fields to carry across
+	# when the registry was built were *remembered* rather than derived, so `?tag=` went on
+	# working here while `tag.eq` was refused by name — one word meaning two things depending
+	# on how it was spelled, on one endpoint. Reported by an agent that had learned the dotted
+	# grammar on tasks and had no way to predict that documents did not carry it.
+	"tag": Property(
+		column=subroutine.db.models.work.Document.id,
+		kind=REFERENCE,
+		group=TAGGED,
+		because=(
+			"a row carries several tags, so there is no one value to sort it by — the task "
+			"entry's reason, unchanged. `tag.is` is absent for its second reason too: the "
+			"column is the item's own identity, so `_allowed` refuses it, and *has no tags at "
+			"all* is a `NOT EXISTS` over the join table rather than a null column."
+		),
+	),
 	# **A document is grouped on the same axis and its keys are its own** (`#1790`). Four
 	# categories a *document* has, which are not a task's four — `db.mixins` keeps them apart
 	# and this is where the two registries stop agreeing by accident.
@@ -924,10 +944,15 @@ PROJECT_PROPERTIES: dict[str, Property] = {
 
 #: What the change feed and the journal can be asked about — `#1431`, decision `#1429`.
 #:
-#: **One field, and it is the only one an event has of its own.** Everything else a reader
-#: wants to narrow by — which project, which item — is a property of the thing the event is
-#: *about*, and reaching it means a join this registry has no way to express. That is filed
-#: separately rather than bent into a `Filterable`.
+#: **One field, and it is not the only one an event has of its own** — `#2178`, which is the
+#: correction. `actor_user_id` is a column here too, and `?actor=` compares it; what stopped it
+#: being declared is that ``me`` means *this credential* on a feed where it means *this account*
+#: everywhere else, which a plain `REFERENCE` would lose. So it reaches this listing by its flat
+#: spelling and by no dotted one.
+#:
+#: **What genuinely cannot be declared here is everything the event is *about*** — which
+#: project, which item. Reaching those means a join this registry has no way to express, and
+#: that is filed separately rather than bent into a `Filterable`.
 #:
 #: **The index this registry's head demands already exists.** `ix_event_workspace_id_created_at`
 #: was added by `#815` for `touched_at`, whose `EXISTS` asks this table the same question from

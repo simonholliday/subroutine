@@ -1190,3 +1190,272 @@ def test_a_flat_name_is_skipped_here_and_refused_where_nobody_else_owns_it () ->
 	assert subroutine.domain.filtering.understood(
 		[("due_before", "today")], entity="task"
 	), "an alias stopped resolving"
+
+
+#: Query parameters that mean the same thing on every listing and say nothing about an item's
+#: own fields — `SR#2175`.
+#:
+#: **Keyed by name alone, and that is safe only because of the admission test below**, which
+#: refuses an entry reaching one entity. A reason written while looking at one listing cannot be
+#: trusted to hold on another — that is this item's own defect one level up, and a global excuse
+#: is exactly how it would be reintroduced. A parameter that exists on a single listing is
+#: entity-specific whatever it is called, so it belongs in :data:`NOT_A_PROPERTY` where its
+#: reason sits beside the listing it was written about.
+EVERY_LISTING: dict[str, str] = {
+	# §14.10, and `api/shaping.py` takes already-rendered views for exactly this reason: a
+	# display parameter with a path into the WHERE clause would be a scoping bug wearing a
+	# formatting hat. A test already asserts the row set is identical across all three formats.
+	"fields": "which fields to render, never which rows there are",
+	"format": "how densely to render them, never which rows there are",
+	# Paging is one question answered a page at a time. It reaches the query and does not change
+	# what is being asked, which is the distinction this register turns on.
+	"limit": "how much of the answer to return at once",
+	"cursor": "where the previous page stopped — `domain.paging`",
+	"include_total": "§8.4's opt-in count, which is a second query about the same question",
+	# The other two thirds of `#1803`'s one declaration. Both are derived from the same
+	# `Property` this guard compares against, so a field orderable or groupable without being
+	# filterable is already argued in the registry rather than here.
+	"order": "which end to read from — `Property.orderable` is the registry's half of it",
+	"group_by": "which axis to arrange the page on — `Property.groupable` is its half",
+	# `#1285`: a cap is a display choice and never a membership rule, and only the last bucket
+	# may cap in the query because nothing follows it.
+	"group_limit": "how many to show per group, which is a display choice and not a membership "
+	"rule",
+	"include": "§8.5's embedding — what to add to each row, not which rows to have",
+	# **Which world, not which items in it.** Resolved before `domain/scoping.py` narrows
+	# anything, and its meaning is identical on all five listings — which is what earns it a
+	# place in a register keyed by name.
+	"workspace_id": "which workspace the listing reads, resolved before any scoping",
+}
+
+#: Parameters that do narrow a listing's rows and are not properties in its registry —
+#: `SR#2175`.
+#:
+#: **Keyed by entity and by name, because every reason here is about one listing.** Several
+#: names appear twice and that repetition is the finding rather than noise: `SR#1829` is written
+#: as *four flat parameters* and they are a task's four, while `status`, `type` and `project`
+#: are flat on documents as well. A register keyed by name would have hidden exactly that.
+#:
+#: **Deleting an entry is what closes the item it names**, like every other allow-list here.
+NOT_A_PROPERTY: dict[tuple[str, str], str] = {
+	# `SR#1829`'s four, and the three of them that documents carry too. Each resolves a name
+	# against this workspace's own vocabulary, which is what a `REFERENCE` property is for; what
+	# they lack is `in`, `is` and a place in one vocabulary rather than a way to be asked at all.
+	("task", "project"): "SR#1829 — a REFERENCE entry needs a Principal and a Workspace",
+	("document", "project"): "SR#1829, on the other entity — the same widening of `Where`",
+	("task", "status"): "SR#1829 — and `?status=done` reaching finished work must survive it",
+	("document", "status"): "SR#1829, on the other entity",
+	("task", "type"): "SR#1829 — one workspace id, like `status`",
+	("document", "type"): "SR#1829, on the other entity",
+	# **`parent` is absent from here and that is the measurement correcting the list.**
+	# `SR#1829` is written as four flat parameters, and a task's `parent` is already a
+	# `CONDITION` property whose own `because` says what is left to settle — so the entry this
+	# register wants is the *other* half of that one parameter. Writing `#1829`'s four down from
+	# memory put `parent` here and this file's stale-entry test refused it, which is `SR#2175`
+	# working on the person writing `SR#2175`.
+	("task", "subtree"): "the second question `parent` carries — *one level or all of them* — "
+	"which is an operator rather than a field, and SR#1829 is where it is settled",
+	# A project is *reached* by its address rather than narrowed to by its name, which is the
+	# reason `PROJECT_PROPERTIES` already gives for `key`, `title` and `path` being orderable
+	# and unaskable. `SR#1804` is where a REFERENCE kind would change that; nobody has asked.
+	("project", "parent"): "a project is reached by its address, not narrowed to by its name",
+	# **Search, not a field** — `SR#1806` is the line that gives it a spelling, and `SR#1801` §8
+	# is why `title:foo` is a filter wearing search syntax rather than the other way round.
+	("task", "q"): "words to look for, which is search rather than a comparison — SR#1806",
+	("document", "q"): "the same, and `q` already matches a document's title",
+	# **Computed from other rows**, so there is no column to compare. `#69` made readiness a
+	# filter by design for that reason: blockers and dates across the graph rather than a field.
+	("task", "ready"): "computed across blockers and dates, so it is a predicate over the graph "
+	"rather than a column",
+	# A band over `snoozed_until` against now, which is `SR#1805`'s distinction: the column is
+	# filterable and orderable, and *startable against put off* is a fact about an instant that
+	# a comparison cannot state.
+	("task", "deferred"): "a band over `snoozed_until` against now, not a comparison with it",
+	# **Defaults about the absence of a filter.** Each decides what an unnarrowed listing
+	# means, so neither has a value to compare; a property would have to be *the default*,
+	# which is not a field.
+	("task", "include_completed"): "what an unnarrowed listing means, not a narrowing of one",
+	("project", "include_archived"): "the same shape, on the other listing",
+	# Soft-deleted rows are outside the readable set to begin with, so this *widens* the scope
+	# rather than narrowing it — the opposite direction from everything a registry entry does.
+	("task", "deleted"): "widens the readable set to include soft-deleted rows",
+	("document", "deleted"): "the same, on the other entity",
+	# **§5.11's resumable cursor, and the registry's own head says why it is not a filter**:
+	# `since` is inclusive-with-dedupe, where a comparison would be an ordinary one, and two
+	# spellings of one number where one quietly loses the resume guarantee is `SR#1017`'s shape.
+	("event", "since"): "§5.11's resumable cursor, which is stronger than a comparison",
+	("event", "before"): "the other end of that cursor",
+	# The feed always runs forwards and the caller picks which end to start from, which is why
+	# `EVENT_PROPERTIES` offers no ordering at all rather than one contradicting the cursor.
+	("event", "newest"): "which end of the feed to start from — the ordering this listing has "
+	"instead of `order`",
+	("event", "oldest"): "the same, on the journal",
+	# **The one entry here that is a gap rather than an argument** — `SR#2178`. `actor_user_id`
+	# is a column and `?actor=` resolves a username against it, so this really is an event's own
+	# field. `me` meaning *this credential* rather than this user is the part a plain REFERENCE
+	# would not carry.
+	("event", "actor"): "SR#2178 — a column an event has of its own, with no entry yet",
+	# Two values today, so it reads as an axis; nothing has asked to group by it and a
+	# REFERENCE over a two-word vocabulary is `SR#1804`'s question rather than this one's.
+	("project", "visibility"): "public or private, which is an axis nobody has asked to group "
+	"or compare on",
+}
+
+
+def _listings () -> list[tuple[typing.Any, str, frozenset[str]]]:
+	"""Return every route that declares a filter reader, with its entity and its flat names.
+
+	**Derived from the mounted routers, which is the whole of `SR#2175`.** The population this
+	guard checks is read off the application rather than listed here, so a listing that gains a
+	parameter tomorrow is measured without anybody remembering to add it — which is `SR#405`'s
+	rule, and the absence of it is why `tag` was flat on documents and dotted on tasks for as
+	long as the registry existed.
+
+	Takes no argument and reads ``ROUTERS`` because that is what the application mounts;
+	``app.routes`` is full of opaque ``_IncludedRouter`` objects with no path at all.
+	"""
+
+	found = []
+
+	for _prefix, router in subroutine.api.app.ROUTERS:
+		for route in router.routes:
+			reader = subroutine.api.filters.declared_by(route)
+
+			if reader is None:
+				continue
+
+			declared = getattr(getattr(route, "dependant", None), "query_params", [])
+			names = frozenset(
+				alias for field in declared if (alias := getattr(field, "alias", None))
+			)
+
+			found.append((route, reader.entity, names))
+
+	return found
+
+
+def test_a_listing_can_be_asked_flatly_for_nothing_it_has_not_declared () -> None:
+	"""**The direction nothing looked** — `SR#2175`, reported by an agent gathering documents.
+
+	``?tag=instrument-source`` answered `200` on ``/v1/documents`` while ``tag.eq=…`` answered
+	`422` naming the field, so one word meant two things on one endpoint depending on how it
+	was spelled. The guard above drives every *published* filter and passed throughout, quite
+	correctly: `tag` was not published for documents, and a forward check cannot see a
+	capability that was never declared.
+
+	So this asks the other question. Every flat parameter a listing accepts is one of three
+	things, and the first two are already written down somewhere better than a list:
+
+	1. a :class:`Property` in that entity's registry — filterable or not, since a property that
+       cannot be filtered on already carries its own ``because``;
+	2. an older spelling of a dotted filter, from ``filtering.ALIASES``;
+	3. an entry in :data:`EVERY_LISTING` or :data:`NOT_A_PROPERTY`, with a reason.
+
+	A parameter that is none of them is a question the route answers and the grammar cannot ask
+	— which is the defect `SR#2174` exists to close, one layer below the browser.
+	"""
+
+	listings = _listings()
+
+	assert len(listings) >= 5, (
+		f"only {len(listings)} listings declare a filter reader, and five were mounted when "
+		f"this was written — a walk that reads nothing makes every entry above look stale"
+	)
+
+	unclassified = {}
+
+	for route, entity, names in listings:
+		registry = subroutine.domain.filtering.PROPERTIES.get(entity, {})
+		aliases = subroutine.domain.filtering.ALIASES.get(entity, {})
+
+		for name in sorted(names):
+			if name in registry or name in aliases or name in EVERY_LISTING:
+				continue
+
+			if (entity, name) in NOT_A_PROPERTY:
+				continue
+
+			unclassified[(entity, name)] = route.path
+
+	assert not unclassified, (
+		"a listing accepts flat parameters that its registry has never heard of, and nothing "
+		"says whether that is a decision: "
+		+ ", ".join(f"{name!r} on {path} ({entity})" for (entity, name), path in sorted(unclassified.items()))
+		+ ". Declare each as a Property, or say in EVERY_LISTING or NOT_A_PROPERTY why not."
+	)
+
+
+def test_no_excuse_here_names_a_parameter_that_has_gone () -> None:
+	"""What makes an entry go away, asked of both registers — `SR#405`'s rule.
+
+	An allow-list with a written reason has to fail when the reason expires as well as when a
+	new case appears; otherwise an entry outlives the thing it excused and goes on reading as a
+	considered decision. Three entries in ``test_reach`` did exactly that, all at once, and
+	stayed invisible because every other check passed.
+
+	**This is the half that closes `SR#1829`.** Converting `status`, `type`, `project` and
+	`parent` to registry entries makes their entries above stale, so deleting them is part of
+	that work rather than something to remember afterwards.
+	"""
+
+	accepted: dict[str, set[str]] = {}
+
+	for _route, entity, names in _listings():
+		accepted.setdefault(entity, set()).update(names)
+
+	everywhere = set().union(*accepted.values()) if accepted else set()
+
+	stale = sorted(name for name in EVERY_LISTING if name not in everywhere)
+
+	assert not stale, f"EVERY_LISTING excuses parameters no listing declares: {stale}"
+
+	gone = sorted(
+		f"{entity}.{name}"
+		for entity, name in NOT_A_PROPERTY
+		if name not in accepted.get(entity, set())
+	)
+
+	assert not gone, f"NOT_A_PROPERTY excuses parameters no listing declares: {gone}"
+
+	settled = sorted(
+		f"{entity}.{name}"
+		for entity, name in NOT_A_PROPERTY
+		if name in subroutine.domain.filtering.PROPERTIES.get(entity, {})
+	)
+
+	assert not settled, (
+		f"NOT_A_PROPERTY still excuses what the registry now declares: {settled} — the entry "
+		f"is what the conversion had left to delete"
+	)
+
+
+def test_a_reason_written_once_may_not_cover_a_listing_it_never_saw () -> None:
+	"""**Why :data:`EVERY_LISTING` may be keyed by name at all** — `SR#2175`.
+
+	A register keyed by name applies its reason to every entity, including ones nobody had in
+	front of them when they wrote it. That is safe for *paging and rendering*, whose meaning
+	cannot vary by entity, and unsafe for anything else: excusing `parent` globally on the
+	grounds that a project is reached by its address would silence a task's `parent`, which
+	`SR#1829` says is the opposite of settled.
+
+	Reaching two entities is the cheapest mechanical stand-in for *this reason is not about one
+	listing*, and it is what makes the split a rule rather than a judgement. A parameter on one
+	listing belongs in :data:`NOT_A_PROPERTY`, where its reason sits beside it.
+	"""
+
+	entities: dict[str, set[str]] = {}
+
+	for _route, entity, names in _listings():
+		for name in names:
+			entities.setdefault(name, set()).add(entity)
+
+	parochial = sorted(
+		f"{name} (only {sorted(entities.get(name, set()))})"
+		for name in EVERY_LISTING
+		if len(entities.get(name, set())) < 2
+	)
+
+	assert not parochial, (
+		f"EVERY_LISTING carries a reason written about one entity: {parochial} — move it to "
+		f"NOT_A_PROPERTY, keyed by the listing it is about"
+	)
