@@ -531,6 +531,60 @@ export function itemRequests (kind, ref, slug) {
 		{ path: scoped(`/${collection}/${ref}/links`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/comments?limit=${PAGE}`, slug), method: "GET" },
 		{ path: scoped(`/${collection}/${ref}/governing`, slug), method: "GET" },
+		/*
+			**What this item is made of** (`#1218`). The page could say *this is part of
+			#1207* and could not say *these four are part of this* — a capability the
+			terminal, MCP and HTTP have all had, missing from the one surface a person is
+			most likely to be looking at. §14.1's rule is that nothing an agent can see
+			may be invisible to a person.
+
+			**Both kinds now, and this was tasks only until `#2206`.** A task lives under a
+			task and a document under a document (`#2173`) — two columns, two trees — so both
+			have children to draw and only one of them drew any. The comment that used to sit
+			here said *a document has no children*, which was true when it was written and
+			false the day after.
+
+			**Ordered by ref**, which for one counter allocated in creation order (§6.2) is
+			oldest first — the order the parts were decided in, and the one the terminal
+			prints.
+
+			**Ahead of the task-only read below**, so that the answer sits at one position for
+			both kinds. A conditional slot before it would make what arrives at index 4 depend
+			on the kind, which is the arrangement that makes a positional read of these
+			answers wrong in one branch and right in the other.
+		*/
+		{
+			path: scoped(
+				kind === "document"
+					/*
+						**The dotted spelling, because the flat one really is refused here.**
+						`?parent=` is a task's published parameter and `/v1/documents` accepts
+						only the registry's `parent.eq` — measured against the instance, which
+						answers *"This endpoint does not accept 'parent'"* for the other. The
+						two are not interchangeable and a listing refuses what it does not
+						declare (`api/query.py`) rather than ignoring it.
+
+						**No `include_completed`, and its absence is measured rather than
+						assumed.** `/v1/documents` narrows by `status_category` only when one
+						is given, so this already returns all four — draft, current, superseded
+						and archived. A child that has been superseded stays on its parent's
+						page, which is the property the task call spends an argument to buy.
+					*/
+					? `/documents?parent.eq=${ref}&order=ref&limit=${MAX_PARTS}`
+					/*
+						**`include_completed=true` is unlike every other listing here and is
+						load-bearing**, which is why the terminal's own call carries the same
+						argument and the same reason: a parent showing two of its four children
+						because the other two are finished would misreport the thing somebody
+						opened it to see. A version reusing this app's ordinary listing defaults
+						would draw a silently shrinking list.
+					*/
+					: `/tasks?parent=${ref}&include_completed=true&order=ref`
+						+ `&limit=${MAX_PARTS}`,
+				slug,
+			),
+			method: "GET",
+		},
 		/* **Tasks only, and asked conditionally rather than always** (`#1121`). Only a task is
 		   checked, and the route refuses a document's ref by name — 404 *"#3 is a document, not
 		   a task"* — so a version that asked anyway would fail the whole read of every document
@@ -540,36 +594,6 @@ export function itemRequests (kind, ref, slug) {
 			? []
 			: [
 				{ path: scoped(`/tasks/${ref}/verifications`, slug), method: "GET" },
-				/*
-					**What this item is made of** (`#1218`). The page could say *this is part of
-					#1207* and could not say *these four are part of this* — a capability the
-					terminal, MCP and HTTP have all had, missing from the one surface a person is
-					most likely to be looking at. §14.1's rule is that nothing an agent can see
-					may be invisible to a person.
-
-					**`include_completed=true` is unlike every other listing here and is
-					load-bearing**, which is why the terminal's own call carries the same
-					argument and the same reason: a parent showing two of its four children
-					because the other two are finished would misreport the thing somebody opened
-					it to see. A version reusing this app's ordinary listing defaults would draw
-					a silently shrinking list.
-
-					**Ordered by ref**, which for one counter allocated in creation order (§6.2)
-					is oldest first — the order the parts were decided in, and the one the
-					terminal prints.
-
-					**Tasks only.** A document has no children, and `?parent=` on
-					`/v1/documents` is refused rather than ignored (`api/query.py`), so asking
-					would fail the whole read of every document on the page.
-				*/
-				{
-					path: scoped(
-						`/tasks?parent=${ref}&include_completed=true&order=ref`
-						+ `&limit=${MAX_PARTS}`,
-						slug,
-					),
-					method: "GET",
-				},
 			]),
 	];
 }

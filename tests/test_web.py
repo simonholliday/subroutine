@@ -4822,6 +4822,187 @@ def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None
 	assert "Sub-tasks" not in bare, "an ordinary item is drawn as though it were a parent"
 
 
+def test_a_documents_page_lists_the_documents_filed_under_it (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#2206`. A task listed its children and a document listed nothing.
+
+	Simon, reading `SR#2204` — a document holding thirteen instrument specifications: *"It
+	lists its child documents in prose, but does not display any links to them - surely an
+	error? I believe that a parent task lists its children. Should not a parent document do
+	the same?"*
+
+	He was reading a real inversion rather than an absence. The thirteen children were named
+	in that document's *body*, as text, and the one document explicitly **not** among them was
+	the only thing on the page rendered as a link — because naming a ref makes a backlink. The
+	page linked the non-member and left the members as prose.
+
+	**The titles carry none of the words asserted for**, which is the trap the parts test next
+	door records having walked into: a child called *The superseded one* would satisfy a
+	search for its own status from the title alone.
+	"""
+
+	shared = {"links": [], "comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": [{"key": "blocks", "title": "Blocks"}]}}
+	parent = {"ref": 2204, "title": "A parent document", "kind": "document",
+		"status": "active", "status_is_default": True,
+		"project_key": "py-midi-defs", "project_path": "py-midi-defs"}
+	kids = {"items": [
+		{"id": "d-1", "ref": 7, "title": "The first one", "type": "spec",
+			"status": "active", "status_is_default": True, "status_category": "current",
+			"project_key": "py-midi-defs", "project_path": "py-midi-defs"},
+		{"id": "d-2", "ref": 8, "title": "The second one", "type": "note",
+			"status": "replaced", "status_category": "superseded",
+			"project_key": "py-midi-defs", "project_path": "py-midi-defs"},
+	], "has_more": False}
+
+	shown = _rendered(
+		tmp_path, {"Detail": {**shared, "item": parent, "parts": kids}}
+	)["Detail"]
+
+	assert "Sub-documents" in shown, (
+		"a document's page does not say what is filed under it, which is the capability the "
+		"task side has had since `SR#1218`"
+	)
+	assert "The first one" in shown and "The second one" in shown, (
+		f"the children are not drawn: {shown}"
+	)
+
+	# **Links, which is the whole of what Simon asked for.** A ref rendered as text is what
+	# the body already gave him.
+	assert '<a href="/projects/py-midi-defs/7">' in shown, (
+		f"a sub-document is not a link, so the page is still prose: {shown}"
+	)
+
+	# **The readable form, not the durable one** (`SR#2205`). A part is a whole row and carries
+	# its project, unlike a link end — so the address a reader copies says where the item lives.
+	assert '<a href="/projects/7">' not in shown, (
+		f"a sub-document's address dropped the project it names on every other row: {shown}"
+	)
+
+	# **No rollup, on a decision this app has already taken.** `SELECTABLE`'s own note says a
+	# document's categories are `draft`, `current`, `superseded` and `archived` and that *none
+	# of them means finished*, which is why `ONLY_FINISHED` drops the collection rather than
+	# narrowing it. A count of finished sub-documents would invent that reading.
+	assert "of 2 done" not in shown, (
+		f"a document's children are counted as though one of them could be finished: {shown}"
+	)
+
+	# **And nothing at all on a document that is not a parent.**
+	bare = _rendered(tmp_path, {"Detail": {**shared, "item": parent}})["Detail"]
+
+	assert "Sub-documents" not in bare, (
+		"an ordinary document is drawn as though it were a parent"
+	)
+
+
+def test_a_documents_children_are_asked_for_in_the_spelling_that_route_accepts (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#2206`. The two kinds do not share a parameter name, and one of them is refused.
+
+	`?parent=` is a task's published flat parameter; `/v1/documents` accepts only the
+	registry's `parent.eq` and **refuses** the other rather than ignoring it (`api/query.py`),
+	answering *"This endpoint does not accept 'parent'"*. So the wrong spelling here would not
+	degrade to a missing section — it would fail the whole read of every document page.
+
+	`test_every_request_builder_is_driven_against_the_instance` is what proves the spelling is
+	one the instance takes; this says which one was written, so a silent swap to the other is a
+	failure here rather than a 422 in front of a reader.
+	"""
+
+	built = _built(tmp_path, [
+		("itemRequests", ["document", 2204, "projects"]),
+		("itemRequests", ["task", 42, "projects"]),
+	])
+
+	kids = [one for one in built if "parent" in one["path"] and "/documents" in one["path"]]
+	parts = [one for one in built if "parent" in one["path"] and "/tasks?" in one["path"]]
+
+	assert len(kids) == 1, f"a document's page asks for its children {len(kids)} times: {built}"
+	assert "parent.eq=2204" in kids[0]["path"], (
+		f"a document's children are asked for with a parameter that route refuses: {kids[0]}"
+	)
+
+	# **The task's flat spelling is the published one and stays.** Both are correct and they
+	# are not interchangeable, which is the whole reason this test names each.
+	assert len(parts) == 1 and "?parent=42" in parts[0]["path"], (
+		f"a task's parts are no longer asked for by the parameter it publishes: {parts}"
+	)
+
+	# **No `include_completed` on the document call, and its absence is measured rather than
+	# assumed**: `/v1/documents` narrows by `status_category` only when one is given, so the
+	# plain request already returns draft, current, superseded and archived. Sending a task's
+	# argument here would be a 422.
+	assert "include_completed" not in kids[0]["path"], (
+		f"a document listing was sent a task's argument: {kids[0]}"
+	)
+
+
+def test_an_item_page_makes_its_project_its_parent_and_its_marks_links (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#2205`. Every address on the one page a reader lands on was a dead word.
+
+	Simon: *"Neither is a link - I think they should both be links… I'd like to ensure UI
+	consistency. Projects should be linked. Parent items should be linked (tasks or
+	documents). My goal is to remove inconsistencies."*
+
+	**One value gated three of them.** `marks` offers an `href` for the project chip, every
+	tag and the assignee only when `item.workspace || (place && place.workspace)` is set — the
+	item view carries `workspace_id` and no slug, and `Detail` passed no `place` at all. So
+	the same chips that are links on every row, board card and agenda line were plain text on
+	the page those rows open.
+
+	The fact sheet's two rows are a separate omission: `Project` and `Parent` have been
+	strings on every surface since they were written.
+	"""
+
+	item = {"ref": 2157, "title": "A filed document", "kind": "document",
+		"status": "active", "status_is_default": True,
+		"project_key": "py-midi-defs", "project_path": "py-midi-defs",
+		"tags": ["midi"], "assignee": "si",
+		"parent_ref": 2204, "parent_title": "The parent"}
+
+	shown = _rendered(tmp_path, {"Detail": {
+		"item": item, "links": [], "comments": [], "workspace": "projects", "members": [],
+	}})["Detail"]
+
+	# **The chips, all three of which one expression decided.**
+	assert '<a href="/projects/py-midi-defs">' in shown, (
+		f"the project chip is not a link on the page a reader reaches by clicking one: {shown}"
+	)
+	assert '<a href="/projects?tag=midi">' in shown, f"a tag is not a link here: {shown}"
+	assert '<a href="/projects?assignee=si">' in shown, (
+		f"the assignee is not a link here: {shown}"
+	)
+
+	# **The fact sheet's parent, in the readable form.** A parent must be in the same project
+	# as its children — `tasks.move` and `documents.move` both refuse otherwise by name — so
+	# the child's own path is the parent's and no second fetch is needed to say so.
+	assert '<a href="/projects/py-midi-defs/2204">' in shown, (
+		f"the item this one is filed under is not a link: {shown}"
+	)
+
+	# **Kind, not a guess.** A document lives under a document and a task under a task
+	# (`SR#2173`), so the parent's address is opened as the child's own kind.
+	assert "#2204 The parent" in shown, f"the parent is no longer named: {shown}"
+
+	# **A surface with nothing listening renders the words and no anchor** — `SR#251`. Without
+	# a workspace there is no address to build, and an anchor whose only outcome is a page that
+	# has not moved is the shape that rule exists to refuse.
+	adrift = _rendered(tmp_path, {"Detail": {
+		"item": item, "links": [], "comments": [], "members": [],
+	}})["Detail"]
+
+	assert "href=" not in adrift.split("<dl>")[-1], (
+		f"the fact sheet drew addresses on a surface that cannot reach them: {adrift}"
+	)
+	assert "#2204 The parent" in adrift and "py-midi-defs" in adrift, (
+		f"the facts vanished with their links rather than staying as words: {adrift}"
+	)
+
+
 def test_the_item_page_says_what_has_been_checked (tmp_path: pathlib.Path) -> None:
 	"""`SR#1121`, and §14.1 is why it is here rather than only on the agent's surface.
 

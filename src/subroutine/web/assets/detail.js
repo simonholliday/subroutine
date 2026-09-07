@@ -134,9 +134,9 @@ export function Doing ({
 
 export function Detail ({
 	item, links, comments, governing = [], checked = [], members = [], onOpen, onBack,
-	/* What this item is made of, with the envelope kept — `#1218`. Defaulted, because a
-	   document is read without asking for parts at all and `has_more` has to be readable
-	   without a guard at every use. */
+	/* What this item is made of, with the envelope kept — `#1218`, and both kinds since
+	   `#2206`. Defaulted because the render harness builds this component directly, so
+	   `has_more` has to be readable without a guard at every use. */
 	parts = { items: [], has_more: false },
 	onComplete, onAssign, busy, where,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
@@ -167,6 +167,12 @@ export function Detail ({
 		eventually be given a different one.
 	*/
 	const linksShown = withinAllowance(links, revealed[LINKS_SECTION]);
+
+	/* **What the children of this item are** — `#2206`. A task lives under a task and a
+	   document under a document (`#2173`), so the parent's own kind answers it and cross-kind
+	   cannot arise. Read once, because the heading, each row's address and each row's marks
+	   all need it and three readings of `item.kind` is three places to forget one. */
+	const partsAre = item.kind === "document" ? "document" : "task";
 
 	/*
 		**Both of these are addresses, so both are links** (`#722`). *All items* goes to the
@@ -213,14 +219,35 @@ export function Detail ({
 						clicked. Four `Facts` rows came out with it, which is the half that
 						makes this a change rather than an addition.
 
-						**No ordering value and no status suppression**: a page is not a list,
-						so it is ordered by nothing, and it has no column that could already be
-						saying the status. `place` is null because an item page is not narrowed
-						to anything, so the project label says its whole address.
+						**No ordering value**: a page is not a list, so it is ordered by nothing,
+						and it has no column that could already be saying the status.
+
+						**The workspace, and deliberately not the project** — `#2205`. `marks`
+						gates the project chip, every tag *and* the assignee on one value:
+						`item.workspace || (place && place.workspace)`. The item view carries
+						`workspace_id` and no slug, and this passed `place=${null}`, so that
+						value was the empty string and **every address on this page rendered as
+						a dead word** — while the same chips are links on every row, board card
+						and agenda line, which is where a reader has just come from.
+
+						The comment this replaces said the label *"says its whole address"*
+						with `place` null. It cannot: `projectLabel` reads the workspace off
+						the item, which has never had one, so the workspace segment was never
+						drawn. An intention nothing carried out.
+
+						**`project: null` keeps what is drawn unchanged.** Naming the project
+						would drop the chip whenever the reader is already inside it (§957 §4),
+						which on a page reached from that project's own listing is the chip
+						vanishing exactly where it was clicked. This is a fix to what the
+						chips *do*, not to which ones there are.
 					*/ null}
-					<${Marks} badges=${marks(item, null, null, !!onGo, { hideType: true })}
+					<${Marks}
+						badges=${marks(item, null, { workspace, project: null }, !!onGo, {
+							hideType: true,
+						})}
 						onGo=${onGo} />
-					<${Facts} item=${item} prioritised=${prioritised} />
+					<${Facts} item=${item} prioritised=${prioritised}
+						workspace=${workspace} onGo=${onGo} onOpen=${onOpen} />
 
 					${onEdit && html`
 						<button class="edit action" disabled=${busy}
@@ -278,10 +305,27 @@ export function Detail ({
 				     placement and the terminal's. A milestone's parts are the thing somebody
 				     opened it to read; its links are context around that.
 
+				     **Both kinds since `#2206`**, Simon: *"I believe that a parent task lists
+				     its children. Should not a parent document do the same?"* One list rather
+				     than a second one beside it — two renderings of *what is filed under this*
+				     would be two sets of class names over one stylesheet, which is what `Marks`
+				     was lifted out of `Row` to stop.
+
 				     **The rollup is `#84`'s and is computed, never stored.** A parent never
 				     auto-completes, so `4 of 4` beside an open parent is a question being put
-				     to a person rather than a state nobody updated. */ null}
-				<h3>Sub-tasks${partsDone(parts)}</h3>
+				     to a person rather than a state nobody updated.
+
+				     **And a document gets no rollup, on a decision already taken here.**
+				     `SELECTABLE`'s own note says a document's categories are `draft`,
+				     `current`, `superseded` and `archived` and that *none of them means
+				     finished* — which is why `ONLY_FINISHED` drops the collection rather than
+				     narrowing it. A count of finished sub-documents would invent the reading
+				     that rule refuses, and the same argument takes the strikethrough off the
+				     rows below: a superseded document is not a closed one, and `marks` says
+				     `superseded` beside it either way. */ null}
+				<h3>${partsAre === "document"
+					? "Sub-documents"
+					: `Sub-tasks${partsDone(parts)}`}</h3>
 				${/* **`linked` for the styling and `parts` to be addressable.** The two lists are
 				     drawn identically on purpose — Simon asked for *similar format* — which
 				     leaves a test no way to say *this row is a part* rather than *this row is on
@@ -289,8 +333,16 @@ export function Detail ({
 				     that passes on the wrong list. */ null}
 				<ul class="linked parts">
 					${parts.items.map((part) => {
-						const going = { ref: part.ref, kind: "task" };
-						const to = workspace ? addressOf(going, workspace) : null;
+						const going = { ref: part.ref, kind: partsAre };
+						/* **The readable form, unlike the links list below** — `#2205`. That
+						   one has no choice: `views.LinkEnd` carries `project_path` and no
+						   `project_key`, which is what `addressOf` needs, so an end can only
+						   have the durable `/{workspace}/{ref}`. A part is a whole row and
+						   carries both, so the address a reader copies off this list says
+						   where the item lives, exactly as every other row's does. */
+						const to = workspace
+							? addressOf({ ...part, ...going }, workspace)
+							: null;
 						const follow = (event) =>
 							followed(event, () => onOpen && onOpen(going));
 
@@ -302,8 +354,14 @@ export function Detail ({
 							that crosses out of it does.
 						*/
 						const badges = marks(
-							{ ...part, kind: "task" }, null, { workspace, project }, !!onGo,
+							{ ...part, kind: partsAre }, null, { workspace, project }, !!onGo,
 						);
+
+						/* **Only a task can be over**, for the reason the heading gives: no
+						   document status category means *finished*, so there is nothing here
+						   to strike through and a struck-out `superseded` would be this app
+						   answering a question its own `SELECTABLE` declines. */
+						const over = partsAre === "task" && part.is_complete;
 
 						return html`
 							<li key=${part.id || part.ref}>
@@ -320,10 +378,10 @@ export function Detail ({
 								     *this part is finished* — is the same on both, and only its
 								     rendering differs. */ null}
 								${to
-									? html`<a class=${part.is_complete ? "over" : null}
+									? html`<a class=${over ? "over" : null}
 										href=${to} onClick=${follow}>
 										#${part.ref} ${part.title}</a>`
-									: html`<button class=${`inline${part.is_complete ? " over" : ""}`}
+									: html`<button class=${`inline${over ? " over" : ""}`}
 										onClick=${follow}>
 										#${part.ref} ${part.title}</button>`}
 								<${Marks} badges=${badges} onGo=${onGo} />

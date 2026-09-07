@@ -692,7 +692,12 @@ export function App () {
 
 		for (const trying of order) {
 			try {
-				const [item, links, comments, governing, checked, parts] = await Promise.all(
+				/* **`parts` before `checked`, because only the second is conditional**
+				   (`#2206`). Both kinds have children to draw and only a task is verified, so
+				   the kind-specific slot is last and every name above it means the same thing
+				   in both branches. Written the other way round first, where a document's
+				   children arrived in the variable holding a task's verifications. */
+				const [item, links, comments, governing, parts, checked] = await Promise.all(
 					itemRequests(trying, ref, slug).map(sent),
 				);
 
@@ -704,17 +709,15 @@ export function App () {
 					/* **The envelope is kept, not flattened** (`#1218`). `has_more` is the only
 					   thing that can tell fifty parts from fifty-one, and a bare array would
 					   lose it — which is the shape `#1175` is open about elsewhere. */
-					parts: parts
-						? {
-							items: parts.items,
-							/* **`page.has_more`, not `has_more`.** The envelope nests it
-							   (§8.4) and reading the top level would have answered *no more*
-							   for every parent there is — the cap saying nothing, silently,
-							   which is the exact failure the line under the list exists to
-							   prevent. */
-							has_more: !!(parts.page && parts.page.has_more),
-						}
-						: { items: [], has_more: false } };
+					parts: {
+						items: parts.items,
+						/* **`page.has_more`, not `has_more`.** The envelope nests it
+						   (§8.4) and reading the top level would have answered *no more*
+						   for every parent there is — the cap saying nothing, silently,
+						   which is the exact failure the line under the list exists to
+						   prevent. */
+						has_more: !!(parts.page && parts.page.has_more),
+					} };
 			} catch (failure) {
 				if (failure.status !== 404 || trying === order[order.length - 1]) throw failure;
 			}

@@ -9,7 +9,7 @@
 
 import * as markdown from "./markdown.js";
 import { html } from "./html.js";
-import { PRODUCT, parseAddress, shortVersion } from "./address.js";
+import { PRODUCT, addressOf, encodedPath, parseAddress, shortVersion } from "./address.js";
 import { unrenderable } from "./answers.js";
 import { day } from "./dates.js";
 import { followed } from "./grouping.js";
@@ -226,7 +226,16 @@ function revisedInWords (revisions) {
 }
 
 
-export function Facts ({ item, prioritised = [] }) {
+export function Facts ({
+	item, prioritised = [],
+	/* **What turns the two addresses in here into links** — `#2205`, Simon: *"Projects should
+	   be linked. Parent items should be linked (tasks or documents)."* Both are optional and
+	   both are checked, which is `#251`'s rule: a surface that cannot navigate renders the
+	   words and no anchor, rather than an anchor whose only outcome is a page that has not
+	   moved. The render harness supplies every handler, so the unlinked case needs a caller
+	   that genuinely has neither — which is what `workspace` being absent means. */
+	workspace = null, onGo = null, onOpen = null,
+}) {
 	/*
 		**A field nobody set is not printed** (§12.2c). That rule is what lets `subroutine show`
 		answer "buy milk" with a number, a title and nothing else, and it is the same rule here:
@@ -253,9 +262,31 @@ export function Facts ({ item, prioritised = [] }) {
 		item, so the rule that drops a repeated mark does not reach it, and it answers *why is
 		this ranked where it is* exactly once, beside the project it is about.
 	*/
-	add("Project", item.project_key && (
-		raised ? `${item.project_key} (prioritised)` : item.project_key
-	));
+	/*
+		**A link to the project, exactly where a row's chip goes** — `#2205`. `marks` builds
+		the same path for the chip above this sheet, and both are the place `#649` puts on the
+		path rather than a narrowing: clicking either goes there.
+
+		**The whole path, not the key.** A key is unique only among its siblings (`#958`), so
+		`/{workspace}/{key}` is not an address of anything for a nested project — where the
+		label stays the key, because that is what somebody types and what every row shows.
+
+		**`(prioritised)` sits outside the anchor.** It is a fact about the project and not
+		part of its address, and a link whose text is `web (prioritised)` invites the reading
+		that the parenthesis is part of the name.
+	*/
+	const inside = workspace && item.project_key
+		? `/${encodeURIComponent(workspace)}`
+			+ `/${encodedPath(item.project_path || item.project_key)}`
+		: null;
+
+	add("Project", item.project_key && html`
+		${inside && onGo
+			? html`<a href=${inside}
+				onClick=${(event) => followed(event, () => onGo(inside))}
+				>${item.project_key}</a>`
+			: item.project_key}${raised ? " (prioritised)" : ""}
+	`);
 	add(
 		"Priority",
 		item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null,
@@ -284,7 +315,41 @@ export function Facts ({ item, prioritised = [] }) {
 	*/
 	add("Repeats", item.recurrence_description);
 	add("Estimate", item.estimate_human);
-	add("Parent", item.parent_ref ? `#${item.parent_ref} ${item.parent_title || ""}` : null);
+	/*
+		**The item this is filed under, as a link** — `#2205`. It has been a fact and never an
+		address since nesting shipped, on the one page where a reader most wants to go up.
+
+		**The parent is the same kind as the child**, which is `#2173`'s two-trees design
+		rather than a guess: a task lives under a task and a document under a document, in two
+		columns, and cross-kind cannot be expressed. So the kind is this item's own.
+
+		**And the same project, which is why no second fetch is needed.** `tasks.move` and
+		`documents.move` both refuse a parent in another project by name, so the readable form
+		of the parent's address is built from the child's own path. Without that the durable
+		`/{workspace}/{ref}` would be the only honest answer — correct, and one segment poorer
+		than every other link on the page.
+
+		**Followed in this tab through `onOpen`**, as the parts and links lists are: the app
+		already knows how to show an item, and a real anchor is what makes it copyable and
+		openable in a new one.
+	*/
+	const above = item.parent_ref
+		? { ref: item.parent_ref, kind: item.kind === "document" ? "document" : "task" }
+		: null;
+	const upwards = above && workspace
+		? addressOf(
+			{ ...above, project_key: item.project_key, project_path: item.project_path },
+			workspace,
+		)
+		: null;
+
+	add("Parent", above && html`
+		${upwards && onOpen
+			? html`<a href=${upwards}
+				onClick=${(event) => followed(event, () => onOpen(above))}
+				>#${above.ref} ${item.parent_title || ""}</a>`
+			: `#${above.ref} ${item.parent_title || ""}`}
+	`);
 	add("Updated", day(item.updated_at));
 
 	/* **That the body has been replaced, which nothing said until `#1768`.** `Updated` above
