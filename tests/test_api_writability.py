@@ -343,13 +343,19 @@ DERIVED: dict[str, str] = {
 	"updated_at": "When the row last changed.",
 	"content_updated_at": "When the *meaning* last changed (§6.1); the service decides, not the caller.",
 	"version": "The concurrency token (§8.9). Sent back as `expected_version`, never assigned.",
+	# **Named by the relationship rather than by a column, since `SR#2201`.** These said *the
+	# ref of `parent_task_id`* while this register is keyed by field name alone — so when a
+	# document grew the same pair, a reason written about a column documents do not have
+	# silently covered it. One rule, two populations, and the excuse was the half that was
+	# wrong.
 	"parent_ref": (
-		"The ref of parent_task_id, resolved for display — the same relationship project_key "
-		"has to project_id. Re-parenting is written by setting the parent, which is #44."
+		"The ref of whatever this is filed under, resolved for display — the same relationship "
+		"project_key has to project_id. Re-parenting is written by setting the parent, which "
+		"is POST /{kind}/{ref}/move."
 	),
 	"parent_title": (
-		"The title of parent_task_id, resolved so a client can render a subtree without a "
-		"call per row. Changed by editing the parent, never through the child."
+		"The title of whatever this is filed under, resolved so a client can render a subtree "
+		"without a call per row. Changed by editing the parent, never through the child."
 	),
 	"claimed_by_id": (
 		"Who holds a lease on this task (§14.11). Claiming is its own operation, like "

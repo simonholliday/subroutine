@@ -633,6 +633,14 @@ export function written (values, item) {
 
 	if (said("title")) body.title = said("title");
 
+	/* **Only on a create, because `PATCH /v1/documents` does not take one** — `#2201`,
+	   measured against the published schema. Re-parenting an existing document is
+	   `POST /v1/documents/{ref}/move`, which is where the cycle and the depth ceiling are
+	   refused; sending it here on a revision would be a field the endpoint ignores. */
+	SAID_AS_A_REF.forEach((name) => {
+		if (!revising && parentRef(said(name)) !== null) body[name] = String(parentRef(said(name)));
+	});
+
 	DOCUMENT_SAID.forEach((name) => {
 		const value = said(name);
 
@@ -667,6 +675,92 @@ export function documentRequest (values, item, slug) {
 		path: "/documents",
 		method: "POST",
 		body: { ...written(values, null), workspace_id: slug },
+	};
+}
+
+export function parentRef (given) {
+	/*
+		Read what somebody typed into a Parent box as a ref, or ``null`` — `#2201`.
+
+		**`#7` and `7` alike**, because a shell eats the sigil and a reader has seen the number
+		printed with one everywhere this product writes an address (§6.2). Anything else is
+		``null``, which the form turns into *that is not a number*: the one check the browser
+		makes, because it is the only one it can make without the tree.
+
+		**Everything else is the server's.** The kind, the cycle and the depth ceiling are all
+		refused in the domain with a sentence naming what is wrong, and a second implementation
+		here is what `#925` and `#1420` refuse — a governance rule with two implementations is
+		one that will disagree.
+	*/
+	const wanted = String(given == null ? "" : given).trim().replace(/^#/, "");
+
+	if (!/^[1-9][0-9]*$/.test(wanted)) return null;
+
+	return Number(wanted);
+}
+
+export function movingTo (values, item) {
+	/*
+		Whether a save has to re-parent, and to what — `#2201`.
+
+		Returns the ref to move under, ``null`` to promote to the top, and ``undefined`` for
+		*nothing to do*. Three answers because there are three, and the middle one is a real
+		value: emptying the box is how a reader removes a parent, so *no parent* and *did not
+		touch it* cannot be the same answer.
+
+		**Lifted out of `App` rather than written inline**, which is `#640`'s cheapest route
+		and the reason it is worth a function: four faults have shipped from decisions left
+		inside that component, every one found by a person rather than by the build. A hook
+		cannot be called by the render harness; this can.
+
+		**Unchanged means no request.** An ordinary save is one call as it always was, and a
+		reader who never opened the box cannot move anything by pressing Save.
+	*/
+	const asked = parentRef((values || {}).parent);
+	const now = (item && item.parent_ref) || null;
+
+	if (asked === now) return undefined;
+
+	return asked;
+}
+
+export function unreadableParent (values) {
+	/*
+		Whether the Parent box holds something that is not a number — `#2201`.
+
+		**Because "not a number" and "empty" must not be one answer.** `parentRef` returns
+		``null`` for both, and emptying the box is how a reader *removes* a parent — so without
+		this, typing a title into it would silently promote the item to the top level and
+		report the save as a success. That is the drop-what-you-do-not-understand defect
+		`#1626` was filed for, on a control whose whole job is to hold a reference.
+
+		**The only check the browser makes.** The kind, the cycle and the depth ceiling are all
+		refused in the domain with a sentence naming what is wrong; this one is different in
+		that the server would never see it — a value that is not a ref is not a request the
+		instance can be asked to turn down.
+	*/
+	const typed = String((values || {}).parent ?? "").trim();
+
+	return typed !== "" && parentRef(typed) === null;
+}
+
+export function moveRequest (item, parent, kind, slug) {
+	/*
+		Put an item under another, or at the top level — `#2201`.
+
+		**Its own request because re-parenting has its own endpoint**, on both kinds, and that
+		endpoint is where the cycle, the depth ceiling and the wrong kind are refused. A
+		`PATCH` takes no parent — measured against the published schema — so a form that
+		bundled it into the save would be sending a field the route ignores.
+
+		**`null` is a real value here and is why this is a body** (§8.3). *No parent* and
+		*unchanged* have to be distinguishable: `POST /v1/projects/{key}/move` learned that the
+		expensive way, where an omitted parent read as *move to root* and flattened subtrees.
+	*/
+	return {
+		path: scoped(`/${kind === "document" ? "documents" : "tasks"}/${item.ref}/move`, slug),
+		method: "POST",
+		body: { parent: parent === null ? null : String(parent) },
 	};
 }
 
@@ -890,6 +984,20 @@ export function addRequest (values, slug) {
 	body assembled by copying the controls would be refused by whichever field the reader left
 	alone first — which is every field, on the commonest submission there is.
 */
+/*
+	The controls whose value is a **ref**, and whose wire name is not their own — `#2201`.
+
+	**A third list because they cannot join either of the other two.** `SAID_AS_WRITTEN` sends
+	a control under its own name and `SAID_AS_NUMBERS` casts it; `parent` is called
+	`parent_task_id` on `POST /v1/tasks` and `parent` on `POST /v1/documents`, so each builder
+	maps it and neither can copy the other's line.
+
+	**Declared rather than left implicit**, because the guard that holds the form against the
+	body reads these lists: a control read by a hand-written `if` would look to it like a dead
+	control, and the honest fix is to say what kind of field it is rather than to excuse it.
+*/
+export const SAID_AS_A_REF = ["parent"];
+
 export const SAID_AS_WRITTEN = [
 	"description", "project", "type", "status", "assignee",
 	"estimate", "starts", "snooze", "due",
@@ -944,6 +1052,15 @@ export function filed (values, slug) {
 	const line = said("text");
 
 	if (line) body.text = line;
+
+	/* **`parent_task_id`, and it takes a ref** — `#2201`. The wire name says `_id` and the
+	   endpoint has accepted either since `#510`; its own comment records that renaming it to
+	   `parent`, which is what `/move` calls the same thing, is a breaking change nobody has
+	   taken. So the browser sends the name the route publishes and calls it `parent`
+	   everywhere a person can see. */
+	SAID_AS_A_REF.forEach((name) => {
+		if (parentRef(said(name)) !== null) body.parent_task_id = String(parentRef(said(name)));
+	});
 
 	SAID_AS_WRITTEN.forEach((name) => {
 		const value = TIMED.includes(name)
@@ -1132,6 +1249,11 @@ export function fromItem (item) {
 		project: said.project_path || said.project_key || "",
 		type: said.type || "",
 		status: said.status || "",
+		/* **What it is filed under, as the number a person types back** — `#2201`. The ref and
+		   not the id, for the same reason `project` above is the address rather than the key:
+		   what fills a box has to be what the box takes. Both kinds carry `parent_ref` since
+		   `#2201`; a document carried only the id and the browser could not have filled this. */
+		parent: said.parent_ref ? String(said.parent_ref) : "",
 		assignee: said.assignee || "",
 		importance: said.importance === null || said.importance === undefined
 			? "" : String(said.importance),

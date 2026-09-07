@@ -2326,6 +2326,19 @@ class Document(pydantic.BaseModel):
 	project_colour: str | None = None
 	parent_id: uuid.UUID | None
 
+	#: The **ref** of the document this one is filed under, and its title — `#2201`.
+	#:
+	#: **Because `parent_id` alone is not an address.** A ref is how this product names an item
+	#: (§6.2), so a view reporting the id and nothing else forces every client to fetch the
+	#: parent before it can print a word — the second call review dimension 4 exists to
+	#: prevent, multiplied by the page. `Task` has carried the pair since `#510` for exactly
+	#: this reason and a document carried neither, which nothing noticed because until `#2173`
+	#: nothing could nest one.
+	#:
+	#: **Both null together**, and null honestly means *this is a top-level document*.
+	parent_ref: int | None = None
+	parent_title: str | None = None
+
 	#: How many documents are filed directly under this one — `#2173`, and `#84`'s `3/3`
 	#: beside a milestone applied to the other kind.
 	#:
@@ -2813,6 +2826,10 @@ class Vocabulary:
 		task_ids: typing.Iterable[uuid.UUID] = (),
 		document_ids: typing.Iterable[uuid.UUID] = (),
 		parent_ids: typing.Iterable[uuid.UUID] = (),
+		#: The documents a page's documents are filed under — `#2201`. Separate from
+		#: ``parent_ids`` because they are different tables: one counter numbers both kinds
+		#: (§6.2) and the ids do not collide, but the *lookup* has to know which table to ask.
+		document_parent_ids: typing.Iterable[uuid.UUID] = (),
 		user_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
@@ -2914,6 +2931,21 @@ class Vocabulary:
 			session, document_ids
 		)
 
+		# **And what each of those is filed under** — `#2201`. The task pair below has existed
+		# since `#510` for the reason its own comment gives; a document reported `parent_id`
+		# and nothing else, so the browser held a UUID and could not print an address from it.
+		# Nothing noticed because until `#2173` nothing could nest a document.
+		#
+		# **Two columns, not four.** A task's parent rides along with a repeat because a
+		# recurring parent is a fact about the row a person sees; a document has no repeat, so
+		# what is wanted here is exactly what it takes to write `#7 Instrument specs`.
+		self.document_parents = _by_id(
+			session,
+			subroutine.db.models.work.Document,
+			document_parent_ids,
+			("ref", "title"),
+		)
+
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
 		# to resolve a UUID before it can print anything — which is the second call review
@@ -3006,6 +3038,9 @@ class Vocabulary:
 			type_ids={document.type_id for document in documents},
 			project_ids={document.project_id for document in documents},
 			document_ids={document.id for document in documents},
+			document_parent_ids={
+				document.parent_id for document in documents if document.parent_id
+			},
 		)
 
 	@classmethod
@@ -3058,6 +3093,7 @@ class Vocabulary:
 			project_ids={row.project_id for row in rows},
 			task_ids={row.id for row in tasks},
 			document_ids={row.id for row in documents},
+			document_parent_ids={row.parent_id for row in documents if row.parent_id},
 			parent_ids={row.parent_task_id for row in tasks if row.parent_task_id}
 			| {
 				row.recurrence_template_id
@@ -3187,8 +3223,8 @@ def task (
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
 		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_task_id=row.parent_task_id,
-		parent_ref=_parent_field(vocabulary, row.parent_task_id, "ref"),
-		parent_title=_parent_field(vocabulary, row.parent_task_id, "title"),
+		parent_ref=_parent_field(vocabulary.parents, row.parent_task_id, "ref"),
+		parent_title=_parent_field(vocabulary.parents, row.parent_task_id, "title"),
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),
@@ -3268,7 +3304,7 @@ def task (
 		recurrence_description=_described_repeat(vocabulary, row),
 		occurrence_at=row.occurrence_at,
 		recurrence_template_ref=_parent_field(
-			vocabulary, row.recurrence_template_id, "ref"
+			vocabulary.parents, row.recurrence_template_id, "ref"
 		),
 		is_template=row.is_template,
 		timezone=row.timezone,
@@ -3325,6 +3361,8 @@ def document (
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
 		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_id=row.parent_id,
+		parent_ref=_parent_field(vocabulary.document_parents, row.parent_id, "ref"),
+		parent_title=_parent_field(vocabulary.document_parents, row.parent_id, "title"),
 		sub_documents=vocabulary.documents_underneath.get(row.id, 0),
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
@@ -5229,19 +5267,27 @@ def reader_zone (
 
 
 def _parent_field (
-	vocabulary: Vocabulary, parent_id: uuid.UUID | None, field: str
+	loaded: typing.Mapping[uuid.UUID, dict[str, typing.Any]],
+	parent_id: uuid.UUID | None,
+	field: str,
 ) -> typing.Any:
 	"""Return one field of an item's parent, or ``None`` when it has none.
 
 	**A missing entry is ``None`` rather than an error**, deliberately. The parent may be
 	outside what this caller can see — §7.3a hides a private project's contents — and the
 	right answer there is "no parent reported", not a refusal that confirms one exists.
+
+	**Takes the mapping rather than the whole vocabulary, since `#2201`.** It read
+	``vocabulary.parents`` by name, which is the *task* table; a document's parents are a
+	second load because they are a second table, and a function that hardcodes one of them
+	would have to be copied to serve the other — which is the shape this codebase spends most
+	of its guards refusing.
 	"""
 
 	if parent_id is None:
 		return None
 
-	return vocabulary.parents.get(parent_id, {}).get(field)
+	return loaded.get(parent_id, {}).get(field)
 
 
 def _described_repeat (

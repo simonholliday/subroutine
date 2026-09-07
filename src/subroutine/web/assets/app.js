@@ -60,6 +60,7 @@ import {
 	DOCUMENT_SAID, NEVER_CLEARED, RELEASE_CHECK_POLLS, REPEATED, SAID_AS_NUMBERS, SAID_AS_WRITTEN,
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
+	moveRequest, movingTo, unreadableParent,
 	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
 	credentialsRequest, issueRequest, linkableTypes, listingRequests, localMoment,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
@@ -1649,6 +1650,39 @@ export function App () {
 			/* **The item's own workspace** — `#1040`. This is the widest of the seven: a save
 			   carries the title, the description, the dates and the status, so against the
 			   wrong item it overwrites all of them at once. */
+			/*
+				**The parent moves first, and it is a second request because it has a second
+				endpoint** — `#2201`. Neither `PATCH` takes a parent, measured against the
+				published schema; `POST /{kind}/{ref}/move` is where re-parenting lives and
+				where the cycle, the depth ceiling and the wrong kind are refused.
+
+				**Before the save, because it is the far likelier refusal.** A move is turned
+				down by four rules and a field save by almost none, so the common failure
+				changes nothing at all — where the other order leaves the fields written and
+				the item where it was, with a note saying it was not saved.
+
+				**Sent only when it changed**, so an ordinary save is one request as before and
+				a reader who never touched the box cannot move anything by pressing Save.
+			*/
+			/* **Refused before anything is written** — `#2201`. A box holding a word rather
+			   than a number reads as *cleared* to `parentRef`, so without this a typo would
+			   promote the item to the top level and report success. It is the only check made
+			   here: everything else the server refuses by name. */
+			if (unreadableParent(values)) {
+				setNote({
+					text: "Parent takes an item's number, like 7. Leave it empty for none.",
+					tone: "bad",
+				});
+
+				return;
+			}
+
+			const asked = movingTo(values, open.item);
+
+			if (asked !== undefined) {
+				await sent(moveRequest(open.item, asked, open.item.kind, openIn));
+			}
+
 			const saved = await sent(open.item.kind === "document"
 				? documentRequest(values, open.item, openIn)
 				: updateRequest(values, open.item, openIn, appliesTo));
@@ -3159,6 +3193,9 @@ export {
 	credentialsRequest,
 	dateFor,
 	documentRequest,
+	moveRequest,
+	movingTo,
+	unreadableParent,
 	edited,
 	filed,
 	freshly,

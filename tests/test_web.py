@@ -6189,6 +6189,13 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	found = re.search(r"export const SAID_AS_WRITTEN = \[(.*?)\];", app, re.S)
 	numbers = re.search(r"export const SAID_AS_NUMBERS = \[(.*?)\];", app, re.S)
+	# **A third list, for a control whose wire name is not its own** — `SR#2201`. `parent` is
+	# `parent_task_id` on a task's create and `parent` on a document's, so it can join neither
+	# of the two above; declaring it is what keeps it out of the *dead control* half of this
+	# guard without an excuse.
+	refs = re.search(r"export const SAID_AS_A_REF = \[(.*?)\];", app, re.S)
+
+	assert refs is not None, "SAID_AS_A_REF is gone, so a drawn control is counted as dead"
 
 	assert found and numbers, "the field lists are gone, so this is checking nothing"
 
@@ -6206,7 +6213,8 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	read = set(re.findall(
 		r'"([^"]+)"',
-		found.group(1) + numbers.group(1) + always.group(1) + repeated.group(1),
+		found.group(1) + numbers.group(1) + always.group(1) + repeated.group(1)
+		+ refs.group(1),
 	))
 	read |= {"tags"}
 	# `title` and `text` are the naming control, drawn by `Editing` and `Adding` rather than by
@@ -6232,7 +6240,10 @@ def test_every_control_the_form_draws_is_one_the_body_reads () -> None:
 
 	assert document is not None, "DOCUMENT_SAID is gone, so the document form checks nothing"
 
-	wanted = set(re.findall(r'"([^"]+)"', document.group(1)))
+	# **`SAID_AS_A_REF` counts on this side too** — `SR#2201`. `written` maps it exactly as
+	# `filed` does, and for the same reason it cannot join `DOCUMENT_SAID`: that loop sends a
+	# control under its own name, and this one is read as a ref before it is sent.
+	wanted = set(re.findall(r'"([^"]+)"', document.group(1) + refs.group(1)))
 
 	assert on_paper, "the document form draws nothing, so this is checking nothing"
 	assert on_paper == wanted, (
@@ -7613,6 +7624,60 @@ def test_a_page_collapsed_to_the_top_level_says_rows_are_hidden (
 	)
 
 
+def test_a_save_re_parents_only_when_the_box_changed (tmp_path: pathlib.Path) -> None:
+	"""`SR#2201`. Three answers, because there are three — and the middle one is a real value.
+
+	Emptying the box is how a reader removes a parent, so *no parent* and *did not touch it*
+	cannot be the same answer: one has to issue `POST /{kind}/{ref}/move` with `parent: null`
+	and the other has to issue nothing at all. `POST /v1/projects/{key}/move` learned that the
+	expensive way, where an omitted parent read as *move to root* and flattened subtrees.
+
+	**Driven as a function rather than through the page**, which is `SR#640`'s cheapest route:
+	this decision lived inside `App`, where the render harness cannot call it and where four
+	shipped faults have come from. `tests/test_browser.py` is at its size ceiling and this
+	needs no browser — what only a browser could say is what the *control* does, and that is
+	driven where the other narrowing controls are.
+	"""
+
+	moving = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const held = {{ ref: 9, parent_ref: 7 }};
+		const top = {{ ref: 9, parent_ref: null }};
+
+		process.stdout.write(JSON.stringify({{
+			unchanged: app.movingTo({{ parent: "7" }}, held) === undefined,
+			unchangedWithSigil: app.movingTo({{ parent: "#7" }}, held) === undefined,
+			cleared: app.movingTo({{ parent: "" }}, held),
+			moved: app.movingTo({{ parent: "12" }}, held),
+			untouchedAtTop: app.movingTo({{ parent: "" }}, top) === undefined,
+			setFromTop: app.movingTo({{ parent: "12" }}, top),
+			nonsense: app.movingTo({{ parent: "seven" }}, held),
+			unreadable: app.unreadableParent({{ parent: "seven" }}),
+			empty: app.unreadableParent({{ parent: "  " }}),
+			sigil: app.unreadableParent({{ parent: "#7" }}),
+		}}));
+	""")
+
+	assert moving["unchanged"] is True, "an ordinary save would issue a second request"
+	assert moving["unchangedWithSigil"] is True, "`#7` and `7` are the same answer (§6.2)"
+	assert moving["cleared"] is None, "emptying the box is the remove and has to be sent"
+	assert moving["moved"] == 12
+	assert moving["untouchedAtTop"] is True
+	assert moving["setFromTop"] == 12
+
+	# **Nonsense reads as cleared here, and that is why it is refused before this runs.**
+	# `parentRef` returns null for anything that is not a number, so `seven` in the box is *no
+	# parent* — which would silently promote the item and report success. The two answers are
+	# told apart by `unreadableParent`, and both halves are asserted because either alone
+	# would look correct: this one says the collapse is real, and the next says something
+	# catches it.
+	assert moving["nonsense"] is None
+	assert moving["unreadable"] is True, "a word in the box is not refused before the save"
+	assert moving["empty"] is False, "emptying the box is the remove, not a mistake"
+	assert moving["sigil"] is False, "`#7` is how the number is printed (§6.2)"
+
+
 def test_a_project_filter_sends_what_the_route_accepts () -> None:
 	"""`SR#320`: `project=` already covers what is under a project, and `subtree` is not it.
 
@@ -8189,6 +8254,13 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
 		("assignRequest", [{"ref": place.task}, None, place.slug]),
+		# **Both directions and both kinds** — `SR#2201`. `null` is a real value here and is why
+		# the endpoint takes a body: *no parent* and *unchanged* have to be distinguishable, and
+		# `POST /v1/projects/{key}/move` learned that the expensive way. Driven to the top
+		# rather than under something, because a fixture with only one of each kind has nothing
+		# to nest and the promotion is the half that the shipped defect was about.
+		("moveRequest", [{"ref": place.task}, None, "task", place.slug]),
+		("moveRequest", [{"ref": place.document}, None, "document", place.slug]),
 		# **Both directions, because clearing is a value rather than an omission** (`SR#986`,
 		# §8.3). A `null` that the route read as *leave it alone* would make *Stop prioritising*
 		# a button that reports success and changes nothing, which is this codebase's own

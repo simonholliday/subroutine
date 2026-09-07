@@ -220,6 +220,27 @@ export function Fields ({
 			*/ null}
 			${DATE_FIELDS.map(day)}
 
+			${/*
+				**One box for the whole relation** — `#2201`, Simon 2026-09-07: *"if it has a
+				parent, it should be displayed, with an option to remove it. Otherwise … I
+				should be able to enter a ticket number."* Prefilled with what it is filed
+				under, and **emptying it is the remove** — a separate button would be a second
+				control for one field, and a reader who has just cleared a box and pressed Save
+				has already said what they meant.
+
+				**`#7` and `7` both**, because that is how the number is printed everywhere
+				(§6.2) and a shell eats the sigil, so people have learned to type it bare.
+
+				**The browser checks the shape and nothing else.** Whether it is the right kind
+				and whether it would make a cycle are refused in the domain, with a sentence
+				naming what is wrong — and a second implementation here is what `#925` and
+				`#1420` refuse. It could not do the cycle check anyway without fetching the
+				tree.
+			*/ null}
+			<label><span>Parent</span>
+				<input class="field" name="parent" disabled=${busy} placeholder="7"
+					defaultValue=${held.parent || ""} /></label>
+
 			<label class="wide"><span>Tags</span>
 				<input class="field" name="tags" disabled=${busy} placeholder="health, admin"
 					defaultValue=${held.tags || ""} /></label>
@@ -430,6 +451,14 @@ export function DocumentFields ({
 			))}
 			${pick("project", "Project",
 				filableFor(projects, held.project || project, prioritised))}
+			${/* **The same box a task has, and the same rule** — `#2201`. A document under a
+			     document is `#2173`'s relation and it is called *parent* on both, which is
+			     `#1547`: a second vocabulary for one relation is what that rule refuses, and
+			     *Section of* was the tempting one here because this module's own prose uses
+			     the word. Emptying it is the remove. */ null}
+			<label><span>Parent</span>
+				<input class="field" name="parent" disabled=${busy} placeholder="7"
+					defaultValue=${held.parent || ""} /></label>
 		</fieldset>
 	`;
 }

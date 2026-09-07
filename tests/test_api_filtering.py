@@ -2051,3 +2051,35 @@ def test_a_document_says_how_many_are_filed_under_it (world: World) -> None:
 	}
 
 	assert after[inside["ref"]] == 0
+
+
+def test_a_document_names_the_one_it_is_filed_under (world: World) -> None:
+	"""`SR#2201`. A `parent_id` alone is not an address.
+
+	A ref is how this product names an item (§6.2), so a view reporting the id and nothing
+	else forces every client to fetch the parent before it can print a word — review dimension
+	4's second call, multiplied by the page. `Task` has carried `parent_ref` and `parent_title`
+	since `SR#510` for exactly that reason and a document carried neither, which nothing
+	noticed because until `SR#2173` nothing could nest one.
+	"""
+
+	above = world.call("POST", "/v1/documents", json={"title": "Instrument specs"}).json()
+	inside = world.call(
+		"POST", "/v1/documents", json={"title": "One instrument", "parent": str(above["ref"])}
+	)
+
+	assert inside.status_code == 201, inside.text
+
+	listed = {
+		one["ref"]: one
+		for one in world.call(
+			"GET", "/v1/documents?fields=ref,title,parent_ref,parent_title"
+		).json()["items"]
+	}
+
+	assert listed[inside.json()["ref"]]["parent_ref"] == above["ref"]
+	assert listed[inside.json()["ref"]]["parent_title"] == "Instrument specs"
+
+	# **Null together, and null honestly means top level** — not *this client may not see it*.
+	assert listed[above["ref"]]["parent_ref"] is None
+	assert listed[above["ref"]]["parent_title"] is None
