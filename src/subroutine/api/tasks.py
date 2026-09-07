@@ -493,11 +493,16 @@ def listing (
 	# **Resolved once, here, because two questions want the same row** (`#1032`): whether this
 	# listing reaches finished work, and which status to narrow by. A second lookup below would
 	# be the same query twice and a second chance for the two to disagree about an unknown key.
-	named = (
-		None
-		if status is None
-		else subroutine.domain.tasks.status_for(session, workspace.id, status)
-	)
+	# **Both spellings, resolved through the one function** — `#1829`. `?status=done` and
+	# `?status.eq=done` are the same request, so the rule below that decides whether this
+	# listing reaches finished work has to see either. Resolving the dotted values here as well
+	# is a second lookup of the same key by the same resolver, which cannot disagree with the
+	# predicate's — where reading the category off a raw id could not be done at all.
+	named = [
+		subroutine.domain.tasks.status_for(session, workspace.id, key)
+		for key in ([] if status is None else [status])
+		+ dates.values_for(subroutine.domain.filtering.STATUS)
+	]
 
 	completion = subroutine.domain.tasks.completion_wanted(
 		status_category,
@@ -540,8 +545,11 @@ def listing (
 		# work, and a parent whose listing excluded its own children made the tree decorative.
 		statement = statement.where(subroutine.domain.scoping.within_project(chosen))
 
-	if named is not None:
-		statement = statement.where(model.status_id == named.id)
+	# **Only the flat spelling narrows here**; the dotted one is compiled by the registry, and
+	# adding it twice would be one predicate written in two places — this codebase's signature
+	# defect on the vocabulary that decides what a caller may ask.
+	if status is not None:
+		statement = statement.where(model.status_id == named[0].id)
 
 	if status_category is not None:
 		statement = statement.where(

@@ -3303,7 +3303,7 @@ def status_for (
 
 def default_order (
 	*,
-	status: subroutine.db.models.vocabulary.Status | None = None,
+	status: typing.Sequence[subroutine.db.models.vocabulary.Status] = (),
 	category: str | None = None,
 ) -> tuple[str, ...]:
 	"""Return what a task listing is ordered by when the caller named no order.
@@ -3345,7 +3345,13 @@ def default_order (
 	# A set rather than a precedence, because there is no right answer when a caller says both
 	# contradictory things — `status=done&status_category=todo` is an empty listing whichever
 	# order this picks, so the question is not worth a rule.
-	narrowed_to = {category, status.category if status is not None else None}
+	#
+	# **Every named status, not any of them** — `#1829`, and it is the paragraph above kept
+	# rather than widened. One status behaves exactly as before; ``status.in=open,done`` is a
+	# *mixed* listing, which this docstring says is `#1152`'s question and not this one's, so
+	# it keeps the ordinary order rather than being quietly given the finished one.
+	named = {one.category for one in status}
+	narrowed_to = {category} | (named if named <= FINISHED_CATEGORIES else set())
 
 	if narrowed_to & FINISHED_CATEGORIES:
 		return tuple(subroutine.domain.ordering.FINISHED_TASK_ORDER)
@@ -3401,7 +3407,7 @@ def completion_wanted (
 	category: str | None,
 	asked: bool | None,
 	*,
-	status_named: subroutine.db.models.vocabulary.Status | None = None,
+	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status] = (),
 	about_completion: bool = False,
 	about_activity: bool = False,
 	about_deletion: bool = False,
@@ -3492,8 +3498,11 @@ def completion_wanted (
 	item numbered 815* is a coherent question.
 	"""
 
-	named_finished = (
-		status_named is not None and status_named.category in FINISHED_CATEGORIES
+	# **Any of them, because the caller asked for those rows** — `#1829`. ``status=done`` names
+	# one and ``status.in=open,done`` names two, and leaving the finished half unreachable
+	# would answer part of the question while looking complete.
+	named_finished = any(
+		status.category in FINISHED_CATEGORIES for status in status_named
 	)
 
 	wants_finished = (
@@ -3512,6 +3521,19 @@ def completion_wanted (
 		)
 
 	if asked is False:
+		# **Naming some finished statuses and some unfinished ones is not a contradiction** —
+		# `#1829`, and it is a case that could not arise until `in` existed. ``status.in=open,
+		# done`` with completion excluded is *the open ones*, which is a coherent question and
+		# a non-empty answer, where ``status=done`` with the same exclusion admits nothing.
+		#
+		# **So the two questions this variable used to answer have parted company.** *Should
+		# the listing reach finished work* is **any** of them, because the caller asked for
+		# those rows; *does the request admit nothing* is **all** of them. With one status they
+		# are the same sentence, which is why they shared a name until a second value was
+		# possible.
+		if not _admits_nothing(category, status_named, about_completion):
+			return False
+
 		raise subroutine.errors.ValidationError(
 			_excluding_all_of_it(category, status_named),
 			errors=[
@@ -3530,39 +3552,81 @@ def completion_wanted (
 	return True
 
 
+def _admits_nothing (
+	category: str | None,
+	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
+	about_completion: bool,
+) -> bool:
+	"""Report whether excluding finished work would leave this request with no rows at all.
+
+	**The half of the old ``wants_finished`` that decides a refusal** — `#1829`. Reaching
+	finished work is *any* named status being finished; contradicting yourself is *all* of them
+	being finished, and the two coincide for every request that could be written before ``in``.
+
+	``completed_at`` is unconditional here because that column is null on everything unfinished,
+	so no other narrowing can rescue it. A finished ``status_category`` is the same.
+	"""
+
+	if about_completion:
+		return True
+
+	if category is not None and category in FINISHED_CATEGORIES:
+		return True
+
+	return bool(status_named) and all(
+		status.category in FINISHED_CATEGORIES for status in status_named
+	)
+
+
 def _asking_for_it (
 	category: str | None,
-	status_named: subroutine.db.models.vocabulary.Status | None,
+	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
 ) -> str:
 	"""Name whichever part of the request asked for finished work.
 
 	**In the caller's own spelling, because a refusal naming a parameter they did not send is
 	unfollowable** (`#547`). Somebody who wrote ``status=done`` and is told about
 	``status_category`` goes looking for a parameter that is not in their request.
+
+	**The field and its keys, which is true of either spelling** (`#1829`). ``status=done`` and
+	``status.eq=done`` are one field asked two ways and this cannot tell them apart from the
+	resolved row — so it names ``status`` and the keys, which is in the request whichever was
+	written. Only the *several* case is new wording; one status reads exactly as it always did.
 	"""
 
 	if category is not None and category in FINISHED_CATEGORIES:
 		return f"status_category={category!r}"
 
-	if status_named is not None and status_named.category in FINISHED_CATEGORIES:
-		return f"status={status_named.key!r}"
+	finished = sorted(
+		status.key for status in status_named if status.category in FINISHED_CATEGORIES
+	)
+
+	if finished:
+		return "status=" + ", ".join(repr(key) for key in finished)
 
 	return "a filter on completed_at"
 
 
 def _excluding_all_of_it (
 	category: str | None,
-	status_named: subroutine.db.models.vocabulary.Status | None,
+	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
 ) -> str:
 	"""Say what the contradiction was, in the caller's own terms."""
 
 	if category is not None and category in FINISHED_CATEGORIES:
 		return f"{category!r} is finished work, so excluding finished work leaves nothing."
 
-	if status_named is not None and status_named.category in FINISHED_CATEGORIES:
+	finished = [
+		status.key for status in status_named if status.category in FINISHED_CATEGORIES
+	]
+
+	if finished:
+		# **Name every one of them.** ``status.in=open,done`` is refused because of `done`
+		# alone, and a message quoting the first status the caller wrote would name `open` —
+		# a refusal asserting a cause it has not established.
 		return (
-			f"{status_named.key!r} is finished work here, so excluding finished work "
-			"leaves nothing."
+			f"{', '.join(repr(key) for key in sorted(finished))} is finished work here, so "
+			"excluding finished work leaves nothing."
 		)
 
 	return (

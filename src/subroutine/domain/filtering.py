@@ -46,6 +46,7 @@ import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.instances
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.selection
 import subroutine.domain.tags
 import subroutine.errors
@@ -571,6 +572,39 @@ WHO_HOLDS_IT = "holder"
 #: Which group compiles ``tag``, whose predicate is a subquery over a join table — `#1804`.
 TAGGED = "tagged"
 
+#: Which group compiles ``status`` and ``type``, the two names drawn from a workspace's own
+#: curated vocabulary — `#1829`.
+#:
+#: **One group for both because they resolve identically and refuse identically.** Each turns a
+#: *key* into the id of a row in a per-workspace table, so each needs the session and exactly
+#: one workspace, and each has to refuse an unknown key by listing what the workspace really
+#: has. They never compile together — they are separate columns — which is what :data:`GROUPS`
+#: is for and is the same shape :data:`WHO_HOLDS_IT` has carried for ``assignee`` and
+#: ``claimed_by`` since `#1804`.
+#:
+#: **The resolvers belong to the entity and are reached late.** ``domain.tasks`` imports
+#: ``domain.ordering``, which reads this module's registries at module scope, so importing it
+#: here at the top would be a cycle — the one the :class:`Property` docstring records. The
+#: house style's nested-import exception is what :func:`_vocabulary_key` uses.
+FROM_THE_VOCABULARY = "vocabulary"
+
+#: Which group compiles ``project``, the one filter that resolves an *address* — `#1829`.
+#:
+#: **Alone rather than beside the vocabulary keys**, because what it needs from :class:`Where`
+#: is different in kind: a status key is resolved against a table, and a project is resolved
+#: against what this *caller* may see, which needs the principal and the workspace object.
+IN_PROJECT = "in_project"
+
+#: The two field names that group resolves, spelled once so the predicate can tell them apart.
+#:
+#: **Named here rather than compared as literals**, because the predicate branches on which of
+#: the two it is holding and a typo in that branch would resolve a status key against the type
+#: table — which answers *there is no type called 'open'* about a field the caller spelled
+#: correctly.
+STATUS = "status"
+TYPE = "type"
+PROJECT = "project"
+
 #: Which group compiles ``answers_to``, which resolves a username to the people it stands for
 #: — `#848`. Alone, like a reference: what it needs from :class:`Where` is the session.
 ANSWERABLE_TO = "answerable"
@@ -726,6 +760,44 @@ _CONDITION_ONLY: dict[str, Property] = {
 			"identity, so `_allowed` refuses it — and *has no tags at all* really is a "
 			"different query, a `NOT EXISTS` over the join table rather than a null column."
 		),
+	),
+	# **The two keys a workspace curates, `#1829`.** Both were flat parameters and nothing
+	# else, so `status.in=open,in_progress` and `type.in=bug,spike` — the questions a planner
+	# actually asks — had no spelling at all, while `?status=open` had one that could name only
+	# a single value.
+	#
+	# **Not orderable, and the reason is the same for both**: a key is a word, so ordering by
+	# it is alphabetical, and a status has `position` for the order somebody actually meant.
+	# `#1805` is where that would be argued if anybody wanted it.
+	STATUS: Property(
+		column=subroutine.db.models.work.Task.status_id,
+		kind=REFERENCE,
+		group=FROM_THE_VOCABULARY,
+		because=(
+			"a status key sorts alphabetically, which is never the order somebody means — "
+			"`status.position` is the workspace's own and `status_category` is the axis a "
+			"board groups on."
+		),
+	),
+	# **The third of `#1829`'s four**, and the one that needed `Where` widened: a project is
+	# resolved against what this *caller* may see, so a key naming a private project somebody
+	# is not a member of is **not found** rather than answered with an empty page.
+	PROJECT: Property(
+		column=subroutine.db.models.work.Task.project_id,
+		kind=REFERENCE,
+		group=IN_PROJECT,
+		because=(
+			"a project id sorts by nothing anybody means, and *group by project* is the "
+			"question underneath — which wants a bounded axis and is `#1803`'s third "
+			"capability rather than an ordering."
+		),
+	),
+	TYPE: Property(
+		column=subroutine.db.models.work.Task.type_id,
+		kind=REFERENCE,
+		group=FROM_THE_VOCABULARY,
+		because="a type key sorts alphabetically, which puts `bug` above `spike` and means "
+		"nothing. Nothing has asked to order by it.",
 	),
 	"parent": Property(
 		column=subroutine.db.models.work.Task.parent_task_id,
@@ -892,6 +964,28 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 	# **A document is grouped on the same axis and its keys are its own** (`#1790`). Four
 	# categories a *document* has, which are not a task's four — `db.mixins` keeps them apart
 	# and this is where the two registries stop agreeing by accident.
+	# **The same two keys, on the other entity — `#1829`.** A document's vocabulary is its own:
+	# `entity_type` scopes the table, so a document's `current` and a task's `done` are
+	# different rows and `documents.status_for` is the resolver that knows it.
+	STATUS: Property(
+		column=subroutine.db.models.work.Document.status_id,
+		kind=REFERENCE,
+		group=FROM_THE_VOCABULARY,
+		because="the task entry's reason, unchanged — a key sorts alphabetically and "
+		"`position` is the order the workspace meant.",
+	),
+	PROJECT: Property(
+		column=subroutine.db.models.work.Document.project_id,
+		kind=REFERENCE,
+		group=IN_PROJECT,
+		because="the task entry's reason, unchanged.",
+	),
+	TYPE: Property(
+		column=subroutine.db.models.work.Document.type_id,
+		kind=REFERENCE,
+		group=FROM_THE_VOCABULARY,
+		because="the task entry's reason, unchanged.",
+	),
 	STATUS_CATEGORY: Property(
 		groupable=subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES,
 		because="a flat route parameter today rather than a dotted filter — `#1804`.",
@@ -1378,11 +1472,26 @@ class Where (typing.NamedTuple):
 	#: Only for a group that resolves a name. ``touched_by`` takes a username.
 	session: sqlalchemy.orm.Session | None = None
 
-	#: The account ``me`` stands for, where a filter takes a username (`#518`). ``None`` means
-	#: the word is an ordinary username and will not resolve, which is what a caller with no
-	#: principal to offer wants — the sentinel is a courtesy to somebody asking about
-	#: themselves, never a way to ask about somebody whose name you do not know.
-	caller: subroutine.db.models.identity.User | None = None
+	#: Who is asking. ``None`` means nobody was offered, so ``me`` is an ordinary username and
+	#: will not resolve — the sentinel is a courtesy to somebody asking about themselves (`#518`),
+	#: never a way to ask about somebody whose name you do not know.
+	#:
+	#: **A principal rather than the user, since `#1829`.** It was a ``User`` and every caller
+	#: set it from ``actor.user``, so the second field a project filter needs — a principal, to
+	#: refuse a project the caller cannot see *by name* rather than answering an empty page —
+	#: would have been a second variable answering the same question. One of them, and the user
+	#: is read off it where a username is what is wanted.
+	principal: subroutine.domain.authentication.Principal | None = None
+
+	#: The one workspace this listing reads, for a filter that resolves an address rather than
+	#: a bare name — `#1829`.
+	#:
+	#: **Beside ``workspace_ids`` rather than instead of it**, because they answer different
+	#: questions: the sequence is what a subquery narrows by and may hold several, and this is
+	#: the object ``selection.project`` needs and exists only when there is exactly one. A feed
+	#: spanning workspaces has ids and no workspace, which is the state that makes a filter
+	#: needing one refuse rather than guess.
+	workspace: subroutine.db.models.identity.Workspace | None = None
 
 	#: Which workspaces the listing is already narrowed to, so a subquery over another table
 	#: can reach an index keyed on one. **Not a visibility control** — :func:`_touched` explains
@@ -1546,8 +1655,44 @@ def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:
 		raise AssertionError("touched_by needs a session to resolve a username")
 
 	return subroutine.domain.selection.user(
-		where.session, comparison.value, caller=where.caller
+		where.session, comparison.value, caller=_the_user(where)
 	).id
+
+
+def values_for (comparisons: typing.Iterable[Comparison], field: str) -> list[str]:
+	"""Return every value these comparisons name for one field, with :data:`IN` split out.
+
+	**The companion to :func:`about`, which answers *whether* where this answers *what*** —
+	`#1829`. Some rules need the value and not only the presence: naming a finished status
+	decides whether the listing reaches finished work at all (`#1032`), and that has to be
+	settled before the statement these predicates are added to is built.
+
+	**Split the same way the predicate splits it**, through the one function, so a rule read
+	off a filter and the filter itself can never disagree about what ``status.in=open,done``
+	named.
+	"""
+
+	found = []
+
+	for comparison in comparisons:
+		if comparison.field == field:
+			found.extend(_values(comparison))
+
+	return found
+
+
+def values_named (
+	parameters: typing.Iterable[tuple[str, str]], *, entity: str, field: str
+) -> list[str]:
+	"""Return the values one field was given, reading the dotted names as written.
+
+	**For a caller holding raw parameters rather than resolved comparisons** — the local
+	client, which hands its filters straight to :func:`asked`. Resolving them here rather than
+	partitioning the names by hand is what makes an alias work: `#1017`'s trap is a rule that
+	compares ``due_after`` against ``due_at`` and answers no about a filter that was applied.
+	"""
+
+	return values_for(understood(parameters, entity=entity), field)
 
 
 def _values (comparison: Comparison) -> list[str]:
@@ -1605,8 +1750,153 @@ def _held_by (comparisons: list[Comparison], where: Where) -> typing.Any:
 		column = comparison.against.column
 		found = [
 			subroutine.domain.selection.user(
-				where.session, value, caller=where.caller
+				where.session, value, caller=_the_user(where)
 			).id
+			for value in _values(comparison)
+		]
+
+		narrowing.append(
+			column.in_(found) if comparison.operator == IN else column == found[0]
+		)
+
+	return sqlalchemy.and_(*narrowing)
+
+
+#: How a vocabulary key is turned into a row: the session, the workspace, and the key itself.
+#:
+#: **The shape both entities' resolvers already have**, so declaring it costs nothing and makes
+#: the pair below type-checked rather than a tuple of unknowns.
+_Resolver: typing.TypeAlias = typing.Callable[
+	[sqlalchemy.orm.Session, uuid.UUID, str], typing.Any
+]
+
+
+def _the_user (where: Where) -> subroutine.db.models.identity.User | None:
+	"""Return the account ``me`` stands for, or ``None`` when nobody was offered.
+
+	One line, and it exists so the three filters that resolve a username read the user off the
+	principal in one place rather than three — `#1829`, where :attr:`Where.caller` became
+	:attr:`Where.principal` so a project filter would not need a second field saying who is
+	asking.
+	"""
+
+	return None if where.principal is None else where.principal.user
+
+
+def _in_project (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``project`` — one project *and everything filed underneath it*, `#1829`.
+
+	**Through :func:`subroutine.domain.selection.project` and
+	:func:`subroutine.domain.scoping.within_project`, the two the flat parameter already
+	uses.** The first refuses a project this caller cannot see **by name**, where comparing an
+	unresolved key would answer an empty listing — §7.3a's distinction, and the reason this
+	filter needs a principal rather than a user. The second is `#320`'s rule: a named project
+	means that area of work, so a parent that answered for none of its contents would make the
+	tree decorative.
+
+	**A predicate over the *project's* path rather than the item's column**, which is why this
+	works unchanged on both entities: `readable_tasks` and `readable_documents` both join
+	``project``, and the declaration's column is there for :func:`_allowed` to read — both
+	``project_id`` columns are ``NOT NULL``, so ``is`` is refused without anybody saying so.
+
+	**``in`` is *any of these*, so the subtrees are ORed**; two separate comparisons about
+	``project`` are still ANDed, which is a caller asking for the intersection of two areas and
+	is `#1801` §9's stated shape for the query string.
+	"""
+
+	if where.session is None or where.principal is None or where.workspace is None:
+		raise subroutine.errors.ValidationError(
+			"A project can only be asked about inside one workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=comparisons[0].field,
+					code="invalid_field_value",
+					message="A project is addressed within a workspace, and this listing reads "
+					"more than one.",
+					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+				)
+			],
+		)
+
+	narrowing = []
+
+	for comparison in comparisons:
+		chosen = [
+			subroutine.domain.scoping.within_project(
+				subroutine.domain.selection.project(
+					where.session, where.principal, where.workspace, value
+				)
+			)
+			for value in _values(comparison)
+		]
+
+		narrowing.append(sqlalchemy.or_(*chosen))
+
+	return sqlalchemy.and_(*narrowing)
+
+
+def _vocabulary_key (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``status`` and ``type`` — a key from the workspace's own vocabulary, `#1829`.
+
+	**Through the same resolver the flat parameter uses**, which is the whole of why this is
+	worth doing rather than comparing ids: ``tasks.status_for`` refuses an unknown key by
+	*listing the ones this workspace has*, where a raw ``status_id`` comparison would answer an
+	empty page and say nothing. A vocabulary is renameable and per workspace, so a caller who
+	guesses needs to be told what to guess from.
+
+	**The entity decides which resolver, read off the column** — the shape :func:`_tagged`
+	established. A status is `entity_type` scoped, so a task's ``done`` and a document's
+	``current`` are different rows in one table and asking the wrong module would silently
+	compare against the wrong half of it.
+
+	**Reached late, because ``domain.tasks`` imports ``domain.ordering``**, which reads this
+	module's registries at module scope. The house style's nested-import exception covers
+	exactly this, and a plain ``import subroutine.domain.tasks`` in a function body would bind
+	``subroutine`` locally and shadow every other use of it here.
+	"""
+
+	from subroutine.domain import documents as for_documents
+	from subroutine.domain import tasks as for_tasks
+
+	if where.session is None:
+		raise AssertionError("a vocabulary key needs a session to resolve a name")
+
+	# **One workspace, refused rather than guessed at** — `_tagged`'s rule and for its reason:
+	# a status key belongs to a workspace, so a listing reading several has no one table to
+	# resolve against. The local client merging connections is what reaches this.
+	if len(where.workspace_ids) != 1:
+		raise subroutine.errors.ValidationError(
+			"A status or a type can only be asked about inside one workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=comparisons[0].field,
+					code="invalid_field_value",
+					message="A workspace curates its own statuses and types, and this reads "
+					"several.",
+					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+				)
+			],
+		)
+
+	owner = typing.cast(typing.Any, comparisons[0].against.column).parent.class_
+	# **Typed, because a registry annotated loosely is where the next defect hides.** Only the
+	# key is `Any` — it is a mapped class — and the pair is the two resolvers in a fixed order,
+	# so swapping them is a type error rather than a status key looked up in the type table.
+	resolvers: dict[typing.Any, tuple[_Resolver, _Resolver]] = {
+		subroutine.db.models.work.Task: (for_tasks.status_for, for_tasks.item_type_for),
+		subroutine.db.models.work.Document: (
+			for_documents.status_for,
+			for_documents.item_type_for,
+		),
+	}
+	by_status, by_type = resolvers[owner]
+	narrowing = []
+
+	for comparison in comparisons:
+		column = comparison.against.column
+		resolve = by_status if comparison.field == STATUS else by_type
+		found = [
+			resolve(where.session, where.workspace_ids[0], value).id
 			for value in _values(comparison)
 		]
 
@@ -1704,7 +1994,7 @@ def _answerable_to (comparisons: list[Comparison], where: Where) -> typing.Any:
 
 	for comparison in comparisons:
 		person = subroutine.domain.selection.user(
-			where.session, comparison.value, caller=where.caller
+			where.session, comparison.value, caller=_the_user(where)
 		)
 		standing = [person.id] + [
 			agent.id
@@ -1730,6 +2020,8 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	"touched": _touched,
 	WHO_HOLDS_IT: _held_by,
 	TAGGED: _tagged,
+	FROM_THE_VOCABULARY: _vocabulary_key,
+	IN_PROJECT: _in_project,
 	ANSWERABLE_TO: _answerable_to,
 }
 
@@ -1741,8 +2033,9 @@ def asked (
 	now: datetime.datetime,
 	timezone: str,
 	session: sqlalchemy.orm.Session | None = None,
-	caller: subroutine.db.models.identity.User | None = None,
+	principal: subroutine.domain.authentication.Principal | None = None,
 	workspace_ids: typing.Sequence[uuid.UUID] = (),
+	workspace: subroutine.db.models.identity.Workspace | None = None,
 ) -> list[typing.Any]:
 	"""Compile every dotted parameter into predicates, refusing anything it cannot.
 
@@ -1756,8 +2049,9 @@ def asked (
 			now=now,
 			timezone=timezone,
 			session=session,
-			caller=caller,
+			principal=principal,
 			workspace_ids=workspace_ids,
+			workspace=workspace,
 		),
 	)
 

@@ -67,6 +67,18 @@ class Asked (typing.NamedTuple):
 			(comparison.field for comparison in self.comparisons), field
 		)
 
+	def values_for (self, field: str) -> list[str]:
+		"""Return the values this request gave one field — `#1829`.
+
+		:meth:`about` answers *whether*; some rules need *what*. Naming a finished status
+		decides whether the listing reaches finished work at all (`#1032`), and a `REFERENCE`
+		entry compiling to ``status_id == x`` and nothing else would answer `[]` for every
+		finished status — a plausible, complete, wrong answer on a listing's commonest
+		narrowing.
+		"""
+
+		return subroutine.domain.filtering.values_for(self.comparisons, field)
+
 
 class Reader:
 	"""Resolves one entity's dotted parameters, as a dependency a route declares.
@@ -143,8 +155,9 @@ def narrowed (
 				now=subroutine.db.types.utcnow(),
 				timezone=subroutine.domain.filtering.timezone_for(session, actor, workspace),
 				session=session,
-				caller=actor.user,
+				principal=actor,
 				workspace_ids=[workspace.id],
+				workspace=workspace,
 			)
 		)
 	)
@@ -180,7 +193,7 @@ def across (
 			now=subroutine.db.types.utcnow(),
 			timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
 			session=session,
-			caller=actor.user,
+			principal=actor,
 			workspace_ids=workspace_ids,
 		)
 	)

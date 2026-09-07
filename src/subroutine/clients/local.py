@@ -418,11 +418,21 @@ class Client:
 
 			# **Resolved once and read twice** (`#1032`): whether this listing reaches finished
 			# work, and which status to narrow by.
-			named = (
-				None
-				if status is None
-				else subroutine.domain.tasks.status_for(session, chosen.id, status)
-			)
+			#
+			# **Both spellings since `#1829`**, and this transport has to do it too or
+			# `subroutine list --filter status.eq=done` answers nothing while the endpoint
+			# answers correctly — which is the divergence this client's whole shape exists to
+			# prevent. `values_named` resolves the dotted names rather than partitioning them,
+			# so an alias would be read as the field it stands for.
+			named = [
+				subroutine.domain.tasks.status_for(session, chosen.id, key)
+				for key in ([] if status is None else [status])
+				+ subroutine.domain.filtering.values_named(
+					(filters or {}).items(),
+					entity="task",
+					field=subroutine.domain.filtering.STATUS,
+				)
+			]
 
 			# The same rule `GET /v1/tasks` applies, from the same function — a narrowing that
 			# widened on one transport and not the other is what `domain.ordering` exists to
@@ -644,8 +654,11 @@ class Client:
 			# unknown status, type or account is refused by name here exactly as it is over
 			# HTTP — which is what `tests/test_transport_equivalence.py` is for, and why these
 			# read as duplication rather than being one.
-			if named is not None:
-				statement = statement.where(model.status_id == named.id)
+			# **Only the flat spelling narrows here.** The dotted one is compiled by the
+			# registry a few lines below, through `filtering.asked`, and narrowing twice would
+			# be one predicate written in two places.
+			if status is not None:
+				statement = statement.where(model.status_id == named[0].id)
 
 			if status_category is not None:
 				statement = statement.where(
@@ -720,8 +733,9 @@ class Client:
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
 					session=session,
-					caller=actor.user,
+					principal=actor,
 					workspace_ids=[chosen.id],
+					workspace=chosen,
 				)
 			)
 
@@ -1202,8 +1216,9 @@ class Client:
 								session, actor, chosen
 							),
 							session=session,
-							caller=actor.user,
+							principal=actor,
 							workspace_ids=[chosen.id],
+							workspace=chosen,
 						)
 					)
 					# Built by the domain from the vocabulary `GET /v1/documents` uses,
@@ -1731,7 +1746,7 @@ class Client:
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
 					session=session,
-					caller=actor.user,
+					principal=actor,
 					workspace_ids=workspace_ids,
 				),
 			)
@@ -1811,7 +1826,7 @@ class Client:
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, None),
 					session=session,
-					caller=actor.user,
+					principal=actor,
 					workspace_ids=workspace_ids,
 				),
 				# Resolved here rather than passed as a name, for the reason every other "who"

@@ -27,6 +27,7 @@ import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.system
 import subroutine.db.models.work
+import subroutine.db.seed
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.filtering
@@ -608,12 +609,47 @@ def test_a_tag_cannot_be_named_in_a_way_a_filter_could_not_ask_for (
 #: A tag the case above makes before it drives a filter that names one.
 _A_TAG = "ops"
 
+def _default_status (entity_type: str) -> str:
+	"""Return the status something of this kind gets when nobody says.
+
+	**Derived from the seeds rather than spelled**, beside ``seed.default_type`` which already
+	answers the other half of the same question. A task's default is ``open`` and a document's
+	is ``draft``, and writing either here would be a second copy of a table this world is
+	actually built from.
+	"""
+
+	return next(
+		seed.key
+		for seed in subroutine.db.seed.SEEDED_STATUSES
+		if seed.entity_type == entity_type and seed.is_default
+	)
+
+
 #: What each `REFERENCE` field takes, since one kind covers several vocabularies — `SR#1804`.
 #:
 #: **Per field rather than per kind**, which is where this map differs from :data:`_SAMPLES`
 #: below and has to: a username, a tag name and a project key are three vocabularies wearing one
 #: kind, and driving a tag filter with a username reports the route as broken.
-_REFERENCES: dict[str, str] = {"tag": _A_TAG}
+#:
+#: **And per entity since `SR#1829`**, because ``status`` and ``type`` are a *workspace's* own
+#: vocabulary scoped by entity: a task's statuses and a document's are different rows in one
+#: table, so ``status.eq=open`` is right on one listing and refused on the other. Keeping this
+#: keyed by field alone would have driven a document's status filter with ``open`` and reported
+#: a working route as broken — which is the failure the comment above :data:`_SAMPLES` records
+#: one axis along, and which this map's own comment predicted in as many words.
+_REFERENCES: dict[tuple[str, str], str] = {
+	("task", "tag"): _A_TAG,
+	("document", "tag"): _A_TAG,
+	("task", "status"): _default_status("task"),
+	("document", "status"): _default_status("document"),
+	("task", "type"): subroutine.db.seed.default_type("task"),
+	("document", "type"): subroutine.db.seed.default_type("document"),
+	# **The Inbox, because it is the one project every workspace is guaranteed to have** —
+	# `workspaces.create` makes it (`SR#301`) and a workspace without one refuses every task
+	# filed with no project. Any other key would be a fixture this map cannot see.
+	("task", "project"): subroutine.domain.workspaces.INBOX_KEY,
+	("document", "project"): subroutine.domain.workspaces.INBOX_KEY,
+}
 
 
 @pytest.mark.parametrize("entity", sorted(subroutine.domain.filtering.FILTERS))
@@ -652,7 +688,7 @@ def test_every_published_filter_is_accepted_by_the_listing_that_publishes_it (
 		# with *there is no account called 'today'*, which is the route working correctly.
 		field, _, operator = name.partition(".")
 		kind = subroutine.domain.filtering.FILTERS[entity][field].kind
-		value = _sample(kind, operator, field, world)
+		value = _sample(kind, operator, field, world, entity=entity)
 
 		answer = world.call("GET", f"{published_path(published, entity)}?{name}={value}")
 
@@ -689,6 +725,8 @@ def _sample (
 	operator: str,
 	field: str,
 	world: World,
+	*,
+	entity: str,
 ) -> str:
 	"""Return something this filter will accept, given its kind and its operator.
 
@@ -715,7 +753,7 @@ def _sample (
 		# but `tag` resolves a username today — and a field added to that kind with a
 		# vocabulary of its own would be driven with a username and report the route broken,
 		# which is the failure the comment above `_SAMPLES` records for kinds.
-		return _REFERENCES.get(field, str(world.user.username))
+		return _REFERENCES.get((entity, field), str(world.user.username))
 
 	for name, value in _SAMPLES.items():
 		if kind is getattr(subroutine.domain.filtering, name):
@@ -1238,15 +1276,14 @@ EVERY_LISTING: dict[str, str] = {
 #:
 #: **Deleting an entry is what closes the item it names**, like every other allow-list here.
 NOT_A_PROPERTY: dict[tuple[str, str], str] = {
-	# `SR#1829`'s four, and the three of them that documents carry too. Each resolves a name
-	# against this workspace's own vocabulary, which is what a `REFERENCE` property is for; what
-	# they lack is `in`, `is` and a place in one vocabulary rather than a way to be asked at all.
-	("task", "project"): "SR#1829 — a REFERENCE entry needs a Principal and a Workspace",
-	("document", "project"): "SR#1829, on the other entity — the same widening of `Where`",
-	("task", "status"): "SR#1829 — and `?status=done` reaching finished work must survive it",
-	("document", "status"): "SR#1829, on the other entity",
-	("task", "type"): "SR#1829 — one workspace id, like `status`",
-	("document", "type"): "SR#1829, on the other entity",
+	# **`status` and `type` have gone from here, which is what closed that half of `SR#1829`.**
+	# Both are `REFERENCE` properties on both entities now, resolved through the same
+	# `status_for` and `item_type_for` the flat spelling uses — so an unknown key is refused by
+	# name with the workspace's own vocabulary listed, rather than answered with an empty page.
+	#
+	# **`project` has gone too**, and it is what widened `Where`: a project is resolved against
+	# what this *caller* may see, so the predicate needs a principal and the workspace object
+	# rather than the ids a subquery narrows by.
 	# **`parent` is absent from here and that is the measurement correcting the list.**
 	# `SR#1829` is written as four flat parameters, and a task's `parent` is already a
 	# `CONDITION` property whose own `because` says what is left to settle — so the entry this
@@ -1459,3 +1496,117 @@ def test_a_reason_written_once_may_not_cover_a_listing_it_never_saw () -> None:
 		f"EVERY_LISTING carries a reason written about one entity: {parochial} — move it to "
 		f"NOT_A_PROPERTY, keyed by the listing it is about"
 	)
+
+
+def test_naming_a_finished_status_reaches_finished_work_however_it_is_spelled (
+	world: World,
+) -> None:
+	"""**The behaviour `SR#1829` said had to survive the conversion** — `SR#1032`'s rule.
+
+	``?status=done`` names a *key*, and `SR#1032` made that reach finished work as
+	unambiguously as naming the category does: ``subroutine list --status done`` answered
+	nothing on an instance holding five items finished that fortnight, because a listing hides
+	finished work unless asked and the flat parameter did not count as asking.
+
+	The dotted spelling is the same request. A `REFERENCE` entry that compiled to
+	``status_id == x`` and nothing else would answer `[]` for every finished status on every
+	listing — a plausible, complete, wrong answer, and a quiet regression on a listing's
+	commonest narrowing.
+
+	**Both directions matter.** Naming an unfinished status must not start dragging finished
+	work in, which is what a fix that simply widened whenever `status` was mentioned would do.
+	"""
+
+	assert world.call("POST", "/v1/tasks/1/complete").status_code == 200
+
+	assert world.titles("/v1/tasks?status=done") == ["the 1st"], "the flat spelling regressed"
+	assert world.titles("/v1/tasks?status.eq=done") == ["the 1st"]
+
+	# **`in` counts if any of the named statuses is a finished one**, because the caller is
+	# asking for those rows and one of them is unreachable otherwise.
+	assert "the 1st" in world.titles("/v1/tasks?status.in=open,done")
+
+	# And naming only unfinished statuses reaches no finished work, as before.
+	assert "the 1st" not in world.titles("/v1/tasks?status.eq=open")
+	assert "the 1st" not in world.titles("/v1/tasks?status.in=open,blocked")
+
+
+def test_excluding_completion_beside_a_mixed_status_filter_is_a_question_not_a_contradiction (
+	world: World,
+) -> None:
+	"""**A case that could not be written until ``in`` existed** — `SR#1829`.
+
+	``status=done&include_completed=false`` is refused, and rightly: *work whose status is done,
+	and no finished work* admits nothing. ``status.in=open,done`` with the same exclusion is a
+	different sentence — it is *the open ones*, which is coherent and non-empty.
+
+	**So the two questions ``completion_wanted`` used to answer with one variable have parted
+	company.** Whether the listing should *reach* finished work is **any** named status being
+	finished, because the caller asked for those rows; whether the request *admits nothing* is
+	**all** of them being finished. Every request writable before this item collapses the two,
+	which is why they shared a name.
+	"""
+
+	assert world.call("POST", "/v1/tasks/1/complete").status_code == 200
+
+	# The unchanged case: one finished status, and nothing is left.
+	refused = world.call("GET", "/v1/tasks?status.eq=done&include_completed=false")
+
+	assert refused.status_code == 422, refused.text
+	assert "status='done'" in refused.json()["errors"][0]["message"]
+
+	# The new one: some of them are unfinished, so the answer is those.
+	answered = world.titles("/v1/tasks?status.in=open,done&include_completed=false")
+
+	assert "the 1st" not in answered, "completion was excluded and finished work came back"
+	assert answered == world.titles("/v1/tasks?status.eq=open")
+
+
+def test_a_named_project_means_that_area_of_work_however_it_is_spelled (
+	world: World,
+) -> None:
+	"""**`SR#320`'s rule, carried onto the dotted spelling** — `SR#1829`.
+
+	A named project means *that area of work*, not that one node: every listing that took a
+	``project`` once compared ``project_id`` to a single id, so a parent's listing excluded its
+	own children and a hierarchy whose parent answered for none of its contents was a
+	decoration. The registry entry compiles through ``scoping.within_project``, the same
+	predicate the flat parameter uses, so the two cannot part company.
+
+	**And a project the caller cannot see is *not found* rather than an empty page** — §7.3a's
+	distinction, and the reason this filter needs a principal rather than a username. An
+	unresolved key answered with `[]` would be a plausible, complete, wrong answer.
+	"""
+
+	parent = world.call("POST", "/v1/projects", json={"key": "area", "title": "An area"})
+
+	assert parent.status_code == 201, parent.text
+
+	child = world.call(
+		"POST",
+		"/v1/projects",
+		json={"key": "under", "title": "Underneath", "parent": "area"},
+	)
+
+	assert child.status_code == 201, child.text
+
+	made = world.call("POST", "/v1/tasks", json={"title": "filed below", "project": "under"})
+
+	assert made.status_code == 201, made.text
+
+	assert world.titles("/v1/tasks?project=area") == ["filed below"], "the flat spelling regressed"
+	assert world.titles("/v1/tasks?project.eq=area") == ["filed below"]
+
+	# **`in` is *any of these areas*, ORed** — so it reaches both subtrees and neither alone
+	# would answer with what the other holds.
+	assert world.titles("/v1/tasks?project.in=under,inbox") == sorted(
+		world.titles("/v1/tasks?project.eq=under") + world.titles("/v1/tasks?project.eq=inbox")
+	)
+	assert "filed below" in world.titles("/v1/tasks?project.in=under,inbox")
+	assert "filed below" not in world.titles("/v1/tasks?project.eq=inbox")
+
+	# **A key nobody has is refused by name**, which is what routing through `selection.project`
+	# buys and what a bare id comparison could not do.
+	refused = world.call("GET", "/v1/tasks?project.eq=nosuchproject")
+
+	assert refused.status_code == 404, refused.text
