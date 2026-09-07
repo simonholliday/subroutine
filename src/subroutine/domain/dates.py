@@ -172,6 +172,28 @@ def day_named (written: str, *, today: datetime.date) -> datetime.date | None:
 	if lowered in WEEKDAYS:
 		return _soonest(lowered, today=today)
 
+	# **A weekday and a date in the same phrase, which is ordinary English** — `#2116`. *Friday
+	# 18th September* names one day twice: the date is the specific claim and the weekday
+	# confirms it, so the date decides and the weekday is checked against it.
+	#
+	# **Before this, the weekday won and the date was never consumed.** The phrase matched at
+	# the weekday, so the row was dated to the *next* Friday and `18th September` stayed in the
+	# title — a different day, reported as a successful parse, with the right date sitting
+	# beside the wrong one. `#379`'s shape exactly: plausible, complete, wrong.
+	#
+	# **A disagreement is not a date at all.** It returns ``None``, and the caller leaves the
+	# whole phrase in the title and reports it as unread — because the two halves cannot both
+	# be honoured and guessing which one the writer meant is the answer worse than not reading
+	# it. §6.13 rule 1's corollary is what this obeys: a field may only be set from a word that
+	# vanished.
+	named, _, rest = lowered.partition(" ")
+	weekday = WEEKDAYS.get(named.rstrip(","))
+
+	if weekday is not None and rest.strip():
+		dated = written_date(rest, today=today)
+
+		return dated if dated is not None and dated.weekday() == weekday else None
+
 	return written_date(lowered, today=today)
 
 

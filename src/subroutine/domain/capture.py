@@ -118,6 +118,20 @@ _PHRASE = (
 	#: front of it, and `_PHRASE` is only ever reached through one.
 	rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION})"
 	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?"
+	#: **A weekday in front of a written date, consumed as one phrase** (`#2116`). *on Friday
+	#: 18th September* is ordinary English and both halves name the same day, so reading only
+	#: the first left the row dated a week early with the right date still in the title.
+	#:
+	#: **Above the bare weekday, and that is the whole of what makes it work.** Both alternatives
+	#: match at the same position — the phrase begins with the weekday either way — and Python
+	#: takes the first that matches, so the longer reading has to be offered first or it is
+	#: never reached. Reordering the two below it would change nothing, because neither can
+	#: match text beginning with a weekday.
+	#:
+	#: ``dates.day_named`` is what decides whether the pair agree; a phrase that matches here
+	#: and disagrees there is left in the title, exactly as an unreadable one is.
+	rf"|(?:{_WEEKDAY_ALTERNATION}),?\s+\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION})"
+	rf"|(?:{_WEEKDAY_ALTERNATION}),?\s+(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?"
 	rf"|(?:{_WEEKDAY_ALTERNATION})"
 	r")"
 )
@@ -397,7 +411,23 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	said = [one for one in unparsed if one.startswith("+")]
 	rest = [one for one in unparsed if not one.startswith("+")]
 	every = [one for one in rest if _EVERY.match(one)]
-	timed = [one for one in rest if not _EVERY.match(one)]
+	over = [one for one in rest if not _EVERY.match(one)]
+
+	# **A fourth bucket, because the third was about to assert a cause it had not
+	# established** (`#2116`). Everything that was not a project and not a repeat used to be
+	# called a time and told how to write one — which is exactly the mistake the comment above
+	# records for repeats, one token along: *Monday 18th September* is not a time, and
+	# advising `at 2pm` about it is a refusal explaining something the reader did not do.
+	#
+	# **Told apart by asking `dates.day_named`, which is the function that refused it**, rather
+	# than by a second description of what a contradiction looks like. It is the same move the
+	# `mid` bucket makes with `_repeat_in`, and for the same reason.
+	contradicted = [
+		one for one in over
+		if subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
+		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
+	]
+	timed = [one for one in over if one not in contradicted]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
 	# decided** (`#1401`). A phrase this grammar cannot read and one it read out of the middle
@@ -432,6 +462,15 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		clauses.append(
 			f"Left as written: {', '.join(repeats)} — not a repeat this understands. "
 			f"{subroutine.domain.recurrence.PHRASE_HINT}"
+		)
+
+	if contradicted:
+		# **Names both halves rather than picking one** (`#2116`). The phrase says a weekday
+		# and a date and they are different days; this grammar cannot know which the writer
+		# meant, and choosing would be the confident wrong answer the fix replaced.
+		clauses.append(
+			f"Left as written: {', '.join(contradicted)} — the day and the date name "
+			f"different days, so neither was used. Write one or the other."
 		)
 
 	if timed:
@@ -597,7 +636,9 @@ def parse (
 
 	before = len(claimed)
 
-	_collect_dates(text, claimed, reserved, fields, today=today, now=now, timezone=timezone)
+	_collect_dates(
+		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
+	)
 
 	# Where the date phrases landed, so a time can be recognised as belonging to one. Taken as
 	# a slice rather than returned, because `_collect_dates` appends to `claimed` and that is
@@ -693,6 +734,7 @@ def _collect_dates (
 	claimed: list[tuple[int, int]],
 	reserved: list[tuple[int, int]],
 	fields: dict[str, typing.Any],
+	unparsed: list[str],
 	*,
 	today: datetime.date,
 	now: datetime.datetime,
@@ -709,6 +751,16 @@ def _collect_dates (
 		value, all_day = _read_phrase(phrase, today=today, now=now, timezone=timezone)
 
 		if value is None:
+			# **Read and then not used, so it is reported** (`#778`, `#2116`) — the same rule
+			# and the same shape as a time given back to the title a few lines below in
+			# :func:`parse`. Today this can only be a weekday contradicting a date in one
+			# phrase: every other unreadable phrase is handed on rather than refused here.
+			#
+			# **The phrase rather than the whole match**, because the preposition is not what
+			# failed: *on* was understood perfectly and `Friday 18th September` is the part
+			# that says two different days.
+			unparsed.append(phrase)
+
 			continue
 
 		if word in PLANNED_WORDS:
@@ -1064,6 +1116,18 @@ def _read_phrase (
 
 	if named is not None:
 		return named, True
+
+	# **A phrase beginning with a weekday is this grammar's own and is never handed on**
+	# (`#2116`). A bare weekday always resolves, so the only way to reach here with one in
+	# front is the compound form — *Friday 18th September* — with the two halves naming
+	# different days. `schedule` would be guessing at that, and the fall-through below exists
+	# for §9.3 expressions and ISO values rather than for English somebody wrote.
+	#
+	# ``None`` sends the whole token back to the title, which is what the caller does with
+	# anything it cannot read, so the phrase is reported as unread rather than silently
+	# becoming a date nobody named.
+	if lowered.partition(" ")[0].rstrip(",") in subroutine.domain.dates.WEEKDAYS:
+		return None, None
 
 	# The shared vocabulary, not a copy of it (`#988`). This branch survives the move
 	# because it does two things the far end cannot: it matches case-insensitively,

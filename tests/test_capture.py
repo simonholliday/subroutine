@@ -532,6 +532,111 @@ def _generated () -> list[str]:
 	return [f"{verb} {noun}{tail}" for verb, noun, tail in itertools.product(_VERBS, _NOUNS, _TAILS)]
 
 
+def test_a_weekday_confirming_a_date_reads_the_date_and_every_weekday_is_checked () -> None:
+	"""`SR#2116`. The weekday won, the date was never consumed, and the row was dated a week early.
+
+	`add "Ewa music testing on Friday 18th September, 18:00 til 22:00"` stored **11 September**
+	— also a Friday — and left `18th September` sitting in the title. So the row named one day,
+	the title named another, and the echo confirmed a successful parse. `SR#379`'s shape:
+	plausible, complete, wrong. It needed *both* a weekday and a date in one phrase, which is
+	why it survived — every example anybody had written down used one or the other.
+
+	**The date decides and the weekday confirms it**, which is what the two words mean together
+	in English. Driven over all seven weekday names against a known date rather than the one
+	that was reported, because the defect was invisible precisely where the two agreed.
+	"""
+
+	# 2026-09-18 is a Friday, and NOW is well before it.
+	target = datetime.date(2026, 9, 18)
+
+	assert target.weekday() == 4, "the fixture no longer names the day this test is about"
+
+	names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+	offenders = []
+
+	for at, name in enumerate(names):
+		captured = _parse(f"Ewa music testing on {name} 18th September")
+
+		if at == target.weekday():
+			# **Agreeing: the date is used and the whole phrase leaves the title.** §6.13
+			# rule 1's corollary is the half this defect broke — a field may only be set from
+			# a word that vanished — so the month name surviving is the tell, not the date.
+			if captured.starts_at != target or "September" in captured.title:
+				offenders.append((name, captured.starts_at, captured.title))
+
+		# **Disagreeing: nothing is used and every word stays.** Choosing a half would be the
+		# confident wrong answer this replaced, and the grammar cannot know which was meant.
+		elif captured.starts_at is not None or "September" not in captured.title:
+			offenders.append((name, captured.starts_at, captured.title))
+
+	assert offenders == [], f"a weekday and a date disagreed about the day: {offenders}"
+
+
+def test_a_day_the_grammar_read_two_ways_is_reported_rather_than_guessed () -> None:
+	"""`SR#2116` and `SR#778`: read and not used means said out loud.
+
+	The original complaint was not only the wrong date — it was that **nothing anywhere said
+	`18th September` had been read and discarded**. The times in the same line *were* reported,
+	so the one thing that went wrong was the one thing that stayed quiet.
+
+	**And the sentence has to name the right cause.** Everything that was neither a project nor
+	a repeat used to be described as a time and told how to write one, which is a refusal
+	explaining something the reader did not do — the same mistake this module already records
+	having made about repeats, one token along.
+	"""
+
+	captured = _parse("Meet on Monday 18th September")
+
+	assert captured.starts_at is None, "a contradiction was resolved into a date after all"
+	assert "Monday 18th September" in captured.unparsed, (
+		f"the phrase was dropped in silence, which is the half of `SR#2116` that made the "
+		f"wrong date impossible to notice: {captured.unparsed}"
+	)
+
+	said = subroutine.domain.capture.explain(captured.unparsed)
+
+	assert said is not None
+	assert "name different days" in said, f"the reason is not stated: {said}"
+
+	# **Not the advice for a time**, which is what it used to get. `at 2pm` answers a question
+	# nobody asked here, and a refusal asserting a cause it has not established is the defect
+	# this file names twice already.
+	assert "at 2pm" not in said, f"a contradicted date was explained as a mistyped time: {said}"
+
+	# **The three older buckets keep their own sentences**, which is what says the new one
+	# narrowed rather than swallowed them.
+	assert "at 2pm" in (subroutine.domain.capture.explain(("3pm",)) or "")
+	assert "not a repeat" in (subroutine.domain.capture.explain(("every fortnight",)) or "")
+	assert "named like" in (subroutine.domain.capture.explain(("+web_sales",)) or "")
+
+
+def test_a_weekday_and_a_date_do_not_break_either_written_on_its_own () -> None:
+	"""`SR#2116`'s neighbours, because the fix moves a regex alternation.
+
+	Both compound forms had to go **above** the bare weekday to be reachable at all — Python
+	takes the first alternative that matches and every one of these begins the same way — so
+	the risk is that the longer reading now swallows something it should not.
+	"""
+
+	# The forms the item recorded as already correct, which must stay correct. `NOW` is
+	# Thursday 2026-07-30, so the soonest Friday is the 31st and *next* Friday is a week past
+	# it — the pair `day_named` exists to keep apart.
+	assert _parse("Call the dentist on Friday").starts_at == datetime.date(2026, 7, 31)
+	assert _parse("Ship it by 18 September").due == datetime.date(2026, 9, 18)
+	assert _parse("Party on September 18th").starts_at == datetime.date(2026, 9, 18)
+	assert _parse("Ship it by next friday").due == datetime.date(2026, 8, 7)
+
+	# Both orders of the compound, and a comma after the day name.
+	assert _parse("Party on Friday September 18th").starts_at == datetime.date(2026, 9, 18)
+	assert _parse("Party on Friday, 18th September").starts_at == datetime.date(2026, 9, 18)
+
+	# A time still attaches to the day the compound resolved.
+	timed = _parse("Ewa music testing on Friday 18th September at 18:00")
+
+	assert timed.starts_at == datetime.datetime(2026, 9, 18, 18, 0), timed.starts_at
+	assert timed.unparsed == (), timed.unparsed
+
+
 def test_a_title_never_contains_a_word_the_input_did_not () -> None:
 	"""The invariant that would have caught the possessive bug, on 2,530 generated lines.
 
