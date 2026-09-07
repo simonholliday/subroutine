@@ -1154,67 +1154,13 @@ def _resolve (
 	workspace: subroutine.db.models.identity.Workspace,
 	id_or_ref: str,
 ) -> subroutine.db.models.work.Document:
-	"""Find one document by id or ref, or report that there is no such thing."""
+	"""Find one document by id or ref — the domain's, kept under its old name here.
 
-	model = subroutine.db.models.work.Document
-	wanted = id_or_ref.strip()
-	statement = subroutine.domain.scoping.readable_documents(
-		actor, workspace_ids=[workspace.id], include_deleted=True, include_archived=True
-	)
+	A delegate rather than nine edited call sites, exactly as ``api/tasks._resolve`` is
+	(`#1829`, `#2173`).
+	"""
 
-	# A ref is all digits and a project key must start with a letter (docs/design.md §6.2), so
-	# the two path spaces cannot overlap and the order of these branches is not a guess.
-	ref = subroutine.domain.refs.parse_ref(wanted)
-
-	if ref is not None:
-		found = session.scalars(statement.where(model.ref == ref)).first()
-
-	else:
-		try:
-			found = session.scalars(statement.where(model.id == uuid.UUID(wanted))).first()
-
-		except ValueError:
-			# Neither a ref nor an id, so nothing can answer to it.
-			found = None
-
-	if found is None:
-		instead = subroutine.domain.scoping.the_other_kind(
-			session, actor, workspace_id=workspace.id, ref=ref, asked_for="document"
-		)
-
-		if instead is not None:
-			# `#488`, the mirror. This hint already *said* a ref might name a task instead —
-			# which is a hedge, and a hedge is what a refusal offers when it has not looked.
-			# Having looked, it can say which.
-			raise subroutine.errors.NotFound(
-				f"{subroutine.domain.refs.format_ref(instead.ref)} is a task, not a document "
-				f"— {instead.title}",
-				errors=[
-					subroutine.errors.FieldError(
-						field="id_or_ref",
-						code="not_found",
-						message=f"{id_or_ref!r} names a task in {workspace.slug}.",
-						hint=f"Read it at GET /v1/tasks/{instead.ref}, or change it with "
-						f"PATCH /v1/tasks/{instead.ref}.",
-					)
-				],
-			)
-
-		raise subroutine.errors.NotFound(
-			f"There is no document {id_or_ref!r} here.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="id_or_ref",
-					code="not_found",
-					message=f"No document in {workspace.slug} answers to {id_or_ref!r}.",
-					hint="Use a ref like '42' or a document id. GET /v1/documents lists "
-					"what you can see. Note tasks and documents share one ref space, so a "
-					"ref that exists may name a task instead.",
-				)
-			],
-		)
-
-	return found
+	return subroutine.domain.selection.document(session, actor, workspace, id_or_ref)
 
 
 def _rendered (

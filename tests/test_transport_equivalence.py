@@ -2995,6 +2995,45 @@ def test_both_read_a_written_search_line_the_same_way (pair: Pair) -> None:
 		), asked
 
 
+def test_both_read_a_documents_tree_the_same_way (pair: Pair) -> None:
+	"""`SR#2173`. The same pair on the other entity, and the resolver is the half that differs.
+
+	One counter numbers tasks and documents together (§6.2), so the predicate has to ask the
+	*document* resolver about a document's ref — asking the task one refuses a ref that exists
+	and answers emptily for one that names the other kind. Both transports compile through the
+	same `IN_THE_TREE` group, so a disagreement here would be one of them holding a copy.
+	"""
+
+	project = subroutine.domain.projects.create(
+		pair.session, workspace_id=pair.workspace.id, key="specs", title="Specs"
+	)
+	above = subroutine.domain.documents.create(
+		pair.session, project=project, title="Instrument specs", body="The set."
+	)
+	inside = subroutine.domain.documents.create(
+		pair.session, project=project, title="One instrument", body="Its spec."
+	)
+
+	pair.session.flush()
+
+	# **The domain's own move, not `hierarchy.reparent`.** That primitive rewrites `path` and
+	# `depth` and leaves `parent_id` to its caller — driven directly, this test set up a tree
+	# the paths agreed about and the column did not, and then asserted about the column.
+	subroutine.domain.documents.move(pair.session, inside, parent=above, actor=None)
+	pair.session.flush()
+
+	local, remote = pair.both()
+
+	for asked, wanted in (
+		({"parent.eq": str(above.ref)}, [inside.ref]),
+		({"parent.is": "unset"}, [above.ref]),
+	):
+		here = sorted(one.ref for one in local.documents(filters=asked, limit=50))
+
+		assert here == wanted, f"{asked} answered {here} locally"
+		assert here == sorted(one.ref for one in remote.documents(filters=asked, limit=50))
+
+
 def test_both_read_a_tree_the_same_way (pair: Pair) -> None:
 	"""`SR#1829`'s last quarter, decided on `SR#2180` — two fields rather than a modifier.
 

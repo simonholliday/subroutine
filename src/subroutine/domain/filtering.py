@@ -1079,6 +1079,28 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		because="the task entry's reason, unchanged — a key sorts alphabetically and "
 		"`position` is the order the workspace meant.",
 	),
+	# **A document can be filed under another one, and nothing could ask** — `#2173`, Simon's
+	# decision of 2026-09-07 from a board full of instrument specs with nothing to collapse
+	# them behind. `Document.parent_id` has been built, indexed and reported since `#1534`;
+	# `POST /v1/documents/{ref}/move` has set it since `#294`. No listing could read it back.
+	#
+	# **The task pair's spelling, unchanged** — `#2180`. A document growing a second vocabulary
+	# for one relation is what `#1547` exists to refuse, and it would have been easy here:
+	# *section* is the word this module's own docstrings reach for.
+	PARENT: Property(
+		column=subroutine.db.models.work.Document.parent_id,
+		kind=REFERENCE,
+		group=IN_THE_TREE,
+		because="the task entry's reason, unchanged — ordering by a parent id means nothing.",
+	),
+	UNDER: Property(
+		column=subroutine.db.models.work.Document.id,
+		kind=REFERENCE,
+		group=IN_THE_TREE,
+		because="the task entry's reason, unchanged, including why the column is the item's "
+		"own identity: `NOT NULL`, so `_allowed` refuses `is` and *has no parent* keeps its "
+		"one spelling.",
+	),
 	PROJECT: Property(
 		column=subroutine.db.models.work.Document.project_id,
 		kind=REFERENCE,
@@ -1951,6 +1973,19 @@ def _the_user (where: Where) -> subroutine.db.models.identity.User | None:
 	return None if where.principal is None else where.principal.user
 
 
+#: How a ref is turned into the item it names: the session, who is asking, the workspace, and
+#: the ref itself. Both entities' resolvers already have this shape.
+_Finder: typing.TypeAlias = typing.Callable[
+	[
+		sqlalchemy.orm.Session,
+		subroutine.domain.authentication.Principal,
+		subroutine.db.models.identity.Workspace,
+		str,
+	],
+	typing.Any,
+]
+
+
 def _in_the_tree (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile ``parent`` and ``under`` — one level, and everything below it, `#1829`.
 
@@ -1984,15 +2019,21 @@ def _in_the_tree (comparisons: list[Comparison], where: Where) -> typing.Any:
 		)
 
 	owner = typing.cast(typing.Any, comparisons[0].against.column).parent.class_
+	# **The entity decides which resolver, read off the column** — `_tagged`'s shape, and it
+	# matters here for a reason that shape usually does not carry: one counter numbers tasks
+	# and documents together (§6.2), so `#7` names exactly one of them and asking the wrong
+	# module would refuse a ref that exists. Both resolvers say so by name when it happens.
+	resolve: _Finder = {
+		subroutine.db.models.work.Task: subroutine.domain.selection.task,
+		subroutine.db.models.work.Document: subroutine.domain.selection.document,
+	}[owner]
 	narrowing = []
 
 	for comparison in comparisons:
 		clauses = []
 
 		for value in _values(comparison):
-			above = subroutine.domain.selection.task(
-				where.session, where.principal, where.workspace, value
-			)
+			above = resolve(where.session, where.principal, where.workspace, value)
 
 			clauses.append(
 				sqlalchemy.and_(

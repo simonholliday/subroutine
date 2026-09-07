@@ -614,6 +614,11 @@ _A_TAG = "ops"
 #: **The first of the fixture's three**, in a fresh workspace where refs start at 1 (§6.2).
 _A_REF = "1"
 
+#: The ref the case below gives the document it makes, so a document's tree filters are driven
+#: with a *document* — `SR#2173`. The fixture makes three tasks, so the fourth number is the
+#: first document, and asking a document listing about a task's ref is refused by name.
+_A_DOCUMENT_REF = "4"
+
 def _default_status (entity_type: str) -> str:
 	"""Return the status something of this kind gets when nobody says.
 
@@ -663,6 +668,11 @@ _REFERENCES: dict[tuple[str, str], str] = {
 	# `/v1/tasks/1`.
 	("task", "parent"): _A_REF,
 	("task", "under"): _A_REF,
+	# **A document's ref, and it must be a *document*** — `SR#2173`. One counter numbers both
+	# kinds (§6.2), so `#1` is a task here and `documents.parent.eq=1` is refused *by name*:
+	# "1 is a task, not a document". The case below makes one before it drives these.
+	("document", "parent"): _A_DOCUMENT_REF,
+	("document", "under"): _A_DOCUMENT_REF,
 }
 
 
@@ -1935,3 +1945,63 @@ def test_work_given_to_somebody_else_is_not_yours_to_act_on (world: World) -> No
 	assert "given to them" in world.titles(
 		f"/v1/tasks?assignee={colleague.username}"
 	), "the fixture did not assign it, so the exclusion above proved nothing"
+
+
+def test_a_document_can_be_filed_under_another_and_a_listing_can_ask (world: World) -> None:
+	"""**`SR#2173`, Simon 2026-09-07** — one document per instrument, all at top level, all on
+	the board, and nothing to collapse them behind.
+
+	**Most of this was built and unreachable**, which is `SR#143`'s pattern: `Document.parent_id`
+	has been a column, indexed and reported, since `SR#1534`, and
+	``POST /v1/documents/{ref}/move`` has set it since `SR#294`. **No listing could read it
+	back**, so a document could be nested and then never found that way again.
+
+	**A parent is just a document** — `SR#84`'s rule for tasks, applied unchanged. No folder
+	type and no second tree; and it is called a *parent*, because a second vocabulary for one
+	relation is what `SR#1547` refuses.
+	"""
+
+	above = world.call("POST", "/v1/documents", json={"title": "Instrument specs"}).json()
+	inside = world.call("POST", "/v1/documents", json={"title": "One instrument"}).json()
+	deeper = world.call("POST", "/v1/documents", json={"title": "A section of it"}).json()
+
+	for row, onto in ((inside, above), (deeper, inside)):
+		moved = world.call(
+			"POST", f"/v1/documents/{row['ref']}/move", json={"parent": str(onto["ref"])}
+		)
+
+		assert moved.status_code == 200, moved.text
+
+	assert world.titles(f"/v1/documents?parent.eq={above['ref']}") == ["One instrument"]
+	assert world.titles(f"/v1/documents?under.eq={above['ref']}") == [
+		"A section of it", "One instrument",
+	]
+
+	# **The question the board needs: what is at the top** — which is what a cluttered board of
+	# instrument specs was missing, and it is `is` coming free on a nullable column.
+	top = world.titles("/v1/documents?parent.is=unset")
+
+	assert "Instrument specs" in top
+	assert "One instrument" not in top
+
+	# **And through the written line**, because the grammar compiles to the registry.
+	assert world.titles(f"/v1/documents?q=under:{above['ref']}") == world.titles(
+		f"/v1/documents?under.eq={above['ref']}"
+	)
+
+
+def test_asking_a_document_listing_about_a_tasks_ref_is_refused_by_name (
+	world: World,
+) -> None:
+	"""**One counter numbers both kinds** (§6.2), so a ref names exactly one of them — `SR#2173`.
+
+	`#1` is a task in this fixture, and a document's tree filter resolving it would either
+	answer emptily or narrow by a parent that is not a document. The resolver refuses it and
+	says which kind it really is, which is `SR#488`'s rule: *"there is no document 1"* about
+	something the caller has just listed is a refusal naming a cause it has not established.
+	"""
+
+	refused = world.call("GET", "/v1/documents?parent.eq=1")
+
+	assert refused.status_code == 404, refused.text
+	assert "task" in refused.text.lower(), refused.text
