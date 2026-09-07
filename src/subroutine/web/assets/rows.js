@@ -645,7 +645,9 @@ export function Board ({
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
 	/* Whose work to show, and who there is to choose from — `#1284`. */
-	members = [], whose = null, onWhose = null,
+	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
+	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
+	members = [], whose = null, answerable = null, unassigned = false, onWhose = null,
 	/* What the reader has explicitly chosen about collapsed columns, and how to change it —
 	   `#1008`. `App` holds the state and the storage because this component stays hook-free so
 	   the harness can call it (`#640`); the *defaults* are worked out below, where the columns
@@ -773,7 +775,13 @@ export function Board ({
 			     page and partitions it, so narrowing decides what is in *every* column. Two
 			     copies of this markup was the alternative and is this codebase's signature
 			     defect. */ null}
-			<${Whose} members=${members} whose=${whose} onWhose=${onWhose} busy=${busy} />
+			${/* **All three answers, not the one that was here when the control had one**
+			     (`#2199`). `answerable` and `unassigned` were added to `App` and not to the
+			     two components between, so a page narrowed by either presented a control
+			     saying it was not narrowed — and the obvious next act replaces a narrowing
+			     the reader could not see they had. */ null}
+			<${Whose} members=${members} whose=${whose} answerable=${answerable}
+				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the

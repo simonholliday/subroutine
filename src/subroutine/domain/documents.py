@@ -802,6 +802,42 @@ def restore (
 	return document
 
 
+def children_among (
+	session: sqlalchemy.orm.Session, identifiers: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, int]:
+	"""Return how many documents are filed directly under each of these — `#2173`.
+
+	**Derived rather than stored**, which is design `#1801` §7's decision and its measurement:
+	a derived *filter* or *count over a page* grows with the page it narrows, where a derived
+	*ordering* grows with the table. This is the first kind — one grouped scan for the page,
+	never one per row — and a maintained column would be a second copy of a fact, drifting
+	silently the moment anything moved a row outside the write path.
+
+	**Direct children, not the whole subtree.** `#84`'s `3/3` beside a milestone is what this
+	is for, and that counts contents rather than descendants: a reader asking what a
+	specification holds means its sections, not their sections. The subtree already has a
+	spelling — `under.eq=<ref>` — which answers the other question exactly.
+
+	**Deleted children are not counted**, because the number sits beside a title and says what
+	is *there*; a count including the trash would send a reader looking for rows no listing
+	shows. `ondelete=RESTRICT` is a separate matter and refuses deleting the parent.
+	"""
+
+	wanted = list(identifiers)
+
+	if not wanted:
+		return {}
+
+	model = subroutine.db.models.work.Document
+	counted = session.execute(
+		sqlalchemy.select(model.parent_id, sqlalchemy.func.count())
+		.where(model.parent_id.in_(wanted), model.deleted_at.is_(None))
+		.group_by(model.parent_id)
+	).tuples().all()
+
+	return {parent: total for parent, total in counted if parent is not None}
+
+
 def status_for (
 	session: sqlalchemy.orm.Session, workspace_id: uuid.UUID, key: str | None
 ) -> subroutine.db.models.vocabulary.Status:

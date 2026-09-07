@@ -1341,6 +1341,28 @@ def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.
 		f"a second narrowing survived beside it: {page.url}"
 	)
 
+	# **And the control shows the answer the address is already on** — `SR#2199`. What it
+	# *offers* and what it *writes* are both driven above and neither needs the state to be
+	# forwarded, which is how two of the three answers came to be dropped between `App` and
+	# the components that render this: `assignee` was forwarded when the control had one
+	# answer, and `answers_to` and `assignee.is` were added to `App` alone.
+	#
+	# **A control disagreeing with the sentence beside it is worse than an absent one**: the
+	# obvious next act is to pick something, which replaces a narrowing the reader could not
+	# see they had.
+	for address, wanted in (
+		("/projects?view=list&assignee=si", "assignee:si"),
+		("/projects?view=list&answers_to=si", "answers_to:si"),
+		("/projects?view=list&assignee.is=unset", "assignee.is:unset"),
+	):
+		page = opened(address)
+
+		page.wait_for_selector(".whose select", timeout=10_000)
+
+		assert page.eval_on_selector(".whose select", "one => one.value") == wanted, (
+			f"opened on {address} and the control did not say so"
+		)
+
 
 def test_a_card_is_draggable_on_the_board_and_nowhere_else (running: typing.Any) -> None:
 	"""`#711`. A card that lifts with nowhere to drop it puts itself back.

@@ -2005,3 +2005,49 @@ def test_asking_a_document_listing_about_a_tasks_ref_is_refused_by_name (
 
 	assert refused.status_code == 404, refused.text
 	assert "task" in refused.text.lower(), refused.text
+
+
+def test_a_document_says_how_many_are_filed_under_it (world: World) -> None:
+	"""`SR#2173`'s fourth part — `SR#84`'s `3/3` beside a milestone, on the other kind.
+
+	**Derived on every read** (design `SR#1801` §7). A stored counter is a second copy of a
+	fact and drifts through any door the write path does not own — an import, a restore, a
+	hand-run UPDATE — silently, because nothing compares them.
+
+	**Direct contents rather than the whole subtree**, because that is what a reader asking
+	what a specification holds means. The subtree already has a spelling and answers the other
+	question exactly.
+	"""
+
+	above = world.call("POST", "/v1/documents", json={"title": "Instrument specs"}).json()
+	inside = world.call("POST", "/v1/documents", json={"title": "One instrument"}).json()
+	deeper = world.call("POST", "/v1/documents", json={"title": "A section"}).json()
+
+	for row, onto in ((inside, above), (deeper, inside)):
+		assert world.call(
+			"POST", f"/v1/documents/{row['ref']}/move", json={"parent": str(onto["ref"])}
+		).status_code == 200
+
+	counted = {
+		one["ref"]: one["sub_documents"]
+		for one in world.call(
+			"GET", "/v1/documents?fields=ref,sub_documents"
+		).json()["items"]
+	}
+
+	assert counted[above["ref"]] == 1, "the grandchild was counted as contents"
+	assert counted[inside["ref"]] == 1
+	assert counted[deeper["ref"]] == 0
+
+	# **A deleted child is not counted**, because the number sits beside a title and says what
+	# is there — a count including the trash sends a reader looking for rows no listing shows.
+	assert world.call("DELETE", f"/v1/documents/{deeper['ref']}").status_code in (200, 204)
+
+	after = {
+		one["ref"]: one["sub_documents"]
+		for one in world.call(
+			"GET", "/v1/documents?fields=ref,sub_documents"
+		).json()["items"]
+	}
+
+	assert after[inside["ref"]] == 0

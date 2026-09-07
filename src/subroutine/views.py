@@ -50,6 +50,7 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.dates
+import subroutine.domain.documents
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.instances
@@ -2325,6 +2326,22 @@ class Document(pydantic.BaseModel):
 	project_colour: str | None = None
 	parent_id: uuid.UUID | None
 
+	#: How many documents are filed directly under this one — `#2173`, and `#84`'s `3/3`
+	#: beside a milestone applied to the other kind.
+	#:
+	#: **Derived on every read, never stored** (design `#1801` §7). A counter is a second copy
+	#: of a fact and drifts silently: the column says three, the truth is two, and nothing
+	#: complains. The cost is one grouped scan for the page — the *filter* shape that §7
+	#: measured at about 1.5x the page it narrows, not the *ordering* shape that grows with
+	#: the table.
+	#:
+	#: **Direct contents rather than the whole subtree**, because that is what a reader asking
+	#: what a specification holds means. The other question already has a spelling —
+	#: ``under.eq=<ref>`` — and answers it exactly.
+	#:
+	#: **Zero honestly means none**, like every other defaulted field here (`#345`).
+	sub_documents: int = 0
+
 	status: str
 	status_category: str
 	status_id: uuid.UUID
@@ -2890,6 +2907,13 @@ class Vocabulary:
 			session, wanted, now=now
 		)
 
+		# **How many documents each of these holds** — `#2173`. One grouped scan for the page,
+		# the same shape as the three above and returning immediately on a page with no
+		# documents in it, which is every task listing.
+		self.documents_underneath = subroutine.domain.documents.children_among(
+			session, document_ids
+		)
+
 		# **One query for every parent on the page, not one per row.** A ref is how an item
 		# is addressed (§6.2), so a view reporting only `parent_task_id` forces every client
 		# to resolve a UUID before it can print anything — which is the second call review
@@ -3301,6 +3325,7 @@ def document (
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
 		project_colour=vocabulary.project_colours.get(row.project_id),
 		parent_id=row.parent_id,
+		sub_documents=vocabulary.documents_underneath.get(row.id, 0),
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),

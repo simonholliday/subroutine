@@ -136,6 +136,15 @@ DERIVED: dict[str, str] = {
 	#: accept — revising the body *is* how it changes.
 	"revisions": "counted from the events at read time; rewriting the body is what moves it.",
 
+	#: **`SR#2173`.** How many documents are filed directly under this one, counted for the
+	#: page by `domain.documents.children_among`. **Deliberately not a column**: design
+	#: `SR#1801` §7 decided counts are derived, and measured why — a stored one is a second
+	#: copy of a fact that drifts through any door the write path does not own, and this is the
+	#: *filter* shape whose cost grows with the page rather than the *ordering* shape that
+	#: grows with the table. Nothing accepts it because there is nothing to accept: filing a
+	#: document under this one is what moves it, and that is `POST /v1/documents/{ref}/move`.
+	"sub_documents": "counted for the page; filing a document under this one is what moves it.",
+
 	#: A project's place in the tree, maintained by `domain.hierarchy` when a project moves.
 	#: `path` is a materialised path of **ids** and `views.Project`'s own docstring warns it is
 	#: not an address (`#986` published one by mistake and printed a UUID at a reader).
