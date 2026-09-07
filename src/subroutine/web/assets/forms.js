@@ -238,8 +238,9 @@ export function Fields ({
 				tree.
 			*/ null}
 			<label><span>Parent</span>
-				<input class="field" name="parent" disabled=${busy} placeholder="7"
-					defaultValue=${held.parent || ""} /></label>
+				<input class="field" name="parent" disabled=${busy}
+					defaultValue=${held.parent || ""} />
+				<small>The number of the item this is filed under. Empty for none.</small></label>
 
 			<label class="wide"><span>Tags</span>
 				<input class="field" name="tags" disabled=${busy} placeholder="health, admin"
@@ -457,8 +458,9 @@ export function DocumentFields ({
 			     *Section of* was the tempting one here because this module's own prose uses
 			     the word. Emptying it is the remove. */ null}
 			<label><span>Parent</span>
-				<input class="field" name="parent" disabled=${busy} placeholder="7"
-					defaultValue=${held.parent || ""} /></label>
+				<input class="field" name="parent" disabled=${busy}
+					defaultValue=${held.parent || ""} />
+				<small>The number of the item this is filed under. Empty for none.</small></label>
 		</fieldset>
 	`;
 }

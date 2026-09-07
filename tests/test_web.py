@@ -7624,6 +7624,40 @@ def test_a_page_collapsed_to_the_top_level_says_rows_are_hidden (
 	)
 
 
+def test_no_placeholder_could_be_read_as_a_value () -> None:
+	"""`SR#2202`, Simon within the hour of `SR#2201` shipping: *"Every item I look at in the Web
+	UI now shows 'parent: 7'."*
+
+	He was right, and the API was not the problem — `parent_ref` was null on every task and the
+	item page drew no Parent row. The empty box carried ``placeholder="7"``, so a grey **7**
+	sat immediately after the label **Parent** on every item that had none.
+
+	**A bare integer is the one placeholder shape that cannot be told from a value**, because
+	the box takes exactly that. Every other one in this app is several examples
+	(``2h, 90m, 1w2d``), prose (``every other tuesday``) or sigil-marked (``#42``) — each
+	unmistakably a hint, and none of them by accident.
+
+	**The rule rather than the field**, because the next numeric control will be written by
+	somebody who has not read this. A hint that could be a value is not a hint; where the
+	example really is just a number, the form says it in a ``<small>``, which is what the three
+	date controls and the repeat box already do.
+	"""
+
+	found = re.findall(r'placeholder="([^"]*)"', _our_source())
+
+	assert len(found) >= 8, (
+		f"only {len(found)} placeholders were read, so this is checking almost nothing"
+	)
+
+	numeric = sorted(one for one in found if re.fullmatch(r"\s*[0-9]+\s*", one))
+
+	assert not numeric, (
+		f"these placeholders are bare numbers and read as values in the box they sit in: "
+		f"{numeric}. Say it in a <small> instead — `Fields` does that for the dates and for "
+		f"the repeat."
+	)
+
+
 def test_a_save_re_parents_only_when_the_box_changed (tmp_path: pathlib.Path) -> None:
 	"""`SR#2201`. Three answers, because there are three — and the middle one is a real value.
 
