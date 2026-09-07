@@ -4712,8 +4712,37 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 	]
 
 
+#: How somebody finds out whether what they are running is behind what has been *published*
+#: — `#1635`, and it is the third of three questions that all look like *is this out of date*.
+#: The other two are answered already and are not this one: whether the pieces on one machine
+#: agree is skew, which :func:`versions` is about, and whether the page has outlived the
+#: instance serving it is a redeploy (`#785`).
+#:
+#: **Naming a command is not a check** (§12.4a). Nothing rendered here reaches the network,
+#: and the rule that a self-hosted tool must not phone home uninvited governs who makes a
+#: request rather than who is told a command exists. The second clause says so out loud,
+#: because a pointer that left it ambiguous would read as *this has already been asked*.
+#:
+#: **One sentence, on every surface that prints a version.** `#499`'s rule is that the
+#: guaranteed channel names the one nobody will find, and `subroutine db upgrade --check`
+#: is a flag on a *database* command — the last place a reader looks for *am I old*.
+HOW_TO_ASK_IF_IT_IS_OLD = (
+	"Whether a newer release exists is 'subroutine db upgrade --check', which asks only "
+	"when you do."
+)
+
+
 def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list[str]:
-	"""Say which installations answered this call, and whether any of them disagree — ``#381``.
+	"""Say which installations answered this call, and how to tell whether it is behind.
+
+	**Two questions, and the second is a constant** (`#1635`). Everything below compares the
+	installations that answered *this* call against each other — skew, which is local and
+	needs no request. Whether any of them is behind what has been published is a different
+	question with a different answer, and no surface volunteered it: it lives on
+	:data:`HOW_TO_ASK_IF_IT_IS_OLD` and is appended to every one of the returns below, which
+	is why they are gathered in :func:`_versions` rather than returned from here.
+
+	Say which installations answered this call, and whether any of them disagree — ``#381``.
 
 	**One renderer for the same reason :func:`narrowing` is one** (`#357`): the CLI's
 	``whoami`` and the MCP tool of the same name both need it, and three copies of a sentence
@@ -4766,6 +4795,22 @@ def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list
 	fixed at whatever tag its last install saw while the code it runs is the working tree. That
 	is not evidence about the code, so there is nothing to say. An instance reporting no version
 	at all still warns: predating the field is a fact rather than a comparison.
+	"""
+
+	return [
+		*_versions(me, program=program, plugin=plugin),
+		HOW_TO_ASK_IF_IT_IS_OLD,
+	]
+
+
+def _versions (me: Me, *, program: str | None, plugin: str | None = None) -> list[str]:
+	"""Return the skew half alone: which installations answered, and whether they disagree.
+
+	**Split out so the staleness line has one place to be appended** (`#1635`). There are
+	three returns below and each is a different shape of answer; a version of this that added
+	the sentence at each of them would be three copies of one decision, and the one that gets
+	forgotten is whichever branch nobody was looking at — which here is the remote-plugin
+	population, the one `#839` is most for.
 	"""
 
 	# **A null here is a fact, not a gap.** An instance that sends no version is one that

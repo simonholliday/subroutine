@@ -955,7 +955,21 @@ def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None
 
 
 @app.command("upgrade", hidden=True)
-def upgrade_moved () -> None:
+def upgrade_moved (
+	# **The options the real command has, accepted and ignored** (`#2216`). This took none,
+	# so Click refused `subroutine upgrade --check` before the body ran — *"No such option:
+	# --check (Possible options: --help)"* — and the redirect below, which is the entire
+	# reason this command exists, was never reached. The bare spelling was signposted and the
+	# useful one, which is what `#321` shipped and what every note written before `#509`'s
+	# rename carries, was a parse error.
+	#
+	# **Still not an alias** (`#509`, Simon's). It does nothing, exactly as it did nothing
+	# before; what changed is that it is reached. Doing the upgrade under this name is the
+	# thing that decision refuses, because `db upgrade` used to mean the blunt migrator and
+	# one spelling would mean two things depending on when somebody learned it.
+	yes: bool = typer.Option(False, "--yes", hidden=True),
+	check: bool = typer.Option(False, "--check", hidden=True),
+) -> None:
 	"""Say where this went. It is not an alias and does not upgrade anything.
 
 	'subroutine db upgrade' is the command now.
@@ -1276,6 +1290,17 @@ def doctor () -> None:
 
 	_say("")
 	_say(f"  {subroutine.diagnosis.verdict(findings)}")
+
+	# **The adjacent question, named rather than answered** (`#1635`). This command's own
+	# docstring already says it talks to the configured instances and to nothing else, so
+	# *is a newer release out* is deliberately not one of the findings above — and a reader
+	# who has just been told their installation is coherent is exactly the one asking it.
+	#
+	# **Free, because naming is not asking** (§12.4a). `doctor` is run by update scripts, so
+	# an outbound call here would need its own flag; a signpost needs nothing.
+	subroutine.cli.personal.suggest(
+		"subroutine db upgrade --check", "whether a newer release exists"
+	)
 
 	if any(not finding.ok for finding in findings):
 		raise typer.Exit(1)
@@ -3582,6 +3607,20 @@ def _report_version (asked: bool) -> None:
 
 	_say(f"subroutine {subroutine.__version__}")
 	_say(f"schema {subroutine.db.migrate.head_revision() or 'unknown'}")
+
+	# **One tip per line printed above, in the order they were printed** (`#1635`). This
+	# command answers *what am I running*, and the question a reader has next is *is that
+	# current* — which lived on a flag of a **database** command, the last place anybody looks
+	# for it. That placement was a side effect of `#509`'s rename rather than a decision:
+	# `#321` shipped it as `subroutine upgrade --check`.
+	#
+	# **Naming a command is not a check** (§12.4a). Nothing here reaches the network, and the
+	# rule that a self-hosted tool must not phone home uninvited governs who makes a request,
+	# not who is told a command exists. `#499`'s rule is the other half: the guaranteed channel
+	# names the one nobody will find.
+	subroutine.cli.personal.suggest(
+		"subroutine db upgrade --check", "whether a newer release exists"
+	)
 
 	# The schema line above is what this build *expects*; `db current` is what the database in
 	# front of you actually has. One without the other cannot answer whether an upgrade is owed.

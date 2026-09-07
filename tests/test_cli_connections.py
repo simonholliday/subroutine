@@ -2922,6 +2922,104 @@ def test_whoami_names_a_credentials_write_set (
 	assert "Narrowed to writing in api." in answer
 
 
+def test_every_surface_that_prints_a_version_says_how_to_find_out_if_it_is_old (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1635`, Simon: *"any new user who installs right now might never know they should
+	upgrade, so we should fix that soon."*
+
+	`SR#321` built the check on 2026-08-04 and it works. **The problem was where it lives**: a
+	flag on a *database* command, which is the last place somebody looks for *is there a newer
+	version*. That placement is a side effect of `SR#509`'s rename rather than a decision
+	anybody took — it was `subroutine upgrade --check` when it shipped.
+
+	So the three surfaces that already print a version name it, and each is checked here rather
+	than one standing for the others: they are three separate renderings, and the whoami line
+	is shared with MCP where the other two are not.
+
+	**Naming a command is not a check** (§12.4a), which is the half this asserts rather than
+	promises: the fetch is replaced with something that fails if it is called at all. `SR#97`
+	governs who makes a request, not who is told a command exists, and a version of this that
+	quietly asked would be the phoning-home that decision refuses.
+	"""
+
+	def forbidden (url: str = "", **_kwargs: typing.Any) -> list[subroutine.releases.Release]:
+		"""Fail the test rather than answer, so a courtesy check cannot creep in."""
+
+		raise AssertionError("a surface printing a version reached the network to do it")
+
+	monkeypatch.setattr(subroutine.releases, "published", forbidden)
+
+	run("init")
+
+	# **`--version`, which answers *what am I running* — so *is that current* is the reader's
+	# very next question.** It is a parameter callback that exits before the app body, so it is
+	# the one surface here that answers through a broken profile.
+	printed = run("--version").output
+
+	assert "subroutine db upgrade --check" in printed, (
+		f"the command that prints a version does not say what would tell you it is old: "
+		f"{printed}"
+	)
+
+	# **`whoami`, whose version line is shared with MCP** — `views.versions` renders for both,
+	# so this reaches an agent as well without a second copy of the sentence.
+	answered = run("whoami").output
+
+	assert "subroutine db upgrade --check" in answered, (
+		f"whoami reports three versions and says nothing about whether any is behind: "
+		f"{answered}"
+	)
+
+	# **`doctor`, which names the adjacent question rather than answering it.** Its own
+	# docstring already says it talks to the configured instances and to nothing else, so a
+	# reader just told their installation is coherent is exactly the one asking this.
+	examined = run("doctor").output
+
+	assert "subroutine db upgrade --check" in examined, (
+		f"doctor reports on an installation and does not name the one question about it that "
+		f"it deliberately does not answer: {examined}"
+	)
+
+
+def test_the_spelling_that_predates_the_rename_reaches_the_signpost (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2216`. The useful spelling was a parse error and the bare one was signposted.
+
+	`subroutine upgrade` is a hidden stub whose whole purpose is to say where the command went
+	— `SR#509` kept it because Typer's nearest match for `upgrade` is `update`, so a bare
+	removal pointed an operator migrating a database at the command that edits a task.
+
+	It took no options, so Click refused `subroutine upgrade --check` before the body ran and
+	answered *"No such option: --check (Possible options: --help)"*. That is the exact line
+	`SR#321` shipped and that every note written before the rename carries, so it is the one a
+	reader is most likely to type — and it was the one that never reached the redirect.
+
+	**Still not an alias** (`SR#509`, Simon's). It does nothing, which is what a removed
+	command should do; what changed is that it is reached.
+	"""
+
+	# **Exit 2 in every case, which is the behaviour that must not change.** A removed command
+	# refuses; the parse error refused too, so the exit code alone could never have told these
+	# apart — only what was printed can, which is what this reads.
+	for spelling in (["upgrade"], ["upgrade", "--check"], ["upgrade", "--yes"]):
+		said = run(*spelling, expect=2).output
+
+		assert "subroutine db upgrade" in said, (
+			f"'subroutine {' '.join(spelling)}' does not say where the command went: {said}"
+		)
+		assert "No such option" not in said, (
+			f"'subroutine {' '.join(spelling)}' is refused by the parser, so the signpost "
+			f"this command exists to print is never reached: {said}"
+		)
+
+	# **And it still upgrades nothing**, which is the decision it must not reopen: a real
+	# upgrade under this name would make one spelling mean two things depending on when
+	# somebody learned it, because `db upgrade` used to be the blunt migrator.
+	assert "Upgraded from" not in run("upgrade", "--check", expect=2).output
+
+
 def test_upgrade_check_asks_nothing_of_the_database (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

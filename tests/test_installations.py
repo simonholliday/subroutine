@@ -316,13 +316,39 @@ class TestOrderingTwoVersions:
 		assert "def _ordered (" not in script, "the script kept a second copy"
 
 
+def _skew (
+	me: subroutine.views.Me, *, program: str | None, plugin: str | None = None
+) -> list[str]:
+	"""What :func:`views.versions` says about *disagreement*, without its closing constant.
+
+	**`SR#1635` gave every rendering a last line** naming how to find out whether what is
+	running is behind what has been published. That is a different question from any of the
+	comparisons below — it needs no versions at all — and twenty-six assertions about skew
+	would each have had to carry it, which is twenty-six chances to write the sentence down
+	a second time.
+
+	**It asserts the line rather than trimming it**, so every one of those tests also proves
+	the append happened on *its* branch. `versions` returns from three places, and the branch
+	most easily missed is the remote-plugin one that `SR#839` is for — the reason the append
+	lives in the shared renderer rather than at the two `whoami` call sites.
+	"""
+
+	lines = subroutine.views.versions(me, program=program, plugin=plugin)
+
+	assert lines and lines[-1] == subroutine.views.HOW_TO_ASK_IF_IT_IS_OLD, (
+		f"a rendering did not end by saying how to tell whether this is old: {lines}"
+	)
+
+	return lines[:-1]
+
+
 class TestTheRenderedLine:
 	"""What ``views.versions`` says, and what it refuses to say."""
 
 	def test_everything_agrees_and_no_plugin_started_this (self) -> None:
 		"""The ordinary command line: one line, three facts, nothing to act on."""
 
-		lines = subroutine.views.versions(_me(instance_version="1.0.0"), program="1.0.0")
+		lines = _skew(_me(instance_version="1.0.0"), program="1.0.0")
 
 		assert lines == ["Program 1.0.0, instance 1.0.0, schema abcdef123456."]
 
@@ -339,7 +365,7 @@ class TestTheRenderedLine:
 		here"* to somebody announcing themselves on every request.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0"), program=None, plugin="1.0.0"
 		)
 
@@ -355,13 +381,13 @@ class TestTheRenderedLine:
 		release, so a plugin behind the instance is a stale cached copy.
 		"""
 
-		behind = subroutine.views.versions(
+		behind = _skew(
 			_me(instance_version="1.4.0"), program=None, plugin="1.2.0"
 		)
 
 		assert any("older than the instance" in line for line in behind), behind
 
-		ahead = subroutine.views.versions(
+		ahead = _skew(
 			_me(instance_version="1.2.0"), program=None, plugin="1.4.0"
 		)
 
@@ -376,7 +402,7 @@ class TestTheRenderedLine:
 		one clause along.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="0.8.8.dev45+g5ff2a01e0"), program=None, plugin="0.8.10"
 		)
 
@@ -389,15 +415,55 @@ class TestTheRenderedLine:
 		its own version under the word *Program* is the defect `#564` exists for.
 		"""
 
-		lines = subroutine.views.versions(_me(instance_version="1.0.0"), program=None)
+		lines = _skew(_me(instance_version="1.0.0"), program=None)
 
 		assert lines[0] == "Instance 1.0.0, schema abcdef123456."
 		assert "not visible from here" in lines[1]
 
+	def test_every_branch_ends_by_saying_how_to_find_out_if_it_is_old (self) -> None:
+		"""`SR#1635`. Three returns, and the one that would be forgotten is not the obvious one.
+
+		`versions` answers *do the installations that answered this call agree with each
+		other* — skew, which is local and needs no request. Whether any of them is behind what
+		has been **published** is a third question (`SR#785` is the second), and no surface
+		volunteered it: the check has lived on a flag of a *database* command since `SR#509`'s
+		rename moved it there.
+
+		**Appended in the shared renderer rather than at the two `whoami` call sites**, which
+		is what makes a third surface carry it for free — and there will be one, because this
+		function exists precisely so the CLI and MCP cannot answer differently.
+
+		The three shapes are asserted together because they are three `return` statements, and
+		the one a change would miss is the middle: a plugin with no program is the remote
+		population `SR#839` is for, and nothing anybody runs locally has that shape.
+		"""
+
+		shapes = {
+			"nothing about the caller": {"program": None},
+			"a plugin and no program": {"program": None, "plugin": "1.0.0"},
+			"a program": {"program": "1.0.0"},
+			"a program and a plugin": {"program": "1.0.0", "plugin": "1.0.0"},
+		}
+
+		for what, arguments in shapes.items():
+			lines = subroutine.views.versions(
+				_me(instance_version="1.0.0"), **arguments  # type: ignore[arg-type]
+			)
+
+			assert lines[-1] == subroutine.views.HOW_TO_ASK_IF_IT_IS_OLD, (
+				f"the rendering for {what} does not say how to find out whether it is old, so "
+				f"a reader of that shape is the one who never learns: {lines}"
+			)
+
+		# **Naming a command is not a check** (§12.4a). The sentence says so itself, because a
+		# pointer that left it ambiguous would read as *this has already been asked* — which is
+		# the reassurance `SR#97` refuses to let this product give falsely.
+		assert "asks only when you do" in subroutine.views.HOW_TO_ASK_IF_IT_IS_OLD
+
 	def test_a_plugin_is_named_first (self) -> None:
 		"""An agent's session has three, and the one it can least easily check leads."""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0"), program="1.0.0", plugin="1.0.0"
 		)
 
@@ -406,7 +472,7 @@ class TestTheRenderedLine:
 	def test_the_program_and_the_instance_disagree (self) -> None:
 		"""`#345`, in one line: a field one of them has and the other does not."""
 
-		lines = subroutine.views.versions(_me(instance_version="0.9.0"), program="1.0.0")
+		lines = _skew(_me(instance_version="0.9.0"), program="1.0.0")
 
 		assert lines[0].startswith("Program 1.0.0, instance 0.9.0")
 		assert len(lines) == 2
@@ -415,7 +481,7 @@ class TestTheRenderedLine:
 	def test_the_plugin_is_older_than_the_program (self) -> None:
 		"""`#380` and `#393`: a cached copy older than what it launches."""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0"), program="1.0.0", plugin="0.1.1"
 		)
 
@@ -436,7 +502,7 @@ class TestTheRenderedLine:
 		both rules — which is exactly why the noise was invisible from inside the guard.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0"), program="1.0.0", plugin="1.1.0"
 		)
 
@@ -471,7 +537,7 @@ class TestTheRenderedLine:
 		by identity and this is testing the plugin clause alone.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version=program), program=program, plugin=plugin
 		)
 
@@ -486,7 +552,7 @@ class TestTheRenderedLine:
 	def test_both_disagreements_are_reported_separately (self) -> None:
 		"""They are different failures with different fixes, so neither stands for the other."""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="0.9.0"), program="1.0.0", plugin="0.1.1"
 		)
 
@@ -500,21 +566,21 @@ class TestTheRenderedLine:
 		at the moment it was being looked for.
 		"""
 
-		lines = subroutine.views.versions(_me(instance_version=None), program="1.0.0")
+		lines = _skew(_me(instance_version=None), program="1.0.0")
 
 		assert "instance too old to say" in lines[0]
 
 	def test_an_instance_too_old_to_say_still_counts_as_a_disagreement (self) -> None:
 		"""Silence is not agreement. ``None != "1.0.0"``, and the advice line follows."""
 
-		lines = subroutine.views.versions(_me(instance_version=None), program="1.0.0")
+		lines = _skew(_me(instance_version=None), program="1.0.0")
 
 		assert len(lines) == 2
 
 	def test_a_schema_nothing_migrated_is_left_out (self) -> None:
 		"""A database built by ``create_all`` has no revision, and no clause about one."""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0", schema_revision=None), program="1.0.0"
 		)
 
@@ -534,7 +600,7 @@ class TestTheRenderedLine:
 		and the plain ``!=`` `#481` removed.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="0.8.8.dev6+g65d708f66"), program="0.8.3.dev60+gb22d6a98a"
 		)
 
@@ -553,7 +619,7 @@ class TestTheRenderedLine:
 		missing convention quietly does not happen.
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="0.8.8.dev6+g65d708f66"),
 			program="0.8.3.dev60+gb22d6a98a",
 			plugin="0.8.8",
@@ -572,7 +638,7 @@ class TestTheRenderedLine:
 
 		build = "0.8.8.dev6+g65d708f66"
 
-		assert subroutine.views.versions(_me(instance_version=build), program=build) == [
+		assert _skew(_me(instance_version=build), program=build) == [
 			f"Program {build}, instance {build}, schema abcdef123456."
 		]
 
@@ -584,11 +650,11 @@ class TestTheRenderedLine:
 		on ``whoami``, the one command whose whole purpose is to answer *are my versions right*.
 		"""
 
-		assert subroutine.views.versions(_me(instance_version="0.8.7"), program="0.8.7") == [
+		assert _skew(_me(instance_version="0.8.7"), program="0.8.7") == [
 			"Program 0.8.7, instance 0.8.7, schema abcdef123456."
 		]
 
-		differing = subroutine.views.versions(_me(instance_version="0.8.6"), program="0.8.7")
+		differing = _skew(_me(instance_version="0.8.6"), program="0.8.7")
 
 		assert len(differing) == 2
 		assert "cannot be ranked" not in differing[1], differing[1]
@@ -609,7 +675,7 @@ class TestTheRenderedLine:
 		"""
 
 		rendered = " ".join(
-			subroutine.views.versions(_me(instance_version="0.9.0"), program="1.0.0")
+			_skew(_me(instance_version="0.9.0"), program="1.0.0")
 		).lower()
 
 		assert word not in rendered
@@ -684,7 +750,7 @@ class TestTheProgramAndTheInstance:
 	def test_two_released_versions_that_differ_still_warn (self) -> None:
 		"""The case the warning exists for, kept intact — `#345` is what it costs."""
 
-		lines = subroutine.views.versions(_me(instance_version="0.9.0"), program="1.0.0")
+		lines = _skew(_me(instance_version="0.9.0"), program="1.0.0")
 
 		assert len(lines) == 2
 		assert "refused for a field one of them does not have" in lines[1]
@@ -718,7 +784,7 @@ class TestTheProgramAndTheInstance:
 		is not.** A comparison that was not made is reported as one that was not made.
 		"""
 
-		lines = subroutine.views.versions(_me(instance_version=instance), program=program)
+		lines = _skew(_me(instance_version=instance), program=program)
 
 		assert len(lines) == 2, f"expected one clause about {program} vs {instance}: {lines}"
 		assert "cannot be ranked" in lines[1], lines[1]
@@ -740,7 +806,7 @@ class TestTheProgramAndTheInstance:
 		nothing when unsure".
 		"""
 
-		lines = subroutine.views.versions(_me(instance_version=None), program="1.0.0")
+		lines = _skew(_me(instance_version=None), program="1.0.0")
 
 		assert len(lines) == 2
 		assert "refused for a field one of them does not have" in lines[1]
@@ -748,7 +814,7 @@ class TestTheProgramAndTheInstance:
 	def test_the_plugin_clause_is_unaffected (self) -> None:
 		"""The neighbour this borrows from must keep behaving exactly as `#417` left it."""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0"), program="1.0.0", plugin="0.1.1"
 		)
 
@@ -763,7 +829,7 @@ class TestTheProgramAndTheInstance:
 		being behind is the failure that has actually happened twice (`#380`, `#393`).
 		"""
 
-		lines = subroutine.views.versions(
+		lines = _skew(
 			_me(instance_version="1.0.0.dev4+gabc"),
 			program="1.0.0",
 			plugin="0.1.1",
