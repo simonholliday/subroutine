@@ -281,4 +281,10 @@ export const DOCUMENT_FIELDS = [
 	/* One of the four keys both collections can be ordered by, so a reader who chooses
 	   *recently changed* can see it here as well as on a task (`#782`). */
 	"updated_at",
+	/* **How many documents are filed under this one** (`#2208`). Document-only, and the one
+	   place in this list where that is a fact about the *model* rather than a judgement made
+	   here: `views.Task` has no counterpart, so `TASK_FIELDS` cannot ask for it and `#2210` is
+	   the open question about building one. It costs nothing to compute — `Vocabulary` runs
+	   the grouped scan for every page already — only a number in the response. */
+	"sub_documents",
 ].join(",");

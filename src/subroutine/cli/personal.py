@@ -1260,10 +1260,17 @@ def _parent_cell (item: Item) -> str:
 
 	**Not marking a parent as having children**, deliberately. That needs a count per row, and
 	that is the N+1 `#39` was spent removing. A child pointing up is enough to see the
-	structure and is cheaper than every parent pointing down.
+	structure and is cheaper than every parent pointing down. `#2210` is where that argument
+	is re-opened, because a *document's* count is now one grouped scan the render already
+	makes — so what closed this is no longer true of both kinds.
+
+	**Both kinds since `#2209`.** This read `isinstance(item, Task)`, which was correct when a
+	document could not be nested and expired the day `#2173` shipped: a document has carried
+	`parent_ref` since then, batch-loaded exactly as a task's is, and this column was blank on
+	every filed document however deep.
 	"""
 
-	if not isinstance(item, subroutine.views.Task) or item.parent_ref is None:
+	if item.parent_ref is None:
 		return ""
 
 	return f"{PARENT_SIGIL}{item.parent_ref}"
@@ -10596,7 +10603,10 @@ class Sections:
 	proposed: typing.Sequence[subroutine.views.Proposal]
 	governing: typing.Sequence[subroutine.views.Governing]
 	checked: typing.Sequence[subroutine.views.Verification]
-	children: typing.Sequence[subroutine.views.Task]
+	#: What is filed under it — a task's sub-tasks or a document's sub-documents (`#2207`).
+	#: Both kinds, because a task lives under a task and a document under a document, in two
+	#: columns and two trees (`#2173`), so a parent's children are always its own kind.
+	children: typing.Sequence[Item]
 	events: typing.Sequence[subroutine.views.Event]
 
 	#: Whether the caller asked for the record at all, which `events` cannot say (`#349`). An
@@ -10679,6 +10689,19 @@ def _sections (
 		# its four children because the other two are finished would misreport the thing
 		# somebody opened it to see. `#84` says report the rollup and leave completion an act;
 		# this is where the rollup is read.
+		#
+		# **Both kinds since `#2207`**, and the two calls are not the same call with a word
+		# changed. A task's parent is the published flat `parent=`; a document's is the
+		# registry's dotted `parent.eq`, which is the only spelling `/v1/documents` accepts —
+		# it refuses the other by name rather than ignoring it. And a document needs no
+		# `include_completed`: that listing narrows by `status_category` only when one is
+		# given, so a superseded child is already in the answer.
+		#
+		# **Not wrapped in `_if_the_instance_can_answer`, and neither call ever was.** That
+		# helper catches a missing *route*; both of these are parameters on routes that have
+		# existed since M1, so an instance too old for either refuses with a 422 naming the
+		# field rather than a 404. Wrapping them would claim a protection they do not have,
+		# which is worse than the exposure.
 		children=(
 			client.tasks(
 				parent=located.ref,
@@ -10688,7 +10711,12 @@ def _sections (
 				order="ref",
 			)
 			if located.entity_type == "task"
-			else []
+			else client.documents(
+				workspace=located.workspace,
+				limit=MAX_CHILDREN,
+				order="ref",
+				filters={"parent.eq": str(located.ref)},
+			)
 		),
 		events=(
 			client.history(
@@ -11272,9 +11300,13 @@ def _render_item (
 	# facts row would be true and unreadable — the reason to name a parent is to say what
 	# this is part *of*, which is a title. The heading mirrors `Parts` below, so the two
 	# directions of one relationship read as one relationship.
+	#
+	# **Both kinds since `#2207`.** This read `isinstance(item, Task)` and a document has had
+	# a `parent_ref` since `#2173`, so `show` on a filed document said nothing about what it
+	# was filed under — on the one command whose whole job is to say what an item is.
 	item = located.item
 
-	if isinstance(item, subroutine.views.Task) and item.parent_ref is not None:
+	if item.parent_ref is not None:
 		belongs = rich.text.Text()
 		belongs.append("  part of ", style=DETAIL)
 		belongs.append(
@@ -11297,12 +11329,24 @@ def _render_item (
 		console.print(rich.text.Text(body))
 
 	if children:
-		done = sum(1 for child in children if child.completed_at is not None)
+		# **A document gets a plain heading and no rollup** (`#2207`). A task's rollup counts
+		# what is finished; a document has no finished state — its categories are `draft`,
+		# `current`, `superseded` and `archived`, and §6.14's lifecycle makes none of them
+		# mean *done*. A count would answer a question this product declines to ask, and the
+		# browser declines it in the same words.
+		if located.entity_type == "task":
+			done = sum(
+				1
+				for child in children
+				if isinstance(child, subroutine.views.Task) and child.completed_at is not None
+			)
+			heading_for_children = f"Sub-tasks  ({done} of {len(children)} done)"
+
+		else:
+			heading_for_children = "Sub-documents"
 
 		console.print("")
-		console.print(
-			rich.text.Text(f"Sub-tasks  ({done} of {len(children)} done)", style=HEADING)
-		)
+		console.print(rich.text.Text(heading_for_children, style=HEADING))
 
 		for child in children:
 			row = rich.text.Text()
@@ -11313,7 +11357,15 @@ def _render_item (
 			# A finished child is dimmed rather than removed or ticked: the rollup above
 			# already carries the count, and what this line is for is seeing what the parts
 			# *are*.
-			row.append(child.title, style=DETAIL if child.completed_at else "")
+			#
+			# **Nothing is dimmed under a document**, for the reason the heading gives: there
+			# is no finished state to mark, and dimming a superseded document would be this
+			# command answering the question its own heading declines to.
+			finished = (
+				isinstance(child, subroutine.views.Task) and child.completed_at is not None
+			)
+
+			row.append(child.title, style=DETAIL if finished else "")
 			console.print(row)
 
 	if governing:

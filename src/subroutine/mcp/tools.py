@@ -2785,6 +2785,21 @@ def _shown (
 	# comparison runs one way, so the agent may be told more; a person may not.
 	parts.append(f"version {found.version}")
 
+	# **What this is filed under, which this surface has never said** (`#2212`). The terminal
+	# has printed `part of #N  <title>` since `#62` and an agent reading the same item was
+	# told nothing — on *either* kind, so this is an omission rather than something `#2173`
+	# broke.
+	#
+	# **Its own line rather than an entry in `_more`**, matching the terminal exactly. `#674`'s
+	# guard compares that helper against `cli/personal._facts`, where the parent deliberately
+	# is not — a `^57` among the facts would be true and unreadable, because the reason to name
+	# a parent is to say what this is part *of*, which is a title.
+	if found.parent_ref is not None:
+		parts.append(
+			f"part of {subroutine.domain.refs.format_ref(found.parent_ref)}"
+			+ (f"  {found.parent_title}" if found.parent_title else "")
+		)
+
 	body = (
 		found.description if isinstance(found, subroutine.views.Task) else found.body
 	)
@@ -2813,9 +2828,13 @@ def _shown (
 	# **Finished ones included and marked**, like the terminal's: a parent showing two of four
 	# children because the other two are done misreports the thing somebody opened it to see.
 	#
-	# **Only a task**, because only a task has children; a document reaches this with nothing
-	# to ask and the request is not made.
-	children = (
+	# **Both kinds since `#2212`.** This asked only for a task's, on a comment reading *only a
+	# task has children* — true when `#1117` wrote it and false the day `#2173` gave a document
+	# a tree of its own. The two calls are not one call with a word changed: `?parent=` is a
+	# task's published flat parameter and `/v1/documents` accepts only the registry's
+	# `parent.eq`, refusing the other by name; and a document needs no `include_completed`,
+	# because that listing narrows by `status_category` only when one is given.
+	children: typing.Sequence[subroutine.views.Task | subroutine.views.Document] = (
 		client.tasks(
 			parent=ref,
 			workspace=workspace,
@@ -2824,17 +2843,41 @@ def _shown (
 			order="ref",
 		)
 		if kind == "task"
-		else []
+		else client.documents(
+			workspace=workspace,
+			limit=MAX_CHILDREN,
+			order="ref",
+			filters={"parent.eq": str(ref)},
+		)
 	)
 
 	if children:
-		done = sum(1 for child in children if child.completed_at is not None)
+		# **A document gets no rollup and no `(over)`**, which is the terminal's answer and the
+		# browser's. Its categories are `draft`, `current`, `superseded` and `archived` and
+		# §6.14 makes none of them mean *finished*, so a count would answer a question this
+		# product declines to ask — and an agent is the reader least placed to notice that a
+		# number it was handed means something narrower than it says.
+		if kind == "task":
+			done = sum(
+				1
+				for child in children
+				if isinstance(child, subroutine.views.Task) and child.completed_at is not None
+			)
 
-		parts.append("")
-		parts.append(f"Sub-tasks ({done} of {len(children)} done)")
+			parts.append("")
+			parts.append(f"Sub-tasks ({done} of {len(children)} done)")
+
+		else:
+			parts.append("")
+			parts.append("Sub-documents")
+
 		parts.extend(
 			f"#{child.ref}  {child.title}"
-			+ ("  (over)" if child.completed_at is not None else "")
+			+ (
+				"  (over)"
+				if isinstance(child, subroutine.views.Task) and child.completed_at is not None
+				else ""
+			)
 			for child in children
 		)
 

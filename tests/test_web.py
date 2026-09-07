@@ -4822,6 +4822,69 @@ def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None
 	assert "Sub-tasks" not in bare, "an ordinary item is drawn as though it were a parent"
 
 
+def test_a_row_says_how_many_documents_are_filed_under_it (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#2208`. Filing work under a parent made it vanish from the surface that lists it.
+
+	Thirteen instrument specifications were filed under one document on 2026-09-07, taking
+	that project's top level from 21 documents to 9. **Nothing on any row said where the other
+	twelve had gone.** The work was not lost and the only thing that could say so was opening
+	each of the nine in turn.
+
+	**The count rather than a flag**, because `sub_documents` is a number the render already
+	has: `Vocabulary` runs one grouped scan for the whole page whether or not anything draws
+	it, so the number and the flag cost the same and the number answers more.
+
+	**And it is documents only**, which is `SR#2210` rather than an oversight — `views.Task`
+	carries `sub_tasks_done`, a boolean about whether the children are finished, and no count
+	at all.
+	"""
+
+	place = {"workspace": "projects", "project": None}
+	parent = {"ref": 2204, "kind": "document", "title": "A parent document",
+		"type": "note", "status": "active", "status_is_default": True,
+		"project_key": "py-midi-defs", "project_path": "py-midi-defs",
+		"sub_documents": 13}
+
+	shown = _rendered(tmp_path, {"Row": {"item": parent, "place": place}})["Row"]
+
+	assert "13 sub-documents" in shown, (
+		f"a row says nothing about the documents filed under it: {shown}"
+	)
+
+	# **The section's own word and the section's own grammar.** One vocabulary for one
+	# relationship, so a reader meets the same noun on the row and on the page it opens.
+	one = _rendered(tmp_path, {"Row": {
+		"item": {**parent, "ref": 9, "sub_documents": 1}, "place": place,
+	}})["Row"]
+
+	assert "1 sub-document" in one and "1 sub-documents" not in one, (
+		f"the count is not written in the reader's grammar: {one}"
+	)
+
+	# **Nothing at all on a document that holds none**, which is most of them — §12.2a's rule
+	# that a mark on every row says nothing, and `SR#1019`'s arrangement.
+	bare = _rendered(tmp_path, {"Row": {
+		"item": {**parent, "sub_documents": 0}, "place": place,
+	}})["Row"]
+
+	assert "sub-document" not in bare, (
+		f"an ordinary document is marked as though it were a parent: {bare}"
+	)
+
+	# **And not on the item's own page**, where the section below counts them by listing them.
+	# A chip three lines above a heading with thirteen rows under it is the duplication
+	# `SR#1019` took four rows out of the fact sheet to remove, read the other way round.
+	page = _rendered(tmp_path, {"Detail": {
+		"item": parent, "links": [], "comments": [], "workspace": "projects", "members": [],
+	}})["Detail"]
+
+	assert "sub-document" not in page.split("<h3>")[0], (
+		f"the item page says the same thing twice, three lines apart: {page}"
+	)
+
+
 def test_a_documents_page_lists_the_documents_filed_under_it (
 	tmp_path: pathlib.Path
 ) -> None:

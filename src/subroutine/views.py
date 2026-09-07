@@ -218,6 +218,17 @@ class LinkEnd(pydantic.BaseModel):
 	blocking: bool = False
 	sub_tasks_done: bool = False
 
+	#: How many documents are filed under this end — `#2208`. Here because `marks` reads it and
+	#: an end renders through `marks`, which is what `test_a_links_far_end_carries_every_field`
+	#: exists to hold: a link line and a listing row must say the same things about one item.
+	#: The guard put this here rather than anybody remembering, on the first run after the mark
+	#: was written.
+	#:
+	#: **Zero on a task, and that is the declared default rather than a silence.** A task has
+	#: no such count at all (`#2210`), so the mark cannot draw for one — which is the same
+	#: shape as the deadline and the lease above, absent because the kind cannot have one.
+	sub_documents: int = 0
+
 	#: Who has it and who is on it now. A lease expires, so ``claim_expires_at`` travels with
 	#: the holder for the reason :class:`Task` gives: a client answers *is this still held*
 	#: without a request per row.

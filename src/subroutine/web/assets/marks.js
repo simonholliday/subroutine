@@ -196,10 +196,17 @@ export function marks (
 		  a chip here would be the same fact twice on the one surface that aligns it. Absent
 		  means draw it, which is the board, the agenda and an item's own links.
 		- `hideType` — the caller draws a `Stamp`, which says the type in a fixed place.
+		- `hideParts` — **the caller lists them** (`#2208`). An item's own page draws a
+		  `Sub-documents` heading with a row apiece directly below this strip, so a chip
+		  counting them is the same fact twice, three lines apart. That is exactly the
+		  duplication `#1019` took four rows *out* of the fact sheet to remove, and this is the
+		  same rule read in the other direction.
 	*/
 	options = {}
 ) {
-	const { hideStatus = false, hideAssignee = false, hideType = false } = options;
+	const {
+		hideStatus = false, hideAssignee = false, hideType = false, hideParts = false,
+	} = options;
 
 	/*
 		The small labels under a title.
@@ -359,6 +366,34 @@ export function marks (
 	*/
 	if (item.sub_tasks_done) {
 		states.push({ text: "Sub-tasks done", family: "state" });
+	}
+	/*
+		**That other documents are filed under this one** — `#2208`. Simon filed thirteen
+		instrument specifications under one parent on 2026-09-07, which took that project's top
+		level from 21 documents to 9; **nothing on any row said where the other twelve had
+		gone.** The work did not disappear and the only thing that said so was opening each
+		row in turn.
+
+		**The count, not a flag.** `sub_documents` is a number the render already has —
+		`Vocabulary` runs one grouped scan for the whole page whether or not anything draws it,
+		which is what makes this free — and *how many* is the question somebody scanning a
+		project is asking. A bare *has children* would cost the same and say less.
+
+		**The section's own word**, as `Sub-tasks done` above takes the task section's. One
+		vocabulary for one relationship, so a reader meets the same noun on the row and on the
+		page it opens.
+
+		**Documents only, and that is an asymmetry rather than a decision** — `#2210`. A task
+		has no such field: `views.Task` carries `sub_tasks_done`, a boolean about whether the
+		children are finished, and no count. Building the counterpart means a fourth grouped
+		scan in that constructor, which `#1295`'s statement budget is there to make somebody
+		confront rather than absorb.
+	*/
+	if (item.sub_documents && !hideParts) {
+		states.push({
+			text: `${item.sub_documents} sub-document${item.sub_documents === 1 ? "" : "s"}`,
+			family: "state",
+		});
 	}
 	/*
 		**That it comes back at all** — `#925`, Simon: *"nothing indicates that it is a repeating

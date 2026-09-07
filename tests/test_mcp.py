@@ -2403,12 +2403,20 @@ def test_a_finished_part_is_still_shown_and_says_it_is_over (
 	assert "(over)" in shown, shown
 
 
-def test_a_document_is_not_asked_for_parts (bound: subroutine.mcp.protocol.Server) -> None:
-	"""Only a task has children, so a document reaches this with nothing to ask.
+def test_an_agent_reading_a_document_sees_the_documents_filed_under_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2212`. This asked for a task's children only, on a premise that expired.
 
-	Worth driving rather than reading: the request is not made at all, and a version that
-	asked and got an empty answer would look identical from the output and cost a call on
-	every document an agent opened.
+	It used to be named *a document is not asked for parts* and its whole reason was *only a
+	task has children* — true when `SR#1117` wrote it and false the day `SR#2173` gave a
+	document a tree of its own. The assertion went on passing, because a document draws a
+	different heading; what had stopped being true was the sentence explaining it.
+
+	**No rollup and no `(over)`**, which is the terminal's answer and the browser's: a
+	document's categories are `draft`, `current`, `superseded` and `archived` and §6.14 makes
+	none of them mean finished. An agent is the reader least placed to notice that a number it
+	was handed means something narrower than it says.
 	"""
 
 	made, failed = _called(
@@ -2421,10 +2429,79 @@ def test_a_document_is_not_asked_for_parts (bound: subroutine.mcp.protocol.Serve
 
 	assert numbered is not None, made
 
+	parent = int(numbered.group(1))
+
+	# **A document with nothing under it says nothing**, which is the half the old test was
+	# checking and is still the commonest case.
+	alone, failed = _called(bound, "subroutine_show", ref=parent)
+
+	assert not failed, alone
+	assert "Sub-tasks" not in alone and "Sub-documents" not in alone, alone
+
+	filed, failed = _called(
+		bound, "subroutine_document", title="The detail underneath", body="More.",
+		type="note", parent=parent,
+	)
+
+	assert not failed, filed
+
+	shown, failed = _called(bound, "subroutine_show", ref=parent)
+
+	assert not failed, shown
+	assert "Sub-documents" in shown, (
+		f"a document says nothing about what is filed under it, so an agent reading the "
+		f"parent of thirteen sees an index with no index:\n{shown}"
+	)
+	assert "The detail underneath" in shown, shown
+
+	# **A task's heading and a task's rollup, on the kind that has one.**
+	assert "Sub-tasks" not in shown and "of 1 done" not in shown, (
+		f"a document's children are counted as though one of them could be finished:\n{shown}"
+	)
+
+
+def test_an_agent_reading_an_item_is_told_what_it_is_filed_under (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2212`, and this half was never there for either kind.
+
+	The terminal has printed `part of #N  <title>` since `SR#62`. `subroutine_show` printed
+	nothing, so an agent handed a sub-task could not tell it was part of anything — and after
+	`SR#2206` and `SR#2207` a person could see a document's tree on two surfaces while the
+	agent saw it on none, which is §14.1's rule inverted.
+
+	**`SR#674`'s guard could not have caught it.** It compares `_more` against the terminal's
+	`_facts`, and the parent is deliberately absent from that one: it is a line of its own,
+	because `^57` among the facts would be true and unreadable when the reason to name a
+	parent is to say what this is part *of*, which is a title.
+	"""
+
+	parent = _added(bound, "Ship the release")
+	made, failed = _called(bound, "subroutine_add", text="Write the changelog", parent=parent)
+
+	assert not failed, made
+
+	numbered = re.search(r"#(\d+)", made)
+
+	assert numbered is not None, made
+
 	shown, failed = _called(bound, "subroutine_show", ref=int(numbered.group(1)))
 
 	assert not failed, shown
-	assert "Sub-tasks" not in shown, shown
+	assert f"part of #{parent}" in shown, (
+		f"a sub-task does not say what it is part of:\n{shown}"
+	)
+	assert "Ship the release" in shown, (
+		f"the parent is named by its number alone, so an agent must spend a call to find out "
+		f"what it is:\n{shown}"
+	)
+
+	# **Nothing at all on a top-level item**, which is §12.2c's rule: a field nobody set is
+	# not printed, and most items have no parent.
+	alone, failed = _called(bound, "subroutine_show", ref=parent)
+
+	assert not failed, alone
+	assert "part of" not in alone, alone
 
 
 def test_an_agent_can_file_a_task_under_another_one (

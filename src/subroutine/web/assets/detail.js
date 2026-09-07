@@ -244,6 +244,11 @@ export function Detail ({
 					<${Marks}
 						badges=${marks(item, null, { workspace, project: null }, !!onGo, {
 							hideType: true,
+							/* **The section below counts them by listing them** (`#2208`).
+							   A chip saying `13 sub-documents` three lines above a heading
+							   with thirteen rows under it is `#1019`'s duplication read the
+							   other way round. */
+							hideParts: true,
 						})}
 						onGo=${onGo} />
 					<${Facts} item=${item} prioritised=${prioritised}

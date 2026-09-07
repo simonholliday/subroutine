@@ -4474,6 +4474,77 @@ def test_show_names_both_directions_of_the_relationship (
 	assert "1 of 2 done" in run("show", "1").output
 
 
+def test_show_names_both_directions_for_a_document_too (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2207`. `show` answered this for a task and said nothing at all for a document.
+
+	Both halves read `isinstance(item, views.Task)` — the *part of* line and the section that
+	gathers children — and both were correct when they were written, because a document could
+	not be nested until `SR#2173`. Neither was revisited when it could, so `show` on a filed
+	document named nothing above it and nothing below it, on the one command whose whole job
+	is to say what an item is.
+
+	**No rollup, and that is the difference rather than an omission.** A task's heading counts
+	what is finished; a document's categories are `draft`, `current`, `superseded` and
+	`archived` and §6.14 makes none of them mean *done*, so a count here would answer a
+	question this product declines to ask. The browser declines it in the same words.
+	"""
+
+	run("init")
+	run("document", "create", "The parent document", "--body", "An index.")
+	run("document", "create", "The first filed one", "--body", "One.")
+	run("document", "create", "The second filed one", "--body", "Two.")
+	run("move", "2", "--under", "1")
+	run("move", "3", "--under", "1")
+
+	parent = run("show", "1").output
+
+	assert "Sub-documents" in parent, (
+		f"a document's page says nothing about what is filed under it: {parent}"
+	)
+	assert "The first filed one" in parent and "The second filed one" in parent, (
+		f"the children are not listed: {parent}"
+	)
+
+	# **The task side's rollup, deliberately absent.** `of 2 done` would be this command
+	# inventing a finished state for a kind of thing that has none.
+	assert "of 2 done" not in parent, (
+		f"a document's children are counted as though one could be finished: {parent}"
+	)
+
+	child = run("show", "2").output
+
+	assert "part of" in child, f"a filed document does not say what it is under: {child}"
+	assert "The parent document" in child, (
+		f"the parent is named by its ref alone rather than by its title: {child}"
+	)
+
+
+def test_a_listing_says_which_documents_have_a_parent (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2209`. The `^57` column was blank on every document, however deeply filed.
+
+	`_parent_cell` opened with `isinstance(item, views.Task)`, which was true when it was
+	written and expired with `SR#2173`. The cost argument in its own docstring covers a
+	document exactly: `parent_ref` is on the view and batch-loaded with the status and project
+	names, so this is a field read rather than a query per row.
+	"""
+
+	run("init")
+	run("document", "create", "The parent document", "--body", "An index.")
+	run("document", "create", "The filed one", "--body", "One.")
+	run("move", "2", "--under", "1")
+
+	listed = run("list").output
+
+	assert "^1" in listed, (
+		f"a filed document's row does not say what it is under, so a listing that hides it "
+		f"inside a subtree looks like a listing that lost it: {listed}"
+	)
+
+
 def test_show_on_a_plain_task_still_says_nothing_about_hierarchy (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
