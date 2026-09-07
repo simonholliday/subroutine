@@ -350,7 +350,21 @@ export function Facts ({
 				>#${above.ref} ${item.parent_title || ""}</a>`
 			: `#${above.ref} ${item.parent_title || ""}`}
 	`);
-	add("Updated", day(item.updated_at));
+	/* **An instant, so it carries its time** — `#1934`. `day`'s third argument defaults to
+	   `true`, which drops the clock, so a value recorded to the microsecond was rendered as a
+	   bare day: `Updated` moves for any change at all — a status, a rank, an assignee — and on
+	   an item touched three times in an afternoon it said the same thing before and after.
+
+	   **No zone, which is the same call `day`'s own docstring describes.** For a genuine
+	   instant the question is *when was this, where I am*, so the reader's own offset is the
+	   right one; `Starts` and `Due` pass `item.timezone` because a day-scale fact belongs to
+	   the zone that stored it.
+
+	   **The three day-scale rows above are deliberately untouched.** `Starts: 1 Sept 2026`
+	   means the writer said a day, and printing `00:00` there would invent precision nobody
+	   supplied — `#746` refuses that in as many words. They already show a time when there is
+	   one, which `#864` built. */
+	add("Updated", day(item.updated_at, null, false));
 
 	/* **That the body has been replaced, which nothing said until `#1768`.** `Updated` above
 	   moves for any change at all — a status, an assignee, a rank — so it could never answer

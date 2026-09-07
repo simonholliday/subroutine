@@ -4822,6 +4822,93 @@ def test_the_item_page_lists_what_it_is_made_of (tmp_path: pathlib.Path) -> None
 	assert "Sub-tasks" not in bare, "an ordinary item is drawn as though it were a parent"
 
 
+def test_an_instant_on_the_fact_sheet_carries_its_time_and_a_day_does_not (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1934`, Simon: times beside dates on the item page. Half of it was a rule working.
+
+	`day`'s third argument is `allDay` and **defaults to `true`**, which drops the clock. So
+	`Updated` — a value recorded to the microsecond, which moves for a status, a rank or an
+	assignee — rendered as `27 Aug 2026`, saying the same thing before and after an item was
+	touched three times in an afternoon.
+
+	**`Starts`, `Due` and `Hidden until` were already right and must not be "fixed".**
+	`Starts: 1 Sept 2026` means the writer said a *day*; printing `00:00` there would invent
+	precision nobody supplied, which `SR#746` refuses in as many words. They have shown a time
+	since `SR#864`, when the capture grammar learned `at 14:00`.
+
+	**Both halves are asserted here because the item asked for that**: a test of the instant
+	alone would pass a change that put a clock on every deadline, which is the more visible
+	defect of the two and the harder one to argue back out of.
+	"""
+
+	item = {
+		"ref": 42, "title": "A task", "kind": "task", "status": "open",
+		"timezone": "Europe/London",
+		# An instant, to the microsecond, with no all-day flag anywhere on the model.
+		"updated_at": "2026-08-27T14:35:09.123456Z",
+		# **A genuine all-day deadline**, stored at the last microsecond of its day *in the
+		# item's own zone* — which is what §6.5 does and is 22:59:59.999999Z in British
+		# Summer Time. Writing it as a bare Z midnight would have been a fixture that tested
+		# the renderer against a value the product never stores.
+		"due_at": "2026-09-01T22:59:59.999999Z", "due_is_all_day": True,
+		# And one the writer put a clock on, which is `SR#864`'s case.
+		"starts_at": "2026-08-17T13:00:00Z", "starts_is_all_day": False,
+	}
+
+	shown = _rendered(tmp_path, {"Facts": {"item": item}})["Facts"]
+
+	assert "Updated<dd>27 Aug 2026, 14:35" in shown, (
+		f"an instant is rendered as a bare day, so an item touched three times in an "
+		f"afternoon says the same thing each time: {shown}"
+	)
+
+	# **The day-scale half, which is the one a fix could break in passing.**
+	assert "Due<dd>1 Sept 2026<" in shown, (
+		f"a deadline the writer gave no time to has acquired one, which is precision nobody "
+		f"supplied: {shown}"
+	)
+
+	# **And a start that *was* given a time still shows it**, so this says the rule is about
+	# what the writer said rather than about which field it is.
+	assert "Starts<dd>17 Aug 2026, 14:00" in shown, (
+		f"a start captured as 'at 14:00' lost its time: {shown}"
+	)
+
+
+def test_the_view_harness_refuses_a_name_it_does_not_know (tmp_path: pathlib.Path) -> None:
+	"""`SR#1797`. The dispatch answered about `columns` for every name it did not recognise.
+
+	`_views` ended `: app.columns(argument)`, so an unregistered name ran a different function
+	and reported whatever that one made of the argument. Met while building `SR#1790`: two new
+	tests named `unpacked` and `listingRequests`, neither registered, and the failure was
+	`TypeError: items is not iterable` from inside `columns` — with a stack trace pointing at
+	the harness and nothing naming the missing entry, so the obvious reading was that the new
+	function was broken.
+
+	**This is the guard on the guard.** `SR#405`'s rule is that a scanner or a dispatch is
+	tested by feeding it a defect through its own entry point, and the defect here is a name
+	nobody registered — which is exactly what this passes it.
+	"""
+
+	with pytest.raises(AssertionError) as refused:
+		_views(tmp_path, [("noSuchFunctionExists", [1, 2, 3])])
+
+	said = str(refused.value)
+
+	assert "noSuchFunctionExists" in said, (
+		f"the failure does not name the entry that is missing, which is the whole defect: "
+		f"{said}"
+	)
+
+	# **And the registered names still work**, which is what says this narrowed rather than
+	# broke the dispatch — `columns` in particular, because it was the fallback and had never
+	# needed an entry of its own.
+	[arranged] = _views(tmp_path, [("columns", [{"ref": 1, "status_category": "todo"}])])
+
+	assert arranged, f"the name that used to be the fallback no longer answers: {arranged}"
+
+
 def test_a_row_says_how_many_documents_are_filed_under_it (
 	tmp_path: pathlib.Path
 ) -> None:
@@ -10036,7 +10123,22 @@ def _views (
 					argument.slug, argument.key, argument.after, argument.selection
 				)
 			: name === "unpacked" ? app.unpacked(argument.answers, argument.wanted)
-			: app.columns(argument))));
+			: name === "columns" ? app.columns(argument)
+			/* **A name nothing recognises fails as that, rather than as something else**
+			   (`SR#1797`). `columns` used to be the fallback, so any unregistered name — a
+			   typo, or a function somebody forgot to add — *ran* `columns` and reported
+			   whatever it made of the argument. Met while building `SR#1790`: two new tests
+			   named `unpacked` and `listingRequests`, neither registered, and the failure was
+			   `TypeError: items is not iterable` from inside `columns` with a stack trace
+			   pointing at this harness. Nothing in it named the missing entry, and the obvious
+			   reading was that the new function was broken.
+
+			   `SR#405`'s family: a dispatch whose failure mode is *answering about something
+			   else* rather than *saying it could not*. */
+			: (() => {{ throw new Error(
+				`_views has no entry for "${{name}}" — add one beside the others, naming the `
+				+ `arguments it takes. Nothing here falls through any more.`
+			); }})())));
 	"""))
 
 

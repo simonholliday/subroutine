@@ -467,7 +467,7 @@ underneath the copy.
 
 ```console
 $ subroutine db backup
-  Backed up instance 'default' to /home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
+  Backed up the default instance to /home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
   540,672 bytes, schema 9c41d0b7ae52.
 
 $ TAKEN=/home/you/.local/share/subroutine/backups/subroutine-default-20260825T130228Z-9c41d0b7ae52.db
@@ -1502,7 +1502,7 @@ share. If that matters, the answer is on the share rather than here.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backup
-  Backed up instance 'default' to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.dump
+  Backed up the default instance to /srv/backups/subroutine/subroutine-default-20260731T141853Z-d5d0458f5ad5.dump
   60,069 bytes, schema d5d0458f5ad5.
 
 # sudo -u subroutine env \
@@ -1510,7 +1510,7 @@ share. If that matters, the answer is on the share rather than here.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db backups
-  Backups of instance 'default', in /srv/backups/subroutine:
+  Backups of the default instance, in /srv/backups/subroutine:
     subroutine-default-20260731T141853Z-d5d0458f5ad5.dump  2026-07-31 14:18 UTC  60,069 bytes  schema d5d0458f5ad5
 ```
 

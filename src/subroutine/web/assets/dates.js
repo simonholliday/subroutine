@@ -72,8 +72,13 @@ export function day (value, zone = null, allDay = true) {
 		same reason: an appointment at midnight and a deadline meaning *the end of that day* are
 		the same instant in some zones, so looking at the clock and guessing would print `00:00`
 		against every ordinary deadline. The default is `true` so that a caller which has no
-		such flag — `updated_at`, `completed_at`, `starts_at`, which is a date and has no time
-		to show — is unchanged and cannot accidentally acquire one.
+		such flag cannot accidentally acquire one.
+
+		**This used to name `starts_at` among those callers and it has had one since `#864`**,
+		which passes it. The callers that genuinely have none are the *instants* —
+		`updated_at`, `completed_at`, `claimed_at` — and an instant wants `false` rather than
+		the default, because the question there is *when*, not *which day* (`#1934`). Stale by
+		one word, in the sentence somebody would read before deciding a bare day was right.
 	*/
 	if (!value) return null;
 

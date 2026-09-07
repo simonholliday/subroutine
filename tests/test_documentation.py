@@ -2234,6 +2234,59 @@ def test_every_command_named_in_prose_exists () -> None:
 	assert not wrong, f"These pages name commands that do not exist: {wrong}"
 
 
+def test_every_page_names_an_instance_the_way_the_program_does () -> None:
+	"""`SR#2095`. Three transcripts quoted a sentence this program cannot print.
+
+	`docs/hosting.md`'s promise is `SR#189`'s: a quoted output is what the command actually
+	printed. Three of its backup transcripts said *"Backed up instance 'default' to …"* and
+	*"Backups of instance 'default', in …"*, and neither is a line the program produces —
+	`_instance_label` answers **"the default instance"** where there is no profile, and
+	``instance '<name>'`` only where there is one. The docs' scenario is a server with no
+	profile, so it gets the first and was shown the second.
+
+	**Why nothing caught it.** `test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened`
+	covers one block on a page of many, and covers it well — it holds each quoted line against
+	the literal `_say(…)` in `cli/main.py`. These sat two hundred lines above it with nothing
+	checking them, and the page reads as uniformly verified because one part of it is.
+
+	**The two forms are derived by calling the function, not listed here**, so a third way of
+	naming an instance is covered on the day somebody writes one. Every destructive command
+	prints this before acting (docs/design.md §12.5), which is what makes one guard worth more
+	than three corrections.
+
+	**What this does not check is completeness** — `SR#432` made `db backup` say what the copy
+	holds, and the transcripts have no such line. That wants a real run against a served
+	instance pasted in, which is `SR#2095`'s own conclusion and not something to invent from a
+	local one: a fabricated holdings count would break `SR#189` in the direction this exists to
+	protect.
+	"""
+
+	unprofiled = subroutine.cli.main._instance_label()
+
+	assert unprofiled == "the default instance", (
+		f"the phrase this checks for has moved: {unprofiled!r}"
+	)
+
+	# Every page a reader is pointed at, rather than the one this was found on: the label is
+	# printed by every destructive command (docs/design.md §12.5), so any of them could quote it.
+	pages = [*sorted((ROOT / "docs").glob("*.md")), ROOT / "README.md"]
+	wrong = []
+
+	for page in pages:
+		for number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), start=1):
+			# **`instance 'default'` is the shape that cannot happen.** The default instance is
+			# the one with no profile and the program never names it that way; a profile
+			# actually called `default` would be a second thing of that name, and nothing in
+			# any of these pages uses one.
+			if "instance 'default'" in line:
+				wrong.append(f"{page.name}:{number}: {line.strip()}")
+
+	assert wrong == [], (
+		f"a page quotes output naming the default instance in a form the program cannot "
+		f"print — it says {unprofiled!r}: {wrong}"
+	)
+
+
 def test_the_upgrade_transcript_is_an_upgrade_that_could_have_happened () -> None:
 	"""Three impossible things in six quoted lines, and every one of them a rendered variable.
 
