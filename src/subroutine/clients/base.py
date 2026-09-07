@@ -1316,6 +1316,7 @@ class Client(typing.Protocol):
 		project: str | None = None,
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
+		parent: int | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document — a conclusion the next reader needs (§5.10).
 
@@ -1337,6 +1338,12 @@ class Client(typing.Protocol):
 		``project`` is a key, resolved by ``domain.selection.project`` like everywhere else, so
 		an unknown one is refused identically whichever transport asked. Omitted means the
 		workspace's Inbox.
+
+		``parent`` is the **ref** of the document this one is filed under, and ``None`` means
+		the top level — `#2173`. `POST /v1/documents` has taken it since `#1534` and no client
+		offered it, so a document could be nested by an HTTP call written by hand and by
+		nothing else. It is a ref rather than an id for :meth:`move`'s reason: a number is what
+		anybody has.
 		"""
 
 	def update_document (

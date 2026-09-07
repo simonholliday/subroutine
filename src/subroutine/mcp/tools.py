@@ -188,6 +188,19 @@ A_REF = ["integer", "string"]
 #: compares surfaces per method, and an *argument* on a method both already call is invisible
 #: to it.
 PROJECT = {"type": "string", "description": "Narrow to this project and everything under it."}
+#: §8.9's optimistic check, shared by the two tools that write to something already there —
+#: `#2198`. It was spelled out twice, once per entity, for 216 bytes of one rule.
+#:
+#: **The noun is left out because the tool already carries it.** *"the revision … the
+#: document"* and *"the change … the task"* were the only difference between the two, and a
+#: property hangs off a tool whose own description says which kind it is about.
+EXPECTED_VERSION = {
+	"type": "integer",
+	"description": (
+		"Refuse the write if it has changed since you read it. Send the version "
+		"subroutine_show gave you."
+	),
+}
 
 #: A tool that only reads — item `#489`.
 #:
@@ -1069,6 +1082,7 @@ def _tools (
 						"description": "note, spec, design, decision, finding or dead_end.",
 					},
 					"project": {"type": "string", "description": "Project key."},
+					"parent": {"type": A_REF, "description": "File it under this document."},
 					"status": {
 						"type": "string",
 						# **A key as an example here, and none in the description above.**
@@ -1088,13 +1102,7 @@ def _tools (
 						"items": {"type": "string"},
 						"description": "Labels, without the '#'. The same tags tasks use.",
 					},
-					"expected_version": {
-						"type": "integer",
-						"description": (
-							"Refuse the revision if the document has changed since you read "
-							"it. Send the version subroutine_show gave you."
-						),
-					},
+					"expected_version": EXPECTED_VERSION,
 					"workspace": WORKSPACE,
 				},
 			},
@@ -1184,13 +1192,7 @@ def _tools (
 					# **`subroutine_document` has taken this since `#842`** and this is the
 					# same guarantee one entity along, so the word is the same word — a caller
 					# moving between the two tools, or between here and HTTP, meets one name.
-					"expected_version": {
-						"type": "integer",
-						"description": (
-							"Refuse the change if the task has changed since you read it. "
-							"Send the version subroutine_show gave you."
-						),
-					},
+					"expected_version": EXPECTED_VERSION,
 					"workspace": WORKSPACE,
 				},
 				"required": ["ref"],
@@ -3362,6 +3364,11 @@ def _wrote (
 			status=_text(arguments, "status"),
 			project=_text(arguments, "project") or checkout.project,
 			tags=_words(arguments, "tags"),
+			# **`#2173`, Simon 2026-09-07.** `POST /v1/documents` has taken a parent since
+			# `#1534` and no client offered it, so an agent writing one document per instrument
+			# could only leave them all at the top level — which is the board this item was
+			# filed about.
+			parent=arguments.get("parent"),
 			workspace=workspace,
 		)
 
@@ -3403,6 +3410,30 @@ def _wrote (
 	# field. A comprehension splatting only what was given reads more neatly and is untypeable
 	# — mypy sees one value type for the whole mapping, which is exactly the looseness §6.3a's
 	# ``typing.Any`` lesson says is where the next defect hides.
+	# **A revision may also re-file it, and the alternative was to swallow the argument**
+	# (`#2173`). `parent` is on this tool for writing, and a caller sending it with a `ref`
+	# plainly means *put this one there* — ignoring it is the drop-what-you-do-not-understand
+	# defect `#1626` was filed for, on a surface that then reports success.
+	#
+	# **Through `client.move` rather than a field on `update_document`**, because re-parenting
+	# is that method's job on both kinds and a second path would be a second copy of the rule
+	# that refuses a cycle and re-checks the depth against the new position.
+	#
+	# **Before the revision, because it is the likelier refusal.** A cycle, the depth ceiling
+	# and an unreachable parent are all refused here; a body replace is refused by almost
+	# nothing. Doing the fragile half first means the common failure changes nothing at all,
+	# where the other order would leave the body rewritten and the document where it was.
+	#
+	# **`_ref` and not `int()`**, so `#7` is read the way every listing prints it — the sigil
+	# is published on this argument by `A_REF` and a guard drives every one of them with it.
+	if arguments.get("parent") is not None:
+		client.move(
+			ref=_ref(arguments),
+			parent=_ref(arguments, field="parent"),
+			entity_type="document",
+			workspace=workspace,
+		)
+
 	def said (name: str) -> typing.Any:
 		"""Return one argument, or the sentinel meaning the caller did not mention it."""
 

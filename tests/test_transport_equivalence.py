@@ -2995,6 +2995,45 @@ def test_both_read_a_written_search_line_the_same_way (pair: Pair) -> None:
 		), asked
 
 
+def test_both_can_write_a_document_under_another (pair: Pair) -> None:
+	"""`SR#2173`. Filing as you write, rather than writing and then moving.
+
+	`POST /v1/documents` has taken a parent since `SR#1534` and **no client offered it**, so the
+	only way to reach the nesting from outside was an HTTP call written by hand. That is
+	`SR#143`'s pattern and it is what left a board with one document per instrument on it and
+	nothing to collapse them behind.
+
+	**The ref is resolved by the domain, so an unreachable parent is refused by name** rather
+	than quietly filing the document at the top level and reporting success — which is the
+	failure mode that matters here, because the caller cannot see where it landed.
+	"""
+
+	project = subroutine.domain.projects.create(
+		pair.session, workspace_id=pair.workspace.id, key="specs", title="Specs"
+	)
+	above = subroutine.domain.documents.create(
+		pair.session, project=project, title="Instrument specs", body="The set."
+	)
+
+	pair.session.flush()
+
+	local, remote = pair.both()
+
+	for client, title in ((local, "Written locally"), (remote, "Written over HTTP")):
+		written = client.create_document(
+			title=title, body="One instrument.", project="specs", parent=above.ref
+		)
+
+		assert written.parent_id == above.id, (
+			f"{title} was filed at the top level and reported success"
+		)
+
+	# **And a ref nobody can reach is refused rather than silently ignored**, on both.
+	for client in (local, remote):
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.create_document(title="Nowhere", project="specs", parent=999_999)
+
+
 def test_both_read_a_documents_tree_the_same_way (pair: Pair) -> None:
 	"""`SR#2173`. The same pair on the other entity, and the resolver is the half that differs.
 

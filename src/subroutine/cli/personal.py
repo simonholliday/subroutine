@@ -4468,6 +4468,40 @@ TYPE_OPTION = typer.Option(None, "--type", help="Only this type, e.g. 'bug'.")
 #: the same reason a ref is typed bare (§12.2a). Written `#home` in a captured line, asked for
 #: as `--tag home` (`#1319`).
 TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, without the '#'.")
+#: Which document this one is filed under, by its number — `#2173`.
+#:
+#: **Out here for `#943`'s ratchet**, like `READY_OPTION` beside it: an option's declaration is
+#: four lines the closure does not need to hold. **`--parent` and not `--under`**, because this
+#: names the *place* a new document goes, where `subroutine move --under` names the *act* of
+#: putting an existing one there — and `under` is a filter's word for the whole subtree
+#: (`#2180`), which is a third thing again.
+DOCUMENT_PARENT_OPTION = typer.Option(
+	"", "--parent", help="File it under this document, by its number."
+)
+
+
+def _a_document_ref (program: Program, given: str) -> int | None:
+	"""Read ``--parent`` as a ref, refusing anything that is not one — `#2173`.
+
+	**Refused here rather than sent on**, because a client takes a ref and the instance would
+	otherwise answer about a document nobody named. ``#7`` and ``7`` are both accepted, since a
+	shell eats the sigil and a person reading a listing has seen it written with one (§6.2).
+	"""
+
+	wanted = given.strip()
+
+	if not wanted:
+		return None
+
+	ref = subroutine.domain.refs.parse_ref(wanted)
+
+	if ref is None:
+		program.stop(
+			f"'--parent' takes a document's number and was given {given!r}.",
+			"Use the number shown in 'subroutine list', with or without the '#'.",
+		)
+
+	return ref
 #: **Two questions about the same list and they compose** (`#1600`). `--ready` is *can this be
 #: started* — nothing unfinished blocks it — and `--to-act-on` is *is it mine to start*, which
 #: is deliberately wider than `--assignee me`: assigned to you, **or to nobody**, or held by
@@ -6332,6 +6366,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
 		),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
+		parent: str = DOCUMENT_PARENT_OPTION,
 		tag: list[str] | None = typer.Option(
 			None, "--tag", help="Label it. Repeatable, and the same tags tasks use."
 		),
@@ -6372,6 +6407,11 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 				status=status.strip() or None,
 				project=project.strip() or None,
 				tags=tag or None,
+				# **A ref, parsed here so a non-number is refused before a request is made**
+				# (`#2173`). `refs.parse_ref` takes `#7` and `7` alike, which is what somebody
+				# has in front of them — and returns `None` for anything else, where sending
+				# the text on would produce a refusal about a document nobody named.
+				parent=_a_document_ref(program, parent),
 				workspace=_writing_workspace(world),
 			)
 

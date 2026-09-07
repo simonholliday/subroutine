@@ -1426,6 +1426,7 @@ class Client:
 		project: str | None = None,
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
+		parent: int | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -1441,6 +1442,7 @@ class Client:
 				status=status,
 				project=project,
 				tags=None if tags is None else list(tags),
+				parent=None if parent is None else str(parent),
 				workspace_id=workspace,
 			),
 		)

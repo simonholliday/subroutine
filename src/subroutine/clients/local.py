@@ -2743,6 +2743,7 @@ class Client:
 		project: str | None = None,
 		workspace: str | None = None,
 		tags: typing.Sequence[str] | None = None,
+		parent: int | None = None,
 	) -> subroutine.views.Document:
 		"""Write a document."""
 
@@ -2764,6 +2765,17 @@ class Client:
 				# anything, since a conclusion with no author is a rumour.
 				owner_id=actor.user.id,
 				tags=tags,
+				# **Resolved here rather than passed as a ref** (`#2173`). `documents.create`
+				# takes the row, and refusing a parent this caller cannot see *by name* is
+				# `selection.document`'s job — a ref that resolved to nothing would file the
+				# document at the top level and say it had done what was asked.
+				parent=(
+					None
+					if parent is None
+					else subroutine.domain.selection.document(
+						session, actor, chosen, str(parent)
+					)
+				),
 				actor=actor,
 			)
 

@@ -1348,11 +1348,25 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: it takes its own sentence rather than joining the ``REFERENCE`` list, because it takes a
 #: username and means something a reference does not — `SR#1828`'s defect one axis along.
 #:
-#: **The 302 bytes of slack are worth knowing about**, because the sentence above says this
-#: number is *today's measured size* and it has not been since `SR#1697` shortened the surface
-#: it was raised for. It is a ceiling that still refuses unobserved growth, which is the claim
-#: that matters; it is no longer a measurement, and lowering it is `SR#1565`'s to do.
-TOOL_BYTE_CEILING = 14_521
+#: **The slack that sentence describes is gone**, spent by `SR#1577`, `SR#1600` and `SR#2173`
+#: over 2026-09-07 — three filters and a field. It is a measurement again, which is what
+#: `SR#1565` wanted, and it was reached by spending rather than by lowering.
+#:
+#: **14,521 → 14,545 on 2026-09-07, and what 24 bytes bought** (`SR#2173`):
+#: ``subroutine_document`` gained ``parent``, so an agent writing one document per instrument
+#: can file them under a parent as it goes. Without it the nesting exists — the column, the
+#: endpoint and the client all take it — and the only way to reach it from this surface is
+#: ``subroutine_call_api``, **the most context-expensive call on it**. That is `SR#1188`'s
+#: argument for ``status`` on the same tool, unchanged, and the trade is favourable in the unit
+#: this ceiling is denominated in: 56 bytes once per session against a second round trip every
+#: time a document is nested.
+#:
+#: **The schemas were read for fat first and 32 bytes of it were found** — `SR#2198`. The
+#: concurrency check was described twice, once per entity, in two wordings that differed only
+#: in a noun the tool already carries. So the raise is 24 rather than 56, and one rule is
+#: single-sourced that was not. Reading for fat found a duplication rather than a saving, which
+#: is the same pattern `SR#1697` records one raise above.
+TOOL_BYTE_CEILING = 14_545
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -2175,6 +2189,22 @@ _BESIDE_A_REF: dict[str, typing.Any] = {
 	"text": "Something to file",
 }
 
+#: Where a *companion* ref has to name a particular kind, and why — `SR#2173`.
+#:
+#: **Keyed by tool and argument, and it does not touch the argument under test.** The walk
+#: sets every ref-typed property to one real item so the tool gets as far as the value being
+#: examined; that item is a task, because most of this surface is about tasks. One counter
+#: numbers both kinds (§6.2), so a tool that requires the *other* one refuses on the companion
+#: and never reaches the argument this test is asking about — which is `_BESIDE_A_REF`'s own
+#: reason, one kind along.
+#:
+#: An entry here says which kind the companion must be. Deleting it is what a tool accepting
+#: either would look like.
+_A_COMPANION_MUST_BE: dict[tuple[str, str], str] = {
+	("subroutine_document", "ref"): "revising names a document, and a task's ref is refused "
+	"by name before `parent` is looked at",
+}
+
 #: A ref nothing answers to. Well-formed, so a tool that reads it gets as far as a lookup and
 #: refuses *by that number* — which is the observation this test is built on, because a tool
 #: that refused the spelling instead never sees the number at all.
@@ -2501,6 +2531,15 @@ def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_o
 	"""
 
 	real = _added(bound, "Something to point at")
+	# **A document as well as a task**, because one counter numbers both and a tool that
+	# revises a document refuses a task's ref before it reads anything else (`SR#2173`).
+	answered, failed = _called(
+		bound, "subroutine_document", title="Something to file under", body="A parent."
+	)
+
+	assert not failed, answered
+
+	a_document = int(answered.split("#")[1].split()[0])
 
 	asked = 0
 	unread = []
@@ -2524,6 +2563,11 @@ def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_o
 				name: value for name, value in _BESIDE_A_REF.items() if name in properties
 			}
 			arguments.update(dict.fromkeys(refs, real))
+			arguments.update({
+				name: a_document
+				for name in refs
+				if (tool.name, name) in _A_COMPANION_MUST_BE
+			})
 			arguments[under_test] = f"#{_NO_SUCH_REF}"
 
 			for name in tool.schema.get("required", []):
@@ -2538,6 +2582,20 @@ def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_o
 				unread.append(f"{tool.name}.{under_test} answered {text!r}")
 
 	assert asked >= 7, f"only {asked} ref arguments were found, so this reads almost nothing"
+
+	# **What makes an entry in the register go away** — the question every allow-list here has
+	# to answer (`SR#405`). A tool that stops requiring a particular kind, or loses the
+	# argument, leaves a line that reads as a considered decision and covers nothing.
+	stale = sorted(
+		f"{tool}.{name}"
+		for tool, name in _A_COMPANION_MUST_BE
+		if tool not in bound.tools
+		or name not in bound.tools[tool].schema.get("properties", {})
+	)
+
+	assert not stale, (
+		f"_A_COMPANION_MUST_BE names arguments this surface no longer publishes: {stale}"
+	)
 	assert not unread, (
 		"These published a ref and did not read one written the way every listing prints it: "
 		+ "; ".join(unread)
