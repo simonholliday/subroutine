@@ -1327,11 +1327,10 @@ NOT_A_PROPERTY: dict[tuple[str, str], str] = {
 	("event", "newest"): "which end of the feed to start from — the ordering this listing has "
 	"instead of `order`",
 	("event", "oldest"): "the same, on the journal",
-	# **The one entry here that is a gap rather than an argument** — `SR#2178`. `actor_user_id`
-	# is a column and `?actor=` resolves a username against it, so this really is an event's own
-	# field. `me` meaning *this credential* rather than this user is the part a plain REFERENCE
-	# would not carry.
-	("event", "actor"): "SR#2178 — a column an event has of its own, with no entry yet",
+	# **`actor` has gone from here** — `SR#2178`, which is the one entry this register ever held
+	# that was a gap rather than an argument. `me` meaning *this credential* rather than this
+	# account turned out to be carryable after all: the group compiles both readings, so the
+	# flat and dotted spellings cannot answer about different rows.
 	# Two values today, so it reads as an axis; nothing has asked to group by it and a
 	# REFERENCE over a two-word vocabulary is `SR#1804`'s question rather than this one's.
 	("project", "visibility"): "public or private, which is an axis nobody has asked to group "

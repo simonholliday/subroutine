@@ -49,6 +49,7 @@ import subroutine.api.shaping
 import subroutine.config
 import subroutine.domain.authentication
 import subroutine.domain.events
+import subroutine.domain.filtering
 import subroutine.domain.paging
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -61,16 +62,13 @@ router = fastapi.APIRouter(
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Event)
 
-#: What ``?actor=`` means when the caller means themselves. **This credential, not this user**
-#: (`#158`): an agent holding a service-account token wants what *it* did, not what the person
-#: who issued the token did from a laptop an hour ago.
+#: What ``?actor=`` means when the caller means themselves — **this credential, not this user**.
 #:
-#: **Any other value is a username, and that is the same question one grain coarser** (`#1120`)
-#: — *what did that account do*, through whatever credential. Not a second question in one
-#: parameter: the coarse grain is the only one that is useful about somebody else, because
-#: nobody knows another credential's id, and the fine one is the only one that is useful about
-#: yourself, because your account may hold several.
-ACTOR_ME = "me"
+#: **Moved into the domain by `#2178`** and read from there, because the filter registry now
+#: compiles the dotted spelling and has to mean exactly what this comparison means. Two copies
+#: of one word is how ``?actor=me`` and ``actor.eq=me`` would come to answer about different
+#: rows, which is `#2175`'s defect. The reasoning is on the declaration.
+ACTOR_ME = subroutine.domain.filtering.MY_OWN_CREDENTIAL
 
 
 @router.get(

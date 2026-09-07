@@ -737,6 +737,82 @@ def test_actor_me_reports_only_this_credential (session: sqlalchemy.orm.Session)
 	assert {ours["id"], theirs["id"]} <= everything
 
 
+def test_both_spellings_of_actor_answer_about_the_same_rows (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**`SR#2178`, and the whole reason the dotted form was worth having a decision about.**
+
+	``?actor=`` has meant two things by its value since `SR#158`: ``me`` is *this credential*,
+	because an agent holding a service-account token wants what it did rather than what the
+	person who issued the token did from a laptop; anything else is a username, which is the
+	same question one grain coarser.
+
+	A `REFERENCE` entry compiling only ``actor_user_id`` would have made ``actor.eq=me`` mean
+	*this account* — one word meaning two things on one endpoint depending on how it is
+	written, which is exactly `SR#2175`'s defect, introduced deliberately by the item that
+	found it. So the group carries both readings and this pins that they agree.
+	"""
+
+	world = test_api_tasks._world(session)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="agent"
+	)
+	session.flush()
+
+	agent = world._replace(secret=issued.value.get_secret_value())
+
+	ours = world.call("POST", "/v1/tasks", json={"title": "Written by the person"}).json()
+	theirs = agent.call("POST", "/v1/tasks", json={"title": "Written by the agent"}).json()
+	_settled(session)
+
+	flat = {item["entity_id"] for item in _feed(agent, actor="me")}
+	dotted = {item["entity_id"] for item in _feed(agent, **{"actor.eq": "me"})}
+
+	assert theirs["id"] in flat, "the flat spelling regressed"
+	assert flat == dotted
+
+	# **And a username is the coarser question on both**, which is the half that would have
+	# looked right had `me` been the only case anybody checked.
+	name = str(world.user.username)
+
+	assert {item["entity_id"] for item in _feed(agent, actor=name)} == {
+		item["entity_id"] for item in _feed(agent, **{"actor.eq": name})
+	}
+
+	# That coarser set really is different, or the equality above would hold trivially.
+	assert ours["id"] in {item["entity_id"] for item in _feed(agent, **{"actor.eq": name})}
+
+
+def test_an_actor_filter_reaches_a_credential_that_wrote_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""**A caller with no token matches nothing rather than everything** — `SR#2178`.
+
+	A session-authenticated principal has no ``actor_token_id`` on anything it wrote, so
+	comparing against a null token would quietly widen ``me`` to every system-written row —
+	and the belief being tested is precisely *these are the things I did*. ``events.feed``
+	says this about the flat spelling; the dotted one has to keep it or the two part company
+	on the one case where being wrong is silent.
+	"""
+
+	world = test_api_tasks._world(session)
+
+	world.call("POST", "/v1/tasks", json={"title": "Written by the person"})
+	_settled(session)
+
+	# `in` may mix the two readings, and each side is still its own question.
+	name = str(world.user.username)
+	mixed = {item["entity_id"] for item in _feed(world, **{"actor.in": f"me,{name}"})}
+	alone = {item["entity_id"] for item in _feed(world, **{"actor.eq": name})}
+
+	assert alone <= mixed
+
+	# **`is` comes free because the column is nullable** — everything no account did.
+	nobody = {item["entity_id"] for item in _feed(world, **{"actor.is": "unset"})}
+
+	assert not (nobody & alone), "a row cannot be both attributed and unattributed"
+
+
 def test_a_cursor_below_what_is_still_held_is_refused (
 	world: test_api_tasks.World,
 ) -> None:

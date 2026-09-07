@@ -576,6 +576,34 @@ class Filterable (typing.NamedTuple):
 #: value is a username, and that is what it says now.
 NAMES_AN_ACCOUNT = "account"
 
+#: Which group compiles ``actor`` on the change feed and the journal — `#1829`, `#2178`.
+#:
+#: **Apart from :data:`NAMES_AN_ACCOUNT` because ``me`` is a different column here**, and that
+#: is `#158`'s decision rather than this registry's: on a feed ``me`` is *this credential*,
+#: because an agent holding a service-account token wants what **it** did rather than what the
+#: person who issued the token did from a laptop an hour ago. Any other value is a username,
+#: which is the same question one grain coarser (`#1120`).
+#:
+#: **So one field compiles to two columns depending on the value, and that is carried rather
+#: than invented.** The flat ``?actor=`` has meant exactly this since `#158`; a dotted spelling
+#: that disagreed with it would be `#2175`'s defect — one word meaning two things on one
+#: endpoint depending on how it is written — introduced deliberately by the item that found it.
+WHO_DID_IT = "actor"
+
+#: What ``actor`` means when the caller means themselves — **this credential, not this user**.
+#:
+#: **`#158`'s decision, and it lives here rather than in `api/changes` since `#2178`.** An agent
+#: holding a service-account token wants what *it* did, not what the person who issued the token
+#: did from a laptop an hour ago. Any other value is a username, which is the same question one
+#: grain coarser (`#1120`): the coarse grain is the only one useful about somebody else, because
+#: nobody knows another credential's id, and the fine one is the only one useful about yourself,
+#: because your account may hold several.
+#:
+#: **In the domain because the registry compiles it and the endpoint compares against it**, and
+#: a word two modules must agree about is a word one of them should own — §13.7's rule and
+#: `#501`'s, which is why `ordering.PROJECT_FIELDS` moved.
+MY_OWN_CREDENTIAL = "me"
+
 #: Which group compiles ``tag``, whose predicate is a subquery over a join table — `#1804`.
 TAGGED = "tagged"
 
@@ -1075,11 +1103,11 @@ PROJECT_PROPERTIES: dict[str, Property] = {
 
 #: What the change feed and the journal can be asked about — `#1431`, decision `#1429`.
 #:
-#: **One field, and it is not the only one an event has of its own** — `#2178`, which is the
-#: correction. `actor_user_id` is a column here too, and `?actor=` compares it; what stopped it
-#: being declared is that ``me`` means *this credential* on a feed where it means *this account*
-#: everywhere else, which a plain `REFERENCE` would lose. So it reaches this listing by its flat
-#: spelling and by no dotted one.
+#: **Two fields, and this said one until `#2178`.** ``actor_user_id`` is a column here too and
+#: ``?actor=`` has compared it since M1; what kept it out of the registry was the belief that a
+#: `REFERENCE` would lose ``me``, which on a feed is *this credential* where everywhere else it
+#: is *this account*. It does not: :data:`WHO_DID_IT` compiles the same two readings the flat
+#: parameter has always had, so the two spellings cannot answer about different rows.
 #:
 #: **What genuinely cannot be declared here is everything the event is *about*** — which
 #: project, which item. Reaching those means a join this registry has no way to express, and
@@ -1095,6 +1123,22 @@ PROJECT_PROPERTIES: dict[str, Property] = {
 #: filter would be an ordinary comparison. Two spellings of one number, one of which quietly
 #: loses the resume guarantee, is the shape `#1017` warns about.
 EVENT_PROPERTIES: dict[str, Property] = {
+	# **Who did it** — `#2178`. `#1806`'s line cannot ask about a feed today, but `#1382`
+	# PHASE 2's live digest wants a *set* of actors, and `in` falls out of a registry entry for
+	# nothing — which is an argument for declaring it before that rather than after.
+	#
+	# **`is` comes free and means the system wrote it**: `actor_user_id` is nullable, so
+	# `actor.is=unset` is everything no account did.
+	WHO_DID_IT: Property(
+		column=subroutine.db.models.activity.Event.actor_user_id,
+		kind=REFERENCE,
+		group=WHO_DID_IT,
+		because=(
+			"a feed always runs forwards and the caller chooses only which end to start "
+			"from — `newest` — so this listing offers no ordering at all rather than one "
+			"that would contradict the cursor."
+		),
+	),
 	"created_at": Property(
 		column=subroutine.db.models.activity.Event.created_at,
 		kind=INSTANT,
@@ -1765,6 +1809,52 @@ def _values (comparison: Comparison) -> list[str]:
 	return given
 
 
+def _who_did_it (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``actor`` on a feed — a credential when ``me``, an account otherwise, `#2178`.
+
+	**A caller with no token matches nothing rather than everything.** A session-authenticated
+	principal has no ``actor_token_id`` on anything it wrote, so comparing against a null token
+	would quietly widen the filter to every system-written row — and the belief being tested is
+	precisely *these are the things I did*. ``events.feed`` says the same about the flat
+	spelling, and this is that sentence kept rather than restated.
+
+	**``in`` may mix the two**, which is why the clauses are ORed: ``actor.in=me,si`` is *what I
+	did through this credential, or anything that account did*, and both are questions about
+	who acted.
+	"""
+
+	if where.session is None:
+		raise AssertionError("an actor needs a session to resolve a name")
+
+	model = subroutine.db.models.activity.Event
+	token = None if where.principal is None else where.principal.token
+	narrowing = []
+
+	for comparison in comparisons:
+		clauses = []
+
+		for value in _values(comparison):
+			if value == MY_OWN_CREDENTIAL:
+				clauses.append(
+					sqlalchemy.false()
+					if token is None
+					else model.actor_token_id == token.id
+				)
+
+				continue
+
+			clauses.append(
+				model.actor_user_id
+				== subroutine.domain.selection.user(
+					where.session, value, caller=_the_user(where)
+				).id
+			)
+
+		narrowing.append(sqlalchemy.or_(*clauses))
+
+	return sqlalchemy.and_(*narrowing)
+
+
 def _an_account (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile a field whose value names an account — ``assignee``, ``claimed_by``,
 	``created_by`` — `#1804`, `#1577`.
@@ -2057,6 +2147,7 @@ def _answerable_to (comparisons: list[Comparison], where: Where) -> typing.Any:
 GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	"touched": _touched,
 	NAMES_AN_ACCOUNT: _an_account,
+	WHO_DID_IT: _who_did_it,
 	TAGGED: _tagged,
 	FROM_THE_VOCABULARY: _vocabulary_key,
 	IN_PROJECT: _in_project,
