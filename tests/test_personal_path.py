@@ -5149,6 +5149,85 @@ def test_a_document_body_can_be_piped_in (
 	assert "Not this one." not in shown
 
 
+def test_a_body_of_a_single_hyphen_reads_what_was_piped_rather_than_storing_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2106`. `--body -` wrote one character over a document and answered *Revised*.
+
+	Met on 2026-09-05: `cat file | subroutine doc edit 1024 --body -` set the body to `-` and
+	destroyed 11.6 KB. No warning, no confirmation, and the same word a correct edit gets — so
+	nothing distinguished it from success, and a document has no undo at the terminal.
+
+	**`SR#299` is untouched and this is the case it does not cover.** That decision says stdin
+	is consulted only when nothing else was said, because an empty pipe cannot be told from no
+	pipe without blocking — every script, CI job and agent shelling out would hang. Writing `-`
+	*is* saying something: it names standard input, so reading it obeys the caller rather than
+	guessing at them.
+
+	**Every site that takes prose, not the one where it bit.** `SR#2106` asked for that
+	specifically, because this repository's signature defect is a rule applied to three places
+	out of four — and the likeliest caller here is an agent following the convention every
+	other tool on the machine honours.
+	"""
+
+	run("init")
+
+	# **Writing a document**, which is where the convention is most likely to be typed.
+	run("doc", "create", "Findings", "--body", "-", input="Piped, not a hyphen.\n")
+
+	assert "Piped, not a hyphen." in run("show", "1").output
+
+	# **Revising one, which is the call that destroyed 11.6 KB.**
+	run("doc", "edit", "1", "--body", "-", input="Replaced from a pipe.\n")
+
+	revised = run("show", "1").output
+
+	assert "Replaced from a pipe." in revised
+	assert "Piped, not a hyphen." not in revised, "the revision did not take"
+
+	# **A task's reasoning, both when it is filed and when it is changed.**
+	run("add", "Cache the roster", "--description", "-", input="Measured at 400ms a call.\n")
+
+	assert "Measured at 400ms a call." in run("show", "2").output
+
+	run("update", "2", "--description", "-", input="Re-measured: 380ms.\n")
+
+	assert "Re-measured: 380ms." in run("show", "2").output
+
+
+def test_a_hyphen_with_nothing_piped_says_so_instead_of_hanging (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#2106`. `cat -` waits for a keystroke; a person who typed this would meet a hang.
+
+	**The question is settled before reading rather than by reading**, which is `SR#299`'s rule
+	applied to the other branch: with somebody at a terminal there is no pipe to read and
+	blocking with no message is what the piped path's own comment calls the worst way for a
+	first attempt to go.
+
+	**Driven by substituting `_a_terminal_is_attached` rather than `sys.stdin`**, because
+	`CliRunner` replaces stdin for the duration of an invocation — so a test monkeypatching the
+	real one is patching something the command never sees, and passes against the defect. That
+	trap is recorded on `SR#299` and the seam exists for it.
+	"""
+
+	run("init")
+
+	monkeypatch.setattr(subroutine.cli.personal, "_a_terminal_is_attached", lambda: True)
+
+	refused = run("doc", "create", "Findings", "--body", "-", expect=1)
+
+	assert "nothing is" in refused.output, refused.output
+	assert "cat notes.md" in refused.output, (
+		f"the refusal does not show the way to do what was meant: {refused.output}"
+	)
+
+	# **And nothing was written**, which is the half that matters: a refusal that had already
+	# created the document would leave the reader worse off than the defect did.
+	assert "Findings" not in run("list").output
+
+
 def test_writing_a_document_needs_no_type_or_project (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

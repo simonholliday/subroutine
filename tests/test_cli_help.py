@@ -1049,3 +1049,136 @@ def test_the_example_reader_turns_down_the_two_lines_that_shipped () -> None:
 	assert not _refused("subroutine --profile scratch init"), (
 		"'scratch' is the profile's value rather than a command called 'scratch'"
 	)
+
+
+def test_every_filter_the_help_offers_is_one_the_registry_accepts () -> None:
+	"""`SR#2131`. The one filter help that is hand-written is the one that drifted.
+
+	It read *"Narrow by date, e.g. 'created_at.gte=yesterday'"* and had done since before
+	`SR#1804` widened the registry past dates — so the option accepted ranks, a duration,
+	references and `is`/`unset` conditions while the sentence a person reads before typing
+	named a quarter of them. **It undersold**, which is the direction nobody files a bug about:
+	somebody who wants the urgent ones reads *date* and stops, and the feature is invisible
+	rather than broken.
+
+	**The other two surfaces stay honest by construction** — `/v1/meta` publishes
+	`filtering.names(entity)` and MCP's schema is built by `_fields_of` from the registry, with
+	its own guard failing the build when a field is accepted and unnamed. This one is prose, so
+	it gets the other shape of check: **every example in it is driven against the registry**,
+	the way `tests/test_api_examples.py` executes the guide's worked calls rather than reading
+	them.
+
+	Deriving the whole sentence was the alternative and was rejected: twenty-three field names
+	do not fit on a help line, and a sentence naming the four *shapes* is what a reader needs.
+	Checking the examples is what makes that safe.
+	"""
+
+	offered = re.findall(r"'([a-z_]+)\.([a-z]+)=", subroutine.cli.personal.FILTER_OPTION_HELP)
+
+	assert offered, (
+		f"no examples were found in the help, so this is checking nothing: "
+		f"{subroutine.cli.personal.FILTER_OPTION_HELP!r}"
+	)
+
+	known = subroutine.domain.filtering.filters("task")
+	wrong = []
+
+	for name, operator in offered:
+		field = known.get(name)
+
+		if field is None:
+			wrong.append(f"{name} is not a field a task listing can be asked about")
+
+		elif operator not in field.operators:
+			wrong.append(
+				f"{name} does not take '{operator}' — it takes {sorted(field.operators)}"
+			)
+
+	assert wrong == [], f"the --filter help offers what the registry refuses: {wrong}"
+
+	# **Four shapes, because that is the reason there are four examples.** A future edit that
+	# trims them to one would leave the sentence true and useless again — it is the *variety*
+	# that says the option is not about dates, not the count.
+	assert len({known[name].kind for name, _ in offered}) >= 3, (
+		f"the examples no longer show that this option asks about more than one kind of "
+		f"thing, which is the whole defect `SR#2131` was: {offered}"
+	)
+
+
+def test_the_filter_help_is_written_once () -> None:
+	"""`SR#2131`'s other half: three declarations each carried their own copy of the sentence.
+
+	All three said *date*, which is how one stale string managed to be wrong in triplicate —
+	and how a fix applied to the obvious one would have left two behind.
+	"""
+
+	source = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
+
+	declarations = source.count('"--filter"')
+	literals = source.count("Narrow by a field")
+
+	assert declarations >= 3, f"the option is no longer declared where this was written: {declarations}"
+	assert literals == 1, (
+		f"the sentence is written out {literals} times; it is a constant so that a correction "
+		f"cannot reach some of the declarations and not others"
+	)
+
+
+def test_the_project_key_help_teaches_the_rule_the_product_has () -> None:
+	"""`SR#1779`. The help described a key rule `SR#508` replaced on 2026-08-06.
+
+	It said *A to Z*, implied no hyphens, and said *sixteen characters*; the product stores
+	lower case, allows interior hyphens — `service-marketing` is the case they were raised for
+	— and permits 32. Its example key was `WEB`.
+
+	**Nobody met it as a failure**, because input is still case-insensitive: you type `WEB`,
+	`web` comes back, and you are left working out which of the two is the truth. The cost is
+	not a refusal, it is a help that teaches a rule the product does not have.
+
+	**`SR#508`'s own record is why this needed a guard rather than a correction.** That rule was
+	written in eleven places and changing `normalize_key` alone left ten silent disagreements —
+	found by the suite, not by reading. This is an eleventh the suite could not reach, because
+	a help string is prose no test compared against the pattern it describes. So the check is
+	against `domain.projects` rather than against a copy of what it says.
+	"""
+
+	rendered = typer.testing.CliRunner().invoke(
+		subroutine.cli.main.app, ["project", "create", "--help"]
+	).output
+	# Typer wraps to the terminal width, so a sentence is read as words rather than lines.
+	said = re.sub(r"\s+", " ", rendered)
+
+	# **Every key the help shows must be one the product would store unchanged.** An example is
+	# the strongest teaching in a help page — it is what people copy — and `WEB` taught the
+	# opposite of the rule the sentence beneath it was getting wrong.
+	# The usage line reads `subroutine project create [OPTIONS] {key} {title}`, so the
+	# placeholders are excluded by their own punctuation rather than by counting lines.
+	shown = re.findall(r"subroutine project create ([^\s\[{]+)", said)
+
+	assert shown, f"the help shows no example key, so this is checking nothing: {said}"
+
+	for key in shown:
+		assert key == subroutine.domain.projects.normalize_key(key), (
+			f"the help offers '{key}', which the product would store as "
+			f"'{subroutine.domain.projects.normalize_key(key)}' — so copying the example "
+			f"teaches a spelling that is not the one kept"
+		)
+
+	# **The ceiling, read from the module that enforces it.** Written as a numeral in the help
+	# because a docstring cannot be an f-string and still be a docstring; this is what stops
+	# the numeral drifting the way *sixteen* did.
+	assert str(subroutine.domain.projects.MAX_KEY_LENGTH) in said, (
+		f"the help does not name the real ceiling of "
+		f"{subroutine.domain.projects.MAX_KEY_LENGTH}: {said}"
+	)
+
+	# **The two claims that were wrong, refused by name** — an interior hyphen is legal and the
+	# stored form is lower case, and the help said neither.
+	assert "hyphen" in said.lower(), f"the help does not mention hyphens, which are legal: {said}"
+	assert "lower case" in said.lower(), (
+		f"the help does not say the key is stored lower case, which is why 'WEB' comes back "
+		f"as 'web': {said}"
+	)
+	assert "sixteen" not in said.lower() and "A to Z" not in said, (
+		f"the replaced rule is still being taught: {said}"
+	)

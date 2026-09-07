@@ -4475,6 +4475,27 @@ TYPE_OPTION = typer.Option(None, "--type", help="Only this type, e.g. 'bug'.")
 #: the same reason a ref is typed bare (§12.2a). Written `#home` in a captured line, asked for
 #: as `--tag home` (`#1319`).
 TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, without the '#'.")
+
+#: What ``--filter`` says it does — `#2131`.
+#:
+#: **One string rather than three.** It was written out at each of the three declarations, and
+#: all three said *date*, which is what let a single stale sentence be wrong in triplicate.
+#:
+#: **It said "Narrow by date" and the registry stopped being dates-only when `#1804` shipped.**
+#: The option accepts ranks, a duration, references, and `is`/`unset` conditions, so the one
+#: surface a person reads before typing described a quarter of what they could ask. It
+#: **undersold**, which is the direction nobody files a bug about: somebody who wants the urgent
+#: ones reads *date* and stops, and the feature is invisible rather than broken.
+#:
+#: **Four examples because there are four shapes**, not because four reads well — a number, a
+#: reference with `.in`, a condition, and an instant. Every one of them is driven against the
+#: registry by ``tests/test_cli_help.py``, which is what keeps a hand-written string honest
+#: where the other two surfaces are derived: `/v1/meta` publishes `filtering.names(entity)` and
+#: MCP builds its own from `_fields_of`, and this was the only one that could drift.
+FILTER_OPTION_HELP = (
+	"Narrow by a field — 'importance.gte=4', 'tag.in=ops,web', 'assignee.is=unset', "
+	"'created_at.gte=yesterday'. Repeat for a range."
+)
 #: Which document this one is filed under, by its number — `#2173`.
 #:
 #: **Out here for `#943`'s ratchet**, like `READY_OPTION` beside it: an option's declaration is
@@ -6402,7 +6423,9 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		# it is the path an agent takes too. Read only when something is actually piped:
 		# `isatty` false with no pipe would block forever waiting for a keystroke nobody knows
 		# to give, which is the worst possible way for a first attempt to go.
-		written = body.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
+		# `#2106`: read before `.strip()`, because the whole argument is the sentinel.
+		given = _text_or_standard_input(program, body, "--body")
+		written = given.strip() or (None if sys.stdin.isatty() else sys.stdin.read().strip())
 
 		with program.opened() as world:
 			where = world.writing_to()
@@ -6514,7 +6537,8 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					tag is not None,
 				)
 			)
-			said = body.strip()
+			# `#2106`, and the site it was met on: `--body -` wrote one character.
+			said = _text_or_standard_input(program, body, "--body").strip()
 			revised: str = subroutine.clients.base.UNSET
 
 			if said:
@@ -6838,7 +6862,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 	@project_app.command("create")
 	def project_create (
-		key: str = typer.Argument(..., help="Its permanent short name, like WEB."),
+		key: str = typer.Argument(..., help="Its short name, like 'web'. Lower case."),
 		title: str = typer.Argument(..., help="What it is called."),
 		description: str = typer.Option("", "--description", help="What it is for."),
 		parent: str = typer.Option("", "--parent", help="Put it inside this project."),
@@ -6859,13 +6883,16 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine project create WEB "Website redesign"
+		  subroutine project create web "Website redesign"
 
-		  subroutine project create API "Public API" --parent WEB
+		  subroutine project create service-marketing "Marketing site" --parent web
 
-		The key is how this project is addressed here — in '+KEY' when you capture a line,
-		and in its web address. A to Z and 0 to 9, starting with a letter, up to sixteen
-		characters.
+		The key is how this project is addressed here — in '+web' when you capture a line,
+		and in its web address. Letters and digits, starting with a letter, hyphens inside
+		but not at either end, up to 32 characters.
+
+		It is stored lower case whatever you type, so 'WEB' and 'web' are the same project
+		and it will be shown to you as 'web'.
 
 		It can be changed later with 'subroutine project rename', which says what will stop
 		working before it does it. Nothing already recorded moves: every item keeps its
@@ -7987,7 +8014,8 @@ def register (
 				# supply it, and the endpoint's ability to take one beside `text` went
 				# unreachable from every client. Reported by an agent asked why the six items
 				# it had just filed had no descriptions.
-				description=description.strip() or None,
+				# `#2106`: `-` names standard input here too, which is what an agent pipes.
+				description=_described(program, description),
 			# **The same word `move` uses, for the same act** (`#510`). `POST /v1/tasks`
 			# has taken a parent since M1 and no client passed one, so breaking a piece of
 			# work into parts — the first step of handing any of it over — needed raw HTTP.
@@ -8200,7 +8228,7 @@ def register (
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
-			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+			help=FILTER_OPTION_HELP,
 		),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
@@ -8264,7 +8292,7 @@ def register (
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
-			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+			help=FILTER_OPTION_HELP,
 		),
 	) -> None:
 		"""Find things by any of their words, wherever they were written.
@@ -8445,7 +8473,7 @@ def register (
 		dated: list[str] | None = typer.Option(
 			None,
 			"--filter",
-			help="Narrow by date, e.g. 'created_at.gte=yesterday'. Repeat for a range.",
+			help=FILTER_OPTION_HELP,
 		),
 		words: list[str] | None = typer.Argument(
 			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
@@ -8900,7 +8928,8 @@ def register (
 		changes = _named_changes(
 			program,
 			title=title,
-			description=description,
+			# `#2106`. `UNGIVEN` is not `-`, so *not given* still reaches the client as it was.
+			description=_text_or_standard_input(program, description, "--description"),
 			estimate=estimate,
 			remind=remind,
 			importance=importance,
@@ -9814,6 +9843,62 @@ FROM_NOW_ON_OPTION = typer.Option(
 NOBODY_TO_ASK = (
 	f"Add {JUST_THIS_ONE}, or {FROM_NOW_ON} for every one after it too."
 )
+
+
+#: The conventional spelling of *read standard input* — `#2106`.
+#:
+#: **Every other tool on the machine honours it and this one wrote it into the document.**
+#: `cat file | subroutine doc edit 1024 --body -` reported *Revised* and set the body to the
+#: single character `-`, destroying 11.6 KB. No warning, no confirmation, and the same word a
+#: correct edit gets.
+#:
+#: **`#299`'s rule is untouched, and this is the case it does not cover.** That decision says
+#: stdin is consulted only when nothing else was said, because an empty pipe cannot be told
+#: from no pipe without blocking — so a script would hang on input that is not coming.
+#: Writing `-` *is* saying something: it names standard input explicitly, so reading it is
+#: obeying the caller rather than guessing at them.
+#:
+#: **What it costs is a body of exactly one hyphen**, which nobody means and which can still
+#: be piped.
+STANDARD_INPUT = "-"
+
+
+def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
+	"""Return the text, or what was piped when the caller wrote ``-`` — `#2106`.
+
+	**One rule at every site that takes a long text argument**, rather than a special case on
+	the command where it bit. `doc create`, `doc edit`, `add` and `update` all take prose the
+	same way, and this repository's signature defect is a rule applied to three places out of
+	four.
+
+	**A terminal is refused rather than left blocking.** `cat -` waits for a keystroke and
+	somebody who typed this at a prompt would meet a hang with no message, which is the outcome
+	the comment on the piped path already calls the worst way for a first attempt to go. `#299`
+	settles the question before reading; so does this.
+	"""
+
+	if value != STANDARD_INPUT:
+		return value
+
+	if _a_terminal_is_attached():
+		program.stop(
+			f"'{flag} -' means read what is piped in, and nothing is.",
+			f"Pipe the text in — 'cat notes.md | subroutine … {flag} -' — or pass it as "
+			f"'{flag} \"the text\"'.",
+		)
+
+	return sys.stdin.read()
+
+
+def _described (program: "Program", given: str) -> str | None:
+	"""Return a captured line's reasoning, or ``None`` where none was written — `#2106`.
+
+	**Out here rather than inline**, because `register` is a closure under a ratchet that
+	only goes down (`#943`) and this call site is the one that needs `or None` as well as
+	the hyphen rule. Two lines saved in there are worth a named function out here.
+	"""
+
+	return _text_or_standard_input(program, given, "--description").strip() or None
 
 
 def _a_terminal_is_attached () -> bool:
