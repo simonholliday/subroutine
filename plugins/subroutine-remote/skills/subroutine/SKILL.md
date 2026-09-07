@@ -156,7 +156,7 @@ setup interview is how a tool loses the person who just installed it.
    already uses. One line naming the project key is enough. Without it the next session does
    not know adoption happened, and adopts again.
 
-## Day to day
+## Working day to day
 
 **Open by asking what changed.** Your context is a snapshot and it does not decay — nothing
 will tell you that something you read is now stale, so you will answer from it confidently and
