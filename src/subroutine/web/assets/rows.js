@@ -11,7 +11,7 @@ import { render } from "preact";
 import { html } from "./html.js";
 import { addressOf } from "./address.js";
 import { FINISHED, completable, day, deferred, excluded, holding, named } from "./dates.js";
-import { Adding, Narrowed, Ordered, Whose } from "./forms.js";
+import { Adding, Narrowed, Ordered, TopLevelOnly, Whose } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
@@ -648,6 +648,9 @@ export function Board ({
 	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
 	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
 	members = [], whose = null, answerable = null, unassigned = false, onWhose = null,
+	/* **The collapse, beside the other narrowing controls** — `#2173`. Withheld the way
+	   `onWhose` is: no handler means no control, rather than one that does nothing. */
+	topLevelOnly = false, onTopLevel = null,
 	/* What the reader has explicitly chosen about collapsed columns, and how to change it —
 	   `#1008`. `App` holds the state and the storage because this component stays hook-free so
 	   the harness can call it (`#640`); the *defaults* are worked out below, where the columns
@@ -782,6 +785,8 @@ export function Board ({
 			     the reader could not see they had. */ null}
 			<${Whose} members=${members} whose=${whose} answerable=${answerable}
 				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
+
+			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the

@@ -7574,6 +7574,45 @@ def test_a_page_narrowed_to_work_nobody_has_says_so (tmp_path: pathlib.Path) -> 
 	)
 
 
+def test_a_page_collapsed_to_the_top_level_says_rows_are_hidden (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2173`, and the wording is the part worth pinning.
+
+	Every other narrowing says *showing* something. This one takes rows away — a reader
+	looking for a sub-task they know exists needs the sentence to say that is why it is not
+	there, which is `SR#1020`'s rule read the other way round.
+
+	**A control rather than a default** was the rendering decision this item had to take: a
+	board draws every sub-task and always has, so hiding children automatically would be a
+	second rule for one relation and would change an existing board silently.
+	"""
+
+	rows = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+
+	quiet = _rendered(tmp_path, {"Listing": {"items": rows, "project": None}})
+	collapsed = _rendered(tmp_path, {
+		"Listing": {"items": rows, "project": None, "selection": {"parent.is": "unset"}},
+	})
+
+	assert "hidden" not in quiet["Listing"], "an unnarrowed list claimed to hide rows"
+	assert "hidden" in collapsed["Listing"], (
+		f"the page hid rows and did not say so: {collapsed['Listing']}"
+	)
+	assert "top-level" in collapsed["Listing"]
+
+	# **A value the control cannot produce says nothing.** `is` takes two reserved words and
+	# only one is offered; `set` reaching this from a hand-typed address must not draw a chip
+	# claiming the opposite of what it means.
+	other = _rendered(tmp_path, {
+		"Listing": {"items": rows, "project": None, "selection": {"parent.is": "set"}},
+	})
+
+	assert "hidden" not in other["Listing"], (
+		f"a chip claimed the top level on a page showing everything below it: {other['Listing']}"
+	)
+
+
 def test_a_project_filter_sends_what_the_route_accepts () -> None:
 	"""`SR#320`: `project=` already covers what is under a project, and `subtree` is not it.
 

@@ -39,8 +39,8 @@ import {
 import { Detail, Doing, Failed, Linking, Saying, Seeking, Written } from "./detail.js";
 import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
-	DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, Narrowed, PRIORITIES,
-	Reading, Repeats, TIMED,
+	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, Narrowed,
+	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE,
 } from "./forms.js";
 import {
 	CLOSED_BY_DEFAULT, NOT_SHOWN, agendaBuckets, blockersDone, choicesIn, collapsedColumns,
@@ -2307,6 +2307,40 @@ export function App () {
 		}
 	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
+	const chooseTopLevel = useCallback(async (only) => {
+		/*
+			**Collapse the listing to what nothing is filed under** — `#2173`, and it goes in
+			the address for `chooseOrder`'s reason (decision `#649`): the path decides *place*
+			and the query decides *selection*.
+
+			**It narrows a set `domain/scoping` has already narrowed**, so it widens nothing a
+			reader could not read — `#738`'s bound, which every selection parameter is held to.
+
+			**Off removes the key rather than sending a second value.** `is` takes two reserved
+			words and only one is a question anybody asks; `parent.is=set` would be *everything
+			filed under something*, a listing minus its top level, which nothing has asked for.
+			One screen keeps producing one string, which is what `withShowing` emits in
+			`SELECTABLE` order to protect.
+		*/
+		const selection = { ...showing.selection };
+
+		if (only) selection[AT_THE_TOP] = UNSET_VALUE;
+		else delete selection[AT_THE_TOP];
+
+		const wanted = { view: showing.view, selection };
+
+		if (!reloads(showing, wanted)) return;
+
+		nowShowing(wanted);
+		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
+
+		try {
+			await load(workspace, project);
+		} catch (failure) {
+			setNote({ text: `That could not be shown. ${failure.message}`, tone: "bad" });
+		}
+	}, [agenda, go, load, nowShowing, project, showing, workspace]);
+
 	const chooseWhose = useCallback(async (asked) => {
 		/*
 			**Whose work the page shows, and it goes in the address for `chooseOrder`'s reason**
@@ -2801,6 +2835,8 @@ export function App () {
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
 							onWhose=${chooseWhose}
+							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
+							onTopLevel=${chooseTopLevel}
 							${/* **Storage holds the reader's explicit choices and nothing else**
 							     (`#1008`); `CLOSED_BY_DEFAULT` answers for every key nobody has
 							     touched. `Board` works the set out against the columns it has
@@ -2861,6 +2897,8 @@ export function App () {
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
 							onWhose=${chooseWhose}
+							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
+							onTopLevel=${chooseTopLevel}
 							onWiden=${widen}
 							widenTo=${withShowing(listingAddress({ workspace }), widened(showing))}
 							selection=${showing.selection}
@@ -3030,6 +3068,7 @@ export {
 	DocumentFields,
 	Editing,
 	Fields,
+	AT_THE_TOP,
 	Listing,
 	NOBODY,
 	NOT_GIVEN_OUT,
@@ -3038,6 +3077,7 @@ export {
 	Reading,
 	Repeats,
 	TIMED,
+	UNSET_VALUE,
 	whoseAsked,
 	whoseValue,
 } from "./forms.js";

@@ -287,6 +287,21 @@ export const SELECTABLE = {
 		an address nothing has driven.
 	*/
 	"assignee.is": ["unset"],
+	/*
+		**Only the items nothing is filed under** — `#2173`, Simon's decision of 2026-09-07
+		from a board holding one document per instrument with nothing to collapse them behind.
+
+		**A control rather than a default.** Hiding children automatically would be a second
+		rule for one relation — a board shows every sub-task and always has — and it would
+		change what an existing board draws *silently*, which is the failure this codebase
+		keeps recording. `#2174`'s own rule settles the shape: a control emits a term, it does
+		not open a second road to the same rows.
+
+		**Both kinds, and that is what the term already means.** `parent` is a registry entry
+		on tasks and documents alike (`#1829`, `#2173`), so this narrows a mixed listing to
+		what is at the top of both trees rather than needing a rule per entity.
+	*/
+	"parent.is": ["unset"],
 };
 
 /*
@@ -349,6 +364,10 @@ export const ANSWERED_BY = {
 	   document, so *unassigned* is not false of one, it is unaskable: a page narrowed to work
 	   nobody has been given is tasks only, for the same reason `assignee` above is. */
 	"assignee.is": { task: "sent", document: "cannot" },
+	/* **`sent` on both, unlike the assignee pair above** — `#2173`. A document has no
+	   assignee and does have a parent, so *what is at the top level* is a question both
+	   collections answer in their own terms rather than one of them having to decline. */
+	"parent.is": { task: "sent", document: "sent" },
 };
 
 export function answers (kind, name) {
@@ -585,7 +604,7 @@ export function withShowing (path, showing) {
 	the search box shows the term and clears it, so it has a way back of its own and a second
 	one would be two controls for one state.
 */
-export const NARROWINGS = ["tag", "assignee", "answers_to", "assignee.is"];
+export const NARROWINGS = ["tag", "assignee", "answers_to", "assignee.is", "parent.is"];
 
 export function widened (showing) {
 	/* The same showing with every narrowing dropped — what *Show everything* goes to. */

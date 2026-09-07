@@ -1244,7 +1244,8 @@ def test_a_modified_click_still_belongs_to_the_browser (running: typing.Any) -> 
 
 
 def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.Any) -> None:
-	"""`SR#848`, `SR#2182`. The control's groups, and the address it writes when a reader uses it.
+	"""`SR#848`, `SR#2182`, `SR#2173`. The narrowing controls: what they offer, what they write,
+	and that each says which answer the address is already on.
 
 	**One test because it is one control.** `SR#2182`'s *Nobody* arrived as a second case here
 	and the file's own size ratchet refused it — rightly: what is being driven is that this
@@ -1350,16 +1351,33 @@ def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.
 	# **A control disagreeing with the sentence beside it is worse than an absent one**: the
 	# obvious next act is to pick something, which replaces a narrowing the reader could not
 	# see they had.
-	for address, wanted in (
-		("/projects?view=list&assignee=si", "assignee:si"),
-		("/projects?view=list&answers_to=si", "answers_to:si"),
-		("/projects?view=list&assignee.is=unset", "assignee.is:unset"),
+	for address, selector, reads, wanted in (
+		("/projects?view=list&assignee=si", ".whose select", "one => one.value", "assignee:si"),
+		(
+			"/projects?view=list&answers_to=si",
+			".whose select", "one => one.value", "answers_to:si",
+		),
+		(
+			"/projects?view=list&assignee.is=unset",
+			".whose select", "one => one.value", "assignee.is:unset",
+		),
+		# **`SR#2173`'s collapse, here rather than in a test of its own.** The property being
+		# driven is not *this control works*; it is that a **narrowing control reflects the
+		# address it was opened on**, which `SR#2199` showed is one property two controls had
+		# got wrong in the same way. A second test would assert the same sentence twice and
+		# start a second browser to do it, which is what this file's size ratchet is about.
+		(
+			"/projects?view=list&parent.is=unset",
+			".narrowing input", "one => one.checked", True,
+		),
+		# And off is off, rather than a checkbox that is checked whatever the address says.
+		("/projects?view=list", ".narrowing input", "one => one.checked", False),
 	):
 		page = opened(address)
 
-		page.wait_for_selector(".whose select", timeout=10_000)
+		page.wait_for_selector(selector, timeout=10_000)
 
-		assert page.eval_on_selector(".whose select", "one => one.value") == wanted, (
+		assert page.eval_on_selector(selector, reads) == wanted, (
 			f"opened on {address} and the control did not say so"
 		)
 

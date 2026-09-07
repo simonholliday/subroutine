@@ -1651,6 +1651,10 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	and the reason `#2057` exists.
 */
 .ordered,
+/* **The narrowing controls share a row's worth of styling** — `#2173`. `.narrowing` is the
+   top-level collapse and `.whose` is the person; they are two answers to *which rows* and
+   differ only in shape, so a second block would be the same rule written twice. */
+.narrowing,
 .whose {
 	display: flex;
 	align-items: center;
@@ -1662,6 +1666,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	font-size: var(--text-small);
 }
 
+.narrowing label,
 .ordered label,
 .whose label {
 	display: flex;

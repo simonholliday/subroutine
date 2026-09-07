@@ -709,8 +709,12 @@ export function Narrowed ({
 	   has no way back but the browser's own, and this narrowing is the one most likely to be
 	   arrived at from a control rather than typed. */
 	const nobody = selection[NOT_GIVEN_OUT] === NOBODY;
+	/* **And whether the children are folded away** — `#2173`. It has to be said for the same
+	   reason: a reader arriving on a short list cannot otherwise tell a collapsed tree from an
+	   empty one, and this narrowing hides rows that exist rather than narrowing to some. */
+	const topOnly = selection[AT_THE_TOP] === UNSET_VALUE;
 
-	if (!project && !tag && !who && !answerable && !nobody) return null;
+	if (!project && !tag && !who && !answerable && !nobody && !topOnly) return null;
 
 	const raised = prioritised.includes(project);
 	const displaces = prioritised.find((one) => one !== project) || null;
@@ -728,6 +732,12 @@ export function Narrowed ({
 			     surface says the outcome in the reader's terms. *Unassigned* names the field;
 			     this names what the reader is looking at, which is the pile to hand out. */ null}
 			${nobody && html`<span>Showing work <strong>nobody</strong> has been given.</span>`}
+			${/* **"Hiding" rather than "showing", which is the honest verb here** — `#2173`.
+			     Every other line above narrows *to* something; this one takes rows away, and a
+			     reader looking for a sub-task they know exists needs the sentence to say that
+			     is why it is not there. */ null}
+			${topOnly && html`<span>Showing <strong>top-level</strong> items only —
+				anything filed under another is hidden.</span>`}
 			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
 			     While the only way into this component was a project narrowing, `if (!project)
 			     return null` also guaranteed the argument below; now a tag or a person can
@@ -842,6 +852,11 @@ export const ANSWERABLE_TO = "answers_to";
 */
 export const NOT_GIVEN_OUT = "assignee.is";
 export const NOBODY = "unset";
+
+/* The reserved word `is` takes for *has no value at all*, named once — `#2173`. Spelled the
+   same as `NOBODY` and meaning something else: that one is a value of `assignee`, this one is
+   a value of `parent`, and a shared constant would tie two unrelated controls together. */
+export const UNSET_VALUE = "unset";
 
 export function whoseValue (whose, answerable, unassigned = false) {
 	/*
@@ -967,6 +982,43 @@ export function Whose ({
 	`;
 }
 
+export const AT_THE_TOP = "parent.is";
+
+export function TopLevelOnly ({ only, onTopLevel, busy = false }) {
+	/*
+		**Collapse a listing to what nothing is filed under** — `#2173`, Simon's decision of
+		2026-09-07: one document per instrument, all on the board, and nothing to collapse them
+		behind.
+
+		**A control rather than a default**, which is the rendering decision `#2173` said this
+		work had to take rather than inherit. A board draws every sub-task and always has, so
+		hiding children of a document would be a second rule for one relation (`#1547`) — and
+		it would change what an existing board shows without anybody asking. `#2174`'s rule
+		decides the shape: a control emits a term, and this one emits `parent.is=unset`, which
+		is a question the registry already answers on both kinds.
+
+		**A checkbox, because it is one narrowing that is on or off.** `Whose` is a select
+		because its answers are exclusive and there are many; this has two states and the
+		second is the ordinary one, which is what a checkbox says and a two-option select does
+		not.
+
+		**Offered on an empty page**, for the reason `Whose` is: a listing narrowed to nothing
+		is exactly where the control has to stay reachable.
+	*/
+
+	if (!onTopLevel) return null;
+
+	return html`
+		<div class="narrowing">
+			<label>
+				<input type="checkbox" checked=${only} disabled=${busy}
+					onChange=${(event) => onTopLevel(event.currentTarget.checked)} />
+				<span>Top level only</span>
+			</label>
+		</div>
+	`;
+}
+
 export function Listing ({
 	items, onOpen, onComplete, onAdd, onMore, onWiden, busy, more, project, workspace, widenTo,
 	/* Passed through to `Narrowed`, which is the one thing here that reads it — `#1020`. */
@@ -980,6 +1032,9 @@ export function Listing ({
 	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
 	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
 	members = [], whose = null, answerable = null, unassigned = false, onWhose = null,
+	/* **The collapse, beside the other narrowing controls** — `#2173`. Withheld the way
+	   `onWhose` is: no handler means no control, rather than one that does nothing. */
+	topLevelOnly = false, onTopLevel = null,
 }) {
 	/*
 		**The kind used to be dropped when a page held one of them** (§12.2a), and it is in the
@@ -1064,6 +1119,8 @@ export function Listing ({
 			     the reader could not see they had. */ null}
 			<${Whose} members=${members} whose=${whose} answerable=${answerable}
 				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
+
+			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
 
 			${/*
 				**Said only where it changes the answer** (`#986`). A prioritised project raises work
