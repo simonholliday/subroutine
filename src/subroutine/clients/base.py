@@ -348,6 +348,7 @@ class Client(typing.Protocol):
 		parent: int | None = None,
 		subtree: bool = False,
 		ready: bool = False,
+		to_act_on: bool = False,
 		deleted: bool = False,
 		assignee: str | None = None,
 		claimed_by: str | None = None,

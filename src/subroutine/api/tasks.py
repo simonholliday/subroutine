@@ -436,6 +436,14 @@ def listing (
 			"declared block rather than a tracked dependency (see §5.5)."
 		),
 	),
+	to_act_on: bool = fastapi.Query(
+		False,
+		description=(
+			"Only work that is yours to act on: assigned to you, or to nobody, or held by "
+			"you. Wider than 'assignee=me', which is strictly assigned — on a shared backlog "
+			"most of what anybody can pick up belongs to nobody yet. Composes with 'ready'."
+		),
+	),
 	order: str | None = fastapi.Query(
 		None, description="Comma-separated sort fields, '-' for descending: '-importance,due_at'."
 	),
@@ -671,6 +679,27 @@ def listing (
 		)
 		statement = statement.where(
 			subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
+		)
+
+	# **The agenda's own predicate, and it was reachable from one surface** — `#1600`, decision
+	# `#1267` §1. Assigned to you, **or to nobody**, or held by you. `#1265` said *"no other
+	# view is narrowed by assignee"* and that was right while a listing was one person's
+	# backlog; it stopped being right the moment a second principal picked work off it.
+	#
+	# **Driven on the live instance 2026-08-29**: `list --ready` returned 219 rows — 195
+	# unassigned, 21 si's, 3 an agent's. So an agent asking *what can I start* either took
+	# work belonging to a person or ignored 195 items belonging to nobody, and there was no
+	# third question it could ask.
+	#
+	# **Not `mine`, and that is decision `#1267` §2 applied** (Simon, 2026-09-07). `assignee=me`
+	# and a calendar feed's `assigned_to_me` already mean *strictly assigned*, which is the
+	# narrower set; a familiar word that reads narrowly fails silently, by 195 rows here.
+	#
+	# **Applied after `ready` and composing with it**, because *what can I start* and *whose is
+	# it* are separate questions and a caller may ask both.
+	if to_act_on:
+		statement = statement.where(
+			subroutine.domain.readiness.yours_to_act_on(model, now=now, user_id=actor.user.id)
 		)
 
 	# **A username or an id, resolved the way every other identifier here is** (`#501`). This

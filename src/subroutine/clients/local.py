@@ -397,6 +397,7 @@ class Client:
 		parent: int | None = None,
 		subtree: bool = False,
 		ready: bool = False,
+		to_act_on: bool = False,
 		deleted: bool = False,
 		assignee: str | None = None,
 		claimed_by: str | None = None,
@@ -597,6 +598,16 @@ class Client:
 				)
 				statement = statement.where(
 					subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
+				)
+
+			# **The agenda's predicate, on this transport too** (`#1600`). It composes with
+			# `ready` rather than replacing it: *what can I start* and *whose is it* are
+			# separate questions, and the terminal is where somebody asks both at once.
+			if to_act_on:
+				statement = statement.where(
+					subroutine.domain.readiness.yours_to_act_on(
+						model, now=now, user_id=actor.user.id
+					)
 				)
 
 			if parent is not None:

@@ -892,6 +892,13 @@ def _tools (
 							"it is not deferred. Does not read an item's own status."
 						),
 					},
+					"to_act_on": {
+						"type": "boolean",
+						"description": (
+							"Yours to act on: assigned to you, or to nobody, or held by "
+							"you. Wider than assignee=me."
+						),
+					},
 					"today": {
 						"type": "boolean",
 						"description": (
@@ -1919,6 +1926,9 @@ def _listed (
 	# reached the HTTP endpoint and nothing else until then, so an agent asked what to work on
 	# could only ever sort a backlog — which is what every other tool offers.
 	ready = bool(arguments.get("ready"))
+	# **`#1600`.** The question an agent most needs and could not ask: `--assignee me` is
+	# strictly assigned, and on this instance 195 of 219 startable rows belong to nobody.
+	to_act_on = bool(arguments.get("to_act_on"))
 	query = _text(arguments, "q")
 
 	# **The agenda is a different question, so it is a different call and the same renderer.**
@@ -2063,6 +2073,7 @@ def _listed (
 		limit=limit,
 		order=_text(arguments, "order"),
 		ready=ready,
+		to_act_on=to_act_on,
 		q=query,
 		assignee=assignee,
 		filters=filters,

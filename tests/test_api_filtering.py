@@ -1319,6 +1319,12 @@ NOT_A_PROPERTY: dict[tuple[str, str], str] = {
 	# filter by design for that reason: blockers and dates across the graph rather than a field.
 	("task", "ready"): "computed across blockers and dates, so it is a predicate over the graph "
 	"rather than a column",
+	# **The same shape as `ready` and settled the same way** — `SR#1600`, Simon 2026-09-07.
+	# *Assigned to me, or to nobody, or held by me* is three columns ORed against the caller,
+	# and it takes no value: a `Property` needs a column and a kind, and a boolean is neither.
+	# So it is a flat parameter by decision rather than by omission, exactly as `ready` is.
+	("task", "to_act_on"): "three columns ORed against the caller, taking no value at all — a "
+	"boolean is not a field, and `ready` is the precedent",
 	# A band over `snoozed_until` against now, which is `SR#1805`'s distinction: the column is
 	# filterable and orderable, and *startable against put off* is a fact about an instant that
 	# a comparison cannot state.
@@ -1850,3 +1856,82 @@ def test_under_refuses_the_question_parent_already_answers (world: World) -> Non
 
 	# **The question it would have answered is still askable, by its one spelling.**
 	assert world.call("GET", "/v1/tasks?parent.is=unset").status_code == 200
+
+
+def test_a_listing_can_be_narrowed_to_what_is_yours_to_act_on (world: World) -> None:
+	"""`SR#1600`, and the predicate was built, correct, and reachable from one surface.
+
+	``readiness.yours_to_act_on`` — *assigned to me, **or to nobody**, or held by me* — has
+	existed since `SR#1265` and applied only in the agenda. `SR#1265` said so deliberately:
+	*"No other view is narrowed by assignee."* That was right while a listing was one person's
+	backlog and stopped being right the moment a second principal picked work off it.
+
+	**Driven on the live instance 2026-08-29**: ``list --ready`` returned 219 rows — 195
+	unassigned, 21 one person's, 3 an agent's. So an agent asking *what can I start* either
+	took work belonging to somebody or ignored 195 items belonging to nobody, and there was no
+	third question it could ask.
+
+	**Named ``to_act_on`` and not ``mine``** (Simon, 2026-09-07). ``assignee=me`` already means
+	*strictly assigned*, and a familiar word that reads narrowly fails silently — by 195 rows.
+	"""
+
+	# **The username rather than `me`**: the sentinel is opt-in per call site (`SR#518`), and
+	# a create is deliberately not one of the sites that takes it.
+	mine = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "given to me", "assignee": str(world.user.username)},
+	)
+
+	assert mine.status_code == 201, mine.text
+
+	nobody = world.call("POST", "/v1/tasks", json={"title": "given to nobody"})
+
+	assert nobody.status_code == 201, nobody.text
+
+	found = world.titles("/v1/tasks?to_act_on=true")
+
+	assert "given to me" in found
+	assert "given to nobody" in found, (
+		"the unassigned pool is the whole reason this is not `assignee=me` — it was 195 of 219 "
+		"ready rows on the live instance"
+	)
+
+	# **And it really is wider**, or the two are one question under two names.
+	assert world.titles("/v1/tasks?assignee=me") == ["given to me"]
+	assert set(world.titles("/v1/tasks?assignee=me")) < set(found)
+
+	# **It composes with `ready` rather than replacing it** — *what can I start* and *whose is
+	# it* are separate questions, and the caller asking both is the one this was filed for.
+	assert world.call("GET", "/v1/tasks?ready=true&to_act_on=true").status_code == 200
+
+
+def test_work_given_to_somebody_else_is_not_yours_to_act_on (world: World) -> None:
+	"""The half that makes the filter worth having — `SR#1600`.
+
+	A predicate that returned everything would pass the case above and be useless. What
+	``to_act_on`` must exclude is exactly what a person or an agent must **not** quietly pick
+	up: work carrying somebody else's name.
+	"""
+
+	# **A member of this workspace, not merely an account.** Assigning work resolves a name
+	# *within* the workspace, so an instance-wide account that is not a member is refused — the
+	# first version of this case created one through the route and was turned down by name.
+	colleague = _an_agent_of(world, "colleague")
+
+	theirs = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "given to them", "assignee": str(colleague.username)},
+	)
+
+	assert theirs.status_code == 201, theirs.text
+
+	found = world.titles("/v1/tasks?to_act_on=true")
+
+	assert "given to them" not in found, (
+		f"work assigned to somebody else came back as yours to act on: {found}"
+	)
+	assert "given to them" in world.titles(
+		f"/v1/tasks?assignee={colleague.username}"
+	), "the fixture did not assign it, so the exclusion above proved nothing"

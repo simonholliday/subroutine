@@ -3094,6 +3094,7 @@ def _listing (
 	deferred: bool = False,
 	q: str | None = None,
 	ready: bool = False,
+	to_act_on: bool = False,
 	trash: bool = False,
 	assignee: str | None = None,
 	claimed_by: str | None = None,
@@ -3185,6 +3186,7 @@ def _listing (
 					deferred="include" if deferred else "exclude",
 					q=q,
 					ready=ready,
+					to_act_on=to_act_on,
 					deleted=trash,
 					assignee=assignee,
 					claimed_by=claimed_by,
@@ -4041,6 +4043,7 @@ def _listed (
 	deferred: bool = False,
 	q: str | None = None,
 	ready: bool = False,
+	to_act_on: bool = False,
 	trash: bool = False,
 	assignee: str | None = None,
 	claimed_by: str | None = None,
@@ -4089,6 +4092,7 @@ def _listed (
 			deferred=not hiding,
 			q=q,
 			ready=ready,
+			to_act_on=to_act_on,
 			trash=trash,
 			assignee=assignee,
 			claimed_by=claimed_by,
@@ -4464,6 +4468,21 @@ TYPE_OPTION = typer.Option(None, "--type", help="Only this type, e.g. 'bug'.")
 #: the same reason a ref is typed bare (§12.2a). Written `#home` in a captured line, asked for
 #: as `--tag home` (`#1319`).
 TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, without the '#'.")
+#: **Two questions about the same list and they compose** (`#1600`). `--ready` is *can this be
+#: started* — nothing unfinished blocks it — and `--to-act-on` is *is it mine to start*, which
+#: is deliberately wider than `--assignee me`: assigned to you, **or to nobody**, or held by
+#: you (decision `#1267` §1).
+#:
+#: **Out here rather than in `register`, and `--ready` came with it** (`#943`'s ratchet). Each
+#: was declared twice in that closure, byte for byte — two copies of one option's help text,
+#: which is this codebase's signature defect at its smallest. The ratchet asked for exactly
+#: this: a thing two commands share belongs in something `register` reads.
+READY_OPTION = typer.Option(
+	False, "--ready", help="Only what you could start now — nothing unfinished blocks it."
+)
+TO_ACT_ON_OPTION = typer.Option(
+	False, "--to-act-on", help="Only what is yours to act on — yours, nobody's, or held by you."
+)
 
 
 def _only_once (program: Program, flag: str, given: typing.Sequence[str] | None) -> str | None:
@@ -4513,6 +4532,7 @@ def _shown_list (
 	connection: str,
 	deferred: bool,
 	ready: bool,
+	to_act_on: bool,
 	trash: bool,
 	assignee: typing.Sequence[str] | None,
 	claimed_by: typing.Sequence[str] | None,
@@ -4551,6 +4571,7 @@ def _shown_list (
 		connection=connection or None,
 		deferred=deferred,
 		ready=ready,
+		to_act_on=to_act_on,
 		trash=trash,
 		assignee=_only_once(program, "--assignee", assignee),
 		claimed_by=_only_once(program, "--claimed-by", claimed_by),
@@ -8119,11 +8140,8 @@ def register (
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
-		ready: bool = typer.Option(
-			False,
-			"--ready",
-			help="Only what you could start now — nothing unfinished blocks it.",
-		),
+		ready: bool = READY_OPTION,
+		to_act_on: bool = TO_ACT_ON_OPTION,
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
@@ -8170,7 +8188,7 @@ def register (
 		_shown_list(
 			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
 			order=order, project=project, connection=connection, deferred=deferred,
-			ready=ready, trash=trash, assignee=assignee, claimed_by=claimed_by,
+			ready=ready, to_act_on=to_act_on, trash=trash, assignee=assignee, claimed_by=claimed_by,
 			status=status, kind=kind, tag=tag, dated=dated,
 		)
 
@@ -8367,11 +8385,8 @@ def register (
 		deferred: bool = typer.Option(
 			False, "--deferred", help="Include things you have put off until a later date."
 		),
-		ready: bool = typer.Option(
-			False,
-			"--ready",
-			help="Only what you could start now — nothing unfinished blocks it.",
-		),
+		ready: bool = READY_OPTION,
+		to_act_on: bool = TO_ACT_ON_OPTION,
 		trash: bool = typer.Option(
 			False, "--trash", help="Show what you have deleted, instead of the list."
 		),
@@ -8404,7 +8419,7 @@ def register (
 		_shown_list(
 			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
 			order=order, project=project, connection=connection, deferred=deferred,
-			ready=ready, trash=trash, assignee=assignee, claimed_by=claimed_by,
+			ready=ready, to_act_on=to_act_on, trash=trash, assignee=assignee, claimed_by=claimed_by,
 			status=status, kind=kind, tag=tag, dated=dated,
 		)
 
