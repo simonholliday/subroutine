@@ -2997,7 +2997,7 @@ def test_both_find_finished_work_by_the_dotted_status_filter (pair: Pair) -> Non
 	pair.session.flush()
 
 	local, remote = pair.both()
-	asked = {"status.eq": "done"}
+	asked = [("status.eq", "done")]
 	found = sorted(task.ref for task in local.tasks(filters=asked, limit=50))
 
 	assert found == [subject.ref], (
@@ -3103,8 +3103,8 @@ def test_both_read_a_documents_tree_the_same_way (pair: Pair) -> None:
 	local, remote = pair.both()
 
 	for asked, wanted in (
-		({"parent.eq": str(above.ref)}, [inside.ref]),
-		({"parent.is": "unset"}, [above.ref]),
+		([("parent.eq", str(above.ref))], [inside.ref]),
+		([("parent.is", "unset")], [above.ref]),
 	):
 		here = sorted(one.ref for one in local.documents(filters=asked, limit=50))
 
@@ -3143,8 +3143,8 @@ def test_both_read_a_tree_the_same_way (pair: Pair) -> None:
 	local, remote = pair.both()
 
 	for asked, wanted in (
-		({"parent.eq": str(above.ref)}, [middle.ref]),
-		({"under.eq": str(above.ref)}, sorted([middle.ref, below.ref])),
+		([("parent.eq", str(above.ref))], [middle.ref]),
+		([("under.eq", str(above.ref))], sorted([middle.ref, below.ref])),
 	):
 		here = sorted(task.ref for task in local.tasks(filters=asked, limit=50))
 
@@ -4655,14 +4655,14 @@ def test_both_refuse_a_status_category_a_task_cannot_be_in (pair: Pair) -> None:
 @pytest.mark.parametrize(
 	"filters",
 	[
-		{"created_at.gte": "today"},
-		{"created_at.lt": "today"},
-		{"created_at.gte": "now-30d", "created_at.lt": "tomorrow"},
-		{"updated_at.gte": "start_of_week"},
+		[("created_at.gte", "today")],
+		[("created_at.lt", "today")],
+		[("created_at.gte", "now-30d"), ("created_at.lt", "tomorrow")],
+		[("updated_at.gte", "start_of_week")],
 	],
 )
 def test_both_narrow_by_a_date_the_same_way (
-	pair: Pair, filters: dict[str, str]
+	pair: Pair, filters: subroutine.domain.filtering.Terms
 ) -> None:
 	"""§9.6's dotted filters, over both transports — `#815`.
 
@@ -4698,14 +4698,51 @@ def test_both_narrow_by_a_date_the_same_way (
 	)
 
 
-def _shared (filters: dict[str, str]) -> dict[str, str]:
+def test_both_and_a_filter_name_written_twice (pair: Pair) -> None:
+	"""`SR#2302`. A repeated name is an intersection, and it could not reach either client.
+
+	**The instance has answered this correctly for as long as the grammar has existed** —
+	`api.filters.Reader` reads ``request.query_params.multi_items()``, and `#1801` §9 says a
+	repeat is a conjunction, which is also what the written line does. What could not express
+	it was the *clients*: ``filters`` was a mapping in six signatures, so
+	``--filter tag.eq=ops --filter tag.eq=web`` kept the last one and said nothing about the
+	other.
+
+	**Both transports, because they lose it in different places.** The local client compiled a
+	dict it had already collapsed; the HTTP client merged two dicts into a query string. One
+	shape reaches both now, and a client that cannot ask something its own API answers is the
+	divergence this module exists to catch.
+	"""
+
+	local, remote = pair.both()
+
+	both = local.capture(text="Deploy the thing #ops #web").task
+	one = local.capture(text="Write the thing #web").task
+
+	asked = [("tag.eq", "ops"), ("tag.eq", "web")]
+
+	assert sorted(task.ref for task in local.tasks(filters=asked, limit=50)) == [both.ref], (
+		"a repeated name is an intersection, and the second comparison was dropped"
+	)
+	assert sorted(task.ref for task in remote.tasks(filters=asked, limit=50)) == [both.ref]
+
+	# **And one of them alone really does answer more**, or the case above would pass against
+	# a client that dropped the *first* comparison rather than the second.
+	assert sorted(task.ref for task in local.tasks(filters=[("tag.eq", "web")], limit=50)) == (
+		sorted([both.ref, one.ref])
+	)
+
+
+def _shared (
+	filters: subroutine.domain.filtering.Terms,
+) -> subroutine.domain.filtering.Terms:
 	"""Keep only the fields a document has, since it is not scheduled (§6.14)."""
 
-	return {
-		name: value
-		for name, value in filters.items()
+	return [
+		(name, value)
+		for name, value in filters
 		if name.partition(".")[0] in subroutine.domain.filtering.DOCUMENT_FILTERS
-	}
+	]
 
 
 def test_both_refuse_an_unknown_filter_field_the_same_way (pair: Pair) -> None:
@@ -4718,7 +4755,7 @@ def test_both_refuse_an_unknown_filter_field_the_same_way (pair: Pair) -> None:
 
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.ValidationError) as refused:
-			client.tasks(filters={"creatd_at.gte": "today"})
+			client.tasks(filters=[("creatd_at.gte", "today")])
 
 		assert "creatd_at" in str(refused.value)
 
@@ -4743,13 +4780,13 @@ def test_both_answer_what_was_worked_on_the_same_way (pair: Pair) -> None:
 	)
 	pair.session.flush()
 
-	touched = {"touched_at.gte": "today"}
+	touched = [("touched_at.gte", "today")]
 
 	assert local.tasks(filters=touched) == remote.tasks(filters=touched)
 	assert [task.title for task in local.tasks(filters=touched)] == ["Fix the boiler"]
 
 	# The row's own clock still says nothing happened, which is the whole point.
-	stale = {"updated_at.gte": "today"}
+	stale = [("updated_at.gte", "today")]
 
 	assert local.tasks(filters=stale) == remote.tasks(filters=stale) == []
 
@@ -4766,9 +4803,9 @@ def test_both_resolve_a_username_the_same_way (pair: Pair) -> None:
 
 	for client in pair.both():
 		with pytest.raises(subroutine.errors.NotFound):
-			client.tasks(filters={"touched_by.eq": "nobody-at-all"})
+			client.tasks(filters=[("touched_by.eq", "nobody-at-all")])
 
-	mine = {"touched_by.eq": pair.user.username}
+	mine = [("touched_by.eq", pair.user.username)]
 
 	assert pair.local.tasks(filters=mine) == pair.remote.tasks(filters=mine)
 	assert [task.title for task in pair.local.tasks(filters=mine)] == ["Fix the boiler"]

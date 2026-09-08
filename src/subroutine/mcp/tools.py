@@ -2243,7 +2243,9 @@ def _could_not_read (*listings: typing.Any) -> list[str]:
 	return said
 
 
-def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
+def _filters (
+	arguments: dict[str, typing.Any]
+) -> subroutine.domain.filtering.Terms:
 	"""Read the ``filter`` argument, refusing values the declared schema does not allow.
 
 	**Only what the generic check cannot reach**, which was measured rather than assumed. `#549`
@@ -2273,7 +2275,7 @@ def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
 	given = arguments.get("filter")
 
 	if not isinstance(given, dict):
-		return {}
+		return []
 
 	if not all(
 		isinstance(name, str) and isinstance(value, str) for name, value in given.items()
@@ -2292,10 +2294,13 @@ def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:
 
 	subroutine.domain.filtering.refuse_names_that_are_not_filters(given)
 
-	return dict(given)
+	# **Pairs out, matching the terminal and the wire** — `SR#2302`. A JSON object cannot
+	# carry a name twice, so nothing is lost here and the client below takes one shape from
+	# both surfaces rather than a mapping from this one and a sequence from the other.
+	return list(given.items())
 
 
-def _asks_only_of_documents (filters: dict[str, str]) -> bool:
+def _asks_only_of_documents (filters: subroutine.domain.filtering.Terms) -> bool:
 	"""Report whether every filter names a field a document actually has — `#815`.
 
 	The same rule the CLI applies, and here for the same reason: a second call that dropped a
@@ -2305,7 +2310,7 @@ def _asks_only_of_documents (filters: dict[str, str]) -> bool:
 	return all(
 		name.partition(subroutine.domain.filtering.SEPARATOR)[0]
 		in subroutine.domain.filtering.DOCUMENT_FILTERS
-		for name in filters
+		for name, _ in filters
 	)
 
 
@@ -2916,7 +2921,7 @@ def _shown (
 			workspace=workspace,
 			limit=MAX_CHILDREN,
 			order="ref",
-			filters={"parent.eq": str(ref)},
+			filters=[("parent.eq", str(ref))],
 		)
 	)
 

@@ -26,6 +26,7 @@ import typing
 
 import subroutine.config
 import subroutine.connections
+import subroutine.domain.filtering
 import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.views
@@ -374,7 +375,7 @@ class Client(typing.Protocol):
 		tag: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
-		filters: dict[str, str] | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
 	) -> Listing[subroutine.views.Task]:
 		"""List one workspace's open tasks, newest first unless ``order`` says otherwise.
 
@@ -459,7 +460,7 @@ class Client(typing.Protocol):
 		status_category: str | None = None,
 		type: str | None = None,
 		tag: str | None = None,
-		filters: dict[str, str] | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
 	) -> Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise.
 
@@ -780,7 +781,7 @@ class Client(typing.Protocol):
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
-		dated: typing.Mapping[str, str] | None = None,
+		dated: subroutine.domain.filtering.Terms | None = None,
 	) -> Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see.
 
@@ -814,7 +815,7 @@ class Client(typing.Protocol):
 	def journal (
 		self,
 		*,
-		dated: typing.Mapping[str, str] | None = None,
+		dated: subroutine.domain.filtering.Terms | None = None,
 		by: str | None = None,
 		mine: bool = False,
 		oldest: bool = False,

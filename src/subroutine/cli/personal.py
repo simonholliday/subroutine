@@ -3118,7 +3118,7 @@ def _listing (
 	status: str | None = None,
 	type: str | None = None,
 	tag: str | None = None,
-	filters: dict[str, str] | None = None,
+	filters: subroutine.domain.filtering.Terms | None = None,
 ) -> subroutine.fanout.Gathered[Listing]:
 	"""List every reachable workspace's items, one request per workspace per kind.
 
@@ -3340,7 +3340,7 @@ def _listing (
 			if any(
 				name.partition(subroutine.domain.filtering.SEPARATOR)[0]
 				not in subroutine.domain.filtering.DOCUMENT_FILTERS
-				for name in (filters or {})
+				for name, _ in (filters or ())
 			):
 				continue
 
@@ -4076,7 +4076,7 @@ def _listed (
 	status: str | None = None,
 	type: str | None = None,
 	tag: str | None = None,
-	filters: dict[str, str] | None = None,
+	filters: subroutine.domain.filtering.Terms | None = None,
 ) -> None:
 	"""Print the list. Registered twice — three times, with ``search`` — from one body."""
 
@@ -4319,7 +4319,9 @@ def _listed (
 		)
 
 
-def _filters (program: Program, dated: typing.Sequence[str] | None) -> dict[str, str]:
+def _filters (
+	program: Program, dated: typing.Sequence[str] | None
+) -> subroutine.domain.filtering.Terms:
 	"""Read every ``--filter`` a command was given, refusing what is not one — `#815`.
 
 	**Through ``fail`` rather than by raising**, which is the difference between a sentence
@@ -4545,9 +4547,13 @@ TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, witho
 #: registry by ``tests/test_cli_help.py``, which is what keeps a hand-written string honest
 #: where the other two surfaces are derived: `/v1/meta` publishes `filtering.names(entity)` and
 #: MCP builds its own from `_fields_of`, and this was the only one that could drift.
+#: **"Repeat" says what a repeat now does** — `SR#2302`. It read *repeat for a range*, which
+#: is the two-comparison case and was the only one that worked: a name written twice kept the
+#: last one, silently. Every repeat is a conjunction, so a range and one field asked twice are
+#: the same rule and the sentence says so once.
 FILTER_OPTION_HELP = (
 	"Narrow by a field — 'importance.gte=4', 'tag.in=ops,web', 'assignee.is=unset', "
-	"'created_at.gte=yesterday'. Repeat for a range."
+	"'created_at.gte=yesterday'. Repeat to narrow further: a range, or one field twice."
 )
 #: Which document this one is filed under, by its number — `#2173`.
 #:
@@ -10853,7 +10859,7 @@ def _sections (
 				workspace=located.workspace,
 				limit=MAX_CHILDREN,
 				order="ref",
-				filters={"parent.eq": str(located.ref)},
+				filters=[("parent.eq", str(located.ref))],
 			)
 		),
 		events=(

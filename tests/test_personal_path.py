@@ -9139,6 +9139,43 @@ def test_a_filter_with_no_equals_is_refused_before_anything_is_asked (
 	assert "created_at.gte=yesterday" in refused, "the refusal did not show the shape"
 
 
+def test_a_filter_name_written_twice_narrows_by_both (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2302`. ``--filter`` repeated kept the last one, silently.
+
+	**Not a divergence, which is why it was filed on its own**: both transports agreed, and
+	agreed on the wrong answer. `filtering.parsed` returned a mapping, so the second
+	``tag.eq`` overwrote the first before any client was chosen — and the failure direction is
+	a *superset*, the shape `SR#1626` records as the one nobody notices, because a listing
+	narrowed by half the question still looks like a listing.
+
+	**The instance had already decided this.** ``api.filters.Reader`` reads ``multi_items()``,
+	so ``tag.eq=ops&tag.eq=web`` has been an intersection on the wire for as long as the
+	grammar has existed, and the written line ANDs a repeat too. The flag was the odd one out.
+	"""
+
+	run("init")
+	run("add", "Deploy the thing #ops #web")
+	run("add", "Write the thing #web")
+
+	both = run("list", "--filter", "tag.eq=ops", "--filter", "tag.eq=web").output
+
+	assert "Deploy the thing" in both
+	assert "Write the thing" not in both, (
+		f"the second --filter was dropped and the listing answered the wider question: {both}"
+	)
+
+	# **The other order too**, because keeping the *first* rather than the last would pass the
+	# case above by luck: `ops` alone answers with exactly the same one row.
+	reversed_order = run(
+		"list", "--filter", "tag.eq=web", "--filter", "tag.eq=ops"
+	).output
+
+	assert "Deploy the thing" in reversed_order
+	assert "Write the thing" not in reversed_order, reversed_order
+
+
 def test_a_filter_that_names_no_operator_is_refused_rather_than_dropped (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

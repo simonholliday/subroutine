@@ -29,6 +29,7 @@ import subroutine.connections
 import subroutine.credentials
 import subroutine.db.types
 import subroutine.domain.capture
+import subroutine.domain.filtering
 import subroutine.domain.readiness
 import subroutine.errors
 import subroutine.installations
@@ -253,7 +254,7 @@ class Client:
 		tag: str | None = None,
 		due_before: datetime.datetime | None = None,
 		due_after: datetime.datetime | None = None,
-		filters: dict[str, str] | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Task]:
 		"""List one workspace's tasks, newest first unless ``order`` says otherwise."""
 
@@ -335,7 +336,7 @@ class Client:
 		status_category: str | None = None,
 		type: str | None = None,
 		tag: str | None = None,
-		filters: dict[str, str] | None = None,
+		filters: subroutine.domain.filtering.Terms | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Document]:
 		"""List one workspace's documents, newest first unless ``order`` says otherwise."""
 
@@ -781,14 +782,14 @@ class Client:
 			self._json("GET", f"/v1/{_plural(entity_type)}/{ref}/events", params=asking),
 			endpoint="events",
 			path=f"/v1/{_plural(entity_type)}/{ref}/events",
-			params=asking,
+			params=list(asking.items()),
 			wanted=limit,
 		)
 
 	def journal (
 		self,
 		*,
-		dated: typing.Mapping[str, str] | None = None,
+		dated: subroutine.domain.filtering.Terms | None = None,
 		by: str | None = None,
 		mine: bool = False,
 		oldest: bool = False,
@@ -806,14 +807,14 @@ class Client:
 
 		# The dotted names cannot go through `_given`'s keyword form, and arrive already
 		# written the way the route reads them — so this client holds no copy of the spelling.
-		asking.update(dated or {})
+		asked = _dated(dated, asking)
 
 		return self._collected(
 			subroutine.views.JournalEntry,
-			self._json("GET", "/v1/journal", params=asking),
+			self._json("GET", "/v1/journal", params=asked),
 			endpoint="journal",
 			path="/v1/journal",
-			params=asking,
+			params=asked,
 			wanted=limit,
 		)
 
@@ -827,7 +828,7 @@ class Client:
 		newest: bool = False,
 		workspace: str | None = None,
 		limit: int | None = None,
-		dated: typing.Mapping[str, str] | None = None,
+		dated: subroutine.domain.filtering.Terms | None = None,
 	) -> subroutine.clients.base.Listing[subroutine.views.Event]:
 		"""Return what has changed, oldest first, across everything this credential can see."""
 
@@ -847,11 +848,11 @@ class Client:
 		# express a name with a dot in it, and these arrive already written the way the route
 		# reads them — so this client holds no copy of §9.6's spelling and a name it has never
 		# heard of reaches the instance to be refused there, by the grammar that owns it.
-		asking.update(dated or {})
+		asked = _dated(dated, asking)
 
 		return self._collected(
 			subroutine.views.Event,
-			self._json("GET", "/v1/changes", params=asking),
+			self._json("GET", "/v1/changes", params=asked),
 			endpoint="changes",
 			# **Followed both ways since `#1097`, and it used to be followed one way** (`#1086`).
 			# With `newest` set, `has_more` means there are *earlier* events, and `since` is a
@@ -861,7 +862,7 @@ class Client:
 			# command against one instance. `before` is the way back, so both transports now
 			# read to the depth they were asked for.
 			path="/v1/changes",
-			params=asking,
+			params=asked,
 			wanted=limit,
 			resume=BY_SEQ_BACKWARDS if newest else BY_SEQ,
 		)
@@ -892,7 +893,7 @@ class Client:
 			self._json("GET", "/v1/projects", params=asking),
 			endpoint="projects",
 			path="/v1/projects",
-			params=asking,
+			params=list(asking.items()),
 			wanted=limit,
 		)
 
@@ -1944,7 +1945,7 @@ class Client:
 		*,
 		endpoint: str,
 		path: str | None = None,
-		params: dict[str, typing.Any] | None = None,
+		params: typing.Sequence[tuple[str, typing.Any]] | None = None,
 		wanted: int | None = None,
 		resume: str = BY_CURSOR,
 	) -> subroutine.clients.base.Listing[Parsed]:
@@ -2047,11 +2048,18 @@ class Client:
 			if carrying is None:
 				break
 
-			asking = dict(params)
-			asking.update(carrying)
+			# **Rebuilt as pairs rather than merged as a dict** — `SR#2302`, because a name
+			# may appear twice and a filter that was sent twice has to be resent twice. What
+			# the next page overrides is written last and taken out of what came before, which
+			# is what ``dict.update`` used to do for free.
+			carried = dict(carrying)
 
 			if wanted is not None:
-				asking["limit"] = wanted - len(collected)
+				carried["limit"] = wanted - len(collected)
+
+			asking = [
+				(name, value) for name, value in params if name not in carried
+			] + list(carried.items())
 
 			body = self._json("GET", path, params=asking)
 
@@ -2397,8 +2405,9 @@ def _given (**values: typing.Any) -> dict[str, typing.Any]:
 
 
 def _dated (
-	filters: dict[str, str] | None, params: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
+	filters: subroutine.domain.filtering.Terms | None,
+	params: typing.Mapping[str, typing.Any],
+) -> list[tuple[str, typing.Any]]:
 	"""Add §9.6's date comparisons to a listing's query string — `#815`.
 
 	**Sent as written and refused at the far end**, like ``assignee`` and unlike ``deferred``.
@@ -2406,14 +2415,17 @@ def _dated (
 	would disagree the moment a field was added — where this way a client one release behind
 	its instance can still ask a question the instance understands.
 
+	**Pairs out, because a query string can carry a name twice and a mapping cannot** —
+	`SR#2302`. ``tag.eq=ops&tag.eq=web`` is an intersection the instance has always answered:
+	``api.filters.Reader`` reads ``multi_items()``. This merged two dicts, so a repeat was
+	collapsed here — the one place neither the grammar nor the endpoint could see it happen.
+
 	A dotted name cannot collide with a flat one, since no endpoint declares a parameter with a
-	separator in it; the merge is one-way regardless, so a filter can never overwrite ``limit``.
+	separator in it; the flat ones are written first regardless, so a filter can never displace
+	``limit``.
 	"""
 
-	if not filters:
-		return params
-
-	return {**params, **filters}
+	return [*params.items(), *(filters or ())]
 
 
 def opened (

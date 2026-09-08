@@ -55,6 +55,20 @@ import subroutine.errors
 #: What separates a field from the operator applied to it. §9.6's spelling.
 SEPARATOR = "."
 
+#: Filters as somebody wrote them: **pairs in order, never a mapping** — `SR#2302`.
+#:
+#: **Because a name may legitimately be written twice and a mapping cannot hold it twice.**
+#: ``tag.eq=ops tag.eq=web`` is an intersection — `#1801` §9 says so, and
+#: :func:`subroutine.api.filters.Reader` reads ``request.query_params.multi_items()``, so the
+#: instance has answered that question correctly for as long as the grammar has existed. It was
+#: the *clients* that could not ask it: ``filters`` was a mapping in six signatures, so
+#: ``--filter tag.eq=ops --filter tag.eq=web`` kept the last one and said nothing.
+#:
+#: A client unable to ask something its own API answers is the divergence ``test_reach`` and
+#: ``tests/test_transport_equivalence.py`` exist to catch, and this is the shape it takes when
+#: the gap is in a *type* rather than in a missing method.
+Terms: typing.TypeAlias = typing.Sequence[tuple[str, str]]
+
 
 #: The comparison operators, and what each does in SQL.
 #:
@@ -1455,7 +1469,7 @@ def refuse_names_that_are_not_filters (given: typing.Iterable[str]) -> None:
 	)
 
 
-def parsed (given: typing.Iterable[str]) -> dict[str, str]:
+def parsed (given: typing.Iterable[str]) -> Terms:
 	"""Read ``field.operator=value`` as somebody types it, refusing anything shapeless.
 
 	The form a *terminal* takes, since a query string's separator is not something to type by
@@ -1465,9 +1479,14 @@ def parsed (given: typing.Iterable[str]) -> dict[str, str]:
 	**The value is split on the first ``=`` only**, because a date expression may legitimately
 	contain one later and losing the tail would produce a filter that parses and means
 	something else.
+
+	**Pairs in order, and a repeated name is kept** — `SR#2302`. This returned a mapping, so
+	``--filter tag.eq=ops --filter tag.eq=web`` arrived as one comparison and the other was
+	gone before any client saw it. The written line has ANDed a repeat since `#1806` and so has
+	the API; only the flag disagreed, and silently.
 	"""
 
-	found = {}
+	found = []
 
 	for entry in given:
 		name, separator, value = entry.partition("=")
@@ -1485,13 +1504,13 @@ def parsed (given: typing.Iterable[str]) -> dict[str, str]:
 				],
 			)
 
-		found[name.strip()] = value.strip()
+		found.append((name.strip(), value.strip()))
 
 	# **Before a client is chosen, which is what makes both transports agree** (`SR#1626`).
 	# The terminal's ``--filter`` is only ever filters, so a flat name here is nobody's — and
 	# the local client and the HTTP client would otherwise drop it in two different places for
 	# two different reasons.
-	refuse_names_that_are_not_filters(found)
+	refuse_names_that_are_not_filters(name for name, _ in found)
 
 	return found
 
