@@ -40,6 +40,7 @@ import { Detail, Doing, Failed, Linking, Saying, Seeking, Written } from "./deta
 import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
 	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, Narrowed,
+	Unread,
 	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE,
 } from "./forms.js";
 import {
@@ -151,6 +152,10 @@ export function App () {
 	*/
 	const [, retick] = useState(0);
 	const [more, setMore] = useState(null);
+	/* **What the search line carried that could not be read** — `SR#2268`. Held beside `more`
+	   and `cut` because it is the same kind of fact: something the instance did with the
+	   request that the rows alone cannot show. An array, empty when there is nothing to say. */
+	const [unread, setUnread] = useState([]);
 	/* What each of a board's columns held back — `#1790`. Null unless the answer was grouped. */
 	const [cut, setCut] = useState(null);
 	/*
@@ -442,7 +447,7 @@ export function App () {
 
 		/* **Whichever shape arrived** (`#1790`) — `unpacked` is pure and driven, so the rule
 		   for reading a grouped answer is not a branch buried in this callback. */
-		const { rows: fetched, cut, more: left } = unpacked(answers, wanted);
+		const { rows: fetched, cut, more: left, unread: unreadable } = unpacked(answers, wanted);
 
 		/*
 			**What the list becomes is `accumulated`, which is pure and driven** (`#660`, `#706`).
@@ -487,6 +492,12 @@ export function App () {
 		   distinction matters, because *not split* and *split, nothing held back* are two
 		   different things to say under a column. */
 		setCut(cut);
+
+		/* **And which of the words typed were not understood** — `SR#2268`. Set on every load
+		   rather than only when there is something, so a corrected search clears the notice the
+		   previous one left; a stale complaint about a term no longer in the box is worse than
+		   never having said it. */
+		setUnread(unreadable);
 	}, []);
 
 	const words = useCallback(async (slug) => {
@@ -2722,6 +2733,16 @@ export function App () {
 					onCancel=${() => setAsking(null)} />
 			`}
 
+			${/* **What the search line carried that could not be read** — `SR#2268`. Above the
+			     views rather than inside each of them: it is a fact about the *answer*, so it
+			     is the same sentence on a list, a board and an agenda, and putting it in three
+			     components would be three copies of one rule.
+
+			     **Not on an open item or in the administrative area**, which answered no search
+			     line — a notice about a query on a page that made none is a sentence with no
+			     subject. */ null}
+			${area === null && !open && html`<${Unread} terms=${unread} />`}
+
 			${/*
 				**The administrative area is the first branch, and it takes no arguments from
 				the work views** (`#1397`). It is inside the frame rather than a page of its own
@@ -3132,6 +3153,7 @@ export {
 	Repeats,
 	TIMED,
 	UNSET_VALUE,
+	Unread,
 	whoseAsked,
 	whoseValue,
 } from "./forms.js";

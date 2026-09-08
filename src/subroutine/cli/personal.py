@@ -810,6 +810,16 @@ class Listing:
 	#: and a client that re-derived it would be a second implementation of it.
 	held_back: int = 0
 
+	#: What the written search line carried that could not be read as a filter, in the
+	#: instance's own words (`SR#2268`, `#1806`). Carried for ``held_back``'s reason and one
+	#: step further: the sentence names the field and the operators it does take, so a client
+	#: that wrote its own would be a second copy of a rule the server owns.
+	#:
+	#: **A tuple rather than a count, unlike the two above**, because what a reader has to be
+	#: told here is *which* of the words they typed was not understood. A number would say
+	#: something happened and leave them to guess which term.
+	unread: tuple[str, ...] = ()
+
 
 # These live above every function that annotates with them. A module-level annotation is
 # evaluated when the `def` runs, not lazily, so `Columns` referenced before its own
@@ -3156,6 +3166,7 @@ def _listing (
 
 		parked = 0
 		held_back = 0
+		unread: list[str] = []
 
 		# **A project belongs to one workspace, and this asks them all** (`#332`). Until
 		# 2026-08-03 every instance had exactly one, so the loop ran once and could not
@@ -3262,6 +3273,13 @@ def _listing (
 
 			cut = cut or found_here.has_more
 			held_back += found_here.held_back or 0
+
+			# **Kept in the order first said and never repeated** (`SR#2268`). One line is
+			# asked of tasks and of documents, and of every reachable connection, so the same
+			# complaint comes back several times for one mistyped term.
+			for complaint in found_here.unread or ():
+				if complaint not in unread:
+					unread.append(complaint)
 			rows.extend((client.connection.name, found) for found in found_here)
 
 			# **`--ready` is about work you could start, so a document is not an answer to
@@ -3450,6 +3468,7 @@ def _listing (
 			more=cut or len(rows) > limit,
 			parked=parked,
 			held_back=held_back,
+			unread=tuple(unread),
 		)
 
 	return subroutine.fanout.gather(world.clients, ask, strict=strict)
@@ -4142,6 +4161,14 @@ def _listed (
 			# because a search that missed is usually a search that was too narrow.
 			program.say(f"Nothing matches {q!r}.")
 
+			# **An empty answer is where an unreadable term matters most** — `SR#2268`. The
+			# term was searched for as *text*, so it is the likeliest reason nothing matched,
+			# and *Nothing matches* alone is a true sentence that sends the reader to the wrong
+			# conclusion — the same shape as the "nothing on your list" trap named above, one
+			# question along. Said before the widening suggestion, because a line explaining
+			# why is what makes the suggestion worth taking.
+			_say_unread(gathered, console=program.console)
+
 			if not deferred:
 				_suggest(program.console, f'subroutine search "{q}" --deferred', "look in what you have put off too")
 
@@ -4246,6 +4273,8 @@ def _listed (
 		_say_parked(gathered, console=program.console, hidden=hiding)
 
 		_say_held_back(gathered, console=program.console)
+
+		_say_unread(gathered, console=program.console)
 
 		_say_where_a_bare_number_goes(world, console=program.console)
 
@@ -12497,6 +12526,44 @@ def _say_held_back (
 			style=DETAIL,
 		)
 	)
+
+
+def _say_unread (
+	gathered: subroutine.fanout.Gathered[Listing],
+	*,
+	console: rich.console.Console,
+) -> None:
+	"""Say which of the words typed could not be read as a filter — `SR#2268`, `#1806`.
+
+	**The rule this restores is `#615`'s**, and it is the one that makes the search line safe
+	to put on a parameter every box already sends: a term naming a field that cannot compare
+	that way is searched for **as text** and the reader is told. `domain/grammar.py` says so in
+	the present tense and has since it shipped; `views.Page.unread` carries the sentence; and
+	until now no client rendered it, so ``created_at:today`` came back as rows matching the
+	literal words with nothing to say why.
+
+	**The instance's own words, not a second wording here.** The sentence already names the
+	field and the operators it does take. Three clients each phrasing it would be three copies
+	of one rule — this codebase's first signature defect answering its second.
+
+	**Only when there is something to say**, which is `#2266`'s rule and the reason a term
+	naming no field at all is deliberately not reported: ``15:30`` is words, not a filter that
+	failed, and a line of explanation under every ordinary search containing a colon is a
+	notice nobody reads.
+	"""
+
+	# **Deduplicated across connections, in the order they were first said.** A merged listing
+	# asks every reachable instance the same line, so each answers with the same complaint —
+	# and a reader who typed one bad term should be told once rather than once per connection.
+	said: list[str] = []
+
+	for answer in gathered.answers:
+		for one in answer.value.unread or ():
+			if one not in said:
+				said.append(one)
+
+	for one in said:
+		console.print(rich.text.Text(f"      {one}", style=DETAIL))
 
 
 def _sunk (order: str | None) -> str:

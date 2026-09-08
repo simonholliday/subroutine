@@ -2022,6 +2022,15 @@ class Client:
 		held_back = page.get("held_back")
 		held_back = int(held_back) if isinstance(held_back, int) else None
 
+		# **From the first page too, and for the same reason** (`SR#2268`). What the line
+		# carried is a fact about the *query*, so a later page would repeat it word for word;
+		# reading it once is what stops the notice arriving twice on a listing that pages.
+		#
+		# **`None` where the key is absent** rather than an empty tuple, which keeps *this
+		# instance is a release behind* apart from *the line was read in full*.
+		said = page.get("unread")
+		unread = tuple(str(one) for one in said) if isinstance(said, list) else None
+
 		while wanted is not None and path is not None and params is not None:
 			# **Four ways to stop, and the last is the one that matters.** The caller has what
 			# it asked for; the instance says there is no more; there is nothing to resume
@@ -2067,7 +2076,7 @@ class Client:
 			cursor = page.get("next_cursor")
 
 		return subroutine.clients.base.Listing(
-			collected, has_more=has_more, covers=covers, held_back=held_back
+			collected, has_more=has_more, covers=covers, held_back=held_back, unread=unread
 		)
 
 	def _not_an_instance (

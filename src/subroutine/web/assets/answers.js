@@ -340,6 +340,24 @@ export function unpacked (answers, wanted) {
 	const more = { tasks: null, documents: null };
 	let grouped = false;
 
+	/*
+		**What the search line carried that could not be read as a filter** — `SR#2268`,
+		`#1806`. A term naming a field that cannot compare that way is searched for **as
+		text**, which is what makes the grammar safe to put on the parameter this box has
+		always sent; the reader has to be told, or `created_at:today` comes back as rows
+		matching the literal words with nothing to say why.
+
+		**Collected here because it is a fact about the answer**, exactly like `more` beside
+		it — and gathered across both collections, deduplicated in the order first said, since
+		one line is asked of tasks and again of documents and a single mistyped term otherwise
+		reports twice.
+
+		**Empty, never null.** Unlike `cut`, there is no *this question was not asked* state to
+		keep apart: a listing that sent no line and a line that was read in full are the same
+		silence, and both mean there is nothing to say.
+	*/
+	const unread = [];
+
 	answers.forEach((answer, at) => {
 		const kind = wanted[at].kind;
 
@@ -356,6 +374,10 @@ export function unpacked (answers, wanted) {
 						? group.page.total
 						: null,
 				};
+
+				(group.page && group.page.unread || []).forEach((one) => {
+					if (!unread.includes(one)) unread.push(one);
+				});
 			});
 
 			return;
@@ -364,9 +386,13 @@ export function unpacked (answers, wanted) {
 		answer.items.forEach((row) => rows.push({ ...row, kind }));
 
 		more[`${kind}s`] = answer.page.has_more ? answer.page.next_cursor : null;
+
+		(answer.page.unread || []).forEach((one) => {
+			if (!unread.includes(one)) unread.push(one);
+		});
 	});
 
-	return { rows, cut: grouped ? cut : null, more };
+	return { rows, cut: grouped ? cut : null, more, unread };
 }
 
 

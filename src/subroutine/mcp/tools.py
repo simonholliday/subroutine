@@ -2138,7 +2138,12 @@ def _listed (
 	rows = [_line(item, now=moment) for item in ordered[:limit]]
 
 	if not rows:
-		return "Nothing open."
+		# **An empty answer is where the unreadable term matters most** — `SR#2268`. The term
+		# was searched for as *text*, so it is the likeliest reason nothing matched: bare
+		# *Nothing open.* is then a true sentence that sends a model to the wrong conclusion,
+		# which is the shape `#615` names. Said here rather than only beside rows, because the
+		# branch with no rows is the one that needs it.
+		return "\n".join(["Nothing open.", *_could_not_read(tasks, documents)])
 
 	# **What is held back is said, never simply absent** — docs/design.md §12.2a, and this
 	# branch was the one place here that did not (`#1071`). The agenda ten lines above says
@@ -2171,7 +2176,38 @@ def _listed (
 			f"filed under cannot start. Read the parent to see what is holding it up."
 		)
 
+	# **What the line carried that could not be read as a filter** — `SR#2268`, `#1806`. A term
+	# naming a field that cannot compare that way is searched for **as text**, which is what
+	# makes the grammar safe to put on `q`; the caller has to be told, or the answer is
+	# plausible, complete and wrong. It was on the envelope and rendered by nothing.
+	#
+	# **The instance's own sentence**, which already names the field and the operators it does
+	# take. It matters most here: a model cannot see a search box and has only these lines.
+	#
+	# **Both collections, deduplicated.** One line is read for tasks and again for documents,
+	# so an unreadable term comes back twice for one mistake.
+	rows.extend(_could_not_read(tasks, documents))
+
 	return "\n".join(rows)
+
+
+def _could_not_read (*listings: typing.Any) -> list[str]:
+	"""Return what these collections could not read, once each and in the order first said.
+
+	**Typed loosely and read with ``getattr`` on purpose.** ``documents`` above is a
+	:class:`Listing` when the filters could be asked of one and a bare ``[]`` when they could
+	not, so the second argument is genuinely two shapes. Asking for the attribute is the honest
+	way to say *whatever answered, this is what it said it could not read*.
+	"""
+
+	said: list[str] = []
+
+	for listed in listings:
+		for one in getattr(listed, "unread", None) or ():
+			if one not in said:
+				said.append(one)
+
+	return said
 
 
 def _filters (arguments: dict[str, typing.Any]) -> dict[str, str]:

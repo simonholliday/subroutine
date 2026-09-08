@@ -2118,6 +2118,29 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	*Show everything* against the edge, reading as two unrelated things. `margin-right: auto` on
 	the sentence gives the identical result for one control and groups any number of them.
 */
+/*
+	Which of the words typed could not be read as a filter — `SR#2268`.
+
+	**`.narrowed`'s bar rather than `.broke`'s warning**, because the search was answered: part
+	of the line was read as words instead of as a filter, which is a fact about what this page
+	is rather than something that failed. It belongs to the family that explains the page, so
+	it looks like the rest of that family.
+*/
+.unread {
+	margin-bottom: var(--space-7);
+	padding: var(--space-4) var(--space-7);
+	background: var(--bg-raised);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font-size: var(--text-body);
+}
+
+.unread p { margin: 0; }
+
+.unread p + p { margin-top: var(--space-4); }
+
+
 .narrowed {
 	display: flex;
 	align-items: center;

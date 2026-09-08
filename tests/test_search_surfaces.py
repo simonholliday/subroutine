@@ -51,6 +51,7 @@ import typing
 import uuid
 
 import pytest
+import rich.console
 import sqlalchemy.orm
 
 import api_support
@@ -287,6 +288,130 @@ def test_every_surface_names_the_same_items_in_the_same_order (
 		f"the browser and the terminal answered one question differently:\n"
 		f"  terminal  {terminal}\n  browser   {browser}"
 	)
+
+
+#: A term naming a real field that **cannot compare that way** — `created_at` takes `gt`, `gte`,
+#: `lt` and `lte` and not equality. Chosen over a misspelling on purpose: a term naming no field
+#: at all is words, is deliberately *not* reported, and would make this test pass by silence on
+#: a surface that reports nothing.
+UNREADABLE = "created_at:today"
+
+
+def _terminal_said (surfaces: Surfaces) -> str:
+	"""Return what ``subroutine search`` prints about the term it could not read."""
+
+	console = rich.console.Console(record=True, width=100, no_color=True)
+
+	gathered = subroutine.cli.personal._listing(
+		surfaces.world, limit=10, strict=True, order=None, q=f"{UNREADABLE} {TERM}"
+	)
+	subroutine.cli.personal._say_unread(gathered, console=console)
+
+	return console.export_text()
+
+
+def _agent_said (surfaces: Surfaces) -> str:
+	"""Return the body an agent is handed, which is where its only account of this is."""
+
+	return subroutine.mcp.tools._searched(
+		surfaces.client, {"q": f"{UNREADABLE} {TERM}", "limit": 10}
+	)
+
+
+def _browser_said (surfaces: Surfaces, tmp_path: pathlib.Path) -> str:
+	"""Return what the page draws above the rows, from the envelope it actually receives."""
+
+	answer = api_support.call(
+		surfaces.application,
+		"GET",
+		f"/v1/tasks?limit=10&q={UNREADABLE}+{TERM}",
+		headers={"Authorization": f"Bearer {surfaces.token}"},
+	)
+
+	assert answer.status_code == 200, answer.text
+
+	return test_web._rendered(tmp_path, {
+		"Unread": {"terms": answer.json()["page"]["unread"] or []},
+	})["Unread"]
+
+
+def test_every_surface_says_which_term_it_could_not_read (
+	surfaces: Surfaces, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#2268`, and the rule it restores is what makes the grammar safe to put on ``q``.
+
+	A term naming a field that cannot compare that way is searched for **as text** and the
+	reader is told — `domain/grammar.py` states that in the present tense, and
+	``views.Page.unread`` carries the sentence. **No client rendered it**, so three of the four
+	surfaces answered ``created_at:today`` with rows matching the literal words and nothing to
+	say why. `#615`'s shape: plausible, complete, wrong.
+
+	**One sentence compared across three, not three wordings compared for agreement.** The
+	instance already names the field and the operators it does take, so a client writing its own
+	would be three copies of one rule — this codebase's first signature defect answering its
+	second. That is why the assertion is identity against the server's own words rather than a
+	substring each surface happens to contain.
+
+	**What this does not prove, and where that is proved instead**: the terminal is driven at
+	``_say_unread`` rather than through the whole command, which is this file's shape for all
+	three surfaces. That leaves *does `_listed` call it* unchecked, and
+	``tests/test_personal_path.test_a_search_says_which_of_its_terms_was_not_understood``
+	drives the real command for exactly that.
+	"""
+
+	served = api_support.call(
+		surfaces.application,
+		"GET",
+		f"/v1/tasks?limit=10&q={UNREADABLE}+{TERM}",
+		headers={"Authorization": f"Bearer {surfaces.token}"},
+	)
+	[sentence] = served.json()["page"]["unread"]
+
+	assert UNREADABLE in sentence and "gt" in sentence, (
+		f"the instance's own sentence does not name the term and its operators: {sentence!r}"
+	)
+
+	for surface, said in (
+		("the terminal", _terminal_said(surfaces)),
+		("an agent", _agent_said(surfaces)),
+		("the browser", _browser_said(surfaces, tmp_path)),
+	):
+		assert sentence in " ".join(said.split()), (
+			f"{surface} answered a term it could not read with rows and no explanation, so a "
+			f"reader is given a plausible, complete, wrong answer:\n{said}"
+		)
+
+
+def test_an_ordinary_search_is_told_nothing_about_terms (
+	surfaces: Surfaces, tmp_path: pathlib.Path
+) -> None:
+	"""The other half, and the one that keeps the notice worth reading — `SR#2268`, `#2266`.
+
+	A term naming **no** field is words, not a filter that failed: ``15:30`` is a time, and a
+	line of explanation under every ordinary search containing a colon is a notice nobody reads.
+	``views.Page.unread`` says so in its own docstring, and this is the surfaces being held to
+	it.
+	"""
+
+	quiet = subroutine.cli.personal._listing(
+		surfaces.world, limit=10, strict=True, order=None, q=f"15:30 {TERM}"
+	)
+	console = rich.console.Console(record=True, width=100, no_color=True)
+
+	subroutine.cli.personal._say_unread(quiet, console=console)
+
+	assert console.export_text().strip() == "", (
+		f"an ordinary search was told one of its words was not a filter: "
+		f"{console.export_text()!r}"
+	)
+
+	said = subroutine.mcp.tools._searched(surfaces.client, {"q": f"15:30 {TERM}", "limit": 10})
+
+	assert "searched for as text" not in said, f"an agent was told the same thing: {said}"
+
+	drawn = test_web._rendered(tmp_path, {"Unread": {"terms": []}})["Unread"]
+
+	assert drawn == "", f"the browser drew a notice with nothing to say: {drawn!r}"
 
 
 def test_a_page_is_cut_across_both_kinds_rather_than_allocated_between_them (

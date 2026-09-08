@@ -108,6 +108,20 @@ class Listing(list[LISTED]):
 	#: number out again is a second implementation of a rule the server owns.
 	held_back: int | None = None
 
+	#: What the written search line carried that could not be read as a filter, in the
+	#: instance's own words (`SR#2268`, `#1806`). ``None`` where nothing was unreadable — and
+	#: where the caller sent no line at all, which are the same silence and correctly so.
+	#:
+	#: **Beside `held_back` because it is the same kind of fact**, which is what
+	#: :attr:`subroutine.views.Page.unread` says about itself: something the instance did with
+	#: the request that the rows alone cannot show. It was on the envelope and on no client, so
+	#: three of the four surfaces answered a misread term with rows and no explanation.
+	#:
+	#: **The instance's sentence, carried rather than re-worded.** It names the field and the
+	#: operators that field does take; a client writing its own would be three copies of one
+	#: rule, which is the defect this codebase finds most often.
+	unread: tuple[str, ...] | None = None
+
 	def __init__ (
 		self,
 		rows: typing.Iterable[LISTED] = (),
@@ -115,6 +129,7 @@ class Listing(list[LISTED]):
 		has_more: bool = False,
 		covers: typing.Iterable[str] = (),
 		held_back: int | None = None,
+		unread: typing.Iterable[str] | None = None,
 	) -> None:
 		"""Hold the rows, and what the instance said about the ones past them."""
 
@@ -123,6 +138,7 @@ class Listing(list[LISTED]):
 		self.has_more = has_more
 		self.covers = tuple(covers)
 		self.held_back = held_back
+		self.unread = None if unread is None else tuple(unread)
 
 
 @dataclasses.dataclass(frozen=True)

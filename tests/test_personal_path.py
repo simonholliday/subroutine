@@ -3386,6 +3386,66 @@ def test_the_list_says_when_it_did_not_show_everything (
 	assert "--limit 10" in listed.output, "the remedy, not just the fact"
 
 
+def test_a_search_says_which_of_its_terms_was_not_understood (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2268`. The whole command, because the seam is not where this broke.
+
+	A term naming a field that cannot compare that way is searched for **as text** — the rule
+	that makes `#1806`'s grammar safe on a parameter every search box already sends. The server
+	has always said so on `views.Page.unread`; no client rendered it, so three surfaces answered
+	`created_at:today` with rows matching the literal words and no explanation.
+
+	**Driven here rather than at `_say_unread`** because the defect was never in the sentence —
+	it was that nothing called for it. `tests/test_search_surfaces.py` compares the wording
+	across the three surfaces; this asserts the command reaches it at all.
+
+	**Both branches, and the empty one is the point.** The unreadable term is searched for as
+	text, so it is the likeliest reason nothing matched — *Nothing matches* on its own is a true
+	sentence that sends the reader to the wrong conclusion.
+	"""
+
+	run("init")
+	run("add", "Deploy the release notes")
+
+	found = run("search", "created_at:today Deploy")
+
+	assert "created_at" in found.output, (
+		f"a term the grammar could not read was searched for as text and never mentioned: "
+		f"{found.output}"
+	)
+	assert "does not compare that way" in found.output, found.output
+
+	# The branch where it matters most: searched as text, matched nothing, and the reader is
+	# otherwise told only that there is nothing.
+	empty = run("search", "created_at:today zzzznomatchzzz")
+
+	assert "Nothing matches" in empty.output, empty.output
+	assert "does not compare that way" in empty.output, (
+		f"an empty answer named no reason, which is the case this is for: {empty.output}"
+	)
+
+
+def test_an_ordinary_search_is_not_told_its_words_were_terms (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half — `SR#2268`, and it is what keeps the notice worth reading.
+
+	A term naming **no** field is words rather than a filter that failed, so it is deliberately
+	not reported: `15:30` is a time, and a line of explanation under every ordinary search
+	containing a colon is a notice nobody reads.
+	"""
+
+	run("init")
+	run("add", "Stand-up at 15:30 every day")
+
+	found = run("search", "15:30")
+
+	assert "does not compare that way" not in found.output, (
+		f"an ordinary search was told one of its words was not a filter: {found.output}"
+	)
+
+
 def test_the_list_is_silent_when_it_did_show_everything (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

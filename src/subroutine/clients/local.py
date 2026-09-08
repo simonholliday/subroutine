@@ -791,10 +791,17 @@ class Client:
 			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
 
 			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			#
+			# **`unread` comes from the line read above** (`SR#2268`). There is no response to
+			# take it off here — this transport *is* the instance — so it is carried from the
+			# same `grammar.read` the endpoint calls, which is what keeps the two answers one
+			# answer. `or None` for the reason `views.Page` gives: an empty list on every
+			# ordinary search is a field that says nothing, every time.
 			return subroutine.clients.base.Listing(
 				[subroutine.views.task(row, vocabulary) for row in rows[:size]],
 				has_more=len(rows) > size,
 				held_back=held_back,
+				unread=tuple(line.unread) or None,
 			)
 
 	def task (
@@ -1275,6 +1282,7 @@ class Client:
 			return subroutine.clients.base.Listing(
 				[subroutine.views.document(row, vocabulary) for row in rows[:size]],
 				has_more=len(rows) > size,
+				unread=tuple(line.unread) or None,
 			)
 
 	def document (

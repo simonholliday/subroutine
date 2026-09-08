@@ -701,6 +701,40 @@ export function Conflict ({ theirs }) {
 	`;
 }
 
+export function Unread ({ terms = [] }) {
+	/*
+		Which of the words typed could not be read as a filter — `SR#2268`, `#1806`.
+
+		**The rule this restores is what makes the search line safe to put on `q`.** A term
+		naming a field that cannot compare that way is searched for **as text**, and the reader
+		is told; a term naming no field at all is words and is not reported, which is why an
+		ordinary search containing a colon draws nothing here. `domain/grammar.py` has stated
+		that in the present tense since it shipped and no client rendered it, so
+		`created_at:today` came back as rows matching the literal words with nothing to say why.
+
+		**The instance's own sentence, passed through.** It already names the field and the
+		operators that field does take — *'created_at' does not compare that way. It takes gt,
+		gte, lt, lte.* A wording of our own here would be a second copy of a rule the server
+		owns, on the vocabulary that decides what a caller may ask.
+
+		**Not a failure, so it is not drawn as one.** The search was answered; part of it was
+		read as words rather than as a filter. So it takes `.narrowed`'s neutral bar rather than
+		`.broke`'s warning border — it belongs to the family that says *why this page is what it
+		is*, beside `Narrowed` and `Focus` below.
+
+		**Nothing when there is nothing**, which is `#2266`'s rule: a notice that is always
+		there is one nobody reads.
+	*/
+	if (!terms || terms.length === 0) return null;
+
+	return html`
+		<div class="unread">
+			${terms.map((one) => html`<p key=${one}>${one}</p>`)}
+		</div>
+	`;
+}
+
+
 export function Focus ({ prioritised = [], onStop = null, busy = false }) {
 	/*
 		Why the ranking on this page is what it is — and, since `SR#2265`, how to stop it.

@@ -163,6 +163,20 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# The bar the list and the board share — one component since `SR#986`, because they held it
 	# byte for byte and a second control in it would have been the moment they drifted.
 	"Narrowed": {"project": "web", "prioritised": ["web"]},
+	# What the search line carried that the server could not read as a filter — `SR#2268`. The
+	# sentence is the instance's own, so the sample carries a real one rather than a stand-in:
+	# a wording invented here would be the second copy of it that this component exists to
+	# avoid.
+	#
+	# **Two, not one.** A line can carry more than one term the grammar could not read, and a
+	# single-term sample leaves `.unread p + p` — the rule that spaces them — matching nothing,
+	# which `test_every_selector_in_the_stylesheet_reaches_something` reports as a dead rule. A
+	# sample that omits a state tests the fallback and reads exactly like a test of the thing.
+	"Unread": {"terms": [
+		"'created_at:today' was searched for as text: 'created_at' does not compare that way. "
+		"It takes gt, gte, lt, lte.",
+		"'urgency:soon' was searched for as text: 'urgency' expects a whole number.",
+	]},
 	# The line above the rows saying why they are ordered as they are, and — since `SR#2265` —
 	# the one act available to it. **`onStop` is deliberately absent**, for the reason written
 	# against `Marks`' `onGo`: `_rendered` supplies every `on…` prop as a real no-op, so naming
