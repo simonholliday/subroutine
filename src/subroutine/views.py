@@ -385,6 +385,15 @@ class Grouped(pydantic.BaseModel, typing.Generic[Item]):
 	#: knows what ``key`` means without the request beside it.
 	group_by: str
 
+	#: How many rows a readiness rule held back, and which terms of the search line could not
+	#: be read as filters — `SR#2281`. **Here rather than on each group's page**, because both
+	#: are facts about the answer: a column did not hold anything back, the request's own rules
+	#: did, and ``held_back`` repeated per group would invite summing four copies of one number.
+	#: :class:`Page` carries them for an ungrouped listing and this is the same pair one level
+	#: out, with the same ``None`` meaning *nothing to say*.
+	held_back: int | None = None
+	unread: list[str] | None = None
+
 	groups: list[Group[Item]]
 
 

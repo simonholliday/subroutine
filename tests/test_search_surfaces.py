@@ -335,6 +335,41 @@ def _browser_said (surfaces: Surfaces, tmp_path: pathlib.Path) -> str:
 	})["Unread"]
 
 
+def _board_said (surfaces: Surfaces, tmp_path: pathlib.Path) -> str:
+	"""Return what a *board* draws above its columns, through the app's own reader.
+
+	**The same page asked the way a board asks it.** ``address.js`` fills ``group_by`` in
+	whenever an address omits it, so every board is a grouped request — which is the one shape
+	the surface above cannot see, and where the sentence went missing.
+
+	Driven through the real ``unpacked`` rather than off the envelope, unlike its sibling. The
+	fact moved from each group's page to the envelope in `SR#2281`, so reading the response
+	here would assert the server's half twice and leave the client's unchecked — which is the
+	half that was written against a field the server never sent.
+	"""
+
+	answer = api_support.call(
+		surfaces.application,
+		"GET",
+		f"/v1/tasks?limit=10&group_by=status_category&q={UNREADABLE}+{TERM}",
+		headers={"Authorization": f"Bearer {surfaces.token}"},
+	)
+
+	assert answer.status_code == 200, answer.text
+	assert "groups" in answer.json(), "this is not a grouped answer, so it is not a board"
+
+	read = test_web._ran(tmp_path, f"""
+		import {{ unpacked }} from "{test_web._staged(tmp_path).as_uri()}";
+
+		const answers = [{json.dumps(answer.json())}];
+		const wanted = [{{ kind: "task" }}];
+
+		process.stdout.write(JSON.stringify(unpacked(answers, wanted).unread));
+	""")
+
+	return test_web._rendered(tmp_path, {"Unread": {"terms": read}})["Unread"]
+
+
 def test_every_surface_says_which_term_it_could_not_read (
 	surfaces: Surfaces, tmp_path: pathlib.Path
 ) -> None:
@@ -346,7 +381,7 @@ def test_every_surface_says_which_term_it_could_not_read (
 	surfaces answered ``created_at:today`` with rows matching the literal words and nothing to
 	say why. `#615`'s shape: plausible, complete, wrong.
 
-	**One sentence compared across three, not three wordings compared for agreement.** The
+	**One sentence compared across four, not four wordings compared for agreement.** The
 	instance already names the field and the operators it does take, so a client writing its own
 	would be three copies of one rule — this codebase's first signature defect answering its
 	second. That is why the assertion is identity against the server's own words rather than a
@@ -357,6 +392,11 @@ def test_every_surface_says_which_term_it_could_not_read (
 	three surfaces. That leaves *does `_listed` call it* unchecked, and
 	``tests/test_personal_path.test_a_search_says_which_of_its_terms_was_not_understood``
 	drives the real command for exactly that.
+
+	**The fourth surface is the same page asked the way a board asks it** (`SR#2281`). A board
+	is always a grouped request, the grouped branch returned above the line that sets this, and
+	nothing here could see it — which `524fca9` named in its own commit message as the gap this
+	file had. So a mistyped term on a board was searched for as text with nothing said at all.
 	"""
 
 	served = api_support.call(
@@ -375,6 +415,7 @@ def test_every_surface_says_which_term_it_could_not_read (
 		("the terminal", _terminal_said(surfaces)),
 		("an agent", _agent_said(surfaces)),
 		("the browser", _browser_said(surfaces, tmp_path)),
+		("a board", _board_said(surfaces, tmp_path)),
 	):
 		assert sentence in " ".join(said.split()), (
 			f"{surface} answered a term it could not read with rows and no explanation, so a "

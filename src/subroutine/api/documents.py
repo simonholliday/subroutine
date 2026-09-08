@@ -447,6 +447,9 @@ def listing (
 			shape=shape,
 			render=_for_a_group,
 			collection="documents",
+			# **No `held_back` here and that is not an omission**: readiness is a property of
+			# work, so a document listing has no rule that holds rows back and nothing to say.
+			unread=dates.unread,
 		)
 
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two

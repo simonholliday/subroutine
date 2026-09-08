@@ -1511,6 +1511,8 @@ def _page (
 			shape=shape,
 			render=_for_a_group,
 			collection="tasks",
+			held_back=held_back,
+			unread=unread,
 		)
 
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two

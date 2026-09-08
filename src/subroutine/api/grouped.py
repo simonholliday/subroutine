@@ -71,6 +71,8 @@ def answer (
 		[sqlalchemy.orm.Session, typing.Sequence[typing.Any]], list[typing.Any]
 	],
 	collection: str,
+	held_back: int | None = None,
+	unread: typing.Sequence[str] = (),
 ) -> fastapi.responses.JSONResponse:
 	"""Run one query once per group and return the groups, each with its own page.
 
@@ -166,4 +168,24 @@ def answer (
 	# uses for a shaped answer, and for the same reason: this genuinely is not a collection.
 	# The route goes on declaring one so the OpenAPI document describes the ordinary case,
 	# which is what almost every caller receives.
-	return fastapi.responses.JSONResponse(content={"group_by": axis, "groups": groups})
+	# **On the envelope rather than on each group's page** — `SR#2281`. Both are facts about
+	# *the answer*: how many rows a readiness rule held back, and which terms of the search line
+	# could not be read as filters. Neither is a fact about a column, and `held_back` repeated
+	# per group would invite summing four copies of one number.
+	#
+	# **They were simply dropped before this.** The branch that reaches here sits above the
+	# return that sets them, so a board — which is always grouped, since `address.js` fills
+	# `group_by` in when an address omits it — reported `null` for a search line the flat
+	# listing reported in full. That is `#615`'s failure, on the one arrangement the
+	# cross-surface guard could not see.
+	#
+	# ``or None`` rather than an empty list, matching :class:`subroutine.views.Page` exactly:
+	# there is one spelling of *nothing to say* and a caller should not have to learn a second.
+	return fastapi.responses.JSONResponse(
+		content={
+			"group_by": axis,
+			"held_back": held_back,
+			"unread": list(unread) or None,
+			"groups": groups,
+		}
+	)

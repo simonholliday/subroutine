@@ -364,6 +364,16 @@ export function unpacked (answers, wanted) {
 		if (answer.groups) {
 			grouped = true;
 
+			/* **Off the envelope, not off a group** — `SR#2281`. What could not be read is a
+			   fact about the answer rather than about a column, so the server says it once
+			   beside `group_by`; asking each group would be reading four copies of one
+			   sentence. This read the groups until the server started sending it, and the
+			   server never did — so a board reported nothing while the same search line on a
+			   list reported in full. */
+			(answer.unread || []).forEach((one) => {
+				if (!unread.includes(one)) unread.push(one);
+			});
+
 			answer.groups.forEach((group) => {
 				group.items.forEach((row) => rows.push({ ...row, kind }));
 
@@ -374,10 +384,6 @@ export function unpacked (answers, wanted) {
 						? group.page.total
 						: null,
 				};
-
-				(group.page && group.page.unread || []).forEach((one) => {
-					if (!unread.includes(one)) unread.push(one);
-				});
 			});
 
 			return;
