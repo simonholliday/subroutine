@@ -359,6 +359,45 @@ def test_both_answer_who_is_asking (pair: Pair) -> None:
 	assert theirs.credential.title == "Equivalence"
 
 
+def test_a_line_naming_one_field_twice_means_the_same_on_both (pair: Pair) -> None:
+	"""``tag:ops tag:web`` is two comparisons, and one transport kept only the last — `SR#2283`.
+
+	``grammar.Read.parameters`` is a **list** deliberately, and ``filtering._in_project``'s own
+	docstring states what a repeat means: *"two separate comparisons about `project` are still
+	ANDed, which is a caller asking for the intersection of two areas"*. The local client put
+	that list through a ``dict``, so the line meant *tagged web* against a local instance and
+	*tagged ops and web* over HTTP — the same sentence, two answers, which is the divergence
+	this whole file exists to catch.
+
+	**One transport parses the line and the other sends it**, which is why the fix could not be
+	in the grammar: ``q`` goes to the server intact over HTTP and is read there by this same
+	function, so only the local path had a second place to lose it.
+
+	**Three rows, so that the wrong answer is a wrong *set* rather than an empty one.** A row
+	with both tags, and one with each — a client that keeps only the last term answers two,
+	and one that ANDs correctly answers one.
+	"""
+
+	make(pair, "Both of them #ops #web")
+	make(pair, "Only ops #ops")
+	make(pair, "Only web #web")
+
+	local, remote = pair.both()
+
+	answers = [
+		[row.title for row in client.tasks(q="tag:ops tag:web")]
+		for client in (local, remote)
+	]
+
+	assert answers[0] == answers[1], (
+		f"one line, two answers: local said {answers[0]} and HTTP said {answers[1]}"
+	)
+	assert answers[0] == ["Both of them"], (
+		f"a repeated term was dropped rather than ANDed, so the answer is the wider set "
+		f"the caller did not ask for: {answers[0]}"
+	)
+
+
 def test_a_narrowed_credential_narrows_the_answer_on_both_transports (
 	pair: Pair, session: sqlalchemy.orm.Session
 ) -> None:

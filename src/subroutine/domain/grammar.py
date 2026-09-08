@@ -23,8 +23,19 @@ of what is searched for, which is what somebody typing a time meant.
 **That rule is also what makes this safe to put on ``q``**, the parameter a search box has
 always sent. Only a term naming a field the registry really carries is taken out of the text;
 everything else is searched for verbatim, so a query that meant nothing to this grammar
-behaves exactly as it did before. The one case that changes is a search for the literal words
-``status:open``, and :attr:`Read.unread` is where the caller is told.
+behaves exactly as it did before.
+
+**The one case that changes is a search for the literal words ``status:open``, and nothing
+says so** — `SR#2294`. That line now narrows instead of matching text, silently, and this
+sentence claimed :attr:`Read.unread` reported it until 2026-09-08. It does not and cannot:
+``unread`` is the opposite fact, a term that named a real field and could *not* be compared
+that way.
+
+**Stated rather than fixed, because the silence is the cheaper half of the trade.** Saying *I
+understood you* on every ordinary query is noise paid by everybody; saying *I did not* is
+`#615`'s whole point and is paid only where something went wrong. If that is ever revisited it
+needs a field of its own rather than this one — *was read* and *could not be read* are
+different facts, and a caller reading one list would have to know which kind each entry was.
 """
 
 import typing

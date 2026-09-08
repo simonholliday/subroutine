@@ -420,7 +420,14 @@ class Client:
 		# disagree about the interesting half, and the endpoint reads exactly this function
 		# through `api/filters.Reader`. What is left of `q` afterwards is what is searched for.
 		line = subroutine.domain.grammar.read(q, entity="task")
-		filters = dict(filters or {}) | dict(line.parameters)
+
+		# **Carried as pairs, because a line may say one field twice** — `SR#2283`.
+		# `grammar.Read.parameters` is a list deliberately: `tag:ops tag:web` is two terms and
+		# `filtering._in_project`'s own docstring says two comparisons about one field are
+		# ANDed, which is the caller asking for the intersection. Collapsing them through a
+		# `dict` kept the last, so that line meant *tagged web* here and *tagged ops and web*
+		# over HTTP — where the server reads `q` with this same function and keeps both.
+		terms: list[tuple[str, str]] = [*(filters or {}).items(), *line.parameters]
 		q = line.words
 
 		with self._opened() as (session, actor):
@@ -438,7 +445,7 @@ class Client:
 				subroutine.domain.tasks.status_for(session, chosen.id, key)
 				for key in ([] if status is None else [status])
 				+ subroutine.domain.filtering.values_named(
-					(filters or {}).items(),
+					terms,
 					entity="task",
 					field=subroutine.domain.filtering.STATUS,
 				)
@@ -458,10 +465,10 @@ class Client:
 				include_completed,
 				status_named=named,
 				about_completion=subroutine.domain.filtering.about(
-					filters or {}, subroutine.domain.filtering.COMPLETION_FIELD
+					[name for name, _ in terms], subroutine.domain.filtering.COMPLETION_FIELD
 				),
 				about_activity=subroutine.domain.filtering.about(
-					filters or {}, subroutine.domain.filtering.TOUCHED_AT
+					[name for name, _ in terms], subroutine.domain.filtering.TOUCHED_AT
 				),
 				# **The trash is a question about deletion, not about status** (`#900`). Asking
 				# what you deleted must reach something you had finished first, which is
@@ -726,7 +733,7 @@ class Client:
 			# with the same refusal for a field neither has.
 			statement = statement.where(
 				*subroutine.domain.filtering.asked(
-					(filters or {}).items(),
+					terms,
 					entity="task",
 					now=subroutine.db.types.utcnow(),
 					timezone=subroutine.domain.filtering.timezone_for(session, actor, chosen),
@@ -1101,7 +1108,10 @@ class Client:
 		# filterable on one and not the other is a term on the first and words on the second,
 		# with no list anywhere saying so (`#1806`).
 		line = subroutine.domain.grammar.read(q, entity="document")
-		filters = dict(filters or {}) | dict(line.parameters)
+
+		# Pairs rather than a mapping, for the reason the task listing above states in full
+		# (`SR#2283`): a line may name one field twice and both comparisons are meant.
+		terms: list[tuple[str, str]] = [*(filters or {}).items(), *line.parameters]
 		q = line.words
 
 		with self._opened() as (session, actor):
@@ -1232,7 +1242,7 @@ class Client:
 					# `GET /v1/documents` narrow by one predicate rather than by two spellings.
 					.where(
 						*subroutine.domain.filtering.asked(
-							(filters or {}).items(),
+							terms,
 							entity="document",
 							now=subroutine.db.types.utcnow(),
 							timezone=subroutine.domain.filtering.timezone_for(
