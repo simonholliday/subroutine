@@ -7,14 +7,19 @@ suite had no way to notice, because every check it makes about PostgreSQL runs *
 connection it could not make.
 """
 
+import io
 import os
+import sys
 
+import pytest
+import rich.console
 import sqlalchemy.engine
 import typer.rich_utils
 import typer.testing
 
 import conftest
 import subroutine.cli.main
+import subroutine.cli.output
 import subroutine.connections
 import subroutine.installations
 import test_browser
@@ -93,7 +98,9 @@ def test_the_editors_agent_variable_does_not_reach_a_test () -> None:
 	assert subroutine.connections.DEFAULT_AGENT_WHEN not in os.environ
 
 
-def test_the_machines_colour_setting_does_not_reach_a_test () -> None:
+def test_the_machines_colour_setting_does_not_reach_a_test (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
 	"""No test may render differently for being run on a build machine — `SR#1537`.
 
 	``typer.rich_utils`` sets ``FORCE_TERMINAL`` from ``GITHUB_ACTIONS``, ``FORCE_COLOR`` or
@@ -114,6 +121,24 @@ def test_the_machines_colour_setting_does_not_reach_a_test () -> None:
 	**Both halves, because the flag alone is a claim about a variable rather than about
 	output.** The second renders a real command through the real runner and asks whether any
 	escape survived, which is the thing that actually broke.
+
+	**And four checks now, because there are two consoles and each needs a different remedy**
+	(`SR#2290`). Typer's help is the one above; everything the product prints goes through
+	:class:`subroutine.cli.output.Terminal`. With ``FORCE_COLOR=3`` set, 29 tests failed on ANSI
+	inside asserted strings while this test went on passing — it was watching the console that
+	was already covered.
+
+	**Rendered rather than asked, and it has to be.** ``no_color=True`` does not make this
+	pass: Rich's highlighter still emits bold around the brackets in ``si (person)``, which is
+	`#102`'s own note that ``NO_COLOR`` keeps the attribute and drops the hue. The property is
+	that nothing a terminal would obey comes out, so that is what is asserted.
+
+	**The two product checks cover disjoint sets and were arrived at by measuring, not by
+	reading.** ``Console.__init__`` freezes a colour system while ``is_terminal`` stays dynamic,
+	so a console built before the fixture runs — and both of the program's are, at the import of
+	``cli/main`` — keeps rendering styles after the variables are gone. The loop covers those.
+	The console built at the end covers every console made *while* a test runs, which is what
+	the cleared variables are for and is otherwise exercised by nothing.
 	"""
 
 	assert typer.rich_utils.FORCE_TERMINAL is False, (
@@ -128,6 +153,45 @@ def test_the_machines_colour_setting_does_not_reach_a_test () -> None:
 	assert "--project" in rendered, "the help did not render, so the check below reads nothing"
 	assert "\x1b" not in rendered.encode("unicode_escape").decode(), (
 		"help came out styled, so any assertion about its text is measuring the styling too"
+	)
+
+	# **The consoles the program actually prints through, not a fresh one.** A console built
+	# here is built after the fixture has cleared the environment and is therefore plain
+	# whatever the fixture did about the frozen ones — so asserting on it would pass with that
+	# half deleted, which is the whole defect this test is for.
+	consoles = [
+		(f"{module.__name__}.{name}", value)
+		for module in list(sys.modules.values())
+		if getattr(module, "__name__", "").startswith("subroutine")
+		for name, value in list(vars(module).items())
+		if isinstance(value, rich.console.Console)
+	]
+
+	assert consoles, "no console was found, so the checks below read nothing"
+
+	for where, console in consoles:
+		buffer = io.StringIO()
+		monkeypatch.setattr(console, "_file", buffer, raising=False)
+		console.print("si (person), via the local database")
+
+		assert buffer.getvalue().strip(), f"{where} printed nothing, so this reads nothing"
+		assert "\x1b" not in buffer.getvalue(), (
+			f"{where} follows the machine it runs on, so every assertion about what a command "
+			f"said is measuring the styling too: {buffer.getvalue()!r}"
+		)
+
+	# **And one built here, which is the half the loop above cannot reach.** Clearing the
+	# variables and restoring the frozen colour system fix disjoint sets: the restore covers
+	# consoles that already existed, and clearing covers every console built while a test runs
+	# — `cli/personal` makes one per `_suggest`. Measured: with only the restore, all 533 of
+	# the tests this defect was found in still pass, so nothing else exercises the clearing and
+	# it would otherwise be a control read by nothing, which is `#303`'s shape exactly.
+	later = io.StringIO()
+	subroutine.cli.output.Terminal(file=later, width=80).print("si (person), via the local")
+
+	assert later.getvalue().strip(), "the console built here printed nothing"
+	assert "\x1b" not in later.getvalue(), (
+		f"a console built during a test follows the machine it runs on: {later.getvalue()!r}"
 	)
 
 

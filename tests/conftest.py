@@ -8,10 +8,12 @@ contention. A test that runs only on SQLite is a test that agrees with itself.
 
 import os
 import pathlib
+import sys
 import typing
 import uuid
 
 import pytest
+import rich.console
 import sqlalchemy
 import sqlalchemy.engine
 import sqlalchemy.orm
@@ -129,9 +131,54 @@ def _no_inherited_colour (monkeypatch: pytest.MonkeyPatch) -> None:
 	when ``typer.rich_utils`` is imported, which has already happened by the time any fixture
 	runs — so ``monkeypatch.delenv`` would look right and do nothing. ``_get_rich_console``
 	reads this global on every call.
+
+	**And the environment as well, because there are two consoles and each needs the other's
+	remedy** (`SR#2290`). The attribute above is Typer's help; the product prints through
+	:class:`subroutine.cli.output.Terminal`, a plain ``rich.console.Console`` that reads
+	``os.environ`` afresh on every construction — so for that one the variables *are* the
+	control and an attribute patch reaches nothing. Half of one rule applied is how this looked
+	from the inside: the sentence above was right, written down, and covering one of two.
+
+	**Clearing the variables is necessary and is not sufficient, which took measuring.** Two
+	obvious fixes are both wrong here and each looks right:
+
+	- ``no_color=True`` does not do it. A console set that way still writes
+	  ``si \x1b[1m(\x1b[0mperson`` — Rich's highlighter emits *bold* around the brackets, and
+	  `#102`'s note that ``NO_COLOR`` turns ``dim cyan`` into ``dim`` says precisely that: the
+	  hue goes and the attribute stays.
+	- ``delenv`` alone does not either, because it is too late. ``Console.__init__`` calls
+	  ``_detect_color_system`` and **freezes the answer**, while ``is_terminal`` stays dynamic —
+	  so a console built with ``FORCE_COLOR`` set reports ``is_terminal False`` after the
+	  variable is cleared and goes on rendering styles through a colour system of
+	  ``STANDARD``. Measured, both halves.
+
+	**And the product's consoles are built when ``cli/main`` is imported**, which is collection
+	time, long before any fixture runs. So the frozen value has to be put back by hand — the
+	same shape as the attribute patch above, for the same reason, one library along.
+
+	**The consoles are found rather than named.** Two of them exist today and a third declared
+	at module level in any ``subroutine`` module would otherwise inherit the machine's colour in
+	silence, which is this codebase's signature defect at its smallest.
+
+	With ``FORCE_COLOR=3`` exported — which Claude Code sets, and so do many terminals and CI
+	images — 29 tests failed on ANSI inside asserted strings before this.
 	"""
 
 	monkeypatch.setattr(typer.rich_utils, "FORCE_TERMINAL", False)
+
+	for name in ("FORCE_COLOR", "PY_COLORS", "NO_COLOR"):
+		monkeypatch.delenv(name, raising=False)
+
+	for module in list(sys.modules.values()):
+		if not getattr(module, "__name__", "").startswith("subroutine"):
+			continue
+
+		for value in list(vars(module).values()):
+			# `_color_system` is private and is the whole of what was frozen. Reaching for it
+			# beats rebuilding these consoles, which would mean restating the arguments each
+			# was constructed with — a second copy that can disagree.
+			if isinstance(value, rich.console.Console):
+				monkeypatch.setattr(value, "_color_system", None, raising=False)
 
 
 @pytest.fixture(autouse=True)
