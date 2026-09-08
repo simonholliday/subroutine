@@ -51,7 +51,7 @@ import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, WAITING_STATUS,
 	marks, moment, when,
 } from "./marks.js";
-import { People } from "./people.js";
+import { People, offeredScopes } from "./people.js";
 import {
 	addressedProjects, filableFor, notOffered, offered, people, placesToGo, prioritisedHere,
 	prioritisedSentence, projectName, projectsRequest, rankedByPriority, soleStatusIn,

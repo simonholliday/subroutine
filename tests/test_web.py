@@ -778,9 +778,15 @@ def _rendered (
 	#
 	# **The cost, stated rather than discovered later: this renders hook-free components only.**
 	# A component is called as a plain function, so `useState` and the rest throw for want of a
-	# renderer — which is why `App`, where every write lives, is absent from `SAMPLES` and is
-	# not covered here at all. `SR#640` is that gap. Everything below it is deliberately written
-	# without hooks so it *can* be checked, which is a better shape anyway.
+	# renderer — which is why `App`, where every write lives, is absent from `SAMPLES`.
+	# Everything below it is deliberately written without hooks so it *can* be checked, which is
+	# a better shape anyway.
+	#
+	# **`App` is reached by `_driven` instead** — a real mount against `tests/dom.js`, effects
+	# and all, which is what `SR#640` built before it closed. This sentence went on saying `App`
+	# was "not covered here at all" for a month afterwards, and a cold reviewer read it, believed
+	# it, and recommended building the harness already in this file. **A comment naming an open
+	# item as a live gap goes false the day that item closes, and nothing says so** — `SR#2298`.
 	#
 	# `dangerouslySetInnerHTML` is read here rather than skipped, because a component whose
 	# whole output is that property would otherwise flatten to nothing and every assertion
@@ -16479,6 +16485,57 @@ def test_every_area_the_browser_claims_is_refused_as_a_workspace_name (
 		f"browser answers and names a workspace may still be given. A workspace called one of "
 		f"them would be listed and unreachable, which is `#678` exactly."
 	)
+
+
+def test_every_area_the_browser_claims_opens_without_the_boundary_firing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Mount each `AREAS` route, and refuse one that renders the failure page — `SR#2298`.
+
+	**This is cover `SR#640` left behind and nothing else replaces.** `SAMPLES` calls components
+	as plain functions, so `App` — where an area is chosen and every prop for one is assembled —
+	is outside it by construction. `_driven` has reached `App` since `SR#640` closed, and every
+	one of its two dozen call sites is a *work* view: `/`, a workspace, a project, `?view=list`,
+	`?view=board`. **No test had ever opened an administrative area**, so `/people` threw on
+	first render for a month with the gate green throughout.
+
+	The defect it is written from is `SR#2278`: `offeredScopes` was called in `app.js` and only
+	*re-exported* from it, which binds nothing, so the credentials page was a `ReferenceError`
+	the moment a reader pressed *People*.
+
+	**Derived from `AREAS` rather than naming `/people`**, so the next area is covered the day it
+	is declared rather than the day somebody remembers — and the floor beneath it is the other
+	half, because a read returning nothing would drive nothing and pass.
+
+	**The boundary is what makes this cheap.** `_driven` mounts for real, so Preact runs
+	`componentDidCatch` — which `preact-render-to-string` does not, measured next door — and a
+	component that throws becomes a sentence instead of an empty page. Asking whether that
+	sentence is absent asks *did this render at all*, which is the whole question here and is why
+	this asserts nothing about markup: that is `SAMPLES`' job.
+
+	**Both assertions are load-bearing and neither subsumes the other.** A page that throws says
+	the boundary's sentence; a page that never mounts says nothing at all, and the first
+	assertion passes on it happily. Two blank pages have shipped from this app already
+	(`SR#643`), and they were these two shapes.
+	"""
+
+	areas = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.AREAS));
+	""")
+
+	assert areas, "the browser claims no areas, so this is checking nothing"
+
+	for area in areas:
+		driven = _driven(tmp_path, pathname=f"/{area}")
+
+		assert "could not be displayed" not in driven["said"], (
+			f"/{area} rendered the failure page instead of itself: {driven['said'][:400]}"
+		)
+		assert driven["said"].strip(), (
+			f"/{area} mounted and produced nothing, which the check above cannot see"
+		)
 
 
 def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
