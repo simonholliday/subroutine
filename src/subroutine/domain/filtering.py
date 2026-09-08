@@ -65,7 +65,25 @@ SEPARATOR = "."
 #: more than it does, which is worse than a small one that is honest.
 OPERATORS: dict[str, typing.Callable[[typing.Any, typing.Any], typing.Any]] = {
 	"eq": lambda column, value: column == value,
-	"ne": lambda column, value: column != value,
+	# **`ne` takes the unset rows with it** — `SR#2285`'s neighbour, `SR#2284`. A bare
+	# ``column != value`` is NULL, and therefore false, for a column nobody has set — so
+	# ``urgency.ne=3`` answered about the *ranked* work alone and said nothing about the rest.
+	# Driven when it was filed: three tasks at urgency 3, 5 and unset, and only the 5 came back.
+	#
+	# **Both readings are legitimate and only one of them was expressible.** *Everything that
+	# is not 3* needs an OR, which §9's grammar deliberately does not have; *the ranked ones
+	# that are not 3* is now ``urgency.ne=3&urgency.is=set``, because two comparisons about one
+	# field are ANDed. So this is the reading that makes the other one askable, rather than a
+	# choice between two equally reachable answers.
+	#
+	# It is also what the registry's own words for this operator say — *not the ones I said
+	# were two hours* — and §6.3a's argument that ranked, part-ranked and unranked are three
+	# states, which is why ``is=unset`` exists at all.
+	#
+	# **Written for every column rather than only the nullable ones.** On a ``NOT NULL`` column
+	# the second half is never true, so one definition covers both and there is no rule to keep
+	# in step with a schema.
+	"ne": lambda column, value: sqlalchemy.or_(column != value, column.is_(None)),
 	"gt": lambda column, value: column > value,
 	"gte": lambda column, value: column >= value,
 	"lt": lambda column, value: column < value,

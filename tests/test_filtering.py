@@ -131,6 +131,31 @@ def test_equality_on_a_timestamp_is_refused_rather_than_answered_emptily () -> N
 	assert _sql("estimate_minutes.eq", "2h")
 
 
+def test_is_not_reaches_the_rows_nobody_has_ranked () -> None:
+	"""`SR#2284`. ``column != value`` is NULL, and so false, for a column nobody has set.
+
+	**The SQL is the assertion because that is where the defect lives.** A listing driven
+	against a fixture with no unranked rows in it passes either way, and the rows this drops
+	are exactly the ones a fixture writer forgets to create — which is how a published operator
+	came to answer a narrower question than it was asked for as long as it has existed.
+
+	The strict reading is still expressible, and that is the argument for this one:
+	``urgency.ne=3&urgency.is=set`` says *the ranked ones that are not 3*, because two
+	comparisons about one field are ANDed.
+	"""
+
+	assert _sql("urgency.ne", "3") == [
+		"task.urgency != 3 OR task.urgency IS NULL"
+	]
+
+	# **The duration kind takes the same operator through the same table**, so it inherits this
+	# rather than needing its own rule — which is what says the fix is on the operator and not
+	# on one field.
+	assert _sql("estimate_minutes.ne", "2h") == [
+		"task.estimate_minutes != 120 OR task.estimate_minutes IS NULL"
+	]
+
+
 def test_the_two_halves_of_a_name_are_refused_separately () -> None:
 	"""A misspelled field and a misspelled operator are different mistakes.
 

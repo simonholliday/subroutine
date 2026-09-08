@@ -1592,6 +1592,41 @@ def test_excluding_completion_beside_a_mixed_status_filter_is_a_question_not_a_c
 	assert answered == world.titles("/v1/tasks?status.eq=open")
 
 
+def test_asking_for_what_a_rank_is_not_reaches_the_work_nobody_has_ranked (
+	world: World,
+) -> None:
+	"""`SR#2284`, driven end to end — the three states §6.3a says a rank has.
+
+	**Both readings, because the change is about which of them is reachable.** Before this
+	only the strict one existed and the natural one could not be written at all; after it the
+	natural one is what ``ne`` says and the strict one is ``ne`` with ``is=set`` beside it,
+	which the grammar ANDs. A test asserting only the first would pass against a version that
+	had made the other unaskable.
+	"""
+
+	for title, urgency in (("Ranked three", 3), ("Ranked five", 5)):
+		assert world.call(
+			"POST", "/v1/tasks", json={"title": title, "urgency": urgency}
+		).status_code == 201
+
+	assert world.call("POST", "/v1/tasks", json={"title": "Unranked"}).status_code == 201
+
+	answered = world.titles("/v1/tasks?urgency.ne=3")
+
+	assert "Unranked" in answered, (
+		"a task nobody has ranked is certainly not one of the ones ranked 3, and the filter "
+		"dropped it in silence"
+	)
+	assert "Ranked five" in answered
+	assert "Ranked three" not in answered
+
+	strict = world.titles("/v1/tasks?urgency.ne=3&urgency.is=set")
+
+	assert strict == ["Ranked five"], (
+		f"the strict reading stopped being expressible: {strict}"
+	)
+
+
 def test_a_named_project_means_that_area_of_work_however_it_is_spelled (
 	world: World,
 ) -> None:
