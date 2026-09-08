@@ -15924,6 +15924,62 @@ def test_a_column_says_when_it_was_the_one_that_was_cut (tmp_path: pathlib.Path)
 	)
 
 
+def test_a_grouped_board_offers_the_rows_its_columns_say_it_is_holding (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The footer and its *Show more* reach a board at all — `SR#2291`.
+
+	**Both ends of this were built and neither had ever run.** `showMore` carries a grouped
+	branch that widens the column allowance, under `SR#1790`'s reasoning that a board's columns
+	share no sequence so there is no cursor meaning *the next page of this board*; and the footer
+	below carries the sentence written for exactly that case. What gated both was `truncated`,
+	which read only `more` — the half a grouped answer never populates — while `address.js` fills
+	`group_by` in whenever an address omits it, so every board took the false branch.
+
+	**The columns went on saying `There are more` regardless**, which is the part that makes it
+	worse than a missing feature: a reader was told there was more and given nothing to press.
+	That is a cap with no way to read the rest, which `#849` refuses by name.
+
+	**Both directions, because either alone passes against half the change.** A version that
+	shows the footer whenever an answer is grouped satisfies the first assertion and tells a
+	reader with four complete columns that something is missing.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "title": "Open one", "status_category": "todo"},
+		{"ref": 2, "kind": "task", "title": "Underway", "status_category": "in_progress"},
+	]
+	selection = {"include_completed": "true"}
+
+	holding = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": selection,
+		"cut": {
+			"todo": {"more": True, "cursor": "abc", "total": None},
+			"in_progress": {"more": False, "cursor": None, "total": None},
+		},
+		"onMore": True,
+	}})["Board"]
+
+	assert "columns hold more than is shown" in holding, (
+		f"a board holding rows back offered no way to reach them: {holding}"
+	)
+	assert "Show more" in holding, f"the footer rendered without its control: {holding}"
+
+	complete = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": selection,
+		"cut": {
+			"todo": {"more": False, "cursor": None, "total": None},
+			"in_progress": {"more": False, "cursor": None, "total": None},
+		},
+		"onMore": True,
+	}})["Board"]
+
+	assert "columns hold more than is shown" not in complete, (
+		f"a board showing everything claimed to be holding rows back: {complete}"
+	)
+	assert "Show more" not in complete, f"a complete board offered more: {complete}"
+
+
 def test_a_column_heading_says_it_holds_more_whether_it_is_open_or_shut (
 	tmp_path: pathlib.Path,
 ) -> None:

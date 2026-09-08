@@ -791,11 +791,25 @@ export function Board ({
 		`column${over === column.key ? " over" : ""}`
 		+ (shut.has(column.key) ? " collapsed" : "");
 
-	/* The same test the listing makes, and it has to be the same: both render one page of two
+	/* **Both shapes, because a board is only ever one of them** — `SR#2291`.
+
+	   A grouped answer carries its remainder per column in `cut` and leaves `more` empty, and
+	   `address.js` fills `group_by` in whenever an address omits it — so a board is *always*
+	   grouped and this read only the half that is never populated. It was false on every board
+	   ever drawn, which took the footer below with it: its own `cut` branch counting short
+	   columns, and the *Show more* beside it, neither of which has ever rendered.
+
+	   **The columns went on saying `There are more` underneath**, so a reader was told there
+	   was more and given nothing to press — a cap with no way to read the rest, which is what
+	   `#849` refuses by name.
+
+	   The same test the listing makes, and it has to be the same: both render one page of two
 	   collections, and a column tally that reads as a total is worse on a board than a short
 	   list is, because a column is where somebody looks to see that nothing is left. */
-	const truncated = more !== null && more !== undefined
-		&& (more.tasks !== null || more.documents !== null);
+	const truncated = cut !== null && cut !== undefined
+		? Object.values(cut).some((account) => account.more)
+		: more !== null && more !== undefined
+			&& (more.tasks !== null || more.documents !== null);
 
 	return html`
 		<div class="listing board">
