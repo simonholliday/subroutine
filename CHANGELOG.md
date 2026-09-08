@@ -642,6 +642,32 @@ upgrade involves.
   That was worth fixing on its own: `subroutine_document` has asked callers to send *the
   version subroutine_show gave you* since 0.8.6, and no tool gave them one.
 
+- **A row says how a task is ranked, wherever it is drawn.**
+
+  `!4/3` — importance, then urgency — now sits in the strip beside an item's number and its
+  type, on a list, a board and the agenda. It used to be drawn only when the page happened to
+  be sorted by priority, which a board and an agenda never are, so how a task was ranked was
+  invisible until you opened it. The terminal has printed a column since it had rows.
+
+  A page whose rows all carry the same rank, or none at all, draws nothing — the rule its
+  columns already follow, so a to-do list of unranked tasks looks exactly as it did before.
+  A page of one row keeps whatever was filled in, because one row has no contrast to lose and
+  the single-result page is the one you are most likely to act on.
+
+- **A list and a board can be narrowed by priority.**
+
+  A *Priority* control offers *Important*, *Urgent* and *Not yet judged* — the last being the
+  pile nobody has assessed, which no comparison can ask for. It writes `importance.gte=4`,
+  `urgency.gte=4` or `importance.is=unset` into the address, so the page you are looking at is
+  the page you can send somebody.
+
+  The server has answered those filters since ranks became filterable, and nothing in the
+  browser offered them. The search box has taken them all along, too, and still does:
+  `type:bug urgency>3 deploy` narrows and searches at once, and composes with the control.
+
+  A document has neither axis, so a page narrowed this way holds tasks only — and says so,
+  rather than leaving you to notice your specifications have gone.
+
 ### Removed
 - **A document's `supersedes` field is withdrawn — say it with a link instead.** *This is a
   breaking change.*
@@ -992,6 +1018,79 @@ upgrade involves.
   one occurrence in a different timezone shifted the series onto that occurrence's date — a
   week, in the case this was found on — because a move of less than a day rounds to nothing
   on a whole-day date, and "moved by nothing" was being read as "was set from nothing".
+
+- **A captured line came back with its punctuation moved, or missing.**
+
+  Three faults in one grammar, and the worst of them deleted something you had typed:
+  `Ship it #ops. Then rest` was captured as `Ship it Then rest`, a sentence boundary gone and
+  a capital stranded in the middle. `Ship it by friday, then rest` gained a space in front of
+  the comma. `Buy milk, tomorrow` kept a comma with nothing left after it.
+
+  One rule covers all three: a separator with nothing on one side of it is not a separator.
+  Nothing is tidied where nothing was read — `Buy milk,` typed with no date in it keeps its
+  comma, and a space you put before your own comma stays where you put it.
+
+- **A date written with its weekday could be stored a week early.**
+
+  `Ewa music testing on Friday 18th September` stored **11 September** — also a Friday — and
+  left `18th September` sitting in the title. The weekday won, the date was never read, and
+  the echo confirmed a successful parse: the row named one day, the title named another.
+
+  The date decides and the weekday confirms it, which is what the two words mean together in
+  English. A weekday that contradicts its date is refused by name, and both are left in the
+  title rather than one of them quietly winning.
+
+- **A search term that could not be read as a filter was answered with no explanation.**
+
+  A search line can carry terms — `type:bug urgency>3 deploy` — and a term naming a field that
+  cannot compare that way is searched for as **text** instead. Which term that was has always
+  been on the response, and no surface showed it. So `created_at:today` came back as rows
+  matching those literal words, and when nothing matched you were told only that nothing
+  matched.
+
+  The terminal, the agent tools and the browser all say it now, in one wording rather than
+  three: *'created_at:today' was searched for as text: 'created_at' does not compare that way.
+  It takes gt, gte, lt, lte.*
+
+  An ordinary search is still told nothing — `15:30` is a time, not a field called `15`.
+
+- **The page that said a project was prioritised offered no way to stop.**
+
+  The agenda at `/` and a project's own agenda both said *…is prioritised, so its work rises
+  here* and gave you nothing to do about it; the only control was on the list view, under a
+  different sentence. Both carry *Stop prioritising* beside that sentence now.
+
+  A list narrowed to one project while a different one is raised offers both acts, which are
+  not the same: stop the raised one, or move the priority here.
+
+- **`Updated` on an item's page said the same thing all afternoon.**
+
+  It rendered an instant as a bare day, and `Updated` moves for a status, a rank or an
+  assignee — so an item touched three times in one afternoon reported the same value each
+  time. It carries its clock now.
+
+  Rows that name a *day* are deliberately unchanged: `Starts: 1 Sept 2026` means somebody said
+  a day, and printing `00:00` beside it would invent a precision nobody chose.
+
+- **A search result at `/` did not say which workspace it came from.**
+
+  A page scoped to a workspace or a project labels a hit `projects/superintendent`; the same
+  search across everything labelled it bare `superintendent`, so two of the three ways to run
+  one search disagreed about where the answer lived. The browser had implemented the
+  convention and had nothing to read — every row published a workspace id and never its name.
+
+- **Two help texts described something other than what the command takes.**
+
+  `--filter` said *Narrow by date* long after it grew ranks, durations, references and
+  is/unset conditions — so the one surface a person reads before typing named about a quarter
+  of what it accepts. `project create --help` taught a key rule that had been replaced,
+  refusing hyphens and sixteen characters where the rule now allows interior hyphens and
+  thirty-two.
+
+- **`--body -` set a document's body to a hyphen.**
+
+  `cat notes.md | subroutine doc edit 1024 --body -` stored the literal character. A lone `-`
+  means standard input, which is what it means everywhere else on the machine.
 
 ### Changed
 - **A backup directory holds three kinds of copy, and each now has its own lifetime.**
