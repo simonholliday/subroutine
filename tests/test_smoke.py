@@ -1,6 +1,20 @@
-"""Smoke tests confirming the package imports and reports a sane version."""
+"""Smoke tests confirming the package imports and reports a sane version.
 
-import importlib.metadata
+**Nothing here re-reads ``importlib.metadata.version`` and that is the point of `SR#1487`.**
+``subroutine.__version__`` is evaluated once, when the package is imported; a fresh call
+returns whatever is on disk *now*. The version lives in the ``.dist-info`` **directory
+name**, so ``pip install -e .`` is a rename — and a fresh read picks a rename up immediately,
+proven on a synthetic distribution. A reinstall racing a gate therefore left these tests
+comparing one number against the other and failing by exactly one commit, on a tree that
+passed minutes later.
+
+**The frozen value is not merely the stabler of the two, it is the correct one.** After a
+reinstall the metadata on disk describes different code — code this process is not running —
+so during that window the fresh read is the wrong answer to "what version is this?" and the
+module global is the right one. Reading it once is what these tests do now, and the fresh
+read is advisory: useful for asking whether the install is stale, never for asking what is
+running.
+"""
 
 import typer.testing
 
@@ -10,10 +24,19 @@ import subroutine.db.migrate
 
 
 def test_package_imports () -> None:
-	"""The package can be imported and exposes a version string."""
+	"""The package can be imported and reports a version it got from the distribution.
+
+	The placeholder is the honest failure ``_installed_version`` falls back to when the
+	package is not installed at all, so excluding it is what makes this more than "a
+	non-empty string" — and it is the check that used to be carried, racily, by comparing
+	against a fresh metadata read (`SR#1487`).
+	"""
 
 	assert isinstance(subroutine.__version__, str)
 	assert subroutine.__version__
+	assert subroutine.__version__ != "0.0.0+unknown", (
+		"the package is not installed, so every version this suite reports is a placeholder"
+	)
 
 
 def test_api_version_is_pinned () -> None:
@@ -27,14 +50,15 @@ def test_the_version_flag_reports_the_installed_release_and_the_expected_schema 
 
 	This is the guard, rather than the flag existing: a literal in the source would pass a
 	test that checked for *a* version and would go stale the first time ``pyproject.toml``
-	moved without it. Comparing against the distribution's own metadata and against Alembic's
-	head means the only way to make this pass is to keep reading them.
+	moved without it. ``subroutine.__version__`` is the distribution's own number — read by
+	``_installed_version`` and by nothing else — and the schema head is Alembic's, so the
+	only way to make this pass is to keep reading them.
 	"""
 
 	result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["--version"])
 
 	assert result.exit_code == 0, result.output
-	assert importlib.metadata.version("subroutine") in result.output
+	assert subroutine.__version__ in result.output
 	assert str(subroutine.db.migrate.head_revision()) in result.output
 
 
@@ -56,4 +80,4 @@ def test_the_version_flag_answers_before_the_profile_is_resolved () -> None:
 	)
 
 	assert result.exit_code == 0, result.output
-	assert importlib.metadata.version("subroutine") in result.output
+	assert subroutine.__version__ in result.output

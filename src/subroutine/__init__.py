@@ -1,8 +1,8 @@
-"""Subroutine — project management for people and agents, in equal measure.
+"""Subroutine — agent-native task management for complex projects, where the decisions live beside the work.
 
 A self-hostable task and project tracker whose HTTP API, CLI and data model treat a
 person and an AI agent as equally first-class users. See ``docs/design.md`` for the full
-specification and ``MVP-PLAN.md`` for what is being built first.
+specification.
 """
 
 import importlib.metadata

@@ -403,6 +403,15 @@ def test_no_surface_still_carries_a_description_we_have_replaced () -> None:
 	exactly where it would not be. It missed three: the CLI's `--help`, and the OpenAPI
 	description and summary. **A list of surfaces is a list of the ones somebody thought of**,
 	and the whole point of this direction is to catch the one they did not.
+
+	**And compared without regard to case, which is `SR#2264`.** Reading the right files was
+	not enough: the copy that survived was in `src/subroutine/__init__.py`, opening
+	``Subroutine — project management for people and agents…``, where the sentence had been
+	recased to sit after a dash. This scan walked that file, on every gate, for a month, and
+	reported clean — because ``retired in text`` is a substring match on a *spelling* and one
+	character differed. A retired line comes back recased far more readily than verbatim: as a
+	title, a heading, or a clause after a dash. Measured before widening — case-folding finds
+	that one occurrence across all 182 pages and no other, so it costs no false positive.
 	"""
 
 	pages = [
@@ -421,7 +430,7 @@ def test_no_surface_still_carries_a_description_we_have_replaced () -> None:
 		str(name): retired
 		for name in pages
 		for retired in RETIRED_DESCRIPTIONS
-		if retired in (ROOT / name).read_text(encoding="utf-8")
+		if retired.lower() in (ROOT / name).read_text(encoding="utf-8").lower()
 	}
 
 	assert not found, (
