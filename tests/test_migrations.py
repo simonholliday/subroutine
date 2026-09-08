@@ -24,9 +24,12 @@ import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models
 import subroutine.db.models.identity
+import subroutine.db.models.vocabulary
 import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
+import subroutine.domain.documents
+import subroutine.domain.projects
 
 
 @pytest.fixture
@@ -597,6 +600,125 @@ def test_going_back_below_superseding_refuses_while_anything_uses_it (
 
 		assert left == 1, (
 			"the row was deleted anyway, so a link now points at a link type that is gone"
+		)
+
+	finally:
+		engine.dispose()
+
+
+_BEFORE_SUPERSEDING_BECAME_A_LINK = "937352bb16de"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_a_superseding_document_carries_into_a_link_when_the_column_goes (
+	migrated_url: str,
+) -> None:
+	"""The carry path run with data in it, which is the only path it has — `SR#2289`.
+
+	``_carry_the_chain_into_links`` returns immediately when nothing is chained, and every test
+	of this migration until now upgraded an empty database — so the loop that writes the links
+	had never executed once. `#1689`'s rule in this file's own words: *a migration that touches
+	a referenced table needs a test that puts rows in first*, and this one needed rows to run
+	at all.
+
+	**What it hid was two faults in one statement.** The ad-hoc ``link`` table was declared with
+	bare ``sqlalchemy.column`` — no types — and the timestamp was written naive:
+
+	- On **SQLite** an untyped column sends the naive ``datetime`` to sqlite3's default adapter,
+	  deprecated since 3.12. ``pyproject.toml`` sets ``filterwarnings = ["error"]``, so this
+	  test raises on the unfixed migration rather than merely warning.
+	- On **PostgreSQL** ``link.created_at`` is ``TIMESTAMPTZ`` and a naive value is read in the
+	  session's own ``TimeZone``, so the row lands wrong anywhere the server is not UTC. This
+	  machine's is, which is why nothing here would ever have noticed.
+
+	Built by stepping *back* one revision rather than forward from an old dump: the downgrade
+	restores the column empty by design, which makes it the honest way to reach the state a
+	real instance is in before this migration runs.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		# **Built through the ORM at head, then stepped back.** Assembling a document from raw
+		# inserts pulls in a project, its status, an item type and a status of its own, each
+		# with foreign keys the database enforces outside a migration — so the domain does it,
+		# and the downgrade puts the column back empty by design.
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			project = subroutine.domain.projects.create(
+				session, workspace_id=workspace.id, key="p", title="P"
+			)
+			superseded = subroutine.domain.documents.create(
+				session, project=project, title="The old one"
+			)
+			successor = subroutine.domain.documents.create(
+				session, project=project, title="The new one"
+			)
+
+			link_type_id = session.scalars(
+				sqlalchemy.select(subroutine.db.models.vocabulary.LinkType.id).where(
+					subroutine.db.models.vocabulary.LinkType.workspace_id == workspace.id,
+					subroutine.db.models.vocabulary.LinkType.key == "supersedes",
+				)
+			).one()
+
+			superseded_id, successor_id = superseded.id, successor.id
+
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_SUPERSEDING_BECAME_A_LINK)
+
+		with engine.begin() as connection:
+			# **The column the model no longer has**, so it cannot go through the ORM: this
+			# revision is the point of the test.
+			chained = sqlalchemy.table(
+				"document",
+				sqlalchemy.column("id", subroutine.db.types.uuid_column()),
+				sqlalchemy.column("supersedes_id", subroutine.db.types.uuid_column()),
+			)
+
+			connection.execute(
+				chained.update()
+				.where(chained.c.id == successor_id)
+				.values(supersedes_id=superseded_id)
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		table = subroutine.db.base.Base.metadata.tables["link"]
+
+		with engine.begin() as connection:
+			drawn = connection.execute(
+				sqlalchemy.select(
+					table.c.source_id, table.c.target_id, table.c.created_at
+				).where(table.c.link_type_id == link_type_id)
+			).all()
+
+		assert len(drawn) == 1, f"the chain did not become exactly one link: {drawn}"
+
+		source, target, created_at = drawn[0]
+
+		assert (source, target) == (successor_id, superseded_id), (
+			f"the link points the wrong way — a successor supersedes what came before it, so "
+			f"the source is the new document: {drawn[0]}"
+		)
+		assert created_at.tzinfo is not None, (
+			f"the carried link's timestamp came back naive, so nothing says which zone it is "
+			f"in: {created_at!r}"
+		)
+
+		# A minute is generous and the point is the *hour*: a naive value read in a session
+		# zone lands a whole offset away, which is the failure on PostgreSQL.
+		drift = abs(created_at - datetime.datetime.now(datetime.UTC))
+
+		assert drift < datetime.timedelta(minutes=1), (
+			f"the carried link is {drift} away from now, which is a timezone rather than a "
+			f"slow test: {created_at!r}"
 		)
 
 	finally:

@@ -46,12 +46,17 @@ def _carry_the_chain_into_links(connection: sqlalchemy.engine.Connection) -> Non
     event's actor.
     """
 
+    # **Typed, and that is not decoration** (`SR#2289`). A bare `sqlalchemy.column` carries no
+    # type, so values go to the driver as whatever Python they happen to be — which on SQLite
+    # means the deprecated default datetime adapter and on PostgreSQL means a naive timestamp
+    # read in the session's own `TimeZone`. `a986838fadc4`, two revisions earlier, declares its
+    # ad-hoc tables this way; this one did not, and the carry below is the only code path here.
     documents = sqlalchemy.table(
         "document",
-        sqlalchemy.column("id"),
-        sqlalchemy.column("workspace_id"),
-        sqlalchemy.column("supersedes_id"),
-        sqlalchemy.column("deleted_at"),
+        sqlalchemy.column("id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("workspace_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("supersedes_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("deleted_at", subroutine.db.types.UtcDateTime()),
     )
 
     chained = connection.execute(
@@ -65,9 +70,9 @@ def _carry_the_chain_into_links(connection: sqlalchemy.engine.Connection) -> Non
 
     types = sqlalchemy.table(
         "link_type",
-        sqlalchemy.column("id"),
-        sqlalchemy.column("key"),
-        sqlalchemy.column("workspace_id"),
+        sqlalchemy.column("id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("key", sqlalchemy.String(length=64)),
+        sqlalchemy.column("workspace_id", subroutine.db.types.uuid_column()),
     )
     available = {
         workspace: identifier
@@ -94,18 +99,26 @@ def _carry_the_chain_into_links(connection: sqlalchemy.engine.Connection) -> Non
 
     links = sqlalchemy.table(
         "link",
-        sqlalchemy.column("id"),
-        sqlalchemy.column("source_type"),
-        sqlalchemy.column("source_id"),
-        sqlalchemy.column("target_type"),
-        sqlalchemy.column("target_id"),
-        sqlalchemy.column("link_type_id"),
-        sqlalchemy.column("created_at"),
-        sqlalchemy.column("created_by"),
-        sqlalchemy.column("workspace_id"),
-        sqlalchemy.column("deleted_at"),
+        sqlalchemy.column("id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("source_type", sqlalchemy.String(length=16)),
+        sqlalchemy.column("source_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("target_type", sqlalchemy.String(length=16)),
+        sqlalchemy.column("target_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("link_type_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("created_at", subroutine.db.types.UtcDateTime()),
+        sqlalchemy.column("created_by", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("workspace_id", subroutine.db.types.uuid_column()),
+        sqlalchemy.column("deleted_at", subroutine.db.types.UtcDateTime()),
     )
-    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+    # **Aware, and stripping the zone was the defect** (`SR#2289`). `UtcDateTime` refuses a
+    # naive value rather than assuming UTC, which is the whole reason it exists; the strip was
+    # written to get past the untyped column above and produced two faults instead. On SQLite
+    # the naive value reached sqlite3's default adapter — deprecated since 3.12, and this
+    # project runs `filterwarnings = ["error"]`, so the migration raised. On PostgreSQL
+    # `link.created_at` is TIMESTAMPTZ and a naive value is read in the session's `TimeZone`,
+    # so the row landed an hour out anywhere but UTC.
+    now = datetime.datetime.now(datetime.UTC)
 
     for successor, workspace, superseded in chained:
         link_type = available[workspace]
@@ -128,7 +141,7 @@ def _carry_the_chain_into_links(connection: sqlalchemy.engine.Connection) -> Non
 
         connection.execute(
             links.insert().values(
-                id=uuid.uuid4().hex,
+                id=uuid.uuid4(),
                 source_type="document",
                 source_id=successor,
                 target_type="document",
