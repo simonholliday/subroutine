@@ -163,6 +163,10 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# The bar the list and the board share — one component since `SR#986`, because they held it
 	# byte for byte and a second control in it would have been the moment they drifted.
 	"Narrowed": {"project": "web", "prioritised": ["web"]},
+	# How a task is ranked, as a control — `SR#2270`. The sample carries a *chosen* narrowing
+	# rather than the empty one, so the selected-option branch renders: a control drawn with
+	# nothing picked reads exactly like one whose value never round-trips.
+	"Ranked": {"selection": {"importance.gte": "4"}},
 	# What the search line carried that the server could not read as a filter — `SR#2268`. The
 	# sentence is the instance's own, so the sample carries a real one rather than a stand-in:
 	# a wording invented here would be the second copy of it that this component exists to
@@ -10109,6 +10113,10 @@ def _views (
 				? app.prioritisedHere(argument.workspaces, argument.workspace)
 			: name === "stoppableHere"
 				? app.stoppableHere(argument.workspaces, argument.workspace, argument.shown)
+			: name === "rankValue"
+				? app.rankValue(argument)
+			: name === "rankAsked"
+				? app.rankAsked(argument)
 			: name === "prioritisedSentence" ? app.prioritisedSentence(argument)
 			: name === "rankedByPriority" ? app.rankedByPriority(argument)
 			: name === "treeOrdered" ? app.treeOrdered(argument.projects)
@@ -12584,6 +12592,120 @@ def test_a_page_of_one_row_keeps_the_rank_somebody_filled_in (
 	assert "!4/3" in said, (
 		f"the lookup page dropped the rank somebody filled in, which is the page most likely "
 		f"to be acted on: {said[:400]}"
+	)
+
+
+@pytest.mark.parametrize(
+	("chose", "sent", "says"),
+	[
+		("importance.gte:4", "importance.gte=4", "4 or more for importance"),
+		("urgency.gte:4", "urgency.gte=4", "4 or more for urgency"),
+		("importance.is:unset", "importance.is=unset", "nobody has ranked"),
+	],
+)
+def test_the_rank_control_asks_the_server_the_question_it_offers (
+	tmp_path: pathlib.Path, chose: str, sent: str, says: str
+) -> None:
+	"""`SR#2270`. The capability was answered before the control existed, so this is the wire.
+
+	`GET /v1/tasks` has published `importance` and `urgency` with the whole comparison set since
+	`#1801`, and the browser could already ask by typing `urgency>3` into the search box, because
+	`#1806`'s grammar is parsed on the server and rides on `q`. Nobody would guess — `#1539`'s
+	own limit — so what was missing was the control, and what has to be driven is that the
+	control's answer reaches the request unchanged.
+
+	**And that the page says what it did**, which is `#1020`'s rule: a reader who arrives on a
+	narrowed page with nothing explaining why has no way back but the browser's own.
+	"""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/projects",
+		search=f"?view=list&{sent}",
+		answers={"/v1/tasks": {
+			"items": [dict(RANKED[0])],
+			"page": {"has_more": False, "next_cursor": None, "total": None},
+		}},
+	)
+
+	asked = [call["path"] for call in driven["asked"] if call["path"].startswith("/v1/tasks?")]
+
+	assert any(sent in path for path in asked), (
+		f"the address carried {sent} and no request did: {asked}"
+	)
+	assert says in driven["said"], (
+		f"the page narrowed itself by rank and said nothing about it: {driven['said'][:400]}"
+	)
+
+	value = _views(tmp_path, [("rankValue", {sent.split("=")[0]: sent.split("=")[1]})])[0]
+
+	assert value == chose, (
+		f"the address does not round-trip into the control, so it would draw as unnarrowed "
+		f"while the rows are narrowed: {value!r}"
+	)
+
+
+def test_a_page_narrowed_by_rank_asks_for_no_documents_and_says_why (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2270`, and it is decision `#782`'s reasoning reached from the other side.
+
+	Neither axis exists on a document and `GET /v1/documents` publishes neither — so asking it
+	would be a **422 for the whole page**. `ANSWERED_BY` marks all three `cannot`, which
+	`collectionsFor` already reads.
+
+	**Not saying so is quieter and worse**, which is `#782`'s own sentence: a reader who narrows
+	by rank and finds their specifications gone has been told nothing.
+	"""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/projects",
+		search="?view=list&importance.gte=4",
+		answers={"/v1/tasks": {
+			"items": [dict(RANKED[0])],
+			"page": {"has_more": False, "next_cursor": None, "total": None},
+		}},
+	)
+
+	assert not [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")], (
+		"a page narrowed by rank asked for documents, which GET /v1/documents refuses outright"
+	)
+	assert "Documents have no rank" in driven["said"], (
+		f"the page dropped every document and said nothing about it: {driven['said'][:400]}"
+	)
+
+
+def test_choosing_one_rank_clears_the_other_two (tmp_path: pathlib.Path) -> None:
+	"""One control, three parameters, at most one set — `SR#2270`.
+
+	The three narrow the same listing and are different sets, so leaving another in place would
+	AND them and answer about none of them. This is `#2199`'s failure one control along: a page
+	narrowed by something the control could not see, and an obvious next act that replaces a
+	narrowing the reader did not know they had.
+
+	**Driven as the pure pair rather than through a gesture**, because `rankValue` and
+	`rankAsked` are what `App` composes and `tests/dom.js` cannot execute `App` (`#640`). What
+	the callback does with the answer is one `delete` per key, above them.
+	"""
+
+	both, neither, unknown = _views(tmp_path, [
+		# A hand-typed address carrying two: the narrowest wins, so the control shows the one
+		# certainly true of what came back.
+		("rankValue", {"importance.gte": "4", "importance.is": "unset"}),
+		("rankValue", {}),
+		# Anything not from the options clears the narrowing rather than writing a key
+		# `SELECTABLE` would refuse.
+		("rankAsked", "estimate_minutes.gte:60"),
+	])
+
+	assert both == "importance.is:unset", (
+		f"a page carrying two narrowings drew the wider one, which hides rows the reader can "
+		f"see: {both!r}"
+	)
+	assert neither == "", f"an unnarrowed page drew a chosen rank: {neither!r}"
+	assert unknown is None, (
+		f"a value from outside the options was read as a narrowing: {unknown!r}"
 	)
 
 

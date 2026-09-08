@@ -219,6 +219,33 @@ export const SELECTABLE = {
 	*/
 	q: null,
 	/*
+		**How a task is ranked, in the server's own spelling** — `SR#2270`, `#1806`'s registry.
+
+		`GET /v1/tasks` has answered `importance` and `urgency` with the whole comparison set
+		since `#1801`, and the browser could already ask for them by typing `urgency>3` into the
+		search box, because the grammar is parsed on the server and rides on `q`. What was
+		missing was a *control*, which is `#1539`'s own limit stated exactly: a test can assert a
+		way through is named, not that anybody finds it.
+
+		**Three answers rather than five values on each of two axes.** Every entry here maps a
+		name to the values it may carry, and that boundedness is what stops the address becoming
+		a passthrough to `api/query.py` — `#738`'s rule, relaxed once for `q` and for a stated
+		reason. Ten entries would also be a scale a reader has to read, which `#102` keeps out of
+		this product.
+
+		**A dotted name rather than an invented word.** `assignee.is` and `parent.is` are already
+		spelled this way, so this needs no new shape — and an address saying `importance.gte=4`
+		says what it does, where a `priority=important` would carry a threshold nobody agreed and
+		a vocabulary the server does not have.
+
+		**`is=unset` earns its place on §6.3a's own argument**: ranked, part-ranked and unranked
+		are three states, and *nobody has judged this* is the one no comparison can express. It
+		is also the pile somebody triaging is looking for.
+	*/
+	"importance.gte": ["4"],
+	"urgency.gte": ["4"],
+	"importance.is": ["unset"],
+	/*
 		**How the allowance is spent, which is a selection and not an arrangement** (`#1790`).
 
 		It looks like an arrangement and is not, and the distinction is `#738`'s: an arrangement
@@ -368,6 +395,14 @@ export const ANSWERED_BY = {
 	   assignee and does have a parent, so *what is at the top level* is a question both
 	   collections answer in their own terms rather than one of them having to decline. */
 	"parent.is": { task: "sent", document: "sent" },
+	/* **A document has neither axis** — `SR#2270`, and `GET /v1/documents` publishes neither in
+	   its filter list. So `cannot`, which `collectionsFor` already reads: a page narrowed by
+	   rank is tasks only, and it is that way because the rows have no such field rather than
+	   because somebody chose to hide them. Decision `#782` reached the same place from the
+	   ordering side — *documents have no importance* — one question along. */
+	"importance.gte": { task: "sent", document: "cannot" },
+	"urgency.gte": { task: "sent", document: "cannot" },
+	"importance.is": { task: "sent", document: "cannot" },
 };
 
 export function answers (kind, name) {

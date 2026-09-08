@@ -13,7 +13,9 @@ import { addressOf } from "./address.js";
 import {
 	FINISHED, completable, day, deferred, excluded, holding, named, ranksAreNews,
 } from "./dates.js";
-import { Adding, Focus, Narrowed, Ordered, TopLevelOnly, Whose } from "./forms.js";
+import {
+	Adding, Focus, Narrowed, Ordered, Ranked, TopLevelOnly, Whose,
+} from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
@@ -672,6 +674,8 @@ export function Board ({
 	over = null, onOver = null,
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
+	/* **How a task is ranked, as a control** — `SR#2270`, withheld the way `onWhose` is. */
+	onRank = null,
 	/* Whose work to show, and who there is to choose from — `#1284`. */
 	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
 	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
@@ -820,6 +824,12 @@ export function Board ({
 				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 
 			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+
+			${/* **The board takes the same control as the list, from the same component** —
+			     `SR#2270`, and it is `#1284`'s argument one control along: a board fetches one
+			     page and partitions it, so narrowing decides what is in *every* column. Two
+			     copies of this markup was the alternative and is the signature defect. */ null}
+			<${Ranked} selection=${selection} onRank=${onRank} busy=${busy} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the

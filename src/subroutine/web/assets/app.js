@@ -39,8 +39,8 @@ import {
 import { Detail, Doing, Failed, Linking, Saying, Seeking, Written } from "./detail.js";
 import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
-	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, Narrowed,
-	Unread,
+	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, NOT_RANKED,
+	Narrowed, RANKED_AT_LEAST, URGENT_AT_LEAST, Unread,
 	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE,
 } from "./forms.js";
 import {
@@ -2431,6 +2431,43 @@ export function App () {
 		}
 	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
+	const chooseRank = useCallback(async (asked) => {
+		/*
+			**How a task is ranked, as a narrowing** — `SR#2270`, and it goes in the address for
+			`chooseWhose`'s reason: the path decides *place*, the query decides *selection*, and this
+			narrows a set `domain/scoping` has already narrowed, so it widens nothing a reader could
+			not already read.
+
+			**One control, three parameters, and at most one of them set.** *Important*, *urgent* and
+			*not yet ranked* are three different sets and all three narrow the same listing, so
+			leaving another in place would AND them and answer about none of them. `asked` arrives
+			from `rankAsked`, which names the field or returns null; nothing here parses it.
+
+			**Null clears it rather than sending an empty value**, so *Any rank* leaves every key out
+			of the address entirely and one screen keeps producing one string.
+		*/
+		const selection = { ...showing.selection };
+
+		delete selection[RANKED_AT_LEAST];
+		delete selection[URGENT_AT_LEAST];
+		delete selection[NOT_RANKED];
+
+		if (asked) selection[asked.field] = asked.value;
+
+		const wanted = { view: showing.view, selection };
+
+		if (!reloads(showing, wanted)) return;
+
+		nowShowing(wanted);
+		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
+
+		try {
+			await load(workspace, project);
+		} catch (failure) {
+			setNote({ text: `That could not be shown. ${failure.message}`, tone: "bad" });
+		}
+	}, [everywhere, go, load, nowShowing, project, showing, workspace]);
+
 	const chooseView = useCallback(async (wanted) => {
 		/*
 			**Switching refetches, and the comment here used to say it must not.**
@@ -2908,7 +2945,7 @@ export function App () {
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
-							onWhose=${chooseWhose}
+							onWhose=${chooseWhose} onRank=${chooseRank}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
 							${/* **Storage holds the reader's explicit choices and nothing else**
@@ -2970,7 +3007,7 @@ export function App () {
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
-							onWhose=${chooseWhose}
+							onWhose=${chooseWhose} onRank=${chooseRank}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
 							onWiden=${widen}
@@ -3147,9 +3184,16 @@ export {
 	Focus,
 	AT_THE_TOP,
 	Listing,
+	HIGH,
 	NOBODY,
 	NOT_GIVEN_OUT,
+	NOT_RANKED,
 	Narrowed,
+	RANKED_AT_LEAST,
+	Ranked,
+	URGENT_AT_LEAST,
+	rankAsked,
+	rankValue,
 	PRIORITIES,
 	Reading,
 	Repeats,
