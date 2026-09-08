@@ -516,6 +516,24 @@ _TAILS = (
 )
 
 
+#: Punctuation that closes a clause, which a cut may leave against the word before it. Not the
+#: apostrophe, deliberately — a possessive torn in half is what the invariant below is for.
+_CLAUSE_PUNCTUATION = ",.;:!?"
+
+
+def _mangled (text: str, title: str) -> list[str]:
+	"""Return the words of `title` that no word of `text` could have become.
+
+	**A function rather than a loop inside the invariant, so the check can be handed a defect
+	through its own entry point** — the parse it guards no longer produces one, and a guard
+	whose only exercise is the code being green says nothing about whether it can fire.
+	"""
+
+	original = {word.strip(_CLAUSE_PUNCTUATION) for word in _words(text)}
+
+	return [word for word in _words(title) if word.strip(_CLAUSE_PUNCTUATION) not in original]
+
+
 def _words (text: str) -> list[str]:
 	"""Split on whitespace the way the title is normalised."""
 
@@ -648,19 +666,51 @@ def test_a_title_never_contains_a_word_the_input_did_not () -> None:
 
 	This states the other half: **a word may not appear in the title unless the input had
 	it**. Any parse that cuts a word produces a fragment the input never contained.
+
+	**Clause punctuation is stripped from both edges before comparing, and that is a widening
+	made deliberately** (`SR#2245`, `SR#2261`, `SR#2262`). Closing up a cut may now leave the
+	sentence's own comma against the word before it — `Call the dentist #tag, and more` has a
+	title of `Call the dentist, and more`, where the input's whitespace-delimited words were
+	`dentist` and `#tag,`. Nothing was cut and no character was invented; a word simply
+	acquired a neighbour it was already next to.
+
+	**It keeps its teeth, and that is measured rather than argued** — by
+	``test_the_word_check_still_catches_the_possessive_it_was_written_for`` below, which hands
+	``_mangled`` the historical pair directly. It has to be done that way: no one-line
+	mutation of ``capture.py`` reproduces the old output any more, because the anchors now
+	overlap with ``_nothing_follows``, so the corpus cannot reach that defect *through the
+	code*. Driving the check itself is what is left, and it is the half that could rot.
 	"""
 
-	offenders = []
+	offenders: list[tuple[str, str, str]] = []
 
 	for text in _generated():
 		captured = _parse(text)
-		original = set(_words(text))
 
-		for word in _words(captured.title):
-			if word not in original:
-				offenders.append((text, captured.title, word))
+		offenders.extend((text, captured.title, word) for word in _mangled(text, captured.title))
 
 	assert offenders == [], f"{len(offenders)} mangled titles, first: {offenders[:3]}"
+
+
+def test_the_word_check_still_catches_the_possessive_it_was_written_for () -> None:
+	"""The widening above has to keep the teeth it was widened from.
+
+	``\\b`` sits between ``w`` and ``'``, so ``tomorrow's party`` was torn in half and the
+	title kept the ``'s``. Stripping clause punctuation before comparing (`SR#2245`,
+	`SR#2261`, `SR#2262`) must not make that fragment acceptable — and it does not, because
+	the apostrophe is deliberately not in ``_CLAUSE_PUNCTUATION``.
+	"""
+
+	assert _mangled("Buy milk tomorrow's party", "Buy milk 's party") == ["'s"]
+
+	# The three shapes the widening was *for*, each of which the check must now accept: a cut
+	# in the middle, a sigil's sentence punctuation, and a cut that reached an end.
+	assert _mangled("Ship it by friday, then rest", "Ship it, then rest") == []
+	assert _mangled("Note the #hashtag. Then move on", "Note the. Then move on") == []
+	assert _mangled("Buy milk, tomorrow", "Buy milk") == []
+
+	# And it is not vacuous in the other direction: an invented word is still reported.
+	assert _mangled("Buy milk", "Buy bread") == ["bread"]
 
 
 def test_a_word_vanishes_only_when_something_was_parsed () -> None:
@@ -698,14 +748,20 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 @pytest.mark.parametrize(
 	("text", "title", "expected"),
 	[
-		# Trailing punctuation belongs to the sentence, not to the value beside it.
-		("Note the #hashtag, then move on", "Note the then move on", {"tags": ("hashtag",)}),
-		("Ping @bob, then talk", "Ping then talk", {"assignee": "bob"}),
-		("Write it up ~2h, then rest", "Write it up then rest", {"estimate_minutes": 120}),
-		("Fix the build +web, please", "Fix the build please", {"project_key": "web"}),
+		# Trailing punctuation belongs to the sentence, not to the value beside it — so it is
+		# absent from the value **and present in the title**. The second half is `SR#2261`:
+		# these five read `Note the then move on` until 2026-09-08, which kept the comma out
+		# of the tag by deleting it from the sentence as well.
+		("Note the #hashtag, then move on", "Note the, then move on", {"tags": ("hashtag",)}),
+		("Ping @bob, then talk", "Ping, then talk", {"assignee": "bob"}),
+		("Write it up ~2h, then rest", "Write it up, then rest", {"estimate_minutes": 120}),
+		("Fix the build +web, please", "Fix the build, please", {"project_key": "web"}),
 		# …which also restores first-wins for importance: `!3,` used to fail to match at
 		# all, letting the later `!4` win.
-		("Set it to !3, not !4", "Set it to not !4", {"importance": 3}),
+		("Set it to !3, not !4", "Set it to, not !4", {"importance": 3}),
+		# A full stop, because losing one is worse than losing a comma: it takes a sentence
+		# boundary with it and strands the capital that followed.
+		("Note the #hashtag. Then move on", "Note the. Then move on", {"tags": ("hashtag",)}),
 		# `#a #b #a` is one person typing quickly, not three tags.
 		("Tag it #a #b #a", "Tag it", {"tags": ("a", "b")}),
 	],
@@ -713,7 +769,13 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 def test_punctuation_beside_a_sigil_is_not_part_of_its_value (
 	text: str, title: str, expected: dict[str, object]
 ) -> None:
-	"""``#hashtag,`` created a tag named "hashtag," — permanent litter, since tags auto-create."""
+	"""``#hashtag,`` created a tag named "hashtag," — permanent litter, since tags auto-create.
+
+	**Both halves of "not part of its value", because the first shipped without the second.**
+	The trailing class was written *inside* the match, so every call site claimed it along
+	with the token — correct about the tag and wrong about the sentence. It is a lookahead
+	now (``_FOLLOWED``), which is why no call site had to be told.
+	"""
 
 	captured = _parse(text)
 
@@ -721,6 +783,57 @@ def test_punctuation_beside_a_sigil_is_not_part_of_its_value (
 
 	for field, value in expected.items():
 		assert getattr(captured, field) == value, field
+
+
+@pytest.mark.parametrize(
+	("text", "title"),
+	[
+		# `SR#2245` — a cut in the middle of a sentence. The space that separated what is
+		# left from the phrase now has nothing on its far side, so it goes with the phrase.
+		("Ship it by 18 September, then rest", "Ship it, then rest"),
+		("Ship it by friday, then rest", "Ship it, then rest"),
+		("Ship it by friday. Then rest", "Ship it. Then rest"),
+		("Ship it by friday; then rest", "Ship it; then rest"),
+		("Note the #hashtag: then move on", "Note the: then move on"),
+
+		# `SR#2262` — a cut that reached an end of the line. The comma that joined the two
+		# halves is the one holding nothing now, so it goes instead.
+		("Buy milk, tomorrow", "Buy milk"),
+		("Call the dentist, by friday", "Call the dentist"),
+		("Ring mum, #home", "Ring mum"),
+		("Draft the memo, ~2h", "Draft the memo"),
+		("Water the plants, every tuesday", "Water the plants"),
+		("by friday, ship it", "ship it"),
+		("Ship it, then rest, by friday", "Ship it, then rest"),
+
+		# A full stop the sentence still needs survives the comma being taken. Asked at the
+		# seam rather than of the finished title, which is the whole reason this is not
+		# `Buy milk,.`
+		("Buy milk, tomorrow.", "Buy milk"),
+
+		# **Nothing was read at that end, so nothing is tidied** — §6.13's rule that the
+		# grammar does not touch what it did not read. Each of these would come out
+		# differently under a blanket `\\s+([,.;:!?])` substitution on the title, which is the
+		# one-line fix `SR#2245` recorded and declined.
+		("Buy milk,", "Buy milk,"),
+		("Ship it by friday , then rest", "Ship it , then rest"),
+		("Fix issue #12, then rest", "Fix issue #12, then rest"),
+		("Ship it (by friday), then rest", "Ship it (by friday), then rest"),
+	],
+)
+def test_closing_a_cut_leaves_the_sentence_punctuated_as_it_was_written (
+	text: str, title: str
+) -> None:
+	"""Three defects with one rule between them: a separator with nothing on one side is not one.
+
+	Quick capture's whole promise is that what you typed comes back recognisable, so these are
+	small and they are on the signature feature. **Neither generated-input invariant could see
+	any of them**: one asks whether a word vanished without a field being set, the other
+	whether a word appeared that the input did not have, and ``_words`` splits on whitespace —
+	so a comma is attached to its neighbour either way and both invariants held throughout.
+	"""
+
+	assert _parse(text).title == title
 
 
 @pytest.mark.parametrize(

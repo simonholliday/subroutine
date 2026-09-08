@@ -224,6 +224,27 @@ _TIME_LOOKS_LIKE = re.compile(
 #: ``@bob,`` failed its lookup with "there is nobody called 'bob,'".
 _TRAILING = r"(?<![,.;:!?)\]])"
 
+#: The same punctuation, asserted rather than matched: a sigil ends where its value ends,
+#: and whatever sentence punctuation follows belongs to the sentence.
+#:
+#: **A lookahead because every call site claims ``match.span()``**, and claiming a character
+#: is what deletes it from the title. Written as a class *inside* the match until #2261,
+#: which kept the full stop out of ``+web.``'s key correctly and took it out of the title
+#: too — so ``Ship it #ops. Then rest`` was captured as ``Ship it Then rest``, one sentence
+#: with a capital stranded in the middle of it. §6.13's rule is that the grammar does not
+#: touch what it did not read, and it had read a tag, not a full stop.
+_FOLLOWED = r"(?=[,.;:!?)\]]*(?:\s|$))"
+
+#: Punctuation that attaches to the word before it, so a removal must not leave a space in
+#: front of one. A `frozenset` rather than a string because ``"" in ",.;:!?"`` is true, and
+#: the empty string is what the end of the line looks like.
+_CLOSES_A_CLAUSE = frozenset(",.;:!?")
+
+#: Punctuation that joins one part of a sentence to another, so a cut that took everything on
+#: one side of it leaves it holding nothing. ``.!?`` are deliberately absent: a title ending
+#: in a full stop is a finished sentence rather than a dangling one.
+_JOINS_A_CLAUSE = ",;:"
+
 #: A tag is anything after a ``#`` that is not *entirely* digits, because an all-digit one
 #: is a reference to an item (docs/design.md §6.15) and the two share the sigil. So ``Fix issue
 #: #12`` keeps its number and gains no tag named "12", while ``#3d-printing`` and ``#2fa``
@@ -234,9 +255,9 @@ _TRAILING = r"(?<![,.;:!?)\]])"
 #: the match *without claiming its span* anyway, so that the text stays in the title for the
 #: mention index to find.
 _TAG = re.compile(
-	rf"{_STARTS_A_WORD}#(?P<value>[^\s#]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}#(?P<value>[^\s#]+?){_TRAILING}{_FOLLOWED}"
 )
-_ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}[,.;:!?)\]]*(?=\s|$)")
+_ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}{_FOLLOWED}")
 #: §6.3 has *two* axes and this used to reach one. ``!4`` sets importance; ``!4/2`` sets
 #: both. Spelled exactly as the listing renders it back, so what you read is what you can
 #: type — and needing no second sigil, since the plausible ones are either cryptic (``!!4``)
@@ -252,7 +273,7 @@ _ASSIGNEE = re.compile(rf"{_STARTS_A_WORD}@(?P<value>[^\s@]+?){_TRAILING}[,.;:!?
 #: typing ``!4`` reached that. Found by #26's priority column rendering the missing axis as
 #: ``?`` rather than as a blank.
 _IMPORTANCE = re.compile(
-	rf"{_STARTS_A_WORD}!(?P<value>[1-5])(?:/(?P<urgency>[1-5]))?[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}!(?P<value>[1-5])(?:/(?P<urgency>[1-5]))?{_FOLLOWED}"
 )
 
 #: **An estimate must carry a unit**, so ``~90m`` and ``~2h`` parse and ``~5`` does not.
@@ -260,7 +281,7 @@ _IMPORTANCE = re.compile(
 #: it is wrong, because in prose ``~5`` means "about five" — ``Invite ~5 people`` would
 #: otherwise become a five-minute task to invite people.
 _ESTIMATE = re.compile(
-	rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z][a-zA-Z0-9]*)[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}~(?P<value>\d+[a-zA-Z][a-zA-Z0-9]*){_FOLLOWED}"
 )
 #: One project key as a capture line may spell it — ``projects.KEY_PATTERN``, written to accept
 #: either case because ``projects.normalize_key`` folds it. Named so the address form below is
@@ -284,7 +305,7 @@ _KEY = r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*"
 #: — both readings succeed. Both letter cases are still accepted, because
 #: ``projects.normalize_key`` is the one place that decides the stored form.
 _PROJECT = re.compile(
-	rf"{_STARTS_A_WORD}\+(?P<value>{_KEY}(?:/{_KEY})*)[,.;:!?)\]]*(?=\s|$)"
+	rf"{_STARTS_A_WORD}\+(?P<value>{_KEY}(?:/{_KEY})*){_FOLLOWED}"
 )
 
 #: A ``+`` that begins a word and could have been a project key — whether or not any rule could
@@ -1253,17 +1274,48 @@ def _overlaps (span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
 def _remaining (text: str, claimed: list[tuple[int, int]]) -> str:
 	"""Return the text with every consumed span removed and the gaps closed up.
 
-	Only whitespace is normalised, and only where a removal left it doubled. Punctuation and
+	Only whitespace is normalised, and only where a removal left it stranded. Punctuation and
 	capitalisation inside what is left are untouched — a title is what the person typed.
 	"""
 
-	kept = []
+	order = sorted(claimed)
+
+	kept = ""
 	cursor = 0
 
-	for start, end in sorted(claimed):
-		kept.append(text[cursor:start])
+	for start, end in order:
+		kept += text[cursor:start]
 		cursor = max(cursor, end)
 
-	kept.append(text[cursor:])
+		after = text[cursor:]
 
-	return re.sub(r"\s+", " ", "".join(kept)).strip()
+		# **A seam, not the sentence** (#2245). The space now sitting at the end of `kept`
+		# separated what is left from the phrase just removed; the phrase is gone, so the
+		# space is the cut's own leftover and `Ship it by friday, then rest` would otherwise
+		# be captured as `Ship it , then rest`.
+		#
+		# **Only ever the whitespace this cut exposed.** The character after the seam has to
+		# be the punctuation *itself*, so a space somebody typed before a comma of their own
+		# — `Ship it by friday , then rest` — is on the far side of the seam and survives.
+		if after[:1] in _CLOSES_A_CLAUSE:
+			kept = kept.rstrip()
+
+		# **And where the cut reached the end of the line, the leftover is the punctuation
+		# rather than the space** (#2262): `Buy milk, tomorrow` is a title reading
+		# `Buy milk,`. Asked here rather than of the finished title because the tail — a full
+		# stop the sentence still needs — has not been put back yet, which is what makes
+		# `Buy milk, tomorrow.` come out as `Buy milk.` and not `Buy milk,.`
+		if not after.strip(_ENDS_A_LINE):
+			kept = kept.rstrip().rstrip(_JOINS_A_CLAUSE)
+
+	title = re.sub(r"\s+", " ", kept + text[cursor:]).strip()
+
+	# The same rule at the other end, and after the loop because that is where the whole of
+	# what precedes the first cut is known: `by friday, ship it` is a title reading `, ship
+	# it`. Both are guarded on a cut actually having reached that end — a line somebody typed
+	# with a trailing comma and nothing in it to read keeps the comma, because §6.13's rule
+	# is that the grammar does not touch what it did not read.
+	if order and not text[:order[0][0]].strip():
+		title = title.lstrip(_JOINS_A_CLAUSE).lstrip()
+
+	return title
