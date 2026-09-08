@@ -356,7 +356,7 @@ export function App () {
 		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
 	}, [showing]);
 
-	const readAgenda = useCallback(async (spaces, slug = null, key = null) => {
+	const readAgenda = useCallback(async (slug = null, key = null) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
 		   `agendaBuckets`). What is left here is holding the answer.
 
@@ -366,7 +366,7 @@ export function App () {
 		   the reader just left. */
 		const answered = await sent(agendaRequest(slug, key));
 
-		setAgenda(agendaBuckets(answered, spaces));
+		setAgenda(agendaBuckets(answered));
 		setUnscheduled(
 			Math.max(0, (answered.unscheduled_total || 0) - (answered.unscheduled || []).length),
 		);
@@ -1013,7 +1013,7 @@ export function App () {
 					held.current ? held.current.links : [])) await refresh();
 
 				await (onAgenda
-					? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
+					? readAgenda(everywhere ? null : workspace, project)
 					: load(workspace, project));
 			} catch (failure) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
@@ -1189,9 +1189,7 @@ export function App () {
 					finally obeyed at every address rather than only below the root.
 				*/
 				arrangement.view === AGENDA_VIEW
-					? readAgenda(
-						identity.workspaces, asked === null ? null : slug, asked && asked.project,
-					)
+					? readAgenda(asked === null ? null : slug, asked && asked.project)
 					: load(slug, asked && asked.project),
 				roster(slug),
 				words(slug),
@@ -1314,9 +1312,7 @@ export function App () {
 				   about, and `start` above asks it the same way so one address cannot mean two
 				   things depending on how the reader arrived. */
 				setProject(narrowed);
-				readAgenda(
-					me ? me.workspaces : [], asked === null ? null : slug, narrowed,
-				);
+				readAgenda(asked === null ? null : slug, narrowed);
 			} else if (agenda !== null || narrowed !== project || changed) {
 				/* Leaving the agenda for a listing, or moving between listings. The filter is
 				   part of the address too (`#647`), so stepping back out of a project restores
@@ -1494,7 +1490,7 @@ export function App () {
 		   listing underneath it, so the row stayed on screen until the next poll — a write that
 		   reports success and visibly does nothing. */
 		await (agenda !== null
-			? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
+			? readAgenda(everywhere ? null : workspace, project)
 			: load(workspace, project));
 	}, [agenda, everywhere, load, me, open, openIn, project, readAgenda, show, workspace]);
 
@@ -1617,7 +1613,7 @@ export function App () {
 			   date belongs in *Unscheduled*, which is exactly where a reader would look for it
 			   and not find it. */
 			await (agenda !== null
-				? readAgenda(me ? me.workspaces : [], everywhere ? null : workspace, project)
+				? readAgenda(everywhere ? null : workspace, project)
 				: load(workspace, project));
 
 			/* **Whether it landed, so the form knows whether to clear itself.** `wrote` has
@@ -2100,7 +2096,7 @@ export function App () {
 		nowShowing(plainly);
 		go("/", { arranged: plainly });
 
-		await readAgenda(me ? me.workspaces : []);
+		await readAgenda();
 	}, [go, me, nowOpen, nowShowing, readAgenda]);
 
 	const narrow = useCallback(async (address) => {
@@ -2151,7 +2147,7 @@ export function App () {
 				next control that touches it.
 			*/
 			if (showing.view === AGENDA_VIEW) {
-				await readAgenda(me ? me.workspaces : [], where, wanted);
+				await readAgenda(where, wanted);
 
 				return;
 			}
@@ -2191,7 +2187,7 @@ export function App () {
 				it was written, and the sentence `#649`'s amendment retires.
 			*/
 			if (showing.view === AGENDA_VIEW) {
-				await readAgenda(me ? me.workspaces : [], slug, null);
+				await readAgenda(slug, null);
 
 				return;
 			}
@@ -2474,9 +2470,7 @@ export function App () {
 			place, and this only decides how it is drawn.
 		*/
 		if (wanted.view === AGENDA_VIEW) {
-			await readAgenda(
-				me ? me.workspaces : [], everywhere ? null : workspace, project,
-			);
+			await readAgenda(everywhere ? null : workspace, project);
 
 			return;
 		}

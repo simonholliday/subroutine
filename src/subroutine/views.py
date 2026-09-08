@@ -197,6 +197,12 @@ class LinkEnd(pydantic.BaseModel):
 	type_is_default: bool = False
 	project_path: str = ""
 
+	#: Which workspace the far end is in — `#1932`. Here because `marks` reads it and an end
+	#: renders through `marks`, which `test_a_links_far_end_carries_every_field_the_marks_read`
+	#: is what holds: a link line and a listing row must say the same things about one item.
+	#: Projected from the rendering like every field but ``entity_type``.
+	workspace: str | None = None
+
 	#: What state it is in. ``status_is_default`` is what stops every open item carrying a
 	#: mark that says nothing (§12.2a), and ``status_category`` is what tells *cancelled* from
 	#: *done* — a distinction ``is_complete`` deliberately does not make and which read as
@@ -532,6 +538,19 @@ class Task(pydantic.BaseModel):
 	#: in one day. Null says *this instance did not tell you*; zero says *there is no prose*,
 	#: and a reader deciding whether to spend a context window needs those apart.
 	size_bytes: int | None = None
+
+	#: Which workspace this is in, as the word a person recognises — `#1932`. ``workspace_id``
+	#: beside it is a UUID: correct, unambiguous, and unprintable.
+	#:
+	#: **A listing that spans more than one workspace has to say which**, and the browser
+	#: already implemented that rule and could not apply it — `projectLabel` reaches for this
+	#: field when the page is not scoped to a workspace, found nothing, and silently drew a
+	#: bare project path. A correctly written rule made inert by a field nobody sent, which is
+	#: this codebase's second signature defect with the halves the other way round.
+	#:
+	#: **Optional for `#482`'s reason**, like every field added since the last release: a
+	#: client one commit ahead must not refuse the whole response over it.
+	workspace: str | None = None
 
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
@@ -2296,6 +2315,19 @@ class Document(pydantic.BaseModel):
 	#: and a reader deciding whether to spend a context window needs those apart.
 	size_bytes: int | None = None
 
+	#: Which workspace this is in, as the word a person recognises — `#1932`. ``workspace_id``
+	#: beside it is a UUID: correct, unambiguous, and unprintable.
+	#:
+	#: **A listing that spans more than one workspace has to say which**, and the browser
+	#: already implemented that rule and could not apply it — `projectLabel` reaches for this
+	#: field when the page is not scoped to a workspace, found nothing, and silently drew a
+	#: bare project path. A correctly written rule made inert by a field nobody sent, which is
+	#: this codebase's second signature defect with the halves the other way round.
+	#:
+	#: **Optional for `#482`'s reason**, like every field added since the last release: a
+	#: client one commit ahead must not refuse the whole response over it.
+	workspace: str | None = None
+
 	workspace_id: uuid.UUID
 	project_id: uuid.UUID
 	project_key: str
@@ -2842,6 +2874,10 @@ class Vocabulary:
 		#: (§6.2) and the ids do not collide, but the *lookup* has to know which table to ask.
 		document_parent_ids: typing.Iterable[uuid.UUID] = (),
 		user_ids: typing.Iterable[uuid.UUID] = (),
+		#: The workspaces a page's rows are in — `#1932`. Every row already reports
+		#: ``workspace_id``, which is a UUID and unreadable; a listing that spans more than
+		#: one workspace has to say *which* in a word a person recognises.
+		workspace_ids: typing.Iterable[uuid.UUID] = (),
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -2867,6 +2903,13 @@ class Vocabulary:
 		)
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
+		)
+
+		# **One column, one query, and usually one row** — `#1932`. A page is nearly always
+		# from a single workspace; the merged agenda at `/` is where it is several, and that
+		# is exactly the page whose rows could not say which.
+		self.workspaces = _by_id(
+			session, subroutine.db.models.identity.Workspace, workspace_ids, ("slug",)
 		)
 		# **The whole address, batch-loaded like everything else here** (`#512`). A key stopped
 		# naming one project with `#957`, so a row saying `dist` no longer says where its item
@@ -3021,6 +3064,7 @@ class Vocabulary:
 			status_ids={task.status_id for task in tasks},
 			type_ids={task.type_id for task in tasks},
 			project_ids={task.project_id for task in tasks},
+			workspace_ids={task.workspace_id for task in tasks},
 			task_ids={task.id for task in tasks},
 			# **Templates ride with the parents**, because they are the same question — a task
 			# on this page naming another task by id, needing a ref before a client can print
@@ -3048,6 +3092,7 @@ class Vocabulary:
 			status_ids={document.status_id for document in documents},
 			type_ids={document.type_id for document in documents},
 			project_ids={document.project_id for document in documents},
+			workspace_ids={document.workspace_id for document in documents},
 			document_ids={document.id for document in documents},
 			document_parent_ids={
 				document.parent_id for document in documents if document.parent_id
@@ -3229,6 +3274,10 @@ def task (
 		description=row.description,
 		size_bytes=_prose_bytes(row.description),
 		workspace_id=row.workspace_id,
+		# **The slug beside the id** — `#1932`. Batch-loaded with the status and project
+		# names, so a page of fifty rows costs one query for a word that is the same on
+		# nearly all of them, and `None` where the workspace was not loaded.
+		workspace=vocabulary.workspaces.get(row.workspace_id, {}).get("slug"),
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
 		project_path=vocabulary.project_paths.get(row.project_id, ""),
@@ -3367,6 +3416,10 @@ def document (
 		size_bytes=_prose_bytes(row.body),
 		revisions=revisions,
 		workspace_id=row.workspace_id,
+		# **The slug beside the id** — `#1932`. Batch-loaded with the status and project
+		# names, so a page of fifty rows costs one query for a word that is the same on
+		# nearly all of them, and `None` where the workspace was not loaded.
+		workspace=vocabulary.workspaces.get(row.workspace_id, {}).get("slug"),
 		project_id=row.project_id,
 		project_key=str(vocabulary.projects.get(row.project_id, {}).get("key", "")),
 		project_path=vocabulary.project_paths.get(row.project_id, ""),

@@ -278,7 +278,7 @@ const BUCKETS = [
 	{ key: "unscheduled", label: "Next" },
 ];
 
-export function agendaBuckets (agenda, workspaces = []) {
+export function agendaBuckets (agenda) {
 	/*
 		Turn an agenda response into the buckets a page renders, and nothing else.
 
@@ -296,23 +296,25 @@ export function agendaBuckets (agenda, workspaces = []) {
 		columns are the structure. Same question, opposite answers, so it is worth saying which
 		is which rather than reaching for consistency.
 
-		**Each row is told which workspace it is from**, resolved here from `me.workspaces`,
-		because the response carries `workspace_id` as a uuid and nothing readable. Whether a
-		row *shows* it is the caller's decision and depends on the page.
+		**Each row already knows which workspace it is from, since `#1932`.** This resolved it
+		here from `me.workspaces`, *"because the response carries `workspace_id` as a uuid and
+		nothing readable"* — which was true and was a workaround, and its own comment said so.
+		Every row now reports `workspace` beside the id, resolved once for the page by
+		`views.Vocabulary` rather than joined again in this client.
+
+		**A listing never did this, which is what made it worth deleting rather than copying.**
+		The same reader got a qualified label on the agenda at `/` and a bare one on a search
+		at `/`, from one function, because the data differed — so the answer was to send the
+		field, not to write the join a second time. Whether a row *shows* it is still the
+		caller's decision and depends on the page.
 	*/
 	if (!agenda) return [];
-
-	const named = new Map(workspaces.map((space) => [space.id, space.slug]));
 
 	return BUCKETS
 		.map(({ key, label }) => ({
 			key,
 			label,
-			items: (agenda[key] || []).map((item) => ({
-				...item,
-				kind: "task",
-				workspace: named.get(item.workspace_id) || null,
-			})),
+			items: (agenda[key] || []).map((item) => ({ ...item, kind: "task" })),
 		}))
 		.filter((bucket) => bucket.items.length > 0);
 }

@@ -9726,7 +9726,7 @@ def _agenda (
 		const calls = {json.dumps(calls)};
 
 		process.stdout.write(JSON.stringify(calls.map(([name, argument]) =>
-			name === "agendaBuckets" ? app.agendaBuckets(argument.agenda, argument.workspaces)
+			name === "agendaBuckets" ? app.agendaBuckets(argument.agenda)
 			: name === "counted" ? app.counted(argument)
 			: app.agendaRequest())));
 	"""))
@@ -9833,23 +9833,35 @@ def test_the_buckets_keep_the_order_a_day_is_read (tmp_path: pathlib.Path) -> No
 	assert [bucket["key"] for bucket in buckets] == [field for _label, field, _l in wanted]
 
 
-def test_every_agenda_row_is_told_which_workspace_it_came_from (tmp_path: pathlib.Path) -> None:
-	"""The response carries a uuid and nothing readable, so the slug is resolved here.
+def test_every_agenda_row_carries_the_workspace_the_server_sent (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1932`. This resolved the slug here and the server sends it now.
 
-	**This is the wire, and it is what `SR#640` keeps breaking.** A row opened or completed
-	against the switcher's workspace rather than its own is a 404 for an item the reader is
-	looking at — the rule right, the display right, and nothing joining them. Resolving the slug
-	onto the row is what lets `App` pass it, and this is the half that can be checked.
+	It used to hold a `Map` of `me.workspaces` and stamp a slug onto every row, *"because the
+	response carries `workspace_id` as a uuid and nothing readable"* — true, and a workaround,
+	and its own comment said so. **A listing never did the same**, so one reader got a
+	qualified label on the agenda at `/` and a bare one on a search at `/`, out of one function,
+	because the data differed.
+
+	The answer was to send the field rather than to write the join a second time — `SR#925`'s
+	argument, and `views.Task` and `views.Document` carry `workspace` beside `workspace_id`
+	now, resolved once for the page.
+
+	**What is left here is that the row is passed through unharmed**, which is still worth
+	holding: the wire from a row to an address is what `SR#640` keeps breaking, and a row opened
+	against the switcher's workspace rather than its own is a 404 for an item on screen.
 	"""
 
 	[buckets] = _agenda(tmp_path, [(
 		"agendaBuckets",
 		{
 			"agenda": {
-				"overdue": [{"ref": 1, "title": "Elsewhere", "workspace_id": "w2"}],
+				"overdue": [
+					{"ref": 1, "title": "Elsewhere", "workspace_id": "w2", "workspace": "sandbox"}
+				],
 				"today": [], "upcoming": [], "unscheduled": [],
 			},
-			"workspaces": [{"id": "w1", "slug": "projects"}, {"id": "w2", "slug": "sandbox"}],
 		},
 	)])
 
@@ -9857,11 +9869,19 @@ def test_every_agenda_row_is_told_which_workspace_it_came_from (tmp_path: pathli
 	assert buckets[0]["items"][0]["kind"] == "task", "an agenda holds tasks, and `show` needs it"
 
 
-def test_a_workspace_nobody_can_name_leaves_the_row_alone (tmp_path: pathlib.Path) -> None:
-	"""An id with no slug beside it is null rather than the uuid.
+def test_an_agenda_row_the_server_could_not_name_stays_unnamed (
+	tmp_path: pathlib.Path
+) -> None:
+	"""`SR#1932`. A row with no slug is null rather than a uuid, and that is now the server's.
 
-	Printing the uuid would be worse than printing nothing: it reads as a name, it is not one,
-	and `SR#638` says an address is `{workspace}/{ref}` — a uuid there resolves to nothing.
+	This used to be a client-side lookup miss — an id with no entry in `me.workspaces`. It is
+	the same question one layer along: `views.Vocabulary` resolves what it loaded and leaves
+	`None` where it did not, which happens on an older instance that does not send the field
+	at all (`SR#482` is why it is optional rather than required).
+
+	Printing the uuid instead would be worse than printing nothing: it reads as a name, it is
+	not one, and `SR#638` says an address is `{workspace}/{ref}` — a uuid there resolves to
+	nothing at all.
 	"""
 
 	[buckets] = _agenda(tmp_path, [(
@@ -9871,37 +9891,10 @@ def test_a_workspace_nobody_can_name_leaves_the_row_alone (tmp_path: pathlib.Pat
 				"overdue": [{"ref": 1, "title": "Orphan", "workspace_id": "w9"}],
 				"today": [], "upcoming": [], "unscheduled": [],
 			},
-			"workspaces": [{"id": "w1", "slug": "projects"}],
 		},
 	)])
 
-	assert buckets[0]["items"][0]["workspace"] is None
-
-
-def test_a_row_carries_its_workspace_wherever_the_agenda_shows_it (
-	tmp_path: pathlib.Path,
-) -> None:
-	"""`SR#968`, Simon 2026-08-17: *the workspace should always be shown, if none is selected.*
-
-	**This used to ask whether the rows happened to span workspaces** — §12.2a's *a mark that
-	says the same thing on every row says nothing*, which is the terminal's rule, where a
-	listing is computed once and read once. Here the page polls, so what a row says would
-	change because a stranger filed something elsewhere; decision `SR#957` §4 rules that out
-	for this surface, and `SR#966` had just been fixed for one column along.
-
-	**Asserted on what a row renders**, because the question the old rule answered no longer
-	exists to be asked. `agendaBuckets` resolving a workspace onto every row is what makes the
-	address possible at all, and that is what this now holds.
-	"""
-
-	one = {"overdue": [{"ref": 1, "workspace_id": "w1"}], "today": []}
-	spaces = [{"id": "w1", "slug": "projects"}]
-
-	[buckets] = _agenda(tmp_path, [("agendaBuckets", {"agenda": one, "workspaces": spaces})])
-
-	assert buckets[0]["items"][0]["workspace"] == "projects", (
-		"a row cannot say which workspace it is in, so nothing on the agenda can"
-	)
+	assert buckets[0]["items"][0].get("workspace") is None
 
 
 def test_the_agenda_counts_what_is_on_screen (tmp_path: pathlib.Path) -> None:

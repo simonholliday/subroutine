@@ -243,6 +243,13 @@ export const TASK_FIELDS = [
 		address, which would make `fields=` a second thing to keep in step with `ORDERINGS`.
 	*/
 	"updated_at", "importance", "urgency",
+	/* **Which workspace the row is in, as a word** (`#1932`). Both kinds ask for it, because
+	   the rule it feeds is about the *page* rather than about the kind: at `/` a listing spans
+	   every workspace, and `projectLabel` qualifies a project path with the workspace exactly
+	   there. It reached for this field, found nothing — `workspace_id` is a UUID — and drew a
+	   bare path, so the same search was labelled `projects/superintendent` inside a workspace
+	   and `superintendent` at the root. */
+	"workspace",
 ].join(",");
 
 /* A document has no dates and no assignee — `_when` returns nothing for one — so it asks for
@@ -287,4 +294,11 @@ export const DOCUMENT_FIELDS = [
 	   the open question about building one. It costs nothing to compute — `Vocabulary` runs
 	   the grouped scan for every page already — only a number in the response. */
 	"sub_documents",
+	/* **Which workspace the row is in, as a word** (`#1932`). Both kinds ask for it, because
+	   the rule it feeds is about the *page* rather than about the kind: at `/` a listing spans
+	   every workspace, and `projectLabel` qualifies a project path with the workspace exactly
+	   there. It reached for this field, found nothing — `workspace_id` is a UUID — and drew a
+	   bare path, so the same search was labelled `projects/superintendent` inside a workspace
+	   and `superintendent` at the root. */
+	"workspace",
 ].join(",");

@@ -353,6 +353,7 @@ def _computed (page: typing.Any, selector: str, at: int) -> dict[str, str]:
 	))
 
 
+
 def test_a_browser_can_be_driven_at_all (looks: typing.Any) -> None:
 	"""The floor, and it exists because the first version of this file needed it.
 
@@ -656,6 +657,11 @@ META_ELSEWHERE: dict[str, typing.Any] = {
 #: one literal gave the row a type nothing could index.
 CARD: dict[str, typing.Any] = {
 	"ref": 42, "kind": "task", "title": "Fix the pagination cursor", "project_key": "ui",
+	# **No workspace, and that is the fixture being honest** (`SR#1932`). This row is served for
+	# whichever workspace a page names — the same object answers a listing in `projects` and one
+	# in `personal` — so declaring one here would make it claim to be somewhere it is not, and
+	# `marks` prefers a row's own workspace over the page's when deciding a project chip's
+	# address. The agenda's rows below do name theirs, because that fixture spans two on purpose.
 	# **Nested, since `SR#512` publishes an address and `SR#959` draws one.** A row filed at
 	# the top level would render a one-segment label, which is what a bare key looked like —
 	# so the whole point of the change would be invisible to every page built from this.
@@ -737,6 +743,33 @@ CROWD = [
 	for n in range(5)
 ]
 
+def _row (workspace_id: str, **fields: typing.Any) -> dict[str, typing.Any]:
+	"""One agenda row, with its workspace named both ways from one argument — `SR#1932`.
+
+	**A row carries `workspace` beside `workspace_id` now**, resolved by the server rather than
+	by the client, and six tests here failed at once when it started arriving: every page built
+	from a row without it draws a bare project label and an address missing its workspace.
+
+	**Derived rather than guarded, and the ceiling on this file is what decided that.** The
+	first version was a test asserting no fixture names the id alone — which needs no browser,
+	and `test_this_file_stays_the_size_of_its_argument` refused it as the forty-fourth. It was
+	right to: a helper that takes one argument and fills both keys makes the mistake
+	unwriteable, where a test only reports it.
+
+	An id that is in no workspace raises here, which is the answer worth having: `IDENTITY` is
+	where the two are declared and a row pointing outside it is a fixture about nothing.
+	"""
+
+	# **Cast, because `IDENTITY` is a `dict[str, typing.Any]` whose values mypy widens to a
+	# union.** The narrowing is a statement about the fixture rather than about the wire, so it
+	# sits here rather than becoming a type on the fixture that every other reader would then
+	# have to satisfy.
+	spaces = typing.cast(list[dict[str, str]], IDENTITY["workspaces"])
+	named = {space["id"]: space["slug"] for space in spaces}
+
+	return dict(CARD, workspace_id=workspace_id, workspace=named[workspace_id], **fields)
+
+
 #: What `/v1/agenda` answers — one row in each of two workspaces, so the page spans them.
 #:
 #: **The refs are deliberately different lengths.** `#965` was an address overflowing the column
@@ -746,10 +779,10 @@ AGENDA: dict[str, typing.Any] = {
 	"date": "2026-08-17",
 	"timezone": "Europe/London",
 	"overdue": [],
-	"today": [dict(CARD, ref=2, title="Dentist appointment", workspace_id="w2")],
-	"in_progress": [dict(CARD, ref=94, title="Recurring tasks", workspace_id="w1")],
+	"today": [_row("w2", ref=2, title="Dentist appointment")],
+	"in_progress": [_row("w1", ref=94, title="Recurring tasks")],
 	"upcoming": [],
-	"unscheduled": [dict(CARD, ref=95, title="Release 0.8.0", workspace_id="w1")],
+	"unscheduled": [_row("w1", ref=95, title="Release 0.8.0")],
 	"unscheduled_total": 1,
 }
 
@@ -761,9 +794,9 @@ ONE_WORKSPACE: dict[str, typing.Any] = {
 	"timezone": "Europe/London",
 	"overdue": [],
 	"today": [],
-	"in_progress": [dict(CARD, ref=94, title="Recurring tasks", workspace_id="w1")],
+	"in_progress": [_row("w1", ref=94, title="Recurring tasks")],
 	"upcoming": [],
-	"unscheduled": [dict(CARD, ref=95, title="Release 0.8.0", workspace_id="w1")],
+	"unscheduled": [_row("w1", ref=95, title="Release 0.8.0")],
 	"unscheduled_total": 1,
 }
 

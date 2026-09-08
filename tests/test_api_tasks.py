@@ -114,6 +114,62 @@ def test_a_task_with_no_project_goes_to_the_inbox (world: World) -> None:
 	assert response.json()["project_key"] == subroutine.domain.bootstrap.INBOX_KEY
 
 
+def test_a_row_says_which_workspace_it_is_in_in_a_word (world: World) -> None:
+	"""`SR#1932`. Every row reported a UUID and nothing a person could read.
+
+	Simon, from three search URLs on 2026-09-03: the workspace-scoped and project-scoped pages
+	label a hit `projects/superintendent`, and the same search at `/` labels it bare
+	`superintendent`. **The browser already implemented the convention and it was inert** —
+	`projectLabel` reaches for `item.workspace` when the page is not scoped to a workspace,
+	found nothing, and silently drew a bare path. A correctly written rule made useless by a
+	field nobody sent.
+
+	**The guard has to be here rather than in the browser**, and that is the whole lesson.
+	`test_a_label_says_only_what_the_address_did_not` drives that rule with `workspace` on the
+	row and has passed throughout — because the *harness* supplies it. A test that provides
+	its own inputs cannot notice that nothing else does.
+
+	**Both kinds, because both are listed at `/`.** A search there spans tasks and documents,
+	and a rule that qualified one and not the other would be the same defect wearing half a
+	coat.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Something to do"})
+
+	assert made.status_code == 201, made.text
+
+	said = made.json()["workspace"]
+
+	assert said == world.workspace.slug, (
+		f"a task reports {said!r} for its workspace and the workspace is called "
+		f"{world.workspace.slug!r}"
+	)
+	assert said != str(world.workspace.id), (
+		"the row reports the id under the name of the slug, which reads as a name and is not "
+		"one — an address is {workspace}/{ref} and a uuid there resolves to nothing"
+	)
+
+	# **A listing, not only a create**, because that is the response the defect was seen in and
+	# it is rendered through a different path — one `Vocabulary` for the page rather than one
+	# row's own.
+	listed = world.call("GET", "/v1/tasks")
+
+	assert listed.status_code == 200, listed.text
+	assert [row["workspace"] for row in listed.json()["items"]] == [world.workspace.slug]
+
+	wrote = world.call(
+		"POST", "/v1/documents", json={"title": "What we settled", "body": "Because."}
+	)
+
+	assert wrote.status_code == 201, wrote.text
+	assert wrote.json()["workspace"] == world.workspace.slug
+
+	documents = world.call("GET", "/v1/documents")
+
+	assert documents.status_code == 200, documents.text
+	assert [row["workspace"] for row in documents.json()["items"]] == [world.workspace.slug]
+
+
 def test_a_task_needs_a_title_or_a_line_to_parse_one_from (world: World) -> None:
 	"""And the refusal says which of the two to send."""
 

@@ -129,6 +129,16 @@ DERIVED: dict[str, str] = {
 	#: direction of the guard is for — it says *nothing a view publishes is unreachable*, and
 	#: until now it said that about two views out of eight.
 
+	#: **`SR#1932`.** Which workspace the row is in, as the word a person recognises —
+	#: resolved from `workspace_id` for the whole page by `views.Vocabulary`, beside the status
+	#: and project names. **Deliberately not settable**: a cross-workspace move is refused
+	#: outright (`SR#297`) because `status`, `item_type`, `link_type` and `tag` are per
+	#: workspace and a task's `status_id` points at the row rather than at the pair, so a moved
+	#: item would silently reference another tenant's vocabulary. Accepting this field would be
+	#: offering the one move the product refuses by name.
+	"workspace": "the slug for workspace_id, resolved per page; a cross-workspace move is "
+	"refused outright, so there is nothing to accept.",
+
 	#: **`#1768`.** How often the body has been replaced, counted from the event feed by
 	#: `domain.events.revisions_of` at read time. **Deliberately not a column**: a stored
 	#: counter would be a second answer to a question the events already answer, and a
