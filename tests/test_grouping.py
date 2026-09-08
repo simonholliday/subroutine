@@ -366,6 +366,118 @@ def test_the_default_answer_is_exactly_what_the_published_model_describes (
 	assert started.page.limit == subroutine.domain.grouping.DEFAULT_GROUP_SIZE
 
 
+def test_a_column_the_completion_rule_left_out_says_it_was_not_reached (
+	world: test_api_tasks.World,
+) -> None:
+	"""An empty group nobody asked about is not an empty group — `SR#2293`.
+
+	**Both readings on one fixture, because either alone passes against the defect.** A board
+	that does not ask for finished work gets a *Done* column with no rows in it, and the row
+	that would have been there exists — so an answer saying only ``items: []`` is a plausible,
+	complete, wrong statement about the work. Asking again *with* completion is what proves the
+	flag tracks the rule rather than the key.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Finished"})
+
+	assert created.status_code == 201
+	assert world.call(
+		"POST", f"/v1/tasks/{created.json()['ref']}/complete"
+	).status_code == 200
+
+	plain = world.call("GET", "/v1/tasks?group_by=status_category")
+
+	assert plain.status_code == 200
+
+	reached = {group["key"]: group["reached"] for group in plain.json()["groups"]}
+
+	assert reached == {
+		"todo": True,
+		"in_progress": True,
+		"done": False,
+		"cancelled": False,
+	}, "the two finished columns were not asked about and must say so"
+
+	assert _drawn(plain.json())["done"] == 0
+
+	asked = world.call("GET", "/v1/tasks?group_by=status_category&include_completed=true")
+
+	assert asked.status_code == 200
+	assert _drawn(asked.json())["done"] == 1
+	assert all(group["reached"] for group in asked.json()["groups"]), (
+		"a request that reaches finished work has left no column out"
+	)
+
+
+def test_a_column_left_out_is_read_from_the_rule_and_not_from_the_parameter (
+	world: test_api_tasks.World,
+) -> None:
+	"""`completion_wanted` has five spellings and this must follow all of them — `SR#2293`.
+
+	**The parameter is the one thing this must not read.** Filtering on ``completed_at`` asks
+	for finished work as unambiguously as naming the category does (`#818`), and a flag keyed
+	on ``include_completed`` would report *Done* as unreached on a request that reached it —
+	which is the browser's own model of this rule, and exactly why the fact belongs on the
+	answer instead.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Finished"})
+
+	assert created.status_code == 201
+	assert world.call(
+		"POST", f"/v1/tasks/{created.json()['ref']}/complete"
+	).status_code == 200
+
+	response = world.call(
+		"GET", "/v1/tasks?group_by=status_category&completed_at.gte=today"
+	)
+
+	assert response.status_code == 200
+	assert _drawn(response.json())["done"] == 1
+	assert all(group["reached"] for group in response.json()["groups"])
+
+
+def test_a_document_board_has_no_column_anything_could_leave_out (
+	world: test_api_tasks.World,
+) -> None:
+	"""A document's categories are not about finishing, so none of them is ever unreached.
+
+	`SR#2293`'s rule is read through the axis's own keys rather than applied to whatever a
+	grouping happens to hold, and this is the case that says so: none of ``draft``,
+	``current``, ``superseded`` or ``archived`` means *finished*, and a document listing has no
+	completion rule to exclude one with.
+	"""
+
+	response = world.call("GET", "/v1/documents?group_by=status_category")
+
+	assert response.status_code == 200
+	assert [group["reached"] for group in response.json()["groups"]] == [True] * len(
+		subroutine.domain.grouping.keys_for("status_category", kind="document")
+	)
+
+
+def test_a_grouped_answer_carries_the_fields_its_model_declares_and_no_others (
+	world: test_api_tasks.World,
+) -> None:
+	"""The envelope is built from the model, and this is what keeps it that way — `SR#2300`.
+
+	The neighbour above parses the answer *with* the model, which catches a field the server
+	stopped sending; it cannot catch one the server sends and the model has never heard of,
+	because pydantic ignores what it was not told about. Both directions, and the second is the
+	one that lets a hand-built dict drift back in.
+	"""
+
+	_spread(world)
+
+	payload = world.call("GET", "/v1/tasks?group_by=status_category").json()
+
+	assert set(payload) == set(subroutine.views.Grouped.model_fields)
+
+	for group in payload["groups"]:
+		assert set(group) == set(subroutine.views.Group.model_fields)
+		assert set(group["page"]) == set(subroutine.views.Page.model_fields)
+
+
 def test_grouping_a_listing_costs_a_handful_of_questions_more_than_not_grouping_it (
 	world: test_api_tasks.World, session: sqlalchemy.orm.Session
 ) -> None:

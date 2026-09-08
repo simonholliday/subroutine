@@ -362,6 +362,26 @@ class Group(pydantic.BaseModel, typing.Generic[Item]):
 	items: list[Item]
 	page: Page
 
+	#: Whether the request reached this group at all — `SR#2293`, and **false is the whole
+	#: point of it**: an empty group that was never asked about is not an empty group.
+	#:
+	#: A listing reaches finished work only when something in the request asks for it
+	#: (:func:`subroutine.domain.tasks.completion_wanted`), and grouping asks for an *axis*
+	#: rather than a value — so a board naming no completion sends four columns and gets rows
+	#: for two of them. The two empty ones then say *nothing here* about work the query never
+	#: looked at, which is the false statement `SR#718`, `SR#738` and `SR#744` were each filed
+	#: about on whichever surface was rendering it.
+	#:
+	#: **The distinction grouping exists to preserve.** :mod:`subroutine.domain.grouping` says
+	#: it in its own words — *a group derived from what came back cannot distinguish this
+	#: column holds nothing from this column was not asked about* — and until this field the
+	#: server's answer could not express it, so the browser carried a model of the completion
+	#: rule instead and was wrong wherever that rule has a spelling the model does not know.
+	#:
+	#: **Defaulted true**, so nothing an older client reads changes and a listing with no such
+	#: rule — a document board — says nothing new.
+	reached: bool = True
+
 
 class Grouped(pydantic.BaseModel, typing.Generic[Item]):
 	"""A listing split along one axis, so that no group is starved by its neighbours.

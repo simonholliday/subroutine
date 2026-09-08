@@ -799,6 +799,9 @@ def listing (
 		workspace_id=workspace.id,
 		held_back=held_back,
 		unread=dates.unread,
+		# The decision made above, carried down rather than taken twice: what a grouped answer
+		# says about its finished columns has to be the same rule that decided the rows.
+		reaching_finished=completion,
 		group_by=group_by,
 		group_limit=group_limit,
 		with_links=subroutine.api.query.includes(include, "links", entity="task"),
@@ -1447,6 +1450,7 @@ def _page (
 	workspace_id: uuid.UUID,
 	held_back: int | None = None,
 	unread: typing.Sequence[str] = (),
+	reaching_finished: bool = True,
 	with_links: bool = False,
 	allowed: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	default: typing.Sequence[str] | None = None,
@@ -1505,6 +1509,14 @@ def _page (
 			collection="tasks",
 			held_back=held_back,
 			unread=unread,
+			# **Which columns the completion rule never looked at** — `SR#2293`. A grouped
+			# request names the axis and not a value, so the two finished categories come back
+			# as empty groups on every board that did not ask for finished work; without this
+			# the answer cannot tell *this column holds nothing* from *this column was not
+			# asked about*, and each surface models the rule for itself.
+			unreached=subroutine.domain.grouping.unreached(
+				axis, kind="task", reaching_finished=reaching_finished
+			),
 		)
 
 	# One definition of a page size, shared with the local client (docs/design.md §13.7): the two

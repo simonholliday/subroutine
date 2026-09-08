@@ -10625,16 +10625,19 @@ def test_a_board_never_hides_a_row_it_is_holding (tmp_path: pathlib.Path) -> Non
 		f"{narrowed}"
 	)
 
-	# **The rows and the model disagreeing is the case the ordering is actually for**, and
-	# falsifying showed it is the only one that reaches it: with `excluded` correct, dropping
-	# the row-count term is invisible to the case above, because a done selection does not
-	# exclude the done column. So this is a board holding finished work under a selection that
-	# says finished work was not asked for — which is what a changed API default, or a caller
-	# passing one selection while another was fetched, looks like from here.
+	# **The rows and the answer disagreeing is the case the ordering is actually for**, and
+	# falsifying showed it is the only one that reaches it: with the selection read correctly,
+	# dropping the row-count term is invisible to the case above, because a done selection does
+	# not exclude the done column. So this is a board holding finished work under an answer that
+	# says the done column was never reached — which is what a changed API default, or a page of
+	# rows read against a later answer, looks like from here.
 	#
-	# `excluded` is a model of what the instance did. The rows are a fact. The fact wins.
+	# **The source of that claim changed with `SR#2293` and the rule did not.** It used to be
+	# this page's own model of the completion rule; it is the instance's own word now. The rows
+	# are still the fact, and the fact still wins.
 	contradicted = _rendered(tmp_path, {"Board": {
 		"items": [done], "workspace": "projects", "selection": {},
+		"cut": {"done": {"more": False, "cursor": None, "total": None, "reached": False}},
 	}})["Board"]
 
 	assert "Finished" in contradicted, (
@@ -10643,32 +10646,48 @@ def test_a_board_never_hides_a_row_it_is_holding (tmp_path: pathlib.Path) -> Non
 	)
 
 
-def test_a_board_says_which_columns_a_selection_left_out (tmp_path: pathlib.Path) -> None:
-	"""`SR#744`. Three ways a column can be absent, and they are one question.
+def test_a_board_says_which_columns_the_answer_did_not_reach (tmp_path: pathlib.Path) -> None:
+	"""`SR#744`, and `SR#2293` moved where the claim comes from.
 
 	**The cancelled column has been lying since the board shipped**, which is `SR#718`'s defect
 	in the column beside the one `SR#718` was about. Measured on the served instance: a plain
 	listing of this project answers `{'todo': 143}` — no `done` and **no `cancelled`** — so the
 	default excludes both finished categories rather than only the completed one, and a board
 	without `include_completed` was reporting *Cancelled: Nothing* about work it never asked for.
+
+	**This page used to work that out for itself and now reads it off the answer.** Each group
+	says whether the request reached it, so what is driven here is the shape the server sends
+	rather than a selection this page has to interpret — which is the point of `SR#2293`: the
+	completion rule has five spellings and only the instance knows which of them fired.
 	"""
 
 	open_row = {"ref": 1, "kind": "task", "title": "Open", "status_category": "todo"}
 
+	def _reaching (*keys: str) -> dict[str, dict[str, typing.Any]]:
+		"""The answer's account of itself, with these columns reported as reached."""
+
+		return {
+			key: {"more": False, "cursor": None, "total": None, "reached": key in keys}
+			for key in ("todo", "in_progress", "done", "cancelled")
+		}
+
 	plain, everything = (
 		_rendered(tmp_path, {"Board": {
-			"items": [open_row], "workspace": "projects", "selection": selection,
+			"items": [open_row], "workspace": "projects", "selection": {}, "cut": cut,
 		}})["Board"]
-		for selection in ({}, {"include_completed": "true"})
+		for cut in (
+			_reaching("todo", "in_progress"),
+			_reaching("todo", "in_progress", "done", "cancelled"),
+		)
 	)
 
 	assert plain.count("Not shown") == 2, (
-		f"a board that did not ask for finished work must say so for *both* finished "
-		f"categories, not only for done: {plain}"
+		f"a board whose answer reached neither finished column must say so for *both*, "
+		f"not only for done: {plain}"
 	)
 
 	assert "Not shown" not in everything, (
-		f"a board that asked for everything still claimed a column was withheld: {everything}"
+		f"a board whose answer reached every column still claimed one was withheld: {everything}"
 	)
 
 	assert "Nothing" in everything, (
@@ -10906,11 +10925,45 @@ def test_a_board_column_nobody_asked_for_does_not_report_that_it_is_empty (
 
 	**Driven rather than built**, because what is being checked is which of two empty states
 	`App` hands down — the decision `SAMPLES` cannot reach.
+
+	**The instance is what says which columns it reached, since `SR#2293`**, so that is what the
+	fixture answers with. It used to be worked out on this side from the selection, and the
+	whole of that item is that a page cannot: `completion_wanted` has five spellings and only
+	the instance knows which of them fired. The bodies below are the shape
+	`tests/test_grouping.py` drives out of the real endpoint.
 	"""
 
-	bare = _driven(tmp_path, pathname="/projects", search="?view=board")
+	def _grouped (*reached: str) -> dict[str, typing.Any]:
+		"""A grouped answer that reached these columns and left the rest alone."""
+
+		return {
+			"group_by": "status_category",
+			"held_back": None,
+			"unread": None,
+			"groups": [
+				{
+					"key": key,
+					"items": [],
+					"page": {
+						"limit": 25, "has_more": False, "next_cursor": None, "total": None,
+					},
+					"reached": key in reached,
+				}
+				for key in ("todo", "in_progress", "done", "cancelled")
+			],
+		}
+
+	# **Order matters, because `answered` takes the first fragment that matches.** The narrower
+	# address has to be asked about first or the board's own axis would answer for it.
+	bare = _driven(
+		tmp_path, pathname="/projects", search="?view=board",
+		answers={"group_by=status_category": _grouped("todo", "in_progress")},
+	)
 	asked = _driven(
 		tmp_path, pathname="/projects", search="?view=board&include_completed=true",
+		answers={
+			"include_completed=true": _grouped("todo", "in_progress", "done", "cancelled"),
+		},
 	)
 
 	assert "Not shown." in bare["said"], (
@@ -16139,12 +16192,35 @@ def test_what_arrived_is_read_the_same_way_whichever_shape_it_came_in (
 
 	assert [row["ref"] for row in grouped["rows"]] == [1, 2]
 	assert [row["kind"] for row in grouped["rows"]] == ["task", "task"]
-	assert grouped["cut"]["todo"] == {"more": True, "cursor": "more", "total": 275}
+	assert grouped["cut"]["todo"] == {
+		"more": True, "cursor": "more", "total": 275,
+		# **An answer with no `reached` on it reads as reached** — `SR#2293`, and this fixture
+		# is deliberately one: an instance a release behind sends no such key, and a client
+		# reading its absence as *withheld* would put *Not shown* over every column of a board
+		# that really did hold nothing.
+		"reached": True,
+	}
 	assert grouped["cut"]["in_progress"]["more"] is False
 
 	# **A grouped answer carries no collection cursor**, because there is no page of the board
 	# to continue — which is what makes *show more* widen every column instead.
 	assert grouped["more"] == {"tasks": None, "documents": None}
+
+	# **And an instance that does say so is carried through** — `SR#2293`. The pair above and
+	# below are the two states this key has, and the default alone would pass against a reader
+	# that ignored the field entirely.
+	withheld = _views(tmp_path, [
+		("unpacked", {
+			"answers": [{"group_by": "status_category", "groups": [
+				{"key": "done", "items": [],
+					"page": {"has_more": False, "next_cursor": None, "total": None},
+					"reached": False},
+			]}],
+			"wanted": [{"kind": "task"}],
+		}),
+	])[0]
+
+	assert withheld["cut"]["done"]["reached"] is False
 
 	assert plain["cut"] is None, (
 		f"an ungrouped answer reported columns it never split: {plain['cut']}"

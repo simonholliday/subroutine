@@ -73,6 +73,7 @@ def answer (
 	collection: str,
 	held_back: int | None = None,
 	unread: typing.Sequence[str] = (),
+	unreached: typing.Container[str] = frozenset(),
 ) -> fastapi.responses.JSONResponse:
 	"""Run one query once per group and return the groups, each with its own page.
 
@@ -136,19 +137,21 @@ def answer (
 
 	for group, rows, has_more, total in found:
 		groups.append(
-			{
-				"key": group,
-				# **Dumped here rather than handed back as models**, because this response is a
-				# plain document: a shaped item is a line or an address or a partial object,
-				# none of which is the entity the route declares.
-				#
-				"items": [
+			subroutine.views.Group[typing.Any](
+				key=group,
+				# **The items are dumped and the envelope is not** — `SR#2300`, and the split is
+				# the whole answer to why this was a hand-built dict for as long as grouping has
+				# existed. A shaped item is a line, an address or a partial object, none of which
+				# validates against the entity the route declares; ``group_by``, ``key``,
+				# ``page`` and the two facts about the answer have exactly one shape and are the
+				# half that kept losing fields.
+				items=[
 					item.model_dump(mode="json") if isinstance(item, pydantic.BaseModel) else item
 					for item in subroutine.api.shaping.applied(
 						list(itertools.islice(rendered, len(rows))), shape
 					)
 				],
-				"page": subroutine.views.Page(
+				page=subroutine.views.Page(
 					limit=size,
 					has_more=has_more,
 					next_cursor=(
@@ -159,8 +162,12 @@ def answer (
 						else None
 					),
 					total=total,
-				).model_dump(mode="json"),
-			}
+				),
+				# **Whether the request looked at this group at all** — `SR#2293`. An empty
+				# column the completion rule excluded is not an empty column, and the caller is
+				# the only one who can tell the difference once the rows have been counted.
+				reached=group not in unreached,
+			)
 		)
 
 	# **A ``JSONResponse``, so FastAPI passes it through rather than validating it against the
@@ -182,10 +189,10 @@ def answer (
 	# ``or None`` rather than an empty list, matching :class:`subroutine.views.Page` exactly:
 	# there is one spelling of *nothing to say* and a caller should not have to learn a second.
 	return fastapi.responses.JSONResponse(
-		content={
-			"group_by": axis,
-			"held_back": held_back,
-			"unread": list(unread) or None,
-			"groups": groups,
-		}
+		content=subroutine.views.Grouped[typing.Any](
+			group_by=axis,
+			held_back=held_back,
+			unread=list(unread) or None,
+			groups=groups,
+		).model_dump(mode="json")
 	)

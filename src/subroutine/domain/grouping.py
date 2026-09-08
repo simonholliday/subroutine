@@ -32,6 +32,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.vocabulary
 import subroutine.domain.filtering
+import subroutine.domain.tasks
 import subroutine.errors
 
 #: The one axis a listing can be grouped by today.
@@ -139,6 +140,43 @@ def keys_for (axis: str, *, kind: str) -> tuple[str, ...]:
 	"""Return every key an axis has, in the order a reader meets them."""
 
 	return AXES[kind][axis]
+
+
+def unreached (axis: str, *, kind: str, reaching_finished: bool) -> frozenset[str]:
+	"""Return the keys of the groups a listing's completion rule never looked at — `SR#2293`.
+
+	**A grouped request names an axis and not a value**, which is what makes this necessary.
+	:func:`subroutine.domain.tasks.completion_wanted` reaches finished work when something in
+	the request *asks* for it — a finished category, a finished status key, a ``completed_at``
+	comparison, the trash, a bare ref — and ``group_by=status_category`` asks for all four
+	categories at once, two of which are finished. So the rows for those two are excluded by
+	the ordinary default, and the groups come back empty rather than absent.
+
+	**An empty group and an unasked one are different facts**, which is the distinction this
+	module exists to preserve and the one its own docstring names. Saying so on the answer is
+	what stops each surface modelling the completion rule for itself: the browser carried such
+	a model and could only be right about the spellings it happened to know.
+
+	**Read through :func:`keys_for`, so the answer can only ever name groups the axis has.** A
+	kind whose categories are not about finishing — a document is ``draft``/``current``/
+	``superseded``/``archived`` — has none of these keys and gets an empty answer without a
+	branch saying so.
+
+	**And there is deliberately no second guard on the axis.** One reading `axis !=
+	`:data:`STATUS_CATEGORY` was written here and then removed: every answer it changed was
+	already empty, because the keys of any other axis cannot be a task's finished categories.
+	A clause that cannot change an answer is this codebase's inert control, and the reason to
+	take it out rather than leave it is that it reads as the thing doing the work.
+	"""
+
+	if reaching_finished:
+		return frozenset()
+
+	return frozenset(
+		key
+		for key in keys_for(axis, kind=kind)
+		if key in subroutine.domain.tasks.FINISHED_CATEGORIES
+	)
 
 
 def narrowings (

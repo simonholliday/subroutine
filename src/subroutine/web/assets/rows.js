@@ -726,11 +726,26 @@ export function Board ({
 		branch — so `?view=board&status_category=done` rendered *Not shown* above a footer reading
 		"Showing 100. There are more." Found by Simon on the first page he opened.
 
-		`excluded` is a model of what the instance did and can be wrong. The rows are a fact.
-		Where they disagree, the rows win.
+		**Two sources, and only one of them is a reading of anything** — `SR#2293`. The answer
+		says which columns the request never reached, so that half is a fact the instance
+		reported; `excluded` is what this page knows about its own address, which is a narrowing
+		the reader wrote here. This used to model the server's completion rule as well, and could
+		only be right about the spellings it knew.
+
+		The row count still comes first, and the reason is unchanged: an answer and a page of
+		rows can disagree — a changed default, or a selection that arrived after the rows it is
+		being read against — and the rows are the fact. Being wrong about an empty column costs
+		a word; being wrong about a full one costs the page.
 	*/
+	const unreached = (column) => {
+		const account = cut && cut[column.key];
+
+		return account ? account.reached === false : false;
+	};
+
 	const unasked = (column) =>
-		column.items.length === 0 && excluded(column.key, selection);
+		column.items.length === 0
+		&& (unreached(column) || excluded(column.key, selection));
 
 	/*
 		**A collapsed column is still a drop target, at its narrow width** (`#1008`). The

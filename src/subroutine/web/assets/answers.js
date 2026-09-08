@@ -383,6 +383,15 @@ export function unpacked (answers, wanted) {
 					total: group.page && group.page.total !== undefined
 						? group.page.total
 						: null,
+					/* **Whether the request reached this column at all** — `SR#2293`. A board
+					   that does not ask for finished work gets a *Done* column the query never
+					   looked at, and an empty column nobody asked about is not an empty column.
+
+					   **Absent reads as reached**, which is an instance a release behind rather
+					   than a column that was withheld — and it is the safe direction of the two:
+					   being wrong about an empty column costs a word, where claiming a column
+					   was not asked about hides work that is really there. */
+					reached: group.reached !== false,
 				};
 			});
 

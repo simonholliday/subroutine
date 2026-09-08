@@ -156,32 +156,31 @@ export const FINISHED = new Set(["done", "cancelled"]);
 
 export function excluded (key, selection) {
 	/*
-		Whether a selection left this status category out — `#744`.
+		Whether the reader's own selection left this status category out — `#744`, `SR#2293`.
 
-		**Three ways a column can be absent and they are one question**: *did this selection ask
-		for this category?* Keying on any one of them is what shipped a board whose *Done* column
-		reported *Not shown* while holding a hundred rows, and a *Cancelled* column that has
-		always said *Nothing* on a board nobody asked for finished work on.
+		**Half of what this used to be, and the half that is gone was a copy of a server rule.**
+		It also read *no `include_completed`, so `done` and `cancelled` were not asked for* —
+		which is `domain/tasks.completion_wanted` restated here, and that function has **five**
+		spellings: a finished category, a finished status key, a `completed_at` comparison, the
+		trash, and a bare ref. A model of it could only ever be right about the ones it happened
+		to know about, and this comment conceded as much in its own last paragraph.
+
+		`SR#2293` put the fact on the answer instead — a group says whether the request `reached`
+		it — so `Board` reads what the instance actually did and this copy is deleted rather than
+		corrected.
+
+		**What is left is not a model of anything.** `status_category=X` is a narrowing written
+		in this page's own address, so the other three columns were not asked about and this page
+		is the thing that knows it. There is nothing a round trip could add.
 
 		| Selection | Excluded |
 		| --- | --- |
 		| `status_category=X` | every category but `X` |
-		| no `include_completed` | `done` and `cancelled` |
-		| `include_completed=true` | nothing |
-
-		**Measured rather than read off the parameter's name**: a plain listing of this project on
-		the served instance returns `{'todo': 143}` — no `done`, and **no `cancelled` either**, so
-		the default excludes both finished categories rather than only the completed one.
-
-		This is a model of what the instance did, so it can be wrong; `Board` therefore never
-		lets it hide a row that actually arrived. Being wrong about an empty column costs a word,
-		and being wrong about a full one costs the page.
+		| anything else | nothing here — the answer says |
 	*/
 	const chose = selection || {};
 
-	if (chose.status_category !== undefined) return key !== chose.status_category;
-
-	return chose.include_completed !== "true" && FINISHED.has(key);
+	return chose.status_category !== undefined && key !== chose.status_category;
 }
 
 export function completable (item) {
