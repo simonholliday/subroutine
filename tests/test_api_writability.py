@@ -1290,9 +1290,11 @@ NOT_A_FIELD_A_CALLER_SENDS = {
 		"is right in the sense that it named the task the caller meant. So this names *which "
 		"thing* is wrong rather than a parameter to correct. `id_or_ref` is sendable and is a "
 		"routing detail nobody reading a message would recognise.\n\n"
-		"**`documents.restore` used to be the other example here** and is not one any more: "
-		"its refusal existed because `uq_document_supersedes_id` made a chain unforkable, and "
-		"`SR#1684` retired the column and accepted that a link enforces no cardinality."
+		"**`documents.restore` used to be the other example here**, stopped being one when "
+		"`SR#1684` retired `uq_document_supersedes_id`, and has a refusal again since "
+		"`SR#2285` put that guarantee back on the link. It is deliberately not an entry: it "
+		"names **no** field, because a restore has no body and the ref in the path is the one "
+		"the caller meant. A refusal names something the caller can change, or nothing."
 	),
 }
 

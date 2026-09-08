@@ -785,6 +785,19 @@ def restore (
 	if document.deleted_at is None:
 		return document
 
+	# **The place this document held may have been taken while it was in the trash** —
+	# `SR#2285`, and this is the door the retired unique index closed by firing at flush time.
+	# It was a *partial* index, so deleting a replacement really did free the slot; coming back
+	# has to ask again, or *a document is superseded once* is a rule with a way round it.
+	for replaced, ref in _superseded_by(session, document):
+		refuse_a_second_successor(
+			session,
+			workspace_id=document.workspace_id,
+			superseded=replaced,
+			ref=ref,
+			by=document.id,
+		)
+
 	document.deleted_at = None
 	document.version += 1
 	session.flush()
@@ -800,6 +813,123 @@ def restore (
 	session.flush()
 
 	return document
+
+
+#: The relation that says one document replaces another, by key — `SR#2285`.
+#:
+#: **Read off the seed rather than written out again**, so the word this rule turns on exists
+#: in one place. Named here rather than in :mod:`subroutine.domain.links` because the rule it
+#: carries is about a *document* — a document is superseded once — and that module already
+#: reads this one for :data:`GOVERNS` and :data:`CURRENT_CATEGORY`, so the dependency runs the
+#: way it already runs.
+SUPERSEDES = subroutine.db.seed.SUPERSEDES_LINK[0].key
+
+
+def refuse_a_second_successor (
+	session: sqlalchemy.orm.Session,
+	*,
+	workspace_id: uuid.UUID,
+	superseded: uuid.UUID,
+	ref: int,
+	by: uuid.UUID | None = None,
+	field: str | None = None,
+) -> None:
+	"""Refuse a second live document superseding one, naming what already replaced it.
+
+	**A guarantee the schema used to carry and nothing replaced** — `SR#2285`. The retired
+	``document.supersedes_id`` had ``UNIQUE (supersedes_id) WHERE deleted_at IS NULL``, so a
+	document could be replaced once; superseding is a link now, and a link type enforces no
+	cardinality at all. Driven when the item was filed: two documents superseding one, both
+	accepted, and every surface that renders supersession draws both — so a reader asking
+	*which one is current* is given two answers and no way to choose.
+
+	**Partial, exactly as that index was.** A superseding document that has been thrown away is
+	not superseding anything, so it does not hold the place: delete the replacement and another
+	may take it, which is what ``WHERE deleted_at IS NULL`` meant. :func:`restore` is the other
+	door onto the same fact and asks this question again on the way back in — otherwise this
+	would be a rule with a way round it, which reads as an invariant and is not one.
+
+	``by`` is the document about to do the superseding, excluded so that asking twice is not a
+	conflict: :func:`subroutine.domain.links.create` is idempotent by (source, target, type),
+	and a refusal here would make a retried request fail where a repeated one succeeds.
+
+	``field`` is named only where the caller sent one. Creating the link did — ``target`` is
+	what they would change — and restoring did not: there is no body, and the path parameter
+	named exactly the document they meant. `#1534`'s rule is that a refusal names a field the
+	caller can correct or names none, never one they had no way to send.
+	"""
+
+	link = subroutine.db.models.work.Link
+	kind = subroutine.db.models.vocabulary.LinkType
+	successor = sqlalchemy.orm.aliased(subroutine.db.models.work.Document)
+
+	asking = [] if by is None else [successor.id != by]
+
+	held = session.scalars(
+		sqlalchemy.select(successor)
+		.join(link, link.source_id == successor.id)
+		.join(kind, kind.id == link.link_type_id)
+		.where(
+			link.workspace_id == workspace_id,
+			link.source_type == "document",
+			link.target_type == "document",
+			link.target_id == superseded,
+			link.deleted_at.is_(None),
+			kind.key == SUPERSEDES,
+			successor.deleted_at.is_(None),
+			*asking,
+		)
+	).first()
+
+	if held is None:
+		return
+
+	raise subroutine.errors.Conflict(
+		f"{subroutine.domain.refs.format_ref(ref)} has already been superseded by "
+		f"{subroutine.domain.refs.format_ref(held.ref)}.",
+		code="duplicate_key",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="duplicate_key",
+				message=f"{held.title!r} supersedes it.",
+			)
+		] if field is not None else [],
+		hint=(
+			"A document is replaced once, so that 'which one is current' has one answer. "
+			"Withdraw that link first, or supersede the replacement instead."
+		),
+	)
+
+
+def _superseded_by (
+	session: sqlalchemy.orm.Session, document: subroutine.db.models.work.Document
+) -> list[tuple[uuid.UUID, int]]:
+	"""Return the documents this one supersedes, as id and ref — `SR#2285`.
+
+	A list rather than one, because nothing stops a document replacing several: the rule this
+	feeds is about how many successors a document has, and never about how many predecessors.
+	"""
+
+	link = subroutine.db.models.work.Link
+	kind = subroutine.db.models.vocabulary.LinkType
+	replaced = sqlalchemy.orm.aliased(subroutine.db.models.work.Document)
+
+	return list(
+		session.execute(
+			sqlalchemy.select(replaced.id, replaced.ref)
+			.join(link, link.target_id == replaced.id)
+			.join(kind, kind.id == link.link_type_id)
+			.where(
+				link.workspace_id == document.workspace_id,
+				link.source_type == "document",
+				link.source_id == document.id,
+				link.target_type == "document",
+				link.deleted_at.is_(None),
+				kind.key == SUPERSEDES,
+			)
+		).tuples().all()
+	)
 
 
 def children_among (

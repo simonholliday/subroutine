@@ -45,6 +45,13 @@ import subroutine.permissions
 #: from a failing test (§14), and is not creatable through this module until those exist.
 LINKABLE = ("task", "document")
 
+#: One end of a chain, while a ring is being looked for — its kind and its id (`SR#2285`).
+#:
+#: **Not an :class:`End`**, which carries a row, a ref, a title and a project because it is
+#: what a *view* renders. A walk needs identity and nothing else, and building the rest of one
+#: per node would be a query per node in the middle of a refusal.
+_Node: typing.TypeAlias = tuple[str, uuid.UUID]
+
 #: The category a workspace's own *precedes* would carry: it says which of a pair comes first
 #: and holds nothing up. Seeded on nothing (`#1151` is whether it should be), and named here
 #: because :data:`SEQUENCING` is the only thing that reads it.
@@ -107,6 +114,20 @@ BEFORE_CATEGORIES: dict[str, str] = {
 #: **built from that module's own name for it**, so the nesting is structural rather than two
 #: literals that happen to agree. `#1156` is the record of what two agreeing literals cost.
 SEQUENCING = frozenset({subroutine.domain.readiness.GATING, ORDERING})
+
+#: The relation that asserts an order and is not in :data:`SEQUENCING` — `SR#2285`.
+#:
+#: **Named for the relation and not for its category, which is the decision rather than a
+#: shortcut.** ``supersedes`` is ``governing``, and so are ``derives_from`` and ``documents`` —
+#: and a ring of *documents* is two documents documenting each other, which is harmless and
+#: plausible. What this shares with :data:`SEQUENCING` is the sentence that set's own comment
+#: uses: anything that asserts which of a pair comes first. Superseding does; documenting does
+#: not.
+#:
+#: **Read off :mod:`subroutine.domain.documents`, where the word already lives**, and the cost
+#: `#1156` names is accepted with it: a workspace that renames this relation keeps the row and
+#: loses the rule. The alternative was refusing rings nobody has a reason to refuse.
+SUPERSEDING = subroutine.domain.documents.SUPERSEDES
 
 
 def settled (end: "End") -> bool:
@@ -348,6 +369,23 @@ def create (
 		link_type=link_type,
 	)
 
+	# **The other half of what `SR#1684` gave up** — `SR#2285`. The retired column was unique
+	# per superseded document, and a link type carries no cardinality at all, so two documents
+	# could replace one and every surface would render both.
+	if (
+		link_type.key == SUPERSEDING
+		and source.entity_type == "document"
+		and target.entity_type == "document"
+	):
+		subroutine.domain.documents.refuse_a_second_successor(
+			session,
+			workspace_id=workspace_id,
+			superseded=target.id,
+			ref=target.ref,
+			by=source.id,
+			field="target",
+		)
+
 	model = subroutine.db.models.work.Link
 
 	joins = sqlalchemy.and_(
@@ -468,23 +506,26 @@ def _refuse_a_loop (
 	``cycle_detected`` as covering "a chain of blocking links" since the registry was
 	written, and nothing produced one — a refusal published and never raised.
 
-	**``blocks`` alone**, because it is the only type :mod:`subroutine.domain.readiness`
-	reads: ``relates_to`` and ``documents`` describe a pair rather than sequencing it, and a
-	ring of them holds nothing up. Task to task alone for the same reason — a document has
-	no state that could finish.
+	**Anything that asserts which of a pair comes first**, which is :data:`SEQUENCING` and
+	:data:`SUPERSEDING`. ``relates_to`` and ``documents`` describe a pair rather than ordering
+	it, and a ring of those says nothing false.
+
+	**Not task to task, since `SR#2285`.** It was, and the reason given was
+	:mod:`subroutine.domain.readiness`'s — a document has no state that could finish — which is
+	an argument about *gating* and not about contradiction. Superseding is between documents by
+	construction, so that narrowing would have left the rule it was widened for unreachable;
+	and a ring of ``blocks`` with a document at one end is a statement that cannot be true
+	whatever readiness makes of it.
 	"""
 
-	if link_type.category not in SEQUENCING:
+	if link_type.category not in SEQUENCING and link_type.key != SUPERSEDING:
 		return
 
-	if source.entity_type != "task" or target.entity_type != "task":
-		return
-
-	chain = _blocks_reaching(
+	chain = _chain_reaching(
 		session,
 		workspace_id=workspace_id,
-		start=target.id,
-		looking_for=source.id,
+		start=(target.entity_type, target.id),
+		looking_for=(source.entity_type, source.id),
 		link_type_id=link_type.id,
 	)
 
@@ -536,6 +577,16 @@ def _why_a_ring_is_wrong (
 	none.
 	"""
 
+	# **A third ending, because a supersession ring is wrong in its own way** (`SR#2285`).
+	# Neither of the two below is true of it: nothing is held up, and the cost is not abstract
+	# — it is that *which one is current* stops having an answer, which is the one question
+	# superseding exists to answer.
+	if link_type.key == SUPERSEDING:
+		return (
+			"Then none of them would be the current one. Withdraw a link in that chain — "
+			"superseding runs one way, from the replacement to what it replaces."
+		)
+
 	wrong = (
 		"Neither could ever be started."
 		if link_type.category == subroutine.domain.readiness.GATING
@@ -566,60 +617,68 @@ def _why_a_ring_is_wrong (
 	)
 
 
-def _blocks_reaching (
+def _chain_reaching (
 	session: sqlalchemy.orm.Session,
 	*,
 	workspace_id: uuid.UUID,
-	start: uuid.UUID,
-	looking_for: uuid.UUID,
+	start: _Node,
+	looking_for: _Node,
 	link_type_id: uuid.UUID,
-) -> list[uuid.UUID] | None:
-	"""Return the chain of live ``blocks`` links from one task to another, or ``None``.
+) -> list[_Node] | None:
+	"""Return the chain of live links of one type from one item to another, or ``None``.
 
 	Breadth-first, **one query per level rather than one per node**, so a chain three deep
 	costs three statements however wide it is. Measured on this instance's own backlog when
 	the ordering was designed: 20 live blocking edges across 172 open tasks, deepest
 	transitive reach 3. It terminates on the visited set rather than on a depth limit, so a
 	graph that grows deeper is answered correctly rather than approximately.
+
+	**An end is a kind and an id since `SR#2285`**, because superseding runs between documents
+	and this used to walk tasks alone. The query still narrows on the id by itself: an id is a
+	UUID and cannot name a row in the other table, so carrying the kind into the ``WHERE``
+	would add a clause that can never change the answer while costing the index on the one
+	column worth narrowing by.
 	"""
 
 	model = subroutine.db.models.work.Link
-	came_from: dict[uuid.UUID, uuid.UUID] = {}
+	came_from: dict[_Node, _Node] = {}
 	frontier = [start]
 	seen = {start}
 
 	while frontier:
 		edges = session.execute(
-			sqlalchemy.select(model.source_id, model.target_id).where(
+			sqlalchemy.select(
+				model.source_type, model.source_id, model.target_type, model.target_id
+			).where(
 				model.workspace_id == workspace_id,
 				model.link_type_id == link_type_id,
-				model.source_type == "task",
-				model.target_type == "task",
-				model.source_id.in_(frontier),
+				model.source_id.in_([identifier for _, identifier in frontier]),
 				model.deleted_at.is_(None),
 			)
 		).all()
 
 		frontier = []
 
-		for came, reached in edges:
-			if reached in seen:
+		for came_kind, came, reached_kind, reached in edges:
+			node = (reached_kind, reached)
+
+			if node in seen:
 				continue
 
-			seen.add(reached)
-			came_from[reached] = came
+			seen.add(node)
+			came_from[node] = (came_kind, came)
 
-			if reached == looking_for:
-				return _walked_back(came_from, start=start, end=reached)
+			if node == looking_for:
+				return _walked_back(came_from, start=start, end=node)
 
-			frontier.append(reached)
+			frontier.append(node)
 
 	return None
 
 
 def _walked_back (
-	came_from: dict[uuid.UUID, uuid.UUID], *, start: uuid.UUID, end: uuid.UUID
-) -> list[uuid.UUID]:
+	came_from: dict[_Node, _Node], *, start: _Node, end: _Node
+) -> list[_Node]:
 	"""Return the path from ``start`` to ``end``, read out of how each node was reached."""
 
 	chain = [end]
@@ -630,24 +689,34 @@ def _walked_back (
 	return list(reversed(chain))
 
 
-def _refs_for (
-	session: sqlalchemy.orm.Session, identifiers: list[uuid.UUID]
-) -> list[int]:
-	"""Return the refs of these tasks, in the order they were given.
+def _refs_for (session: sqlalchemy.orm.Session, chain: list[_Node]) -> list[int]:
+	"""Return the refs of these items, in the order they were given.
 
-	Read in one statement rather than per item: the chain is short, and a loop of queries in
-	the middle of building a refusal is the kind of thing that only shows up when the refusal
-	fires, which is the one time it must not be slow.
+	Read in one statement per kind rather than per item: the chain is short, and a loop of
+	queries in the middle of building a refusal is the kind of thing that only shows up when
+	the refusal fires, which is the one time it must not be slow.
 	"""
 
-	model = subroutine.db.models.work.Task
-	found: dict[uuid.UUID, int] = dict(
-		session.execute(
-			sqlalchemy.select(model.id, model.ref).where(model.id.in_(identifiers))
-		).tuples().all()
-	)
+	found: dict[uuid.UUID, int] = {}
 
-	return [found[identifier] for identifier in identifiers if identifier in found]
+	for entity_type, model in (
+		("task", subroutine.db.models.work.Task),
+		("document", subroutine.db.models.work.Document),
+	):
+		wanted = [
+			identifier for kind, identifier in chain if kind == entity_type
+		]
+
+		if not wanted:
+			continue
+
+		found.update(
+			session.execute(
+				sqlalchemy.select(model.id, model.ref).where(model.id.in_(wanted))
+			).tuples().all()
+		)
+
+	return [found[identifier] for _, identifier in chain if identifier in found]
 
 
 def remove (

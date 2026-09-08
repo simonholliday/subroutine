@@ -130,7 +130,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			409,
 			"Already exists",
 			"Something with that identifying value is already here — a project key, a "
-			"username, a tag name.",
+			"username, a tag name, or a document that has already been superseded.",
 		),
 		_define(
 			"in_use",
@@ -146,7 +146,8 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			409,
 			"Cycle detected",
 			"The change would make something its own ancestor, in a project tree, a task "
-			"hierarchy or a chain of blocking links.",
+			"hierarchy, or a chain of links that say which of a pair comes first — the "
+			"blocking ones, and the one that says a document replaces another.",
 		),
 		_define(
 			"schema_mismatch",

@@ -751,60 +751,148 @@ def test_a_document_can_be_nested_over_http (world: test_api_tasks.World) -> Non
 	assert loose.json()["parent_id"] is None
 
 
-def test_two_documents_may_now_claim_to_replace_the_same_one (
+def test_a_document_cannot_be_superseded_twice_and_the_trash_frees_the_place (
 	world: test_api_tasks.World,
 ) -> None:
-	"""The guarantee `SR#1684` gave up, asserted rather than left to be discovered.
+	"""`SR#2285`, and it **reverses what this test asserted** between `SR#1684` and now.
 
-	**A refusal used to stand here and its reason has gone.** `uq_document_supersedes_id` made
-	a supersession chain unforkable, and because that index was partial — it ignored deleted
-	rows, like every unique index in this schema — a document could be thrown away, replaced,
-	and then restored, at which point the constraint fired at flush time as an unhandled
-	``IntegrityError``: a 500 over HTTP and a bare traceback at the terminal. `documents.restore`
-	carried a check that turned it into a 409 naming what had taken the place.
+	`uq_document_supersedes_id` made a supersession chain unforkable, and when superseding
+	became a link that guarantee was not replaced — a link type carries no cardinality. This
+	test stood in its place, recording the fork as a thing deliberately given up so that
+	somebody meeting one later would not read it as a bug. Simon decided on 2026-09-08 to put
+	the rule back: every surface renders supersession from both ends, so a fork gives a reader
+	two answers to *which one is current*, and refusing is cheaper than teaching four
+	renderers to cope with one.
 
-	**A link type enforces no cardinality**, so a fork is now simply allowed and the restore is
-	an ordinary one. That is a real thing given up, and it is written down on `SR#1684` as such
-	— nobody had asked for the restriction and nothing relied on it, but somebody meeting a
-	forked chain later should find this rather than conclude it is a bug.
-
-	`projects.restore`'s equivalent check is untouched: a project key is still unique.
+	**The partial half of the old index is restored with it**, which is what the middle of this
+	test is: the index ignored deleted rows, so throwing a replacement away really did free the
+	place. That is a coherent thing to do — the replacement was wrong, take it back — and it is
+	the only way to change your mind about a supersession without unlinking.
 	"""
 
 	original = world.call("POST", "/v1/documents", json={"title": "Original"}).json()
 	first = world.call("POST", "/v1/documents", json={"title": "Replacement"}).json()
 	second = world.call("POST", "/v1/documents", json={"title": "Second try"}).json()
 
-	def replaces (successor: dict[str, typing.Any]) -> int:
+	def replaces (successor: dict[str, typing.Any]) -> typing.Any:
 		"""Draw a supersedes link from one document to the original."""
 
-		return int(
-			world.call(
-				"POST",
-				f"/v1/documents/{successor['ref']}/links",
-				json={
-					"target": original["ref"],
-					"target_type": "document",
-					"link_type": "supersedes",
-				},
-			).status_code
+		return world.call(
+			"POST",
+			f"/v1/documents/{successor['ref']}/links",
+			json={
+				"target": original["ref"],
+				"target_type": "document",
+				"link_type": "supersedes",
+			},
 		)
 
-	assert replaces(first) == 201
+	assert replaces(first).status_code == 201
+
+	forked = replaces(second)
+
+	assert forked.status_code == 409, forked.text
+	assert forked.json()["code"] == "duplicate_key"
+	assert f"#{first['ref']}" in forked.json()["detail"], (
+		f"the refusal did not name what had already replaced it: {forked.text}"
+	)
+
+	# **Asking again is not a fork**, because `links.create` is idempotent by (source, target,
+	# type) — a client retrying a request it is unsure landed must not be told it conflicts.
+	assert replaces(first).status_code in (200, 201)
+
 	world.call("DELETE", f"/v1/documents/{first['ref']}")
 
-	assert replaces(second) == 201, "the place really was taken while it was in the trash"
+	assert replaces(second).status_code == 201, (
+		"a replacement in the trash is not replacing anything, and the old index said so"
+	)
 
+	# **And coming back out of the trash asks the question again.** Without this the rule has a
+	# way round it — replace, delete, replace, restore — which is the door the retired index
+	# closed by firing at flush time, and which `documents.restore` used to turn into a 409.
 	answered = world.call("POST", f"/v1/documents/{first['ref']}/restore")
 
-	assert answered.status_code == 200, answered.text
+	assert answered.status_code == 409, answered.text
+	assert f"#{second['ref']}" in answered.json()["detail"], answered.text
 
-	# Both ends now say they replace the same document, which the column could not express.
 	ends = world.call("GET", f"/v1/documents/{original['ref']}/links").json()["items"]
 
-	assert sorted(end["other"]["ref"] for end in ends) == sorted(
-		[first["ref"], second["ref"]]
-	), ends
+	# **The deleted one is still linked and that is right** — a link to something in the trash
+	# is reported with the trash date on it, and `links.remove` is the way to withdraw one.
+	# What the rule is about is how many *live* documents claim to replace this.
+	assert [
+		end["other"]["ref"] for end in ends if end["other"]["deleted_at"] is None
+	] == [second["ref"]], (
+		f"exactly one live document replaces it, and that is the whole rule: {ends}"
+	)
+
+
+def test_a_ring_of_supersessions_is_refused_and_says_what_it_would_cost (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#2285`. §10.7 invariant 12 said a supersession chain never forms a ring, and nothing
+	enforced it once the column went.
+
+	**A ring is the one shape where the refusal has to explain itself**, because nothing is
+	held up by it: *A supersedes B supersedes A* leaves both documents perfectly usable and
+	neither of them current. So the hint says that rather than the deadlock sentence a
+	``gating`` ring earns, which would be false here.
+
+	**The rule is named for `supersedes` and not for its category**, which the neighbour below
+	is the other half of: ``governing`` also holds ``documents``, where a ring is two documents
+	documenting each other and costs nobody anything.
+	"""
+
+	first = world.call("POST", "/v1/documents", json={"title": "First"}).json()["ref"]
+	second = world.call("POST", "/v1/documents", json={"title": "Second"}).json()["ref"]
+
+	def supersedes (source: int, target: int) -> typing.Any:
+		"""Say that one document replaces another."""
+
+		return world.call(
+			"POST",
+			f"/v1/documents/{source}/links",
+			json={"target": target, "target_type": "document", "link_type": "supersedes"},
+		)
+
+	assert supersedes(first, second).status_code == 201
+
+	closing = supersedes(second, first)
+
+	assert closing.status_code == 409, closing.text
+	assert closing.json()["code"] == "cycle_detected"
+	assert "none of them would be the current one" in closing.json()["hint"], closing.text
+	assert "Neither could ever be started" not in closing.text, (
+		"the deadlock sentence belongs to a gating ring and is false of this one"
+	)
+
+
+def test_a_ring_of_documents_documenting_each_other_is_allowed (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#2285`, and this is what says the rule is on the relation rather than the category.
+
+	The cold review recommended widening the ring refusal to the whole ``governing`` category.
+	Measured before building: that category holds ``derives_from``, ``documents`` and
+	``supersedes``, and two documents that document each other is an ordinary, harmless thing
+	to say. What ``supersedes`` shares with the sequencing relations is that it asserts which
+	of a pair comes first, which is the axis the refusal is actually written against.
+	"""
+
+	first = world.call("POST", "/v1/documents", json={"title": "First"}).json()["ref"]
+	second = world.call("POST", "/v1/documents", json={"title": "Second"}).json()["ref"]
+
+	def documents (source: int, target: int) -> typing.Any:
+		"""Say that one document documents another."""
+
+		return world.call(
+			"POST",
+			f"/v1/documents/{source}/links",
+			json={"target": target, "target_type": "document", "link_type": "documents"},
+		)
+
+	assert documents(first, second).status_code == 201
+	assert documents(second, first).status_code in (200, 201)
 
 
 def test_a_document_owner_must_be_somebody_who_can_see_it (
