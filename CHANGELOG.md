@@ -696,6 +696,30 @@ upgrade involves.
 
 ### Fixed
 
+- **A board's finished columns said *Nothing* about work it had never asked for.**
+
+  A listing reaches finished work only when something in the request asks for it, and grouping
+  asks for an *axis* rather than a value — so a board that did not ask for finished work drew a
+  *Done* column the query had never looked at, and an empty column reads as *there is nothing
+  left*. Each group now says whether the request reached it, and the browser reads that instead
+  of working it out for itself, which it could only do for the spellings it happened to know.
+
+- **`--filter` written twice kept only the last one, silently.**
+
+  `subroutine list --filter tag.eq=ops --filter tag.eq=web` asked about `web` alone. A repeated
+  name is an intersection — a written search line has always ANDed one, and so has the HTTP API
+  — and it was the clients that could not express it. The wrong answer was a *superset*, which
+  is the kind nobody notices: a listing narrowed by half the question still looks like a
+  listing.
+
+- **A filter on who is holding an item answered with claims that had run out.**
+
+  A claim is a lease: it expires, an expired one is ignored, and `--ready` has always offered
+  the work again. `--claimed-by` agreed; `--filter claimed_by.eq=…` matched the column without
+  looking at the clock, so one name meant two things. Asking *what am I holding* handed back
+  work last touched weeks earlier. `claimed_by.is=unset` now reaches those rows, which is what
+  *nobody is holding this* means, and the row still records who held it last.
+
 - **An item's page drew its project, its tags and its assignee as plain text.**
 
   Those chips are links on every row, board card and agenda line, and were dead on the page you
@@ -1093,6 +1117,25 @@ upgrade involves.
   means standard input, which is what it means everywhere else on the machine.
 
 ### Changed
+- **`is not` on a rank now includes the work nobody has ranked.**
+
+  `urgency.ne=3` compared the column and skipped every task with no urgency set, because a
+  comparison against a column that holds nothing is neither true nor false. An unranked task is
+  certainly not one of the ones you said were 3. Both readings are available: `urgency.ne=3`
+  is *everything that is not 3*, and `urgency.ne=3 urgency.is=set` is *the ranked ones that are
+  not 3*, because two comparisons about one field are asked together. Applies to `importance`,
+  `urgency` and `estimate_minutes`.
+
+- **A document is superseded once, and a supersession cannot come back round to where it
+  started.**
+
+  Both were guarantees the old `supersedes` column carried and neither survived its becoming a
+  link. Two documents could claim to replace one, and every surface draws supersession from
+  both ends — so *which one is current* had two answers. A ring was accepted too, which leaves
+  nothing in the chain current at all. Both are refused by name, and the refusal says what
+  already took the place. Deleting a replacement still frees it, so changing your mind works as
+  it did.
+
 - **A backup directory holds three kinds of copy, and each now has its own lifetime.**
 
   > **`db backup --keep N` counts routine backups only.** It counted every copy in the
