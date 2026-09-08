@@ -2283,6 +2283,73 @@ def test_a_readiness_listing_says_how_much_it_held_back (world: World) -> None:
 	)
 
 
+def test_what_was_held_back_is_counted_inside_the_listing_that_says_it (
+	world: World,
+) -> None:
+	"""The count and the listing differ by the readiness rule and nothing else — `SR#2286`.
+
+	**The sentence beneath a listing is a claim about that listing.** *N more things waiting on
+	something they are filed under* printed under a search whose answer those rows are not part
+	of is a false statement about the page in front of the reader, and it was printed under
+	every narrowing except ``ready`` itself: the count ran above ``to_act_on``, the assignee,
+	the claim, the search residue and every dotted filter.
+
+	**Its own comment claimed the opposite**, which is why reading did not find it — *"Counted
+	from the statement as it stands, before `ready` narrows it — so the count and the listing
+	differ by exactly the rule and nothing else."* True of the line it sat on, false of where
+	that line was.
+
+	**Three narrowings, because one would not distinguish the fix from a coincidence.** A
+	search, a dotted filter and an assignee each exclude the held-back rows for a different
+	reason and through a different mechanism.
+	"""
+
+	groundwork = world.call("POST", "/v1/tasks", json={"title": "Groundwork"}).json()
+	milestone = world.call("POST", "/v1/tasks", json={"title": "The milestone"}).json()
+	_filed_under(world, milestone, "One part")
+	_filed_under(world, milestone, "Another part")
+	_blocking(world, groundwork["ref"], milestone["ref"])
+
+	world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Unrelated", "urgency": 5, "assignee": world.user.username},
+	)
+
+	whole = world.call("GET", "/v1/tasks?ready=true&limit=50").json()["page"]
+
+	assert whole["held_back"] == 2, (
+		f"the two parts are held back by the milestone above them: {whole}"
+	)
+
+	for narrowing, why in (
+		("&q=Unrelated", "a search neither held-back row matches"),
+		("&urgency.gte=5", "a filter on a field neither held-back row has"),
+		(f"&assignee={world.user.username}", "a narrowing to what is assigned to somebody"),
+	):
+		answer = world.call("GET", f"/v1/tasks?ready=true&limit=50{narrowing}").json()
+		titles = [row["title"] for row in answer["items"]]
+
+		assert "One part" not in titles and "Another part" not in titles, (
+			f"{narrowing} did not exclude the held-back rows, so this proves nothing: {titles}"
+		)
+		assert answer["page"]["held_back"] == 0, (
+			f"{narrowing} — {why} — still reported "
+			f"{answer['page']['held_back']} waiting on something they are filed under, about "
+			f"rows the caller's own request had already excluded"
+		)
+
+	# **And a narrowing that does *not* exclude them still counts them**, which is the half
+	# that stops this passing for a version that simply reports zero. `to_act_on` is *assigned
+	# to me, or to nobody, or held by me*, and both parts are unassigned — so they are exactly
+	# the work this caller could start if their parent could, and saying so is the point.
+	actionable = world.call("GET", "/v1/tasks?ready=true&limit=50&to_act_on=true").json()
+
+	assert actionable["page"]["held_back"] == 2, (
+		f"a narrowing the held-back rows satisfy stopped counting them: {actionable['page']}"
+	)
+
+
 def test_a_listing_that_did_not_ask_about_readiness_says_nothing_about_it (
 	world: World,
 ) -> None:

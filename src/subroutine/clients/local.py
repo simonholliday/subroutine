@@ -576,29 +576,7 @@ class Client:
 					)
 					fallback = (f"-{subroutine.domain.ordering.RELEVANCE}",)
 
-			# **After the deferral filter, which it subsumes**, and in the same order the
-			# endpoint applies them: `ready` already excludes anything parked, so combining the
-			# two narrows rather than contradicts. One predicate, shared with `GET /v1/tasks`,
-			# because a readiness that meant something different here would be worse than none.
-			# **Counted before `ready` narrows it**, so the count and the listing differ by
-			# exactly the rule — the same shape and the same predicate the endpoint uses, for
-			# `#1610`'s other half. Computed here rather than read off a response, because
-			# there is no response: this transport is the instance.
 			held_back = None
-
-			if ready:
-				held_back = session.scalar(
-					sqlalchemy.select(sqlalchemy.func.count()).select_from(
-						statement.where(
-							subroutine.domain.readiness.held_under_a_blocked_ancestor(
-								model, now=now, by=actor.user.id
-							)
-						).subquery()
-					)
-				)
-				statement = statement.where(
-					subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
-				)
 
 			# **The agenda's predicate, on this transport too** (`#1600`). It composes with
 			# `ready` rather than replacing it: *what can I start* and *whose is it* are
@@ -764,6 +742,17 @@ class Client:
 			subroutine.domain.ordering.refuse_ranking_without_a_search(
 				order, searching=subroutine.domain.ordering.RELEVANCE in sortable
 			)
+
+			# **Last, and through the same function the endpoint calls** — `SR#2286`. Both
+			# transports counted this inline and both counted it too early, so one command
+			# could report rows its own search had excluded. Computed here rather than read off
+			# a response because there is no response: this transport is the instance.
+			if ready:
+				held_back, statement = (
+					subroutine.domain.readiness.counting_what_is_held_back(
+						session, statement, model=model, now=now, by=actor.user.id
+					)
+				)
 
 			rows = list(
 				session.scalars(

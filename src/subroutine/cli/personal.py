@@ -4192,11 +4192,35 @@ def _listed (
 			# And it is equally false when everything on the list is simply parked, which
 			# is the case a person hits after deferring the last thing they were avoiding.
 			# Telling them to add something would be advice about a list they have.
-			if hiding and any(answer.value.parked for answer in gathered.answers):
+			#
+			# **Two axes, not one** — `SR#2287`. Work can be absent because it starts later or
+			# because it sits under something that cannot start, and `_say_held_back` was
+			# reachable only from the branch that prints rows. So `list --ready` on a plan where
+			# everything startable is under a blocked parent said *Nothing on your list.* and
+			# suggested adding a task — which is the exact failure that function's own docstring
+			# says it exists to prevent, met on the page it was written for.
+			#
+			# **Written as two independent statements, and today only one can fire.** The
+			# parked count is skipped entirely under `--ready` — by decision at its own site,
+			# since readiness already excludes deferred work — while `held_back` is counted
+			# only when readiness was asked for. So they are mutually exclusive by
+			# construction, measured rather than assumed, and this does not depend on that:
+			# they are separate facts with separate remedies, and a reader told about one
+			# would otherwise be entitled to assume there is not another.
+			parked = hiding and any(answer.value.parked for answer in gathered.answers)
+			waiting = any(answer.value.held_back for answer in gathered.answers)
+
+			if parked or waiting:
 				# Not "nothing to do today" — that is the agenda's sentence, and `list` is
-				# not the agenda. What is true is that everything open starts later.
+				# not the agenda. What is true is that everything open starts later, or is
+				# waiting on something above it.
 				program.say("Nothing you can start yet.")
-				_say_parked(gathered, console=program.console, hidden=True)
+
+				if parked:
+					_say_parked(gathered, console=program.console, hidden=True)
+
+				if waiting:
+					_say_held_back(gathered, console=program.console)
 
 				return
 

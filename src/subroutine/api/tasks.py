@@ -661,25 +661,7 @@ def listing (
 	if narrowing is not None:
 		statement = statement.where(narrowing)
 
-	# **Counted from the statement as it stands, before `ready` narrows it** — so the count and
-	# the listing differ by exactly the rule and nothing else. `#1610`'s other half: the
-	# exclusion is silent otherwise, and *nothing to do* and *all of it is waiting on something
-	# above it* are the two states a reader most needs told apart.
 	held_back = None
-
-	if ready:
-		held_back = session.scalar(
-			sqlalchemy.select(sqlalchemy.func.count()).select_from(
-				statement.where(
-					subroutine.domain.readiness.held_under_a_blocked_ancestor(
-						model, now=now, by=actor.user.id
-					)
-				).subquery()
-			)
-		)
-		statement = statement.where(
-			subroutine.domain.readiness.ready(model, now=now, by=actor.user.id)
-		)
 
 	# **The agenda's own predicate, and it was reachable from one surface** — `#1600`, decision
 	# `#1267` §1. Assigned to you, **or to nobody**, or held by you. `#1265` said *"no other
@@ -793,6 +775,16 @@ def listing (
 	# was answered "not a field this listing can sort by" — about a field the same instance
 	# advertises, and which the README tells a client to rely on.
 	subroutine.domain.ordering.refuse_ranking_without_a_search(order, searching=ranked is not None)
+
+	# **Last, after every other narrowing** — `SR#2286`. The count and the listing have to
+	# differ by exactly the readiness rule, and this used to run above `to_act_on`, the
+	# assignee, the claim, the search and every dotted filter — so `?ready=true&q=unrelated`
+	# reported rows the caller's own search had already excluded. After the refusal above, so a
+	# request that is going to be turned down does not pay for a `COUNT` first.
+	if ready:
+		held_back, statement = subroutine.domain.readiness.counting_what_is_held_back(
+			session, statement, model=model, now=now, by=actor.user.id
+		)
 
 	return _page(
 		session,

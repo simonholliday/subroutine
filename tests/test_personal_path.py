@@ -4180,6 +4180,55 @@ def test_a_list_that_is_entirely_parked_does_not_read_as_empty (
 	assert 'subroutine add "something to do"' not in listed
 
 
+def test_a_list_held_back_by_a_blocked_parent_does_not_read_as_empty (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The same rule as the test above, on the axis it was never applied to — `SR#2287`.
+
+	``_say_held_back`` states the failure it exists to prevent in its own docstring — *"There is
+	nothing to do and all of it is waiting on something above it read identically as an empty
+	page, and the second is the ordinary state of somebody's first morning on a real plan"* —
+	and was reachable only from the branch that prints rows. So the one page it was written for
+	said *Nothing on your list* and suggested adding a task, about a plan with work in it.
+
+	**The blocker is parked rather than open**, because an open one is itself startable and the
+	page would not be empty — which is the state this is about.
+	"""
+
+	run("init")
+	# **Parked rather than merely open**, so that nothing at all is startable — an open blocker
+	# is itself startable and would keep the page from being empty, which is the state this is
+	# about. It also puts both axes on one page, which is the second half below.
+	run("add", "Groundwork from 2099-01-01")
+	run("add", "The milestone")
+	run("add", "One part")
+	run("move", "3", "--under", "2")
+	run("link", "1", "blocks", "2")
+
+	listed = run("list", "--ready").output
+
+	assert "Nothing on your list" not in listed, (
+		f"a plan with work in it read as an empty list: {listed}"
+	)
+	assert "Nothing you can start yet" in listed, listed
+	assert "waiting on something they are filed under" in listed, (
+		f"nothing said why the page is empty, which is the whole of `SR#1610`'s other "
+		f"half: {listed}"
+	)
+	assert 'subroutine add "something to do"' not in listed, (
+		f"it advised adding a task to a plan that already has one: {listed}"
+	)
+
+	# **Not asserted here: that both axes speak at once.** Measured — the parked count is
+	# skipped under `--ready` by decision at its own site, because readiness already excludes
+	# deferred work, so the two can never be non-zero on one page. The branch is written as two
+	# independent statements anyway and this says why that is not tested rather than leaving a
+	# reader to wonder.
+	assert "put off until later" not in listed, (
+		f"a parked count appeared under --ready, where its own site skips it: {listed}"
+	)
+
+
 def test_the_scripted_listing_is_never_narrowed_by_a_presentation_rule (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

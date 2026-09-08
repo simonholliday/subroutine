@@ -276,6 +276,46 @@ def under_a_blocked_ancestor (
 	)
 
 
+def counting_what_is_held_back (
+	session: sqlalchemy.orm.Session,
+	statement: sqlalchemy.Select[typing.Any],
+	*,
+	model: type[typing.Any],
+	now: datetime.datetime,
+	by: uuid.UUID,
+) -> tuple[int, sqlalchemy.Select[typing.Any]]:
+	"""Count what the readiness rule is about to exclude, then exclude it — `#1610`, `SR#2286`.
+
+	**The count and the listing must differ by exactly the rule and nothing else**, which is the
+	whole of what makes the sentence beneath a listing true. *There is nothing to do* and *all
+	of it is waiting on something above it* are the two states a reader most needs told apart,
+	and the second is the ordinary state of somebody's first morning on a real plan.
+
+	**So this is called last, after every other narrowing.** Both transports wrote the count
+	inline and both wrote it in the same wrong place — above ``to_act_on``, the assignee, the
+	claim, the search and every dotted filter — so ``?ready=true&q=unrelated`` printed *2 more
+	things waiting on something they are filed under* about rows that match neither the search
+	nor anything else the caller asked for. Two copies of one rule that agreed, and agreeing is
+	what kept them invisible.
+
+	**A function rather than a comment saying "call this last"**, because the two had already
+	drifted in a second way: they counted at different points, so one command could print a
+	different number on each transport. Returning the narrowed statement is what makes the
+	order impossible to get wrong — a caller cannot apply ``ready`` without having counted,
+	and cannot count without being handed back the statement to go on with.
+	"""
+
+	held_back = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count()).select_from(
+			statement.where(
+				held_under_a_blocked_ancestor(model, now=now, by=by)
+			).subquery()
+		)
+	)
+
+	return held_back or 0, statement.where(ready(model, now=now, by=by))
+
+
 def a_container (
 	model: type[typing.Any], *, now: datetime.datetime
 ) -> sqlalchemy.ColumnElement[bool]:

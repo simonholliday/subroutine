@@ -2143,7 +2143,14 @@ def _listed (
 		# *Nothing open.* is then a true sentence that sends a model to the wrong conclusion,
 		# which is the shape `#615` names. Said here rather than only beside rows, because the
 		# branch with no rows is the one that needs it.
-		return "\n".join(["Nothing open.", *_could_not_read(tasks, documents)])
+		# **And what readiness held back, which this branch is the whole reason for** —
+		# `SR#2287`. The line below said so beside rows and returned above it here, so the one
+		# answer that cannot be interrogated — no rows at all — was the one that explained
+		# nothing. *Nothing open* and *all of it is waiting on something above it* are the same
+		# page to a model otherwise, and the second is the ordinary state of a real plan.
+		return "\n".join(
+			["Nothing open.", *_waiting_on_a_parent(tasks), *_could_not_read(tasks, documents)]
+		)
 
 	# **What is held back is said, never simply absent** — docs/design.md §12.2a, and this
 	# branch was the one place here that did not (`#1071`). The agenda ten lines above says
@@ -2169,12 +2176,7 @@ def _listed (
 	# the reason `#33`'s parked count is: this set is bounded by the work under blocked
 	# ancestors rather than by the whole result, so it is one cheap count and not §8.4's
 	# second full scan.
-	if tasks.held_back:
-		things = "thing" if tasks.held_back == 1 else "things"
-		rows.append(
-			f"{tasks.held_back} more {things} are startable except that something they are "
-			f"filed under cannot start. Read the parent to see what is holding it up."
-		)
+	rows.extend(_waiting_on_a_parent(tasks))
 
 	# **What the line carried that could not be read as a filter** — `SR#2268`, `#1806`. A term
 	# naming a field that cannot compare that way is searched for **as text**, which is what
@@ -2189,6 +2191,37 @@ def _listed (
 	rows.extend(_could_not_read(tasks, documents))
 
 	return "\n".join(rows)
+
+
+def _waiting_on_a_parent (tasks: typing.Any) -> list[str]:
+	"""Return what readiness held back, as the one sentence both branches say — `SR#2287`.
+
+	**A function rather than the line written twice**, because §13.5b asserts the *absence* of
+	vocabulary and a reworded refusal can fail the build — so two copies of a user-facing
+	sentence is a rule waiting to be broken by whoever edits the nearer one.
+
+	**A number here where ``has_more`` is a flag**, and the difference is affordable for the
+	reason `#33`'s parked count is: this set is bounded by the work under blocked ancestors
+	rather than by the whole result, so it is one cheap count and not §8.4's second full scan.
+	"""
+
+	held_back = getattr(tasks, "held_back", None)
+
+	if not held_back:
+		return []
+
+	# **The verb and the pronoun agree too** — `SR#2301`. This switched the noun alone, so one
+	# held-back row read *"1 more thing are startable except that something they are filed
+	# under"*. It has been reachable since `#1610` and the test asserted the plural only, so
+	# nothing had ever rendered the singular.
+	said = (
+		"1 more thing is startable except that something it is filed under cannot start."
+		if held_back == 1
+		else f"{held_back} more things are startable except that something they are filed "
+		f"under cannot start."
+	)
+
+	return [f"{said} Read the parent to see what is holding it up."]
 
 
 def _could_not_read (*listings: typing.Any) -> list[str]:

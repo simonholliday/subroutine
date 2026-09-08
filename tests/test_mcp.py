@@ -3462,6 +3462,48 @@ def test_a_ready_listing_tells_an_agent_what_is_waiting_on_something_above_it (
 	)
 
 
+def test_an_empty_ready_listing_still_says_what_is_waiting_above_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The branch the sentence above was written for, and the one it could not reach — `SR#2287`.
+
+	The test above proves it beside rows. **With no rows at all the function returned first**:
+	``if not rows`` answered *Nothing open.* and the held-back line sat below that return. So
+	the one answer an agent genuinely cannot interrogate — nothing came back — was the one that
+	explained nothing, which is precisely what this feature's own comment says it exists to
+	prevent: *"``ready`` is the call an agent makes with no other context, so an empty or short
+	answer is the one it cannot interrogate."*
+
+	**The blocker is deferred rather than open**, because an open one is itself startable and
+	would keep the answer from being empty — which is the state this is about.
+
+	One sentence for both branches, from ``_waiting_on_a_parent``, because §13.5b asserts the
+	absence of vocabulary and two copies of a user-facing line is that rule waiting to be broken
+	by whoever edits the nearer one.
+	"""
+
+	groundwork = _added(bound, "Groundwork from 2099-01-01")
+	milestone = _added(bound, "The milestone")
+
+	_called(bound, "subroutine_add", text="One part", parent=milestone)
+	_called(bound, "subroutine_link", ref=groundwork, type="blocks", other=milestone)
+
+	offered, failed = _called(bound, "subroutine_list", ready=True)
+
+	assert not failed, offered
+	assert "One part" not in offered, f"the held-back row was offered as ready:\n{offered}"
+	assert "Nothing open" in offered, (
+		f"this is not the empty branch, so it is not the case under test:\n{offered}"
+	)
+	assert "1 more thing is startable except that something it is filed under" in offered, (
+		f"an agent was told there is nothing to do about a plan with work in it, which is the "
+		f"answer it has no way to question:\n{offered}"
+	)
+	assert "Read the parent" in offered, (
+		f"the remedy went unsaid on the branch that most needs it:\n{offered}"
+	)
+
+
 def test_a_listing_that_is_everything_says_nothing_extra (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
