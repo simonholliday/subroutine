@@ -374,6 +374,33 @@ def authorize_instance (
 	raise AuthorizationError(failure, permission=permission)
 
 
+def reaches_the_whole_installation (
+	principal: subroutine.domain.authentication.Principal,
+) -> bool:
+	"""Report whether this credential may be asked about the installation as a whole.
+
+	**A pinned credential is still pinned** — `#344`, and `SR#2282` is what happens without
+	this. ``pinned_workspace_id`` is somebody saying *this token is for that workspace*, and an
+	instance-wide question is by construction not about one workspace. So a pin is a refusal
+	here even when the credential also carries ``instance:admin``, because pinning is precisely
+	the control an operator uses when handing a credential to an agent or to a second machine,
+	and ``scopes`` defaults to the owner's whole permission set.
+
+	**A predicate rather than a refusal, because the two callers refuse differently and both
+	are right.** ``api/workspaces._for_an_administrator`` returns ``None`` so its caller answers
+	as though the workspace does not exist — which is what stops a pinned credential probing for
+	one by name — while ``domain/workspaces.on_instance`` raises, because the caller asked a
+	question about the installation rather than about a workspace they might not be able to
+	see. What they share is the rule, and the rule is what this is.
+
+	It says nothing about permissions: ask :func:`authorize_instance` for those. This is the
+	other axis, and they were checked in one place and not the other for as long as
+	``/v1/instance/workspaces`` has existed.
+	"""
+
+	return principal.pinned_workspace_id is None
+
+
 def outside_token_scope (
 	principal: subroutine.domain.authentication.Principal, permission: str
 ) -> bool:

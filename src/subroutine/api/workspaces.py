@@ -224,7 +224,7 @@ def _for_an_administrator (
 	`#344`'s rule that a credential may never reach further than it was issued to.
 	"""
 
-	if actor.pinned_workspace_id is not None:
+	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
 		return None
 
 	if not subroutine.domain.authorization.may_instance(

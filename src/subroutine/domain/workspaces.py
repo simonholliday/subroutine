@@ -1195,6 +1195,28 @@ def on_instance (
 			actor, subroutine.permissions.INSTANCE_ADMIN
 		)
 
+		# **And the pin, which is the other axis** — `SR#2282`. `instance:admin` says what this
+		# credential may do; the pin says where it was issued to reach, and an instance-wide
+		# question is by construction not about one workspace. Its sibling
+		# `api/workspaces._for_an_administrator` refused this from the day both were written and
+		# this did not, so a token pinned to one workspace listed every workspace on the
+		# installation — `#344`'s rule that a credential may never reach further than it was
+		# issued to, broken three files from where it is written down.
+		if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
+			raise subroutine.errors.Forbidden(
+				"A token pinned to one workspace cannot ask what is on this installation.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="workspace_id",
+						code="forbidden",
+						message="The credential you presented is for one workspace, and this "
+						"answers for the whole installation.",
+						hint="Ask GET /v1/workspaces for the ones this credential reaches, or "
+						"use a credential that was not pinned.",
+					)
+				],
+			)
+
 	workspace = subroutine.db.models.identity.Workspace
 	member = subroutine.db.models.identity.WorkspaceMember
 

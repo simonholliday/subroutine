@@ -126,6 +126,70 @@ def test_discovery_needs_permission_over_the_installation (
 	assert theirs.call("GET", "/v1/instance/workspaces").status_code == 403
 
 
+def test_a_pinned_credential_cannot_ask_what_is_on_the_installation (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A pin is a refusal here, whatever the credential may otherwise do — `SR#2282`.
+
+	**Two axes, and only one of them was checked.** ``instance:admin`` says what a credential
+	may *do*; ``pinned_workspace_id`` says where it was issued to *reach*, and an instance-wide
+	question is by construction not about one workspace. ``on_instance`` asked the first and not
+	the second, so a token pinned to one workspace listed every workspace here — `#344`'s rule
+	that a credential may never reach further than it was issued to, broken three files from
+	where its sibling states it.
+
+	**Its sibling refused this from the day both were written**, which is what makes it a
+	defect rather than a decision: ``api/workspaces._for_an_administrator`` carries the
+	sentence, and the two were added in the same change for the same item. Both go through
+	:func:`subroutine.domain.authorization.reaches_the_whole_installation` now.
+
+	**Asserted against the pinned workspace being visible the ordinary way**, because the
+	refusal alone would pass for a credential that could see nothing at all — which is a
+	different bug and would read as this one fixed.
+	"""
+
+	world = test_api_tasks._world(session)
+	_other, theirs = _a_second_superuser(session, world)
+
+	# A second workspace, so *what exists* and *what this credential is for* can disagree.
+	elsewhere = subroutine.domain.workspaces.create(
+		session,
+		slug=f"second-{uuid.uuid4().hex[:6]}",
+		title="Somewhere else",
+		owner=_other,
+	)
+	session.flush()
+
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=_other, title="pinned to one workspace", workspace_id=elsewhere.id
+	)
+	session.flush()
+
+	pinned = world._replace(secret=issued.value.get_secret_value())
+
+	reachable = pinned.call("GET", "/v1/workspaces")
+
+	assert reachable.status_code == 200, reachable.text
+	assert [row["slug"] for row in reachable.json()["items"]] == [elsewhere.slug], (
+		"the pin is not being honoured on the ordinary listing either, so the refusal below "
+		"would say nothing about this rule"
+	)
+
+	answer = pinned.call("GET", "/v1/instance/workspaces")
+
+	assert answer.status_code == 403, (
+		f"a credential issued for one workspace was told what else is on this installation: "
+		f"{answer.text}"
+	)
+	assert "pinned" in answer.text, (
+		f"the refusal does not say which of the two rules turned it down: {answer.text}"
+	)
+
+	# **And the unpinned credential of the same account still answers**, so the refusal is
+	# about the pin rather than about this account having lost a permission.
+	assert theirs.call("GET", "/v1/instance/workspaces").status_code == 200
+
+
 def test_an_administrator_can_name_a_workspace_in_order_to_join_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:
