@@ -338,8 +338,17 @@ def looks (tmp_path_factory: pytest.TempPathFactory) -> typing.Iterator[typing.A
 			browser.close()
 
 
-def _computed (page: typing.Any, selector: str, at: int) -> dict[str, str]:
-	"""What the browser decided this element looks like, for the properties that tell."""
+def _computed (
+	page: typing.Any, selector: str, at: int, tells: typing.Sequence[str] = TELLS
+) -> dict[str, str]:
+	"""What the browser decided this element looks like, for the properties that tell.
+
+	**`tells` is an argument since `SR#2275`**, and the default is what every caller before it
+	asked for. A control that shipped with no rule at all agreed with its neighbour on all four
+	of :data:`TELLS` — because a base `select` rule covers colour, background and family, and
+	the four say nothing about *space*. What was wrong was the gap and the margin, so the caller
+	that asks about a row's arrangement has to be able to name those properties.
+	"""
 
 	return dict(page.eval_on_selector_all(
 		selector,
@@ -349,8 +358,14 @@ def _computed (page: typing.Any, selector: str, at: int) -> dict[str, str]:
 			const style = getComputedStyle(one);
 			return asked.tells.map((name) => [name, style.getPropertyValue(name)]);
 		}""",
-		{"at": at, "tells": list(TELLS)},
+		{"at": at, "tells": list(tells)},
 	))
+
+
+#: What tells two controls in one row apart — `SR#2275`. Space rather than colour, because the
+#: defect was a control with **no rule at all** sitting against the rows below it, and a base
+#: element rule already gives an unstyled `select` the right colours.
+ARRANGEMENT = ("display", "gap", "margin-bottom", "align-items")
 
 
 
@@ -1969,6 +1984,33 @@ def test_every_control_a_reader_types_into_looks_the_same (reaching: typing.Any)
 	assert first[1]["border-top-width"] not in ("", "0px"), (
 		f"every control agreed on having no border at all, which is what a page with no "
 		f"stylesheet looks like: {first[1]}"
+	)
+
+	# **And the narrowing row, which is a second family and had to learn this the same way** —
+	# `SR#2275`. These are not `.field` controls: they are one size smaller by decision, because
+	# a choice made in place is not a form being filled in. So they are compared with each other
+	# rather than with the four above.
+	#
+	# **`Priority` shipped with no rule at all** and landed on the user agent's default — the
+	# label against the select, the row against the first result. A stylesheet scan cannot see
+	# that: `test_every_selector_in_the_stylesheet_reaches_something` below asks whether every
+	# *rule* reaches an element, and this is the other direction, whether every *element* was
+	# reached by a rule. Nothing was asking it.
+	# **Both read off one real listing**, rather than each component alone: `Whose` has no
+	# sample of its own — it renders through `Listing`, as `Ordered` does — and the claim is
+	# about two controls sitting in one row, which is a page and not a component.
+	listing = showing("Listing")
+	beside = {
+		name: _computed(listing, name, 0, ARRANGEMENT) for name in (".whose", ".judged")
+	}
+
+	for name, style in beside.items():
+		assert style, f"the listing draws no `{name}`, so this compares nothing"
+
+	assert beside[".judged"] == beside[".whose"], (
+		f"the priority control is not arranged like the one beside it in the same row, which "
+		f"is what a control with no rule at all looks like:\n  .whose: {beside['.whose']}\n"
+		f"  .judged: {beside['.judged']}"
 	)
 
 

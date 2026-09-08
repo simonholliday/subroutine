@@ -1655,6 +1655,29 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
    top-level collapse and `.whose` is the person; they are two answers to *which rows* and
    differ only in shape, so a second block would be the same rule written twice. */
 .narrowing,
+/*
+	How a task is prioritised, as a narrowing — `SR#2270`, and the rule it shipped without
+	(`SR#2275`).
+
+	**`.whose`'s own arrangement**, deliberately rather than approximately: they are two selects
+	in one control row asking two questions of the same page, and a second set of numbers here
+	would be `#907`'s complaint — every size comes from a named step, and two controls a line
+	apart drifting is how a row stops reading as one.
+
+	It shipped with **no rule at all**, so it landed on the user agent's defaults: the label
+	against the select with no gap, and the row against the first result. `#747` is the item
+	about browser chrome being blind to both themes, and this was that with nothing at all in
+	front of it.
+
+	**`judged` rather than `priority`, and that is not a preference.** `.priority` is already a
+	selector here — it is in the monospace family with `code` and `.ref` at the top of this
+	file, waiting for a `!4/2` cell the browser has never drawn, which is why it sits in
+	`NOTHING_RENDERS`. A control row wearing it would have rendered its label and its select in
+	monospace. `SR#2275` is about a word that is also an identifier and this is the same fault
+	one namespace along, met while fixing it: the reader's word is *Priority*, and the class is
+	the one the third option and the narrowed sentence both say.
+*/
+.judged,
 .whose {
 	display: flex;
 	align-items: center;
@@ -1668,6 +1691,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .narrowing label,
 .ordered label,
+.judged label,
 .whose label {
 	display: flex;
 	align-items: center;
@@ -1680,6 +1704,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 	user agent's default is what `#747` is about — browser chrome, blind to both themes.
 */
 .ordered select,
+.judged select,
 .whose select {
 	padding: var(--control-tight);
 	background: var(--bg-raised);
@@ -1691,6 +1716,7 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 }
 
 .ordered select:disabled,
+.judged select:disabled,
 .whose select:disabled { opacity: 0.5; }
 
 /* What the page is *doing*, beside what you may choose. A select names the options and says

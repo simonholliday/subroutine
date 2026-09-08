@@ -825,7 +825,7 @@ export function Narrowed ({
 	const topOnly = selection[AT_THE_TOP] === UNSET_VALUE;
 	/* **And how it is ranked** — `SR#2270`, for `#1020`'s reason: a reader who arrives on a
 	   narrowed page with nothing explaining why has no way back but the browser's own. */
-	const ranked = rankValue(selection);
+	const ranked = priorityValue(selection);
 
 	if (
 		!project && !tag && !who && !answerable && !nobody && !topOnly && !ranked
@@ -859,15 +859,15 @@ export function Narrowed ({
 			     and `collectionsFor` drops them — the same place decision `#782` reached from
 			     the ordering side. A reader looking for a specification needs the sentence to
 			     say that is why it is not there. */ null}
-			${ranked === `${NOT_RANKED}:${UNSET_VALUE}` && html`<span>Showing work
-				<strong>nobody has ranked</strong>. Documents have no rank, so none are
+			${ranked === `${NOT_JUDGED}:${UNSET_VALUE}` && html`<span>Showing work
+				<strong>nobody has judged</strong>. Documents have no priority, so none are
 				shown.</span>`}
-			${ranked === `${RANKED_AT_LEAST}:${HIGH}` && html`<span>Showing work rated
-				<strong>${HIGH} or more for importance</strong>. Documents have no rank, so none
-				are shown.</span>`}
+			${ranked === `${IMPORTANT_AT_LEAST}:${HIGH}` && html`<span>Showing work rated
+				<strong>${HIGH} or more for importance</strong>. Documents have no priority, so
+				none are shown.</span>`}
 			${ranked === `${URGENT_AT_LEAST}:${HIGH}` && html`<span>Showing work rated
-				<strong>${HIGH} or more for urgency</strong>. Documents have no rank, so none are
-				shown.</span>`}
+				<strong>${HIGH} or more for urgency</strong>. Documents have no priority, so none
+				are shown.</span>`}
 			${/* **`project &&`, because the guard above used to carry this for it** — `#1020`.
 			     While the only way into this component was a project narrowing, `if (!project)
 			     return null` also guaranteed the argument below; now a tag or a person can
@@ -1118,9 +1118,9 @@ export const AT_THE_TOP = "parent.is";
 //:
 //: **Named here for `NOT_GIVEN_OUT`'s reason**: the address's spelling and the control's have to
 //: be one string, and a second copy is what drifts.
-export const RANKED_AT_LEAST = "importance.gte";
+export const IMPORTANT_AT_LEAST = "importance.gte";
 export const URGENT_AT_LEAST = "urgency.gte";
-export const NOT_RANKED = "importance.is";
+export const NOT_JUDGED = "importance.is";
 
 //: **Four, and it is a judgement rather than a derivation.** §6.3's axes run 1 to 5, so *4 or 5*
 //: is the top two of five and is what somebody asking for the important work means. Written once
@@ -1128,7 +1128,7 @@ export const NOT_RANKED = "importance.is";
 export const HIGH = "4";
 
 
-export function rankValue (selection) {
+export function priorityValue (selection) {
 	/*
 		Which option is selected, given what the address carries — `SR#2270`.
 
@@ -1139,15 +1139,15 @@ export function rankValue (selection) {
 	*/
 	const chose = selection || {};
 
-	if (chose[NOT_RANKED] === UNSET_VALUE) return `${NOT_RANKED}:${UNSET_VALUE}`;
+	if (chose[NOT_JUDGED] === UNSET_VALUE) return `${NOT_JUDGED}:${UNSET_VALUE}`;
 
-	if (chose[RANKED_AT_LEAST]) return `${RANKED_AT_LEAST}:${chose[RANKED_AT_LEAST]}`;
+	if (chose[IMPORTANT_AT_LEAST]) return `${IMPORTANT_AT_LEAST}:${chose[IMPORTANT_AT_LEAST]}`;
 
 	return chose[URGENT_AT_LEAST] ? `${URGENT_AT_LEAST}:${chose[URGENT_AT_LEAST]}` : "";
 }
 
 
-export function rankAsked (value) {
+export function priorityAsked (value) {
 	/*
 		What a chosen option means, or ``null`` for *any rank* — `SR#2270`.
 
@@ -1164,14 +1164,14 @@ export function rankAsked (value) {
 
 	if (
 		!carried
-		|| (field !== RANKED_AT_LEAST && field !== URGENT_AT_LEAST && field !== NOT_RANKED)
+		|| (field !== IMPORTANT_AT_LEAST && field !== URGENT_AT_LEAST && field !== NOT_JUDGED)
 	) return null;
 
 	return { field, value: carried };
 }
 
 
-export function Ranked ({ selection = {}, onRank = null, busy = false }) {
+export function Priority ({ selection = {}, onPriority = null, busy = false }) {
 	/*
 		How a task is ranked, as a control — `SR#2270`, Simon 2026-09-08.
 
@@ -1194,23 +1194,23 @@ export function Ranked ({ selection = {}, onRank = null, busy = false }) {
 		**Withheld the way `Whose` and `TopLevelOnly` are**: no handler means no control, rather
 		than one that does nothing.
 	*/
-	if (!onRank) return null;
+	if (!onPriority) return null;
 
-	const chosen = rankValue(selection);
+	const chosen = priorityValue(selection);
 
 	return html`
-		<div class="ranked">
+		<div class="judged">
 			<label>
-				<span>Rank</span>
+				<span>Priority</span>
 				<select value=${chosen} disabled=${busy}
-					onChange=${(event) => onRank(rankAsked(event.currentTarget.value))}>
-					${/* **"Any rank" rather than "All" or a blank option**, on `Whose`'s
-					     reasoning: the listing is not showing every rank as a set, it is not
+					onChange=${(event) => onPriority(priorityAsked(event.currentTarget.value))}>
+					${/* **"Any priority" rather than "All" or a blank option**, on `Whose`'s
+					     reasoning: the listing is not showing every priority as a set, it is not
 					     narrowed at all, and a blank reads as a value nobody chose rather than
 					     as the absence of one. */ null}
-					<option value="" selected=${!chosen}>Any rank</option>
-					<option value=${`${RANKED_AT_LEAST}:${HIGH}`}
-						selected=${chosen === `${RANKED_AT_LEAST}:${HIGH}`}
+					<option value="" selected=${!chosen}>Any priority</option>
+					<option value=${`${IMPORTANT_AT_LEAST}:${HIGH}`}
+						selected=${chosen === `${IMPORTANT_AT_LEAST}:${HIGH}`}
 						>Important (${HIGH} or 5)</option>
 					<option value=${`${URGENT_AT_LEAST}:${HIGH}`}
 						selected=${chosen === `${URGENT_AT_LEAST}:${HIGH}`}
@@ -1218,9 +1218,9 @@ export function Ranked ({ selection = {}, onRank = null, busy = false }) {
 					${/* **§6.3a's third state, and the pile somebody triaging is looking for.**
 					     Ranked, part-ranked and unranked are three answers; *nobody has judged
 					     this* is the one no comparison can express. */ null}
-					<option value=${`${NOT_RANKED}:${UNSET_VALUE}`}
-						selected=${chosen === `${NOT_RANKED}:${UNSET_VALUE}`}
-						>Not yet ranked</option>
+					<option value=${`${NOT_JUDGED}:${UNSET_VALUE}`}
+						selected=${chosen === `${NOT_JUDGED}:${UNSET_VALUE}`}
+						>Not yet judged</option>
 				</select>
 			</label>
 		</div>
@@ -1273,7 +1273,7 @@ export function Listing ({
 	prioritised = [], onPrioritise = null,
 	/* **How a task is ranked, as a control** — `SR#2270`. Withheld the way `onWhose` below is:
 	   no handler means no control, rather than one that does nothing. */
-	onRank = null,
+	onPriority = null,
 	/* Whose work to show, and who there is to choose from — `#1284`. */
 	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
 	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
@@ -1371,9 +1371,9 @@ export function Listing ({
 			<${Whose} members=${members} whose=${whose} answerable=${answerable}
 				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 
-			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+			<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
-			<${Ranked} selection=${selection} onRank=${onRank} busy=${busy} />
+			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
 
 			${/*
 				**Said only where it changes the answer** (`#986`). A prioritised project raises work

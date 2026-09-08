@@ -14,7 +14,7 @@ import {
 	FINISHED, completable, day, deferred, excluded, holding, named, ranksAreNews,
 } from "./dates.js";
 import {
-	Adding, Focus, Narrowed, Ordered, Ranked, TopLevelOnly, Whose,
+	Adding, Focus, Narrowed, Ordered, Priority, TopLevelOnly, Whose,
 } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
@@ -675,7 +675,7 @@ export function Board ({
 	/* Which projects are prioritised, and how to change it — `Narrowed` (`#986`). */
 	prioritised = [], onPrioritise = null,
 	/* **How a task is ranked, as a control** — `SR#2270`, withheld the way `onWhose` is. */
-	onRank = null,
+	onPriority = null,
 	/* Whose work to show, and who there is to choose from — `#1284`. */
 	/* **All three the control can be on** — `#2199`. It carried `whose` alone from when that
 	   was the only answer; `answerable` and `unassigned` arrived in `App` and stopped here. */
@@ -823,13 +823,16 @@ export function Board ({
 			<${Whose} members=${members} whose=${whose} answerable=${answerable}
 				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 
-			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
-
 			${/* **The board takes the same control as the list, from the same component** —
 			     `SR#2270`, and it is `#1284`'s argument one control along: a board fetches one
 			     page and partitions it, so narrowing decides what is in *every* column. Two
-			     copies of this markup was the alternative and is the signature defect. */ null}
-			<${Ranked} selection=${selection} onRank=${onRank} busy=${busy} />
+			     copies of this markup was the alternative and is the signature defect.
+
+			     **Above the collapse toggle** — `SR#2275`, Simon 2026-09-08. Three dropdowns
+			     and one checkbox, and the checkbox sat in the middle of them. */ null}
+			<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
+
+			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the

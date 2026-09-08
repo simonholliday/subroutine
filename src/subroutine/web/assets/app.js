@@ -39,8 +39,8 @@ import {
 import { Detail, Doing, Failed, Linking, Saying, Seeking, Written } from "./detail.js";
 import {
 	ANCHORS, Adding, Asking, CAPTURE_HINT, Conflict, DATE_FIELDS, DOCUMENT_HINT,
-	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, NOT_RANKED,
-	Narrowed, RANKED_AT_LEAST, URGENT_AT_LEAST, Unread,
+	AT_THE_TOP, DocumentFields, Editing, Fields, Listing, NOBODY, NOT_GIVEN_OUT, NOT_JUDGED,
+	Narrowed, IMPORTANT_AT_LEAST, URGENT_AT_LEAST, Unread,
 	PRIORITIES, Reading, Repeats, TIMED, UNSET_VALUE,
 } from "./forms.js";
 import {
@@ -2431,7 +2431,7 @@ export function App () {
 		}
 	}, [agenda, go, load, nowShowing, project, showing, workspace]);
 
-	const chooseRank = useCallback(async (asked) => {
+	const choosePriority = useCallback(async (asked) => {
 		/*
 			**How a task is ranked, as a narrowing** — `SR#2270`, and it goes in the address for
 			`chooseWhose`'s reason: the path decides *place*, the query decides *selection*, and this
@@ -2441,16 +2441,16 @@ export function App () {
 			**One control, three parameters, and at most one of them set.** *Important*, *urgent* and
 			*not yet ranked* are three different sets and all three narrow the same listing, so
 			leaving another in place would AND them and answer about none of them. `asked` arrives
-			from `rankAsked`, which names the field or returns null; nothing here parses it.
+			from `priorityAsked`, which names the field or returns null; nothing here parses it.
 
 			**Null clears it rather than sending an empty value**, so *Any rank* leaves every key out
 			of the address entirely and one screen keeps producing one string.
 		*/
 		const selection = { ...showing.selection };
 
-		delete selection[RANKED_AT_LEAST];
+		delete selection[IMPORTANT_AT_LEAST];
 		delete selection[URGENT_AT_LEAST];
-		delete selection[NOT_RANKED];
+		delete selection[NOT_JUDGED];
 
 		if (asked) selection[asked.field] = asked.value;
 
@@ -2945,7 +2945,7 @@ export function App () {
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
-							onWhose=${chooseWhose} onRank=${chooseRank}
+							onWhose=${chooseWhose} onPriority=${choosePriority}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
 							${/* **Storage holds the reader's explicit choices and nothing else**
@@ -3007,7 +3007,7 @@ export function App () {
 							whose=${showing.selection.assignee || null}
 							answerable=${showing.selection.answers_to || null}
 							unassigned=${showing.selection[NOT_GIVEN_OUT] === NOBODY}
-							onWhose=${chooseWhose} onRank=${chooseRank}
+							onWhose=${chooseWhose} onPriority=${choosePriority}
 							topLevelOnly=${showing.selection[AT_THE_TOP] === UNSET_VALUE}
 							onTopLevel=${chooseTopLevel}
 							onWiden=${widen}
@@ -3187,13 +3187,13 @@ export {
 	HIGH,
 	NOBODY,
 	NOT_GIVEN_OUT,
-	NOT_RANKED,
+	NOT_JUDGED,
 	Narrowed,
-	RANKED_AT_LEAST,
-	Ranked,
+	IMPORTANT_AT_LEAST,
+	Priority,
 	URGENT_AT_LEAST,
-	rankAsked,
-	rankValue,
+	priorityAsked,
+	priorityValue,
 	PRIORITIES,
 	Reading,
 	Repeats,
