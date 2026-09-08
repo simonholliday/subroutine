@@ -299,6 +299,14 @@ def a_container (
 	**And it is not auto-completion.** `#84` refuses that with two reasons that still hold: it
 	credits whoever closed the last child with a decision they did not take, and it cannot
 	reverse when a child is added later. A parent is *unstartable*, never *done*.
+
+	**A template is not a sub-task** (`SR#2279`'s sibling, `SR#2292`). A rule-bearing row
+	inherits `parent_task_id` from the task it was made from and is never completed, so it
+	matched all three clauses for ever — while `db/models/work.py` says a template *"is excluded
+	from every list, search, agenda and rollup"*. In a running series the live occurrence masks
+	it; where the template is the only live child, the parent is permanently unstartable and
+	`#1615`'s question can never be put, with every real sub-task finished. Same clause
+	``scoping.readable_tasks`` already applies by default.
 	"""
 
 	child = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
@@ -308,6 +316,7 @@ def a_container (
 		.where(
 			child.parent_task_id == model.id,
 			child.deleted_at.is_(None),
+			child.is_template.is_(False),
 			sqlalchemy.not_(over(child, now=now)),
 		)
 		.correlate(model)
@@ -340,7 +349,15 @@ def every_sub_task_is_done (
 		sqlalchemy.not_(over(model, now=now)),
 		sqlalchemy.exists(
 			sqlalchemy.select(child.id)
-			.where(child.parent_task_id == model.id, child.deleted_at.is_(None))
+			.where(
+				child.parent_task_id == model.id,
+				child.deleted_at.is_(None),
+				# **The same exclusion the clause above makes** (`SR#2292`), and it is needed
+				# here for the opposite reason: without it a parent whose only child is a
+				# template reads as *has children*, so the question would be put about a
+				# parent that has never had a real sub-task at all.
+				child.is_template.is_(False),
+			)
 			.correlate(model)
 		),
 		sqlalchemy.not_(a_container(model, now=now)),

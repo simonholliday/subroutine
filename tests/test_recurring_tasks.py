@@ -24,6 +24,7 @@ import subroutine.cli.personal
 import subroutine.db.models.identity
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
 import subroutine.domain.tags
@@ -80,6 +81,22 @@ def _next_live (
 	assert len(live) == 1, f"expected one live occurrence, found {len(live)}"
 
 	return live[0]
+
+
+def _predicate (
+	session: sqlalchemy.orm.Session,
+	task: subroutine.db.models.work.Task,
+	predicate: typing.Callable[..., typing.Any],
+) -> bool | None:
+	"""Ask one of ``domain.readiness``'s predicates about one row."""
+
+	model = subroutine.db.models.work.Task
+
+	return session.scalar(
+		sqlalchemy.select(predicate(model, now=NOW))
+		.select_from(model)
+		.where(model.id == task.id)
+	)
 
 
 def test_a_repeat_makes_a_template_and_hands_back_the_instance (
@@ -439,6 +456,112 @@ def test_an_undated_birthday_filed_before_the_fix_mints_a_day_rather_than_a_dead
 	assert minted.starts_at.astimezone(datetime.UTC).day == 14, minted.starts_at
 	assert minted.occurrence_at == minted.starts_at, (
 		"the slot and the date parted company, so this reads as an occurrence somebody moved"
+	)
+
+
+def test_a_template_is_not_counted_as_an_unfinished_sub_task (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A rule-bearing row does not make its parent unstartable — `SR#2292`.
+
+	``db/models/work.py`` says a template *"is excluded from every list, search, agenda and
+	rollup by the default repository filter"*. ``readiness.a_container`` and
+	``every_sub_task_is_done`` counted children by ``parent_task_id`` alone, and a template
+	inherits that column from the task it was made from and is never completed — so it matched
+	every clause for ever.
+
+	**Reproduced as it is actually reachable, which is narrower than it first looks.** While a
+	series runs there is always a live occurrence, so the parent is unstartable for a true
+	reason and the template's contribution is masked. Measured: an event-shaped repeat does not
+	reach it either, because the template carries the same ``ends_at`` and is ``passed``
+	alongside its occurrence; nor does cancelling, which mints the next one. What exposes it is
+	the template being the **only** live child — here by removing the occurrence — and then the
+	parent can never start and `#1615`'s *all sub-tasks are done, somebody can decide* can never
+	fire, with every real sub-task finished.
+
+	**Both predicates, because the clause means opposite things in them.** In `a_container` it
+	stops a template holding a parent shut; in `every_sub_task_is_done` it stops the question
+	being put about a parent whose only child was never a sub-task at all.
+	"""
+
+	workspace = test_schedule._workspace(session)
+	project = test_schedule._project(session, workspace)
+
+	def made (**kwargs: typing.Any) -> subroutine.db.models.work.Task:
+		"""Create one task in the shared project, on the shared clock and timezone."""
+
+		kwargs.setdefault("now", NOW)
+		kwargs.setdefault("timezone", LONDON)
+
+		return subroutine.domain.tasks.create(session, project=project, **kwargs)
+
+	parent = made(title="Milestone")
+	chore = made(
+		title="Weekly chore",
+		parent=parent,
+		recurrence="every monday",
+		due=datetime.date(2026, 8, 31),
+	)
+
+	session.flush()
+	template = _template(session, chore)
+
+	subroutine.domain.tasks.complete(session, chore, now=NOW)
+	session.flush()
+
+	for occurrence in session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.recurrence_template_id == template.id,
+			subroutine.db.models.work.Task.completed_at.is_(None),
+		)
+	).all():
+		subroutine.domain.tasks.delete(session, occurrence, now=NOW)
+
+	session.flush()
+
+	live = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.parent_task_id == parent.id,
+			subroutine.db.models.work.Task.deleted_at.is_(None),
+		)
+	).all()
+
+	assert sorted(row.is_template for row in live) == [False, True], (
+		f"the state this is about was not built: {[(r.title, r.is_template) for r in live]}"
+	)
+
+	assert _predicate(session, parent, subroutine.domain.readiness.a_container) is False, (
+		"a template held its parent shut, so a milestone whose every real sub-task is finished "
+		"can never be started"
+	)
+	assert (
+		_predicate(session, parent, subroutine.domain.readiness.every_sub_task_is_done) is True
+	), "nothing put `#1615`'s question, which is the row that feature exists to surface"
+
+	# **And the state that makes the second clause do anything**, which the one above does not:
+	# there, the finished occurrence satisfies *has children* whether or not templates are
+	# excluded, so the clause in `every_sub_task_is_done` reads as decoration. With no
+	# occurrence left, the template is the only child there has ever been — and *all of its
+	# sub-tasks are done* is a false thing to say about a parent that never had one.
+	subroutine.domain.tasks.delete(session, chore, now=NOW)
+	session.flush()
+
+	remaining = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.parent_task_id == parent.id,
+			subroutine.db.models.work.Task.deleted_at.is_(None),
+		)
+	).all()
+
+	assert [row.is_template for row in remaining] == [True], (
+		f"the template should be the only child left: {[r.title for r in remaining]}"
+	)
+
+	assert (
+		_predicate(session, parent, subroutine.domain.readiness.every_sub_task_is_done) is False
+	), (
+		"`#1615`'s question was put about a parent whose only child is a rule-bearing row, so "
+		"a reader is asked to decide about sub-tasks that never existed"
 	)
 
 

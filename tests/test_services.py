@@ -659,6 +659,74 @@ def test_a_project_tree_maintains_its_paths (session: sqlalchemy.orm.Session) ->
 	assert (root.depth, middle.depth, leaf.depth) == (0, 1, 2)
 
 
+def test_every_task_path_agrees_with_the_column_beside_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""docs/design.md §10.7 invariant 1 for tasks, asked of the table — `SR#2279`.
+
+	**The property, not the path.** Its sibling above pins three known paths, which is right
+	for a test about *placing* and blind to the defect this is written from: `materialise`
+	copied `parent_task_id` from a template and then placed the row at the **root**, so the
+	column said one thing and the materialised path said another. Every rule that reads the
+	tree reads the path — readiness, `under.eq`, `hierarchy.subtree`, `show`'s children walk —
+	so the row was filed nowhere and claimed a parent on every surface that prints one.
+
+	**Asked of every task that exists rather than of the ones named here**, so a creation route
+	nobody thought of is covered the day it is written. Four are exercised below and the
+	repeating sub-task is the one that failed; the assertion does not know which is which,
+	which is the point.
+	"""
+
+	workspace = _workspace(session)
+	project = _project(session, workspace)
+
+	def made (**kwargs: typing.Any) -> subroutine.db.models.work.Task:
+		"""Create one task in the shared project, so every row can be a parent of another."""
+
+		kwargs.setdefault("title", "A task")
+
+		return subroutine.domain.tasks.create(session, project=project, **kwargs)
+
+	top = made(title="Top level")
+	child = made(title="A sub-task", parent=top)
+	made(title="A grandchild", parent=child)
+	made(
+		title="A repeating sub-task",
+		parent=top,
+		recurrence="every monday",
+		due=datetime.date(2026, 8, 31),
+	)
+
+	session.flush()
+
+	rows = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.deleted_at.is_(None)
+		)
+	).all()
+
+	assert len(rows) >= 5, f"only {len(rows)} tasks exist, so this is checking almost nothing"
+
+	wrong = []
+
+	for row in rows:
+		# A path is `/a/b/c/`, so the segment before the row's own is its parent — and an empty
+		# one is a claim that the row is at the top level. Both halves are compared, because a
+		# row with no parent and a nested path is the same disagreement facing the other way.
+		segments = [part for part in row.path.split("/") if part != ""]
+		above = segments[-2] if len(segments) > 1 else None
+		named = None if row.parent_task_id is None else str(row.parent_task_id)
+
+		if above != named:
+			wrong.append((row.title, row.is_template, row.path, named))
+
+	assert not wrong, (
+		f"{wrong} carry a parent their path does not put them under. Every rule that reads the "
+		f"tree reads the path, so such a row is filed nowhere while printing a parent — which "
+		f"is what offered a repeating sub-task as ready beneath a parent that cannot start."
+	)
+
+
 def test_moving_a_project_takes_its_subtree_with_it (
 	session: sqlalchemy.orm.Session,
 ) -> None:

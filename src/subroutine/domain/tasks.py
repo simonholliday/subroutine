@@ -683,7 +683,25 @@ def materialise (
 		depth=0,
 		created_by=None if actor is None else actor.user.id,
 	)
-	subroutine.domain.hierarchy.place(instance, None, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH)
+	# **Under the template's parent, not at the root** — `SR#2279`. The constructor above
+	# copies `parent_task_id` from the template, and placing at the root left the row's two
+	# accounts of what it is filed under disagreeing: the column named a parent and the
+	# materialised path named none. **Every rule in this codebase that reads the tree reads the
+	# path** — `readiness.under_a_blocked_ancestor`, `under.eq`, `hierarchy.subtree` and
+	# `show`'s children walk — so a repeating sub-task was offered as ready beneath a parent
+	# that could not start, on a row printing that parent's own title. That is `#1610`'s
+	# recorded symptom exactly, arriving on the one axis its fix could not see.
+	#
+	# **The depth cannot newly refuse.** An occurrence sits where its template already sits,
+	# and the template was placed by `create` against the same ceiling.
+	parent = (
+		None if template.parent_task_id is None
+		else session.get(subroutine.db.models.work.Task, template.parent_task_id)
+	)
+
+	subroutine.domain.hierarchy.place(
+		instance, parent, max_depth=subroutine.domain.hierarchy.DEFAULT_MAX_DEPTH
+	)
 
 	session.add(instance)
 	session.flush()
