@@ -8089,6 +8089,55 @@ def test_a_save_re_parents_only_when_the_box_changed (tmp_path: pathlib.Path) ->
 	assert moving["sigil"] is False, "`#7` is how the number is printed (§6.2)"
 
 
+def test_every_form_handler_refuses_a_parent_it_cannot_read () -> None:
+	"""Both write paths make the check, not just the one it was written on — `SR#2280`.
+
+	**The defect: `add` did not.** `unreadableParent` was built for `SR#2201` with exactly one
+	caller, the save path, under a comment stating the stakes — *"a typo would promote the item
+	to the top level and report success"*. The add path builds its body through the same `filed`
+	and had no such check, so typing a word into Parent sent no parent at all and the page said
+	*Added #42*. On a save a typo promotes an item; on an add it files it at the top level in
+	the first place, which is the same loss with nothing to compare against afterwards.
+
+	**Asked of the source rather than by driving the form, and that is a real limit.** Submitting
+	needs an event; `tests/dom.js` refuses `dispatchEvent` by decision and
+	`tests/test_browser.py` is at its size ceiling. So this asserts the call is *present* in each
+	handler, which is weaker than asserting the refusal happens — `SR#2201`'s test next door
+	carries the behaviour, proving the collapse is real and that the function tells the two
+	apart. Together they are the rule; neither alone is.
+
+	**Derived from the handlers rather than naming the two**, because the failure this is written
+	from is precisely a third path being added beside a rule that lives on the others. A form
+	handler is one that takes the raw `values` a form produces, which is what makes it the thing
+	that can carry an unreadable box.
+	"""
+
+	source = (ASSETS / "app.js").read_text(encoding="utf-8")
+	opening = "useCallback(async (values"
+
+	handlers = {}
+
+	for found in re.finditer(rf"const (\w+) = {re.escape(opening)}", source):
+		# Each handler is declared at one indent and closes on its dependency array at the same
+		# one, so that is where the body ends. Anything more clever needs a JavaScript parser,
+		# which is the thing `NOT_THE_APP` exists to avoid pulling in.
+		ends = source.index("\n\t}, [", found.end())
+		handlers[found.group(1)] = source[found.end():ends]
+
+	assert len(handlers) >= 2, (
+		f"found {sorted(handlers)}, and there are two write paths — a scan that reads one of "
+		f"them cannot see a rule applied to one and not the other, which is the defect"
+	)
+
+	unguarded = sorted(name for name, body in handlers.items() if "unreadableParent" not in body)
+
+	assert not unguarded, (
+		f"{unguarded} take a form's raw values and never ask `unreadableParent`. A box holding a "
+		f"word reads as *cleared* to `parentRef`, so the parent is dropped and the write reports "
+		f"success — silently, and at the top level where nothing can be compared against it."
+	)
+
+
 def test_a_project_filter_sends_what_the_route_accepts () -> None:
 	"""`SR#320`: `project=` already covers what is under a project, and `subtree` is not it.
 

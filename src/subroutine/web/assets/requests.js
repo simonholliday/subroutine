@@ -748,6 +748,18 @@ export function movingTo (values, item) {
 	return asked;
 }
 
+export const PARENT_NEEDS_A_NUMBER =
+	/*
+		What a reader is told when the Parent box holds something that is not a number.
+
+		**A constant because two form paths refuse this and there is one sentence** — adding and
+		saving, `#2280`. §13.5b asserts the *absence* of vocabulary, so a reworded refusal can fail
+		the build; two copies of one refusal is that rule waiting to be broken by whoever edits the
+		nearer one.
+	*/
+	"Parent takes an item's number, like 7. Leave it empty for none.";
+
+
 export function unreadableParent (values) {
 	/*
 		Whether the Parent box holds something that is not a number — `#2201`.

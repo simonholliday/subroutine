@@ -59,7 +59,8 @@ import {
 	statusFor, treeOrdered, unmovable, vocabularyRequest,
 } from "./places.js";
 import {
-	DOCUMENT_SAID, NEVER_CLEARED, RELEASE_CHECK_POLLS, REPEATED, SAID_AS_NUMBERS, SAID_AS_WRITTEN,
+	DOCUMENT_SAID, NEVER_CLEARED, PARENT_NEEDS_A_NUMBER, RELEASE_CHECK_POLLS, REPEATED,
+	SAID_AS_NUMBERS, SAID_AS_WRITTEN,
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	moveRequest, movingTo, unreadableParent,
@@ -1608,6 +1609,22 @@ export function App () {
 		   `values` is every named control on the form, raw; `filed` decides what is worth
 		   sending and is pure, which is where `#756`'s only real rule lives — an untouched
 		   control gives an empty string, and this endpoint refuses those by name. */
+
+		/* **Refused before anything is written**, the same check `saving` makes below and for the
+		   same reason — `#2201`, `#2280`. `filed` sends `parent_task_id` only when `parentRef`
+		   reads one, and a box holding a word reads as *cleared*: on a save that promotes an item
+		   to the top level, and here it files it there in the first place, which is the same loss
+		   with nothing to compare against afterwards.
+
+		   **`false` rather than a bare return**, unlike `saving`. This answers the form whether it
+		   landed, and `#756` clears the box on a truthy answer — so returning nothing would empty
+		   the form and take the reader's typing with it. */
+		if (unreadableParent(values)) {
+			setNote({ text: PARENT_NEEDS_A_NUMBER, tone: "bad" });
+
+			return false;
+		}
+
 		setBusy(true);
 
 		try {
@@ -1680,10 +1697,7 @@ export function App () {
 			   promote the item to the top level and report success. It is the only check made
 			   here: everything else the server refuses by name. */
 			if (unreadableParent(values)) {
-				setNote({
-					text: "Parent takes an item's number, like 7. Leave it empty for none.",
-					tone: "bad",
-				});
+				setNote({ text: PARENT_NEEDS_A_NUMBER, tone: "bad" });
 
 				return;
 			}
@@ -3266,6 +3280,7 @@ export {
 export {
 	DOCUMENT_SAID,
 	NEVER_CLEARED,
+	PARENT_NEEDS_A_NUMBER,
 	RELEASE_CHECK_POLLS,
 	REPEATED,
 	SAID_AS_NUMBERS,
