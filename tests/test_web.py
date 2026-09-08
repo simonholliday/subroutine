@@ -4858,20 +4858,36 @@ def test_an_instant_on_the_fact_sheet_carries_its_time_and_a_day_does_not (
 
 	shown = _rendered(tmp_path, {"Facts": {"item": item}})["Facts"]
 
-	assert "Updated<dd>27 Aug 2026, 14:35" in shown, (
+	# **Asserted on whether there is a clock, never on how the day is spelled.** `day` renders
+	# in *the reader's own locale* — that is its first sentence and the whole reason it exists
+	# on this surface — so `27 Aug 2026` here and `Aug 27, 2026` on a machine set to en-US are
+	# the same correct answer. The first version of this test wrote the British form as a
+	# literal and went red on all four CI runners, which are en-US: a test that encodes the
+	# machine it was written on, checking a function whose contract is that it does not.
+	def clocked (field: str) -> str:
+		"""Return what one row of the fact sheet says, however its day is spelled."""
+
+		after = shown.split(f"<dt>{field}<dd>", 1)
+
+		assert len(after) == 2, f"{field} is not on the fact sheet at all: {shown}"
+
+		return after[1].split("<dt>", 1)[0].split("<button", 1)[0]
+
+	assert "14:35" in clocked("Updated"), (
 		f"an instant is rendered as a bare day, so an item touched three times in an "
 		f"afternoon says the same thing each time: {shown}"
 	)
 
-	# **The day-scale half, which is the one a fix could break in passing.**
-	assert "Due<dd>1 Sept 2026<" in shown, (
+	# **The day-scale half, which is the one a fix could break in passing.** A colon is what a
+	# time has and a date in every locale does not.
+	assert ":" not in clocked("Due"), (
 		f"a deadline the writer gave no time to has acquired one, which is precision nobody "
 		f"supplied: {shown}"
 	)
 
 	# **And a start that *was* given a time still shows it**, so this says the rule is about
 	# what the writer said rather than about which field it is.
-	assert "Starts<dd>17 Aug 2026, 14:00" in shown, (
+	assert "14:00" in clocked("Starts"), (
 		f"a start captured as 'at 14:00' lost its time: {shown}"
 	)
 
