@@ -19,6 +19,7 @@ import sqlalchemy
 import subroutine.db.base
 import subroutine.db.migrate
 import subroutine.db.models
+import subroutine.db.models.identity
 import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
@@ -306,6 +307,60 @@ def test_an_account_with_nowhere_to_land_stops_the_run (tmp_path: pathlib.Path) 
 	# And it is a refusal rather than a crash: naming where it lands is enough to proceed.
 	merge_instance.merge(
 		source, target, "ours", projects={}, users={"oli": "simon"}, commit=True
+	)
+
+
+def test_a_source_holding_a_deleted_workspace_stops_the_run (tmp_path: pathlib.Path) -> None:
+	"""A soft-deleted workspace still has rows in the tables this reads — `SR#2296`.
+
+	The check narrowed to live workspaces while ``_carry`` reads whole tables with no workspace
+	filter at all. So a source holding a deleted second workspace passed *this merges one* and
+	then carried that workspace's rows in — refusing confusingly about a project "not in the
+	source workspace", or raising ``KeyError`` on a tag that was never mapped, depending on what
+	it happened to hold.
+
+	**Refused rather than filtered**, because filtering the reads means knowing which column
+	every carried table scopes by and being right about all of them, where this is one
+	condition — and refusing is what this script already does far more of than it assumes.
+
+	The refusal names the deleted one as deleted, since *the source holds 2 workspaces* about a
+	database whose listing shows one is the confusing half of being right.
+	"""
+
+	source = _instance(tmp_path / "theirs.db", "theirs", "oli")
+	target = _instance(tmp_path / "ours.db", "ours", "simon")
+
+	engine = subroutine.db.session.create_engine(source)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			# `.one()` rather than `.first()`: the fixture makes exactly one account, so a
+			# fixture that quietly stopped doing so should fail here rather than hand `create`
+			# a null owner and fail somewhere less legible.
+			owner = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.User)
+			).one()
+
+			gone = subroutine.domain.workspaces.create(
+				session, slug="gone", title="Gone", owner=owner
+			)
+
+			gone.deleted_at = subroutine.db.types.utcnow()
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	with pytest.raises(merge_instance.Refused) as refused:
+		merge_instance.merge(
+			source, target, "ours", projects={}, users={"oli": "simon"}, commit=False
+		)
+
+	assert "2 workspaces" in str(refused.value), (
+		f"a deleted workspace was not counted, so its rows would be carried in: {refused.value}"
+	)
+	assert "(deleted)" in str(refused.value), (
+		f"the refusal does not say why it counts one the listing does not show: {refused.value}"
 	)
 
 

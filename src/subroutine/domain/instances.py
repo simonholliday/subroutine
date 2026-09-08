@@ -74,8 +74,8 @@ def require (session: sqlalchemy.orm.Session) -> subroutine.db.models.system.Ins
 def update (
 	session: sqlalchemy.orm.Session,
 	*,
-	name: str = subroutine.domain.patch.UNSET,
-	timezone: str = subroutine.domain.patch.UNSET,
+	name: str | None = subroutine.domain.patch.UNSET,
+	timezone: str | None = subroutine.domain.patch.UNSET,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.system.Instance:
 	"""Change what this installation is called, or where it says it is — item `#1669`.
@@ -105,7 +105,11 @@ def update (
 	instance = require(session)
 
 	if subroutine.domain.patch.is_set(name):
-		wanted = name.strip()
+		# **Null and empty are one refusal** — `SR#2295`. Both are somebody asking for a name
+		# that is not there, and answering them differently is what let `{"name": null}` come
+		# back 200 while `{"name": ""}` came back 422. The column is NOT NULL, so neither can
+		# be granted; saying so once is the honest shape.
+		wanted = "" if name is None else name.strip()
 
 		# **Refused rather than silently kept**, because a caller that sent a name means to
 		# change it, and reporting the old one back would read as success.
@@ -125,6 +129,21 @@ def update (
 		instance.name = wanted
 
 	if subroutine.domain.patch.is_set(timezone):
+		# Null for the same reason as the name above (`SR#2295`), and named separately because
+		# the checker below answers about *which* zone rather than about whether there is one.
+		if timezone is None:
+			raise subroutine.errors.ValidationError(
+				"An instance needs a timezone.",
+				hint="It is the last word in the chain for everybody who has not set their own.",
+				errors=[
+					subroutine.errors.FieldError(
+						field="timezone",
+						code="invalid_field_value",
+						message="A timezone cannot be empty.",
+					)
+				],
+			)
+
 		# Through the shared checker, so an unknown zone is refused here in the same words it
 		# is refused in on a workspace and on a user.
 		subroutine.domain.dates.zone(timezone, field="timezone")

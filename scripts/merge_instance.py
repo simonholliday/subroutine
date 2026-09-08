@@ -54,7 +54,7 @@ import subroutine.db.migrate
 import subroutine.db.models
 import subroutine.db.session
 import subroutine.domain.mentions
-import subroutine.domain.tags
+import subroutine.domain.users
 
 #: Copied, in the order they are inserted. Self-references are wired afterwards, so this order
 #: only has to satisfy foreign keys *between* tables.
@@ -146,7 +146,6 @@ class Report:
 	tags_made: list[str] = dataclasses.field(default_factory=list)
 	rewritten: int = 0
 	left_alone: dict[int, int] = dataclasses.field(default_factory=dict)
-	samples: list[tuple[str, str]] = dataclasses.field(default_factory=list)
 
 
 class Refused (Exception):
@@ -196,16 +195,29 @@ def _heads_agree (source: sqlalchemy.Engine, target: sqlalchemy.Engine) -> str:
 def _one_workspace (connection: sqlalchemy.Connection) -> uuid.UUID:
 	"""Return the source's only workspace, refusing if it holds more than one."""
 
+	# **Deleted ones count** — `SR#2296`. This narrowed to live workspaces while `_carry` reads
+	# whole tables with no workspace filter at all, so a source holding a soft-deleted second
+	# workspace passed the check and then carried its rows in — refusing confusingly on a
+	# project that is "not in the source workspace", or raising `KeyError` on a tag that was
+	# never mapped, depending on what that workspace happened to hold.
+	#
+	# **Refusing rather than filtering the reads**, because filtering means knowing which column
+	# each carried table scopes by and being right about every one of them, where this is one
+	# condition. It is also what this script already is: it refuses far more than it assumes,
+	# and a merge is run twice with a dry run first.
 	workspace = _table("workspace")
 	rows = connection.execute(
-		sqlalchemy.select(workspace.c.id, workspace.c.slug).where(workspace.c.deleted_at.is_(None))
+		sqlalchemy.select(workspace.c.id, workspace.c.slug, workspace.c.deleted_at)
 	).all()
 
 	if len(rows) != 1:
-		named = ", ".join(str(row.slug) for row in rows) or "none"
+		named = ", ".join(
+			f"{row.slug}{' (deleted)' if row.deleted_at is not None else ''}" for row in rows
+		) or "none"
 		raise Refused(
 			f"the source holds {len(rows)} workspaces ({named}) and this merges one. Say which "
-			f"by deleting the others from a copy, or merge them one at a time."
+			f"by deleting the others from a copy, or merge them one at a time. A deleted "
+			f"workspace still has rows in the tables this reads, so it counts."
 		)
 
 	return typing.cast(uuid.UUID, rows[0].id)
@@ -285,7 +297,12 @@ def _user_map (
 
 	for row in theirs:
 		wanted = given.get(str(row.username), str(row.username))
-		landing = ours.get(subroutine.domain.tags.normalize(wanted))
+		# **`users.normalize`, because that is what wrote the column being matched against**
+		# (`SR#2296`). `tags.normalize` is a separate implementation that agrees on every case
+		# driven — whitespace runs, dots, hyphens, non-ASCII — and nothing holds the two
+		# together. A divergence would surface as this script refusing by name an account that
+		# is sitting in the target, which is the confusing half of a refusal being right.
+		landing = ours.get(subroutine.domain.users.normalize(wanted))
 
 		if landing is None:
 			unmatched.append(f"{row.username} (looked for {wanted!r})")
@@ -776,9 +793,6 @@ def _said (report: Report, maps: Maps, landed: list[str]) -> None:
 		named = ", ".join(f"#{ref}x{count}" for ref, count in sorted(report.left_alone.items()))
 
 		print(f"              {total} left alone, naming nothing here: {named}")
-
-	for title, after in report.samples:
-		print(f"              {title!r} -> {after!r}")
 
 	if landed:
 		print()

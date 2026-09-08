@@ -118,6 +118,48 @@ def test_an_installation_cannot_be_left_without_a_name (
 	assert _stored(session)[0] == "Kept"
 
 
+def test_setting_a_label_to_null_is_refused_like_setting_it_to_nothing (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""Two spellings of *set it to nothing*, one answer — `SR#2295`.
+
+	The route dropped an explicit null before the domain saw it, so ``{"name": null}`` answered
+	**200** with the name unchanged while ``{"name": ""}`` answered **422**. Both docstrings say
+	neither field may be set to nothing, and §8.3's convention is that a null is a value — so
+	the silent one reported success for a request it had refused in its other spelling.
+
+	**Both fields, because the two are refused by different code.** The name falls through the
+	empty check above; the timezone is named separately, since ``dates.zone`` answers *which*
+	zone rather than *whether there is one* and would have raised about the wrong thing.
+
+	Driven at the domain, where the refusal lives; the route's half is that it no longer filters
+	the value out on the way in, and `SR#2295` records that both places had to change.
+	"""
+
+	subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Kept", timezone="UTC"
+	)
+
+	with pytest.raises(subroutine.errors.ValidationError) as named:
+		subroutine.domain.instances.update(session, name=None)
+
+	assert "needs a name" in str(named.value), (
+		f"a null name was refused for some other reason: {named.value}"
+	)
+
+	with pytest.raises(subroutine.errors.ValidationError) as zoned:
+		subroutine.domain.instances.update(session, timezone=None)
+
+	assert "needs a timezone" in str(zoned.value), (
+		f"a null timezone was refused for some other reason — probably by `dates.zone`, which "
+		f"answers about which zone rather than about whether there is one: {zoned.value}"
+	)
+
+	assert _stored(session) == ("Kept", "UTC"), (
+		"a refused request changed something anyway"
+	)
+
+
 def test_a_zone_the_system_does_not_know_is_refused_in_the_usual_words (
 	session: sqlalchemy.orm.Session,
 ) -> None:
@@ -204,6 +246,45 @@ def test_a_request_naming_one_field_over_http_leaves_the_other_alone (
 	world.call("PATCH", "/v1/instance", json={"timezone": "Europe/London"})
 
 	assert _stored(session) == ("Hyperfence", "Europe/London")
+
+
+def test_the_route_refuses_a_null_rather_than_answering_that_it_worked (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The half `SR#2295` was reported at, and the half its sibling above cannot see.
+
+	The route filtered an explicit null out of the changes, so ``{"name": null}`` reached the
+	domain as *nothing was asked* and came back **200** with the name unchanged — while
+	``{"name": ""}``, the other spelling of the same request, came back **422**. A caller was
+	told a change succeeded that had not happened.
+
+	**Both codes are asserted, because the refusal alone would pass on a route that refused
+	everything.** And the stored value is checked afterwards, because a 422 that changed
+	something anyway is a different defect wearing this one's face.
+
+	The test beside this one drives the domain, where the refusal lives; without this one,
+	reinstating the filter would leave that passing and this behaviour back.
+	"""
+
+	world = test_api_tasks._world(session)
+
+	world.call("PATCH", "/v1/instance", json={"name": "Hyperfence", "timezone": "UTC"})
+
+	for field, sent in (("name", None), ("timezone", None)):
+		answer = world.call("PATCH", "/v1/instance", json={field: sent})
+
+		assert answer.status_code == 422, (
+			f"{{{field!r}: null}} answered {answer.status_code}, so a caller was told a change "
+			f"they asked for had happened: {answer.text}"
+		)
+
+	assert world.call(
+		"PATCH", "/v1/instance", json={"name": ""}
+	).status_code == 422, "the empty spelling stopped being refused"
+
+	assert _stored(session) == ("Hyperfence", "UTC"), (
+		"a refused request changed something anyway"
+	)
 
 
 def test_the_identity_is_untouched_by_a_rename (session: sqlalchemy.orm.Session) -> None:

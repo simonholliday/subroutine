@@ -67,11 +67,15 @@ def change (
 	# null are different requests, and reading `body.name is None` would make them the same —
 	# which here would mean every `PATCH` that changed the timezone also tried to blank the
 	# name. That is `#1444`'s own `Move.parent` defect, and it is what this pattern exists for.
+	# **And an explicit null is passed on rather than dropped** — `SR#2295`. Filtering it here
+	# undid the sentence above: `{"name": null}` answered 200 with the name unchanged while
+	# `{"name": ""}` answered 422, so the two spellings of *set it to nothing* got opposite
+	# replies and the silent one reported success. §8.3's convention is that a null is a value,
+	# and `api/projects.py` and `api/workspaces.py` both pass one to the domain and let it
+	# refuse — the two places that do filter carry a comment saying why, and this had none.
 	supplied = body.model_fields_set
 	changes: dict[str, typing.Any] = {
-		field: getattr(body, field)
-		for field in ("name", "timezone")
-		if field in supplied and getattr(body, field) is not None
+		field: getattr(body, field) for field in ("name", "timezone") if field in supplied
 	}
 
 	changed = subroutine.domain.instances.update(session, actor=actor, **changes)
