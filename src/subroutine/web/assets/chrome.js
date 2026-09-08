@@ -11,7 +11,7 @@ import * as markdown from "./markdown.js";
 import { html } from "./html.js";
 import { PRODUCT, addressOf, encodedPath, parseAddress, shortVersion } from "./address.js";
 import { unrenderable } from "./answers.js";
-import { day } from "./dates.js";
+import { day, rankOf } from "./dates.js";
 import { followed } from "./grouping.js";
 import { written } from "./requests.js";
 
@@ -289,7 +289,7 @@ export function Facts ({
 	`);
 	add(
 		"Priority",
-		item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null,
+		rankOf(item),
 	);
 	/* **`snoozed_until` was settable before it was showable**, which `#756` made worse rather than
 	   introduced: the form can set it, and a field a reader can write and never read back is

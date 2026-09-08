@@ -359,9 +359,19 @@ export const ORDERINGS = {
 			everywhere else; `priority_score` is `importance * urgency` and a bare 20 says
 			nothing a reader can act on.
 		*/
+		/*
+			**`render: "none"` since `SR#2269`, and `shows` deliberately unchanged.** A row
+			carries its rank on every arrangement now, not only on the one sorted by it — so
+			this is exactly the case `none` is for, an ordering the row already carries, beside
+			`title` and `completed_at` below. Drawing it here as well would be the same fact
+			twice on the one page where it is least surprising.
+
+			`shows` still names both axes because that is what tells the request to ask for
+			them, which is a separate question from who draws them.
+		*/
 		sentence: "Most important first, and documents have no importance",
 		offer: "Most important", field: "priority_score",
-		shows: "importance,urgency", render: "priority", label: "",
+		shows: "importance,urgency", render: "none", label: "",
 		compare: "number", descending: true, both: false, sinks: true,
 	},
 	"-completed_at": {
@@ -378,6 +388,65 @@ export const ORDERINGS = {
 	},
 };
 
+export function rankOf (item) {
+	/*
+		How a task is ranked, written the way this product writes it everywhere — `SR#2269`.
+
+		**One derivation, three renderings.** The expression lived in `orderingValue` below and
+		again in `chrome.Facts`, and `SR#2269` was about to add a third — which is this
+		codebase's signature defect, and `#1845` is the precedent for refusing it: the count and
+		the mark on a board column are one derivation read by both headings, because the two
+		spellings had already parted company once.
+
+		**`!i/u` rather than the score**, because that is what this product calls it on every
+		surface: `priority_score` is `importance * urgency` and a bare `20` says nothing a
+		reader can act on. The `!` is the same sigil that *sets* it in a captured line, so the
+		value says what it is wherever it lands.
+
+		**Both axes or nothing here**, unlike the terminal's `!4/?`. A half-ranked item is a
+		real state and worth showing — `priority_score` is null unless both are set, so it sinks
+		like something judged unimportant — but a mark is not a column: it has no fixed position
+		to make `?` legible, and the item page's fact sheet is where that reading belongs.
+		`SR#2269` records the asymmetry rather than leaving it to be found.
+	*/
+	return item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null;
+}
+
+
+export function ranksAreNews (items) {
+	/*
+		Whether a rank earns its place on this page — §12.2a, and the terminal's rule in full.
+
+		**Fewer than two distinct values and it says nothing**, which is `_column`'s test in
+		`cli/personal.py`: it collapses *unranked on every row* and *identical on every row*
+		into one question, because both are something a reader has to read to learn nothing.
+
+		That is §1.4 falling out of a layout rule rather than being enforced by one — a personal
+		to-do list of unranked tasks draws no rank and looks exactly as it did before ranking
+		existed, while a mixed backlog draws it, because there the rank is among the first
+		things you want.
+
+		**A document counts as a value**, the empty one, exactly as it does in the terminal: a
+		page of ranked tasks and unranked documents genuinely has something to say.
+
+		**And a page of one row keeps what somebody filled in** — `#1715`, and this is the half
+		that has to be carried across rather than re-derived. The rule above is a statement
+		about *contrast between rows*, and one row has no contrast to lose: every value on it is
+		the only one, so the unguarded test hides everything. The one-row page is the lookup
+		page — `#873` made `search <ref>` return exactly one — so it is the page most likely to
+		be acted on and the one that would say least.
+
+		Measured on the terminal at the time, on one item seconds apart: `search "the"` gave
+		`#5  !4/2  2h  Cache the roster` and `search "roster"` gave `#5  Cache the roster`.
+	*/
+	const rows = items || [];
+
+	if (rows.length === 1) return Boolean(rankOf(rows[0]));
+
+	return new Set(rows.map((item) => rankOf(item) || "")).size > 1;
+}
+
+
 export function orderingValue (ordering, item) {
 	/*
 		What a row shows of the field the page is sorted on, or nothing.
@@ -391,10 +460,6 @@ export function orderingValue (ordering, item) {
 		`completed_at` is printed by `when` (`#706`, `#746`).
 	*/
 	if (!ordering) return null;
-
-	if (ordering.render === "priority") {
-		return item.importance && item.urgency ? `!${item.importance}/${item.urgency}` : null;
-	}
 
 	if (ordering.render === "moment") {
 		return item[ordering.field] ? `${ordering.label} ${moment(item[ordering.field])}` : null;

@@ -3114,6 +3114,8 @@ export {
 	orderedAs,
 	orderingValue,
 	overdue,
+	rankOf,
+	ranksAreNews,
 } from "./dates.js";
 export {
 	Detail,

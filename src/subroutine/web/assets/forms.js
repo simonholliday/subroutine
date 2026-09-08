@@ -10,7 +10,9 @@
 import { render } from "preact";
 import { html } from "./html.js";
 import { answers, frame } from "./address.js";
-import { DEFAULT_ORDER, calendarDay, day, named, offeredOrders } from "./dates.js";
+import {
+	DEFAULT_ORDER, calendarDay, day, named, offeredOrders, ranksAreNews,
+} from "./dates.js";
 import { Written } from "./detail.js";
 import { followed } from "./grouping.js";
 import { Icon, when } from "./marks.js";
@@ -1181,6 +1183,11 @@ export function Listing ({
 	*/
 	const showAssignee = items.some((item) => item.assignee);
 
+	/* **Whether a rank earns its place here** — `SR#2269`, §12.2a. `ranksAreNews` is the
+	   terminal's `_column` rule: fewer than two distinct values and it says nothing, which
+	   collapses *unranked everywhere* and *identical everywhere* into one question. */
+	const showRank = ranksAreNews(items);
+
 	/*
 		**A listing that had to stop says so.** It said nothing until `#646`, and a reader was
 		shown 100 of 142 with no way to tell — which is how an item they had written minutes
@@ -1273,7 +1280,7 @@ export function Listing ({
 							<${Row} key=${item.kind + item.ref} item=${item}
 								workspace=${workspace} onOpen=${onOpen} ordering=${ordering}
 								place=${{ workspace, project }} onGo=${onGo}
-								showAssignee=${showAssignee}
+								showAssignee=${showAssignee} showRank=${showRank}
 								onComplete=${onComplete} />
 						`)}
 					</ul>

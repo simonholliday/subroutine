@@ -12444,6 +12444,149 @@ def test_a_ranked_page_asks_for_no_documents_and_says_why (tmp_path: pathlib.Pat
 	assert "!4/3" in driven["said"], "a ranked row does not show what it is ranked by"
 
 
+#: Two ranked tasks and one unranked, which is the shape every assertion below turns on: a page
+#: whose ranks are all the same cannot tell *drawn because it varies* from *drawn always*, and a
+#: page of one row is `#1715`'s exception rather than the rule.
+RANKED: list[dict[str, typing.Any]] = [
+	{"ref": 7, "kind": "task", "title": "Ship it", "importance": 4, "urgency": 3,
+		"created_at": "2026-08-10T14:22:00+00:00", "status_category": "todo"},
+	{"ref": 8, "kind": "task", "title": "Then rest", "importance": 2, "urgency": 1,
+		"created_at": "2026-08-10T14:23:00+00:00", "status_category": "todo"},
+	{"ref": 9, "kind": "task", "title": "Nobody judged this",
+		"created_at": "2026-08-10T14:24:00+00:00", "status_category": "todo"},
+]
+
+
+def _ranks_on (
+	tmp_path: pathlib.Path, *, search: str, items: list[dict[str, typing.Any]]
+) -> str:
+	"""Return what a whole page draws, for a listing holding these rows."""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/projects",
+		search=search,
+		answers={"/v1/tasks": {
+			"items": items,
+			"page": {"has_more": False, "next_cursor": None, "total": None},
+		}},
+	)
+
+	return str(driven["said"])
+
+
+@pytest.mark.parametrize(
+	("view", "search"),
+	[("the list", "?view=list"), ("the board", "?view=board&group_by=status_category")],
+)
+def test_a_row_says_how_it_is_ranked_without_the_page_being_sorted_by_it (
+	tmp_path: pathlib.Path, view: str, search: str
+) -> None:
+	"""`SR#2269`. The board could not do this at all, and the list on one arrangement in six.
+
+	The rank was drawn only by `orderingValue`, whose job is to show *the field the page is
+	sorted on* — and `Row`'s own comment says only the list has an ordering, because the
+	agenda's rows are in buckets and the board's are in columns. So the board returned null by
+	construction, while the terminal has had a column since it had rows.
+
+	**Neither page here is sorted by priority**, deliberately: that is the whole claim, and a
+	search naming `-priority_score` would pass against the previous behaviour.
+	"""
+
+	said = _ranks_on(tmp_path, search=search, items=RANKED)
+
+	assert "!4/3" in said, (
+		f"{view} does not say how a task is ranked unless the page is sorted by it, so a "
+		f"reader has to open the item: {said[:400]}"
+	)
+	assert "!2/1" in said, f"{view} drew one row's rank and not another's: {said[:400]}"
+
+
+def test_the_agenda_draws_a_rank_across_its_buckets_or_not_at_all (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The third view, driven as a component because its rows arrive in buckets.
+
+	`GET /v1/agenda` answers with buckets rather than a listing, so the page harness above
+	cannot pose this one; `Agenda` is hook-free by decision (`#640`) and takes them directly.
+
+	**Across every bucket rather than within each**, which is the same choice `#1244` made about
+	the buckets themselves: they are one page, and a mark that appeared in *Overdue* and
+	vanished in *Next* would read as a fact about the bucket rather than about the item.
+	"""
+
+	def buckets (rows: list[dict[str, typing.Any]]) -> list[dict[str, typing.Any]]:
+		"""Put the first row in its own bucket, so the question spans two."""
+
+		return [
+			{"key": "overdue", "label": "Overdue", "items": rows[:1]},
+			{"key": "unscheduled", "label": "Next", "items": rows[1:]},
+		]
+
+	varied = _rendered(tmp_path, {"Agenda": {"buckets": buckets(RANKED)}})["Agenda"]
+
+	assert "!4/3" in varied and "!2/1" in varied, (
+		f"the agenda draws no rank, so two of the three views cannot say it: {varied}"
+	)
+
+	same = [dict(row, importance=3, urgency=3) for row in RANKED]
+	uniform = _rendered(tmp_path, {"Agenda": {"buckets": buckets(same)}})["Agenda"]
+
+	assert "!3/3" not in uniform, (
+		f"every row across both buckets carried the same rank and it was drawn anyway: "
+		f"{uniform}"
+	)
+
+
+def test_a_page_whose_ranks_say_nothing_draws_none (tmp_path: pathlib.Path) -> None:
+	"""§12.2a, and the half `SR#2269` had to carry across rather than re-derive.
+
+	**Fewer than two distinct values and it says nothing** — `_column`'s rule in
+	`cli/personal.py`, which collapses *unranked everywhere* and *identical everywhere* into one
+	question, because both are something a reader reads to learn nothing. That is §1.4 falling
+	out of a layout rule: a personal to-do list draws no rank and looks exactly as it did before
+	ranking existed.
+	"""
+
+	same = [dict(row, importance=3, urgency=3) for row in RANKED]
+
+	assert "!3/3" not in _ranks_on(tmp_path, search="?view=list", items=same), (
+		"every row carried the same rank and the page drew it on all of them"
+	)
+
+	unranked = [
+		{key: value for key, value in row.items() if key not in ("importance", "urgency")}
+		for row in RANKED
+	]
+	drawn = _ranks_on(tmp_path, search="?view=list", items=unranked)
+
+	assert "!" not in drawn, (
+		f"a page where nobody has judged anything drew a rank: {drawn[:400]}"
+	)
+
+
+def test_a_page_of_one_row_keeps_the_rank_somebody_filled_in (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1715`'s exception, carried to the browser — and it is not an edge case.
+
+	The rule above is a statement about *contrast between rows*, and one row has no contrast to
+	lose: every value on it is the only one, so the unguarded test hides everything. **The
+	one-row page is the lookup page** — `#873` made `search <ref>` return exactly one — so it is
+	the page most likely to be acted on and would be the one saying least.
+
+	Measured on the terminal when `#1715` was taken, on one item seconds apart: `search "the"`
+	gave `#5  !4/2  2h  Cache the roster` and `search "roster"` gave `#5  Cache the roster`.
+	"""
+
+	said = _ranks_on(tmp_path, search="?view=list", items=RANKED[:1])
+
+	assert "!4/3" in said, (
+		f"the lookup page dropped the rank somebody filled in, which is the page most likely "
+		f"to be acted on: {said[:400]}"
+	)
+
+
 #: A workspace whose statuses are its own, which is the case a literal list gets wrong.
 #: Three in one category, one renamed, and the default is not the first.
 RENAMED = {

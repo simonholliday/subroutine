@@ -10,7 +10,7 @@
 import * as phosphor from "./phosphor.js";
 import { html } from "./html.js";
 import { encodedPath, projectLabel, withShowing } from "./address.js";
-import { day, deferred, holding, named, orderingValue, overdue } from "./dates.js";
+import { day, deferred, holding, named, orderingValue, overdue, rankOf } from "./dates.js";
 import { repeats } from "./requests.js";
 
 /*
@@ -201,11 +201,17 @@ export function marks (
 		  counting them is the same fact twice, three lines apart. That is exactly the
 		  duplication `#1019` took four rows *out* of the fact sheet to remove, and this is the
 		  same rule read in the other direction.
+		- `showRank` — **the page decided this one has something to say** (`SR#2269`), which is
+		  the opposite shape to the four above: they are a caller saying *I draw this already*,
+		  and this is a caller saying *here it earns its place*. Absent means draw nothing,
+		  because a rank on every row of an unranked list is §12.2a's column that says the same
+		  thing on every line.
 	*/
 	options = {}
 ) {
 	const {
 		hideStatus = false, hideAssignee = false, hideType = false, hideParts = false,
+		showRank = false,
 	} = options;
 
 	/*
@@ -244,6 +250,29 @@ export function marks (
 		every item has a type. `#1148` is that branch's own bug report; the strip is where the
 		fact went, and `showKind` went with it.
 	*/
+	/*
+		**How a task is ranked, wherever the row is drawn** — `SR#2269`, Simon 2026-09-08.
+
+		It was drawn only by `orderingValue` below, whose job is to show *the field the page is
+		sorted on* (`#706`, `#746`) — and `Row`'s own comment says only the list has an
+		ordering, because the agenda's rows are in buckets and the board's are in columns. So
+		two of the three views could never show a rank at all, and the third showed it on one
+		arrangement out of six. The terminal has had a column since it had rows.
+
+		**In the identity strip, beside the ref and the type**, which is where Simon asked for
+		it and is the one place that is the same on a list, a board and an agenda. A mark that
+		moves with the arrangement is one a reader has to look for.
+
+		**`showRank` is the page's answer, not this row's** — §12.2a, and `ranksAreNews` is the
+		test. It is the second prop of that shape after `showAssignee`; the comment on that one
+		saying it is *the only* prop of its shape was true until this.
+	*/
+	if (showRank) {
+		const rank = rankOf(item);
+
+		if (rank) found.push({ text: rank, family: "identity" });
+	}
+
 	if (!hideType && item.type && !item.type_is_default) {
 		found.push({
 			text: item.type,

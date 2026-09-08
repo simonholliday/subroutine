@@ -10,7 +10,9 @@
 import { render } from "preact";
 import { html } from "./html.js";
 import { addressOf } from "./address.js";
-import { FINISHED, completable, day, deferred, excluded, holding, named } from "./dates.js";
+import {
+	FINISHED, completable, day, deferred, excluded, holding, named, ranksAreNews,
+} from "./dates.js";
 import { Adding, Focus, Narrowed, Ordered, TopLevelOnly, Whose } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
@@ -179,6 +181,10 @@ export function Row ({
 		— which is the defect this item exists to fix, rebuilt in CSS.
 	*/
 	showAssignee = false,
+	/* **Whether a rank earns its place on this page** — `SR#2269`, and the second prop of the
+	   shape the comment above calls the only one. Decided by the view, because `ranksAreNews` is a
+	   question about the rows and not about this one. */
+	showRank = false,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
@@ -188,6 +194,7 @@ export function Row ({
 		hideAssignee: showAssignee,
 		/* The strip above says it, in a fixed place — `#2026`. */
 		hideType: true,
+		showRank,
 	});
 
 	/*
@@ -538,6 +545,16 @@ export function Agenda ({
 			note=${workspace ? `Adds to ${workspace}.` : null} />
 	`;
 
+	/*
+		**Whether a rank earns its place, asked of the whole agenda** — `SR#2269`, §12.2a.
+
+		**Across every bucket rather than within each**, which is the same choice `#1244` made
+		about the buckets themselves: they are one page, and a mark that appeared in *Overdue*
+		and vanished in *Next* would read as a fact about the bucket. `ranksAreNews` is the
+		terminal's `_column` rule — fewer than two distinct values and it says nothing.
+	*/
+	const showRank = ranksAreNews(buckets.flatMap((bucket) => bucket.items));
+
 	if (buckets.length === 0) {
 		return html`
 			<div class="listing agenda">
@@ -608,6 +625,7 @@ export function Agenda ({
 							     labelled `projects/subroutine`. The listing and the board took
 							     `place` all along; only this had the assumption baked in. */ null}
 							<${Row} key=${item.workspace + "/" + item.ref} item=${item}
+								showRank=${showRank}
 								showWhere=${showWhere} workspace=${workspace}
 								place=${place}
 								onGo=${onGo}
@@ -721,6 +739,11 @@ export function Board ({
 		confirmation than expansion, because nothing moves.
 	*/
 	const shut = collapsedColumns(arranged.map((column) => column.key), choices);
+
+	/* **Asked of the board rather than of a column** — `SR#2269`, for the agenda's reason one
+	   arrangement along: a board fetches one page and partitions it, so a rank that appeared in
+	   *In progress* and not in *To do* would read as a fact about the column. */
+	const showRank = ranksAreNews(items);
 
 	/*
 		**What this column did not show, if anything** — `#1790`.
@@ -901,6 +924,7 @@ export function Board ({
 										<ul class="rows">
 											${column.items.map((item) => html`
 												<${Row} key=${item.kind + item.ref} item=${item}
+													showRank=${showRank}
 													workspace=${workspace}
 													place=${{ workspace, project }} onGo=${onGo}
 													onOpen=${onOpen} onComplete=${onComplete}
