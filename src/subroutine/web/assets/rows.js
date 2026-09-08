@@ -11,13 +11,13 @@ import { render } from "preact";
 import { html } from "./html.js";
 import { addressOf } from "./address.js";
 import { FINISHED, completable, day, deferred, excluded, holding, named } from "./dates.js";
-import { Adding, Narrowed, Ordered, TopLevelOnly, Whose } from "./forms.js";
+import { Adding, Focus, Narrowed, Ordered, TopLevelOnly, Whose } from "./forms.js";
 import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
 	when,
 } from "./marks.js";
-import { prioritisedSentence, soleStatusIn } from "./places.js";
+import { soleStatusIn } from "./places.js";
 import { filed, written } from "./requests.js";
 
 export function Marks ({ badges, onGo = null }) {
@@ -409,6 +409,11 @@ export function Agenda ({
 	onGo = null,
 	/* Which projects are prioritised, addressed — `prioritisedHere` (`#986`). */
 	prioritised = [],
+	/* How to stop prioritising, when this page can say which one that would be — `SR#2265`.
+	   Withheld the way `onWhose` and `onTopLevel` are: no handler means no control, rather
+	   than one that does nothing. `App` asks `stoppableHere`, because the agenda spans
+	   workspaces and the write reaches one. */
+	onStop = null,
 	/*
 		**What the address already said** — decision `#957` §4, and the prop this drew without
 		until `#1215`.
@@ -539,10 +544,12 @@ export function Agenda ({
 				${box}
 				${/* Said on the quiet day too: *nothing is due* is an answer about this workspace's
 				     focus as much as about a busy one, and a fact that disappears when the page
-				     empties is one a reader will think they imagined. */ null}
-				${prioritisedSentence(prioritised) && html`
-					<div class="focus">${prioritisedSentence(prioritised)}</div>
-				`}
+				     empties is one a reader will think they imagined.
+
+				     **And the control comes with it** (`SR#2265`): an empty agenda is one of the
+				     likelier places to want to stop, since a workspace showing nothing under a
+				     raised project is exactly the reader who set the wrong one. */ null}
+				<${Focus} prioritised=${prioritised} onStop=${onStop} busy=${busy} />
 				<div class="empty">Nothing is due, and nothing is waiting. </div>
 				${accounting}
 			</div>
@@ -560,9 +567,12 @@ export function Agenda ({
 				is. `#851` requires a computed rank to be able to explain itself, and 84% of rows
 				being in the favoured project is why the explanation cannot live on the rows.
 			*/ null}
-			${prioritisedSentence(prioritised) && html`
-				<div class="focus">${prioritisedSentence(prioritised)}</div>
-			`}
+			${/* **The way to stop, beside the sentence that says it is happening** — `SR#2265`.
+			     This page announced a prioritised project and offered nothing to do about it;
+			     the only control lived on the list view, under a different sentence. `Agenda`
+			     was passed `prioritised` and never `onPrioritise`, which is the fact and no wire
+			     to it — `#640`'s shape, and the fourth time it has shipped from this file. */ null}
+			<${Focus} prioritised=${prioritised} onStop=${onStop} busy=${busy} />
 
 			${buckets.map((bucket) => html`
 				<section class="bucket" key=${bucket.key}>

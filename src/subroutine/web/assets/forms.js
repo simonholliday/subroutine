@@ -701,6 +701,49 @@ export function Conflict ({ theirs }) {
 	`;
 }
 
+export function Focus ({ prioritised = [], onStop = null, busy = false }) {
+	/*
+		Why the ranking on this page is what it is — and, since `SR#2265`, how to stop it.
+
+		**The sentence had no control on any surface that showed it**, so `/` and a project's
+		agenda both announced a prioritised project and left the reader to find the one page that
+		could change it: the list view, where a *different* sentence carries the button. Simon met
+		it on a served instance and had to click through two pages to undo one setting.
+
+		**Only ever *stop*, never *start*.** This line does not exist unless something is already
+		prioritised, so there is no other act available here — which is what keeps it distinct
+		from `Narrowed`'s toggle below, and why the two can sit on one page without arguing.
+
+		**The control belongs with the sentence that names the project it acts on**, and that is
+		the whole rule. `Narrowed` names *this page's* project and toggles that one; this names
+		*the raised* project — which on a merged agenda may not be the page's, and on `/` there is
+		no page project at all. Merging the two lines was considered and refused: one is about the
+		ordering and one is about the row set, and on `/` nothing is narrowed, so *Showing X and
+		anything under it* would simply be false.
+
+		**Whether stopping is unambiguous is not decided here** — `stoppableHere` in `places.js`
+		decides it, because the write reaches one workspace while the sentence may name several.
+		A null `onStop` is a page that may say this and not act on it, which is a real state
+		rather than a missing argument.
+	*/
+	const said = prioritisedSentence(prioritised);
+
+	if (!said) return null;
+
+	return html`
+		<div class="focus">
+			<span>${said}</span>
+			${onStop && html`
+				<button type="button" class="prioritise action" disabled=${busy}
+					onClick=${onStop}
+					title="Stop raising this project's work"
+					>Stop prioritising</button>
+			`}
+		</div>
+	`;
+}
+
+
 export function Narrowed ({
 	project, onWiden, widenTo, prioritised = [], onPrioritise = null, busy = false,
 	/* What else narrowed the page — `#1020`. Defaulted, because most callers narrow by
@@ -1159,9 +1202,22 @@ export function Listing ({
 				over every listing would claim an effect the page is not showing — and a reader learns
 				to ignore a line that is only sometimes true.
 			*/ null}
-			${rankedByPriority(order) && items.length > 0
-				&& prioritisedSentence(prioritised) && html`
-				<div class="focus">${prioritisedSentence(prioritised)}</div>
+			${/* **And it offers the way to stop, unless `Narrowed` below already is** —
+			     `SR#2265`. Both name a project and both could carry the control, so the rule is
+			     that the one naming *this page's* project wins: on a listing narrowed to the
+			     raised project the toggle underneath already says *Stop prioritising*, and two
+			     identical buttons a line apart read as two different settings. Everywhere else —
+			     a listing narrowed to nothing, or to some other project — this is the only one
+			     that can offer it.
+
+			     A listing is narrowed to one workspace, so `prioritised` holds at most that
+			     workspace's own entry and `stoppableHere`'s question is answered by
+			     construction. The agenda spans them and has to ask. */ null}
+			${rankedByPriority(order) && items.length > 0 && html`
+				<${Focus} prioritised=${prioritised} busy=${busy}
+					onStop=${onPrioritise && !(project && prioritised.includes(project))
+						? () => onPrioritise(null)
+						: null} />
 			`}
 
 			<${Narrowed} project=${project} onWiden=${onWiden} widenTo=${widenTo}

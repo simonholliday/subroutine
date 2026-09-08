@@ -163,6 +163,12 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# The bar the list and the board share — one component since `SR#986`, because they held it
 	# byte for byte and a second control in it would have been the moment they drifted.
 	"Narrowed": {"project": "web", "prioritised": ["web"]},
+	# The line above the rows saying why they are ordered as they are, and — since `SR#2265` —
+	# the one act available to it. **`onStop` is deliberately absent**, for the reason written
+	# against `Marks`' `onGo`: `_rendered` supplies every `on…` prop as a real no-op, so naming
+	# it here would replace the function with whatever was written and render the control into
+	# something that throws on the one gesture it exists for.
+	"Focus": {"prioritised": ["web"]},
 	"Board": {
 		"items": [
 			{
@@ -10087,6 +10093,8 @@ def _views (
 				? app.filableFor(argument.projects, argument.project, argument.prioritised)
 			: name === "prioritisedHere"
 				? app.prioritisedHere(argument.workspaces, argument.workspace)
+			: name === "stoppableHere"
+				? app.stoppableHere(argument.workspaces, argument.workspace, argument.shown)
 			: name === "prioritisedSentence" ? app.prioritisedSentence(argument)
 			: name === "rankedByPriority" ? app.rankedByPriority(argument)
 			: name === "treeOrdered" ? app.treeOrdered(argument.projects)
@@ -14865,6 +14873,153 @@ def test_the_sentence_agrees_with_itself_about_how_many (tmp_path: pathlib.Path)
 	assert one == "subroutine is prioritised, so its work rises here."
 	assert two == (
 		"projects/subroutine and personal/home are prioritised, so their work rises here."
+	)
+
+
+def test_stopping_is_offered_only_where_the_page_can_say_which_one_it_would_stop (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2265`. The sentence may name one project per workspace; the write reaches one.
+
+	`prioritise` sends `prioritiseRequest(chosen, workspace)` — the switcher's workspace — while
+	the merged agenda asks `prioritisedHere` with no workspace and is answered for **all** of
+	them. So a single *Stop prioritising* on a page naming two would clear one and leave the
+	sentence half true, and on a page naming somebody else's workspace it would clear something
+	the reader was not looking at. Both are silent, which is why the question is asked at all
+	rather than the button simply being added.
+	"""
+
+	both = [
+		{"id": "1", "slug": "projects", "prioritised_project": "subroutine"},
+		{"id": "2", "slug": "personal", "prioritised_project": "home"},
+	]
+
+	alone, spanning, elsewhere, quiet = _views(tmp_path, [
+		# A listing, or a single-workspace agenda: one name, and this workspace holds it.
+		("stoppableHere", {
+			"workspaces": FOCUSED, "workspace": "projects", "shown": ["subroutine"],
+		}),
+		# The merged agenda where two workspaces each have one. The button could only clear
+		# `projects`, so it must not be offered at all.
+		("stoppableHere", {
+			"workspaces": both,
+			"workspace": "projects",
+			"shown": ["projects/subroutine", "personal/home"],
+		}),
+		# One name, and it belongs to a workspace the switcher is not in.
+		("stoppableHere", {
+			"workspaces": FOCUSED, "workspace": "personal", "shown": ["projects/subroutine"],
+		}),
+		("stoppableHere", {"workspaces": FOCUSED, "workspace": "projects", "shown": []}),
+	])
+
+	assert alone is True, "a page naming one project in this workspace can offer to stop it"
+	assert spanning is False, "a page naming two must not offer a button that clears one"
+	assert elsewhere is False, (
+		"the write would reach this workspace, which is not the one the sentence named"
+	)
+	assert quiet is False, "there is nothing to stop"
+
+
+def test_the_agenda_offers_the_way_to_stop_beside_the_sentence_that_says_it_is_on (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2265`, and the defect was the fact arriving without the wire to change it.
+
+	`Agenda` was passed `prioritised` and never `onPrioritise`, so `/` and a project's own
+	agenda both announced a prioritised project and offered nothing to do about it. The only
+	control was on the list view, under a *different* sentence — Simon met it on a served
+	instance and clicked through two pages to undo one setting.
+
+	**Both states, because the withheld one is the point.** A handler is supplied by the harness
+	to every component, so the absence has to be asked for explicitly — and it is the state a
+	merged agenda spanning two prioritised workspaces is in.
+	"""
+
+	buckets = [{
+		"key": "unscheduled",
+		"label": "Next",
+		"items": [{
+			"ref": 1, "kind": "task", "title": "Something to do",
+			"workspace": "projects", "status_is_default": True,
+		}],
+	}]
+
+	shown = _rendered(tmp_path, {
+		"Agenda": {"buckets": buckets, "prioritised": ["subroutine"]},
+	})["Agenda"]
+
+	withheld = _rendered(tmp_path, {
+		"Agenda": {"buckets": buckets, "prioritised": ["subroutine"], "onStop": None},
+	})["Agenda"]
+
+	assert "subroutine is prioritised, so its work rises here." in shown, shown
+	assert "Stop prioritising" in shown, (
+		f"the agenda says a project is prioritised and offers no way to stop: {shown}"
+	)
+
+	assert "subroutine is prioritised, so its work rises here." in withheld, withheld
+	assert "Stop prioritising" not in withheld, (
+		f"a control was offered on a page that cannot say which project it would stop: "
+		f"{withheld}"
+	)
+
+
+def test_an_empty_agenda_still_offers_to_stop_prioritising (tmp_path: pathlib.Path) -> None:
+	"""`SR#2265`, and it is the likelier of the two to be wanted.
+
+	The quiet day already said what is prioritised, for the reason written against that branch:
+	a fact that disappears when the page empties is one a reader will think they imagined. An
+	agenda showing nothing *under a raised project* is exactly the reader who raised the wrong
+	one, so the branch that says it is also the branch that most needs the way out.
+	"""
+
+	shown = _rendered(tmp_path, {
+		"Agenda": {"buckets": [], "prioritised": ["subroutine"]},
+	})["Agenda"]
+
+	assert "Nothing is due" in shown, shown
+	assert "subroutine is prioritised, so its work rises here." in shown, shown
+	assert "Stop prioritising" in shown, (
+		f"the empty agenda names a prioritised project and cannot undo it: {shown}"
+	)
+
+
+def test_a_listing_narrowed_to_the_raised_project_offers_one_way_to_stop_and_not_two (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2265`. Two sentences on one page could each carry the control, so one of them must not.
+
+	`Narrowed` names *this page's* project and toggles it; the focus line names *the raised*
+	project and can only stop it. On a listing narrowed to the project that is raised they are
+	the same project, and two identical buttons a line apart read as two different settings.
+
+	**The one naming this page's project wins**, because that is the one that can also *start* —
+	so dropping its control would cost an act, where dropping the other's costs nothing.
+	"""
+
+	items = [{"ref": 1, "kind": "task", "title": "A task", "status_is_default": True}]
+
+	same = _rendered(tmp_path, {"Listing": {
+		"items": items, "project": "subroutine", "prioritised": ["subroutine"],
+		"order": "-priority_score",
+	}})["Listing"]
+
+	other = _rendered(tmp_path, {"Listing": {
+		"items": items, "project": "web", "prioritised": ["subroutine"],
+		"order": "-priority_score",
+	}})["Listing"]
+
+	assert same.count("Stop prioritising") == 1, (
+		f"the page offers the same act twice, which reads as two settings: {same}"
+	)
+
+	assert other.count("Stop prioritising") == 1, (
+		f"a listing narrowed to another project names the raised one and must still be able "
+		f"to stop it: {other}"
+	)
+	assert "Prioritise<" in other or ">Prioritise" in other, (
+		f"the narrowed bar lost its own control, which is the one that can start: {other}"
 	)
 
 

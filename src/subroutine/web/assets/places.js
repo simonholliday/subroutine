@@ -603,6 +603,31 @@ export function prioritisedHere (workspaces, workspace = null) {
 		: one.prioritised_project));
 }
 
+export function stoppableHere (workspaces, workspace, shown) {
+	/*
+		Whether *this page* can offer to stop the prioritising it just announced — `SR#2265`.
+
+		**The write goes to one workspace and the sentence may name several.** `prioritise` sends
+		`prioritiseRequest(chosen, workspace)`, the switcher's workspace; the merged agenda calls
+		`prioritisedHere` with no workspace and gets **one entry per workspace**. So a single
+		*Stop prioritising* on a page naming two would clear one of them and leave the sentence
+		half true — and on a page naming another workspace's project it would clear something the
+		reader was not looking at. Both are silent.
+
+		So the control is offered on exactly the safe shape: the sentence names **one** project,
+		and the workspace the write would reach is the one holding it. A listing is narrowed to a
+		single workspace and satisfies this by construction; the agenda satisfies it whenever the
+		instance has one workspace, or the reader is scoped to one.
+
+		**Pure, so it can be driven in Node** (`#640`) — the same argument as `prioritisedHere`
+		above, and this is the half of the pair that decides rather than describes.
+	*/
+	const here = (workspaces || []).find((one) => one && one.slug === workspace);
+
+	return Boolean(here && here.prioritised_project) && (shown || []).length === 1;
+}
+
+
 export function prioritisedSentence (found) {
 	/*
 		What is prioritised, with the verb, the possessive and the noun all agreeing about how

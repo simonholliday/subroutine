@@ -54,6 +54,7 @@ import { People } from "./people.js";
 import {
 	addressedProjects, filableFor, notOffered, offered, people, placesToGo, prioritisedHere,
 	prioritisedSentence, projectName, projectsRequest, rankedByPriority, soleStatusIn,
+	stoppableHere,
 	statusFor, treeOrdered, unmovable, vocabularyRequest,
 } from "./places.js";
 import {
@@ -2811,6 +2812,27 @@ export function App () {
 						prioritised=${prioritisedHere(
 							me ? me.workspaces : [], everywhere ? undefined : workspace,
 						)}
+						${/* **And the way to stop it, which this page has never had** —
+						     `SR#2265`. It announced a prioritised project on `/` and on a
+						     project's own agenda, and the only control was on the list view
+						     under a different sentence.
+
+						     **Asked rather than assumed**, because `prioritise` writes to the
+						     switcher's workspace while the line above may name one project per
+						     workspace: `stoppableHere` offers it only where the sentence names
+						     one and this workspace is the one holding it. A merged agenda on an
+						     instance with two prioritised workspaces keeps the sentence and no
+						     button, which is the honest answer rather than a write that clears
+						     one of the two silently. */ null}
+						onStop=${mayWrite && stoppableHere(
+							me ? me.workspaces : [],
+							workspace,
+							prioritisedHere(
+								me ? me.workspaces : [], everywhere ? undefined : workspace,
+							),
+						)
+							? () => prioritise(null)
+							: null}
 						${/* **Each row is opened in its own workspace, not in the one the
 						     switcher holds.** The agenda spans them; `show` defaults its slug
 						     to `workspace`, so a row from `sandbox` would be looked up in
@@ -3099,6 +3121,7 @@ export {
 	DocumentFields,
 	Editing,
 	Fields,
+	Focus,
 	AT_THE_TOP,
 	Listing,
 	NOBODY,
@@ -3153,6 +3176,7 @@ export {
 	rankedByPriority,
 	soleStatusIn,
 	statusFor,
+	stoppableHere,
 	treeOrdered,
 	unmovable,
 	vocabularyRequest,

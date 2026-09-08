@@ -1775,7 +1775,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.comments .body th',
 		'.comments .body ul',
 		'.cut .action',
-		'.focus',
 		'.holding',
 		'.holding .held',
 		'.linked .over',
@@ -3726,6 +3725,39 @@ def test_prioritising_a_project_writes_it_and_reads_back_what_it_changed (
 	# all agree, over rows in the order they were in before.
 	assert any("/tasks" in one for one in reads), (
 		f"nothing reloaded the listing, so the rows the change is *for* have not moved: {reads}"
+	)
+
+	# **And the other end of the same round trip** — `SR#2265`, folded in here rather than added
+	# beside it, because this file is at its size ceiling and the claim is this test's own: the
+	# control writes, refetches and reloads. What is new is *which* control, and the agenda's
+	# had no wire at all — `Agenda` was passed `prioritised` and never a handler, so `/` and a
+	# project's own agenda announced a raised project and offered nothing to undo it.
+	#
+	# **Only a browser can say it.** `App` is where `stoppableHere` is asked and where the
+	# handler is built, and `tests/dom.js` cannot execute `App` (`SR#640`) — so the component
+	# half is driven in `tests/test_web.py` and this is the wire between them, which on this
+	# project's record is the half that ships broken.
+	reads.clear()
+	agenda = opened("/")
+
+	agenda.wait_for_selector(".focus button.prioritise:text('Stop prioritising')", timeout=10_000)
+
+	agenda.click(".focus button.prioritise")
+
+	# Waited on the sentence *going*, which is the identity having come back and every label
+	# recomputed — the same claim as the label above, read the other way round.
+	agenda.wait_for_selector(".focus", state="detached", timeout=10_000)
+
+	stopped = [one for one in written if one[0] == "PATCH" and "workspaces" in one[1]]
+
+	assert stopped[-1][1].endswith("/workspaces/projects"), (
+		f"stopping wrote to {stopped[-1][1]}, and the state belongs to the workspace"
+	)
+	assert "subroutine" not in (stopped[-1][2] or ""), (
+		f"stopping named a project to raise rather than clearing it: {stopped[-1][2]!r}"
+	)
+	assert any("/tasks" in one for one in reads), (
+		f"stopping reordered nothing a reader can see: {reads}"
 	)
 
 	# **Put back, unlike the rest of this file.** The fixture is module-scoped, so a prioritised

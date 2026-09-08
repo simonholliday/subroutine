@@ -2086,17 +2086,30 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 /*
 	What is prioritised, said once above the rows it affects — `#986`, decision `#982`.
 
-	**Quieter than `.narrowed` and deliberately so.** That one describes a filter the reader
-	applied and offers a way out; this describes an ordering they set once, somewhere else, and
-	that acts on the whole page. It is context rather than an action, so it takes no border and
-	the softer ink — every token here exists, which `#923`'s guard is what keeps true.
+	**Quieter than `.narrowed` and still deliberately so**, though the reason has narrowed since
+	`SR#2265`. That one describes a filter the reader applied to *this page*; this describes an
+	ordering they set once, somewhere else, that acts on every page in the workspace. So it keeps
+	the softer ink and no border — every token here exists, which `#923`'s guard is what keeps
+	true — while no longer being context *rather than* an action: the sentence now carries the
+	one act available to it, because announcing a setting and not offering to undo it sent a
+	reader through two pages to find the button.
+
+	**A row rather than a paragraph, laid out the way `.narrowed` below is** and for the reason
+	written there: `margin-right: auto` on the sentence is identical to `space-between` while
+	there is one control, and groups any number of them rather than pushing a second against the
+	middle of the row.
 */
 .focus {
+	display: flex;
+	align-items: center;
+	gap: var(--space-6);
 	margin-bottom: var(--space-6);
 	padding: var(--space-3) var(--space-7);
 	color: var(--ink-soft);
 	font-size: var(--text-small);
 }
+
+.focus > span:first-child { margin-right: auto; }
 
 /*
 	**The controls sit together at the right rather than being spread apart** (`#986`). This was
