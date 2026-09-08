@@ -833,6 +833,9 @@ _CONDITION_ONLY: dict[str, Property] = {
 		group=NAMES_AN_ACCOUNT,
 		because="ordering by an account id means nothing; ordering by who has what is `#1805`.",
 	),
+	# **What this compares against is not this column** — see :data:`LEASED` and `SR#2299`. A
+	# claim is a lease, so an expired one reads as nobody holding it, and the swap is made
+	# where every operator inherits it rather than per comparison.
 	"claimed_by": Property(
 		column=subroutine.db.models.work.Task.claimed_by_id,
 		kind=REFERENCE,
@@ -1679,6 +1682,57 @@ class Where (typing.NamedTuple):
 	workspace_ids: typing.Sequence[uuid.UUID] = ()
 
 
+#: Fields whose value is only true while a lease is live, and the column that says when it
+#: ran out — `SR#2299`.
+#:
+#: **A claim is a lease and an expired one is ignored** (`#726`, §10.7 invariant 10): a worker
+#: that dies must not strand the work, so nothing is cleaned up eagerly and every reader tests
+#: the clock. Four already did — the ``claimed_by`` route parameter, ``readiness.held`` in SQL,
+#: ``claims.held_by`` on a row and ``views.holder`` on a rendered item — and the *filter*
+#: matched the raw column, so one name meant two things. Measured on the served instance the
+#: day it was filed: ``--claimed-by claude-super`` answered *nothing on your list* while
+#: ``--filter claimed_by.eq=claude-super`` answered with two items whose leases had run out
+#: three weeks and one day earlier.
+#:
+#: **``claimed_at`` is deliberately not here.** It records *when* a claim was taken, which is a
+#: fact about something that happened and stays true; and there is no flag beside it saying
+#: something else, so nothing disagrees.
+LEASED: dict[str, typing.Any] = {
+	"claimed_by": subroutine.db.models.work.Task.claim_expires_at,
+}
+
+
+def _while_the_lease_lasts (
+	comparison: Comparison, *, now: datetime.datetime
+) -> Comparison:
+	"""Read a leased field as unset once its lease has run out — `SR#2299`.
+
+	**The column is swapped rather than the predicate qualified**, and that is what makes this
+	one rule instead of four. ``eq``, ``in``, ``is=set`` and ``is=unset`` all have to move
+	together — an expired claim is *nobody holding it*, so ``claimed_by.is=unset`` must reach
+	it while ``claimed_by.eq=si`` must not — and a clause ANDed onto whatever a comparison
+	compiled to would be right for three of those and exactly wrong for the fourth.
+
+	So what the caller compares against is *what the column effectively holds*, which is
+	§10.7 invariant 10 written as SQL: an expired claim is treated as absent.
+
+	``now`` is the request's own instant rather than the database's clock, like every other
+	expression in :class:`Where` — §9.3's rule, so two comparisons in one request cannot land
+	on different sides of a lease that expired between them.
+	"""
+
+	expiry = LEASED.get(comparison.field)
+
+	if expiry is None:
+		return comparison
+
+	return comparison._replace(
+		against=comparison.against._replace(
+			column=sqlalchemy.case((expiry > now, comparison.against.column))
+		)
+	)
+
+
 def predicates (
 	comparisons: typing.Iterable[Comparison], *, where: Where
 ) -> list[typing.Any]:
@@ -1698,7 +1752,12 @@ def predicates (
 	alone = []
 	grouped: dict[str, list[Comparison]] = {}
 
-	for comparison in comparisons:
+	for asked in comparisons:
+		# **Before anything else, because it decides what is being compared** — `SR#2299`. A
+		# field whose value is a lease reads as unset once that lease has run out, and doing it
+		# here rather than in each compiler is what keeps the four operators agreeing.
+		comparison = _while_the_lease_lasts(asked, now=where.now)
+
 		# **:data:`IS` is decided before the group, and that order is load-bearing** —
 		# `#1804`. A reference names a group so that resolving a *name* can reach the session;
 		# ``is`` resolves nothing, and routing it there sent ``assignee.is=unset`` to

@@ -1592,6 +1592,57 @@ def test_excluding_completion_beside_a_mixed_status_filter_is_a_question_not_a_c
 	assert answered == world.titles("/v1/tasks?status.eq=open")
 
 
+def test_a_filter_on_who_is_holding_something_ignores_a_lease_that_has_run_out (
+	world: World,
+) -> None:
+	"""`SR#2299`. One name meant two things, and the flag and the filter disagreed.
+
+	**Found by asking the same question two ways on the served instance**, not by reading: the
+	flag answered *nothing on your list* and the filter answered with two items whose leases
+	had expired three weeks and one day earlier. `#726`'s rule is the whole reason a claim
+	expires — *a worker that dies must not strand the work* — and ``?ready=true`` honours it,
+	so an item under a dead lease is offered again while the filter still said somebody had it.
+
+	**All four operators, because the swap is what makes them agree.** An expired claim is
+	nobody holding it, so ``is=unset`` has to *reach* the row that ``eq`` no longer does. A
+	clause ANDed onto each predicate would have been right for three of these and precisely
+	backwards for the fourth, which is why the column is what moves.
+	"""
+
+	held = world.call("POST", "/v1/tasks", json={"title": "Being worked on"}).json()
+
+	assert world.call("POST", f"/v1/tasks/{held['ref']}/claim").status_code == 200
+
+	who = world.user.username
+
+	assert world.titles(f"/v1/tasks?claimed_by.eq={who}") == ["Being worked on"]
+	assert world.titles(f"/v1/tasks?claimed_by={who}") == ["Being worked on"], (
+		"the flag and the filter must start from the same answer, or nothing below is about "
+		"the lease"
+	)
+	assert world.titles("/v1/tasks?claimed_by.is=set") == ["Being worked on"]
+
+	world.session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Task)
+		.where(subroutine.db.models.work.Task.ref == held["ref"])
+		.values(claim_expires_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC))
+	)
+	world.session.flush()
+
+	assert world.titles(f"/v1/tasks?claimed_by.eq={who}") == [], (
+		"a claim that has run out is not somebody holding it, and the filter said it was"
+	)
+	assert world.titles(f"/v1/tasks?claimed_by={who}") == []
+	assert world.titles("/v1/tasks?claimed_by.is=set") == []
+	assert "Being worked on" in world.titles("/v1/tasks?claimed_by.is=unset"), (
+		"nobody is holding it, so the question 'what is unheld' has to reach it"
+	)
+
+	# **The column still carries the name, which is what makes the row worth keeping.** *Who
+	# last held this* is a real question and is asked with the expiry, not with the holder.
+	assert world.call("GET", f"/v1/tasks/{held['ref']}").json()["claimed_by"] == who
+
+
 def test_asking_for_what_a_rank_is_not_reaches_the_work_nobody_has_ranked (
 	world: World,
 ) -> None:
