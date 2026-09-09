@@ -685,12 +685,25 @@ class Client(typing.Protocol):
 	def delete_link_type (self, *, which: str) -> None:
 		"""Remove a link type nothing is joined by."""
 
-	def tags (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+	def tags (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> Listing[subroutine.views.TagEntry]:
 		"""List this workspace's tags as things to curate — id, name and what each means.
 
 		**Usage counts are :meth:`meta`'s**, where they are narrowed to what this caller can
 		see. A tag used only in a private project they are not a member of does not appear
 		there, and recomputing that here would either duplicate the narrowing or lose it.
+
+		**Paged since `SR#1572`, where it used to hand back a whole table.** It returned a
+		:class:`~subroutine.views.Collection` whose ``has_more`` was always false, and that was
+		true when it was written because the route returned every row — but a tag is minted as
+		a side effect of the ordinary write path, on every surface, so the table grows without
+		anybody deciding it should. A :class:`Listing` is what every other listing here returns
+		and is still a ``list``, so iterating one is unchanged.
+
+		``limit`` is what the caller wants and ``max_page_size`` still bounds one response,
+		exactly as everywhere else (`#1037`); naming none gets one page, and ``has_more`` is
+		how you learn there is more.
 		"""
 
 	def create_tag (

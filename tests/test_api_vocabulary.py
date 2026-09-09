@@ -646,13 +646,88 @@ def test_a_listing_is_enveloped_like_every_other (world: test_api_tasks.World) -
 	"""§5.7's rule, applied before somebody has to fix it again.
 
 	The link listing was the one bare array in this API and `#8.4` fixed it, because a caller
-	cannot tell a complete set from a truncated one. ``has_more`` is always false here and that
-	is a statement rather than a shrug: a vocabulary is bounded by how many somebody wrote.
+	cannot tell a complete set from a truncated one. ``has_more`` is always false on these two
+	and that is a statement rather than a shrug: both are seeded or hand-made vocabularies,
+	bounded by how many somebody wrote.
+
+	**``/v1/tags`` was in this list until `SR#1572` and the sentence above is why it left.** A
+	tag is not written by somebody curating a vocabulary — it is minted as a side effect of the
+	ordinary write path, from any ``#word`` on any surface — so *bounded by how many somebody
+	wrote* was never the claim it looked like. It pages now, and
+	:func:`test_the_tag_listing_pages_and_says_so` is where its envelope is checked.
 	"""
 
-	for path in ("/v1/statuses", "/v1/link-types", "/v1/tags"):
+	for path in ("/v1/statuses", "/v1/link-types"):
 		answered = world.call("GET", path).json()
 
 		assert "items" in answered and "page" in answered, path
 		assert answered["page"]["has_more"] is False, path
 		assert answered["page"]["total"] == len(answered["items"]), path
+
+
+def test_the_tag_listing_pages_and_says_so (world: test_api_tasks.World) -> None:
+	"""A short page names more, and following the cursor reaches the rest exactly once.
+
+	**Driven with a real cursor rather than by reading ``has_more``** (`SR#1572`). The defect
+	this route had was an envelope that stated completeness as a constant, and a test that only
+	read the flag would pass against a second constant just as happily.
+	"""
+
+	names = ["alpha", "bravo", "charlie", "delta", "echo"]
+
+	for name in names:
+		made = world.call("POST", "/v1/tags", json={"name": name})
+
+		assert made.status_code == 201, made.text
+
+	first = world.call("GET", "/v1/tags", params={"limit": 2, "include_total": True}).json()
+
+	assert [one["name"] for one in first["items"]] == names[:2]
+	assert first["page"]["has_more"] is True
+	assert first["page"]["limit"] == 2
+
+	# The count is of the whole result and not of the page, which is the half a caller cannot
+	# work out for itself.
+	assert first["page"]["total"] == len(names)
+
+	seen = list(first["items"])
+	cursor = first["page"]["next_cursor"]
+
+	assert cursor is not None
+
+	# **Bounded rather than `while cursor is not None`.** A cursor that is accepted and then
+	# ignored hands back the same page and the same cursor for ever, so the unbounded form
+	# *hangs* on exactly the defect worth catching — and a test that hangs reports nothing.
+	for _ in range(len(names)):
+		if cursor is None:
+			break
+
+		page = world.call("GET", "/v1/tags", params={"limit": 2, "cursor": cursor}).json()
+		seen.extend(page["items"])
+		cursor = page["page"]["next_cursor"]
+
+	assert cursor is None, "the listing never reached its end"
+
+	assert [one["name"] for one in seen] == names
+
+	# Nothing seen twice, which is the property an offset cannot promise while rows are being
+	# written underneath it.
+	assert len({one["id"] for one in seen}) == len(names)
+
+
+def test_the_tag_listing_does_not_count_unless_asked (world: test_api_tasks.World) -> None:
+	"""``total`` is §8.4's opt-in second query, and it used to be free here.
+
+	Worth pinning because the loss is the one thing `SR#1572` cost a caller: the old route
+	computed a count because it fetched every row anyway, so a client that read ``total``
+	without asking for it would now read ``None`` rather than a number.
+	"""
+
+	made = world.call("POST", "/v1/tags", json={"name": "solitary"})
+
+	assert made.status_code == 201, made.text
+
+	answered = world.call("GET", "/v1/tags").json()
+
+	assert len(answered["items"]) == 1
+	assert answered["page"]["total"] is None

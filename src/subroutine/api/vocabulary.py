@@ -23,12 +23,15 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.api.dependencies
+import subroutine.api.pagination
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
 import subroutine.domain.authentication
+import subroutine.domain.ordering
+import subroutine.domain.paging
 import subroutine.domain.selection
 import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
@@ -400,7 +403,16 @@ def delete_link_type (
 def list_tags (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = WORKSPACE,
+	limit: int | None = fastapi.Query(
+		None,
+		# No `ge=1`: `domain.paging.size` is the one arbiter, so this and the local client
+		# refuse an impossible page identically, naming `limit` rather than `query.limit`.
+		description=subroutine.api.pagination.LIMIT_DESCRIPTION,
+	),
+	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
+	include_total: bool = fastapi.Query(False, description="Count the whole result."),
 ) -> subroutine.views.Collection[subroutine.views.TagEntry]:
 	"""Return this workspace's tags as things to curate — id, name and what it means.
 
@@ -409,21 +421,67 @@ def list_tags (
 	caller can see — a tag used only in a private project they are not a member of does not
 	appear. Recomputing that beside a curation listing would either duplicate a
 	disclosure-sensitive aggregate or publish an unscoped one.
+
+	**Paged like every other listing here** (`SR#1572`). It used to return every row and accept
+	no ``limit``, honestly — ``has_more`` was false because there genuinely was no more — but a
+	tag is minted as a side effect of the ordinary write path, on every surface, so the response
+	grew without anybody deciding it should. ``domain/paging.size`` is one definition of a page
+	size that both clients share, and this route was an exception nobody chose: it was written
+	before that machinery and never revisited.
+
+	**``total`` is opt-in now and used to be free.** It was computed because the query fetched
+	every row anyway; §8.4 makes it a second query about the same question, which is what it
+	now costs.
 	"""
 
 	workspace = _chosen(session, actor, workspace_id)
 	model = subroutine.db.models.vocabulary.Tag
-	rows = list(
-		session.scalars(
-			sqlalchemy.select(model)
-			.where(model.workspace_id == workspace.id)
-			.order_by(model.name_normalized)
-		)
+	statement = sqlalchemy.select(model).where(model.workspace_id == workspace.id)
+
+	keys = subroutine.api.pagination.parse_order(
+		None,
+		allowed=subroutine.domain.ordering.TAG_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_TAG_ORDER,
+		tiebreak=model.id,
 	)
+	size = subroutine.domain.paging.size(limit, settings)
+	total = None
+
+	if include_total:
+		total = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+		)
+
+	if cursor is not None:
+		statement = statement.where(
+			subroutine.api.pagination.after(
+				keys,
+				subroutine.api.pagination.decode(
+					settings.require_secret_key(), keys, cursor, collection="tags"
+				),
+			)
+		)
+
+	rows = list(
+		session.scalars(statement.order_by(*[key.ordering() for key in keys]).limit(size + 1))
+	)
+	has_more = len(rows) > size
+	rows = rows[:size]
 
 	return subroutine.views.Collection[subroutine.views.TagEntry](
 		items=[subroutine.views.tag_entry(row) for row in rows],
-		page=subroutine.views.Page(limit=None, has_more=False, total=len(rows)),
+		page=subroutine.views.Page(
+			limit=size,
+			has_more=has_more,
+			next_cursor=(
+				subroutine.api.pagination.encode(
+					settings.require_secret_key(), keys, rows[-1], collection="tags"
+				)
+				if has_more and rows
+				else None
+			),
+			total=total,
+		),
 	)
 
 

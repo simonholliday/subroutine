@@ -647,6 +647,53 @@ def test_both_keep_the_first_revocation_time (pair: Pair) -> None:
 	assert again.revoked_at == first.revoked_at
 
 
+def test_both_page_the_tag_listing_the_same_way (pair: Pair) -> None:
+	"""§13.7's rule on the one listing that had no test comparing the two transports.
+
+	**The divergence this closes was already there before the listing was paged** (`SR#1572`).
+	The endpoint answered ``limit: null`` and the local client answered ``limit: <row count>``
+	for the same rows, and nothing noticed, because ``client.tags()`` is reached by `#141`'s
+	guard — which asks only that a method exists — and driven by nothing that compares answers.
+
+	The property worth holding is not that both hand back the same *rows*; it is that both stop
+	in the same place and say the same thing about what is left, which is what a caller reads
+	to decide whether to ask again.
+	"""
+
+	local, remote = pair.both()
+	names = ["alpha", "bravo", "charlie", "delta", "echo"]
+
+	for name in names:
+		local.create_tag(name=name)
+
+	# Asked for fewer than there are, so `has_more` is a real answer on both rather than a
+	# constant that happens to be right.
+	here = local.tags(limit=2)
+	there = remote.tags(limit=2)
+
+	assert [one.name for one in here] == [one.name for one in there] == names[:2]
+	assert here.has_more is True
+	assert there.has_more is True
+
+	# Asked for exactly what there is: both stop, and neither claims more.
+	whole_here = local.tags(limit=len(names))
+	whole_there = remote.tags(limit=len(names))
+
+	assert [one.name for one in whole_here] == [one.name for one in whole_there] == names
+	assert whole_here.has_more is False
+	assert whole_there.has_more is False
+
+	# **The HTTP client follows pages to reach a limit larger than one response**, which is
+	# `#1037`'s rule; the local client never had a page boundary to cross. Asking for more than
+	# exists must not make either of them claim there is more.
+	beyond_here = local.tags(limit=len(names) + 10)
+	beyond_there = remote.tags(limit=len(names) + 10)
+
+	assert len(beyond_here) == len(beyond_there) == len(names)
+	assert beyond_here.has_more is False
+	assert beyond_there.has_more is False
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

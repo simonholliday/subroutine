@@ -1011,25 +1011,40 @@ class Client:
 			)
 
 	def tags (
-		self, *, workspace: str | None = None
-	) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.TagEntry]:
 		"""List this workspace's tags as things to curate."""
 
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
 		model = subroutine.db.models.vocabulary.Tag
 
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			# The same vocabulary `GET /v1/tags` sorts by, out of `domain/ordering.py` — a
+			# hand-written `order_by(model.name_normalized)` here is what `#501` removed for
+			# projects, and it carries the NULLS LAST rule (§10.3) and the tiebreak keyset
+			# pagination needs rather than leaving them to be remembered per call site.
 			rows = list(
 				session.scalars(
 					sqlalchemy.select(model)
 					.where(model.workspace_id == chosen.id)
-					.order_by(model.name_normalized)
+					.order_by(
+						*subroutine.domain.ordering.clauses(
+							None,
+							allowed=subroutine.domain.ordering.TAG_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_TAG_ORDER,
+							tiebreak=model.id,
+						)
+					)
+					.limit(size + 1)
 				)
 			)
 
-			return subroutine.views.Collection[subroutine.views.TagEntry](
-				items=[subroutine.views.tag_entry(row) for row in rows],
-				page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[subroutine.views.tag_entry(row) for row in rows[:size]],
+				has_more=len(rows) > size,
 			)
 
 	def create_tag (

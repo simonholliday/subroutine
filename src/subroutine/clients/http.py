@@ -511,12 +511,20 @@ class Client:
 
 		self._json("DELETE", f"/v1/link-types/{which}")
 
-	def tags (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.TagEntry]:
+	def tags (
+		self, *, workspace: str | None = None, limit: int | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.TagEntry]:
 		"""List this workspace's tags as things to curate."""
 
-		return self._parsed(
-			subroutine.views.Collection[subroutine.views.TagEntry],
-			self._json("GET", "/v1/tags", params=_given(workspace_id=workspace)),
+		asking = _given(workspace_id=workspace, limit=limit)
+
+		return self._collected(
+			subroutine.views.TagEntry,
+			self._json("GET", "/v1/tags", params=asking),
+			endpoint="tags",
+			path="/v1/tags",
+			params=list(asking.items()),
+			wanted=limit,
 		)
 
 	def create_tag (

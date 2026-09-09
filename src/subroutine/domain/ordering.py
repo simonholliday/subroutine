@@ -23,6 +23,7 @@ import sqlalchemy.orm.interfaces
 
 import subroutine.db.fulltext
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.filtering
 import subroutine.domain.readiness
@@ -644,6 +645,31 @@ PROJECT_FIELDS: dict[str, Sortable] = subroutine.domain.filtering.orderable("pro
 #: listing is a *tree*. By path a child follows its parent and the shape can be printed without
 #: the caller reassembling it (§8.4), where newest-first would interleave branches.
 DEFAULT_PROJECT_ORDER = ("path",)
+
+#: What a tag listing is arranged by — `SR#1572`.
+#:
+#: **Here rather than in ``api/vocabulary.py``, for `#501`'s reason one collection along.** A
+#: vocabulary declared inside the HTTP layer is reachable by one transport, which is what left
+#: `GET /v1/projects` accepting a sort no client could ask for. The local client sorts tags with
+#: this same map, so the two cannot page differently.
+#:
+#: **Not built from the property registry, unlike the three above, and that is the honest
+#: shape rather than an oversight.** ``filtering.orderable`` answers for the entities `#2174`
+#: registered — task, document and project — and a tag is not one of them. Registering it would
+#: make it filterable, orderable and published in ``/v1/meta`` together, which is exactly the
+#: question `SR#2385` exists to settle; doing it here as a side effect of pagination would
+#: answer it without anybody deciding.
+#:
+#: ``name_normalized`` rather than ``name``: it is what every other comparison uses, and
+#: ``uq_tag_workspace_id_name_normalized`` makes it unique per workspace, so this ordering is
+#: total before the tiebreak is appended rather than because of it.
+TAG_FIELDS: dict[str, Sortable] = {
+	"name": subroutine.db.models.vocabulary.Tag.name_normalized,
+}
+
+#: **Alphabetical, not newest-first**, unlike every listing of *work* above it. A tag list is
+#: read to find a word, and the order somebody happened to coin them in helps nobody.
+DEFAULT_TAG_ORDER = ("name",)
 
 #: **These names are deliberately absent from :data:`VIEW_READERS`, and the two lists above are
 #: deliberately checked against it.** A reader is only needed by a caller that merges pages it

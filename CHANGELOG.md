@@ -69,6 +69,22 @@ upgrade involves.
 
 ### Changed
 
+- **The tag listing is paged, like every other listing.**
+
+  `GET /v1/tags` returned every tag in the workspace and accepted no `limit`. It was honest
+  about it — `has_more` was `false` because there genuinely was no more — but the response grew
+  without bound on a route an agent may poll, and unlike the other vocabularies beside it
+  nobody chooses how large it gets: a tag is minted as a side effect of writing an item, from
+  any `#word`, on every surface.
+
+  It now takes `limit` and `cursor` and answers `has_more` like the rest of the API, so a
+  caller reads it a page at a time and can tell a complete answer from a short one.
+
+  **`total` is opt-in now, and it used to be free.** The old route counted the rows because it
+  had fetched all of them anyway; ask for it with `include_total=true`. If you read
+  `page.total` on this route without asking, you will now read `null` rather than a number —
+  which is the one thing this change costs a caller.
+
 - **Changing a workspace's colour or its hidden statuses now needs `workspace:admin`.**
 
   A workspace's settings are what everything under it inherits unless a project says otherwise,
