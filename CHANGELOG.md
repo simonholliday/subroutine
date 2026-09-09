@@ -16,6 +16,19 @@ upgrade involves.
 
 ### Added
 
+- **The item page says what refers to it.**
+
+  Every title, description, body and comment you write has been indexed since the first
+  release, and the terminal and the agent tools have both been able to answer *what refers to
+  this* for months. The browser could not — the one surface you are most likely to be looking
+  at, blind to every citation in the workspace.
+
+  It is its own section rather than part of *Links*, because they are different claims: a link
+  is something somebody asserted about two items, where a mention only records that one piece
+  of writing talks about another. A mention through a comment says so, since the sentence is
+  not in that item's own prose. A long list is held back behind the same *Show all* control the
+  links use, and an item nothing refers to grows no heading.
+
 - **A project listing says what each project is for.**
 
   `project list`, `workspace list` and the agent's `subroutine_project` all render the

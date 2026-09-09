@@ -145,6 +145,18 @@ export const SECTIONS_REMEMBERED = "detail-sections";
 export const LINKS_SECTION = "link";
 
 /*
+	The section holding what refers to this item, and the name its reveal control is keyed on
+	— `#1143`.
+
+	**Its own name rather than the links section's**, because they are two questions and §14.1
+	is why both are drawn: a link is an assertion somebody made about two items, a mention only
+	records that one piece of writing talks about another (§6.15). A reader deciding whether
+	something is safe to close needs to know which of the two they are looking at, and one
+	shared reveal control would fold and unfold both at once.
+*/
+export const REFERRING_SECTION = "referring";
+
+/*
 	**What a listing asks for, which is what a row shows and nothing else** (§14.10, `#645`).
 
 	Measured on the served instance: a whole page of tasks is 287 KB and a whole page of

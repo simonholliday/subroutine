@@ -19,7 +19,7 @@ import { Icon, marks, moment, when } from "./marks.js";
 import { notOffered, offered } from "./places.js";
 import { authorOf, linkChoices, written } from "./requests.js";
 import { Marks, Stamp } from "./rows.js";
-import { LINKS_SECTION, MAX_PARTS } from "./settings.js";
+import { LINKS_SECTION, MAX_PARTS, REFERRING_SECTION } from "./settings.js";
 
 export function Doing ({
 	item, members, onComplete, onAssign, onStatus, busy, statuses, projects = null,
@@ -134,6 +134,10 @@ export function Doing ({
 
 export function Detail ({
 	item, links, comments, governing = [], checked = [], members = [], onOpen, onBack,
+	/* **What refers to this** — `#1143`. Defaulted for the same reason `parts` is: the render
+	   harness builds this component directly, and a section nobody has answered for is simply
+	   an empty one. */
+	backlinks = [],
 	/* What this item is made of, with the envelope kept — `#1218`, and both kinds since
 	   `#2206`. Defaulted because the render harness builds this component directly, so
 	   `has_more` has to be readable without a guard at every use. */
@@ -167,6 +171,13 @@ export function Detail ({
 		eventually be given a different one.
 	*/
 	const linksShown = withinAllowance(links, revealed[LINKS_SECTION]);
+
+	/* **The same allowance as the links section, and that is the decision** (`#1143`).
+	   `withinAllowance` was already written to be handed these — its own comment records the
+	   measurement: a median of 3, over five on 25% of items and a maximum of 36, which is
+	   twice the links section's incidence and a longer tail. A shape hand-fitted to one heading
+	   would be a second copy of the rule by the time it landed. */
+	const referringShown = withinAllowance(backlinks, revealed[REFERRING_SECTION]);
 
 	/* **What the children of this item are** — `#2206`. A task lives under a task and a
 	   document under a document (`#2173`), so the parent's own kind answers it and cross-kind
@@ -538,6 +549,56 @@ export function Detail ({
 			     project keeps paying for. */ null}
 			${!editing && body && html`<${Prose} className="prose" text=${body} where=${where}
 				onOpen=${onOpen} />`}
+
+			${backlinks.length > 0 && html`
+				${/* **What refers to this, and it is not a link** (`#1143`, `#144`). A link is
+				     an assertion somebody made about two items; a mention only records that one
+				     piece of writing talks about another (§6.15). They are separate sections
+				     for that reason and not merged into one — a reader deciding whether
+				     something is safe to close needs to know which of the two they are looking
+				     at, and the terminal has drawn them apart since `#144`.
+
+				     **Below the description, which is `#1149`'s rule rather than a copy of the
+				     terminal's order**: what you need before reading the item goes above, what
+				     accumulated about it stays below. A mention is somebody else's writing
+				     about this, so it is context on the prose just read — where *Recorded
+				     checks* and *Comments* are the item's own record and are looked up
+				     deliberately.
+
+				     **Silent when there are none**, like every other section on this page and
+				     like the terminal's: §12.2c's rule that a field nobody set is not printed,
+				     applied to a whole heading. 88% of items are in that state. */ null}
+				<h3>Referred to by (${backlinks.length})</h3>
+				<ul class="linked referring" id=${`section-${REFERRING_SECTION}`}>
+					${referringShown.map((one) => {
+						const going = { ref: one.ref, kind: one.kind };
+						const to = workspace ? addressOf(going, workspace) : null;
+						const follow = (event) =>
+							followed(event, () => onOpen && onOpen(going));
+
+						return html`
+							<li key=${`${one.kind}-${one.ref}-${one.via || ""}`}>
+								${/* **`in a comment` where the sentence is not in that item's
+								     own prose**, which is the terminal's own wording. A reader
+								     who opens #42 and cannot find the number has been sent to
+								     the wrong half of it. */ null}
+								${one.via && html`<span class="label">in a comment</span>${" "}`}
+								<a href=${to || "#"} onClick=${follow}>#${one.ref}</a>${" "}
+								${one.title}
+							</li>
+						`;
+					})}
+				</ul>
+
+				${onReveal && html`<${Held} name=${REFERRING_SECTION}
+					total=${backlinks.length} shown=${referringShown.length}
+					revealed=${!!revealed[REFERRING_SECTION]} onReveal=${onReveal}
+					${/* **`mentions`, because the section's own name would render as
+					     *referrings*.** `Held` builds its noun from the section name unless it
+					     is told otherwise, and this is the first section whose name is not the
+					     word for one of its rows. */ null}
+					plural="mentions" />`}
+			`}
 
 			${checked.length > 0 && html`
 				${/* **What was checked, and it is a record rather than a proof** (`#1121`).

@@ -702,6 +702,19 @@ CARD: dict[str, typing.Any] = {
 #: **A closed end and an open one of the same kind**, because the strikethrough is a rule about
 #: one of them and a fixture where every end is closed cannot tell *this line is struck through*
 #: from *this stylesheet strikes everything*.
+#: What refers to the item a page opens — `SR#1143`. Nine, so the allowance holds five back and
+#: the reveal control is drawn: the property under test is that the page now has *two* truncated
+#: sections and tells them apart.
+REFERRING: dict[str, typing.Any] = {
+	"items": [
+		{"kind": "task", "ref": 100 + index, "title": f"The one that cites it {index}",
+			"via": "comment" if index == 0 else None,
+			"created_at": "2026-09-01T10:00:00Z"}
+		for index in range(9)
+	],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
 LINKED: dict[str, typing.Any] = {
 	"items": [
 		{"id": "l-1", "link_type": "blocks", "label": "Blocked by", "direction": "incoming",
@@ -897,6 +910,13 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	#: is registered on the context once, so a test wanting a milestone's worth of links cannot
 	#: be given one as an argument to the route.
 	linked: list[typing.Any] = [LINKED]
+	#: What refers to the item this page opens — `SR#1143`. A holder for `linked`'s reason: the
+	#: route is registered on the context once, so a test wanting a page with mentions on it
+	#: cannot be given them as an argument to the route.
+	#:
+	#: **Empty by default**, so the tests that predate the question open an item nothing refers
+	#: to and never grow a heading about one — which is the state 88% of items are in.
+	referring: list[typing.Any] = [EMPTY]
 	#: Whether the item this page opens repeats — `SR#1253`. A holder for `listing`'s reason:
 	#: the route is registered on the context once and every page shares it.
 	#:
@@ -1044,6 +1064,11 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# `v1/tasks/\d+`, where it *is* a `startswith` match — which is the whole
 				# difference between the two traps this block records and this line.
 				else linked[0] if re.fullmatch(r"v1/tasks/\d+/links", wanted)
+				# **What refers to the item** — `SR#1143`. Beside the links branch and for the
+				# same reason: `fullmatch` is what keeps `v1/tasks/42/backlinks` from being
+				# answered by the collection below, which is the trap this block records three
+				# times already.
+				else referring[0] if re.fullmatch(r"v1/tasks/\d+/backlinks", wanted)
 				else (
 					# **A ref for the series it belongs to is the whole of *this repeats***,
 					# which is what `app.repeats` reads and what `views.repeats` reads at the
@@ -1103,7 +1128,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 	def opened (
 		address: str = "/", rows: typing.Any = None, agenda: typing.Any = None,
-		made_of: typing.Any = None, joined: typing.Any = None,
+		made_of: typing.Any = None, joined: typing.Any = None, cited_by: typing.Any = None,
 	) -> typing.Any:
 		"""Open one address and wait for the app to have painted."""
 
@@ -1114,6 +1139,10 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		#: **Empty unless a caller asks**, so every test that predates parts opens an item with
 		#: none — which is what keeps this addition from changing eighteen other assertions.
 		parts[0] = EMPTY if made_of is None else made_of
+		#: **Nothing refers to it unless a caller asks** — `SR#1143`, and the same reason as
+		#: `parts`: 88% of items are in that state, so it is what keeps this addition from
+		#: growing a heading on eighty-two pages that never asked for one.
+		referring[0] = EMPTY if cited_by is None else cited_by
 		# **A holder like `listing`, for the same reason**: the route is registered on the
 		# context once and every page shares it, so a caller that wants a different agenda
 		# cannot be given one as an argument to the route.
@@ -1194,6 +1223,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		listing[0] = ROWS
 		daily[0] = AGENDA
 		parts[0] = EMPTY
+		referring[0] = EMPTY
 		refusing[0] = None
 		roster[0] = IDENTITY
 		missing[0] = set()
@@ -2102,6 +2132,18 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 def test_this_file_stays_the_size_of_its_argument () -> None:
 	"""`#748`'s scope, held by a bound rather than by an intention.
 
+	**Raised to 44 on 2026-09-09 for `SR#1143`, and it earns the slot on three counts at
+	once.** The addition draws *what refers to this* on the item page — the browser was the one
+	surface that could not answer it — and what needs a browser is not the section but the fact
+	that the page now has **two** truncated lists where it had one. Their ids, their classes and
+	their ``aria-controls`` are the whole of how they are told apart, and ``test_web.py``'s
+	harness drops every attribute but ``href`` by decision and cannot be made to see one. Two
+	elements claiming one id is the defect ``Held``'s own comment names and had nothing to
+	collide with until now. And ``query_selector_all`` finds hidden elements, so whether a
+	reader can *see* a row is a `bounding_box` question that only a rendered page answers.
+	**One test rather than two**: the first draft split the ids from the visibility and opened
+	the same page twice with the same setup, which is the fat this bound exists to catch.
+
 	**Raised to 43 on 2026-09-06 for `SR#848`, and it fails the *could a DOM do this* test twice
 	over.** The addition drives the control that asks whose work a listing is showing, which grew
 	a second question — *answerable to* beside *assigned to*. Both halves need a browser and for
@@ -2555,11 +2597,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 43, (
+	assert len(tests) <= 44, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 43 in eleven days."
+		f"read every raise in this docstring as a set: it has moved 17 to 44 in fourteen days."
 	)
 
 
@@ -4999,3 +5041,60 @@ def test_the_wait_helper_can_see_a_request_that_arrives_after_the_gesture (
 	)
 
 	page.close()
+
+
+def test_what_refers_to_an_item_is_a_second_list_a_reader_can_see_and_follow (
+	running: typing.Any,
+) -> None:
+	"""`SR#1143`, and the three halves `tests/test_web.py` structurally cannot check.
+
+	That harness's ``flatten`` carries ``href`` and a textarea's value and **drops every other
+	attribute**, by decision — so a class, an id and an ``aria-controls`` are invisible to it,
+	and they are the whole of how a reader who cannot see the rows appear is told what changed.
+	And ``query_selector_all`` finds hidden elements, so *is there a row* and *can a reader see
+	it* are different questions on a page with a truncated section.
+
+	**Two elements claiming one id is the defect ``Held``'s own comment names** and had no
+	second section to meet until this. Both sections are given more rows than the allowance
+	here, because a version without a milestone would assert the collision cannot happen by
+	never drawing the second control.
+	"""
+
+	opened, *_rest = running
+	page = opened("/projects/subroutine/ui/42", joined=A_MILESTONE, cited_by=REFERRING)
+	page.wait_for_selector(".referring li", timeout=10_000)
+
+	links = page.query_selector("#section-link")
+	referring = page.query_selector("#section-referring")
+
+	assert links is not None, "the links section lost its id"
+	assert referring is not None, page.content()
+
+	# **Two lists, and `.linked li` alone cannot say which** — the trap the parts list already
+	# left behind, where an assertion about one of them lands on the other.
+	assert "links" in (links.get_attribute("class") or "")
+	assert "referring" in (referring.get_attribute("class") or "")
+
+	assert len(page.query_selector_all("#section-referring li")) == 5, page.content()
+
+	# **Each control names its own section**, or one fold closes both.
+	controls = [
+		one.get_attribute("aria-controls")
+		for one in page.query_selector_all("button[aria-controls]")
+	]
+
+	assert "section-link" in controls, controls
+	assert "section-referring" in controls, controls
+
+	# **On the screen rather than merely in the page**, and followable: a list of things a
+	# reader cannot open is a label rather than an answer.
+	first = page.query_selector("#section-referring li a")
+
+	assert first is not None, page.content()
+	assert first.bounding_box() is not None, "the row is in the page and not on the screen"
+	assert first.get_attribute("href").endswith("/100"), first.get_attribute("href")
+
+	# **`in a comment` where the sentence is not in that item's own prose**, which is the
+	# terminal's wording and the reason it is said at all: a reader who opens #100 and cannot
+	# find the number has been sent to the wrong half of it.
+	assert "in a comment" in page.query_selector("#section-referring li").inner_text()

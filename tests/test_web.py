@@ -17159,3 +17159,141 @@ def test_a_spent_credential_is_listed_rather_than_hidden (tmp_path: pathlib.Path
 	assert shown.count(">Revoke") == 1, (
 		f"an act was offered on a credential that is already spent: {shown!r}"
 	)
+
+
+def test_the_item_page_says_what_refers_to_it (tmp_path: pathlib.Path) -> None:
+	"""`#1143`. The one surface a person is most likely to be looking at could not answer it.
+
+	`#144` shipped *what refers to this* on the terminal, over MCP and over HTTP, and the
+	browser never got it — while 1,390 citations of a single document sat indexed on this
+	instance where nobody at a browser could see one. §14.1's rule is that nothing an agent can
+	see may be invisible to a person.
+	"""
+
+	shown = _rendered(tmp_path, {"Detail": {**SAMPLES["Detail"], "backlinks": [
+		{"kind": "task", "ref": 91, "title": "The one that cites it", "via": None,
+			"created_at": "2026-09-01T10:00:00Z"},
+	]}})["Detail"]
+
+	assert "Referred to by (1)" in shown, shown
+	assert "The one that cites it" in shown
+	assert "#91" in shown
+
+
+def test_the_referring_section_is_absent_when_nothing_refers_to_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""§12.2c on a whole heading, and 88% of items are in that state.
+
+	Every other section on this page is silent when it holds nothing, and so is the terminal's.
+	A heading over an empty list tells a reader only that the feature exists.
+	"""
+
+	shown = _rendered(tmp_path, {"Detail": SAMPLES["Detail"]})["Detail"]
+
+	assert "Referred to by" not in shown, shown
+
+
+def test_a_mention_in_a_comment_says_so (tmp_path: pathlib.Path) -> None:
+	"""A reader sent to #42 who cannot find the number has been sent to the wrong half of it.
+
+	The terminal has said ``in a comment`` since `#144` for the same reason: a comment carries
+	no ref of its own, so a backlink through one resolves to the item the comment is on.
+	"""
+
+	shown = _rendered(tmp_path, {"Detail": {**SAMPLES["Detail"], "backlinks": [
+		{"kind": "task", "ref": 91, "title": "Said in passing", "via": "comment",
+			"created_at": "2026-09-01T10:00:00Z"},
+		{"kind": "document", "ref": 92, "title": "Said in prose", "via": None,
+			"created_at": "2026-09-01T10:00:00Z"},
+	]}})["Detail"]
+
+	assert shown.count("in a comment") == 1, shown
+
+
+def test_what_refers_to_an_item_and_what_it_links_to_are_two_lists (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""They are separate sections everywhere else, and merging them would lose the distinction.
+
+	A link is an assertion somebody made about two items; a mention only records that one
+	piece of writing talks about another (§6.15). A reader deciding whether something is safe
+	to close needs to know which of the two they are looking at.
+
+	**Asserted on the headings and the rows, because this harness cannot see a class.** Its
+	`flatten` carries `href` and a textarea's value and drops every other attribute, by
+	decision — so the separation is checked here by what each section *says*, and the classes
+	and ids that carry it in a real DOM are `tests/test_browser.py`'s.
+	"""
+
+	shown = _rendered(tmp_path, {"Detail": {**SAMPLES["Detail"], "backlinks": [
+		{"kind": "task", "ref": 91, "title": "The one that cites it", "via": None,
+			"created_at": "2026-09-01T10:00:00Z"},
+	]}})["Detail"]
+
+	assert "Links" in shown, shown
+	assert "Referred to by (1)" in shown, shown
+
+	# Each list holds its own row and neither holds the other's.
+	assert shown.index("Links") < shown.index("The next one") < shown.index("Referred to by")
+	assert shown.index("Referred to by") < shown.index("The one that cites it")
+
+
+def test_a_long_list_of_mentions_is_held_back_under_the_links_allowance (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""One allowance, applied by one function — `#1820`, and `#1143` is its second caller.
+
+	``withinAllowance`` was written to be handed these: its own comment carries the measurement,
+	a median of 3 with a maximum of 36, which is twice the links section's incidence and a
+	longer tail. A shape hand-fitted to one heading would be a second copy of the rule.
+
+	**And the control says *mentions*.** ``Held`` builds its noun from the section's name unless
+	told otherwise, and this is the first section whose name is not the word for one of its
+	rows — so an untold version would offer to show eighteen *referrings*.
+	"""
+
+	many = [
+		{"kind": "task", "ref": 100 + index, "title": f"Cites it {index}", "via": None,
+			"created_at": "2026-09-01T10:00:00Z"}
+		for index in range(18)
+	]
+	shown = _rendered(tmp_path, {"Detail": {
+		**SAMPLES["Detail"], "backlinks": many, "onReveal": True, "revealed": {},
+	}})["Detail"]
+
+	assert "Referred to by (18)" in shown, shown
+	assert "Showing 5 of 18 mentions." in shown, shown
+	assert "referrings" not in shown, shown
+	assert "Cites it 4" in shown
+	assert "Cites it 5" not in shown
+
+
+def test_the_two_reveal_controls_on_the_item_page_are_told_apart (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Two sections, two names, or one control folds and unfolds both at once.
+
+	``Held`` keys `aria-controls` on the section's name, and the same page now draws two
+	truncated lists — so a shared name would be two elements claiming one id, which is the
+	defect the component's own comment names and had no second section to meet.
+
+	**Asserted through the counts each control states**, which is what this harness can see: two
+	sections holding different numbers of rows cannot both be described by one control. The ids
+	themselves are checked in `tests/test_browser.py`, where there is a DOM to hold them.
+	"""
+
+	shown = _rendered(tmp_path, {"Detail": {
+		**SAMPLES["Detail"],
+		"links": SAMPLES["Detail"]["links"] * 8,
+		"backlinks": [
+			{"kind": "task", "ref": 100 + index, "title": f"Cites it {index}", "via": None,
+				"created_at": "2026-09-01T10:00:00Z"}
+			for index in range(9)
+		],
+		"onReveal": True,
+		"revealed": {},
+	}})["Detail"]
+
+	assert "Showing 5 of 8 links." in shown, shown
+	assert "Showing 5 of 9 mentions." in shown, shown

@@ -517,7 +517,8 @@ export function listingRequests (slug, key = null, after = null, selection = nul
 
 export function itemRequests (kind, ref, slug) {
 	/*
-		One item in full: the thing, what governs it, what it links to, and what was said.
+		One item in full: the thing, what governs it, what it links to, what refers to it, and
+		what was said.
 
 		**`governing` is a request rather than a filter over `links`** (`#1119`). Everything it
 		answers could be derived here — the link types are in the response and so is each end's
@@ -585,6 +586,24 @@ export function itemRequests (kind, ref, slug) {
 			),
 			method: "GET",
 		},
+		/*
+			**What refers to this** (`#1143`, and `#144` is where every other surface got it).
+			The `mention` table has been written by every title, description, body and comment
+			since M1; the terminal, MCP and HTTP have all answered *what refers to this* and the
+			browser could not — the one surface a person is most likely to be looking at, blind
+			to 1,390 citations of a single document on this instance.
+
+			**A sub-resource, because that is what the server offers** — §8.5's
+			`?include=backlinks` is honestly refused, since backlinks on a page of fifty is
+			either fifty lookups or a join nobody asked for. Every other section this page draws
+			is a sub-resource for the same reason.
+
+			**Ahead of the conditional slot below**, so what arrives at each position means the
+			same thing for a task and for a document. That rule is `#2206`'s and is written out
+			on the parts request above, where getting it wrong once put a document's children in
+			the variable holding a task's verifications.
+		*/
+		{ path: scoped(`/${collection}/${ref}/backlinks`, slug), method: "GET" },
 		/* **Tasks only, and asked conditionally rather than always** (`#1121`). Only a task is
 		   checked, and the route refuses a document's ref by name — 404 *"#3 is a document, not
 		   a task"* — so a version that asked anyway would fail the whole read of every document

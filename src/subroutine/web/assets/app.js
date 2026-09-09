@@ -710,12 +710,18 @@ export function App () {
 				   the kind-specific slot is last and every name above it means the same thing
 				   in both branches. Written the other way round first, where a document's
 				   children arrived in the variable holding a task's verifications. */
-				const [item, links, comments, governing, parts, checked] = await Promise.all(
+				const [item, links, comments, governing, parts, backlinks, checked]
+					= await Promise.all(
 					itemRequests(trying, ref, slug).map(sent),
 				);
 
 				return { item: { ...item, kind: trying }, links: links.items,
 					comments: comments.items, governing: governing.items,
+					/* **What refers to this** (`#1143`). Enveloped like every other collection
+					   and returned whole — what refers to an item is bounded by how much
+					   somebody wrote — so the rows are what this page needs and `has_more` is
+					   a statement rather than a shrug. */
+					backlinks: backlinks.items,
 					/* Absent for a document, which asks for no such thing — so this is the
 					   empty list rather than a read of `undefined`. */
 					checked: checked ? checked.items : [],
