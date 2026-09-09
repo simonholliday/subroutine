@@ -38,7 +38,7 @@ def sqlite_url (tmp_path: pathlib.Path) -> str:
 def postgres_database (postgres_url: str) -> typing.Iterator[str]:
 	"""Create and drop a PostgreSQL database of its own, and yield its URL."""
 
-	name = f"subroutine_copy_{uuid.uuid4().hex[:12]}"
+	name = conftest.throwaway_name("copy")
 	admin = sqlalchemy.engine.make_url(postgres_url).set(database="postgres")
 	engine = sqlalchemy.create_engine(admin, isolation_level="AUTOCOMMIT")
 

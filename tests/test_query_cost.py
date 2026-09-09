@@ -496,7 +496,7 @@ def own_database (
 
 		pytest.skip(reason)
 
-	name = f"subroutine_cost_{uuid.uuid4().hex[:12]}"
+	name = conftest.throwaway_name("cost")
 	admin = sqlalchemy.create_engine(conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
 
 	try:

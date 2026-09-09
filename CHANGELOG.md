@@ -14,6 +14,20 @@ upgrade involves.
 
 ## Unreleased
 
+### Fixed
+
+- **A test run that does not finish no longer leaves a PostgreSQL database behind for ever.**
+
+  Only contributors see this. Every run makes throwaway databases and drops them at teardown —
+  and teardown does not happen when the process is killed, so a Ctrl-C, a timeout or an OOM kill
+  left one per worker with a name nothing would ever generate again. Eighty-seven of them
+  reached 981 MB on one machine before anybody counted.
+
+  A name now carries the moment it was made, so a later run can tell an abandoned database from
+  a live one and drops anything both older than twelve hours and unconnected. It says what it
+  found, and says nothing when there was nothing to find. Nothing sweeps in CI, where the runner
+  is thrown away regardless.
+
 ### Changed
 
 - **Changing a workspace's colour or its hidden statuses now needs `workspace:admin`.**

@@ -715,7 +715,7 @@ def own_database (
 
 		pytest.skip(reason)
 
-	name = f"subroutine_restore_{os.getpid()}_{abs(hash(tmp_path)) % 100000}"
+	name = conftest.throwaway_name("restore")
 	admin = sqlalchemy.create_engine(
 		conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT"
 	)

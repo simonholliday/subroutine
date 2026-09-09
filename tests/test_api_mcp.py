@@ -20,7 +20,6 @@ wrong implementation of this endpoint:
 
 import datetime
 import json
-import os
 import typing
 
 import httpx
@@ -739,7 +738,7 @@ def two_connections (tmp_path: typing.Any) -> typing.Iterator[str]:
 
 		pytest.skip(reason)
 
-	name = f"subroutine_lastused_{os.getpid()}_{abs(hash(tmp_path)) % 100000}"
+	name = conftest.throwaway_name("lastused")
 	admin = sqlalchemy.create_engine(
 		conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT"
 	)

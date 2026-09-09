@@ -6,8 +6,10 @@ inserts, NULL sort position, case sensitivity in ``LIKE``, ref allocation under
 contention. A test that runs only on SQLite is a test that agrees with itself.
 """
 
+import datetime
 import os
 import pathlib
+import re
 import sys
 import typing
 import uuid
@@ -34,13 +36,94 @@ POSTGRES_ADMIN_URL = os.environ.get(
 	"SUBROUTINE_TEST_POSTGRES_ADMIN_URL", "postgresql+psycopg:///postgres"
 )
 
-#: A fresh name per test session, because the fixture below **drops** the database it is
-#: about to use. A constant meant two pytest processes on one machine destroyed each other's
-#: schema mid-run, and the failure surfaced as unrelated tests raising `relation "sample_row"
-#: does not exist` or `database "subroutine_test" is being accessed by other users` — no hint
-#: of the cause, and about the machine rather than the code. It cost this project three
-#: separate false alarms, one of them mid-review. `test_migrations` already did this.
-TEST_DATABASE_NAME = f"subroutine_test_{uuid.uuid4().hex[:12]}"
+#: What every throwaway database this suite makes is called first. One constant rather than a
+#: literal in several places, because a prefix that has to agree with itself is a duplicated
+#: rule waiting to disagree — and this one had already grown five spellings before `#1667`.
+THROWAWAY_PREFIX = "subroutine_test_"
+
+#: The prefixes four other fixtures wrote their own names under, before the shape moved into
+#: :func:`throwaway_name`. **Nothing generates one now**, so the sweep reports anything found
+#: under them and never drops it: they carry no time and their age cannot be established. The
+#: entry goes away when nobody has one left, which is the question every allow-list here is
+#: asked.
+#:
+#: They are listed at all because the leak was never one family. `#1667` counted 87 under the
+#: prefix above; a `psql -l` on 2026-09-09 found five more, from six other fixtures and the same
+#: mechanism — a per-run name that only teardown drops.
+#:
+#: **Six, and the first search found four.** Grepping for the prefixes that had *leaked* finds
+#: the sites that happened to be interrupted, not the sites there are; grepping for
+#: `CREATE DATABASE` finds all seven, which is what `test_every_database_this_suite_makes_is_named_by_one_function`
+#: now holds. The four-entry version of this list read as complete.
+RETIRED_PREFIXES: tuple[str, ...] = (
+	"subroutine_changes_",
+	"subroutine_copy_",
+	"subroutine_cost_",
+	"subroutine_lastused_",
+	"subroutine_mig_",
+	"subroutine_restore_",
+)
+
+#: How old a leftover must be before the sweep will drop it.
+#:
+#: **Twelve hours, which is extravagant, and the extravagance is the design.** A database
+#: nothing will ever come back for costs nothing by being left another half-day, so the margin
+#: is free — and it is what lets the sweep be safe without asking the operating system what is
+#: running. The longest run measured here is eleven minutes locally and twenty-seven in CI.
+#:
+#: The hazard it is buying distance from is `#774`: two runs on one machine destroying each
+#: other's schema, which surfaced as unrelated tests raising `relation "sample_row" does not
+#: exist` — about the machine rather than the code, and it cost three false alarms. Sweeping a
+#: live run would be that defect arriving through the fix for it.
+ABANDONED_AFTER = datetime.timedelta(hours=12)
+
+#: The shape :data:`TEST_DATABASE_NAME` is built to, and **the only shape the sweep will drop**.
+#: A name written before `#1667` carries no time at all, so its age is unknowable and it is
+#: reported rather than destroyed — an entry that goes away by itself once nobody has one left.
+#:
+#: It is also what makes the interpolation in :func:`swept` safe: `DROP DATABASE` takes no bound
+#: parameter, and a name that matched this is a word, fourteen digits and twelve hex characters.
+STAMPED_NAME = re.compile(
+	rf"^{re.escape(THROWAWAY_PREFIX)}[a-z]+_(\d{{14}})_[0-9a-f]{{12}}$"
+)
+
+
+def throwaway_name (purpose: str) -> str:
+	"""Return a name for a database this run may destroy, carrying the moment it was made.
+
+	**A fresh name per run, because everything built this way is *dropped* before it is used.**
+	A constant meant two pytest processes on one machine destroyed each other's schema mid-run,
+	and the failure surfaced as unrelated tests raising ``relation "sample_row" does not exist``
+	— no hint of the cause, about the machine rather than the code, and it cost this project
+	three separate false alarms, one of them mid-review (`#774`).
+
+	**It carries the moment it was made, in UTC, and that is `#1667`.** The uuid above traded
+	collision for accumulation and only the first half was ever noticed: teardown does not run
+	when the process does not finish, so a Ctrl-C, the gate's own ``timeout`` or an OOM kill
+	leaves a name nothing will ever generate again. 87 of them reached 981 MB here before
+	anybody counted. PostgreSQL records no creation time and ``pg_stat_file`` needs a privilege
+	this account does not hold — measured 2026-09-09 — so **the name is the only place an age
+	can live**.
+
+	**One place, because there were five.** Four other fixtures each wrote their own, and two
+	keyed on ``os.getpid()``, which is reused — so two runs a day apart could collide on a name
+	one of them was about to drop. That is `#774` again with a longer fuse.
+
+	``purpose`` is a word a person will read in ``psql -l``, and is the only part of the name
+	meant for them.
+	"""
+
+	stamp = datetime.datetime.now(datetime.UTC)
+
+	return (
+		f"{THROWAWAY_PREFIX}{purpose}_"
+		f"{stamp:%Y%m%d%H%M%S}_{uuid.uuid4().hex[:12]}"
+	)
+
+
+#: The database the whole session runs against, named once at import — so under ``-n auto``
+#: there is one per worker, which is the shape :func:`swept` exists to clean up after.
+TEST_DATABASE_NAME = throwaway_name("session")
 
 #: What counts as *set* for a ``SUBROUTINE_TEST_REQUIRE_*`` variable.
 _MEANS_YES = frozenset({"1", "true", "yes", "on"})
@@ -294,6 +377,188 @@ def _postgres_unavailable_reason () -> str | None:
 			engine.dispose()
 
 	return None
+
+
+def abandoned_names (
+	names: typing.Iterable[str], *, now: datetime.datetime
+) -> tuple[list[str], list[str]]:
+	"""Split leftover database names into the ones old enough to drop and the ones to report.
+
+	**Pure, and it takes ``now``**, which is what lets the age rule be driven without a database
+	and without waiting twelve hours for one. `#405`'s rule: a guard is fed its defect through
+	the real entry point rather than through a second copy of the logic.
+
+	A name that does not match :data:`STAMPED_NAME` comes back in the second list and is never
+	dropped. Its age cannot be established, and *"probably old"* is not a thing to say before a
+	`DROP DATABASE`.
+	"""
+
+	old = []
+	unreadable = []
+
+	for name in names:
+		found = STAMPED_NAME.match(name)
+
+		if found is None:
+			unreadable.append(name)
+
+			continue
+
+		made = datetime.datetime.strptime(found[1], "%Y%m%d%H%M%S").replace(
+			tzinfo=datetime.UTC
+		)
+
+		if now - made >= ABANDONED_AFTER:
+			old.append(name)
+
+	return sorted(old), sorted(unreadable)
+
+
+def left_behind (connection: sqlalchemy.Connection) -> dict[str, int]:
+	"""Return every test database on this server nothing is connected to, with its size.
+
+	**No open connection is necessary and is nowhere near sufficient**, which is why the caller
+	weighs the age as well: a worker between two tests holds none, so a sweep that asked
+	PostgreSQL alone would destroy a running suite — `#774` arriving through the fix for it.
+
+	``starts_with`` rather than ``LIKE``, because ``_`` is a single-character wildcard and the
+	prefix has two of them: ``LIKE 'subroutine_test_%'`` also matches a database somebody else
+	named ``subroutineXtestY``.
+	"""
+
+	rows = connection.execute(
+		sqlalchemy.text(
+			"select datname, pg_database_size(datname) from pg_database "
+			"where exists ("
+			"select 1 from unnest(cast(:prefixes as text[])) as wanted(prefix) "
+			"where starts_with(pg_database.datname, wanted.prefix)"
+			") "
+			"and not exists ("
+			"select 1 from pg_stat_activity "
+			"where pg_stat_activity.datname = pg_database.datname"
+			")"
+		),
+		{"prefixes": [THROWAWAY_PREFIX, *RETIRED_PREFIXES]},
+	)
+
+	return dict(rows.tuples().all())
+
+
+def swept (
+	connection: sqlalchemy.Connection, *, now: datetime.datetime
+) -> tuple[dict[str, int], list[str]]:
+	"""Drop the test databases earlier runs abandoned, and report what was there.
+
+	Returns what was dropped with each one's size, and the names left alone because nothing
+	could say how old they were.
+	"""
+
+	found = left_behind(connection)
+	old, unreadable = abandoned_names(found, now=now)
+	dropped = {}
+
+	for name in old:
+		try:
+			# Interpolated because `DROP DATABASE` accepts no bound parameter, and safe because
+			# `STAMPED_NAME` has already established that this name is the prefix, fourteen
+			# digits and twelve hex characters.
+			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
+
+		except sqlalchemy.exc.SQLAlchemyError:
+			# Somebody connected between the query and the drop, or a second sweep got there
+			# first. Both are ordinary, neither is this run's business, and the next run will
+			# find it again if it really was abandoned.
+			continue
+
+		dropped[name] = found[name]
+
+	return dropped, unreadable
+
+
+def said_about (dropped: dict[str, int], unreadable: list[str]) -> str:
+	"""Return the one line the header prints about a sweep that found something."""
+
+	said = []
+
+	if dropped:
+		megabytes = sum(dropped.values()) / 1_000_000
+		said.append(f"dropped {len(dropped)}, reclaiming {megabytes:.0f} MB")
+
+	if unreadable:
+		said.append(
+			f"left {len(unreadable)} whose name carries no time — from before this swept, and "
+			f"yours to drop once no run is using them"
+		)
+
+	return f"abandoned test databases: {'; '.join(said)}"
+
+
+#: Where :func:`pytest_configure` leaves what it found, for :func:`pytest_sessionstart` to say.
+#: **Two hooks because neither can do both**: the terminal reporter is not registered when a
+#: conftest's ``configure`` runs — measured, and it is why the first version of this wrote its
+#: line into a ``None`` — and ``pytest_report_header``, the obvious home, is never called at
+#: all under this project's ``-q``.
+_SWEPT: dict[str, str] = {}
+
+
+def pytest_configure (config: pytest.Config) -> None:
+	"""Sweep what earlier runs left behind — `#1667`.
+
+	**At the start of a run, because only a session that is running can say what is live.** A
+	teardown cannot help here: the whole defect is that teardown did not happen.
+
+	**Once per run, not once per worker.** Under ``-n auto`` every worker imports this file, so
+	eight processes would race to drop the same names and report eight different numbers;
+	``workerinput`` is what xdist puts on a worker's config and on nothing else.
+	"""
+
+	if hasattr(config, "workerinput"):
+		return
+
+	if _postgres_unavailable_reason() is not None:
+		return
+
+	engine = sqlalchemy.create_engine(POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
+
+	try:
+		with engine.connect() as connection:
+			dropped, unreadable = swept(connection, now=datetime.datetime.now(datetime.UTC))
+
+	except sqlalchemy.exc.SQLAlchemyError:
+		# A sweep is a courtesy and never a reason a run does not start. None of this is the
+		# suite's subject, and a failure to tidy up must not read as a failing test.
+		return
+
+	finally:
+		engine.dispose()
+
+	if not dropped and not unreadable:
+		# **Silent when there was nothing to do**, which is most runs. A line every time would
+		# be noise that is correct, and the number this exists to surface — 981 MB — would be
+		# buried among the runs that had none.
+		return
+
+	_SWEPT[config.rootpath.as_posix()] = said_about(dropped, unreadable)
+
+
+def pytest_sessionstart (session: pytest.Session) -> None:
+	"""Say what the sweep found, once there is somewhere to say it."""
+
+	said = _SWEPT.pop(session.config.rootpath.as_posix(), None)
+
+	if said is None:
+		return
+
+	reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+
+	if reporter is None:
+		# Not the ordinary path and not a reason to lose the sentence. A report nobody sees is
+		# the half of `#1667` that is easiest to ship without noticing.
+		print(said, file=sys.stderr)
+
+		return
+
+	reporter.write_line(said)
 
 
 @pytest.fixture(scope="session")

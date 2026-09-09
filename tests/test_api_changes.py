@@ -20,7 +20,6 @@ rows back instead, which tests the query rather than the clock — and the one t
 """
 
 import datetime
-import os
 import typing
 import uuid
 
@@ -861,7 +860,7 @@ def own_database (tmp_path: typing.Any) -> typing.Iterator[str]:
 
 		pytest.skip(reason)
 
-	name = f"subroutine_changes_{os.getpid()}_{abs(hash(tmp_path)) % 100000}"
+	name = conftest.throwaway_name("changes")
 	admin = sqlalchemy.create_engine(conftest.POSTGRES_ADMIN_URL, isolation_level="AUTOCOMMIT")
 
 	try:

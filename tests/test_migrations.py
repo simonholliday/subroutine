@@ -53,7 +53,7 @@ def migrated_url (
 
 	else:
 		admin_url = request.getfixturevalue("postgres_url")
-		database = f"subroutine_mig_{uuid.uuid4().hex[:12]}"
+		database = conftest.throwaway_name("mig")
 		admin = sqlalchemy.engine.make_url(admin_url).set(database="postgres")
 		admin_engine = sqlalchemy.create_engine(admin, isolation_level="AUTOCOMMIT")
 
