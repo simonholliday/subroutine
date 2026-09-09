@@ -1878,6 +1878,19 @@ class WorkspaceAccess(WorkspaceRef):
 	#: Null means "not stated", so the instance's own zone shows through (§12.3).
 	timezone: str | None
 
+	#: What this workspace is for, in a sentence — `#1601`. Bounded by
+	#: :data:`subroutine.domain.text.MAX_DESCRIPTION_LENGTH`, so a caller in five workspaces
+	#: knows the worst case of asking.
+	#:
+	#: **Here rather than on :class:`WorkspaceRef`**, which is how a client *addresses* a
+	#: workspace and is what ``GET /v1/meta`` carries — the response every client fetches
+	#: first. *Which slug do I type* and *what is this place for* are different questions and
+	#: only the second wants prose.
+	#:
+	#: **Defaulted, like everything added to a response model after it shipped** (`#345`,
+	#: `#482`). An instance older than this field sends no such key and must keep working.
+	description: str | None = None
+
 	#: The role held here, before the credential narrowed anything.
 	role: str | None
 
@@ -4476,6 +4489,7 @@ def workspace_access (
 		id=row.id,
 		slug=row.slug,
 		title=row.title,
+		description=row.description,
 		timezone=row.timezone,
 		# **The raw level above, and §6.5 already resolved below it.** ``timezone`` is what this
 		# workspace itself says, null where it says nothing; ``reader_timezone`` is the answer

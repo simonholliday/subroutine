@@ -49,6 +49,24 @@ ONE_LINE_LIMIT = 60
 #: warning where the other did not, and nothing would look wrong on either side.
 LARGE_PROSE = 10_000
 
+#: How long a description of a project or a workspace may be — `#1601`.
+#:
+#: **Bounded because a listing renders it**, and an unbounded field in a whole-workspace
+#: listing gives that listing no worst case at all. Sixteen projects at this limit is 16 KB,
+#: paid once when somebody or something orients itself in a workspace it has just arrived in.
+#:
+#: **1024 rather than `#1601`'s proposed 512, and the item's own criterion is what moved it.**
+#: That number was chosen on 2026-08-29 as *everything today fits under it with room*, from a
+#: measurement of five descriptions running 90 to 448 characters. Re-measured on 2026-09-09
+#: there are six, and the `subroutine` project's own is **543** — so 512 would have refused a
+#: value the instance already holds, which is a guard that cannot be satisfied by the data it
+#: guards. The criterion is kept and the number follows the data.
+#:
+#: **One constant for both entities**, because they are the same kind of thing — one paragraph
+#: saying what a thing is for, read in a listing. Two agreeing separately is how they come to
+#: disagree.
+MAX_DESCRIPTION_LENGTH = 1024
+
 
 #: Everything a terminal reads as an instruction rather than as text: ``ESC``, the rest of the
 #: C0 controls Rich does not already drop, ``DEL``, and the C1 range some terminals still
@@ -228,6 +246,29 @@ def fit (
 			)
 		],
 	)
+
+
+def summary (value: str | None, *, field: str = "description") -> str | None:
+	"""Return a description bounded to what a listing can carry, or refuse it by name.
+
+	**One function, because four services need the same answer** — a project and a workspace,
+	each created and updated. Before `#1601` each called :func:`readable`, which asks *is this
+	text* and says nothing about length, so a description was checked for characters nobody can
+	read and never for a size any listing could render.
+
+	**Newlines are kept, and the collapsing belongs at the other end.** Two of the six
+	descriptions on this instance carry them, so storing one line would silently rewrite what
+	somebody wrote — which is the alteration this module's own docstring argues against. A
+	listing that wants one row per project calls :func:`one_line` as it renders, where the
+	reader can see what happened and the stored value is untouched.
+
+	``None`` passes through: an absent description is not an over-long one.
+	"""
+
+	if value is None:
+		return None
+
+	return fit(value, field=field, limit=MAX_DESCRIPTION_LENGTH, multiline=True)
 
 
 def require (value: str | None, *, field: str, label: str | None = None) -> str:

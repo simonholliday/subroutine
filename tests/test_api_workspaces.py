@@ -17,6 +17,7 @@ import sqlalchemy.orm
 import api_support
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -788,3 +789,70 @@ def test_a_workspace_cannot_be_born_naming_a_status_it_does_not_have (
 
 	assert fine.status_code == 201, fine.text
 	assert fine.json()["settings"]["statuses.hidden"] == ["done"]
+
+
+def test_creating_a_workspace_refuses_a_description_that_changing_one_would_refuse (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1127` again, one field over, and this half was worse — `SR#1601`.
+
+	``domain.workspaces.create`` had never heard of ``description``. The route accepted one,
+	called the service without it, and then **assigned it to the row afterwards** — so it
+	reached storage having passed no check at all, while ``PATCH`` ran it through
+	``text.readable`` and refused the same value. An escape sequence survives storage and
+	reaches an agent's context through MCP, which is what that check exists for.
+
+	**Both calls, in one test, because the finding is the disagreement.** Asserting the refusal
+	alone would pass on a build where ``PATCH`` had quietly stopped refusing too.
+	"""
+
+	unreadable = "What it is for \x1b[31m"
+
+	made = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={"slug": "acme", "title": "Acme", "description": unreadable},
+	)
+
+	assert made.status_code == 422, made.text
+
+	world.call("POST", "/v1/workspaces", json={"slug": "acme", "title": "Acme"})
+	changed = world.call("PATCH", "/v1/workspaces/acme", json={"description": unreadable})
+
+	assert changed.status_code == 422, changed.text
+
+
+def test_a_workspace_is_described_when_it_is_made (world: test_api_tasks.World) -> None:
+	"""The ordinary case, and the one that says the field reaches the row through the service."""
+
+	made = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={"slug": "acme", "title": "Acme", "description": "Everything for Acme."},
+	)
+
+	assert made.status_code == 201, made.text
+	assert made.json()["description"] == "Everything for Acme."
+
+
+def test_a_workspace_description_is_bounded_the_way_a_projects_is (
+	world: test_api_tasks.World,
+) -> None:
+	"""One limit for both, because they are the same kind of thing — `SR#1601`.
+
+	Two agreeing separately is how they come to disagree, and a listing that renders either
+	has no worst case while the field has no limit.
+	"""
+
+	refused = world.call(
+		"POST",
+		"/v1/workspaces",
+		json={
+			"slug": "acme",
+			"title": "Acme",
+			"description": "x" * (subroutine.domain.text.MAX_DESCRIPTION_LENGTH + 1),
+		},
+	)
+
+	assert refused.status_code == 413, refused.text
+	assert "description" in refused.text

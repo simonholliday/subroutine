@@ -261,14 +261,21 @@ def _project_description (world: test_api_tasks.World, value: str) -> object:
 
 
 def _workspace_description (world: test_api_tasks.World, value: str) -> object:
-	"""Describe the world's own workspace as ``value``.
+	"""Make a workspace described as ``value``.
 
-	The only one of these driven through ``update`` rather than ``create``, because
-	:func:`subroutine.domain.workspaces.create` takes no description at all.
+	**Driven through ``create`` like the rest since `#1601`**, and this said the opposite until
+	then: ``workspaces.create`` took no description at all, so the one field here checked on the
+	update path only was also the one whose create path assigned it to the row afterwards,
+	unchecked. The sentence that recorded the asymmetry is what stopped anybody asking whether
+	it should still exist.
 	"""
 
-	return subroutine.domain.workspaces.update(
-		world.session, world.workspace, description=value, actor=_principal(world)
+	return subroutine.domain.workspaces.create(
+		world.session,
+		slug=f"w{uuid.uuid4().hex[:8]}",
+		title="Fine",
+		owner=world.user,
+		description=value,
 	)
 
 
@@ -652,3 +659,29 @@ def test_a_control_character_is_refused_when_prose_is_edited_too (
 	with pytest.raises(subroutine.errors.SubroutineError):
 		EDITED[where](world, "probe\x00value")
 		world.session.flush()
+
+
+def test_an_absent_description_is_not_an_over_long_one () -> None:
+	"""``None`` clears a description, and clearing must not go through a length check.
+
+	§8.3 says an omitted field is unchanged and a null one clears, so every caller that clears
+	arrives here with ``None`` — and ``len(None)`` is the shape of the 500 `#1584`'s own
+	``require`` was written against, on the commonest field there is.
+	"""
+
+	assert subroutine.domain.text.summary(None) is None
+
+
+def test_a_description_is_stored_with_its_paragraphs_intact () -> None:
+	"""Bounded, and not collapsed — the two rules are about different things — `#1601`.
+
+	:func:`subroutine.domain.text.fit` puts a value on one line by default because a title
+	reaching Markdown can plant a heading (`#927` H-8). A description is prose somebody wrote,
+	two of the six on the instance this was measured against carry newlines, and the listing
+	that renders one collapses it where the reader can see. Storing one line instead would
+	silently rewrite what was written, which is what this module refuses to do.
+	"""
+
+	written = "First paragraph.\n\nSecond paragraph."
+
+	assert subroutine.domain.text.summary(written) == written

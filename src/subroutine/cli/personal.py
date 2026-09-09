@@ -5755,18 +5755,52 @@ def _projects_listed (program: Program, *, json_output: bool) -> None:
 		width = max(len(one.key) + one.depth * 2 for one in found)
 		focus = _focus_of(where, workspace)
 
-		for one in found:
-			shown = f"{'  ' * one.depth}{one.key}".ljust(width)
+		# **Marked on the project rather than on its work** (decision `#982`). This is the
+		# listing where the question *which one is it* is actually asked, and the answer is
+		# one row out of a handful — where a mark on task rows would land on most of them
+		# and §12.2a would drop it for saying nothing. Only the project itself is marked:
+		# its subtree inherits the bonus, and labelling children would read as four
+		# prioritised projects, which is the state this design makes impossible.
+		rows = [
+			(
+				f"{'  ' * one.depth}{one.key}".ljust(width),
+				one.title
+				+ ("  (prioritised)" if focus is not None and one.path == focus else ""),
+				one.description or "",
+			)
+			for one in found
+		]
 
-			# **Marked on the project rather than on its work** (decision `#982`). This is the
-			# listing where the question *which one is it* is actually asked, and the answer is
-			# one row out of a handful — where a mark on task rows would land on most of them
-			# and §12.2a would drop it for saying nothing. Only the project itself is marked:
-			# its subtree inherits the bonus, and labelling children would read as four
-			# prioritised projects, which is the state this design makes impossible.
-			marked = "  (prioritised)" if focus is not None and one.path == focus else ""
+		# **The column is dropped when nothing has one**, which is §12.2a rather than a
+		# convenience: a blank third column on every row of a workspace nobody has described
+		# says only that the field exists. It appears the moment one project answers.
+		# **Only the described rows set the title column's width.** Padding to the longest
+		# title in the workspace let one 35-character name squeeze every summary on an
+		# 80-column terminal down to twenty characters — and the rows that caused it have no
+		# summary to line up with. Every title still *starts* in the same column, which is the
+		# alignment a reader is actually using.
+		titles = max(
+			(len(title) for _key, title, summary in rows if summary), default=0
+		)
 
-			program.say(f"{shown}  {one.title}{marked}")
+		for shown, title, summary in rows:
+			# **Cut to the line, and the ellipsis is the point** (`#1601`). A tree is read at a
+			# glance for orientation and six wrapped lines a row destroys the thing it is for —
+			# `#617` gave this listing its indentation for the same reason. An agent gets the
+			# whole summary instead, because `subroutine_project`'s listing is the only channel
+			# it has: a project carries no ref, so nothing can read one on its own (`#1451`).
+			room = max(program.console.width - width - titles - 4, 20)
+
+			# **`rstrip` is what implements §12.2a here, and there is no branch beside it.** The
+			# first version had one — *if nothing is described, print two columns* — and it was
+			# dead: with nothing described `titles` is zero, the summary is empty, and the two
+			# paths already produced the same characters. A mutation that removed the branch
+			# left every test green, which is what said so. The observable rule is that no row
+			# carries padding it does not need, and that is what the guard asserts.
+			program.say(
+				f"{shown}  {title.ljust(titles)}  "
+				f"{subroutine.domain.text.truncated(summary, room)}".rstrip()
+			)
 
 
 def _written_back (document: typing.Any, *, without_body: bool) -> str:
@@ -5805,7 +5839,14 @@ def _workspaces_listed (program: Program, *, json_output: bool) -> None:
 	"""
 
 	with program.opened() as world:
-		found = world.writing_to().client.identity().workspaces
+		# **`me()` rather than `identity()` since `#1601`**, and it strengthens the property
+		# this docstring already claimed: `whoami` reads the same response one line above, so
+		# the two genuinely cannot drift now rather than merely being unlikely to. It is the
+		# same one round trip, against `/v1/me` instead of `/v1/meta` — and it is where a
+		# workspace's description is published, deliberately: `/v1/meta` is the response every
+		# client fetches first and carries `WorkspaceRef` for *addressing* a workspace, which
+		# is a different question from what one is for.
+		found = world.writing_to().client.me().workspaces
 
 		if json_output:
 			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
@@ -5819,8 +5860,21 @@ def _workspaces_listed (program: Program, *, json_output: bool) -> None:
 
 		width = max(len(one.slug) for one in found)
 
+		# §12.2a again: the column appears only when a workspace has answered, and the summary
+		# is cut to the line for the reason `project list` gives one function above.
+		titles = max((len(one.title) for one in found if one.description), default=0)
+
 		for one in found:
-			program.say(f"{one.slug.ljust(width)}  {one.title}")
+			room = max(program.console.width - width - titles - 4, 20)
+			said = (
+				""
+				if not one.description
+				else subroutine.domain.text.truncated(one.description, room)
+			)
+
+			program.say(
+				f"{one.slug.ljust(width)}  {one.title.ljust(titles)}  {said}".rstrip()
+			)
 
 
 def _ranked_by_priority (order: str | None) -> bool:
@@ -7838,6 +7892,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 	def workspace_create (
 		slug: str = typer.Argument(..., help="Its short name, used in addresses."),
 		title: str = typer.Argument(..., help="What to call it."),
+		description: str = typer.Option("", "--description", help="What it is for."),
 		timezone: str = typer.Option(
 			"", "--timezone", help="Its zone, e.g. 'Europe/London'. Unset follows the instance."
 		),
@@ -7856,8 +7911,16 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		with program.opened() as world:
 			where = world.writing_to()
+			# **`--description` reaches here as of `#1601`**, and every layer under it had to
+			# be widened to carry one word: the route accepted a description, no client sent
+			# one and no command offered one. That is the *API is ahead of the clients* family
+			# `test_reach` measures, in the shape it takes when the gap is an argument rather
+			# than a whole method.
 			created = where.client.create_workspace(
-				slug=slug, title=title, timezone=timezone.strip() or None
+				slug=slug,
+				title=title,
+				description=description.strip() or None,
+				timezone=timezone.strip() or None,
 			)
 
 			program.say(f"Created {created.slug} — {created.title}")

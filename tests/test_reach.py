@@ -1319,15 +1319,6 @@ UNREACHED_FIELDS: dict[str, Excuse] = {
 		"Project templates (§6.7's neighbourhood). Accepted by the route and implemented "
 		"nowhere below it.",
 	),
-	"description": (
-		"reachable another way",
-		"`POST /v1/workspaces` only, and this entry is narrower than the one it replaces. The "
-		"old one named `#434` and covered both halves; `#983` gave `update_workspace` a "
-		"`description`, so **changing** one is reached now and only **naming one at creation** "
-		"is not. `create_workspace` takes slug, title and timezone, and a caller who wants a "
-		"description writes it with the next call rather than being unable to — so nothing is "
-		"stuck here, which is what made the update half a bug and leaves this a rough edge.",
-	),
 	"settings": (
 		"disclosure",
 		"A workspace's settings blob. Deliberately not a client argument: it is a JSON column "

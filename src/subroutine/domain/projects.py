@@ -130,7 +130,9 @@ def create (
 	title = subroutine.domain.text.fit(
 		subroutine.domain.text.require(title, field="title"), field="title", limit=512
 	)
-	description = subroutine.domain.text.readable(description, field="description")
+	# Bounded as well as readable since `#1601` — `text.summary` is where both rules meet,
+	# and it is what lets a listing render this with a worst case somebody chose.
+	description = subroutine.domain.text.summary(description)
 	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id)
 
 	normalized_key = normalize_key(key)
@@ -381,7 +383,7 @@ def update (
 		)
 
 	if description is not subroutine.domain.patch.UNSET:
-		description = subroutine.domain.text.readable(description, field="description")
+		description = subroutine.domain.text.summary(description)
 
 	if visibility is not subroutine.domain.patch.UNSET and visibility not in subroutine.db.mixins.PROJECT_VISIBILITIES:
 		raise subroutine.errors.ValidationError(

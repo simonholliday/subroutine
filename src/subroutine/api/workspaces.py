@@ -265,14 +265,11 @@ def create (
 		# The creator owns what they create, which is also what makes them able to administer
 		# it — a workspace with no owner is not a state worth being able to reach.
 		owner=actor.user,
+		description=body.description,
 		timezone=body.timezone or "UTC",
 		settings=body.settings,
 		actor=actor,
 	)
-
-	if body.description is not None:
-		created.description = body.description
-		session.flush()
 
 	return one(session, actor, created)
 

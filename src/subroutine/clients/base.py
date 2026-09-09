@@ -1214,7 +1214,12 @@ class Client(typing.Protocol):
 		"""
 
 	def create_workspace (
-		self, *, slug: str, title: str, timezone: str | None = None
+		self,
+		*,
+		slug: str,
+		title: str,
+		description: str | None = None,
+		timezone: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Make another workspace, owned by whoever asked — item `#300`.
 

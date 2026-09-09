@@ -4079,8 +4079,36 @@ def _projected (
 		# priority, so no shape to draw — and a tree, ordered by the tree.
 		width = max(len(row.key) + row.depth * 2 for row in rows)
 
+		# **The whole summary here, where the terminal cuts it to the line** — `#1601`, and
+		# the difference is deliberate on both sides. A tree is read at a glance for
+		# orientation and wrapped rows destroy that, which is why `project list` truncates;
+		# an agent has no second channel to read the rest from, because a project carries no
+		# ref and so nothing can `subroutine_show` one (`#1451`). A truncated summary in the
+		# only channel there is is a fragment rather than an answer.
+		#
+		# **Collapsed to one line, which loses no words.** A description is stored as it was
+		# written, newlines and all (`text.summary`); a listing that let one row become six
+		# would stop being a listing, and a run of whitespace carries nothing here.
+		#
+		# **Dropped entirely when nothing has one**, which is §12.2a: a blank column on every
+		# row says only that the field exists. Sixteen projects at the stored limit is 16 KB,
+		# paid once when something orients itself in a workspace it has just reached.
+		# **Only the described rows set the title column's width**, and `rstrip` is the whole
+		# of §12.2a here — see `cli/personal._projects_listed`, where the branch that looked
+		# like it did this work turned out to be dead.
+		titles = max((len(row.title) for row in rows if row.description), default=0)
+
 		return "\n".join(
-			f"{'  ' * row.depth}{row.key}".ljust(width) + f"  {row.title}" for row in rows
+			(
+				f"{'  ' * row.depth}{row.key}".ljust(width)
+				+ f"  {row.title.ljust(titles)}"
+				+ (
+					f"  {subroutine.domain.text.one_line(row.description)}"
+					if row.description
+					else ""
+				)
+			).rstrip()
+			for row in rows
 		)
 
 	title = _text(arguments, "title")

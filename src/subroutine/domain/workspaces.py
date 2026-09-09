@@ -57,6 +57,7 @@ def create (
 	slug: str,
 	title: str,
 	owner: subroutine.db.models.identity.User,
+	description: str | None = None,
 	timezone: str = "UTC",
 	settings: dict[str, typing.Any] | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
@@ -84,6 +85,14 @@ def create (
 		limit=MAX_TITLE_LENGTH,
 	)
 	normalized = validated_slug(session, slug)
+
+	# **`create` takes one as of `#1601`, and until then only `update` did.** So every
+	# workspace began without a description and nothing asked for one — `#301` and `#1127`'s
+	# asymmetry inverted, a field the update path accepts and the create path had never heard
+	# of. `POST /v1/workspaces` did accept it and assigned it to the row *after* this call
+	# returned, which meant it reached storage having passed no check at all: a description
+	# holding an escape sequence or a NUL was refused on update and stored on create.
+	description = subroutine.domain.text.summary(description)
 
 	# Same check as `update`, and it was missing here: `create` took whatever string it was
 	# handed, so `{"timezone": "Mars/Olympus"}` was stored and only surfaced later, as a
@@ -116,6 +125,7 @@ def create (
 	workspace = subroutine.db.models.identity.Workspace(
 		slug=normalized,
 		title=title,
+		description=description,
 		timezone=timezone,
 		settings=chosen,
 	)
@@ -255,9 +265,7 @@ def update (
 		)
 
 	if description is not subroutine.domain.patch.UNSET:
-		changed["description"] = subroutine.domain.text.readable(
-			description, field="description"
-		)
+		changed["description"] = subroutine.domain.text.summary(description)
 
 	if settings is not subroutine.domain.patch.UNSET:
 		# **What the registry says gates each key, asked before any value is read** (`#2120`).

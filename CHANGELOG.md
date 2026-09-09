@@ -14,7 +14,33 @@ upgrade involves.
 
 ## Unreleased
 
+### Added
+
+- **A project listing says what each project is for.**
+
+  `project list`, `workspace list` and the agent's `subroutine_project` all render the
+  description now. It was a real field, settable, published on the view and rendered by no
+  surface at all — so five of sixteen projects on one instance carried one, written in exactly
+  the register somebody wants in a listing, and nothing showed it to anybody.
+
+  The terminal cuts a summary to the line, because a tree is read at a glance and a row that
+  wraps six times destroys what it is for. An agent is given it whole: a project carries no
+  reference number, so nothing can read one on its own, and the listing is the only channel
+  there is. A column nobody has filled in does not appear.
+
+  `subroutine workspace create` takes `--description` too. It never did, so every workspace
+  began without one and nothing asked.
+
 ### Fixed
+
+- **A workspace description set while creating the workspace was never checked.**
+
+  `POST /v1/workspaces` accepted one, then wrote it to the row after the fact — so a
+  description holding a control character or an escape sequence was refused when you changed
+  it and stored when you created it. Both ends run the same check now.
+
+- **A description has a length.** Projects and workspaces both cap it at 1024 characters and
+  say so by name. Neither had any limit at all, so a listing rendering one had no worst case.
 
 - **A test run that does not finish no longer leaves a PostgreSQL database behind for ever.**
 

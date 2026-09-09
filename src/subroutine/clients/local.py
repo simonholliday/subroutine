@@ -2575,7 +2575,12 @@ class Client:
 			)
 
 	def create_workspace (
-		self, *, slug: str, title: str, timezone: str | None = None
+		self,
+		*,
+		slug: str,
+		title: str,
+		description: str | None = None,
+		timezone: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Make another workspace, through the same service the endpoint calls."""
 
@@ -2589,6 +2594,7 @@ class Client:
 				# The creator owns what they create, which is what makes them able to
 				# administer it — a workspace with no owner is not a state worth reaching.
 				owner=actor.user,
+				description=description,
 				timezone=timezone or "UTC",
 				actor=actor,
 			)

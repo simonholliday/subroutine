@@ -45,6 +45,7 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.schedule
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
 import subroutine.views
@@ -11144,3 +11145,163 @@ def test_the_terminal_can_say_what_workspaces_exist_here (
 
 	assert "1 person" in listed.output
 	assert "not a member" not in listed.output, "the only workspace is one you are in"
+
+
+def test_the_project_listing_says_what_each_project_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1601`. The field was real, settable, published on the view and rendered by nothing.
+
+	Fifth instance of the declared-and-inert family after `#247`, `#251`, `#303` and `#1444`,
+	and the one shape reading never finds: every site is correct and nothing joins them.
+	"""
+
+	run("init")
+	run("project", "create", "outer", "Outer thing", "--description", "What outer is for")
+	run("project", "create", "plain", "Plain thing")
+
+	printed = run("project", "list").output
+
+	assert "What outer is for" in printed, printed
+
+	# **The row with nothing to say still prints, and carries no padding for the column it is
+	# not in.** Asserted with `rstrip` rather than `strip`, which would hide exactly the
+	# trailing whitespace this is about — §12.2a on a listing where only some rows answer, and
+	# the case the all-empty listing cannot reach.
+	plain = next(line for line in printed.splitlines() if line.startswith("plain"))
+
+	assert plain == plain.rstrip(), repr(plain)
+	assert plain.endswith("Plain thing"), plain
+
+
+def test_the_project_listing_drops_the_column_when_nothing_has_been_described (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: a blank column on every row says only that the field exists.
+
+	The rule already drops a column that is empty in every row and one that is identical in
+	every row; this is the first application of it to a column somebody may never fill in.
+	"""
+
+	run("init")
+	run("project", "create", "outer", "Outer thing")
+	run("project", "create", "inner", "Inner thing", "--parent", "outer")
+
+	rows = [line for line in run("project", "list").output.splitlines() if line.strip()]
+
+	assert rows
+
+	# No trailing padding anywhere, which is what a dropped column looks like from outside.
+	assert all(line == line.rstrip() for line in rows), rows
+
+	outer = next(line for line in rows if line.startswith("outer"))
+
+	assert outer.endswith("Outer thing"), outer
+
+
+def test_a_long_description_is_cut_to_the_line_with_the_cut_shown (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A tree is read at a glance, so a row that wraps six times destroys what it is for.
+
+	**The ellipsis is the whole of why this is honest** — a line that has quietly lost its end
+	reads as the whole summary, which is the failure `text.truncated` was written against.
+	"""
+
+	said = "Sentence about the project. " * 20
+
+	run("init")
+	run("project", "create", "outer", "Outer thing", "--description", said)
+
+	printed = run("project", "list").output
+	row = next(line for line in printed.splitlines() if line.startswith("outer"))
+
+	assert "…" in row, row
+	assert said.strip() not in row
+	assert len(row) <= 200, row
+
+
+def test_a_description_longer_than_a_listing_can_carry_is_refused_by_name (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Bounded is what gives a whole-workspace listing a worst case somebody chose.
+
+	It was checked for characters nobody can read and never for a length, so a project could
+	carry a description of any size at all and every listing rendering one inherited that.
+	"""
+
+	run("init")
+
+	refused = run(
+		"project",
+		"create",
+		"outer",
+		"Outer thing",
+		"--description",
+		"x" * (subroutine.domain.text.MAX_DESCRIPTION_LENGTH + 1),
+		expect=1,
+	)
+
+	assert "description" in refused.output, refused.output
+	assert str(subroutine.domain.text.MAX_DESCRIPTION_LENGTH) in refused.output
+
+
+def test_a_description_keeps_the_shape_it_was_written_in (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""Stored as written, collapsed only where it is rendered — `#1601`.
+
+	Two of the six descriptions on the instance this was measured against carry newlines, so
+	storing one line would silently rewrite what somebody wrote. `text.py`'s own docstring
+	argues against exactly that: a value silently altered is a truncation the writer is never
+	told about.
+	"""
+
+	run("init")
+	run("project", "create", "outer", "Outer thing", "--description", "First.\n\nSecond.")
+
+	rows = json.loads(run("project", "list", "--json").output)
+	stored = next(one["description"] for one in rows if one["key"] == "outer")
+
+	assert stored == "First.\n\nSecond."
+
+	# And the listing is still one row per project.
+	printed = [line for line in run("project", "list").output.splitlines() if line.strip()]
+
+	assert sum(1 for line in printed if line.startswith("outer")) == 1
+	assert "Second." not in "\n".join(
+		line for line in printed if not line.startswith("outer")
+	)
+
+
+def test_the_workspace_listing_says_what_each_workspace_is_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The other half of `#1601`, and it needed the listing to read a different response.
+
+	``workspace list`` rendered from ``/v1/meta``'s ``WorkspaceRef``, which carries what a
+	client needs to *address* a workspace and deliberately nothing else — it is the response
+	every client fetches first. The description is published on ``/v1/me`` instead, where
+	``whoami`` already reads, so the two renderings of one fact now come from one response
+	rather than merely being unlikely to drift.
+	"""
+
+	run("init")
+	run("workspace", "create", "acme", "Acme", "--description", "Everything for Acme.")
+
+	printed = run("workspace", "list").output
+
+	assert "Everything for Acme." in printed, printed
+
+
+def test_the_workspace_listing_drops_the_column_when_nothing_has_been_described (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a, on the listing a fresh install prints — where no workspace has been described."""
+
+	run("init")
+
+	rows = [line for line in run("workspace", "list").output.splitlines() if line.strip()]
+
+	assert rows
+	assert all(line == line.rstrip() for line in rows), rows

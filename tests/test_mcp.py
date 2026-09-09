@@ -8261,3 +8261,214 @@ def test_the_document_tool_says_which_kinds_start_in_force (
 	assert "in force" in described
 	assert "hold it back" in described
 	assert "subroutine://conventions" in described
+
+
+def test_the_agents_project_listing_says_what_each_project_is_for (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1601`, and the agent's half of it is the half that had no alternative.
+
+	**A project carries no ref**, so nothing can ``subroutine_show`` one and there is no
+	per-project read on any surface at all (`#1451`). This listing is the whole of what an
+	agent can discover about where it has arrived, which is why it gets the summary entire
+	where ``project list`` cuts it to the line.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+	_called(
+		bound,
+		"subroutine_call_api",
+		method="PATCH",
+		path="/v1/projects/web",
+		body={"description": "The browser surface, and what gates it."},
+	)
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert "The browser surface, and what gates it." in listed, listed
+
+
+def test_the_agent_is_given_the_whole_summary_where_the_terminal_cuts_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The one deliberate difference between the two listings, driven rather than asserted.
+
+	`#674`'s shape says a fact rendered twice needs something comparing the renderings. This
+	pair is **meant** to differ, so what is guarded is the direction of the difference: the
+	terminal may cut and this may not. A truncated summary in the only channel an agent has is
+	a fragment rather than an answer, and a wrapped row in a tree destroys what a tree is for.
+	"""
+
+	said = "Sentence about the project. " * 20
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+	_called(
+		bound,
+		"subroutine_call_api",
+		method="PATCH",
+		path="/v1/projects/web",
+		body={"description": said},
+	)
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert "…" not in listed, listed
+	assert subroutine.domain.text.one_line(said) in listed, listed
+
+
+def test_the_agents_project_listing_stays_one_row_per_project (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""A description is stored as written, newlines and all, and a listing is still a listing.
+
+	**Collapsed at the render rather than at the store**, which loses no words: `text.summary`
+	keeps what somebody wrote, and a run of whitespace carries nothing in an aligned row. The
+	other order — one line on the way in — silently rewrites the writer's paragraphs, which is
+	the alteration `domain/text.py`'s own docstring exists to refuse.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+	_called(
+		bound,
+		"subroutine_call_api",
+		method="PATCH",
+		path="/v1/projects/web",
+		body={"description": "First paragraph.\n\nSecond paragraph."},
+	)
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert len([line for line in listed.splitlines() if line.strip()]) == 2, listed
+	assert "First paragraph. Second paragraph." in listed, listed
+
+
+def test_the_agents_project_listing_drops_the_column_when_nothing_is_described (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""§12.2a on the agent's surface: a blank column says only that the field exists.
+
+	It costs context on every row of every listing, which is the one budget `#1601` weighs —
+	and it is the cost paid by exactly the workspaces that have not answered the question.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+	_called(bound, "subroutine_project", key="docs", title="Documentation", parent="web")
+
+	listed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, listed
+	assert all(line == line.rstrip() for line in listed.splitlines()), repr(listed)
+
+	web = next(line for line in listed.splitlines() if line.startswith("web"))
+
+	assert web == "web     Website", repr(listed)
+
+	# **And the mixed listing, which is the case the rule is actually for.** With nothing
+	# described the title column has no width to pad to, so an all-empty listing comes out
+	# right whether or not anything trims it — a mutation removing the trim left this test
+	# green until it was asked the other question.
+	_called(
+		bound,
+		"subroutine_call_api",
+		method="PATCH",
+		path="/v1/projects/web",
+		body={"description": "The browser surface."},
+	)
+
+	mixed, failed = _called(bound, "subroutine_project")
+
+	assert not failed, mixed
+	assert all(line == line.rstrip() for line in mixed.splitlines()), repr(mixed)
+
+	docs = next(line for line in mixed.splitlines() if line.strip().startswith("docs"))
+
+	assert docs.endswith("Documentation"), repr(mixed)
+
+
+def _project_fields_read (module: typing.Any, function: str, variable: str) -> set[str]:
+	"""Return the *view fields* one project listing reads, and nothing else.
+
+	Narrowed to :class:`subroutine.views.Project`'s own fields because a renderer also calls
+	methods on the row — ``model_dump`` on the JSON path — and a method is not a fact anybody
+	is failing to render. Derived from the model rather than listed, so a field added to the
+	view is compared on the day it is declared.
+	"""
+
+	return _read_by(module, function, variable) & set(
+		subroutine.views.Project.model_fields
+	)
+
+
+#: What one project listing renders and the other does not, each with the reason — `#1601`.
+#:
+#: **The pair is *meant* to differ, which is why the register exists rather than an equality.**
+#: `#674`'s rule is that a fact rendered twice needs something comparing the renderings; where
+#: the two are deliberately unlike, the deliberate part has to be written down or the next
+#: person removes it as a bug — or, worse, works around the guard.
+#:
+#: **Deleting an entry is what closes the thing it names**, which is the question every
+#: allow-list in this repository is asked (`#405`).
+DIFFERENT_ON_PURPOSE: dict[str, str] = {
+	"path": (
+		"The terminal marks the prioritised project by comparing paths (decision `#982`). "
+		"The agent's listing does not, and that is `#1451` rather than a decision: a project "
+		"carries no ref, so an agent cannot read one on its own and a mark it cannot follow up "
+		"is a label rather than an answer. Delete this when a project can be read by itself."
+	),
+}
+
+
+def test_the_two_project_listings_render_the_same_facts () -> None:
+	"""One tree, two renderings, and nothing compared them until `#1601`.
+
+	`#674`'s shape on a fourth pair. ``project.description`` was real, settable, published on
+	the view and rendered by **neither** — the fifth instance of the declared-and-inert family,
+	and the one shape reading never finds, because every site is correct and nothing joins them.
+
+	**What the two are allowed to disagree about is the *cut*, not the content.** The terminal
+	truncates a summary to the line because a tree is read at a glance and a wrapped row
+	destroys what it is for (`#617`); the agent gets it whole because this listing is the only
+	channel it has. That is a difference in rendering and is asserted where each is driven —
+	this compares the *facts*, which must not differ at all except where it says so.
+	"""
+
+	terminal = _project_fields_read(subroutine.cli.personal, "_projects_listed", "one")
+	agent = _project_fields_read(subroutine.mcp.tools, "_projected", "row")
+
+	assert terminal, "No project renderer was read at the command line."
+	assert agent, "No project renderer was read on the agent's surface."
+
+	missing = terminal - agent - set(DIFFERENT_ON_PURPOSE)
+
+	assert missing == set(), (
+		f"The command line renders {sorted(missing)} and the agent's listing does not. "
+		f"Render it there too, or write down why not in DIFFERENT_ON_PURPOSE."
+	)
+
+	assert agent - terminal == set(), (
+		f"The agent's listing renders {sorted(agent - terminal)} and the command line does "
+		f"not — which is the direction nobody watches."
+	)
+
+
+def test_no_project_listing_difference_is_recorded_that_has_since_gone_away () -> None:
+	"""The half every allow-list here has, and the half `#405` went round adding.
+
+	An entry that has stopped being true reads as a considered decision for as long as nobody
+	drives it — which is how three excuses in ``test_reach`` went on naming a gap that three
+	items had already closed.
+	"""
+
+	terminal = _project_fields_read(subroutine.cli.personal, "_projects_listed", "one")
+	agent = _project_fields_read(subroutine.mcp.tools, "_projected", "row")
+	settled = {
+		name for name in DIFFERENT_ON_PURPOSE if name not in terminal - agent
+	}
+
+	assert settled == set(), (
+		f"{sorted(settled)} is written down as a deliberate difference and is not one any "
+		f"more. Delete the entry."
+	)

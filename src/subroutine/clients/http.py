@@ -1324,7 +1324,12 @@ class Client:
 		return subroutine.views.Project.model_validate(body)
 
 	def create_workspace (
-		self, *, slug: str, title: str, timezone: str | None = None
+		self,
+		*,
+		slug: str,
+		title: str,
+		description: str | None = None,
+		timezone: str | None = None,
 	) -> subroutine.views.Workspace:
 		"""Make another workspace, over the wire."""
 
@@ -1333,7 +1338,9 @@ class Client:
 		body = self._json(
 			"POST",
 			"/v1/workspaces",
-			json=_given(slug=slug, title=title, timezone=timezone),
+			json=_given(
+				slug=slug, title=title, description=description, timezone=timezone
+			),
 		)
 
 		return subroutine.views.Workspace.model_validate(body)
