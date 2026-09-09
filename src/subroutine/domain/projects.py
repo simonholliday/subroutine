@@ -426,6 +426,19 @@ def update (
 	cleaned_settings: typing.Any = subroutine.domain.patch.UNSET
 
 	if settings is not subroutine.domain.patch.UNSET:
+		# **What the registry says gates each key, asked before any value is read** (`#2120`).
+		# `PROJECT_WRITE` above is what changing a project's own fields costs and is what both
+		# of today's settings need here; the registry is what would say otherwise, and asking it
+		# is what stops a setting declaring a verb nothing consults.
+		subroutine.domain.settings.authorized(
+			session,
+			actor,
+			settings,
+			scope=subroutine.domain.settings.PROJECT,
+			workspace_id=project.workspace_id,
+			project=project,
+		)
+
 		cleaned_settings = subroutine.domain.settings.applied(
 			project.settings, settings, scope=subroutine.domain.settings.PROJECT
 		)

@@ -99,6 +99,16 @@ def create (
 	# **`applied` rather than `validated`, with an empty base**, so this is the same call
 	# `update` makes rather than a second spelling of it. Merging into `{}` reduces to *refuse
 	# an unknown key and read every value*, which is exactly what is wanted here.
+	#
+	# **No `settings.authorized` call, and that is the decision rather than the omission**
+	# (`#2120`). A setting declaring `workspace:admin` is asking *may this actor administer this
+	# workspace* — a question with no answer here, because the workspace does not exist until
+	# three lines below and its founding member is not added until after that, so the check
+	# would refuse the very person creating it. The gate that does apply is a tier up and
+	# strictly higher: `instance:workspace_create`, checked at the top of this function, which
+	# no role carries and only a superuser holds. What that leaves reachable is a token narrowed
+	# to that one verb setting a colour on the workspace it is simultaneously creating and
+	# owning, which is nobody else's answer to protect.
 	chosen = subroutine.domain.settings.applied(
 		{}, dict(settings or {}), scope=subroutine.domain.settings.WORKSPACE
 	)
@@ -250,6 +260,18 @@ def update (
 		)
 
 	if settings is not subroutine.domain.patch.UNSET:
+		# **What the registry says gates each key, asked before any value is read** (`#2120`).
+		# `WORKSPACE_WRITE` above is what changing a workspace's own fields costs; a setting may
+		# declare more, and both of the two declared today do — a workspace's setting is what
+		# everything under it inherits, so writing one is administration.
+		subroutine.domain.settings.authorized(
+			session,
+			actor,
+			settings,
+			scope=subroutine.domain.settings.WORKSPACE,
+			workspace_id=workspace.id,
+		)
+
 		# **Merged per key rather than replaced**, and validated against the registry — see
 		# `domain.settings.applied` for why this one field departs from §8.3's whole-value rule.
 		# The dict is *replaced* on the row rather than mutated, which is `#42`: SQLAlchemy does

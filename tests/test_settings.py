@@ -16,11 +16,15 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.seed
+import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.palette
 import subroutine.domain.projects
 import subroutine.domain.settings
+import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 import subroutine.views
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -29,6 +33,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: stopped asking anything. `#405`'s floor: that test reports *offenders*, so an empty registry
 #: reports none and reads exactly like a clean one.
 FEWEST_SETTINGS = 1
+
+#: How few *declared* verbs would mean the driven guard below has stopped exercising anything.
+#: The same floor as above and for the same reason (`#405`): a loop over a registry that
+#: declares nothing reports no offenders and reads exactly like a clean one. Two, because both
+#: settings this build has declare one at the workspace scope.
+FEWEST_DECLARED_VERBS = 2
 
 
 def _declared () -> dict[str, subroutine.domain.settings.Setting]:
@@ -696,3 +706,407 @@ def test_a_project_takes_the_nearest_ancestors_hidden_statuses (
 	assert resolved() == {parent.id: ["blocked"], child.id: []}, (
 		"an empty list is a project saying it offers everything, not a project saying nothing"
 	)
+
+
+# ---------------------------------------------------------------------------------------------
+# What a setting's declared permission actually gates — `#2120`.
+#
+# **The field was declared, documented and read by nothing**, which is the family this whole
+# module was written to end (`#247`, `#251`, `#303`). So the tests below are in two halves that
+# have to stay together: three that read the registry and refuse a declaration that could not
+# work, and two that *drive the real services* with a credential built from the registry's own
+# answer. Neither half is enough on its own — a static check cannot see an unenforced verb, and
+# a driven test written against today's two entries cannot see the third.
+# ---------------------------------------------------------------------------------------------
+
+
+def _declared_verbs () -> list[tuple[subroutine.domain.settings.Setting, str, str]]:
+	"""Return every ``(setting, scope, verb)`` where a setting asks for more than the ordinary.
+
+	Read off the registry rather than listed here, so an entry added tomorrow is driven by the
+	guards below on the day it is declared rather than on the day somebody remembers.
+	"""
+
+	return [
+		(setting, scope, subroutine.domain.settings.permission_for(setting, scope=scope))
+		for setting in subroutine.domain.settings.SETTINGS.values()
+		for scope in setting.scopes
+		if scope in setting.permission
+	]
+
+
+def _under_a_role (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*permissions: str,
+) -> subroutine.domain.authentication.Principal:
+	"""Return a principal who belongs to this workspace under a role granting exactly these.
+
+	**A role rather than a narrowed token, and the difference is the point.** No *seeded* role
+	tells ``workspace:write`` from ``workspace:admin`` — owner and admin hold both, and member,
+	contributor and viewer hold neither — so a guard built on the seeds could not fail. §7.2
+	says a custom role is a data change and not a migration, which is exactly what this is.
+	"""
+
+	name = f"role-{uuid.uuid4().hex[:8]}"
+	user = subroutine.db.models.identity.User(
+		username=name, username_normalized=name, display_name="Somebody", is_active=True
+	)
+	session.add(user)
+	session.flush()
+
+	role = subroutine.db.models.identity.Role(
+		workspace_id=workspace.id,
+		key=f"custom-{uuid.uuid4().hex[:8]}",
+		title="Custom",
+		permissions=subroutine.permissions.sorted_permissions(permissions),
+	)
+	session.add(role)
+	session.flush()
+
+	session.add(
+		subroutine.db.models.identity.WorkspaceMember(
+			workspace_id=workspace.id, user_id=user.id, role_id=role.id
+		)
+	)
+	session.flush()
+
+	return subroutine.domain.authentication.Principal(user=user)
+
+
+def _write_a_setting (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	setting: subroutine.domain.settings.Setting,
+	*,
+	scope: str,
+	actor: subroutine.domain.authentication.Principal,
+) -> None:
+	"""Ask the real service to clear this setting at this scope, as this actor.
+
+	**Clearing rather than setting a value**, because it is the write every kind accepts without
+	the guard having to know what a valid value looks like — and it is the sharper case anyway:
+	wiping the colour a workspace inherits from is as much a write as choosing one, and a gate
+	that let it through would be a gate on values rather than on the setting.
+	"""
+
+	if scope == subroutine.domain.settings.WORKSPACE:
+		subroutine.domain.workspaces.update(
+			session, workspace, settings={setting.key: None}, actor=actor
+		)
+
+		return
+
+	subroutine.domain.projects.update(
+		session,
+		_project(session, workspace.id, "parent"),
+		settings={setting.key: None},
+		actor=actor,
+	)
+
+
+def test_every_scope_names_the_verb_an_ordinary_write_needs () -> None:
+	"""A scope with no entry in ``ORDINARY`` would raise where it should refuse."""
+
+	assert set(subroutine.domain.settings.ORDINARY) == set(
+		subroutine.domain.settings.SCOPES
+	)
+
+
+def test_every_verb_a_setting_declares_is_one_a_role_can_carry () -> None:
+	"""A verb outside the workspace tier is a 500 rather than a refusal.
+
+	``authorization.authorize`` raises ``ValueError`` for anything it cannot check against a
+	workspace — an instance verb, or a typo — so a declaration of one would turn every write of
+	that setting into a server error, which reads to the caller as the setting being broken
+	rather than as the registry being wrong.
+	"""
+
+	offenders = [
+		f"{setting.key} at {scope}: {verb}"
+		for setting, scope, verb in _declared_verbs()
+		if verb not in subroutine.permissions.WORKSPACE_LEVEL
+	]
+
+	assert offenders == []
+
+
+def test_no_setting_declares_the_verb_its_scope_already_requires () -> None:
+	"""An entry that grants nothing reads as more considered than a blank one.
+
+	That is this item's own defect one level down: ``permission={PROJECT: "project:write"}``
+	looks like somebody weighed it, changes nothing, and would keep looking deliberate for as
+	long as nobody drove it. Leave the field empty and :data:`ORDINARY` answers.
+	"""
+
+	redundant = [
+		f"{setting.key} at {scope} declares {verb}, which is what the scope already requires"
+		for setting, scope, verb in _declared_verbs()
+		if verb == subroutine.domain.settings.ORDINARY[scope]
+	]
+
+	assert redundant == []
+
+
+def test_the_registry_still_declares_something_stronger_than_the_ordinary_verb () -> None:
+	"""The floor under the two driven guards, which report nothing when they run nothing."""
+
+	assert len(_declared_verbs()) >= FEWEST_DECLARED_VERBS
+
+
+@pytest.mark.parametrize("index", range(FEWEST_DECLARED_VERBS))
+def test_a_declared_verb_refuses_a_role_that_holds_only_the_ordinary_one (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+	index: int,
+) -> None:
+	"""The whole of `#2120`: what the registry declares is what the service enforces.
+
+	**The role holds the scope's ordinary verb**, so the route's own check passes and the only
+	thing left that can refuse is the setting's. Without that the test would pass on the cheaper
+	refusal and say nothing at all about the field it is written for.
+	"""
+
+	declared = _declared_verbs()
+
+	# Parametrised by position rather than over the list, so a registry that declares nothing
+	# fails as a missing case rather than as a clean run of no cases.
+	setting, scope, verb = declared[index]
+	actor = _under_a_role(session, world, subroutine.domain.settings.ORDINARY[scope])
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError) as refusal:
+		_write_a_setting(session, world, setting, scope=scope, actor=actor)
+
+	assert verb in str(refusal.value)
+
+
+@pytest.mark.parametrize("index", range(FEWEST_DECLARED_VERBS))
+def test_a_declared_verb_admits_a_role_that_holds_it (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+	index: int,
+) -> None:
+	"""The other half, without which the refusal above could be any refusal at all."""
+
+	setting, scope, verb = _declared_verbs()[index]
+	actor = _under_a_role(
+		session, world, subroutine.domain.settings.ORDINARY[scope], verb
+	)
+
+	_write_a_setting(session, world, setting, scope=scope, actor=actor)
+
+
+def test_a_setting_that_declares_nothing_is_written_under_the_ordinary_verb (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+) -> None:
+	"""A project's colour stays a member's to choose, which is what per-setting bought.
+
+	Narrowing ``PATCH /v1/projects`` wholesale would have been the cheap way to enforce the
+	workspace answer and would have refused this — the argument on `#2120` for putting the verb
+	on the entry rather than on the route.
+	"""
+
+	actor = _under_a_role(session, world, subroutine.permissions.PROJECT_WRITE)
+	project = _project(session, world.id, "parent")
+
+	subroutine.domain.projects.update(
+		session,
+		project,
+		settings={subroutine.domain.settings.COLOUR.key: "teal"},
+		actor=actor,
+	)
+
+	assert project.settings[subroutine.domain.settings.COLOUR.key] == "teal"
+
+
+def test_a_workspaces_own_fields_are_still_written_under_the_ordinary_verb (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+) -> None:
+	"""``workspace:write`` still renames a workspace, and that is half of why this is per key.
+
+	The setting is refused and the title is not, in the same request shape and for the same
+	actor — which is what a route-wide narrowing could not have expressed.
+	"""
+
+	actor = _under_a_role(session, world, subroutine.permissions.WORKSPACE_WRITE)
+
+	subroutine.domain.workspaces.update(session, world, title="Renamed", actor=actor)
+
+	assert world.title == "Renamed"
+
+
+def test_a_write_is_gated_on_the_keys_it_names_rather_than_on_the_ones_stored (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""What is already stored must not decide what the next write costs.
+
+	**Driven through a setting declared only here**, because both real entries need
+	``workspace:admin`` at this scope — so with the registry as it ships, a workspace holding one
+	of them and a write naming the other are the same answer either way, and the property is
+	invisible. The rule it protects is real: gating on the merged map would make one
+	administrator's colour choice raise the price of every settings write afterwards.
+	"""
+
+	ordinary = subroutine.domain.settings.Setting(
+		key="testing.ordinary",
+		scopes=(subroutine.domain.settings.WORKSPACE,),
+		kind=subroutine.domain.settings.A_COLOUR,
+		default=None,
+		summary="Declared inside this test and nowhere else.",
+		read_by="tests/test_settings.py",
+	)
+	monkeypatch.setitem(
+		subroutine.domain.settings.SETTINGS, ordinary.key, ordinary
+	)
+
+	# Stored by somebody who may administer the workspace, so the map the next write merges into
+	# holds a key that needs a verb the next writer does not have.
+	admin = _under_a_role(
+		session,
+		world,
+		subroutine.permissions.WORKSPACE_WRITE,
+		subroutine.permissions.WORKSPACE_ADMIN,
+	)
+	subroutine.domain.workspaces.update(
+		session,
+		world,
+		settings={subroutine.domain.settings.COLOUR.key: "teal", ordinary.key: "amber"},
+		actor=admin,
+	)
+
+	writer = _under_a_role(session, world, subroutine.permissions.WORKSPACE_WRITE)
+
+	subroutine.domain.workspaces.update(
+		session, world, settings={ordinary.key: "indigo"}, actor=writer
+	)
+
+	assert world.settings[ordinary.key] == "indigo"
+	assert world.settings[subroutine.domain.settings.COLOUR.key] == "teal"
+
+
+def test_no_seeded_role_tells_the_two_workspace_verbs_apart (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+) -> None:
+	"""Why the guards above build a role instead of using one, and why this is not a no-op.
+
+	Every seeded role holds ``workspace:write`` and ``workspace:admin`` together or holds
+	neither, so on a stock instance the new check refuses nobody who could reach the route
+	before. What it does bind is the two things §7.2 and §7.3 make reachable: a **custom role**,
+	which is a data change, and a **narrowed credential** — ``token create --scope
+	workspace:write`` is one command, and it is the case this whole item is about.
+	"""
+
+	roles: dict[str, frozenset[str]] = {
+		key: frozenset(permissions)
+		for key, permissions in session.execute(
+			sqlalchemy.select(
+				subroutine.db.models.identity.Role.key,
+				subroutine.db.models.identity.Role.permissions,
+			).where(subroutine.db.models.identity.Role.workspace_id == world.id)
+		)
+		.tuples()
+		.all()
+	}
+
+	assert roles
+
+	distinguishing = {
+		key
+		for key, held in roles.items()
+		if (subroutine.permissions.WORKSPACE_WRITE in held)
+		!= (subroutine.permissions.WORKSPACE_ADMIN in held)
+	}
+
+	assert distinguishing == set()
+
+
+def test_a_narrowed_credential_is_refused_where_its_owners_role_would_allow (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+) -> None:
+	"""The other reachable narrowing, and the one an operator actually types.
+
+	§7.3 intersects a role with a token's scopes, so this is the same rule arriving by the other
+	road — and it is the road `#2120` was filed about: an agent handed ``--scope
+	workspace:write`` may rename the workspace and may not decide what everything under it
+	inherits.
+	"""
+
+	owner = _under_a_role(
+		session,
+		world,
+		subroutine.permissions.WORKSPACE_WRITE,
+		subroutine.permissions.WORKSPACE_ADMIN,
+	)
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session,
+		user=owner.user,
+		title="Narrowed",
+		scopes=[subroutine.permissions.WORKSPACE_WRITE],
+	)
+	narrowed = subroutine.domain.authentication.Principal(user=owner.user, token=token)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.workspaces.update(
+			session,
+			world,
+			settings={subroutine.domain.settings.COLOUR.key: "teal"},
+			actor=narrowed,
+		)
+
+	subroutine.domain.workspaces.update(session, world, title="Renamed", actor=narrowed)
+
+	assert world.title == "Renamed"
+
+
+def test_a_project_setting_can_declare_a_stronger_verb_and_the_service_enforces_it (
+	session: sqlalchemy.orm.Session,
+	world: subroutine.db.models.identity.Workspace,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The project call site, which nothing in the shipping registry can exercise.
+
+	**Both entries take the ordinary ``project:write`` on a project**, so deleting the check from
+	``projects.update`` breaks no test that ships — a call site no run has ever seen fire, which
+	is exactly how a guard written between two releases comes to be untested. A setting declared
+	here is the only way to make it fire, and it is the same code an entry declared tomorrow
+	would meet.
+	"""
+
+	gated = subroutine.domain.settings.Setting(
+		key="testing.gated",
+		scopes=(subroutine.domain.settings.PROJECT,),
+		kind=subroutine.domain.settings.A_COLOUR,
+		default=None,
+		summary="Declared inside this test and nowhere else.",
+		read_by="tests/test_settings.py",
+		permission={
+			subroutine.domain.settings.PROJECT: subroutine.permissions.WORKSPACE_ADMIN
+		},
+	)
+	monkeypatch.setitem(subroutine.domain.settings.SETTINGS, gated.key, gated)
+
+	project = _project(session, world.id, "parent")
+	ordinary = _under_a_role(session, world, subroutine.permissions.PROJECT_WRITE)
+
+	with pytest.raises(subroutine.domain.authorization.AuthorizationError):
+		subroutine.domain.projects.update(
+			session, project, settings={gated.key: "teal"}, actor=ordinary
+		)
+
+	stronger = _under_a_role(
+		session,
+		world,
+		subroutine.permissions.PROJECT_WRITE,
+		subroutine.permissions.WORKSPACE_ADMIN,
+	)
+	subroutine.domain.projects.update(
+		session, project, settings={gated.key: "teal"}, actor=stronger
+	)
+
+	assert project.settings[gated.key] == "teal"

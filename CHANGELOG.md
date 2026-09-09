@@ -12,6 +12,27 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **Changing a workspace's colour or its hidden statuses now needs `workspace:admin`.**
+
+  A workspace's settings are what everything under it inherits unless a project says otherwise,
+  so choosing one is administering the workspace rather than working in it. Renaming a
+  workspace, or changing its description, timezone or prioritised project, still needs only
+  `workspace:write` — and a *project's* own colour and hidden statuses are still the project's,
+  under `project:write`.
+
+  On a stock instance this refuses nobody: every seeded role that carries `workspace:write`
+  carries `workspace:admin` beside it. It binds where the two can differ, which is a custom role
+  and a narrowed credential — `token create --scope workspace:write` now issues something that
+  can rename a workspace and cannot decide what everything in it inherits.
+
+  Each setting names the permission it needs, rather than the rule sitting on the endpoint. That
+  is what lets the same setting cost more on a workspace than on a project, and what stops the
+  next one being bound to whichever answer was right for the first two.
+
 ## 0.8.15 — 2026-09-08
 
 > **This release changes the database schema**, to `1f61c97bf2ca`.

@@ -47,6 +47,7 @@ dict still marks the row dirty and moves ``updated_at``, so a write happens only
 actually changed.
 """
 
+import types
 import typing
 import uuid
 
@@ -56,9 +57,12 @@ import sqlalchemy.orm
 import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
+import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.hierarchy
 import subroutine.domain.palette
 import subroutine.errors
+import subroutine.permissions
 
 #: A project's own settings, then those of each ancestor, then the workspace's. Most specific
 #: first, which is the order :func:`in_force` walks.
@@ -75,6 +79,26 @@ WORKSPACE = "workspace"
 #: later is an entry in a setting's ``scopes``, which is what makes the ladder extensible without
 #: being speculative.
 SCOPES: tuple[str, ...] = (PROJECT, WORKSPACE)
+
+#: The verb an *ordinary* write at each scope already needs, and what a setting declaring
+#: nothing is gated on — :func:`permission_for` is where the two meet.
+#:
+#: **This is a statement about the routes as they are, not a second control.** ``project:write``
+#: is what changing a project costs and ``workspace:write`` what changing a workspace's own
+#: fields costs, both unchanged by `#2120`: narrowing either wholesale would have refused
+#: somebody who renames a workspace today, and would have bound every future setting to one
+#: answer. A setting that needs more says so in :attr:`Setting.permission`.
+ORDINARY: dict[str, str] = {
+	PROJECT: subroutine.permissions.PROJECT_WRITE,
+	WORKSPACE: subroutine.permissions.WORKSPACE_WRITE,
+}
+
+#: What a setting declares when the ordinary verb is enough at every scope it offers.
+#:
+#: **A shared immutable mapping rather than a fresh ``{}``**, because a ``NamedTuple``'s default
+#: is one object handed to every entry that omits the field — the same trap
+#: :data:`HIDDEN_STATUSES` avoids one field along, with an empty *tuple*.
+ORDINARY_EVERYWHERE: typing.Mapping[str, str] = types.MappingProxyType({})
 
 
 class Kind (typing.NamedTuple):
@@ -193,11 +217,24 @@ class Setting (typing.NamedTuple):
 	#: here looking deliberate.
 	read_by: str
 
-	#: The verb needed to write it, or ``None`` for the scope's ordinary one — ``project:write``
+	#: The verb needed to write it **at each scope**, where the scope's ordinary one is not
+	#: enough. A scope named nowhere here takes :data:`ORDINARY`'s answer — ``project:write``
 	#: for a project setting, ``workspace:write`` for a workspace's (Simon's decision of
 	#: 2026-08-19, recorded on `#1024`). A setting that grants a *capability* rather than
 	#: choosing an appearance may want a stronger check, and this is where it says so.
-	permission: str | None = None
+	#:
+	#: **Per scope rather than per setting, because the answer genuinely differs by scope**
+	#: (Simon, 2026-09-06, on `#2120`). A setting written on a *workspace* is the answer
+	#: everything under it inherits, so it is administration; the same setting written on a
+	#: *project* changes one subtree and is the ordinary work of running that project. One verb
+	#: for the whole entry could say only one of those, and saying the stronger one everywhere
+	#: would refuse a member colouring the project they already own.
+	#:
+	#: **Naming a scope's own ordinary verb here is refused by the guard.** An entry that grants
+	#: nothing reads as *more* considered than a blank one, which is exactly the family this
+	#: field was found in: declared, documented and enforcing nothing (`#2120`, and `#247`,
+	#: `#251`, `#303` before it).
+	permission: typing.Mapping[str, str] = ORDINARY_EVERYWHERE
 
 	#: A second check, run where the workspace is known — or ``None`` where the kind is the
 	#: whole rule.
@@ -229,6 +266,9 @@ COLOUR = Setting(
 	default=None,
 	summary="The colour this project's work is marked with, inherited by anything under it.",
 	read_by="src/subroutine/views.py",
+	# Setting the workspace's colour decides what every project under it shows unless it says
+	# otherwise, which is administration rather than running one project — see the field.
+	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
 )
 
 
@@ -296,6 +336,9 @@ HIDDEN_STATUSES = Setting(
 	default=(),
 	summary="Statuses this project does not offer when somebody sets one.",
 	read_by="src/subroutine/views.py",
+	# The workspace's list is what every project inherits, so hiding a status here narrows what
+	# is offered to everybody — the same argument as the colour's, and the same answer.
+	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
 	verify=_these_statuses_exist,
 )
 
@@ -329,6 +372,74 @@ def offered (scope: str) -> dict[str, Setting]:
 	"""Return the settings that may be set at one scope."""
 
 	return {key: found for key, found in SETTINGS.items() if scope in found.scopes}
+
+
+def permission_for (setting: Setting, *, scope: str) -> str:
+	"""Return the verb that gates writing this setting at this scope.
+
+	What the setting declares for that scope, or the scope's ordinary write verb where it
+	declares nothing. **One function, because the answer is asked in two places** — the check
+	that enforces it and the guard that proves the check runs — and two copies of one rule
+	agreeing while they agree is this codebase's signature defect.
+	"""
+
+	ordinary = ORDINARY.get(scope)
+
+	if ordinary is None:
+		raise ValueError(
+			f"No ordinary write verb is declared for the {scope!r} scope. "
+			f"`settings.ORDINARY` names one for each of: {', '.join(SCOPES)}."
+		)
+
+	return setting.permission.get(scope, ordinary)
+
+
+def authorized (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	given: typing.Iterable[str],
+	*,
+	scope: str,
+	workspace_id: uuid.UUID,
+	project: subroutine.db.models.project.Project | None = None,
+) -> None:
+	"""Refuse a settings write whose keys need a verb this actor does not hold — `#2120`.
+
+	**Over the keys the caller *sent*, never the merged map.** A request that mentions only the
+	colour must not be gated on what some setting stored last month would have needed — that
+	would make an entity's history decide what a write costs, and it is the difference between a
+	rule about settings and a rule about routes.
+
+	**Before the values are read**, so somebody who may not write a setting is told that, rather
+	than told their colour is misspelled. A key nothing declares at this scope is not gated here
+	at all: :func:`validated` refuses it by name a moment later, which is the better answer to
+	give and the one that says what the scope does accept.
+
+	**Every needed verb is asked for, including one the calling route has already required.**
+	That costs a repeated role lookup on the rare request that carries settings, and it buys the
+	property that this function is the whole rule: skipping :data:`ORDINARY`'s answer here would
+	be an assumption about what each caller checks, held in the module that is not the caller.
+
+	``actor`` of ``None`` is an internal caller and skips the check, exactly as every other
+	service does — see ``domain.tasks._permitted`` for what stops that being a silent hole.
+	"""
+
+	if actor is None:
+		return
+
+	declared = offered(scope)
+
+	# Sorted, so a request needing two verbs is refused by the same one every time. An
+	# unordered set would name whichever came out of the iteration first, and a refusal that
+	# varies between runs is one nobody can write a test — or a runbook — against.
+	needed = sorted(
+		{permission_for(declared[key], scope=scope) for key in given if key in declared}
+	)
+
+	for permission in needed:
+		subroutine.domain.authorization.authorize(
+			session, actor, permission, workspace_id=workspace_id, project=project
+		)
 
 
 def _no_such_setting (key: str, scope: str) -> subroutine.errors.ValidationError:
