@@ -2877,6 +2877,11 @@ export function App () {
 						later=${later}
 						deferred=${deferred} paused=${paused} gone=${gone} theirs=${theirs}
 						onAdd=${mayWrite ? add : null} busy=${busy} workspace=${workspace} adding=${adding}
+						${/* **The list the fallback chooses from** — `SR#1544`. The note under
+						     the box names where a write lands, and that is news only where
+						     `available[0]` was a choice between several rather than the only
+						     workspace this reader has. */ null}
+						workspaces=${me ? me.workspaces : null}
 						onGo=${narrow}
 						${/* **What the address already said** (`#957` §4, `#1215`). The merged
 						     agenda at `/` names no place, so its rows carry their whole address;

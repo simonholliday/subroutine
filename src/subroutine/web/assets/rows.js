@@ -436,6 +436,15 @@ export function Agenda ({
 		Defaulted to nowhere so that a caller predating the scope renders what it always did.
 	*/
 	place = { workspace: null, project: null },
+	/*
+		**The same list `chosenWorkspace` falls back through** — `SR#1544`. It decides whether
+		naming the workspace under the add box is news; see `placeIsNews` below for the rule.
+
+		**Null means nobody said**, and then the note draws what it always drew. A caller
+		predating this prop must not silently lose the honesty `#652` built — a write landing
+		somewhere the page never named is the defect that box exists to answer.
+	*/
+	workspaces = null,
 }) {
 	/*
 		What is due, in the order a day is read — `#652`, and `/` is where a browser opens.
@@ -542,9 +551,26 @@ export function Agenda ({
 		page spanning several: the switcher is right above it and says which. Named rather than
 		implied, so nobody has to guess where it went.
 	*/
+
+	/*
+		**And it names it only when there was another answer** — `SR#1544`, §12.2a's rule that a
+		line saying the same thing on every page says nothing.
+
+		The note exists because `chosenWorkspace` falls back to `available[0]` when the address
+		names none, so a reader is told which of several a write landed in. With one workspace
+		there is no *several*: every fresh `init` read "Adds to projects.", naming the only
+		workspace there is. That is what this same rule already forbids one surface along — the
+		listing says nothing for exactly this reason — and what `ranksAreNews` applies to the
+		rank column a few lines below.
+
+		**Keyed on whether the answer is ambiguous, not on which view is drawn**, which is the
+		whole of what was left of `SR#1544` once `#652` had shipped the naming half.
+	*/
+	const placeIsNews = workspace && (workspaces === null || workspaces.length > 1);
+
 	const box = onAdd && html`
 		<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}}
-			note=${workspace ? `Adds to ${workspace}.` : null} />
+			note=${placeIsNews ? `Adds to ${workspace}.` : null} />
 	`;
 
 	/*

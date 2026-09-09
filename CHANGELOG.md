@@ -46,6 +46,17 @@ upgrade involves.
 
 ### Fixed
 
+- **The add box on the agenda no longer names the only workspace you have.**
+
+  The line under it says where what you type will land — *"Adds to projects."* — because the
+  agenda spans workspaces and the one it writes to is chosen for you when the address names
+  none. On an installation with a single workspace there is nothing to choose between, so the
+  line named the only answer there was, on the first screen of every fresh install.
+
+  It is drawn now when there is more than one workspace to land in, and not otherwise. Nothing
+  moved: the box is still there, and where several workspaces are in play it still says which
+  one it writes to.
+
 - **A workspace description set while creating the workspace was never checked.**
 
   `POST /v1/workspaces` accepted one, then wrote it to the row after the fact — so a

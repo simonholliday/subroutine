@@ -10118,6 +10118,45 @@ def test_the_agenda_can_add_something_and_says_where_it_lands (tmp_path: pathlib
 	assert "Adds to" not in listing
 
 
+def test_the_agenda_says_where_it_lands_only_where_that_is_news (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1544`: keyed on whether the answer is ambiguous, not on which view is drawn.
+
+	The note exists because ``chosenWorkspace`` falls back to ``available[0]`` when the address
+	names none — so it tells a reader which of several a write landed in. With one workspace
+	there is no *several*, and every fresh ``init`` read *"Adds to projects."*, naming the only
+	workspace there is. That is §12.2a's column that says the same thing on every row, which
+	this same guard's docstring already forbids one surface along.
+
+	**What this does not prove, for the same reason the test above says so: that `App` passes
+	`workspaces`.** The wire between `App` and `Agenda` is invisible to this harness (`SR#640`),
+	so deleting that prop at the call site leaves these green — and the prop defaults to *nobody
+	said*, which draws the note. That default is deliberate: forgetting it costs a redundant
+	line on a single-workspace install, where the opposite default would cost the honesty
+	`#652` built on every multi-workspace one.
+	"""
+
+	sample = SAMPLES["Agenda"]
+
+	alone = _rendered(
+		tmp_path, {"Agenda": {**sample, "workspaces": [{"slug": "projects"}]}}
+	)["Agenda"]
+	several = _rendered(
+		tmp_path,
+		{"Agenda": {**sample, "workspaces": [{"slug": "projects"}, {"slug": "personal"}]}},
+	)["Agenda"]
+
+	assert "Adds to" not in alone, (
+		"a single-workspace install is told where a write lands when there is nowhere else"
+	)
+	assert "Adds to projects." in several
+
+	# The box itself is not what is conditional — only the sentence under it. Taking capture off
+	# the page a reader lands on is what `SR#1544` declined as option 2.
+	assert "<form><div><input><button>Add" in alone
+
+
 def test_a_day_with_nothing_in_it_can_still_be_added_to (tmp_path: pathlib.Path) -> None:
 	"""The empty state is the one most likely to be somebody's first sight of the product."""
 
