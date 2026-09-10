@@ -68,7 +68,7 @@ export const TYPE_ICONS = {
 	bug: "bug",
 	feature: "sparkle",
 	chore: "broom",
-	question: "flask",
+	question: "question",
 	event: "calendar-dots",
 	note: "note",
 	spec: "file-text",
@@ -97,7 +97,7 @@ export const TYPE_ICONS = {
 export const CATEGORY_ICONS = {
 	work: "check-square",
 	defect: "bug",
-	question: "flask",
+	question: "question",
 	/* The picture of the type that represents it, which is this map's own rule: a workspace
 	   that adds `holiday` under `occasion` through `#1129` gets what `event` carries, and reads
 	   as *this is something that happens, and I do not know more*. */
@@ -331,7 +331,8 @@ export function marks (
 		disagreement between two surfaces.
 
 		**No glyph, unlike `Blocked` and `Blocker`.** Nothing vendored says *a question parked
-		for a person* — `flask` is taken, as the picture of the `question` type category — and
+		for a person* — `question` is taken, as the picture of the `question` type and its
+		category — and
 		`#102` makes a glyph reinforcement rather than information, so the word carries this on
 		its own exactly as `Deferred` does.
 	*/

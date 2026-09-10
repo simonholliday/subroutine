@@ -110,6 +110,6 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# is the one place the count lives — a second copy here rotted the day `#925` added one.
 		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
 		notice="phosphor.LICENSE",
-		digest="sha256:1960a40aa97098fc27233c54b2ca099cdf1722b1657a510c4ce8b11cdc03c4c7",
+		digest="sha256:35fd13e71409815f667c800b229531e79b1521a90ac372b6a8863acc78cbfbb3",
 	),
 )

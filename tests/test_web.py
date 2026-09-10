@@ -14062,7 +14062,7 @@ TODAYS_GLYPHS = {
 	"bug": "bug",
 	"feature": "sparkle",
 	"chore": "broom",
-	"question": "flask",
+	"question": "question",
 	"note": "note",
 	"spec": "file-text",
 	"design": "compass-tool",
