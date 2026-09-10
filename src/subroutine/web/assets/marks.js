@@ -275,7 +275,7 @@ export function marks (
 
 	if (!hideType && item.type && !item.type_is_default) {
 		found.push({
-			text: item.type,
+			text: item.type_label || item.type,
 			family: "identity",
 			/* **Key, then category, then unknown** — decision `#1133`'s chain, `#1134`'s
 			   column. The first step keeps today's eleven glyphs exactly as they were; the

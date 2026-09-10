@@ -289,6 +289,12 @@ DERIVED: dict[str, str] = {
 		"in that state at once, which is the whole point of it being a vocabulary."
 	),
 	"type_category": "The fixed category of the type (`#1133`); the same rule one vocabulary along, and what a client draws by when it does not know the key.",
+	"type_label": (
+		"The workspace's own word for this item's type (`SR#2392`), and `status_label`'s "
+		"counterpart one vocabulary along. Settable on the *type* rather than on the item, so "
+		"renaming one moves it for every item of that type at once — which is what makes it a "
+		"vocabulary. `#826` is the route that will accept it."
+	),
 	"status_id": "The id of the status named by `status`.",
 	"status_is_default": (
 		"Whether `status` is the one items start in — a property of the workspace's "

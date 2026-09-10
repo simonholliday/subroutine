@@ -6401,6 +6401,13 @@ NOT_SHOWN_TO_AN_AGENT: dict[str, str] = {
 		"a value the endpoint refuses. Sharing the *question* is what keeps the two surfaces "
 		"honest; sharing the rendering would be the fault."
 	),
+	"type_label": (
+		"The workspace's own word for the type, and `status_label`'s entry above applies "
+		"unchanged one vocabulary along (`SR#2392`). An agent gets `type`, the key, in the "
+		"same place — which is what it must send back to `subroutine_add` or a `type:` term, "
+		"where *Specification* would be refused and `spec` accepted. Sharing the question and "
+		"not the rendering is what keeps the two surfaces honest."
+	),
 	"timezone": (
 		"Used to render an instant in the zone that stored it, which is a courtesy to a "
 		"person reading a day name. This surface sends ISO instants and lets the model do "

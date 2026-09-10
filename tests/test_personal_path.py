@@ -1936,7 +1936,7 @@ def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	assert "story" not in run("show", "2").output, (
 		"the workspace's own default type was announced on every item that has it"
 	)
-	assert "task" in run("show", "1").output, (
+	assert "Task" in run("show", "1").output, (
 		"a type somebody would now have had to choose was not reported"
 	)
 
@@ -2067,7 +2067,7 @@ def test_a_priority_can_be_changed_from_the_cli (
 	shown = run("show", "1").output
 
 	assert "Fix the tokeniser" in shown
-	assert "bug" in shown
+	assert "Bug" in shown
 	assert "2h" in shown
 
 
@@ -3140,8 +3140,8 @@ def test_a_mixed_list_says_what_kind_each_thing_is (
 
 	listed = run("ls").output
 
-	assert "bug" in listed
-	assert "task" in listed, "once the column is there, every row is labelled"
+	assert "Bug" in listed
+	assert "Task" in listed, "once the column is there, every row is labelled"
 
 	# Aligned, so the titles line up rather than stepping in and out with the type.
 	starts = [
@@ -3322,8 +3322,8 @@ def test_the_agenda_labels_kinds_by_the_same_rule (
 
 	mixed = run("agenda").output
 
-	assert "bug" in mixed
-	assert "task" in mixed
+	assert "Bug" in mixed
+	assert "Task" in mixed
 
 
 def _a_typed_task (home: pathlib.Path, *, title: str, type_key: str) -> None:
@@ -3487,8 +3487,8 @@ def test_the_list_holds_documents_as_well_as_tasks (
 	assert "How the thing works" in listed
 
 	# And the type column tells them apart, which is what makes one list readable.
-	assert "note" in listed
-	assert "task" in listed
+	assert "Note" in listed
+	assert "Task" in listed
 
 
 def test_ls_is_the_same_command_under_a_shorter_name (
@@ -5233,7 +5233,7 @@ def test_a_document_can_be_written_from_the_cli (
 
 	assert "Why we dropped the queue" in shown
 	assert "Because." in shown
-	assert "decision" in shown
+	assert "Decision" in shown
 
 
 def test_a_document_body_can_be_piped_in (
@@ -6761,7 +6761,7 @@ def test_a_type_can_be_given_when_an_item_is_captured (
 	run("init")
 	run("add", "Dates render as if this year", "--type", "bug")
 
-	assert "bug" in run("show", "1").output
+	assert "Bug" in run("show", "1").output
 
 	# The capture line is untouched by this — the type is not a word in the title.
 	assert "Dates render as if this year" in run("list").output

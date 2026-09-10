@@ -306,7 +306,7 @@ export function Detail ({
 						   is the word `subroutine://conventions` groups by. */
 						return html`
 							<li key=${binds.document.ref}>
-								<span class="label">${binds.document.type}</span>${" "}
+								<span class="label">${binds.document.type_label || binds.document.type}</span>${" "}
 								${to
 									? html`<a href=${to} onClick=${follow}>
 										#${binds.document.ref} ${binds.document.title}</a>`

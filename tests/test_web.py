@@ -13932,6 +13932,47 @@ def test_reduced_motion_has_motion_to_reduce () -> None:
 		)
 
 
+def test_a_chip_shows_the_workspaces_own_word_for_the_type (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2392`. The key is what a filter sends back; the label is what a person reads.
+
+	**The two are the same word only by luck.** Most seeded keys pass for a name once
+	capitalised, and `spec` and `dead_end` are the two that do not — a listing drew `spec`
+	where this workspace's own word is *Specification*, which is exactly the defect `SR#1717`
+	fixed for statuses and nobody had looked for one vocabulary along.
+
+	**Both directions, because the fallback is load-bearing.** An instance a release behind
+	sends no label at all, and the key is what this always drew — so an absent label must not
+	blank the chip, which is the way a defaulted field usually fails.
+
+	**What this covers is the `Stamp`, and `marks`' own type chip is covered by nothing** —
+	measured rather than assumed, by mutating the chip and watching this pass. Both `Row` and
+	`Detail` pass ``hideType`` because they draw a stamp instead, so that chip renders only for
+	a *link end* on the item page, which no sample here reaches. Three call sites were changed
+	and one of them is unexercised; saying so is worth more than an assertion that would have
+	looked like cover.
+	"""
+
+	spec = {
+		"ref": 9, "kind": "document", "title": "The upgrade process", "type": "spec",
+		"status_is_default": True,
+	}
+
+	named = _rendered(
+		tmp_path,
+		{"Row": dict(SAMPLES["Row"], item=dict(spec, type_label="Specification"))},
+	)["Row"]
+
+	# An instance that predates the field sends nothing, and pydantic defaults it to "".
+	older = _rendered(tmp_path, {"Row": dict(SAMPLES["Row"], item=spec)})["Row"]
+
+	assert "Specification" in named
+	assert "spec" in older, (
+		"an absent label must fall back to the key rather than drawing an empty chip"
+	)
+
+
 def test_a_type_this_client_has_never_seen_still_gets_a_chip (tmp_path: pathlib.Path) -> None:
 	"""**`#764`, and `#906` says to build this half first because it is the untested one.**
 

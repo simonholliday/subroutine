@@ -184,6 +184,12 @@ class LinkEnd(pydantic.BaseModel):
 	#: scanning a blocker list is asking.
 	type: str = ""
 
+	#: The workspace's own word for it, which is what a person is shown — `SR#2392`. Carried
+	#: here for the reason every field on this model is: a link line renders through the same
+	#: function as a row, and a row that says *Specification* beside a link line saying `spec`
+	#: is the disagreement this model exists to prevent.
+	type_label: str = ""
+
 	#: What kind of thing that type is, for a client that does not recognise the key (`#1134`).
 	#: Here for the reason every field on this model is: ``marks`` reads it, and a link line
 	#: renders through the same function as a row.
@@ -771,6 +777,14 @@ class Task(pydantic.BaseModel):
 	#: the key stays beside it.
 	status_label: str = ""
 	type: str
+
+	#: The workspace's own word for that type, which is what a person is shown — `SR#2392`.
+	#: ``type`` stays the key because **an agent reads keys and sends them back**, and the two
+	#: are the same word only by luck: most seeded keys pass for a name once capitalised, and
+	#: ``spec`` and ``dead_end`` are the two that do not — a listing rendered `spec` where this
+	#: workspace's word is *Specification*. ``status_label``'s counterpart, one vocabulary
+	#: along, and it arrived later for no better reason than that nobody had looked.
+	type_label: str = ""
 
 	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
 	#: `#1133`, and ``status_category``'s counterpart one vocabulary along. A workspace may call
@@ -1480,7 +1494,7 @@ class Governing(pydantic.BaseModel):
 
 		return (
 			subroutine.domain.refs.format_ref(self.document.ref),
-			self.document.type or "",
+			self.document.type_label or self.document.type or "",
 			subroutine.domain.text.truncated(self.document.title),
 		)
 
@@ -2449,6 +2463,14 @@ class Document(pydantic.BaseModel):
 	status_label: str = ""
 	type: str
 
+	#: The workspace's own word for that type, which is what a person is shown — `SR#2392`.
+	#: ``type`` stays the key because **an agent reads keys and sends them back**, and the two
+	#: are the same word only by luck: most seeded keys pass for a name once capitalised, and
+	#: ``spec`` and ``dead_end`` are the two that do not — a listing rendered `spec` where this
+	#: workspace's word is *Specification*. ``status_label``'s counterpart, one vocabulary
+	#: along, and it arrived later for no better reason than that nobody had looked.
+	type_label: str = ""
+
 	#: The fixed set a client may branch on when it does not recognise ``type`` — decision
 	#: `#1133`, and ``status_category``'s counterpart one vocabulary along. A workspace may call
 	#: a type anything; this says whether the thing is work, a defect, a question, a decision, a
@@ -2527,7 +2549,7 @@ class Document(pydantic.BaseModel):
 		return (
 			subroutine.domain.refs.format_ref(self.ref),
 			f"[{self.status}]",
-			self.type,
+			self.type_label or self.type,
 			subroutine.domain.text.truncated(self.title),
 		)
 
@@ -2940,7 +2962,10 @@ class Vocabulary:
 			session,
 			subroutine.db.models.vocabulary.ItemType,
 			type_ids,
-			("key", "category", "is_default"),
+			# **``label`` for the same reason as a status's** (`SR#2392`): one more column on a
+			# query that already runs, rather than a per-row lookup for a string that is the
+			# same on most rows of a page.
+			("key", "category", "is_default", "label"),
 		)
 		self.projects = _by_id(
 			session, subroutine.db.models.project.Project, project_ids, ("key",)
@@ -3332,6 +3357,7 @@ def task (
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
+		type_label=str(vocabulary.types.get(row.type_id, {}).get("label", "")),
 		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
 		type_is_default=bool(vocabulary.types.get(row.type_id, {}).get("is_default", False)),
 		type_id=row.type_id,
@@ -3475,6 +3501,7 @@ def document (
 		status_is_default=bool(status.get("is_default", False)),
 		status_id=row.status_id,
 		type=str(vocabulary.types.get(row.type_id, {}).get("key", "")),
+		type_label=str(vocabulary.types.get(row.type_id, {}).get("label", "")),
 		type_category=str(vocabulary.types.get(row.type_id, {}).get("category", "")),
 		type_is_default=bool(vocabulary.types.get(row.type_id, {}).get("is_default", False)),
 		type_id=row.type_id,

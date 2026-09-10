@@ -22,6 +22,16 @@ upgrade involves.
 
 ### Added
 
+- **An item's type is shown in your workspace's own words.**
+
+  A listing drew the raw key — `spec` where the word is *Specification*, `dead_end` where it is
+  *Dead end*. Every surface shows the label now and falls back to the key when there is not one,
+  which is the same thing statuses have done since `status_label` shipped.
+
+  The API carries it as `type_label` on tasks and documents, beside `type`. **`type` is still
+  the key** — it is what a filter takes and what an agent sends back — so nothing you have
+  written against the API changes.
+
 - **Read one account, and ask who answers to somebody.**
 
   Two questions that previously meant fetching the whole directory and picking through it

@@ -146,7 +146,7 @@ export function Stamp ({ item, where = "" }) {
 				*/ null}
 				<span class="stamp-type">
 					<${Icon} name=${type} />
-					<span class="stamp-kind">${item.type}</span>
+					<span class="stamp-kind">${item.type_label || item.type}</span>
 				</span>
 			`}
 		</span>

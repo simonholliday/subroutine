@@ -1005,7 +1005,7 @@ class Columns:
 			# contrast against, so the question becomes whether the type is the workspace's
 			# default — which the view reports, unlike a project's.
 			kind=_column(
-				(item.type for _name, item in rows),
+				(item.type_label or item.type for _name, item in rows),
 				alone_is_news=any(not item.type_is_default for _name, item in rows),
 			),
 			state=_column(_state_cell(item) for _name, item in rows),
@@ -10772,7 +10772,7 @@ def _item_line (
 	line.append(f"  {shown:>{max(columns.address, 3)}}  ", style=POSITION)
 
 	if columns.kind:
-		line.append(f"{item.type:<{columns.kind}}  ", style=DETAIL)
+		line.append(f"{item.type_label or item.type:<{columns.kind}}  ", style=DETAIL)
 
 	# **First after the address, because it answers a different question from the rest.** The
 	# other cells describe what an item *is*; this one says you are in the middle of it, which
@@ -11630,7 +11630,9 @@ def _render_item (
 				f"  {subroutine.domain.refs.format_ref(binds.document.ref):>6}  ",
 				style=POSITION,
 			)
-			row.append(f"{binds.document.type or '':<9}  ", style=DETAIL)
+			row.append(
+				f"{binds.document.type_label or binds.document.type or '':<9}  ", style=DETAIL
+			)
 			row.append(binds.document.title)
 			console.print(row)
 
@@ -11871,7 +11873,7 @@ def _facts (located: Located) -> list[str]:
 	# default*. Noise rather than loss, which is the right way round to degrade: the alternative
 	# default hides a `bug` label, and `whoami` already reports the mismatch.
 	if not item.type_is_default:
-		facts.append(item.type)
+		facts.append(item.type_label or item.type)
 
 	# **A status somebody chose, and silence about the one everything starts in** (`#168`,
 	# Simon 2026-08-01). This printed nothing at all, so `update 5 --status blocked` answered

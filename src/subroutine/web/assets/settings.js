@@ -210,6 +210,12 @@ export const TASK_FIELDS = [
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
 	   clicking*. Both kinds carry one, so both lists ask. */
 	"type",
+	/* **The workspace's own word for that type** — `SR#2392`. `type` is the key a filter
+	   sends back; this is what a person reads, and the two are the same word only by luck:
+	   `spec` is *Specification* here and `dead_end` is *Dead end*. `status_label` above is
+	   the same pair one vocabulary along. Asked for by both lists, because both kinds carry a
+	   type. */
+	"type_label",
 	/* **What to draw when the key above is one this client has never seen** (`#1134`, decision
 	   `#1133`). Not rendered as a word — `marks` prints the type itself — but the glyph falls
 	   through it, so a workspace that invents a type gets a picture that means something rather
@@ -286,6 +292,12 @@ export const DOCUMENT_FIELDS = [
 	   Simon's fifth requirement is that *a bug and a document are distinguishable without
 	   clicking*. Both kinds carry one, so both lists ask. */
 	"type",
+	/* **The workspace's own word for that type** — `SR#2392`. `type` is the key a filter
+	   sends back; this is what a person reads, and the two are the same word only by luck:
+	   `spec` is *Specification* here and `dead_end` is *Dead end*. `status_label` above is
+	   the same pair one vocabulary along. Asked for by both lists, because both kinds carry a
+	   type. */
+	"type_label",
 	/* **What to draw when the key above is one this client has never seen** (`#1134`, decision
 	   `#1133`). Not rendered as a word — `marks` prints the type itself — but the glyph falls
 	   through it, so a workspace that invents a type gets a picture that means something rather
