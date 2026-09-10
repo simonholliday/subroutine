@@ -878,7 +878,7 @@ _CONDITION_ONLY: dict[str, Property] = {
 		),
 	),
 	# **The two keys a workspace curates, `#1829`.** Both were flat parameters and nothing
-	# else, so `status.in=open,in_progress` and `type.in=bug,spike` — the questions a planner
+	# else, so `status.in=open,in_progress` and `type.in=bug,question` — the questions a planner
 	# actually asks — had no spelling at all, while `?status=open` had one that could name only
 	# a single value.
 	#
@@ -912,7 +912,7 @@ _CONDITION_ONLY: dict[str, Property] = {
 		column=subroutine.db.models.work.Task.type_id,
 		kind=REFERENCE,
 		group=FROM_THE_VOCABULARY,
-		because="a type key sorts alphabetically, which puts `bug` above `spike` and means "
+		because="a type key sorts alphabetically, which puts `bug` above `question` and means "
 		"nothing. Nothing has asked to order by it.",
 	),
 	# **The two questions a tree is asked, settled on `#2180`** — `#1829`'s fourth and last.

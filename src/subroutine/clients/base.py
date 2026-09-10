@@ -1473,9 +1473,9 @@ class Client(typing.Protocol):
 		types mid-sentence, and neither "this is a bug" nor three paragraphs of reasoning is
 		part of the sentence.
 
-		Filing with the right type matters because the type is a promise about what the title
-		says — a bug's title states what is wrong, everything else states what will be true when
-		it is done — and until `#42` it could not be corrected later.
+		Filing with the right type matters because the type decides what mood the title is in —
+		a `bug` states a symptom, work states an instruction, a `question` asks a question — and
+		until `#42` it could not be corrected later.
 
 		**``description`` is here because the skill's argument for those titles depends on it**
 		(item ``#424``). It tells a filer to leave the motivation out of the title *"because it

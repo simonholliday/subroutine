@@ -439,27 +439,33 @@ Write it while you are filing, not afterwards. You have the most context about a
 at the moment you decide it exists, and a title alone is rarely enough for the next reader —
 who is usually you, without any of the session this came from.
 
-**The type is a promise about what the title says.** Get these two agreeing or a listing
-stops being scannable — the type is the column somebody reads to know whether a line describes
-a fault or a plan.
+**The type decides what mood the title is in.** Get these two agreeing or a listing stops
+being scannable — and a reader should be able to tell a plan from a fault from an open question
+*by the grammar alone*, without the type column and without knowing the subject. That matters
+most in a listing already filtered by type, where the column is dropped.
 
-| Type | The title says |
-| --- | --- |
-| `bug` | what is wrong — *"A date more than a year away renders as if it were this year"* |
-| `feature`, `task`, `chore` | what will be true when it is done — *"Highlight the search term where it matched"* |
-| `spike` | the question — *"Settle whether search should read comments"* |
-| `decision`, `finding`, `spec` | the conclusion — *"Blocked is tracked; waiting is a defer with a reason"* |
+| Type | The title is | Example |
+| --- | --- | --- |
+| `task`, `feature`, `chore` | an instruction | *"Highlight the search term where it matched"* |
+| `bug` | a symptom, in the present tense | *"A date more than a year away renders as if it were this year"* |
+| `question` | a question, ending in a question mark | *"Should search read comments?"* |
+| `event` | the thing that happens | *"Solar eclipse"* |
+| `decision`, `finding`, `spec` | the conclusion | *"Blocked is tracked; waiting is a defer with a reason"* |
 
-The failure to avoid is a problem statement filed as a feature: *"Nothing measures what the API
-can do and the clients cannot"* reads as a defect and claims to be a plan. Two other reasons
-beyond scannability, and the second is the one that decided it here:
+The failure to avoid is two items that read alike: *"A client reads a setting from /v1/meta"*
+and *"Every entity a client can change is proved to reach what stores it"* are grammatically
+identical, and only one of them is a complaint. Telling them apart means judging which state is
+desirable, which is exactly the knowledge the type column exists to spare a reader.
 
-- Your motivation is not lost by an outcome-shaped title, because it belongs in the
-  description — which is one field away and is where somebody looks next.
-- **A problem-shaped title rots.** "The guide's 8 KB budget is exhausted" was true and is not;
-  the budget is 15 KB. It is on a finished item, so nobody will ever re-read it. A title
-  stating a *condition* becomes false when the condition changes, silently and permanently. A
-  title stating an *outcome* cannot.
+Two more reasons, and the second is the one that decided it:
+
+- Your motivation is not lost by a short instruction, because it belongs in the description —
+  which is one field away and is where somebody looks next.
+- **An instruction cannot rot.** "The guide's 8 KB budget is exhausted" was true and is not; the
+  budget is 15 KB, and that title is on a finished item nobody will re-read. A title stating a
+  *condition* goes false when the condition changes, silently and permanently. An instruction
+  has no truth value at all, so it can neither go false nor quietly become true and start
+  reading as a description of the world rather than of the work.
 
 If you find out later that something is not what you filed it as, say so — `type` is settable
 on both `subroutine_add` and `subroutine_update`. What something is often becomes clear only

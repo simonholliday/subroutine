@@ -25,11 +25,13 @@ import subroutine.db.migrate
 import subroutine.db.models
 import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
+import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
 import subroutine.domain.documents
 import subroutine.domain.projects
+import subroutine.domain.tasks
 
 
 @pytest.fixture
@@ -1913,6 +1915,98 @@ def test_a_link_event_written_before_the_second_subject_gains_the_far_end (
 			}
 
 		assert "subject_b_type" not in after and "subject_b_id" not in after
+
+	finally:
+		engine.dispose()
+
+
+#: The revision before `spike` became `question` — `SR#2391`.
+_BEFORE_A_SPIKE_WAS_A_QUESTION = "1f61c97bf2ca"
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_renaming_the_spike_type_moves_no_task (migrated_url: str) -> None:
+	"""`SR#2391` run with rows in the table, which is the only way it does anything.
+
+	**The property worth holding is that nothing about a task changes.** The rename is done in
+	place — the `item_type` row keeps its id — so `task.type_id` still points at the same row
+	before and after, no item is rewritten, no event is emitted and no version moves. The
+	alternative shape, adding a `question` row and repointing every task onto it, would have
+	touched 97 rows on the instance this was written for to reach the same end state.
+
+	Driven in **both** directions, because the downgrade is a real one here rather than the
+	usual refusal: nothing is dropped, so going back is a rename and not a loss.
+
+	`#1689`'s rule in this file's own words: *a migration that touches a referenced table needs
+	a test that puts rows in first*. This one is nothing but rows.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+	model = subroutine.db.models.vocabulary.ItemType
+
+	def _named (session: sqlalchemy.orm.Session, workspace_id: uuid.UUID) -> tuple[str, str]:
+		"""Return the key and label of the type in the `question` category."""
+
+		found = session.execute(
+			sqlalchemy.select(model.key, model.label).where(
+				model.workspace_id == workspace_id,
+				model.entity_type == "task",
+				model.category == "question",
+			)
+		).one()
+
+		return (found.key, found.label)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			workspace = subroutine.db.models.identity.Workspace(slug="w", title="W")
+
+			session.add(workspace)
+			subroutine.db.seed.seed_workspace(session, workspace)
+			session.flush()
+
+			project = subroutine.domain.projects.create(
+				session, workspace_id=workspace.id, key="p", title="P"
+			)
+			asked = subroutine.domain.tasks.create(
+				session, project=project, title="Should this be measured first?", type_key="question"
+			)
+
+			workspace_id, task_id, type_id = workspace.id, asked.id, asked.type_id
+
+			assert _named(session, workspace_id) == ("question", "Question"), (
+				"a freshly seeded workspace gets the new word"
+			)
+
+			session.commit()
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_A_SPIKE_WAS_A_QUESTION)
+
+		with sqlalchemy.orm.Session(engine) as session:
+			assert _named(session, workspace_id) == ("spike", "Spike")
+
+			# **The same row, so the task never moved.** This is the whole reason the rename is
+			# done in place rather than by adding a row and repointing every item at it.
+			held = session.execute(
+				sqlalchemy.select(subroutine.db.models.work.Task.type_id).where(
+					subroutine.db.models.work.Task.id == task_id
+				)
+			).scalar_one()
+
+			assert held == type_id
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		with sqlalchemy.orm.Session(engine) as session:
+			assert _named(session, workspace_id) == ("question", "Question")
+
+			held = session.execute(
+				sqlalchemy.select(subroutine.db.models.work.Task.type_id).where(
+					subroutine.db.models.work.Task.id == task_id
+				)
+			).scalar_one()
+
+			assert held == type_id, "the upgrade moved a task that had not moved on the way down"
 
 	finally:
 		engine.dispose()

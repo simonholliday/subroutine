@@ -68,7 +68,7 @@ export const TYPE_ICONS = {
 	bug: "bug",
 	feature: "sparkle",
 	chore: "broom",
-	spike: "flask",
+	question: "flask",
 	event: "calendar-dots",
 	note: "note",
 	spec: "file-text",

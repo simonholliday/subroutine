@@ -92,7 +92,7 @@ def test_a_fresh_workspace_gets_a_complete_vocabulary (session: sqlalchemy.orm.S
 			)
 		)
 	}
-	assert type_keys == {"task", "bug", "feature", "chore", "spike", "event"}
+	assert type_keys == {"task", "bug", "feature", "chore", "question", "event"}
 
 	task_keys = {status.key for status in _statuses(session, workspace.id, "task")}
 	assert task_keys == {

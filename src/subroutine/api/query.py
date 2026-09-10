@@ -216,8 +216,8 @@ def _accepted (request: starlette.requests.Request) -> frozenset[str] | None:
 def refuse_repeated (request: starlette.requests.Request) -> None:
 	"""Refuse a query parameter given more than once, where the route declares one value.
 
-	**Measured 2026-08-28 on the served instance** (`#1484`): `?type=bug&type=spike` answers
-	`200` with spikes and `?status=open&status=done` answers `200` with finished work. The
+	**Measured 2026-08-28 on the served instance** (`#1484`): `?type=bug&type=question` answers
+	`200` with questions and `?status=open&status=done` answers `200` with finished work. The
 	caller asked two questions and was answered one, with nothing saying which — the shape
 	`#1468` has already been fixed once on the other half of a listing, and the shape this
 	module's own docstring is about: *a plausible, complete, wrong answer*.

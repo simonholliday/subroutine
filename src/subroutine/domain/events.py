@@ -144,8 +144,8 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
 		{
 			"title",
 			"description",
-			# **The type is a promise about what the title says** — a `bug` retyped as a
-			# `spike` has had the sentence its title makes change under a reader. Absent from
+			# **The type decides what mood the title is in** — a `bug` retyped as a
+			# `question` has had the sentence its title makes change under a reader. Absent from
 			# §6.1's list, which is an omission there rather than a mistake here.
 			"type_id",
 			"status_id",

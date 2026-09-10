@@ -1366,7 +1366,12 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: in a noun the tool already carries. So the raise is 24 rather than 56, and one rule is
 #: single-sourced that was not. Reading for fat found a duplication rather than a saving, which
 #: is the same pattern `SR#1697` records one raise above.
-TOOL_BYTE_CEILING = 14_545
+#: **Six bytes for a word, and nothing was bought** — `SR#2391`. `spike` became `question`, and
+#: the type list appears in two tool descriptions, so three characters times two is the whole of
+#: this raise. It is the honest entry in this record: not an addition that earned its place, but
+#: a rename whose point was that `spike` told a reader outside agile nothing, paid for in the
+#: unit this ceiling is denominated in.
+TOOL_BYTE_CEILING = 14_551
 
 
 def test_the_whole_tool_surface_stays_small (

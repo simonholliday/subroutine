@@ -221,7 +221,7 @@ ITEM_TYPES = (
 	ItemTypeSeed("task", "bug", "Bug", "defect"),
 	ItemTypeSeed("task", "feature", "Feature", "work"),
 	ItemTypeSeed("task", "chore", "Chore", "work"),
-	ItemTypeSeed("task", "spike", "Spike", "question"),
+	ItemTypeSeed("task", "question", "Question", "question"),
 	ItemTypeSeed("document", "note", "Note", "record", is_default=True),
 	ItemTypeSeed("document", "spec", "Specification", "reference"),
 	ItemTypeSeed("document", "design", "Design", "reference"),

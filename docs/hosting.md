@@ -437,7 +437,7 @@ before starting the service, as the account the service runs as:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db current
-  Schema is at 1f61c97bf2ca.
+  Schema is at c3a7f21b9d40.
 ```
 
 A database with no schema in it says so **and names which database it looked at**, which is the
@@ -683,7 +683,7 @@ $ curl -s localhost:8471/healthz
   {"status":"ok","api_version":"1.0"}
 
 $ curl -s localhost:8471/readyz
-  {"status":"ready","api_version":"1.0","schema_revision":"1f61c97bf2ca"}
+  {"status":"ready","api_version":"1.0","schema_revision":"c3a7f21b9d40"}
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database, that the database
@@ -1727,7 +1727,7 @@ answers, and when a backup was last taken.
   signing key   set
   cors_origins  empty, so only this instance's own pages may call it
   rate_limit    on, because this instance is published
-  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as morpheus (person)
+  local         0.8.8.dev74+gec0b98131, schema c3a7f21b9d40, as morpheus (person)
   backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.
@@ -1838,13 +1838,13 @@ copy where it landed, migrate, then read the schema back rather than assuming.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.7.1 expects schema 1f61c97bf2ca.
+  Subroutine 0.7.1 expects schema c3a7f21b9d40.
   The database is at f159c8635e54.
   About to upgrade the database of the default instance, at postgresql+psycopg:///subroutine.
   Backed up to /srv/backups/subroutine/subroutine-default-20260816T221325Z-f159c8635e54.dump (63,584 bytes).
   The newest 3 of these are kept, and older ones go.
   Your routine backups are untouched by that; only an upgrade's own copies count.
-  Upgraded from f159c8635e54 to 1f61c97bf2ca.
+  Upgraded from f159c8635e54 to c3a7f21b9d40.
 ```
 
 It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
@@ -1856,8 +1856,8 @@ also the cheapest way to ask the question:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.7.1 expects schema 1f61c97bf2ca.
-  The database is at 1f61c97bf2ca.
+  Subroutine 0.7.1 expects schema c3a7f21b9d40.
+  The database is at c3a7f21b9d40.
   Nothing to do.
 ```
 
@@ -1889,7 +1889,7 @@ deciding the remedy:
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine agenda
   Nothing could be read.
-  Local: This database is at schema 233f898a2bee, and this build expects 1f61c97bf2ca.
+  Local: This database is at schema 233f898a2bee, and this build expects c3a7f21b9d40.
     Run 'subroutine db upgrade' — it backs up first, then migrates.
 ```
 
@@ -1930,7 +1930,7 @@ The version is what answers:
 ```console
 $ /opt/subroutine/bin/subroutine --version
   subroutine 0.8.2.dev14+g80e1a4a06
-  schema 1f61c97bf2ca
+  schema c3a7f21b9d40
 ```
 
 The part after `+g` is the commit. If it has not moved, neither has the software, whatever the
@@ -1962,10 +1962,10 @@ variables as everything else here**, for the same reason:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db current
-  Schema is at 4f177421eb91; newest is 1f61c97bf2ca.
+  Schema is at 4f177421eb91; newest is c3a7f21b9d40.
 ```
 
-When the two match it says so in one line — `Schema is at 1f61c97bf2ca.` — and there is nothing
+When the two match it says so in one line — `Schema is at c3a7f21b9d40.` — and there is nothing
 to do.
 
 **Run bare, it answers about your own account's database** and the answer looks just like the one
@@ -1989,8 +1989,8 @@ substitute.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine db upgrade
-  Subroutine 0.8.2.dev14+g80e1a4a06 expects schema 1f61c97bf2ca.
-  The database is at 1f61c97bf2ca.
+  Subroutine 0.8.2.dev14+g80e1a4a06 expects schema c3a7f21b9d40.
+  The database is at c3a7f21b9d40.
   0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it — it can compare as newer than anything published.
   Nothing to do.
 ```

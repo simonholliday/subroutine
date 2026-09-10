@@ -23,11 +23,15 @@ STATUS_CATEGORIES = TASK_STATUS_CATEGORIES + DOCUMENT_STATUS_CATEGORIES
 #: What a *type* means regardless of the label an installation gives it — decision `#1133`, and
 #: the same argument one column along: a client should be able to draw a type it has never seen.
 #:
-#: **The task side is a rule Simon already took**, on 2026-07-31, reading the backlog as a
-#: stranger would: *a `bug` title says what is wrong; a `feature`, `task` or `chore` title says
-#: what will be true when it is done; a `spike` says the question*. These are that sentence with
-#: the types collected under each clause — arrived at independently, for a different reason,
-#: which is the strongest evidence a set is right.
+#: **The task side is a rule Simon already took**, and these are that sentence with the types
+#: collected under each clause — arrived at independently, for a different reason, which is the
+#: strongest evidence a set is right.
+#:
+#: The rule is now about **mood** rather than tense (`SR#2390`, superseding the decision of
+#: 2026-07-31): a `work` title is an *instruction*, a `defect` title is a *symptom in the
+#: present tense*, and a `question` title is a *question*. Three moods, so a reader tells a plan
+#: from a fault from an open question without this column and without knowing the domain — which
+#: matters most in a listing already filtered by type, where the column is dropped.
 #:
 #: **A fourth arrived on 2026-08-25, and the rule that admitted it is the one that refused the
 #: last one.** `#1133` turned down `upkeep` — splitting `chore` out of `work` — as a category

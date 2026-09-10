@@ -839,7 +839,7 @@ def _column (
 	the item type, the priority and the estimate be shown at all: a personal to-do list is
 	ordinary undated tasks with no priorities, so it gets none of them and looks exactly as
 	it did before they existed. A mixed backlog gets all three, which is the case they were
-	asked for — with bugs, features and spikes in one list, ranked, what kind of thing
+	asked for — with bugs, features and questions in one list, ranked, what kind of thing
 	something is and how it is ranked are the first two things you want.
 
 	That is §1.4 falling out of a layout rule rather than being enforced by one: the columns
@@ -8136,9 +8136,10 @@ def register (
 
 		  subroutine add "Water the plants tomorrow" --repeat "every 3 days" --repeat-from completion
 
-		'--description' is where the reasoning goes, so the title can say what will be true
-		when the work is done rather than what is wrong today. A title stating a condition
-		becomes false when the condition changes; one stating an outcome cannot.
+		Write the title as an instruction — 'Cache the roster', not 'The roster is cached'.
+		A bug says what is wrong now instead, as the third example does, and a question ends
+		in a question mark: three moods, so a list reads at a glance. '--description' is
+		where the reasoning goes, which is what lets a title stay that short.
 
 		'--repeat-from schedule' keeps the rhythm whatever you do — rent is due on the 30th
 		whether or not last month's was paid late. '--repeat-from completion' measures from

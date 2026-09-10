@@ -409,14 +409,14 @@ def test_a_query_parameter_given_twice_is_refused_rather_than_halved (
 
 	world.call("POST", "/v1/tasks", json={"title": "One"})
 
-	refused = world.call("GET", "/v1/tasks", params=[("type", "bug"), ("type", "spike")])
+	refused = world.call("GET", "/v1/tasks", params=[("type", "bug"), ("type", "question")])
 
 	assert refused.status_code == 422, refused.text
 
 	field = refused.json()["errors"][0]
 
 	assert field["field"] == "query.type", refused.text
-	assert "bug" in field["message"] and "spike" in field["message"], (
+	assert "bug" in field["message"] and "question" in field["message"], (
 		f"a refusal about repetition has to quote what was repeated:\n{field}"
 	)
 

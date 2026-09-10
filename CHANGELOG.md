@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `c3a7f21b9d40`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
 
 - **Read one account, and ask who answers to somebody.**
@@ -106,6 +112,29 @@ upgrade involves.
   is thrown away regardless.
 
 ### Changed
+
+- **The item type `spike` is now called `question`, and a title says what kind of thing it is by its grammar.**
+
+  `spike` is agile jargon. If you have not worked on a team that used the word, it tells you
+  nothing — and the category it belongs to was already called `question`, so the plainer word
+  was sitting there unused. Your existing items move across when you upgrade; nothing you filed
+  changes except the word.
+
+  The bigger half is the writing convention. A title now says what kind of item it is by its
+  **mood**, so you can read a list without knowing the subject and without the type column —
+  which a list already filtered by type has dropped anyway:
+
+  - work — `task`, `feature`, `chore` — is an **instruction**: *"Cache the roster"*
+  - a `bug` is a **symptom**, in the present tense: *"Dates render as if this year"*
+  - a `question` **ends in a question mark**: *"Should search read comments?"*
+
+  This is closer to what most people were already writing. The program's own examples have
+  always been instructions, and so has every commit message in this repository; only the
+  written rule said otherwise. It also suits a to-do list better — nobody writes *"A dentist
+  appointment is booked"* on a list — and an instruction cannot go stale, where a sentence
+  describing a finished state quietly becomes a description of the world.
+
+  Nothing enforces it and nothing rejects a title you write another way.
 
 - **The tag listing is paged, like every other listing.**
 
