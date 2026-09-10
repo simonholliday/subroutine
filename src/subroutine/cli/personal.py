@@ -2086,7 +2086,7 @@ def _subtree (
 
 
 def _keep_the_operators_own_list (
-	world: World, before: typing.Sequence[subroutine.views.User]
+	world: World, before: subroutine.clients.base.Listing[subroutine.views.User]
 ) -> str | None:
 	"""Pin local commands to the existing account, and return who that was.
 
@@ -2111,6 +2111,13 @@ def _keep_the_operators_own_list (
 	``user create`` did one thing; the moment it also grants a role, the very next call
 	resolves an operator and finds the ambiguity this function had just written the cure for.
 	"""
+
+	# **A page that had to stop cannot answer "was there exactly one"** (`SR#2384`). This fires
+	# only where a single person exists, so a directory that does not fit in one page is one
+	# where the operator settled whose list to show long ago — which is the same reading the
+	# `len(people) != 1` below already takes of a second account.
+	if before.has_more:
+		return None
 
 	people = [account for account in before if not account.is_service_account]
 
@@ -6244,11 +6251,12 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 		username = where.client.me().user.username
 
 		if not zone and not clear:
-			account = next(
-				(one for one in where.client.users() if one.username == username), None
-			)
+			# **A lookup rather than the whole directory** (`SR#2386`). This read every account
+			# on the instance to find one — the shape that made `GET /v1/users` impossible to
+			# page without breaking its callers.
+			account = where.client.user(username=username)
 
-			if account is not None and account.timezone is not None:
+			if account.timezone is not None:
 				program.say(f"You are in {account.timezone}")
 
 				return
@@ -7535,7 +7543,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			# Read *before* creating, because the question is how many accounts there were —
 			# see `_keep_the_operators_own_list` for why that is the one that matters.
-			before = where.client.users() if where.client.connection.is_local else []
+			before = (
+				where.client.users()
+				if where.client.connection.is_local
+				else subroutine.clients.base.Listing([])
+			)
 
 			created = where.client.create_user(
 				username=username,
@@ -7595,6 +7607,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			"", "--workspace", help="Show who belongs to this workspace, and their roles."
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 	) -> None:
 		"""Show who is on this instance.
 
@@ -7615,15 +7628,20 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# is what stops the next cell rendering a day in the server's zone (`#1091`).
 			reading = world.account_zone(where.name, None)
 
+			# **Bound before the branch, because only one of the two paths is paged.** Members
+			# come back whole; the directory does not since `SR#2384`.
+			more = False
+
 			if workspace.strip():
 				members = where.client.members(workspace=workspace.strip())
 				rows = [member.columns(reading) for member in members]
 				payload = [member.model_dump(mode="json") for member in members]
 
 			else:
-				accounts = where.client.users()
+				accounts = where.client.users(limit=limit)
 				rows = [account.columns(reading) for account in accounts]
 				payload = [account.model_dump(mode="json") for account in accounts]
+				more = accounts.has_more
 
 			if json_output:
 				program.say(json.dumps(payload, indent=2))
@@ -7638,6 +7656,18 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			for line in _tabulated(rows):
 				program.say(line)
+
+			# **A listing that had to stop says so** (§12.2a), naming the flag that widens it.
+			# The directory is paged since `SR#2384`, so silence here would be a short answer
+			# that reads exactly like a complete one.
+			if more:
+				program.console.print(
+					rich.text.Text(
+						f"      …and more. 'subroutine user list --limit {limit * 2}' "
+						f"to see further.",
+						style=DETAIL,
+					)
+				)
 
 	@user_app.command("add")
 	def user_add (
@@ -7740,7 +7770,13 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		with program.opened() as world:
 			where = world.writing_to()
-			stopping = subroutine.views.answering_to(where.client.users(), username)
+			# **Asked of the server rather than derived from a page** (`SR#2387`). This walked
+			# every row the client held, which was correct while the directory came back whole
+			# and would have quietly under-reported the moment it was paged — on the one line
+			# whose entire purpose is to say what is about to stop.
+			stopping = [
+				one.username for one in where.client.users(answers_to=username)
+			]
 
 			# **Named before it happens, not counted** — `project rename`'s rule. A deactivation
 			# that silently stops a shared agent is how somebody learns to stop deactivating

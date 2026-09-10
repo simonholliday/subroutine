@@ -31,6 +31,7 @@ import subroutine.domain.bootstrap
 import subroutine.domain.users
 import subroutine.errors
 import subroutine.views
+import test_api_tasks
 
 
 def _instance (
@@ -357,3 +358,231 @@ def test_the_agenda_is_counted_from_the_zone_a_person_gave (
 	assert [one.timezone for one in spaces] == ["UTC"], (
 		"only the account moved, so the agenda followed the account"
 	)
+
+
+@pytest.fixture
+def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
+	"""An installation reachable over HTTP, sharing the test's transaction."""
+
+	return test_api_tasks._world(session)
+
+
+def _accounts (session: sqlalchemy.orm.Session, how_many: int) -> list[str]:
+	"""Add this many ordinary accounts and return their names."""
+
+	made = []
+
+	for _each in range(how_many):
+		name = f"p{uuid.uuid4().hex[:8]}"
+		subroutine.domain.users.create(session, username=name)
+		made.append(name)
+
+	session.flush()
+
+	return made
+
+
+def test_the_directory_pages_and_follows_a_cursor_to_the_end (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#2384`: the envelope has to be able to say the answer was cut short.
+
+	**Driven with a real cursor rather than by reading `has_more`.** The defect was an envelope
+	stating completeness as a constant, and a test that only read the flag would pass just as
+	happily against a second constant.
+	"""
+
+	_accounts(world.session, 4)
+
+	first = world.call(
+		"GET", "/v1/users", params={"limit": 2, "include_total": True}
+	).json()
+
+	assert len(first["items"]) == 2
+	assert first["page"]["limit"] == 2
+	assert first["page"]["has_more"] is True
+
+	# The count is of the whole directory rather than of the page, which is the half a caller
+	# cannot work out for itself.
+	everyone = first["page"]["total"]
+
+	assert everyone >= 5
+
+	seen = list(first["items"])
+	cursor = first["page"]["next_cursor"]
+
+	assert cursor is not None
+
+	# **Bounded rather than `while cursor is not None`.** A cursor accepted and then ignored
+	# hands back the same page for ever, so the unbounded form hangs on the defect worth
+	# catching — and a test that hangs reports nothing.
+	for _page in range(everyone):
+		if cursor is None:
+			break
+
+		answered = world.call("GET", "/v1/users", params={"limit": 2, "cursor": cursor}).json()
+		seen.extend(answered["items"])
+		cursor = answered["page"]["next_cursor"]
+
+	assert cursor is None, "the directory never reached its end"
+	assert len(seen) == everyone
+	assert len({one["username"] for one in seen}) == everyone, "a row was seen twice"
+
+
+def test_the_directory_does_not_count_unless_asked (world: test_api_tasks.World) -> None:
+	"""§8.4's opt-in count. The old envelope answered null and meant nothing by it."""
+
+	answered = world.call("GET", "/v1/users").json()
+
+	assert answered["items"]
+	assert answered["page"]["total"] is None
+	assert answered["page"]["limit"] is not None, (
+		"a paged listing states the page it applied — null was the unpaged shrug `#1569` named"
+	)
+
+
+def test_one_account_is_readable_without_the_whole_directory (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#2386`: the domain has always been able to do this and nothing published it."""
+
+	names = _accounts(world.session, 2)
+	answered = world.call("GET", f"/v1/users/{names[1]}")
+
+	assert answered.status_code == 200, answered.text
+
+	body = answered.json()
+
+	assert body["username"] == names[1]
+	assert "items" not in body, "one account is an account, not a collection of one"
+
+
+def test_reading_one_account_is_case_insensitive (world: test_api_tasks.World) -> None:
+	"""``by_username`` resolves through the normalised column, and this is the published half."""
+
+	name = _accounts(world.session, 1)[0]
+	answered = world.call("GET", f"/v1/users/{name.upper()}")
+
+	assert answered.status_code == 200, answered.text
+	assert answered.json()["username"] == name
+
+
+def test_reading_an_account_nobody_has_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""A refusal rather than a null, because the caller named something that does not exist."""
+
+	answered = world.call("GET", "/v1/users/nobody-by-that-name")
+
+	assert answered.status_code == 404, answered.text
+
+
+def test_the_directory_answers_which_agents_answer_to_somebody (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#2387`: the question `user deactivate` has to ask before it acts.
+
+	**It walks the chain rather than matching one column.** An agent answerable to an agent
+	answerable to a person stops when that person leaves, so a filter that found only the direct
+	ones would under-report exactly the case the confirmation exists for — and under-reporting
+	is the failure that matters here, not over-reporting.
+	"""
+
+	person = subroutine.domain.users.create(
+		world.session, username=f"boss{uuid.uuid4().hex[:8]}"
+	)
+	world.session.flush()
+
+	direct = subroutine.domain.users.create(
+		world.session,
+		username=f"agent{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	world.session.flush()
+
+	through = subroutine.domain.users.create(
+		world.session,
+		username=f"sub{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=direct.id,
+	)
+
+	# Somebody else's agent, which must not appear.
+	other = subroutine.domain.users.create(
+		world.session, username=f"other{uuid.uuid4().hex[:8]}"
+	)
+	world.session.flush()
+
+	subroutine.domain.users.create(
+		world.session,
+		username=f"theirs{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=other.id,
+	)
+	world.session.flush()
+
+	answered = world.call(
+		"GET", "/v1/users", params={"answers_to": person.username}
+	).json()
+	names = {row["username"] for row in answered["items"]}
+
+	assert names == {direct.username, through.username}
+
+
+def test_asking_who_answers_to_nobody_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""A username that names no account is a mistake, not an empty answer.
+
+	Resolved through ``by_username``, so the refusal is the one that function already writes —
+	an empty page would read as *this person has no agents*, which is a different claim.
+	"""
+
+	answered = world.call(
+		"GET", "/v1/users", params={"answers_to": "nobody-by-that-name"}
+	)
+
+	assert answered.status_code == 404, answered.text
+
+
+def test_one_account_is_reachable_through_the_client (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2386` over the transport that has to carry it — `test_reach` cannot see this.
+
+	That guard asserts a client *method of this name exists*; the whole point of this file is
+	that a method satisfying it raised before the request left the process.
+	"""
+
+	person, token = _instance(session)
+
+	with _over_http(session, token) as client:
+		answer = client.user(username=person.username)
+
+	assert isinstance(answer, subroutine.views.User)
+	assert answer.username == person.username
+
+
+def test_the_client_says_when_the_directory_was_cut_short (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2384` at the layer the CLI actually reads.
+
+	The client returned a bare list built from ``items`` and threw the envelope away, so a
+	caller had no way to tell a complete directory from a truncated one — `#1037`'s defect,
+	surviving on the one listing that was never paged.
+	"""
+
+	_person, token = _instance(session)
+	_accounts(session, 4)
+
+	with _over_http(session, token) as client:
+		short = client.users(limit=2)
+		whole = client.users(limit=100)
+
+	assert len(short) == 2
+	assert short.has_more is True
+
+	assert len(whole) >= 5
+	assert whole.has_more is False

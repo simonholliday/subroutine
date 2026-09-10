@@ -22,6 +22,7 @@ import sqlalchemy.orm
 import sqlalchemy.orm.interfaces
 
 import subroutine.db.fulltext
+import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -645,6 +646,25 @@ PROJECT_FIELDS: dict[str, Sortable] = subroutine.domain.filtering.orderable("pro
 #: listing is a *tree*. By path a child follows its parent and the shape can be printed without
 #: the caller reassembling it (§8.4), where newest-first would interleave branches.
 DEFAULT_PROJECT_ORDER = ("path",)
+
+#: What the account directory is arranged by — `SR#2384`.
+#:
+#: **Here rather than in `api/users.py`**, for `#501`'s reason: the local client sorts the
+#: directory with this same map, so the two transports cannot page it differently.
+#:
+#: **Not built from the property registry**, like :data:`TAG_FIELDS` and unlike the three
+#: above. `/v1/users` declares no filter reader, so it is outside `#1806`'s grammar; giving it
+#: one would publish a filtering vocabulary in `/v1/meta` that nothing implements.
+USER_FIELDS: dict[str, Sortable] = {
+	"created_at": subroutine.db.models.identity.User.created_at,
+	"username": subroutine.db.models.identity.User.username,
+}
+
+#: **Oldest first, and it is a decision rather than a default** — `#174`. The first account is
+#: the one ``init`` made, and somebody reading this list is usually looking for the ones that
+#: came after it. ``username`` settles a tie so the order is stable before the tiebreak is
+#: appended rather than because of it.
+DEFAULT_USER_ORDER = ("created_at", "username")
 
 #: What a tag listing is arranged by — `SR#1572`.
 #:

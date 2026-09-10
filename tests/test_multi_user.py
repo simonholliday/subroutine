@@ -733,3 +733,65 @@ def test_a_superuser_credential_is_pinned_to_nothing (
 
 	assert "sam" in listed
 	assert "in acme only" not in listed, listed
+
+
+def test_deactivating_somebody_names_the_agents_it_will_stop (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The confirmation that decided `SR#2387`, and nothing covered it until now.
+
+	``user deactivate`` says what is about to stop **before** it stops it — `project rename`'s
+	rule, and the comment beside it gives the reason: *"a deactivation that silently stops a
+	shared agent is how somebody learns to stop deactivating leavers."*
+
+	**It used to derive that list by walking every row the client held.** Paging the directory
+	(`SR#2384`) would have made it quietly under-report — the one failure worse than the
+	truncation being fixed — which is why the server answers it now. This test is here so that
+	stays true: it is the property, not the mechanism, and it survives either.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+	run("agent", "create", "deploy-bot", "--workspace", "acme")
+	run("user", "transfer", "deploy-bot", "--to", "thomas")
+
+	warned = run("user", "deactivate", "thomas", "--yes").output
+
+	assert "deploy-bot" in warned, (
+		"the agent that stops has to be named before somebody agrees to it"
+	)
+
+	# **Exactly which, not merely that one appears.** Asserting only the name passes just as
+	# happily against a list naming *every* account — which is what a dropped filter produces,
+	# and it reads as a working confirmation. `--yes` skips the question itself, but the lines
+	# below are built from the same list, so the property is the same one.
+	stopped = [line.strip() for line in warned.splitlines() if "has stopped" in line]
+
+	assert stopped == ["deploy-bot has stopped"], (
+		"only the agents answerable to the leaver stop, and they are named one by one"
+	)
+
+
+def test_the_account_list_says_when_it_stopped (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""§12.2a: a listing that had to stop says so, and names the flag that widens it.
+
+	The directory is paged since `SR#2384`, so a short answer that said nothing would read
+	exactly like a complete one.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	for each in range(3):
+		run("user", "create", f"person{each}")
+
+	short = run("user", "list", "--limit", "2").output
+
+	assert "…and more" in short
+	assert "--limit 4" in short, "the line has to name what would show more"
+
+	whole = run("user", "list", "--limit", "50").output
+
+	assert "…and more" not in whole
+	assert "person2" in whole

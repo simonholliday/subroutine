@@ -902,8 +902,31 @@ class Client(typing.Protocol):
 		"something untrue" is not a choice worth exposing; the HTTP API still carries it.
 		"""
 
-	def users (self) -> list[subroutine.views.User]:
+	def user (self, *, username: str) -> subroutine.views.User:
+		"""Read one account by name — `SR#2386`.
+
+		**A lookup rather than a listing and a filter.** Fetching the whole directory to find one
+		row is a client re-implementing something the server owns, and it is what made paging
+		:meth:`users` impossible to do on its own.
+
+		Case-insensitive, because the instance resolves it through the normalised column.
+		"""
+
+	def users (
+		self, *, limit: int | None = None, answers_to: str | None = None
+	) -> Listing[subroutine.views.User]:
 		"""List the accounts on this instance, oldest first — item ``#174``.
+
+		**Paged since `SR#2384`, where it used to hand back a bare list.** The endpoint took a
+		ceiling of two hundred and answered ``has_more: false`` regardless, and this returned
+		``items`` and threw the envelope away — so a caller could not tell a complete directory
+		from a truncated one. It is a :class:`Listing` now, like every other listing here, and
+		still a ``list``.
+
+		**``answers_to`` names a person and returns the agents answerable to them** (`SR#2387`),
+		directly or through another. It is the question ``user deactivate`` has to ask before it
+		acts, and asking the server is what lets this be paged at all: deriving it from a page
+		would under-report a destructive confirmation.
 
 		**On the protocol rather than left to the CLI's administrative half**, unlike ``db`` and
 		``token``. Those open the database directly because §12.4's recovery property needs them

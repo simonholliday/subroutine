@@ -385,13 +385,20 @@ def _refuse_deactivating_the_last_administrator (
 	)
 
 
-def listed (
+def readable (
 	session: sqlalchemy.orm.Session,
 	*,
 	actor: subroutine.domain.authentication.Principal | None = None,
-	limit: int = 200,
-) -> list[subroutine.db.models.identity.User]:
-	"""Return the live accounts on this instance, oldest first — item ``#174``.
+	answers_to: str | None = None,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.identity.User]]:
+	"""Return the statement behind the account directory, narrowed by what was asked.
+
+	**A statement rather than rows, which is what lets both transports page it identically**
+	(`SR#2384`). This was ``listed``, which took a ``limit`` of 200, applied its own ordering and
+	handed back a list — so ``GET /v1/users`` could not say how much of the answer it was
+	returning and said ``has_more: false`` regardless. ``readable_projects`` is the shape this
+	follows: the domain decides which rows there are, and each caller decides how many of them
+	to take and in what order.
 
 	**Readable by anyone who is authenticated, and that is a decision.** Adding a colleague to a
 	workspace means naming them, and a name you cannot look up is one you have to be told out of
@@ -399,20 +406,38 @@ def listed (
 	a conversation. Decision ``#161`` is what makes it safe to say: identifiers are unique and
 	public, content is neither, and this view carries no email address and no content at all.
 
-	Oldest first, because the first account is the one ``init`` made and the operator reading
-	this is usually looking for the ones that came after it.
+	**``actor`` narrows nothing, deliberately, and is taken so that the place where narrowing
+	would go is the place the decision is recorded.** Every other listing here starts at
+	``domain/scoping.py`` and is cut down by workspace, project visibility and the token's own
+	scope; this one is not, because of the paragraph above. An unused parameter is ordinarily
+	this codebase's second signature defect — a control that is declared and inert — so it is
+	worth saying which of the two this is.
+
+	**``answers_to`` asks the question rather than deriving it** (`SR#2387`). It names a person
+	and returns the live service accounts answerable to them, directly or through another, which
+	is exactly what :func:`subroutine.domain.accountability.agents_answering_to` computes. It is
+	not a column and cannot be one: the chain is a bounded walk outward, so there is no value for
+	SQL to compare — the same reason ``priority_score`` is orderable and not filterable. A
+	username that names nobody is refused by name rather than answered with an empty page.
+
+	Ordering is :data:`subroutine.domain.ordering.DEFAULT_USER_ORDER`'s and is applied by the
+	caller, so a cursor and a plain read cannot disagree about where a page stopped.
 	"""
 
 	model = subroutine.db.models.identity.User
+	statement = sqlalchemy.select(model).where(model.deleted_at.is_(None))
 
-	return list(
-		session.scalars(
-			sqlalchemy.select(model)
-			.where(model.deleted_at.is_(None))
-			.order_by(model.created_at, model.username)
-			.limit(limit)
-		)
+	if answers_to is None:
+		return statement
+
+	# Resolved through `by_username`, so an unknown name is the refusal that function already
+	# writes rather than a page with nothing on it — `#264`'s rule that a refusal names what it
+	# looked at, applied to a filter.
+	answering = subroutine.domain.accountability.agents_answering_to(
+		session, by_username(session, answers_to)
 	)
+
+	return statement.where(model.id.in_([one.id for one in answering]))
 
 
 def by_username (

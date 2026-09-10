@@ -694,6 +694,69 @@ def test_both_page_the_tag_listing_the_same_way (pair: Pair) -> None:
 	assert beyond_there.has_more is False
 
 
+def test_both_page_the_account_directory_the_same_way (pair: Pair) -> None:
+	"""§13.7 on the directory, which was the last listing answering a bare list — `SR#2384`.
+
+	The endpoint took a ceiling of two hundred rows and said ``has_more: false`` regardless,
+	and the HTTP client read ``items`` and discarded the envelope. Neither could be caught by
+	comparing the two: they agreed, and they were both wrong in the same direction.
+	"""
+
+	local, remote = pair.both()
+
+	# **Service accounts, not people**, because local mode resolves its operator by there being
+	# exactly one person (§12.1a) and a second would refuse both clients before either paged
+	# anything. They are rows in the directory either way, which is what this measures.
+	for _each in range(4):
+		remote.create_user(username=f"p{uuid.uuid4().hex[:8]}", is_service_account=True)
+
+	here = local.users(limit=2)
+	there = remote.users(limit=2)
+
+	assert [one.username for one in here] == [one.username for one in there]
+	assert here.has_more is True
+	assert there.has_more is True
+
+	whole_here = local.users(limit=100)
+	whole_there = remote.users(limit=100)
+
+	assert [one.username for one in whole_here] == [one.username for one in whole_there]
+	assert whole_here.has_more is False
+	assert whole_there.has_more is False
+
+
+def test_both_answer_which_agents_answer_to_somebody (pair: Pair) -> None:
+	"""`SR#2387`, and the two transports must agree because a confirmation reads it.
+
+	``user deactivate`` says what is about to stop before it stops it. It used to derive that
+	from a whole directory in the client; asking the server is what let the directory be paged.
+	"""
+
+	local, remote = pair.both()
+	issued = remote.issue_token(service_account="claude-here", title="An agent")
+
+	assert issued.account_created is True
+
+	here = local.users(answers_to=pair.user.username)
+	there = remote.users(answers_to=pair.user.username)
+
+	assert [one.username for one in here] == [one.username for one in there]
+	assert "claude-here" in {one.username for one in there}
+
+	# A person is not answerable to themselves for this question: the answer is the agents
+	# that stop, and somebody leaving does not stop themselves twice.
+	assert pair.user.username not in {one.username for one in there}
+
+
+def test_both_read_one_account_by_name (pair: Pair) -> None:
+	"""`SR#2386`. The lookup that replaced fetching a directory to find one row."""
+
+	local, remote = pair.both()
+
+	assert local.user(username=pair.user.username).username == pair.user.username
+	assert remote.user(username=pair.user.username).username == pair.user.username
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

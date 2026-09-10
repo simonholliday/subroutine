@@ -1084,14 +1084,28 @@ class Client:
 			self._json("DELETE", f"/v1/calendars/{id_or_prefix}"),
 		)
 
-	def users (self) -> list[subroutine.views.User]:
+	def user (self, *, username: str) -> subroutine.views.User:
+		"""Read one account by name."""
+
+		return self._parsed(
+			subroutine.views.User, self._json("GET", f"/v1/users/{username}")
+		)
+
+	def users (
+		self, *, limit: int | None = None, answers_to: str | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.User]:
 		"""List the accounts on this instance."""
 
-		body = self._json("GET", "/v1/users")
+		asking = _given(limit=limit, answers_to=answers_to)
 
-		return [
-			subroutine.views.User.model_validate(row) for row in body.get("items", [])
-		]
+		return self._collected(
+			subroutine.views.User,
+			self._json("GET", "/v1/users", params=asking),
+			endpoint="users",
+			path="/v1/users",
+			params=list(asking.items()),
+			wanted=limit,
+		)
 
 	def create_user (
 		self,

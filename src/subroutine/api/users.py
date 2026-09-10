@@ -24,13 +24,18 @@ neither — and :class:`subroutine.views.User` carries no email address and no c
 import typing
 
 import fastapi
+import sqlalchemy
 
 import subroutine.api.dependencies
+import subroutine.api.pagination
 import subroutine.api.routing
 import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
+import subroutine.db.models.identity
 import subroutine.domain.accountability
+import subroutine.domain.ordering
+import subroutine.domain.paging
 import subroutine.domain.users
 import subroutine.views
 
@@ -154,11 +159,16 @@ def update (
 	permission to be wrong on their behalf.
 
 	**Deactivating stops every agent answerable to that person**, at their next call, wherever
-	they are running. Ask for the list first with ``GET /v1/users`` and
-	``responsible_user_id``: the CLI names them before it does it, and a caller here should
-	too. The last person who can administer the instance is refused, because an instance
-	nobody can administer cannot be repaired from inside and would have stopped every agent on
-	it.
+	they are running. Ask for the list first with ``GET /v1/users?answers_to=<username>``: the
+	CLI names them before it does it, and a caller here should too. **That used to say to read
+	``GET /v1/users`` and pick the rows out by ``responsible_user_id``** — which was a whole
+	directory fetched to answer one question, and it stopped being possible the moment that
+	listing was paged (`SR#2384`, `SR#2387`). It also only ever found the agents answerable
+	*directly*; the filter walks the chain, which is what "answerable to that person" means
+	one sentence above.
+
+	The last person who can administer the instance is refused, because an instance nobody can
+	administer cannot be repaired from inside and would have stopped every agent on it.
 	"""
 
 	account = subroutine.domain.users.by_username(session, username)
@@ -198,19 +208,42 @@ def update (
 def listing (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
+	settings: subroutine.api.dependencies.SettingsDep,
+	answers_to: str | None = fastapi.Query(
+		None,
+		description="Only the agents answerable to this person, directly or through another.",
+	),
+	limit: int | None = fastapi.Query(
+		None,
+		# No `ge=1`: `domain.paging.size` is the one arbiter, so this and the local client
+		# refuse an impossible page identically, naming `limit` rather than `query.limit`.
+		description=subroutine.api.pagination.LIMIT_DESCRIPTION,
+	),
+	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
+	include_total: bool = fastapi.Query(False, description="Count the whole result."),
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
 	"""Who is on this instance, oldest first.
 
-	**Not paginated, and that is a statement rather than a shrug.** An instance's people are
-	bounded by how many somebody hired — the same argument §8.4 makes for a task's links, where
-	``has_more`` is always false for the same reason. A ceiling is applied anyway so that a
-	directory cannot become an unbounded response by accident, and it is far above any real
-	instance.
+	**Paged like every other listing here** (`SR#2384`). It used to take a ceiling of 200 rows
+	from the domain, supply no ``limit`` of its own, and answer with a literal
+	``has_more: false`` — so past two hundred accounts it dropped rows and stated there were no
+	more, with a null total that could not contradict it. The docstring said ``has_more`` was
+	always false *for the same reason a task's links are*, and that reason does not survive a
+	ceiling: a task's links are bounded by what somebody typed, where this was bounded by a
+	number we chose.
 
-	Oldest first, because the first account is the one ``init`` made and a reader is usually
-	looking for the ones that came after it.
+	**``answers_to`` names a person and returns the agents answerable to them** (`SR#2387`),
+	directly or through another. It exists because paging this listing would otherwise break the
+	one thing that reads it whole: ``subroutine user deactivate`` says *"this also stops N
+	agent(s)"* before it acts, and a confirmation that under-reports is worse than the truncation
+	this route was fixed for. A caller wanting one account by name wants
+	``GET /v1/users/{username}`` (`SR#2386`) rather than this listing and a filter in their own
+	code.
+
+	**``total`` is opt-in**, which is §8.4's rule; the old envelope answered null and meant
+	nothing by it.
 	"""
 
 	shape = subroutine.api.shaping.wanted(
@@ -220,7 +253,40 @@ def listing (
 		entity="user",
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
-	found = subroutine.domain.users.listed(session, actor=actor)
+
+	model = subroutine.db.models.identity.User
+	statement = subroutine.domain.users.readable(session, actor=actor, answers_to=answers_to)
+
+	keys = subroutine.api.pagination.parse_order(
+		None,
+		allowed=subroutine.domain.ordering.USER_FIELDS,
+		default=subroutine.domain.ordering.DEFAULT_USER_ORDER,
+		tiebreak=model.id,
+	)
+	size = subroutine.domain.paging.size(limit, settings)
+	total = None
+
+	if include_total:
+		total = session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(statement.subquery())
+		)
+
+	if cursor is not None:
+		statement = statement.where(
+			subroutine.api.pagination.after(
+				keys,
+				subroutine.api.pagination.decode(
+					settings.require_secret_key(), keys, cursor, collection="users"
+				),
+			)
+		)
+
+	found = list(
+		session.scalars(statement.order_by(*[key.ordering() for key in keys]).limit(size + 1))
+	)
+	has_more = len(found) > size
+	found = found[:size]
+
 	# **One walk for the whole page** (`#1420`). Resolving a chain per row is §8.4's N+1
 	# wearing a rendering hat, and this listing is where a fleet of agents shows up.
 	answerable = subroutine.domain.accountability.answerable_for_many(
@@ -232,6 +298,51 @@ def listing (
 			subroutine.views.user(row, answers_to=answerable.get(row.id))
 			for row in found
 		],
-		subroutine.views.Page(limit=None, has_more=False, next_cursor=None, total=None),
+		subroutine.views.Page(
+			limit=size,
+			has_more=has_more,
+			next_cursor=(
+				subroutine.api.pagination.encode(
+					settings.require_secret_key(), keys, found[-1], collection="users"
+				)
+				if has_more and found
+				else None
+			),
+			total=total,
+		),
 		shape,
+	)
+
+
+@router.get(
+	"/{username}",
+	summary="Read one account",
+	response_model=subroutine.views.User,
+)
+def one (
+	username: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.User:
+	"""Read the account with this name — `SR#2386`.
+
+	**The API was behind its own domain here.** ``domain.users.by_username`` has always existed
+	and both ``POST`` and ``PATCH`` resolve through it; nothing published a way to *read* one
+	account, so a caller wanting ``si`` fetched the whole directory and filtered it themselves.
+	That is a client re-implementing a lookup the server owns, and it is why paging the listing
+	could not be done on its own (`SR#2384`).
+
+	**Readable by anyone authenticated**, for the same reason the listing is: an identifier is
+	unique and public where content is neither, and this view carries no email address and no
+	content at all.
+
+	Case-insensitive, because ``by_username`` resolves through the normalised column — ``Simon``
+	and ``simon`` being two accounts would be a trap rather than a feature.
+	"""
+
+	account = subroutine.domain.users.by_username(session, username)
+
+	return subroutine.views.user(
+		account,
+		answers_to=subroutine.domain.accountability.answerable_name(session, account),
 	)

@@ -16,6 +16,19 @@ upgrade involves.
 
 ### Added
 
+- **Read one account, and ask who answers to somebody.**
+
+  Two questions that previously meant fetching the whole directory and picking through it
+  yourself.
+
+  `GET /v1/users/{username}` reads a single account by name, case-insensitively. It is what a
+  caller holding a username and wanting a field actually wants.
+
+  `GET /v1/users?answers_to=<username>` lists the agents answerable to that person — directly
+  or through another agent, following the chain. This is what `subroutine user deactivate` asks
+  before it tells you what is about to stop, so that warning stays right however large the
+  instance gets.
+
 - **The item page says what refers to it.**
 
   Every title, description, body and comment you write has been indexed since the first
@@ -45,6 +58,20 @@ upgrade involves.
   began without one and nothing asked.
 
 ### Fixed
+
+- **The account directory no longer drops people and says there were no more.**
+
+  `GET /v1/users` returned at most 200 accounts and reported `has_more: false` whatever it had
+  actually done — so past two hundred it truncated silently, with a `total` of `null` that could
+  not contradict it. The `subroutine` CLI read it the same way, returning a plain list with no
+  way to tell a complete directory from a short one.
+
+  It pages like every other listing now: `limit`, `cursor`, `has_more`, and `include_total` when
+  you want the count. `subroutine user list` takes `--limit` and says *…and more* when it
+  stopped.
+
+  Nobody is likely to have hit this — it needed 201 accounts — but a listing that claims to be
+  complete and is not is the kind of wrong that is invisible from the outside.
 
 - **The add box on the agenda no longer names the only workspace you have.**
 

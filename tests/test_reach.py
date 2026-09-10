@@ -196,6 +196,7 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/tokens"): "tokens",
 	("GET", "/v1/calendars"): "calendars",
 	("GET", "/v1/users"): "users",
+	("GET", "/v1/users/{username}"): "user",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 	("GET", "/v1/projects/{id_or_key:path}/members"): "project_members",
 	("GET", "/v1/instance/workspaces"): "instance_workspaces",
@@ -710,6 +711,14 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"budget",
 		"Stopping one (§20.3), which is `revoke_token`'s argument: the undo of a write this "
 		"surface cannot make.",
+	),
+	"user": (
+		"budget",
+		"Reading one account by name (`#2386`, §21.2). It exists so a client can stop fetching "
+		"the whole directory to find one row — the shape of a caller that holds a username and "
+		"wants a field, which an agent is not. It learns a name from the item "
+		"it is already reading, where the name is the answer rather than the question, and "
+		"`subroutine_whoami` covers the one account it has a standing question about.",
 	),
 	"users": (
 		"budget",

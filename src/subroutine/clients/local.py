@@ -2240,21 +2240,59 @@ class Client:
 
 			return subroutine.views.calendar(found, session=session, principal=actor)
 
-	def users (self) -> list[subroutine.views.User]:
+	def user (self, *, username: str) -> subroutine.views.User:
+		"""Read one account by name."""
+
+		with self._opened() as (session, _actor):
+			account = subroutine.domain.users.by_username(session, username)
+
+			return subroutine.views.user(
+				account,
+				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+			)
+
+	def users (
+		self, *, limit: int | None = None, answers_to: str | None = None
+	) -> subroutine.clients.base.Listing[subroutine.views.User]:
 		"""List the accounts on this instance."""
 
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
+		model = subroutine.db.models.identity.User
+
 		with self._opened() as (session, actor):
-			found = subroutine.domain.users.listed(session, actor=actor)
+			statement = subroutine.domain.users.readable(
+				session, actor=actor, answers_to=answers_to
+			)
+
+			# The same vocabulary `GET /v1/users` sorts by, out of `domain/ordering.py`, so a
+			# page boundary cannot fall in two places (`#501`).
+			found = list(
+				session.scalars(
+					statement.order_by(
+						*subroutine.domain.ordering.clauses(
+							None,
+							allowed=subroutine.domain.ordering.USER_FIELDS,
+							default=subroutine.domain.ordering.DEFAULT_USER_ORDER,
+							tiebreak=model.id,
+						)
+					).limit(size + 1)
+				)
+			)
+
 			# **One walk for the whole page**, as the HTTP listing does (`#1420`) — the two
 			# transports answer this identically or they are two products.
 			answerable = subroutine.domain.accountability.answerable_for_many(
-				session, [row.id for row in found]
+				session, [row.id for row in found[:size]]
 			)
 
-			return [
-				subroutine.views.user(row, answers_to=answerable.get(row.id))
-				for row in found
-			]
+			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
+			return subroutine.clients.base.Listing(
+				[
+					subroutine.views.user(row, answers_to=answerable.get(row.id))
+					for row in found[:size]
+				],
+				has_more=len(found) > size,
+			)
 
 	def create_user (
 		self,
