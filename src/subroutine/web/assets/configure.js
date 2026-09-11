@@ -1,7 +1,7 @@
 /*
 	The settings area — `#1445`, design `#2110` §3 and §4.
 
-	**One address space for four scopes, and it holds one of them so far.** `#2110` puts every
+	**One address space for four scopes, and it holds three of them.** `#2110` puts every
 	settings page under `/settings` — the reader's own, then a workspace's, a project's and the
 	installation's — and draws each the same way. The reader's own came first because it needed
 	nothing built: `user.timezone` is a column rather than a registry entry (`#1024` §4's rule,
@@ -16,6 +16,7 @@
 	from, and was named long before this area existed.
 */
 
+import { settingsAddress, titlesByPath } from "./address.js";
 import { html } from "./html.js";
 
 
@@ -241,23 +242,108 @@ export function valueSaid (setting, value, statuses = []) {
 }
 
 
-function SettingRow ({ setting, stated, statuses = [], may = false, onChoose, busy = false }) {
+export function inheritsAt (setting, scope) {
+	/*
+		Whether a setting has a wider scope above this one to inherit from — `#1448`.
+
+		**Read off the setting's own scopes**, which the registry lists most specific first, so
+		the answer is *is there a scope after this one*. At the widest a setting has, clearing it
+		leaves the default; below that, clearing it lets a wider scope show through — and *hide
+		nothing here* stops being the same answer as *not stated*.
+	*/
+	const scopes = (setting && setting.scopes) || [];
+	const at = scopes.indexOf(scope);
+
+	return at >= 0 && at < scopes.length - 1;
+}
+
+
+export function hiddenValue (ticked, inherits = false) {
+	/*
+		What a status control sends for the statuses ticked in it — `#1448`.
+
+		**Nothing ticked is two answers, by scope.** Where nothing is above, it clears the
+		setting: *hide nothing* and *not stated* read the same there, and the second is the one
+		that lets the default show. Below that they differ — an empty list stops a status hidden
+		further up from being hidden here, where clearing lets it through — so an empty list is
+		sent as one, and clearing is the row's own act.
+	*/
+	const keys = (ticked || []).map(String);
+
+	return keys.length > 0 || inherits ? keys : null;
+}
+
+
+function sourcePage (from, slug) {
+	/*
+		The settings page of whatever a value was inherited from, or null where there is none to
+		name — `#1448`.
+
+		**A project's ancestors are in its own workspace**, because a project tree never crosses
+		one (§5.4), so the page's workspace is theirs and a source need carry only its address.
+	*/
+	if (!from) return null;
+
+	if (from.scope === "workspace") return { scope: "workspace", slug: from.address };
+
+	if (from.scope === "project" && slug) return { scope: "project", slug, project: from.address };
+
+	return null;
+}
+
+
+function acts (onTakeBack, busy) {
+	/*
+		A setting control's buttons: save, and — where a value is set here and a wider scope
+		could show through — take it back.
+
+		**Taking back is not choosing nothing**, which is why it is a button of its own rather
+		than an empty form (`#1448`): below the widest scope, *nothing* is a value a reader may
+		want to state, and saying so must not be the same press as un-saying everything.
+	*/
+	return html`
+		<div class="acts">
+			<button type="submit" class="primary" disabled=${busy}>Save</button>
+			${onTakeBack
+				? html`<button type="button" class="action" disabled=${busy}
+						onClick=${onTakeBack}>Stop setting it here</button>`
+				: null}
+		</div>
+	`;
+}
+
+
+function SettingRow ({
+	setting, stated, scope, slug = null, statuses = [], may = false, onChoose, busy = false,
+}) {
 	/*
 		One setting on a settings page: what it is, where its value came from, and — when this
 		reader may change it and this browser knows its kind — the control for it.
 
 		**Shown and not offered when the reader lacks the verb**, because a control that refuses
 		when pressed is worse than one that is not there, and the value still answers *why is it
-		like this*.
+		like this*. The verb is the one the registry publishes **for this scope**, since `#2120`
+		made the answer differ between them.
+
+		**An inherited value leads to where it is set** (`#1448`), because that is the one place
+		it can be changed for everything that inherits it; and **a value set here can be taken
+		back**, which is offered only where there is something above to show through and only
+		when it is set here — clearing a value that is inherited changes nothing (`#2110` §4).
 	*/
 	const Control = CONTROLS[setting.kind];
 	const value = stated ? stated.value : setting.default;
-	const verb = (setting.permission || {}).workspace;
+	const verb = (setting.permission || {})[scope];
+	const inherits = inheritsAt(setting, scope);
+	const here = Boolean(stated && stated.set_here);
+	const from = stated && !here ? sourcePage(stated.inherited_from, slug) : null;
+	const takeBack = inherits && here ? () => onChoose(setting.key, null) : null;
 
 	return html`
 		<div class="setting-row">
 			<h4>${setting.summary}</h4>
-			<p class="hint">${inForceSaid(stated)}</p>
+			<p class="hint">${inForceSaid(stated)}${from
+				? html` <a href=${settingsAddress(from)}>Open its settings.</a>`
+				: null}</p>
 			${!Control
 				? html`
 					<p>${valueSaid(setting, value, statuses)}</p>
@@ -268,8 +354,68 @@ function SettingRow ({ setting, stated, statuses = [], may = false, onChoose, bu
 					<p>${valueSaid(setting, value, statuses)}</p>
 					<p class="hint">Changing this needs the ${verb} permission, which you do not
 						hold here.</p>`
-				: html`<${Control} setting=${setting} value=${value} statuses=${statuses}
-						onChoose=${onChoose} busy=${busy} />`}
+				: html`
+					${inherits && !here
+						? html`<p class="hint">Saving sets it on this ${scope}, and a change made
+								above it will no longer reach it.</p>`
+						: null}
+					<${Control} setting=${setting} value=${value} statuses=${statuses}
+						inherits=${inherits} onChoose=${onChoose} onTakeBack=${takeBack}
+						busy=${busy} />`}
+		</div>
+	`;
+}
+
+
+function settingRows ({
+	scope, slug, registry = [], statuses = [], inForce, may = [], onChoose, busy = false,
+}) {
+	/*
+		Every setting the registry offers at one scope, as rows — the body a workspace's page and
+		a project's page share, so the two cannot come to draw one setting differently.
+	*/
+	const held = new Set(may || []);
+	const stated = new Map((inForce.settings || []).map((one) => [one.key, one]));
+	const offered = (registry || []).filter((one) => (one.scopes || []).includes(scope));
+
+	if (offered.length === 0) return html`<p class="empty">This ${scope} has nothing to configure.</p>`;
+
+	return offered.map((setting) => html`
+		<${SettingRow} key=${setting.key} setting=${setting} scope=${scope} slug=${slug}
+			stated=${stated.get(setting.key)} statuses=${statuses}
+			may=${held.has((setting.permission || {})[scope])}
+			onChoose=${onChoose} busy=${busy} />
+	`);
+}
+
+
+function ProjectPages ({ slug, projects = [], more = false }) {
+	/*
+		A workspace's projects, each leading to its own settings page — `#1448`.
+
+		**On the workspace's page because that is the way inheritance runs**: what is set here is
+		what each of them shows unless it says otherwise, and its page is where it says so.
+
+		**By the whole path, rebuilt from the tree** the way `titlesByPath` rebuilds it, because
+		`path` is not a field a listing can ask for (`#770`) and a key is unique only among its
+		siblings (`#958`) — so `ui` under `subroutine` must lead to `subroutine/ui`, and a title,
+		which may repeat, is shown with the path that cannot.
+	*/
+	const titled = Object.entries(titlesByPath(projects));
+
+	return html`
+		<div class="setting-row setting-projects">
+			<h4>Projects</h4>
+			<p class="hint">Each project can set these for itself. What one does not set, it
+				inherits — from the project above it, and then from here.</p>
+			<ul>
+				${titled.map(([path, title]) => html`
+					<li key=${path}>
+						<a href=${settingsAddress({ scope: "project", slug, project: path })}>${title}</a> <span class="hint">${path}</span>
+					</li>
+				`)}
+			</ul>
+			${more ? html`<p class="hint">Only the first ${titled.length} are listed here.</p>` : null}
 		</div>
 	`;
 }
@@ -277,7 +423,7 @@ function SettingRow ({ setting, stated, statuses = [], may = false, onChoose, bu
 
 export function WorkspaceSettings ({
 	workspace = null, registry = [], statuses = [], inForce = null, may = [], onChoose,
-	busy = false,
+	busy = false, projects = null, more = false,
 }) {
 	/*
 		A workspace's settings page — `#1447`, design `#2110` §3 to §5.
@@ -290,36 +436,79 @@ export function WorkspaceSettings ({
 
 		**`may` is the reader's verbs in this workspace**, `allowedIn`'s answer, and each row is
 		gated on the verb the registry publishes for it at this scope.
+
+		**Its projects are listed beneath it** (`#1448`) — null until they are read, which draws
+		nothing rather than a list that says the workspace has none.
 	*/
 	if (!workspace || !inForce) return html`<div class="empty">Reading…</div>`;
-
-	const held = new Set(may || []);
-	const stated = new Map((inForce.settings || []).map((one) => [one.key, one]));
-	const here = (registry || []).filter((one) => (one.scopes || []).includes("workspace"));
 
 	return html`
 		<section class="setting-page">
 			<h3>${workspace.title || workspace.slug}</h3>
-			${here.length === 0
-				? html`<p class="empty">This workspace has nothing to configure.</p>`
-				: here.map((setting) => html`
-					<${SettingRow} key=${setting.key} setting=${setting}
-						stated=${stated.get(setting.key)} statuses=${statuses}
-						may=${held.has((setting.permission || {}).workspace)}
-						onChoose=${onChoose} busy=${busy} />
-				`)}
+			${settingRows({
+				scope: "workspace", slug: workspace.slug, registry, statuses, inForce, may, onChoose,
+				busy,
+			})}
+			${projects && projects.length > 0
+				? html`<${ProjectPages} slug=${workspace.slug} projects=${projects} more=${more} />`
+				: null}
 		</section>
 	`;
 }
 
 
-export function ColourChoice ({ setting, value = null, onChoose, busy = false }) {
+export function ProjectSettings ({
+	workspace = null, project = null, title = null, registry = [], statuses = [],
+	inForce = null, may = [], onChoose, busy = false,
+}) {
+	/*
+		A project's settings page — `#1448`, and the workspace page's rules one scope down.
+
+		**Most of what this page shows is not the project's own.** A project usually states
+		nothing and shows its parent's or its workspace's value through, so every row says where
+		its value came from and leads there, and a value set here can be taken back — two acts
+		that `#2110` §4 says read differently, and the reason the settings read carries
+		provenance at all.
+
+		**`may` is the reader's verbs in this project's workspace**, `allowedIn`'s answer, and a
+		project setting is gated on the verb the registry publishes for a project, which is
+		`project:write`. That is the project's own answer only while a project's permissions equal
+		its workspace's, which they do because nothing writes a project role yet — `#2111` is
+		what makes it the project's own.
+	*/
+	if (!workspace || !project || !inForce) return html`<div class="empty">Reading…</div>`;
+
+	const space = { scope: "workspace", slug: workspace.slug };
+
+	return html`
+		<section class="setting-page">
+			<h3>${title || project}</h3>
+			<p class="hint">${project}, in <a href=${settingsAddress(space)}>${workspace.title || workspace.slug}</a>.
+				What this project does not set, it inherits — from the nearest project above it that
+				does, and then from the workspace.</p>
+			${settingRows({
+				scope: "project", slug: workspace.slug, registry, statuses, inForce, may, onChoose,
+				busy,
+			})}
+		</section>
+	`;
+}
+
+
+export function ColourChoice ({
+	setting, value = null, inherits = false, onChoose, onTakeBack = null, busy = false,
+}) {
 	/*
 		Choose a colour from the palette the instance publishes, or none.
 
 		**The choices are the registry's** (`#2365`), so the palette is not copied here, and each
 		is drawn as its own swatch — coloured by the stylesheet's rule for that name, the one a
 		row's edge uses, so a choice looks like what it will do.
+
+		**`None` is offered only where nothing is above** (`#1448`). There null is the default,
+		which is no colour; below it null means *not stated*, which lets a parent's colour show
+		through — so a project cannot say *no colour*, and a `None` there would do the opposite
+		of what it says. Taking a colour back is `onTakeBack`, named for what it does.
 
 		**Uncontrolled, like every form here** (`#757`): the value in force is `checked`, so a
 		re-render cannot undo a choice somebody is halfway through making.
@@ -332,10 +521,13 @@ export function ColourChoice ({ setting, value = null, onChoose, busy = false })
 		}}>
 			<fieldset>
 				<legend>Colour</legend>
-				<label class="setting-option">
-					<input type="radio" name="value" value="" checked=${!value} disabled=${busy} />
-					<span>None</span>
-				</label>
+				${inherits
+					? null
+					: html`
+						<label class="setting-option">
+							<input type="radio" name="value" value="" checked=${!value} disabled=${busy} />
+							<span>None</span>
+						</label>`}
 				${(setting.choices || []).map((name) => html`
 					<label class="setting-option" key=${name}>
 						<input type="radio" name="value" value=${name} checked=${name === value}
@@ -345,15 +537,16 @@ export function ColourChoice ({ setting, value = null, onChoose, busy = false })
 					</label>
 				`)}
 			</fieldset>
-			<div class="acts">
-				<button type="submit" class="primary" disabled=${busy}>Save</button>
-			</div>
+			${acts(onTakeBack, busy)}
 		</form>
 	`;
 }
 
 
-export function StatusChoice ({ setting, value = [], statuses = [], onChoose, busy = false }) {
+export function StatusChoice ({
+	setting, value = [], statuses = [], inherits = false, onChoose, onTakeBack = null,
+	busy = false,
+}) {
 	/*
 		Choose the statuses not offered here, from this workspace's own vocabulary.
 
@@ -361,10 +554,10 @@ export function StatusChoice ({ setting, value = [], statuses = [], onChoose, bu
 		is a deny-list by decision, so that a status added later is offered everywhere by
 		default, and a control drawn as an allow-list would turn that round in the reader's head.
 
-		**Nothing ticked clears the setting** rather than storing an empty list, because at a
-		workspace — the top of the chain — the two answer the same, and *not stated* is the one
-		that lets the default show. At a project they differ, and a project's page will have to
-		say so.
+		**Nothing ticked means what `hiddenValue` says**, which differs by scope: at a workspace
+		it clears the setting, and at a project it is *hide nothing here* (`#1448`) — the one
+		place `[]` and null are different answers, and the reason taking a value back is a
+		button of its own rather than an empty form.
 	*/
 	const hidden = new Set(value || []);
 
@@ -372,9 +565,7 @@ export function StatusChoice ({ setting, value = [], statuses = [], onChoose, bu
 		<form class="setting-choice" onSubmit=${(event) => {
 			event.preventDefault();
 
-			const ticked = new FormData(event.target).getAll("value").map(String);
-
-			onChoose(setting.key, ticked.length > 0 ? ticked : null);
+			onChoose(setting.key, hiddenValue(new FormData(event.target).getAll("value"), inherits));
 		}}>
 			<fieldset>
 				<legend>Not offered</legend>
@@ -386,9 +577,7 @@ export function StatusChoice ({ setting, value = [], statuses = [], onChoose, bu
 					</label>
 				`)}
 			</fieldset>
-			<div class="acts">
-				<button type="submit" class="primary" disabled=${busy}>Save</button>
-			</div>
+			${acts(onTakeBack, busy)}
 		</form>
 	`;
 }
@@ -404,17 +593,22 @@ function SettingsNav ({ page = null, workspaces = [] }) {
 		**Every workspace the reader can reach is listed**, not only those they administer: a page
 		they cannot change still answers *why is it like this*, and a list that left the others
 		out would say those workspaces have no settings.
+
+		**A project's page marks its workspace** (`#1448`), whose page is where its projects are
+		listed. A list naming every project on the installation here would be one nobody scans.
 	*/
-	const chosen = (scope, slug = null) => Boolean(
-		page && page.scope === scope && (slug === null || page.slug === slug),
+	const chosen = (slug = null) => Boolean(
+		page && (slug === null
+			? page.scope === "me"
+			: (page.scope === "workspace" || page.scope === "project") && page.slug === slug),
 	);
 
 	return html`
 		<nav class="setting-pages" aria-label="Settings pages">
-			<a href="/settings/me" class=${chosen("me") ? "chosen" : ""}>Your account</a>
+			<a href="/settings/me" class=${chosen() ? "chosen" : ""}>Your account</a>
 			${(workspaces || []).map((one) => html`
-				<a key=${one.slug} href=${`/settings/workspace/${encodeURIComponent(one.slug)}`}
-					class=${chosen("workspace", one.slug) ? "chosen" : ""}>${one.title || one.slug}</a>
+				<a key=${one.slug} href=${settingsAddress({ scope: "workspace", slug: one.slug })}
+					class=${chosen(one.slug) ? "chosen" : ""}>${one.title || one.slug}</a>
 			`)}
 		</nav>
 	`;
@@ -428,26 +622,36 @@ export function Settings ({
 	/*
 		The settings area: the page its address names, or a sentence saying it names none.
 
-		**An address naming no page here is said, never answered with the nearest page.** A
-		project's page and the installation's arrive with `#1448` and `#2103`; until they do,
-		answering a link to one with some other page would show the reader something other than
-		what they were sent, which is `#745`'s rule about what an address promises.
+		**An address naming no page here is said, never answered with the nearest page.** The
+		installation's arrives with `#2103`; until it does, answering a link to it with some
+		other page would show the reader something other than what they were sent, which is
+		`#745`'s rule about what an address promises.
 
 		**`me` is null until `/v1/me` answers**, drawn as *Reading…* like the people page: the
 		values and the reader's verbs are both on that answer, so nothing true can be drawn first.
 
-		**`configured` is the workspace page's two answers** — `/v1/meta` for that workspace and
-		its settings read — and is used only while it is about the workspace the address names, so
-		a slow answer about the previous page cannot land on this one.
+		**`configured` is a workspace's or a project's page's answers** — `/v1/meta` for its
+		workspace, its settings read and the workspace's projects — and is used only while it is
+		about the page the address names, **keyed by that page's own address**, so a slow answer
+		about the previous page cannot land on this one.
 	*/
 	if (!me) return html`<div class="settings"><div class="empty">Reading…</div></div>`;
 
 	const spaces = me.workspaces || [];
-	const workspace = page && page.scope === "workspace"
-		? spaces.find((one) => one.slug === page.slug) || null
+	const entity = Boolean(page && (page.scope === "workspace" || page.scope === "project"));
+	const workspace = entity ? spaces.find((one) => one.slug === page.slug) || null : null;
+	const current = configured && page && configured.key === settingsAddress(page)
+		? configured
 		: null;
-	const current = configured && page && configured.slug === page.slug ? configured : null;
 	const meta = (current && current.meta) || {};
+	const shared = {
+		registry: meta.settings || [],
+		statuses: (meta.statuses && meta.statuses.task) || [],
+		inForce: current ? current.inForce : null,
+		may: (workspace && workspace.permissions) || [],
+		onChoose: (key, value) => onChoose(page, key, value),
+		busy,
+	};
 
 	return html`
 		<div class="settings">
@@ -456,18 +660,20 @@ export function Settings ({
 			${!page
 				? html`<p class="empty">There is no settings page at this address.
 						<a href="/settings/me">Your own settings are here.</a></p>`
-				: page.scope === "workspace" && !workspace
+				: entity && !workspace
 				? html`<p class="empty">There is no workspace called ${page.slug} that you can
 						see.</p>`
-				: page.scope === "workspace" && current && current.failed
-				? html`<p class="empty">This workspace's settings could not be read.
+				: entity && current && current.failed
+				? html`<p class="empty">This ${page.scope}'s settings could not be read.
 						${current.failed}</p>`
 				: page.scope === "workspace"
-				? html`<${WorkspaceSettings} workspace=${workspace} registry=${meta.settings || []}
-						statuses=${(meta.statuses && meta.statuses.task) || []}
-						inForce=${current ? current.inForce : null}
-						may=${workspace.permissions || []}
-						onChoose=${(key, value) => onChoose(page.slug, key, value)} busy=${busy} />`
+				? html`<${WorkspaceSettings} workspace=${workspace} ...${shared}
+						projects=${current ? current.projects : null}
+						more=${Boolean(current && current.more)} />`
+				: page.scope === "project"
+				? html`<${ProjectSettings} workspace=${workspace} project=${page.project}
+						title=${current ? titlesByPath(current.projects)[page.project] : null}
+						...${shared} />`
 				: html`<${Timezone} stored=${(me.user && me.user.timezone) || null}
 						reading=${me.reader_timezone || null} zones=${zones} device=${device}
 						onZone=${onZone} busy=${busy} />`}

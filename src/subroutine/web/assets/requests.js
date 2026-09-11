@@ -25,7 +25,7 @@ export function cadence (hidden, idleFor) {
 	file is one layer of it.
 */
 
-import { SELECTABLE, answers } from "./address.js";
+import { SELECTABLE, answers, encodedPath } from "./address.js";
 import { api, sunkOrder } from "./answers.js";
 import { ORDERINGS, calendarDay, day } from "./dates.js";
 import { TIMED } from "./forms.js";
@@ -360,6 +360,34 @@ export function changeWorkspaceSettingRequest (slug, key, value) {
 	*/
 	return {
 		path: `/workspaces/${encodeURIComponent(slug)}`,
+		method: "PATCH",
+		body: { settings: { [key]: value === undefined ? null : value } },
+	};
+}
+
+export function projectSettingsRequest (slug, project) {
+	/*
+		What a project's settings page reads — `#1448`: every setting a project may carry, the
+		value in force, the default, and where each value came from — this project, a project
+		above it, the workspace, or nowhere.
+
+		**The project by its whole path, in its workspace**, because a key is unique only among
+		its siblings (`#958`); escaped a segment at a time, for `encodedPath`'s reason.
+	*/
+	return { path: scoped(`/projects/${encodedPath(project)}/settings`, slug), method: "GET" };
+}
+
+export function changeProjectSettingRequest (slug, project, key, value) {
+	/*
+		Change one of a project's settings — `#1448`, and `changeWorkspaceSettingRequest`'s two
+		rules one scope down: one key per write, and null sent to clear rather than left out.
+
+		**An empty list is a value and is sent as one.** At a project, *hide nothing* and *not
+		stated* are different answers — the first stops a status hidden above from being hidden
+		here, the second lets it through — so nothing on the way turns `[]` into null.
+	*/
+	return {
+		path: scoped(`/projects/${encodedPath(project)}`, slug),
 		method: "PATCH",
 		body: { settings: { [key]: value === undefined ? null : value } },
 	};

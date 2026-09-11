@@ -22,6 +22,16 @@ upgrade involves.
 
 ### Added
 
+- **A project's settings, in the browser.**
+
+  A workspace's settings page now lists its projects, and each has a page of its own. It shows
+  what the project is marked with and which statuses it does not offer, and says for each
+  whether the project set it itself or inherits it — from a project above it or from the
+  workspace, with a link to wherever it was set. Anybody who can change the project can change
+  these: a value that comes from above can be overridden here, and one set here can be taken
+  back, so that whatever is set above shows through again. A project can also offer every
+  status even where its workspace hides some.
+
 - **A workspace's settings, in the browser.**
 
   **Settings** in the footer now lists every workspace you can reach beside your own account.

@@ -1068,10 +1068,16 @@ export function settingsPageOf (pathname) {
 		**`/settings/workspace/<slug>` is a workspace's page** (`#1447`), named by the short
 		name every other address in this app uses for one.
 
-		**Anything else is null, never the nearest page.** A project's page and the
-		installation's arrive with `#1448` and `#2103`, and until they do an address naming one
-		names nothing here — answering it with the reader's own would show them something other
-		than what the link says, which is `#745`'s rule.
+		**`/settings/project/<slug>/<path>` is a project's page** (`#1448`) — the address every
+		other page here gives that project, behind the area's two words. Both halves are needed:
+		a project key is unique only within one workspace, and since `#958` only among its
+		siblings, so `/settings/project/web` names no project at all rather than the first `web`
+		somewhere.
+
+		**Anything else is null, never the nearest page.** The installation's arrives with
+		`#2103`, and until it does an address naming it names nothing here — answering it with
+		the reader's own would show them something other than what the link says, which is
+		`#745`'s rule.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
@@ -1085,6 +1091,38 @@ export function settingsPageOf (pathname) {
 	   written is tolerated rather than thrown (`segment`, `#681`). */
 	if (rest.length === 2 && rest[0] === "workspace") {
 		return { scope: "workspace", slug: segment(rest[1]) };
+	}
+
+	/* A segment at a time and joined again, `encodedPath` read backwards: the separators are
+	   structure, and only the keys between them were escaped. */
+	if (rest.length >= 3 && rest[0] === "project") {
+		return {
+			scope: "project",
+			slug: segment(rest[1]),
+			project: rest.slice(2).map(segment).join(PATH_SEPARATOR),
+		};
+	}
+
+	return null;
+}
+
+
+export function settingsAddress (page) {
+	/*
+		The address of one settings page — `settingsPageOf` read backwards, so that a link on one
+		page and the parser on the next cannot disagree about how a page is named (`#1448`).
+
+		**Escaped a segment at a time**, `encodedPath`'s rule: a project's path keeps its
+		separators, and its workspace's short name is one segment however it is spelled.
+	*/
+	if (!page) return null;
+
+	if (page.scope === "me") return "/settings/me";
+
+	if (page.scope === "workspace") return `/settings/workspace/${encodeURIComponent(page.slug)}`;
+
+	if (page.scope === "project") {
+		return `/settings/project/${encodeURIComponent(page.slug)}/${encodedPath(page.project)}`;
 	}
 
 	return null;

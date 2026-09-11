@@ -2611,3 +2611,15 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	border-radius: var(--radius);
 	background: var(--row-hue);
 }
+
+/* A workspace's projects, each leading to its own page (`#1448`). A column rather than a row of
+   links, because it follows the tree, and the path beside each title is what tells two
+   projects with one title apart. */
+.setting-projects ul {
+	display: grid;
+	gap: var(--space-2);
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--text-small);
+}

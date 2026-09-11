@@ -104,6 +104,14 @@ COLOUR_SETTING = next(one for one in REGISTRY if one["kind"] == "colour")
 STATUSES_SETTING = next(one for one in REGISTRY if one["kind"] == "status_keys")
 SOME_STATUSES = [{"key": "open", "label": "Open"}, {"key": "blocked", "label": "Blocked"}]
 
+#: A workspace's projects as `projectsRequest` answers them: in tree order, with a depth and a key
+#: and no path, which the page rebuilds (`#1448`). ``ui`` is a child, so an address made from its
+#: key alone would name a root project that does not exist.
+SOME_PROJECTS = [
+	{"key": "subroutine", "title": "Subroutine", "depth": 0},
+	{"key": "ui", "title": "Web UI", "depth": 1},
+]
+
 
 SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# **What `marks` decided, drawn** (`SR#970`) — its own component since a listing row and an
@@ -467,7 +475,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	# **A workspace's page, a reader who may use it, and a control for each kind** — `#1447`.
 	# Both settings are drawn, so both controls render inside it; the colour's swatches are what
-	# reach the eight palette rules, which no other sample does.
+	# reach the eight palette rules, which no other sample does. Its projects are listed too
+	# (`#1448`), which is what reaches the list's own rule.
 	"WorkspaceSettings": {
 		"workspace": {"slug": "projects", "title": "Projects", "permissions": ["workspace:admin"]},
 		"registry": REGISTRY,
@@ -486,6 +495,33 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			],
 		},
 		"may": ["workspace:admin"],
+		"projects": SOME_PROJECTS,
+	},
+	# **A project inheriting its colour and stating its statuses as nothing hidden** — `#1448`.
+	# The two answers a project's page exists to tell apart are both drawn: a value that came from
+	# the workspace, leading to where it was set, and an empty list set here, which is a value
+	# rather than an absence and so carries the button that takes it back.
+	"ProjectSettings": {
+		"workspace": {"slug": "projects", "title": "Projects", "permissions": ["project:write"]},
+		"project": "subroutine/ui",
+		"title": "Web UI",
+		"registry": REGISTRY,
+		"statuses": SOME_STATUSES,
+		"inForce": {
+			"scope": "project",
+			"settings": [
+				{
+					"key": COLOUR_SETTING["key"], "value": "teal", "default": None,
+					"set_here": False,
+					"inherited_from": {"scope": "workspace", "address": "projects", "title": "Projects"},
+				},
+				{
+					"key": STATUSES_SETTING["key"], "value": [], "default": [],
+					"set_here": True, "inherited_from": None,
+				},
+			],
+		},
+		"may": ["project:write"],
 	},
 	"ColourChoice": {"setting": COLOUR_SETTING, "value": "teal"},
 	"StatusChoice": {"setting": STATUSES_SETTING, "value": ["blocked"], "statuses": SOME_STATUSES},
@@ -8762,6 +8798,15 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("workspaceSettingsRequest", [place.slug]),
 		("changeWorkspaceSettingRequest", [place.slug, "appearance.colour", "teal"]),
 		("changeWorkspaceSettingRequest", [place.slug, "appearance.colour", None]),
+		# **A project's page reads and writes through these two** (`#1448`), set and cleared for
+		# the workspace's reason. **The empty list is an entry of its own**, because at a project
+		# it is a value rather than an absence — *hide nothing here* — and the route has to keep
+		# it rather than drop it.
+		("projectSettingsRequest", [place.slug, place.project]),
+		("changeProjectSettingRequest", [place.slug, place.project, "appearance.colour", "teal"]),
+		("changeProjectSettingRequest", [place.slug, place.project, "appearance.colour", None]),
+		("changeProjectSettingRequest", [place.slug, place.project, "statuses.hidden", []]),
+		("changeProjectSettingRequest", [place.slug, place.project, "statuses.hidden", None]),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -16903,13 +16948,14 @@ def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
 def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path) -> None:
 	"""`#1446`: `/settings` and `/settings/me` are the reader's own page; unbuilt ones are null.
 
-	**Null, never the nearest page.** A project's settings and the installation's arrive with
-	`#1448` and `#2103`; until then a link to one answered with some other page would show the
-	reader something other than what they were sent — so the page says there is no such page
-	and gives the way to the one there is.
+	**Null, never the nearest page.** The installation's settings arrive with `#2103`; until
+	then a link to them answered with some other page would show the reader something other
+	than what they were sent — so the page says there is no such page and gives the way to the
+	one there is.
 
-	**This named a workspace's page as the unbuilt one until `#1447` built it**, and the test
-	then failed on the change it was waiting for. That case is `#1447`'s own test now.
+	**This named a workspace's page as the unbuilt one until `#1447` built it, and a project's
+	until `#1448` did**, and each time the test failed on the change it was waiting for. Those
+	cases are each item's own test now.
 	"""
 
 	answers = _ran(tmp_path, f"""
@@ -16919,7 +16965,6 @@ def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path
 			root: app.settingsPageOf("/settings"),
 			mine: app.settingsPageOf("/settings/me"),
 			slashed: app.settingsPageOf("/settings/me/"),
-			unbuilt: app.settingsPageOf("/settings/project/web"),
 			installation: app.settingsPageOf("/settings/instance"),
 			deeper: app.settingsPageOf("/settings/me/anything"),
 			elsewhere: app.settingsPageOf("/people"),
@@ -16931,7 +16976,7 @@ def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path
 	assert answers["mine"] == {"scope": "me"}
 	assert answers["slashed"] == {"scope": "me"}, "a trailing slash is the same address"
 
-	for name in ("unbuilt", "installation", "deeper", "elsewhere", "nowhere"):
+	for name in ("installation", "deeper", "elsewhere", "nowhere"):
 		assert answers[name] is None, f"{name} named a settings page: {answers[name]!r}"
 
 	unknown = _rendered(tmp_path, {"Settings": {**SAMPLES["Settings"], "page": None}})["Settings"]
@@ -17299,6 +17344,218 @@ def test_opening_a_workspaces_settings_asks_for_its_vocabulary_and_what_is_in_fo
 	assert "/v1/workspaces/projects/settings" in reads, reads
 	assert COLOUR_SETTING["summary"] in driven["said"], driven["said"][:400]
 	assert "Set here." in driven["said"], driven["said"][:400]
+
+
+def test_a_project_has_a_settings_page_at_its_whole_address (tmp_path: pathlib.Path) -> None:
+	"""`#1448`: ``/settings/project/<workspace>/<path>``, the address every other page gives it.
+
+	**Both halves**, because a key is unique only among its siblings (`#958`) and a tree only
+	within one workspace — so a project named without its workspace names nothing, rather than
+	the first project with that key somewhere.
+
+	**And every page's address reads back as that page**, which is what a link on one page and
+	the parser on the next have to agree about, escapes included, a segment at a time.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const pages = [
+			{{ scope: "me" }},
+			{{ scope: "workspace", slug: "pro jects" }},
+			{{ scope: "project", slug: "projects", project: "subroutine" }},
+			{{ scope: "project", slug: "pro jects", project: "sub routine/ui" }},
+		];
+
+		process.stdout.write(JSON.stringify({{
+			root: app.settingsPageOf("/settings/project/projects/subroutine"),
+			nested: app.settingsPageOf("/settings/project/projects/subroutine/ui"),
+			escaped: app.settingsPageOf("/settings/project/pro%20jects/sub%20routine/ui"),
+			bare: app.settingsPageOf("/settings/project"),
+			workspaceless: app.settingsPageOf("/settings/project/web"),
+			addresses: pages.map((page) => app.settingsAddress(page)),
+			back: pages.map((page) => app.settingsPageOf(app.settingsAddress(page))),
+			pages,
+		}}));
+	""")
+
+	assert answers["root"] == {"scope": "project", "slug": "projects", "project": "subroutine"}
+	assert answers["nested"] == {
+		"scope": "project", "slug": "projects", "project": "subroutine/ui",
+	}
+	assert answers["escaped"] == {
+		"scope": "project", "slug": "pro jects", "project": "sub routine/ui",
+	}
+
+	for name in ("bare", "workspaceless"):
+		assert answers[name] is None, f"{name} named a page: {answers[name]!r}"
+
+	assert answers["addresses"][3] == "/settings/project/pro%20jects/sub%20routine/ui", (
+		answers["addresses"]
+	)
+	assert answers["back"] == answers["pages"], "a page's own address reads back as another page"
+
+
+def test_nothing_hidden_and_not_stated_are_one_answer_only_at_the_top (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1448`: at a project an empty list is *hide nothing here*; at a workspace it clears.
+
+	**The one place ``[]`` and null differ is below the widest scope a setting has**, because
+	only there is something above to show through. So a control with nothing ticked sends
+	``[]`` at a project and null at a workspace, and ``inheritsAt`` — read off the registry's
+	own scopes, not off a scope's name — says which.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const statuses = {json.dumps(STATUSES_SETTING)};
+
+		process.stdout.write(JSON.stringify({{
+			project: app.inheritsAt(statuses, "project"),
+			workspace: app.inheritsAt(statuses, "workspace"),
+			unknown: app.inheritsAt(statuses, "instance"),
+			belowTheTop: app.hiddenValue([], true),
+			atTheTop: app.hiddenValue([], false),
+			some: app.hiddenValue(["blocked"], false),
+		}}));
+	""")
+
+	assert said == {
+		"project": True, "workspace": False, "unknown": False,
+		"belowTheTop": [], "atTheTop": None, "some": ["blocked"],
+	}, said
+
+
+def test_a_project_page_says_what_it_inherits_and_takes_back_only_what_it_set (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1448`, `#2110` §4: inherited and set here are two answers, read and acted on differently.
+
+	**An inherited value names where it came from and leads there**, since that is where it is
+	changed for everything that inherits it; **a value set here carries the button that takes it
+	back**, and an inherited one does not, because clearing what is not stated here changes
+	nothing. The sample holds one of each. And **no *None* below the top**: a project cannot
+	say *no colour*, so that option would clear the value and let a parent's colour through.
+
+	**With the reader who may not**, for the workspace page's reason: no input, no button, the
+	values said and the verb named — this scope's verb, not the workspace's.
+	"""
+
+	shown = _rendered(tmp_path, {"ProjectSettings": SAMPLES["ProjectSettings"]})["ProjectSettings"]
+	allowed, refused = (
+		_markup(tmp_path, {"ProjectSettings": {**SAMPLES["ProjectSettings"], "may": may}})[
+			"ProjectSettings"
+		]
+		for may in (["project:write"], [])
+	)
+	workspace = _markup(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+
+	assert "Inherited from the workspace, Projects." in shown, shown[:600]
+	assert shown.count("Open its settings.") == 1, "only the inherited value leads elsewhere"
+	assert shown.count("Stop setting it here") == 1, "only the value set here can be taken back"
+	assert shown.count("Saving sets it on this project") == 1, shown[:600]
+	assert allowed.count('href="/settings/workspace/projects"') == 2, (
+		"the heading and the inherited value should both lead to the workspace's page"
+	)
+	assert "<span>None</span>" not in allowed, "a project was offered a colour it cannot state"
+	assert "<span>None</span>" in workspace, "the workspace lost the colour it can state"
+
+	assert "<input" not in refused and "<button" not in refused, refused[:400]
+	assert "needs the project:write permission" in refused, refused[:400]
+	assert "Every status is offered." in refused, "a reader who may not was not told what is in force"
+
+
+def test_a_workspace_page_leads_to_each_of_its_projects_pages (tmp_path: pathlib.Path) -> None:
+	"""`#1448`: a project's page is reached from its workspace's, which is where it inherits from.
+
+	**By its whole path, rebuilt from the tree** — `path` is not a field a listing can ask for
+	(`#770`) and a key alone is unique only among siblings, so ``ui`` here must lead to
+	``subroutine/ui`` and never to a root project called ``ui``.
+	"""
+
+	markup = _markup(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+
+	assert 'href="/settings/project/projects/subroutine"' in markup, markup[:600]
+	assert 'href="/settings/project/projects/subroutine/ui"' in markup, markup[:600]
+	assert 'href="/settings/project/projects/ui"' not in markup, "a child was addressed by its key"
+
+
+def test_a_project_can_hide_nothing_where_its_workspace_hides_something (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""`#1448`'s whole distinction, against a real instance through the page's own builders.
+
+	The workspace hides a status and the project inherits it; the project says *hide nothing
+	here* with an empty list, and nothing is hidden there; the project takes it back, and the
+	workspace's list shows through again, named as inherited. **A status below 400 is not the
+	claim** — the settings read is, for the timezone's reason.
+
+	**Everything is put back**, because the fixture's workspace is shared with the rest of the
+	file and a hidden status left behind would narrow what every later test is offered.
+	"""
+
+	hide, nothing, take_back, restore, read = _built(tmp_path, [
+		("changeWorkspaceSettingRequest", [instance.slug, "statuses.hidden", ["blocked"]]),
+		("changeProjectSettingRequest", [instance.slug, instance.project, "statuses.hidden", []]),
+		("changeProjectSettingRequest", [instance.slug, instance.project, "statuses.hidden", None]),
+		("changeWorkspaceSettingRequest", [instance.slug, "statuses.hidden", None]),
+		("projectSettingsRequest", [instance.slug, instance.project]),
+	])
+
+	def hidden () -> dict[str, typing.Any]:
+		"""The project's hidden statuses as its settings read reports them now."""
+
+		answer = instance.call(read["method"], f"/v1{read['path']}")
+
+		assert answer.status_code == 200, answer.text
+
+		return next(one for one in answer.json()["settings"] if one["key"] == "statuses.hidden")
+
+	try:
+		for request, value, here, source in (
+			(hide, ["blocked"], False, "workspace"),
+			(nothing, [], True, None),
+			(take_back, ["blocked"], False, "workspace"),
+		):
+			answer = instance.call(request["method"], f"/v1{request['path']}", json=request["body"])
+
+			assert answer.status_code == 200, answer.text
+
+			now = hidden()
+
+			assert (now["value"], now["set_here"]) == (value, here), request["body"]
+			assert (now["inherited_from"] or {}).get("scope") == source, now
+
+	finally:
+		instance.call(restore["method"], f"/v1{restore['path']}", json=restore["body"])
+
+
+def test_opening_a_projects_settings_asks_for_what_is_in_force_there (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1448`'s wiring: the project's own read, by its whole path, in its own workspace."""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/settings/project/projects/subroutine/ui",
+		permissions=("task:write", "project:write"),
+		answers={
+			"/settings": SAMPLES["ProjectSettings"]["inForce"],
+			"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+		},
+	)
+	reads = [one["path"] for one in driven["asked"] if one["method"] == "GET"]
+
+	assert "/v1/projects/subroutine/ui/settings?workspace_id=projects" in reads, reads
+	assert any(path.startswith("/v1/meta") and "workspace_id=projects" in path for path in reads), reads
+	assert "Inherited from the workspace, Projects." in driven["said"], driven["said"][:400]
+	assert "Stop setting it here" in driven["said"], driven["said"][:400]
 
 
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (

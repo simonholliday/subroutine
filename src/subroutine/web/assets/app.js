@@ -23,7 +23,7 @@ import {
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
-	settingsPageOf, showingOf, titlesByPath, viewOf, withShowing, widened,
+	settingsAddress, settingsPageOf, showingOf, titlesByPath, viewOf, withShowing, widened,
 } from "./address.js";
 import {
 	Boundary, accumulated, inOrder, mergeOrder, newestFirst, refusal, sunkOrder, unpacked,
@@ -72,7 +72,8 @@ import {
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, timezoneRequest, touching, unlinkRequest,
 	updateRequest, withTime, written,
-	changeWorkspaceSettingRequest, workspaceSettingsRequest,
+	changeProjectSettingRequest, changeWorkspaceSettingRequest, projectSettingsRequest,
+	workspaceSettingsRequest,
 } from "./requests.js";
 import { Agenda, Board, Marks, Row, Stamp } from "./rows.js";
 import {
@@ -112,10 +113,12 @@ export function App () {
 	   different answer and arrives as an object with no people in it. */
 	const [directory, setDirectory] = useState(null);
 
-	/* **A workspace settings page's two answers** — `#1447`: what that workspace calls things,
-	   which carries the settings registry since `#2365`, and what is in force there (`#2450`).
-	   Null is *not asked yet*; `failed` says the read did not arrive, so the page can say so
-	   rather than draw a form with nothing in it. */
+	/* **A settings page's answers** — `#1447`, `#1448`: what its workspace calls things, which
+	   carries the settings registry since `#2365`; what is in force there (`#2450`); and the
+	   workspace's projects, which a workspace's page lists and a project's page is titled from.
+	   **Keyed by the page's own address**, so an answer about one page is never drawn on
+	   another. Null is *not asked yet*; `failed` says the reads did not arrive, so the page can
+	   say so rather than draw a form with nothing in it. */
 	const [configured, setConfigured] = useState(null);
 
 	/* **The four pieces of state the authority acts need** — `#1396`. Whose credentials are
@@ -1483,58 +1486,78 @@ export function App () {
 		}
 	}, [me]);
 
-	const configure = useCallback(async (slug) => {
+	const configure = useCallback(async (page) => {
 		/*
-			Read a workspace's settings page — `#1447`.
+			Read a workspace's or a project's settings page — `#1447`, `#1448`.
 
-			**Both answers at once, because they are independent**, and neither cached: a
-			settings page is opened deliberately, and what is configured is exactly what changes
-			while somebody has it open.
+			**Every answer at once, because they are independent**, and none cached: a settings
+			page is opened deliberately, and what is configured is exactly what changes while
+			somebody has it open. **The projects are the workspace's on either page** — its own
+			page lists them, and a project's is titled from them, where a read of the project
+			itself would be a fourth request for one word.
 		*/
+		const key = settingsAddress(page);
+
 		setConfigured(null);
 
 		try {
-			const [meta, inForce] = await Promise.all([
-				sent(vocabularyRequest(slug)),
-				sent(workspaceSettingsRequest(slug)),
+			const [meta, inForce, projects] = await Promise.all([
+				sent(vocabularyRequest(page.slug)),
+				sent(page.scope === "project"
+					? projectSettingsRequest(page.slug, page.project)
+					: workspaceSettingsRequest(page.slug)),
+				sent(projectsRequest(page.slug)),
 			]);
 
-			setConfigured({ slug, meta, inForce });
+			setConfigured({
+				key,
+				meta,
+				inForce,
+				projects: projects.items || [],
+				more: Boolean(projects.page && projects.page.has_more),
+			});
 		} catch (failure) {
-			setConfigured({ slug, failed: failure.message });
+			setConfigured({ key, failed: failure.message });
 		}
 	}, []);
 
 	useEffect(() => {
 		/*
 			**Read when the page is opened, and not before** — the people page's rule (`#1397`):
-			a reader who never opens a workspace's settings pays nothing for them.
+			a reader who never opens a workspace's or a project's settings pays nothing for them.
 		*/
 		if (area !== "settings" || !me) return;
 
 		const page = settingsPageOf(window.location.pathname);
 
-		if (page && page.scope === "workspace") configure(page.slug);
+		if (page && (page.scope === "workspace" || page.scope === "project")) configure(page);
 	}, [area, me, configure]);
 
-	const settle = useCallback(async (slug, key, value) => {
+	const settle = useCallback(async (page, key, value) => {
 		/*
-			Change one of a workspace's settings — `#1447`.
+			Change one of a workspace's or a project's settings — `#1447`, `#1448`.
 
 			**What is in force is read again rather than patched in place**, because whether a
 			value is now *set here* is the server's to say, and a local copy would be this browser
 			deciding what the registry did with it. Only that read is repeated — the vocabulary
-			has not changed — and the page keeps what it is showing meanwhile rather than going
-			back to *Reading…* under the reader's hand.
+			and the projects have not changed — and the page keeps what it is showing meanwhile
+			rather than going back to *Reading…* under the reader's hand.
 		*/
+		const address = settingsAddress(page);
+		const forProject = page.scope === "project";
+
 		setBusy(true);
 
 		try {
-			await sent(changeWorkspaceSettingRequest(slug, key, value));
+			await sent(forProject
+				? changeProjectSettingRequest(page.slug, page.project, key, value)
+				: changeWorkspaceSettingRequest(page.slug, key, value));
 
-			const inForce = await sent(workspaceSettingsRequest(slug));
+			const inForce = await sent(forProject
+				? projectSettingsRequest(page.slug, page.project)
+				: workspaceSettingsRequest(page.slug));
 
-			setConfigured((was) => (was && was.slug === slug ? { ...was, inForce } : was));
+			setConfigured((was) => (was && was.key === address ? { ...was, inForce } : was));
 			setNote({ text: "Saved.", tone: "good" });
 		} catch (failure) {
 			setNote({ text: `That was not saved. ${failure.message}`, tone: "bad" });
@@ -3241,6 +3264,7 @@ export {
 	refAsked,
 	reloads,
 	selectionOf,
+	settingsAddress,
 	settingsPageOf,
 	shortVersion,
 	showingOf,
@@ -3390,12 +3414,15 @@ export {
 	ALWAYS_OFFERED,
 	CONTROLLED_KINDS,
 	ColourChoice,
+	ProjectSettings,
 	Settings,
 	StatusChoice,
 	Timezone,
 	WorkspaceSettings,
 	deviceZone,
+	hiddenValue,
 	inForceSaid,
+	inheritsAt,
 	listedZones,
 	valueSaid,
 	zoneChoices,
@@ -3428,6 +3455,7 @@ export {
 	assignRequest,
 	authorOf,
 	cadence,
+	changeProjectSettingRequest,
 	changeWorkspaceSettingRequest,
 	collectionsFor,
 	commentRequest,
@@ -3456,6 +3484,7 @@ export {
 	peopleRequest,
 	pollRequest,
 	prioritiseRequest,
+	projectSettingsRequest,
 	readForm,
 	readingRequest,
 	releaseMoved,
