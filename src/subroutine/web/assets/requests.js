@@ -393,6 +393,35 @@ export function changeProjectSettingRequest (slug, project, key, value) {
 	};
 }
 
+export function instanceRequest () {
+	/*
+		What this installation is called and where it says it is — `#2103`.
+
+		**`/v1/meta`, because that is its one reader.** `api/instance.py` has a `PATCH` and
+		deliberately no `GET`: meta already reports the instance to everybody signed in, and a
+		second reader would be two answers to one question. No workspace is named, because the
+		installation is not in one.
+	*/
+	return { path: "/meta", method: "GET" };
+}
+
+export function changeInstanceRequest (changes) {
+	/*
+		Change this installation's name or its timezone — `#2103`, `PATCH /v1/instance`.
+
+		**Only the fields given are sent**, because the route reads what was *sent* (§8.3) and
+		neither field may be set to nothing: a field the reader did not touch must be left out,
+		never sent empty. `instanceChanges` decides which those are.
+	*/
+	const body = {};
+
+	for (const field of ["name", "timezone"]) {
+		if (changes && changes[field] !== undefined) body[field] = changes[field];
+	}
+
+	return { path: "/instance", method: "PATCH", body };
+}
+
 export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.

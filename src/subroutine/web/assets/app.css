@@ -2623,3 +2623,13 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	list-style: none;
 	font-size: var(--text-small);
 }
+
+/* **The label above its control** for the installation's two fields (`#2103`), the timezone
+   page's rule and for its reason: a zone's name is long, and a label beside it squeezes the
+   list to nothing on a phone. */
+.setting-fields label {
+	display: grid;
+	justify-items: start;
+	gap: var(--space-2);
+	margin: 0 0 var(--space-4);
+}

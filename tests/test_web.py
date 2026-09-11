@@ -523,6 +523,13 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		},
 		"may": ["project:write"],
 	},
+	# **The installation's page, for somebody who may change it** — `#2103`. Its zone is one the
+	# browser lists, so the control shows it chosen; the reader without the verb is the test's.
+	"InstanceSettings": {
+		"instance": {"id": "i1", "name": "Home", "timezone": "Europe/London"},
+		"zones": ["Europe/London", "Asia/Tokyo"],
+		"may": True,
+	},
 	"ColourChoice": {"setting": COLOUR_SETTING, "value": "teal"},
 	"StatusChoice": {"setting": STATUSES_SETTING, "value": ["blocked"], "statuses": SOME_STATUSES},
 	# **A usable credential, so the act it carries is drawn.** The spent branch is reached
@@ -8807,6 +8814,10 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("changeProjectSettingRequest", [place.slug, place.project, "appearance.colour", None]),
 		("changeProjectSettingRequest", [place.slug, place.project, "statuses.hidden", []]),
 		("changeProjectSettingRequest", [place.slug, place.project, "statuses.hidden", None]),
+		# **The installation's page reads `/v1/meta` and writes the instance** (`#2103`), written
+		# with the fixture's own name so that driving it changes nothing a later call reads.
+		("instanceRequest", []),
+		("changeInstanceRequest", [{"name": "Test"}]),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -16946,16 +16957,15 @@ def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
 
 
 def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path) -> None:
-	"""`#1446`: `/settings` and `/settings/me` are the reader's own page; unbuilt ones are null.
+	"""`#1446`: `/settings` and `/settings/me` are the reader's own page; nothing is guessed.
 
-	**Null, never the nearest page.** The installation's settings arrive with `#2103`; until
-	then a link to them answered with some other page would show the reader something other
-	than what they were sent — so the page says there is no such page and gives the way to the
-	one there is.
+	**Null, never the nearest page.** A link to an address this area does not have, answered
+	with some other page, would show the reader something other than what they were sent — so
+	the page says there is no such page and gives the way to the one there is.
 
-	**This named a workspace's page as the unbuilt one until `#1447` built it, and a project's
-	until `#1448` did**, and each time the test failed on the change it was waiting for. Those
-	cases are each item's own test now.
+	**This named an unbuilt page until there were none**: a workspace's until `#1447`, a
+	project's until `#1448` and the installation's until `#2103`, and each time the test failed
+	on the change it was waiting for. Those cases are each item's own test now.
 	"""
 
 	answers = _ran(tmp_path, f"""
@@ -16965,7 +16975,7 @@ def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path
 			root: app.settingsPageOf("/settings"),
 			mine: app.settingsPageOf("/settings/me"),
 			slashed: app.settingsPageOf("/settings/me/"),
-			installation: app.settingsPageOf("/settings/instance"),
+			beyond: app.settingsPageOf("/settings/instance/more"),
 			deeper: app.settingsPageOf("/settings/me/anything"),
 			elsewhere: app.settingsPageOf("/people"),
 			nowhere: app.settingsPageOf("/"),
@@ -16976,7 +16986,7 @@ def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path
 	assert answers["mine"] == {"scope": "me"}
 	assert answers["slashed"] == {"scope": "me"}, "a trailing slash is the same address"
 
-	for name in ("installation", "deeper", "elsewhere", "nowhere"):
+	for name in ("beyond", "deeper", "elsewhere", "nowhere"):
 		assert answers[name] is None, f"{name} named a settings page: {answers[name]!r}"
 
 	unknown = _rendered(tmp_path, {"Settings": {**SAMPLES["Settings"], "page": None}})["Settings"]
@@ -17362,6 +17372,7 @@ def test_a_project_has_a_settings_page_at_its_whole_address (tmp_path: pathlib.P
 
 		const pages = [
 			{{ scope: "me" }},
+			{{ scope: "instance" }},
 			{{ scope: "workspace", slug: "pro jects" }},
 			{{ scope: "project", slug: "projects", project: "subroutine" }},
 			{{ scope: "project", slug: "pro jects", project: "sub routine/ui" }},
@@ -17390,7 +17401,7 @@ def test_a_project_has_a_settings_page_at_its_whole_address (tmp_path: pathlib.P
 	for name in ("bare", "workspaceless"):
 		assert answers[name] is None, f"{name} named a page: {answers[name]!r}"
 
-	assert answers["addresses"][3] == "/settings/project/pro%20jects/sub%20routine/ui", (
+	assert answers["addresses"][4] == "/settings/project/pro%20jects/sub%20routine/ui", (
 		answers["addresses"]
 	)
 	assert answers["back"] == answers["pages"], "a page's own address reads back as another page"
@@ -17556,6 +17567,122 @@ def test_opening_a_projects_settings_asks_for_what_is_in_force_there (
 	assert any(path.startswith("/v1/meta") and "workspace_id=projects" in path for path in reads), reads
 	assert "Inherited from the workspace, Projects." in driven["said"], driven["said"][:400]
 	assert "Stop setting it here" in driven["said"], driven["said"][:400]
+
+
+def test_an_installation_page_sends_only_what_was_changed (tmp_path: pathlib.Path) -> None:
+	"""`#2103`: the route reads what was sent, and neither field may be set to nothing.
+
+	So a field the reader did not touch is left out rather than sent back as it was, and a name
+	emptied to nothing *is* sent — the server refuses that by name, which is a better answer
+	than a browser silently keeping the old one.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const instance = {{ name: "Home", timezone: "Europe/London" }};
+
+		process.stdout.write(JSON.stringify({{
+			nothing: app.instanceChanges(instance, " Home ", "Europe/London"),
+			renamed: app.instanceChanges(instance, "Away", "Europe/London"),
+			moved: app.instanceChanges(instance, "Home", "Asia/Tokyo"),
+			emptied: app.instanceChanges(instance, "  ", "Europe/London"),
+			sent: app.changeInstanceRequest({{ timezone: "Asia/Tokyo" }}),
+		}}));
+	""")
+
+	assert said["nothing"] == {}, said
+	assert said["renamed"] == {"name": "Away"}, said
+	assert said["moved"] == {"timezone": "Asia/Tokyo"}, said
+	assert said["emptied"] == {"name": ""}, said
+	assert said["sent"] == {
+		"path": "/instance", "method": "PATCH", "body": {"timezone": "Asia/Tokyo"},
+	}, said
+
+
+def test_an_installation_page_shows_everybody_its_values_and_only_an_administrator_a_control (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2103`: ``instance:admin`` is held by no role, so most readers see values and no form.
+
+	**With the positive twin**, for the workspace page's reason, and **the rest of the
+	configuration named rather than shown** on both: it is the operator's file on the server,
+	and a page that configuration serves is not where it is changed.
+	"""
+
+	allowed, refused = (
+		_markup(tmp_path, {"InstanceSettings": {**SAMPLES["InstanceSettings"], "may": may}})[
+			"InstanceSettings"
+		]
+		for may in (True, False)
+	)
+
+	assert "<input" in allowed and "<button" in allowed, "the administrator was offered nothing"
+	assert "<input" not in refused and "<button" not in refused, refused[:400]
+	assert "needs the instance:admin permission" in refused, refused[:400]
+	assert "Europe/London" in refused, "a reader who may not was not told the zone"
+
+	for page in (allowed, refused):
+		assert "subroutine config show" in page, "the rest of the configuration went unmentioned"
+
+
+def test_an_installation_renamed_in_the_browser_is_the_name_it_reports (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""Renamed and moved through the page's own builders, and read back where the page reads.
+
+	**Put back afterwards**, because the fixture's installation is shared with the rest of the
+	file and its zone is the last word in every date a later test reads.
+	"""
+
+	[read] = _built(tmp_path, [("instanceRequest", [])])
+
+	def reported () -> dict[str, typing.Any]:
+		"""The installation as ``/v1/meta`` reports it now."""
+
+		answer = instance.call(read["method"], f"/v1{read['path']}")
+
+		assert answer.status_code == 200, answer.text
+
+		return dict(answer.json()["instance"])
+
+	before = reported()
+	elsewhere = "Asia/Tokyo" if before["timezone"] != "Asia/Tokyo" else "Europe/Paris"
+	change, restore = _built(tmp_path, [
+		("changeInstanceRequest", [{"name": "Renamed", "timezone": elsewhere}]),
+		("changeInstanceRequest", [{"name": before["name"], "timezone": before["timezone"]}]),
+	])
+
+	try:
+		answer = instance.call(change["method"], f"/v1{change['path']}", json=change["body"])
+
+		assert answer.status_code == 200, answer.text
+
+		now = reported()
+
+		assert (now["name"], now["timezone"]) == ("Renamed", elsewhere), now
+
+	finally:
+		instance.call(restore["method"], f"/v1{restore['path']}", json=restore["body"])
+
+	assert reported() == before, "the fixture's installation was not put back"
+
+
+def test_opening_the_installations_settings_reads_what_it_is_called (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2103`'s wiring: ``/v1/meta`` with no workspace named, and the name drawn from it."""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/settings/instance",
+		answers={"/meta": {"instance": {"id": "i1", "name": "Home", "timezone": "Europe/London"}}},
+	)
+	reads = [one["path"] for one in driven["asked"] if one["method"] == "GET"]
+
+	assert "/v1/meta" in reads, reads
+	assert "Home" in driven["said"], driven["said"][:400]
+	assert "needs the instance:admin permission" in driven["said"], driven["said"][:400]
 
 
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (

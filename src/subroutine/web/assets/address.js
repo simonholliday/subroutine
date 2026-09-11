@@ -1074,10 +1074,12 @@ export function settingsPageOf (pathname) {
 		siblings, so `/settings/project/web` names no project at all rather than the first `web`
 		somewhere.
 
-		**Anything else is null, never the nearest page.** The installation's arrives with
-		`#2103`, and until it does an address naming it names nothing here — answering it with
-		the reader's own would show them something other than what the link says, which is
-		`#745`'s rule.
+		**`/settings/instance` is this installation's page** (`#2103`) — one word, because there
+		is one installation and nothing beside it to tell apart.
+
+		**Anything else is null, never the nearest page.** Answering an address this area does not
+		have with the reader's own page would show them something other than what the link says,
+		which is `#745`'s rule.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
@@ -1086,6 +1088,8 @@ export function settingsPageOf (pathname) {
 	const rest = parts.slice(1);
 
 	if (rest.length === 0 || (rest.length === 1 && rest[0] === "me")) return { scope: "me" };
+
+	if (rest.length === 1 && rest[0] === "instance") return { scope: "instance" };
 
 	/* Decoded the way every other segment here is, so an escape a browser would not have
 	   written is tolerated rather than thrown (`segment`, `#681`). */
@@ -1118,6 +1122,8 @@ export function settingsAddress (page) {
 	if (!page) return null;
 
 	if (page.scope === "me") return "/settings/me";
+
+	if (page.scope === "instance") return "/settings/instance";
 
 	if (page.scope === "workspace") return `/settings/workspace/${encodeURIComponent(page.slug)}`;
 

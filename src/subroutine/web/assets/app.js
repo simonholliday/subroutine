@@ -72,8 +72,8 @@ import {
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, timezoneRequest, touching, unlinkRequest,
 	updateRequest, withTime, written,
-	changeProjectSettingRequest, changeWorkspaceSettingRequest, projectSettingsRequest,
-	workspaceSettingsRequest,
+	changeInstanceRequest, changeProjectSettingRequest, changeWorkspaceSettingRequest,
+	instanceRequest, projectSettingsRequest, workspaceSettingsRequest,
 } from "./requests.js";
 import { Agenda, Board, Marks, Row, Stamp } from "./rows.js";
 import {
@@ -116,6 +116,7 @@ export function App () {
 	/* **A settings page's answers** — `#1447`, `#1448`: what its workspace calls things, which
 	   carries the settings registry since `#2365`; what is in force there (`#2450`); and the
 	   workspace's projects, which a workspace's page lists and a project's page is titled from.
+	   The installation's page (`#2103`) holds `/v1/meta` alone, which is where it is reported.
 	   **Keyed by the page's own address**, so an answer about one page is never drawn on
 	   another. Null is *not asked yet*; `failed` says the reads did not arrive, so the page can
 	   say so rather than draw a form with nothing in it. */
@@ -1488,7 +1489,8 @@ export function App () {
 
 	const configure = useCallback(async (page) => {
 		/*
-			Read a workspace's or a project's settings page — `#1447`, `#1448`.
+			Read a workspace's, a project's or the installation's settings page — `#1447`,
+			`#1448`, `#2103`.
 
 			**Every answer at once, because they are independent**, and none cached: a settings
 			page is opened deliberately, and what is configured is exactly what changes while
@@ -1501,6 +1503,14 @@ export function App () {
 		setConfigured(null);
 
 		try {
+			/* **The installation's page reads `/v1/meta` alone** (`#2103`): the instance is
+			   reported there, and it has no settings read and no projects of its own. */
+			if (page.scope === "instance") {
+				setConfigured({ key, meta: await sent(instanceRequest()) });
+
+				return;
+			}
+
 			const [meta, inForce, projects] = await Promise.all([
 				sent(vocabularyRequest(page.slug)),
 				sent(page.scope === "project"
@@ -1524,13 +1534,14 @@ export function App () {
 	useEffect(() => {
 		/*
 			**Read when the page is opened, and not before** — the people page's rule (`#1397`):
-			a reader who never opens a workspace's or a project's settings pays nothing for them.
+			a reader who never opens one of these pages pays nothing for it. The reader's own
+			page needs nothing beyond `/v1/me`, which is already here.
 		*/
 		if (area !== "settings" || !me) return;
 
 		const page = settingsPageOf(window.location.pathname);
 
-		if (page && (page.scope === "workspace" || page.scope === "project")) configure(page);
+		if (page && page.scope !== "me") configure(page);
 	}, [area, me, configure]);
 
 	const settle = useCallback(async (page, key, value) => {
@@ -1558,6 +1569,39 @@ export function App () {
 				: workspaceSettingsRequest(page.slug));
 
 			setConfigured((was) => (was && was.key === address ? { ...was, inForce } : was));
+			setNote({ text: "Saved.", tone: "good" });
+		} catch (failure) {
+			setNote({ text: `That was not saved. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, []);
+
+	const adjust = useCallback(async (changes) => {
+		/*
+			Change this installation's name or its timezone — `#2103`.
+
+			**Nothing is sent when nothing changed**: the route would answer an empty body with
+			the instance as it was, and *Saved* here would be a success line covering no change.
+			**`/v1/meta` is read again afterwards**, for `settle`'s reason — what the server now
+			says is the page's answer, not this browser's copy of what it sent.
+		*/
+		if (!changes || Object.keys(changes).length === 0) {
+			setNote({ text: "Nothing had changed, so nothing was saved.", tone: "good" });
+
+			return;
+		}
+
+		const address = settingsAddress({ scope: "instance" });
+
+		setBusy(true);
+
+		try {
+			await sent(changeInstanceRequest(changes));
+
+			const meta = await sent(instanceRequest());
+
+			setConfigured((was) => (was && was.key === address ? { ...was, meta } : was));
 			setNote({ text: "Saved.", tone: "good" });
 		} catch (failure) {
 			setNote({ text: `That was not saved. ${failure.message}`, tone: "bad" });
@@ -2942,7 +2986,7 @@ export function App () {
 					page=${settingsPageOf(typeof window === "undefined" ? "" : window.location.pathname)}
 					me=${me} zones=${listedZones()} device=${deviceZone()}
 					onZone=${zoned} busy=${busy}
-					configured=${configured} onChoose=${settle} />`
+					configured=${configured} onChoose=${settle} onInstance=${adjust} />`
 				: area !== null
 				? html`<${People} ...${directory || {}}
 					${/* **The offer is the operator's own reach** (`#1396`). A credential may
@@ -3414,6 +3458,7 @@ export {
 	ALWAYS_OFFERED,
 	CONTROLLED_KINDS,
 	ColourChoice,
+	InstanceSettings,
 	ProjectSettings,
 	Settings,
 	StatusChoice,
@@ -3423,6 +3468,7 @@ export {
 	hiddenValue,
 	inForceSaid,
 	inheritsAt,
+	instanceChanges,
 	listedZones,
 	valueSaid,
 	zoneChoices,
@@ -3455,6 +3501,7 @@ export {
 	assignRequest,
 	authorOf,
 	cadence,
+	changeInstanceRequest,
 	changeProjectSettingRequest,
 	changeWorkspaceSettingRequest,
 	collectionsFor,
@@ -3473,6 +3520,7 @@ export {
 	fromItem,
 	headRequest,
 	identityRequest,
+	instanceRequest,
 	itemRequests,
 	linkAsked,
 	linkChoices,

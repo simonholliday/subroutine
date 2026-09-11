@@ -22,6 +22,13 @@ upgrade involves.
 
 ### Added
 
+- **This installation's name and timezone, in the browser.**
+
+  Settings now has a page for the installation itself. Anybody signed in can see what it is
+  called and which timezone it uses for people who have not set their own, and somebody who
+  administers the whole installation can change either there. Everything else about the
+  installation stays in its configuration file on the server, and the page says so.
+
 - **A project's settings, in the browser.**
 
   A workspace's settings page now lists its projects, and each has a page of its own. It shows

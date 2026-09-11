@@ -1,7 +1,7 @@
 /*
 	The settings area — `#1445`, design `#2110` §3 and §4.
 
-	**One address space for four scopes, and it holds three of them.** `#2110` puts every
+	**One address space for four scopes, and it holds all four.** `#2110` puts every
 	settings page under `/settings` — the reader's own, then a workspace's, a project's and the
 	installation's — and draws each the same way. The reader's own came first because it needed
 	nothing built: `user.timezone` is a column rather than a registry entry (`#1024` §4's rule,
@@ -495,6 +495,102 @@ export function ProjectSettings ({
 }
 
 
+export function instanceChanges (instance, name, zone) {
+	/*
+		What an installation's page sends for what its form holds — `#2103`: only what differs.
+
+		**Only what differs, because the route reads what was sent** (§8.3) and neither field may
+		be set to nothing, so a field the reader did not touch has to be left out rather than
+		sent back as it was. **A name emptied to nothing is sent**, not dropped: the route
+		refuses it by name, which is the honest answer to somebody who cleared the box, where
+		leaving it out would report a success that changed nothing.
+	*/
+	const changes = {};
+	const called = String(name || "").trim();
+	const where = String(zone || "");
+
+	if (instance && called !== instance.name) changes.name = called;
+
+	if (instance && where && where !== instance.timezone) changes.timezone = where;
+
+	return changes;
+}
+
+
+export function InstanceSettings ({
+	instance = null, zones = [], may = false, onChange, busy = false,
+}) {
+	/*
+		This installation's page — `#2103`, and `#1668`'s conclusion that an instance's name and
+		timezone are columns, joined with the other scopes at the page rather than at the storage.
+
+		**What the row holds, and nothing else changeable.** The rest of what configures an
+		installation — where its database is, where its backups go, which addresses it answers
+		on and trusts, its secret — is the operator's file on the server, and much of it must not
+		be changed from a page that same configuration serves. So it is named rather than shown:
+		the reader learns where to go, and the page publishes nothing of the file.
+
+		**Only somebody holding `instance:admin` may change either**, and no role carries it, so
+		most readers see both values and why there is no control — which still answers *why are
+		my dates in this zone* for somebody who never set their own.
+
+		**No *Not set*, unlike a person's timezone**: this is the last word in §6.5's chain, so it
+		cannot be absent, and the route refuses null.
+	*/
+	if (!instance) return html`<div class="empty">Reading…</div>`;
+
+	const choices = zoneChoices(zones, [instance.timezone, ...ALWAYS_OFFERED]);
+
+	return html`
+		<section class="setting-page">
+			<h3>${instance.name}</h3>
+			<p class="hint">This installation. Its name tells it apart wherever somebody reaches more
+				than one, and its timezone is used for anybody who has not said where they are and
+				whose workspace has not either.</p>
+			${!may
+				? html`
+					<p>It is called ${instance.name}, and works in ${instance.timezone}.</p>
+					<p class="hint">Changing either needs the instance:admin permission, which only
+						somebody who administers the whole installation holds.</p>`
+				: html`
+					<form class="setting-fields" onSubmit=${(event) => {
+						event.preventDefault();
+
+						const said = new FormData(event.target);
+
+						onChange(instanceChanges(instance, said.get("name"), said.get("timezone")));
+					}}>
+						<label>
+							<span>Name</span>
+							<input class="field" name="name" defaultValue=${instance.name}
+								disabled=${busy} />
+						</label>
+						<label>
+							<span>Timezone</span>
+							<select class="field" name="timezone" disabled=${busy}>
+								${choices.map(({ region, zones: here }) => html`
+									<optgroup key=${region} label=${region}>
+										${here.map((zone) => html`
+											<option key=${zone} value=${zone}
+												selected=${zone === instance.timezone}>${zone}</option>
+										`)}
+									</optgroup>
+								`)}
+							</select>
+						</label>
+						<div class="acts">
+							<button type="submit" class="primary" disabled=${busy}>Save</button>
+						</div>
+					</form>`}
+			<p class="hint">Everything else about this installation — where its database is, where
+				its backups go, the addresses it answers on and trusts — is set in its configuration
+				file on the server, by whoever runs it. <code>subroutine config show</code> there prints
+				all of it, with where each value came from.</p>
+		</section>
+	`;
+}
+
+
 export function ColourChoice ({
 	setting, value = null, inherits = false, onChoose, onTakeBack = null, busy = false,
 }) {
@@ -596,6 +692,10 @@ function SettingsNav ({ page = null, workspaces = [] }) {
 
 		**A project's page marks its workspace** (`#1448`), whose page is where its projects are
 		listed. A list naming every project on the installation here would be one nobody scans.
+
+		**This installation comes last and is listed for everybody** (`#2103`): last because it is
+		the widest scope, and for everybody because its page answers *why is it like this* for a
+		reader who may not change it, as a workspace's does.
 	*/
 	const chosen = (slug = null) => Boolean(
 		page && (slug === null
@@ -610,6 +710,8 @@ function SettingsNav ({ page = null, workspaces = [] }) {
 				<a key=${one.slug} href=${settingsAddress({ scope: "workspace", slug: one.slug })}
 					class=${chosen(one.slug) ? "chosen" : ""}>${one.title || one.slug}</a>
 			`)}
+			<a href=${settingsAddress({ scope: "instance" })}
+				class=${page && page.scope === "instance" ? "chosen" : ""}>This installation</a>
 		</nav>
 	`;
 }
@@ -617,23 +719,22 @@ function SettingsNav ({ page = null, workspaces = [] }) {
 
 export function Settings ({
 	page = null, me = null, zones = [], device = null, onZone, busy = false,
-	configured = null, onChoose,
+	configured = null, onChoose, onInstance,
 }) {
 	/*
 		The settings area: the page its address names, or a sentence saying it names none.
 
-		**An address naming no page here is said, never answered with the nearest page.** The
-		installation's arrives with `#2103`; until it does, answering a link to it with some
-		other page would show the reader something other than what they were sent, which is
-		`#745`'s rule about what an address promises.
+		**An address naming no page here is said, never answered with the nearest page**:
+		answering it with some other page would show the reader something other than what they
+		were sent, which is `#745`'s rule about what an address promises.
 
 		**`me` is null until `/v1/me` answers**, drawn as *Reading…* like the people page: the
 		values and the reader's verbs are both on that answer, so nothing true can be drawn first.
 
-		**`configured` is a workspace's or a project's page's answers** — `/v1/meta` for its
-		workspace, its settings read and the workspace's projects — and is used only while it is
-		about the page the address names, **keyed by that page's own address**, so a slow answer
-		about the previous page cannot land on this one.
+		**`configured` is the answers a workspace's, a project's or the installation's page
+		reads** — `/v1/meta`, and for the first two a settings read and the workspace's projects
+		too — used only while it is about the page the address names, **keyed by that page's own
+		address**, so a slow answer about the previous page cannot land on this one.
 	*/
 	if (!me) return html`<div class="settings"><div class="empty">Reading…</div></div>`;
 
@@ -644,6 +745,7 @@ export function Settings ({
 		? configured
 		: null;
 	const meta = (current && current.meta) || {};
+	const called = { workspace: "workspace", project: "project", instance: "installation" };
 	const shared = {
 		registry: meta.settings || [],
 		statuses: (meta.statuses && meta.statuses.task) || [],
@@ -663,8 +765,8 @@ export function Settings ({
 				: entity && !workspace
 				? html`<p class="empty">There is no workspace called ${page.slug} that you can
 						see.</p>`
-				: entity && current && current.failed
-				? html`<p class="empty">This ${page.scope}'s settings could not be read.
+				: current && current.failed
+				? html`<p class="empty">This ${called[page.scope] || "page"}'s settings could not be read.
 						${current.failed}</p>`
 				: page.scope === "workspace"
 				? html`<${WorkspaceSettings} workspace=${workspace} ...${shared}
@@ -674,6 +776,12 @@ export function Settings ({
 				? html`<${ProjectSettings} workspace=${workspace} project=${page.project}
 						title=${current ? titlesByPath(current.projects)[page.project] : null}
 						...${shared} />`
+				: page.scope === "instance" && current && !meta.instance
+				? html`<p class="empty">This installation's answer did not say what it is called.</p>`
+				: page.scope === "instance"
+				? html`<${InstanceSettings} instance=${meta.instance || null} zones=${zones}
+						may=${(me.instance_permissions || []).includes("instance:admin")}
+						onChange=${onInstance} busy=${busy} />`
 				: html`<${Timezone} stored=${(me.user && me.user.timezone) || null}
 						reading=${me.reader_timezone || null} zones=${zones} device=${device}
 						onZone=${onZone} busy=${busy} />`}
