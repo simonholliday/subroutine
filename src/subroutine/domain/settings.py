@@ -104,12 +104,27 @@ ORDINARY_EVERYWHERE: typing.Mapping[str, str] = types.MappingProxyType({})
 class Kind (typing.NamedTuple):
 	"""How a setting's values are read, and what a refusal says they should be."""
 
+	#: What this kind is called where it is published — ``/v1/meta``'s ``settings`` — so a
+	#: client can choose a control by it (`#2365`). **A name rather than the phrase below**,
+	#: because a client branches on it, and a sentence is not something to branch on.
+	key: str
+
 	#: Returns the value to store, or raises :class:`subroutine.errors.ValidationError` naming
 	#: the key. Takes the key so that a refusal talks about the setting rather than the type.
 	check: typing.Callable[[typing.Any, str], typing.Any]
 
 	#: What this kind accepts, for a caller listing what an instance can be told.
 	describes: str
+
+	#: The closed set a value is drawn from, where that set is the same in every workspace — or
+	#: ``None`` where it is not, or where there is no set at all.
+	#:
+	#: **Published so a control can offer the choices without holding a copy** (`#2365`). The
+	#: palette is the case: nothing else publishes its names, so a colour control would have had
+	#: to carry its own list, and two copies of a closed set agree until one of them is extended.
+	#: A status list is the other case — it draws from *a workspace's* vocabulary, which
+	#: ``/v1/meta`` already carries under ``statuses``, so it is ``None`` here rather than a copy.
+	choices: tuple[str, ...] | None = None
 
 
 def _one_colour (value: typing.Any, key: str) -> str:
@@ -132,7 +147,12 @@ def _one_colour (value: typing.Any, key: str) -> str:
 
 
 #: A colour from the closed palette, by name.
-A_COLOUR = Kind(check=_one_colour, describes="one of the palette's colour names")
+A_COLOUR = Kind(
+	key="colour",
+	check=_one_colour,
+	describes="one of the palette's colour names",
+	choices=subroutine.domain.palette.NAMES,
+)
 
 
 def _some_status_keys (value: typing.Any, key: str) -> list[str]:
@@ -180,7 +200,9 @@ def _some_status_keys (value: typing.Any, key: str) -> list[str]:
 
 
 #: Some of a workspace's status keys, in no meaningful order.
-SOME_STATUS_KEYS = Kind(check=_some_status_keys, describes="a list of status keys")
+SOME_STATUS_KEYS = Kind(
+	key="status_keys", check=_some_status_keys, describes="a list of status keys"
+)
 
 
 class Setting (typing.NamedTuple):

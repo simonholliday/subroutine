@@ -7,6 +7,7 @@ than none, because a client believes it.
 """
 
 import re
+import typing
 import uuid
 
 import pytest
@@ -21,6 +22,8 @@ import subroutine.cli.topics
 import subroutine.db.models.vocabulary
 import subroutine.domain.capture
 import subroutine.domain.dates
+import subroutine.domain.palette
+import subroutine.domain.settings
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.installations
@@ -279,6 +282,87 @@ def test_the_error_codes_are_the_registry (world: test_api_tasks.World) -> None:
 	codes = world.call("GET", "/v1/meta").json()["error_codes"]
 
 	assert codes == sorted(subroutine.errors.REGISTRY)
+
+
+def _published (world: test_api_tasks.World, asked: str = "/v1/meta") -> dict[str, typing.Any]:
+	"""Every setting ``/v1/meta`` publishes, by key."""
+
+	return {one["key"]: one for one in world.call("GET", asked).json()["settings"]}
+
+
+def test_every_setting_the_registry_declares_is_published (world: test_api_tasks.World) -> None:
+	"""`#2365`: what a settings form is assembled from, read off the registry rather than a copy.
+
+	**Derived from ``SETTINGS``**, so a setting declared tomorrow is asked about on the day it is
+	declared. Asked with and without a workspace named, because the registry is the same in all
+	of them and a section that went missing with the vocabulary would hide the form with it.
+	"""
+
+	for asked in ("/v1/meta", f"/v1/meta?workspace_id={world.workspace.slug}"):
+		published = _published(world, asked)
+
+		assert set(published) == set(subroutine.domain.settings.SETTINGS), (asked, published)
+
+		for key, declared in subroutine.domain.settings.SETTINGS.items():
+			one = published[key]
+
+			assert one["scopes"] == list(declared.scopes), key
+			assert one["kind"] == declared.kind.key, key
+			assert one["accepts"] == declared.kind.describes, key
+			assert one["summary"] == declared.summary, key
+			assert one["default"] == (
+				list(declared.default) if isinstance(declared.default, tuple) else declared.default
+			), key
+
+
+def test_a_published_setting_names_the_verb_the_service_enforces_at_each_scope (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#2365`. **Each verb is asked of ``permission_for``, the one function the write checks.**
+
+	`#2120` settled that the colour and the hidden statuses need ``workspace:admin`` on a
+	workspace and the ordinary ``project:write`` on a project — per setting and per scope, so a
+	future entry can differ. A client gating its controls on a copy of that answer would be right
+	until the first entry that did.
+	"""
+
+	published = _published(world)
+
+	for key, declared in subroutine.domain.settings.SETTINGS.items():
+		assert published[key]["permission"] == {
+			scope: subroutine.domain.settings.permission_for(declared, scope=scope)
+			for scope in declared.scopes
+		}, key
+
+	# **A floor, because the comparison above is satisfied by a registry that never asks for
+	# more than a scope's ordinary verb** — and publishing the verb matters exactly where it does.
+	stronger = {
+		(key, scope)
+		for key, one in published.items()
+		for scope, verb in one["permission"].items()
+		if verb != subroutine.domain.settings.ORDINARY[scope]
+	}
+
+	assert stronger, "no published setting asks for more than its scope's ordinary verb"
+
+
+def test_a_colour_setting_publishes_the_palette_it_draws_from (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#2365`: nothing else publishes the palette's names, so a control would have held a copy.
+
+	**In the palette's own order**, which is by hue so a chooser moves along a spectrum — a
+	sorted copy would be a different list that happens to hold the same names.
+	"""
+
+	published = _published(world)
+	colour = published[subroutine.domain.settings.COLOUR.key]
+
+	assert colour["kind"] == "colour"
+	assert colour["choices"] == list(subroutine.domain.palette.NAMES)
+	assert published[subroutine.domain.settings.HIDDEN_STATUSES.key]["choices"] is None, (
+		"a list of statuses draws from the workspace's own, which /v1/meta already carries"
+	)
 
 
 def test_the_source_url_is_published (world: test_api_tasks.World) -> None:

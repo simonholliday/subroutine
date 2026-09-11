@@ -5854,6 +5854,41 @@ class Limits(pydantic.BaseModel):
 	max_estimate_minutes: int
 
 
+class Setting(pydantic.BaseModel):
+	"""One thing this installation may be configured with, as a client needs to know it.
+
+	The settings registry, published: each setting's key, where it may be set, the kind of value
+	it takes, its default, what it is for and who may change it — so a settings form is assembled
+	from this rather than written by hand. A form written by hand would be a second list of what
+	settings exist, and the two would agree on the day they were written.
+	"""
+
+	key: str
+
+	#: Where it may be set, most specific first.
+	scopes: list[str]
+
+	#: What kind of value it takes, by name — what a client chooses a control by.
+	kind: str
+
+	#: The same, in words, for a reader rather than a program.
+	accepts: str
+
+	#: The closed set a value is drawn from, where it is the same in every workspace. Null where
+	#: it is not: a list of statuses draws from the workspace's own ``statuses``.
+	choices: list[str] | None = None
+
+	#: What it reads as where nothing is stated.
+	default: typing.Any = None
+
+	summary: str
+
+	#: The verb a caller needs to write it **at each scope** — the answer the service enforces,
+	#: read from ``settings.permission_for`` so that no client holds a copy of who may change
+	#: what.
+	permission: dict[str, str]
+
+
 class Meta(pydantic.BaseModel):
 	"""Everything needed to construct a valid request against *this* installation."""
 
@@ -5954,3 +5989,41 @@ class Meta(pydantic.BaseModel):
 	limits: Limits
 	error_codes: list[str]
 	docs: dict[str, str]
+
+	#: Every setting this installation may be configured with — `#2365`. The registry is the
+	#: same in every workspace, so this is published whether or not one was named.
+	#:
+	#: **Defaulted, like everything added to this model after it shipped** (`#345`, `#482`): an
+	#: instance older than this field sends no such key and must keep working.
+	settings: list[Setting] = pydantic.Field(default_factory=list)
+
+
+def published_settings () -> list[Setting]:
+	"""Return every setting the registry declares, as ``/v1/meta`` publishes it — `#2365`.
+
+	**Read off :data:`subroutine.domain.settings.SETTINGS` and nothing else**, and each verb off
+	:func:`subroutine.domain.settings.permission_for`, which is the function the write asks — so
+	this cannot publish a scope the registry does not offer, or a verb the service does not
+	check.
+
+	**A default that is a tuple is published as a list**, because the registry keeps defaults
+	immutable (one object is shared by every caller that falls back to it) while JSON has only
+	the one sequence.
+	"""
+
+	return [
+		Setting(
+			key=found.key,
+			scopes=list(found.scopes),
+			kind=found.kind.key,
+			accepts=found.kind.describes,
+			choices=None if found.kind.choices is None else list(found.kind.choices),
+			default=list(found.default) if isinstance(found.default, tuple) else found.default,
+			summary=found.summary,
+			permission={
+				scope: subroutine.domain.settings.permission_for(found, scope=scope)
+				for scope in found.scopes
+			},
+		)
+		for found in subroutine.domain.settings.SETTINGS.values()
+	]

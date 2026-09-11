@@ -805,6 +805,21 @@ def _write_a_setting (
 	)
 
 
+def test_every_kind_has_a_name_no_other_kind_has () -> None:
+	"""`#2365`: a client chooses a control by a kind's name, so the names must tell kinds apart.
+
+	Two kinds sharing one would be one control drawn for two things that read values
+	differently — and an empty one is a kind nothing can choose a control for at all.
+	"""
+
+	kinds = {setting.kind for setting in subroutine.domain.settings.SETTINGS.values()}
+	names = [kind.key for kind in kinds]
+
+	assert names, "no setting declares a kind, so this is checking nothing"
+	assert all(names), f"a kind has an empty name: {names!r}"
+	assert len(names) == len(set(names)), f"two kinds share a name: {sorted(names)}"
+
+
 def test_every_scope_names_the_verb_an_ordinary_write_needs () -> None:
 	"""A scope with no entry in ``ORDINARY`` would raise where it should refuse."""
 

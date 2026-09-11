@@ -22,6 +22,14 @@ upgrade involves.
 
 ### Added
 
+- **`/v1/meta` says what this installation can be configured with.**
+
+  A new `settings` list names every setting, where it may be set, the kind of value it takes —
+  with the choices where the set is closed, like the palette a colour is picked from — its
+  default, and the permission a caller needs to change it at each level. A client can build a
+  settings form from it, and decide which controls to offer, without holding its own copy of
+  any of that. Today's two settings are a project's colour and the statuses it does not offer.
+
 - **Say where you are, from the browser.**
 
   A new **Settings** link in the footer opens your own settings, and the first thing there is
