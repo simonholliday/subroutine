@@ -1863,14 +1863,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.written > .rendered:empty::before',
 		':root[data-theme="dark"]',
 		':root[data-theme="light"]',
-		'li[data-colour="amber"]',
-		'li[data-colour="cyan"]',
-		'li[data-colour="green"]',
-		'li[data-colour="indigo"]',
-		'li[data-colour="magenta"]',
-		'li[data-colour="slate"]',
-		'li[data-colour="teal"]',
-		'li[data-colour="violet"]',
 		'li[data-colour]',
 	}
 )

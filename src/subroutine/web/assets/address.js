@@ -1065,10 +1065,13 @@ export function settingsPageOf (pathname) {
 		somebody arriving at the area's root has not said which. So the root answers with the
 		page they certainly may open, rather than a list with one entry in it.
 
-		**Anything else is null, never the nearest page.** A workspace's page arrives with
-		`#1447`, and until it does an address naming one names nothing here — answering it with
-		the reader's own would show them something other than what the link says, which is
-		`#745`'s rule.
+		**`/settings/workspace/<slug>` is a workspace's page** (`#1447`), named by the short
+		name every other address in this app uses for one.
+
+		**Anything else is null, never the nearest page.** A project's page and the
+		installation's arrive with `#1448` and `#2103`, and until they do an address naming one
+		names nothing here — answering it with the reader's own would show them something other
+		than what the link says, which is `#745`'s rule.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
@@ -1076,7 +1079,15 @@ export function settingsPageOf (pathname) {
 
 	const rest = parts.slice(1);
 
-	return rest.length === 0 || (rest.length === 1 && rest[0] === "me") ? { scope: "me" } : null;
+	if (rest.length === 0 || (rest.length === 1 && rest[0] === "me")) return { scope: "me" };
+
+	/* Decoded the way every other segment here is, so an escape a browser would not have
+	   written is tolerated rather than thrown (`segment`, `#681`). */
+	if (rest.length === 2 && rest[0] === "workspace") {
+		return { scope: "workspace", slug: segment(rest[1]) };
+	}
+
+	return null;
 }
 
 

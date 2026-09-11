@@ -56,6 +56,7 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.ordering
+import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.views
 import subroutine.web.vendored
@@ -95,6 +96,15 @@ TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
 #: Sample props for every component that takes them, shaped like the API's real answers —
 #: which were read off a live instance rather than invented, because a component fed a shape
 #: nobody serves is a test of a shape nobody serves.
+#: The settings registry exactly as ``/v1/meta`` publishes it — `#1447`. **Read off the real
+#: registry rather than written out**, which is this file's rule for every sample: a component
+#: fed a shape nobody serves is a test of a shape nobody serves.
+REGISTRY = [one.model_dump(mode="json") for one in subroutine.views.published_settings()]
+COLOUR_SETTING = next(one for one in REGISTRY if one["kind"] == "colour")
+STATUSES_SETTING = next(one for one in REGISTRY if one["kind"] == "status_keys")
+SOME_STATUSES = [{"key": "open", "label": "Open"}, {"key": "blocked", "label": "Blocked"}]
+
+
 SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# **What `marks` decided, drawn** (`SR#970`) — its own component since a listing row and an
 	# item's links both draw it, and two copies of twenty lines of markup is how the two would
@@ -442,7 +452,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"me": {
 			"user": {"username": "morpheus", "timezone": None},
 			"reader_timezone": "Europe/London",
-			"workspaces": [],
+			"workspaces": [{"slug": "projects", "title": "Projects", "permissions": []}],
 		},
 		"zones": ["Europe/London", "Asia/Tokyo", "America/New_York"],
 		"device": "Asia/Tokyo",
@@ -455,6 +465,30 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"zones": ["Europe/London", "Asia/Tokyo"],
 		"device": "Asia/Tokyo",
 	},
+	# **A workspace's page, a reader who may use it, and a control for each kind** — `#1447`.
+	# Both settings are drawn, so both controls render inside it; the colour's swatches are what
+	# reach the eight palette rules, which no other sample does.
+	"WorkspaceSettings": {
+		"workspace": {"slug": "projects", "title": "Projects", "permissions": ["workspace:admin"]},
+		"registry": REGISTRY,
+		"statuses": SOME_STATUSES,
+		"inForce": {
+			"scope": "workspace",
+			"settings": [
+				{
+					"key": COLOUR_SETTING["key"], "value": "teal", "default": None,
+					"set_here": True, "inherited_from": None,
+				},
+				{
+					"key": STATUSES_SETTING["key"], "value": [], "default": [],
+					"set_here": False, "inherited_from": None,
+				},
+			],
+		},
+		"may": ["workspace:admin"],
+	},
+	"ColourChoice": {"setting": COLOUR_SETTING, "value": "teal"},
+	"StatusChoice": {"setting": STATUSES_SETTING, "value": ["blocked"], "statuses": SOME_STATUSES},
 	# **A usable credential, so the act it carries is drawn.** The spent branch is reached
 	# through `Holdings` below, which holds one of each — a component gets one sample and this
 	# is the branch with a control in it.
@@ -8723,6 +8757,11 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# the route refuses a timezone for anybody but the caller.
 		("timezoneRequest", [place.username, "Europe/Paris"]),
 		("timezoneRequest", [place.username, None]),
+		# **A workspace's page reads and writes through these two** (`#1447`) — set and then
+		# cleared, so the fixture's workspace ends as it began and nothing later is changed by it.
+		("workspaceSettingsRequest", [place.slug]),
+		("changeWorkspaceSettingRequest", [place.slug, "appearance.colour", "teal"]),
+		("changeWorkspaceSettingRequest", [place.slug, "appearance.colour", None]),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -16861,13 +16900,16 @@ def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
 	)
 
 
-def test_the_settings_area_answers_the_one_page_it_has (tmp_path: pathlib.Path) -> None:
-	"""`#1446`: `/settings` and `/settings/me` are the reader's own page, and nothing else is.
+def test_the_settings_area_answers_only_the_pages_it_has (tmp_path: pathlib.Path) -> None:
+	"""`#1446`: `/settings` and `/settings/me` are the reader's own page; unbuilt ones are null.
 
-	**An address naming a page this area does not have is null, never the nearest page.** A
-	workspace's settings arrive with `#1447`; until then a link to one answered with the reader's
-	own settings would show them something other than what they were sent — so the page says
-	there is no such page and gives the way to the one there is.
+	**Null, never the nearest page.** A project's settings and the installation's arrive with
+	`#1448` and `#2103`; until then a link to one answered with some other page would show the
+	reader something other than what they were sent — so the page says there is no such page
+	and gives the way to the one there is.
+
+	**This named a workspace's page as the unbuilt one until `#1447` built it**, and the test
+	then failed on the change it was waiting for. That case is `#1447`'s own test now.
 	"""
 
 	answers = _ran(tmp_path, f"""
@@ -16877,7 +16919,8 @@ def test_the_settings_area_answers_the_one_page_it_has (tmp_path: pathlib.Path) 
 			root: app.settingsPageOf("/settings"),
 			mine: app.settingsPageOf("/settings/me"),
 			slashed: app.settingsPageOf("/settings/me/"),
-			unbuilt: app.settingsPageOf("/settings/workspace/projects"),
+			unbuilt: app.settingsPageOf("/settings/project/web"),
+			installation: app.settingsPageOf("/settings/instance"),
 			deeper: app.settingsPageOf("/settings/me/anything"),
 			elsewhere: app.settingsPageOf("/people"),
 			nowhere: app.settingsPageOf("/"),
@@ -16888,7 +16931,7 @@ def test_the_settings_area_answers_the_one_page_it_has (tmp_path: pathlib.Path) 
 	assert answers["mine"] == {"scope": "me"}
 	assert answers["slashed"] == {"scope": "me"}, "a trailing slash is the same address"
 
-	for name in ("unbuilt", "deeper", "elsewhere", "nowhere"):
+	for name in ("unbuilt", "installation", "deeper", "elsewhere", "nowhere"):
 		assert answers[name] is None, f"{name} named a settings page: {answers[name]!r}"
 
 	unknown = _rendered(tmp_path, {"Settings": {**SAMPLES["Settings"], "page": None}})["Settings"]
@@ -17066,6 +17109,196 @@ def test_the_settings_page_draws_the_timezone_control_and_the_footer_leads_to_it
 	footer = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
 
 	assert 'href="/settings"' in footer, footer
+
+
+def test_a_workspace_has_a_settings_page_of_its_own (tmp_path: pathlib.Path) -> None:
+	"""`#1447`: ``/settings/workspace/<slug>`` is that workspace's page, and nothing near it is."""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			page: app.settingsPageOf("/settings/workspace/projects"),
+			escaped: app.settingsPageOf("/settings/workspace/pro%20jects"),
+			bare: app.settingsPageOf("/settings/workspace"),
+			deeper: app.settingsPageOf("/settings/workspace/projects/more"),
+			project: app.settingsPageOf("/settings/project/web"),
+		}}));
+	""")
+
+	assert answers["page"] == {"scope": "workspace", "slug": "projects"}
+	assert answers["escaped"] == {"scope": "workspace", "slug": "pro jects"}
+
+	for name in ("bare", "deeper", "project"):
+		assert answers[name] is None, f"{name} named a page: {answers[name]!r}"
+
+
+def test_every_kind_the_registry_publishes_has_a_control_and_none_is_for_nothing (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2110` §5's obligation: the ``kind → control`` map is a second copy of a smaller thing.
+
+	**Held against the registry itself**, which is the population: a kind added there without a
+	control fails here rather than drawing a sentence where a control belongs, and a control for
+	a kind nothing publishes any more is dead code, which fails too (`#405`'s two directions).
+	"""
+
+	controlled = set(_ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.CONTROLLED_KINDS));
+	"""))
+	published = {setting.kind.key for setting in subroutine.domain.settings.SETTINGS.values()}
+
+	assert published, "the registry publishes no kinds, so this checks nothing"
+	assert published <= controlled, f"{sorted(published - controlled)} are published with no control"
+	assert controlled <= published, f"{sorted(controlled - published)} have a control and no publisher"
+
+
+def test_a_kind_this_browser_does_not_know_is_said_rather_than_left_out (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1539`, and the cost `#2110` §5 took knowingly by publishing the registry.
+
+	An instance a release ahead may publish a kind this browser has never heard of, and a page
+	that silently drew one fewer row would be indistinguishable from a setting that does not
+	exist. So the row is drawn, with its summary and its value, and says it cannot be changed here.
+	"""
+
+	unknown = {
+		"key": "calendar.week_starts", "scopes": ["workspace"], "kind": "weekday",
+		"accepts": "a day of the week", "choices": None, "default": None,
+		"summary": "The day a week starts on here.",
+		"permission": {"workspace": "workspace:admin"},
+	}
+	props = {
+		**SAMPLES["WorkspaceSettings"],
+		"registry": [*REGISTRY, unknown],
+		"inForce": {"scope": "workspace", "settings": [
+			*SAMPLES["WorkspaceSettings"]["inForce"]["settings"],
+			{"key": unknown["key"], "value": "monday", "default": None, "set_here": True,
+				"inherited_from": None},
+		]},
+	}
+	shown = _rendered(tmp_path, {"WorkspaceSettings": props})["WorkspaceSettings"]
+
+	assert "The day a week starts on here." in shown, shown[:400]
+	assert "monday" in shown, "the value of a setting this page cannot draw was not said"
+	assert "cannot change this setting yet" in shown, "an unknown kind was drawn as nothing at all"
+
+
+def test_a_reader_without_the_verb_sees_the_values_and_no_controls (tmp_path: pathlib.Path) -> None:
+	"""A control that refuses when pressed is worse than one that is not there.
+
+	**`_markup`, because the claim is about elements** — no input and no button may be drawn —
+	and the text harness keeps no tags to count. **With its positive twin**, because *no input*
+	is equally true of a page that drew nothing at all.
+	"""
+
+	allowed, refused = (
+		_markup(tmp_path, {"WorkspaceSettings": {**SAMPLES["WorkspaceSettings"], "may": may}})[
+			"WorkspaceSettings"
+		]
+		for may in (["workspace:admin"], [])
+	)
+
+	assert "<input" in allowed and "<button" in allowed, "the reader who may was offered nothing"
+	assert "<input" not in refused and "<button" not in refused, refused[:400]
+	assert "teal" in refused, "a reader who may not change the colour was not told what it is"
+	assert "needs the workspace:admin permission" in refused, refused[:400]
+
+
+def test_where_a_value_came_from_is_said_in_words (tmp_path: pathlib.Path) -> None:
+	"""`#2110` §4's provenance, drawn: set here, inherited from a workspace or a project, or not."""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify([
+			app.inForceSaid({{ set_here: true, inherited_from: null }}),
+			app.inForceSaid({{ set_here: false, inherited_from:
+				{{ scope: "workspace", address: "projects", title: "Projects" }} }}),
+			app.inForceSaid({{ set_here: false, inherited_from:
+				{{ scope: "project", address: "parent", title: "The parent" }} }}),
+			app.inForceSaid({{ set_here: false, inherited_from: null }}),
+		]));
+	""")
+
+	assert said == [
+		"Set here.",
+		"Inherited from the workspace, Projects.",
+		"Inherited from The parent (parent).",
+		"Not set anywhere, so the default applies.",
+	], said
+
+
+def test_clearing_a_workspace_setting_sends_null_rather_than_leaving_it_out (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The route merges per key: a key sent as null is removed and one left out is untouched."""
+
+	cleared, chosen, read = _built(tmp_path, [
+		("changeWorkspaceSettingRequest", ["projects", "appearance.colour", None]),
+		("changeWorkspaceSettingRequest", ["projects", "appearance.colour", "teal"]),
+		("workspaceSettingsRequest", ["projects"]),
+	])
+
+	assert cleared["body"] == {"settings": {"appearance.colour": None}}, cleared
+	assert chosen["body"] == {"settings": {"appearance.colour": "teal"}}, chosen
+	assert (read["method"], read["path"]) == ("GET", "/workspaces/projects/settings"), read
+
+
+def test_a_workspace_setting_chosen_in_the_browser_is_the_one_in_force (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""Chosen and cleared through the builders the page uses, and read back each time — `#1447`.
+
+	**A status below 400 is not the claim**, for the timezone's reason: the guard that drives
+	every builder would pass a write the route ignored. So what is in force is read back.
+	"""
+
+	chosen, cleared, read = _built(tmp_path, [
+		("changeWorkspaceSettingRequest", [instance.slug, "appearance.colour", "teal"]),
+		("changeWorkspaceSettingRequest", [instance.slug, "appearance.colour", None]),
+		("workspaceSettingsRequest", [instance.slug]),
+	])
+
+	def colour () -> dict[str, typing.Any]:
+		"""The colour as the settings read reports it now."""
+
+		answer = instance.call(read["method"], f"/v1{read['path']}")
+
+		assert answer.status_code == 200, answer.text
+
+		return next(one for one in answer.json()["settings"] if one["key"] == "appearance.colour")
+
+	for request, value, here in ((chosen, "teal", True), (cleared, None, False)):
+		answer = instance.call(request["method"], f"/v1{request['path']}", json=request["body"])
+
+		assert answer.status_code == 200, answer.text
+		assert (colour()["value"], colour()["set_here"]) == (value, here), request["body"]
+
+
+def test_opening_a_workspaces_settings_asks_for_its_vocabulary_and_what_is_in_force (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1447`'s wiring, which is the half this app has shipped wrong before (`#640`)."""
+
+	driven = _driven(
+		tmp_path,
+		pathname="/settings/workspace/projects",
+		permissions=("task:write", "workspace:admin"),
+		answers={
+			"/settings": SAMPLES["WorkspaceSettings"]["inForce"],
+			"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+		},
+	)
+	reads = [one["path"] for one in driven["asked"] if one["method"] == "GET"]
+
+	assert any(path.startswith("/v1/meta") and "workspace_id=projects" in path for path in reads), reads
+	assert "/v1/workspaces/projects/settings" in reads, reads
+	assert COLOUR_SETTING["summary"] in driven["said"], driven["said"][:400]
+	assert "Set here." in driven["said"], driven["said"][:400]
 
 
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (

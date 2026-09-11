@@ -1395,14 +1395,17 @@ textarea.field { resize: vertical; }
 */
 li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 
-li[data-colour="amber"] { --row-hue: var(--hue-amber); }
-li[data-colour="green"] { --row-hue: var(--hue-green); }
-li[data-colour="teal"] { --row-hue: var(--hue-teal); }
-li[data-colour="cyan"] { --row-hue: var(--hue-cyan); }
-li[data-colour="indigo"] { --row-hue: var(--hue-indigo); }
-li[data-colour="violet"] { --row-hue: var(--hue-violet); }
-li[data-colour="magenta"] { --row-hue: var(--hue-magenta); }
-li[data-colour="slate"] { --row-hue: var(--hue-slate); }
+/* **Any element, not only a row** (`#1447`): a colour control draws each choice as a swatch
+   coloured by this same rule, so the palette is named once here and a choice looks like the edge
+   it will give a row. Only the edge itself stays a row's, above. */
+[data-colour="amber"] { --row-hue: var(--hue-amber); }
+[data-colour="green"] { --row-hue: var(--hue-green); }
+[data-colour="teal"] { --row-hue: var(--hue-teal); }
+[data-colour="cyan"] { --row-hue: var(--hue-cyan); }
+[data-colour="indigo"] { --row-hue: var(--hue-indigo); }
+[data-colour="violet"] { --row-hue: var(--hue-violet); }
+[data-colour="magenta"] { --row-hue: var(--hue-magenta); }
+[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 /*
 	**The label is deliberately *not* tinted, and a guard is what decided that.** Tinting the
@@ -2545,4 +2548,66 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 .settings .hint {
 	color: var(--ink-soft);
 	font-size: var(--text-small);
+}
+
+/* The area's own pages, one link each: the account's, then each workspace the reader can
+   reach (`#1447`). The one showing is marked in weight as well as colour (`#102`). */
+.setting-pages {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-3) var(--space-6);
+	margin: 0 0 var(--space-6);
+	font-size: var(--text-small);
+}
+
+.setting-pages a.chosen {
+	color: var(--ink);
+	font-weight: 600;
+}
+
+.setting-page h3 {
+	margin: 0 0 var(--space-4);
+}
+
+/* One setting: what it is, where its value came from, and its control. A rule between them
+   rather than a card each, because a page of two settings is read top to bottom. */
+.setting-row {
+	margin: var(--space-6) 0;
+	padding-block-start: var(--space-5);
+	border-block-start: 1px solid var(--line);
+}
+
+.setting-row h4 {
+	margin: 0 0 var(--space-3);
+	font-size: var(--text-body);
+}
+
+.setting-row p {
+	margin: 0 0 var(--space-3);
+}
+
+.setting-choice fieldset {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-2) var(--space-6);
+	margin: var(--space-4) 0;
+	padding: var(--space-5);
+	border: 1px solid var(--line);
+	border-radius: var(--radius);
+}
+
+.setting-option {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	font-size: var(--text-small);
+}
+
+/* **Coloured by the palette's own rule** — `[data-colour]` below — rather than by a second
+   table here, which is the whole reason that rule no longer asks for a row. */
+.setting-swatch {
+	inline-size: var(--space-6);
+	block-size: var(--space-6);
+	border-radius: var(--radius);
+	background: var(--row-hue);
 }

@@ -179,31 +179,298 @@ export function Timezone ({
 }
 
 
+/*
+	Which control draws a setting, by the name of its kind — `#1447`, design `#2110` §5.
+
+	**A switch, not a form engine**, which is §5's own decision: an engine for two settings and
+	four scopes is a primitive whose only customer is a guess. One entry per kind the registry
+	publishes, and nothing else.
+
+	**`CONTROLLED_KINDS` is derived from it rather than listed beside it**, so a guard can hold
+	this map against the registry's kinds and a kind added without a control fails the build.
+	A kind this browser has never heard of — an instance a release ahead may publish one — is
+	said on the page, never left out (`#1539`).
+*/
+const CONTROLS = {
+	colour: ColourChoice,
+	status_keys: StatusChoice,
+};
+
+export const CONTROLLED_KINDS = Object.keys(CONTROLS);
+
+
+export function inForceSaid (stated) {
+	/*
+		Where a value in force came from, in words — `#2110` §4's provenance, for any setting.
+
+		**Three answers, and a page reads differently for each.** A value set here can be cleared
+		here; one inherited can only be overridden here or changed where it was set; and one
+		stated nowhere is the default, which nobody chose.
+	*/
+	if (!stated) return "";
+
+	if (stated.set_here) return "Set here.";
+
+	const from = stated.inherited_from;
+
+	if (from && from.scope === "workspace") {
+		return `Inherited from the workspace, ${from.title || from.address}.`;
+	}
+
+	if (from) return `Inherited from ${from.title || from.address} (${from.address}).`;
+
+	return "Not set anywhere, so the default applies.";
+}
+
+
+export function valueSaid (setting, value, statuses = []) {
+	/*
+		A value in force, in words — for a reader who may not change it, so a row they can only
+		read still says what is true rather than only where it came from.
+	*/
+	if (setting.kind === "colour") return value || "None";
+
+	if (setting.kind === "status_keys") {
+		const labels = new Map((statuses || []).map((one) => [one.key, one.label || one.key]));
+		const named = (value || []).map((key) => labels.get(key) || key);
+
+		return named.length > 0 ? `Not offered: ${named.join(", ")}.` : "Every status is offered.";
+	}
+
+	return value === null || value === undefined ? "Not set." : String(value);
+}
+
+
+function SettingRow ({ setting, stated, statuses = [], may = false, onChoose, busy = false }) {
+	/*
+		One setting on a settings page: what it is, where its value came from, and — when this
+		reader may change it and this browser knows its kind — the control for it.
+
+		**Shown and not offered when the reader lacks the verb**, because a control that refuses
+		when pressed is worse than one that is not there, and the value still answers *why is it
+		like this*.
+	*/
+	const Control = CONTROLS[setting.kind];
+	const value = stated ? stated.value : setting.default;
+	const verb = (setting.permission || {}).workspace;
+
+	return html`
+		<div class="setting-row">
+			<h4>${setting.summary}</h4>
+			<p class="hint">${inForceSaid(stated)}</p>
+			${!Control
+				? html`
+					<p>${valueSaid(setting, value, statuses)}</p>
+					<p class="hint">This page cannot change this setting yet: it is a kind this
+						version of the browser does not know how to draw.</p>`
+				: !may
+				? html`
+					<p>${valueSaid(setting, value, statuses)}</p>
+					<p class="hint">Changing this needs the ${verb} permission, which you do not
+						hold here.</p>`
+				: html`<${Control} setting=${setting} value=${value} statuses=${statuses}
+						onChoose=${onChoose} busy=${busy} />`}
+		</div>
+	`;
+}
+
+
+export function WorkspaceSettings ({
+	workspace = null, registry = [], statuses = [], inForce = null, may = [], onChoose,
+	busy = false,
+}) {
+	/*
+		A workspace's settings page — `#1447`, design `#2110` §3 to §5.
+
+		**Built from what the instance publishes, never from a list of ours.** Which settings
+		exist, what each accepts and which verb changes it come from the registry in `/v1/meta`
+		(`#2365`); what is in force and where it came from, from the settings read (`#2450`). So
+		a setting added to the registry appears here with no change to this file, which is
+		`#1024`'s promise that *adding a setting is an entry and a default*.
+
+		**`may` is the reader's verbs in this workspace**, `allowedIn`'s answer, and each row is
+		gated on the verb the registry publishes for it at this scope.
+	*/
+	if (!workspace || !inForce) return html`<div class="empty">Reading…</div>`;
+
+	const held = new Set(may || []);
+	const stated = new Map((inForce.settings || []).map((one) => [one.key, one]));
+	const here = (registry || []).filter((one) => (one.scopes || []).includes("workspace"));
+
+	return html`
+		<section class="setting-page">
+			<h3>${workspace.title || workspace.slug}</h3>
+			${here.length === 0
+				? html`<p class="empty">This workspace has nothing to configure.</p>`
+				: here.map((setting) => html`
+					<${SettingRow} key=${setting.key} setting=${setting}
+						stated=${stated.get(setting.key)} statuses=${statuses}
+						may=${held.has((setting.permission || {}).workspace)}
+						onChoose=${onChoose} busy=${busy} />
+				`)}
+		</section>
+	`;
+}
+
+
+export function ColourChoice ({ setting, value = null, onChoose, busy = false }) {
+	/*
+		Choose a colour from the palette the instance publishes, or none.
+
+		**The choices are the registry's** (`#2365`), so the palette is not copied here, and each
+		is drawn as its own swatch — coloured by the stylesheet's rule for that name, the one a
+		row's edge uses, so a choice looks like what it will do.
+
+		**Uncontrolled, like every form here** (`#757`): the value in force is `checked`, so a
+		re-render cannot undo a choice somebody is halfway through making.
+	*/
+	return html`
+		<form class="setting-choice" onSubmit=${(event) => {
+			event.preventDefault();
+
+			onChoose(setting.key, String(new FormData(event.target).get("value") || "") || null);
+		}}>
+			<fieldset>
+				<legend>Colour</legend>
+				<label class="setting-option">
+					<input type="radio" name="value" value="" checked=${!value} disabled=${busy} />
+					<span>None</span>
+				</label>
+				${(setting.choices || []).map((name) => html`
+					<label class="setting-option" key=${name}>
+						<input type="radio" name="value" value=${name} checked=${name === value}
+							disabled=${busy} />
+						<span class="setting-swatch" data-colour=${name}></span>
+						<span>${name}</span>
+					</label>
+				`)}
+			</fieldset>
+			<div class="acts">
+				<button type="submit" class="primary" disabled=${busy}>Save</button>
+			</div>
+		</form>
+	`;
+}
+
+
+export function StatusChoice ({ setting, value = [], statuses = [], onChoose, busy = false }) {
+	/*
+		Choose the statuses not offered here, from this workspace's own vocabulary.
+
+		**A deny-list, drawn as one**: a status ticked is a status not offered. `statuses.hidden`
+		is a deny-list by decision, so that a status added later is offered everywhere by
+		default, and a control drawn as an allow-list would turn that round in the reader's head.
+
+		**Nothing ticked clears the setting** rather than storing an empty list, because at a
+		workspace — the top of the chain — the two answer the same, and *not stated* is the one
+		that lets the default show. At a project they differ, and a project's page will have to
+		say so.
+	*/
+	const hidden = new Set(value || []);
+
+	return html`
+		<form class="setting-choice" onSubmit=${(event) => {
+			event.preventDefault();
+
+			const ticked = new FormData(event.target).getAll("value").map(String);
+
+			onChoose(setting.key, ticked.length > 0 ? ticked : null);
+		}}>
+			<fieldset>
+				<legend>Not offered</legend>
+				${(statuses || []).map((one) => html`
+					<label class="setting-option" key=${one.key}>
+						<input type="checkbox" name="value" value=${one.key}
+							checked=${hidden.has(one.key)} disabled=${busy} />
+						<span>${one.label || one.key}</span>
+					</label>
+				`)}
+			</fieldset>
+			<div class="acts">
+				<button type="submit" class="primary" disabled=${busy}>Save</button>
+			</div>
+		</form>
+	`;
+}
+
+
+function SettingsNav ({ page = null, workspaces = [] }) {
+	/*
+		The pages this area holds, for this reader — `#1447`.
+
+		**Plain anchors, like the footer's**: a settings page is opened deliberately and rarely, a
+		full load between two of them costs nothing, and the address is the page (`#745`).
+
+		**Every workspace the reader can reach is listed**, not only those they administer: a page
+		they cannot change still answers *why is it like this*, and a list that left the others
+		out would say those workspaces have no settings.
+	*/
+	const chosen = (scope, slug = null) => Boolean(
+		page && page.scope === scope && (slug === null || page.slug === slug),
+	);
+
+	return html`
+		<nav class="setting-pages" aria-label="Settings pages">
+			<a href="/settings/me" class=${chosen("me") ? "chosen" : ""}>Your account</a>
+			${(workspaces || []).map((one) => html`
+				<a key=${one.slug} href=${`/settings/workspace/${encodeURIComponent(one.slug)}`}
+					class=${chosen("workspace", one.slug) ? "chosen" : ""}>${one.title || one.slug}</a>
+			`)}
+		</nav>
+	`;
+}
+
+
 export function Settings ({
 	page = null, me = null, zones = [], device = null, onZone, busy = false,
+	configured = null, onChoose,
 }) {
 	/*
 		The settings area: the page its address names, or a sentence saying it names none.
 
 		**An address naming no page here is said, never answered with the nearest page.** A
-		workspace's page arrives with `#1447`; until it does, answering a link to one with the
-		reader's own settings would show them something other than what they were sent, which is
-		`#745`'s rule about what an address promises.
+		project's page and the installation's arrive with `#1448` and `#2103`; until they do,
+		answering a link to one with some other page would show the reader something other than
+		what they were sent, which is `#745`'s rule about what an address promises.
 
 		**`me` is null until `/v1/me` answers**, drawn as *Reading…* like the people page: the
-		zone in force is on that answer, so there is nothing true to draw before it.
+		values and the reader's verbs are both on that answer, so nothing true can be drawn first.
+
+		**`configured` is the workspace page's two answers** — `/v1/meta` for that workspace and
+		its settings read — and is used only while it is about the workspace the address names, so
+		a slow answer about the previous page cannot land on this one.
 	*/
 	if (!me) return html`<div class="settings"><div class="empty">Reading…</div></div>`;
+
+	const spaces = me.workspaces || [];
+	const workspace = page && page.scope === "workspace"
+		? spaces.find((one) => one.slug === page.slug) || null
+		: null;
+	const current = configured && page && configured.slug === page.slug ? configured : null;
+	const meta = (current && current.meta) || {};
 
 	return html`
 		<div class="settings">
 			<h2 class="area">Settings</h2>
-			${page
-				? html`<${Timezone} stored=${(me.user && me.user.timezone) || null}
+			<${SettingsNav} page=${page} workspaces=${spaces} />
+			${!page
+				? html`<p class="empty">There is no settings page at this address.
+						<a href="/settings/me">Your own settings are here.</a></p>`
+				: page.scope === "workspace" && !workspace
+				? html`<p class="empty">There is no workspace called ${page.slug} that you can
+						see.</p>`
+				: page.scope === "workspace" && current && current.failed
+				? html`<p class="empty">This workspace's settings could not be read.
+						${current.failed}</p>`
+				: page.scope === "workspace"
+				? html`<${WorkspaceSettings} workspace=${workspace} registry=${meta.settings || []}
+						statuses=${(meta.statuses && meta.statuses.task) || []}
+						inForce=${current ? current.inForce : null}
+						may=${workspace.permissions || []}
+						onChoose=${(key, value) => onChoose(page.slug, key, value)} busy=${busy} />`
+				: html`<${Timezone} stored=${(me.user && me.user.timezone) || null}
 						reading=${me.reader_timezone || null} zones=${zones} device=${device}
-						onZone=${onZone} busy=${busy} />`
-				: html`<p class="empty">There is no settings page at this address.
-						<a href="/settings/me">Your own settings are here.</a></p>`}
+						onZone=${onZone} busy=${busy} />`}
 		</div>
 	`;
 }

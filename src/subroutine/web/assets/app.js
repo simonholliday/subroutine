@@ -72,6 +72,7 @@ import {
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, timezoneRequest, touching, unlinkRequest,
 	updateRequest, withTime, written,
+	changeWorkspaceSettingRequest, workspaceSettingsRequest,
 } from "./requests.js";
 import { Agenda, Board, Marks, Row, Stamp } from "./rows.js";
 import {
@@ -110,6 +111,12 @@ export function App () {
 	   is *not asked yet*, which is what the page renders as *Reading…*; an empty roster is a
 	   different answer and arrives as an object with no people in it. */
 	const [directory, setDirectory] = useState(null);
+
+	/* **A workspace settings page's two answers** — `#1447`: what that workspace calls things,
+	   which carries the settings registry since `#2365`, and what is in force there (`#2450`).
+	   Null is *not asked yet*; `failed` says the read did not arrive, so the page can say so
+	   rather than draw a form with nothing in it. */
+	const [configured, setConfigured] = useState(null);
 
 	/* **The four pieces of state the authority acts need** — `#1396`. Whose credentials are
 	   shown, which one is being revoked, what is being issued and for whom, and the secret at
@@ -1475,6 +1482,66 @@ export function App () {
 			setBusy(false);
 		}
 	}, [me]);
+
+	const configure = useCallback(async (slug) => {
+		/*
+			Read a workspace's settings page — `#1447`.
+
+			**Both answers at once, because they are independent**, and neither cached: a
+			settings page is opened deliberately, and what is configured is exactly what changes
+			while somebody has it open.
+		*/
+		setConfigured(null);
+
+		try {
+			const [meta, inForce] = await Promise.all([
+				sent(vocabularyRequest(slug)),
+				sent(workspaceSettingsRequest(slug)),
+			]);
+
+			setConfigured({ slug, meta, inForce });
+		} catch (failure) {
+			setConfigured({ slug, failed: failure.message });
+		}
+	}, []);
+
+	useEffect(() => {
+		/*
+			**Read when the page is opened, and not before** — the people page's rule (`#1397`):
+			a reader who never opens a workspace's settings pays nothing for them.
+		*/
+		if (area !== "settings" || !me) return;
+
+		const page = settingsPageOf(window.location.pathname);
+
+		if (page && page.scope === "workspace") configure(page.slug);
+	}, [area, me, configure]);
+
+	const settle = useCallback(async (slug, key, value) => {
+		/*
+			Change one of a workspace's settings — `#1447`.
+
+			**What is in force is read again rather than patched in place**, because whether a
+			value is now *set here* is the server's to say, and a local copy would be this browser
+			deciding what the registry did with it. Only that read is repeated — the vocabulary
+			has not changed — and the page keeps what it is showing meanwhile rather than going
+			back to *Reading…* under the reader's hand.
+		*/
+		setBusy(true);
+
+		try {
+			await sent(changeWorkspaceSettingRequest(slug, key, value));
+
+			const inForce = await sent(workspaceSettingsRequest(slug));
+
+			setConfigured((was) => (was && was.slug === slug ? { ...was, inForce } : was));
+			setNote({ text: "Saved.", tone: "good" });
+		} catch (failure) {
+			setNote({ text: `That was not saved. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, []);
 
 	/*
 		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
@@ -2851,7 +2918,8 @@ export function App () {
 					     harness has none. */ null}
 					page=${settingsPageOf(typeof window === "undefined" ? "" : window.location.pathname)}
 					me=${me} zones=${listedZones()} device=${deviceZone()}
-					onZone=${zoned} busy=${busy} />`
+					onZone=${zoned} busy=${busy}
+					configured=${configured} onChoose=${settle} />`
 				: area !== null
 				? html`<${People} ...${directory || {}}
 					${/* **The offer is the operator's own reach** (`#1396`). A credential may
@@ -3320,10 +3388,16 @@ export {
 } from "./places.js";
 export {
 	ALWAYS_OFFERED,
+	CONTROLLED_KINDS,
+	ColourChoice,
 	Settings,
+	StatusChoice,
 	Timezone,
+	WorkspaceSettings,
 	deviceZone,
+	inForceSaid,
 	listedZones,
+	valueSaid,
 	zoneChoices,
 	zoneSaid,
 } from "./configure.js";
@@ -3354,6 +3428,7 @@ export {
 	assignRequest,
 	authorOf,
 	cadence,
+	changeWorkspaceSettingRequest,
 	collectionsFor,
 	commentRequest,
 	completeRequest,
@@ -3397,6 +3472,7 @@ export {
 	unlinkRequest,
 	updateRequest,
 	withTime,
+	workspaceSettingsRequest,
 	written,
 } from "./requests.js";
 export {

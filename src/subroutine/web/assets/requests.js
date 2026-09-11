@@ -335,6 +335,36 @@ export function timezoneRequest (username, zone) {
 	};
 }
 
+export function workspaceSettingsRequest (slug) {
+	/*
+		What a workspace's settings page reads — `#1447`: every setting a workspace may carry,
+		the value in force, the default, and whether it is set here.
+
+		**A read of its own rather than the workspace's `settings` field**, which is the raw map
+		and cannot say *set here* from *never stated*. That difference is what the page draws.
+	*/
+	return { path: `/workspaces/${encodeURIComponent(slug)}/settings`, method: "GET" };
+}
+
+export function changeWorkspaceSettingRequest (slug, key, value) {
+	/*
+		Change one of a workspace's settings — `#1447`.
+
+		**One key, so a write says only what the reader changed.** The route merges per key and
+		leaves the rest alone (`settings.applied`), and a body naming only this key is what keeps
+		somebody changing the colour from being gated on what the hidden statuses need, or
+		refused over a value they did not touch.
+
+		**Null is sent to clear, never left out** — `timezoneRequest`'s rule one field along. A
+		key sent as null is removed, which is what lets the default show through again.
+	*/
+	return {
+		path: `/workspaces/${encodeURIComponent(slug)}`,
+		method: "PATCH",
+		body: { settings: { [key]: value === undefined ? null : value } },
+	};
+}
+
 export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.

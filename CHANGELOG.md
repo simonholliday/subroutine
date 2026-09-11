@@ -22,6 +22,14 @@ upgrade involves.
 
 ### Added
 
+- **A workspace's settings, in the browser.**
+
+  **Settings** in the footer now lists every workspace you can reach beside your own account.
+  A workspace's page shows each thing it can be configured with — the colour its projects are
+  marked with, and the statuses it does not offer — with where the value came from and, if you
+  administer the workspace, the control to change it. Colours are drawn as the swatches a row's
+  edge uses. Somebody who cannot change a setting still sees what it is and why.
+
 - **Ask what a workspace or a project is configured with, and where each value came from.**
 
   `GET /v1/workspaces/{slug}/settings` and `GET /v1/projects/{key}/settings` answer, for every
