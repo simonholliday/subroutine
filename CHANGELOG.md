@@ -22,6 +22,14 @@ upgrade involves.
 
 ### Added
 
+- **Ask what you may do in a project where your role there is not the workspace's.**
+
+  Each workspace in `GET /v1/me` now carries `projects`: every project in it where you hold a
+  role of that project's own, with the role and what it lets you do there. Everywhere else in
+  the workspace, the workspace's `permissions` still apply. Nothing gives anybody a project
+  role yet, so the list is empty for now — and the browser already reads it, so it will not
+  offer a control you may not use in such a project.
+
 - **This installation's name and timezone, in the browser.**
 
   Settings now has a page for the installation itself. Anybody signed in can see what it is

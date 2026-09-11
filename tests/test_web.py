@@ -17685,6 +17685,123 @@ def test_opening_the_installations_settings_reads_what_it_is_called (
 	assert "needs the instance:admin permission" in driven["said"], driven["said"][:400]
 
 
+def test_a_project_where_the_reader_holds_a_role_answers_for_itself (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2111`: ``allowedIn`` reads a project's own answer where ``/v1/me`` names one, and only there.
+
+	**Found by id or by address**, because an open item carries its project's id and a settings
+	page its address. **Every other project is the workspace's answer**, which is the whole of
+	what the list being short may mean — and an instance too old to publish the list at all is
+	the workspace's answer everywhere.
+	"""
+
+	me = {"workspaces": [{
+		"slug": "projects", "permissions": ["project:write", "task:read", "task:write"],
+		"projects": [
+			{"id": "p1", "address": "subroutine/ui", "role": "Viewer", "permissions": ["task:read"]},
+		],
+	}]}
+	older = {"workspaces": [{"slug": "projects", "permissions": ["task:read", "task:write"]}]}
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const held = (reader, project) => [...app.allowedIn(reader, "projects", project)].sort();
+		const me = {json.dumps(me)};
+
+		process.stdout.write(JSON.stringify({{
+			workspace: held(me, null),
+			byId: held(me, {{ id: "p1" }}),
+			byAddress: held(me, {{ address: "subroutine/ui" }}),
+			another: held(me, {{ id: "p2", address: "subroutine" }}),
+			older: held({json.dumps(older)}, {{ id: "p1" }}),
+		}}));
+	""")
+
+	assert said["workspace"] == ["project:write", "task:read", "task:write"], said
+	assert said["byId"] == said["byAddress"] == ["task:read"], said
+	assert said["another"] == said["workspace"], "a project the instance did not name changed it"
+	assert said["older"] == ["task:read", "task:write"], "an older instance stopped answering"
+
+
+def test_a_project_page_is_gated_on_the_projects_own_answer (tmp_path: pathlib.Path) -> None:
+	"""`#2111`: may change projects in the workspace, holds a viewer's role in this one.
+
+	So the page shows the values and no control. **With the positive twin** — the same page and
+	reader without the project role — because *no input* is equally true of a page that drew
+	nothing at all.
+	"""
+
+	page = {"scope": "project", "slug": "projects", "project": "subroutine/ui"}
+	configured = {
+		"key": "/settings/project/projects/subroutine/ui",
+		"meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+		"inForce": SAMPLES["ProjectSettings"]["inForce"],
+		"projects": SOME_PROJECTS,
+	}
+	viewer = {
+		"id": "p1", "address": "subroutine/ui", "role": "Viewer", "permissions": ["project:read"],
+	}
+
+	allowed, refused = (
+		_markup(tmp_path, {"Settings": {
+			"page": page,
+			"configured": configured,
+			"me": {"workspaces": [{
+				"slug": "projects", "title": "Projects",
+				"permissions": ["project:read", "project:write"], "projects": projects,
+			}]},
+		}})["Settings"]
+		for projects in ([], [viewer])
+	)
+
+	assert "<input" in allowed, "the reader who may change this project was offered nothing"
+	assert "<input" not in refused, refused[:400]
+	assert "needs the project:write permission" in refused, refused[:400]
+
+
+def test_an_open_item_is_gated_on_its_own_projects_answer (tmp_path: pathlib.Path) -> None:
+	"""`#2111`'s wiring inside ``App``, which is the half this app has shipped wrong before (`#640`).
+
+	The item is in a project where the reader holds a viewer's role, so the controls that write
+	to it are not drawn, though the reader may write elsewhere in the workspace. **With the
+	positive twin**: the same item and reader, and no project role.
+	"""
+
+	def opened (projects: list[dict[str, typing.Any]]) -> str:
+		"""What the page says with the item open, for a reader holding these project roles."""
+
+		item = dict(_open_item(tmp_path))
+		item["/v1/tasks/42"] = {**item["/v1/tasks/42"], "project_id": "p1"}
+
+		return str(_driven(
+			tmp_path,
+			pathname="/projects/42",
+			answers={
+				# **Before `/v1/me`**, because the fixture matches a fragment anywhere in a path
+				# and `/v1/meta` contains `/v1/me`.
+				"/v1/meta": NOTHING,
+				"/v1/me": {
+					"user": {"username": "si", "is_service_account": False},
+					"workspaces": [{
+						"slug": "projects", "id": "w1", "role": "owner",
+						"permissions": ["task:read", "task:write", "comment:write"],
+						"projects": projects,
+					}],
+					"instance_permissions": [],
+					"credential": None,
+				},
+				**item,
+			},
+		)["said"])
+
+	allowed = opened([])
+	refused = opened([{"id": "p1", "address": "web", "role": "Viewer", "permissions": ["task:read"]}])
+
+	assert "Edit" in allowed, allowed[:400]
+	assert refused.count("Edit") < allowed.count("Edit"), "a viewer's project was offered Edit"
+
+
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (
 	tmp_path: pathlib.Path
 ) -> None:

@@ -116,7 +116,9 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"the include_total count, taken over that same narrowed statement as a subquery",
 	"api/projects.py": "likewise, over readable_projects",
 	"views.py": "reads display columns by id for rows the caller already holds; it "
-	"decides how a row is rendered, never which rows there are",
+	"decides how a row is rendered, never which rows there are. The one read not by id is "
+	"`project_roles`, over the caller's own project memberships, and each project it finds "
+	"is checked with is_visible before it is named",
 	"api/documents.py": "listings start at readable_documents and single-document lookups "
 	"go through the same statement; the direct select is the include_total count and the "
 	"link lookup, which is keyed to a link already resolved from a visible item",

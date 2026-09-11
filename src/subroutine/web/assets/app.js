@@ -1654,7 +1654,11 @@ export function App () {
 	   below is drawn from. A member who may write here and only read there was offered Edit,
 	   Complete, the status control and the comment box on a foreign item, and every one of them
 	   would have been refused when pressed — `#927`'s M-25 one surface along. */
-	const allowedThere = allowedIn(me, openIn);
+	/* **And in the item's own project** (`#2111`), which answers for itself where the reader
+	   holds a role of that project's own; everywhere else this is the workspace's answer. */
+	const allowedThere = allowedIn(
+		me, openIn, open && open.item ? { id: open.item.project_id } : null,
+	);
 	const mayWriteThere = allowedThere.has("task:write");
 	const mayCommentThere = allowedThere.has("comment:write");
 

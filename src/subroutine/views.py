@@ -1880,6 +1880,28 @@ class WorkspaceOnInstance(pydantic.BaseModel):
 		)
 
 
+class ProjectAccess(pydantic.BaseModel):
+	"""One project where the caller holds a role of the project's own, and what they may do there.
+
+	A project's own role replaces the workspace's for that project, so these are exactly the
+	projects where the workspace's ``permissions`` stop being the answer. Everywhere else in the
+	workspace, they are.
+	"""
+
+	id: uuid.UUID
+
+	#: The project's whole address — its ancestors' keys and its own — which is how a client
+	#: already names a project.
+	address: str
+
+	#: The project's own role, before the credential narrowed anything.
+	role: str | None
+
+	#: What the caller may actually do in this project, after every narrowing in §7.3. **The
+	#: field to act on**, as it is on the workspace.
+	permissions: list[str]
+
+
 class WorkspaceAccess(WorkspaceRef):
 	"""One workspace a caller can reach, and what they may actually do in it.
 
@@ -1912,6 +1934,18 @@ class WorkspaceAccess(WorkspaceRef):
 	permissions: list[str]
 
 	narrowed_by_credential: bool
+
+	#: **The projects here where a role of the project's own replaces this one** (`#2111`), each
+	#: with what the caller may do there — so a client asking about a project *not* listed reads
+	#: :attr:`permissions` above, and one asking about a listed project reads its entry. Empty
+	#: wherever no project role exists, which today is everywhere: nothing writes one until
+	#: `#1452`.
+	#:
+	#: **Only where a role replaces this one, never every project**, and that was measured
+	#: rather than preferred: a project's answer costs eighteen statements to the workspace's
+	#: one, so publishing it on every project would put thousands on the listing every page
+	#: reads. **Defaulted, like everything added to this model after it shipped** (`#345`).
+	projects: list[ProjectAccess] = pydantic.Field(default_factory=list)
 
 
 class Me(pydantic.BaseModel):
@@ -4379,6 +4413,8 @@ def me (
 	focused = subroutine.domain.projects.prioritised_addresses(
 		session, principal, workspace_ids=[workspace.id for workspace in reachable]
 	)
+	# **Every workspace's project roles from one scan as well** (`#2111`), for the same reason.
+	roles = project_roles(session, principal, reachable)
 
 	return Me(
 		api_version=subroutine.API_VERSION,
@@ -4397,7 +4433,11 @@ def me (
 		reader_timezone=reader_zone(session, principal),
 		workspaces=[
 			workspace_access(
-				session, principal, workspace, prioritised=focused.get(workspace.id)
+				session,
+				principal,
+				workspace,
+				prioritised=focused.get(workspace.id),
+				projects=roles.get(workspace.id, ()),
 			)
 			for workspace in reachable
 		],
@@ -4506,8 +4546,13 @@ def workspace_access (
 	row: subroutine.db.models.identity.Workspace,
 	*,
 	prioritised: str | None,
+	projects: typing.Sequence[ProjectAccess] = (),
 ) -> WorkspaceAccess:
-	"""Describe what one caller may do in one workspace."""
+	"""Describe what one caller may do in one workspace, and in any project where that differs.
+
+	``projects`` is :func:`project_roles`' answer for this workspace — found for every workspace
+	in one scan by :func:`me`, rather than here once each.
+	"""
 
 	grant = subroutine.domain.authorization.explain(session, principal, row.id)
 
@@ -4527,7 +4572,74 @@ def workspace_access (
 		role=grant.from_role,
 		permissions=sorted(grant.permissions),
 		narrowed_by_credential=grant.narrowed_by_token,
+		projects=list(projects),
 	)
+
+
+def project_roles (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	workspaces: typing.Sequence[subroutine.db.models.identity.Workspace],
+) -> dict[uuid.UUID, list[ProjectAccess]]:
+	"""Return, per workspace, each project where the caller holds a role of the project's own.
+
+	**One scan for the whole answer**, then :func:`subroutine.domain.authorization.explain` for
+	each project it finds — the function that answers every permission question here, so what a
+	client reads is what ``authorize`` would decide rather than a second copy of the rule
+	(`#925`, `#1420`). The scan finds nothing today, because nothing writes a project role until
+	`#1452`, and then its whole cost is one statement.
+
+	**A superuser gets nothing here**, because ``_role_for`` bypasses roles for them entirely: a
+	project role changes nothing they may do, and listing one would say it did.
+
+	**A project the caller cannot see is left out**, never listed with nothing in it. A role on a
+	project with a private ancestor they are not a member of grants no sight of it (§7.3a), and
+	naming it would publish the path that privacy exists to hide.
+	"""
+
+	if principal.is_superuser or not workspaces:
+		return {}
+
+	membership = subroutine.db.models.project.ProjectMember
+	model = subroutine.db.models.project.Project
+	rows = session.scalars(
+		sqlalchemy.select(model)
+		.join(membership, membership.project_id == model.id)
+		.where(
+			membership.user_id == principal.user.id,
+			membership.role_id.is_not(None),
+			model.workspace_id.in_([workspace.id for workspace in workspaces]),
+			model.deleted_at.is_(None),
+		)
+	).all()
+
+	if not rows:
+		return {}
+
+	addresses = subroutine.domain.projects.paths_for(session, [row.id for row in rows])
+	found: dict[uuid.UUID, list[ProjectAccess]] = {}
+
+	for row in rows:
+		if not subroutine.domain.authorization.is_visible(session, principal, row):
+			continue
+
+		grant = subroutine.domain.authorization.explain(
+			session, principal, row.workspace_id, project=row
+		)
+		found.setdefault(row.workspace_id, []).append(
+			ProjectAccess(
+				id=row.id,
+				address=addresses.get(row.id, row.key),
+				role=grant.from_role,
+				permissions=sorted(grant.permissions),
+			)
+		)
+
+	# By address, so the same roles are listed in the same order on every call.
+	return {
+		identity: sorted(listed, key=lambda one: one.address)
+		for identity, listed in found.items()
+	}
 
 
 def writable (credential: Credential | Token) -> list[str]:

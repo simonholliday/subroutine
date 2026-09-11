@@ -20,6 +20,7 @@ import subroutine.api.app
 import subroutine.api.security
 import subroutine.auth
 import subroutine.db.models.identity
+import subroutine.db.models.project
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.projects
@@ -371,6 +372,88 @@ def test_a_scoped_token_reports_only_what_it_can_actually_do (
 	assert body["workspaces"][0]["permissions"] == [subroutine.permissions.TASK_READ]
 	assert body["workspaces"][0]["role"] == "Owner", "the role is unchanged; the token narrows"
 	assert body["workspaces"][0]["narrowed_by_credential"] is True
+
+
+def _project_role (
+	session: sqlalchemy.orm.Session, setup: Setup, key: str, role: str
+) -> subroutine.db.models.project.Project:
+	"""Make a project and give the caller a role of that project's own in it.
+
+	**Written directly, because nothing in the program writes one yet** — that is `#1452`, and
+	this is the row it will produce.
+	"""
+
+	project = subroutine.domain.projects.create(
+		session, workspace_id=setup.workspace.id, key=key, title=key.title()
+	)
+	seeded = subroutine.db.models.identity.Role
+	session.add(
+		subroutine.db.models.project.ProjectMember(
+			workspace_id=setup.workspace.id,
+			project_id=project.id,
+			user_id=setup.user.id,
+			role_id=session.scalars(
+				sqlalchemy.select(seeded.id).where(
+					seeded.workspace_id == setup.workspace.id, seeded.key == role
+				)
+			).one(),
+		)
+	)
+	session.flush()
+
+	return project
+
+
+def test_a_project_role_is_published_where_it_replaces_the_workspaces (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`#2111`: where a role of a project's own replaces the workspace's, ``/v1/me`` names it.
+
+	**The browser gates every control on what this publishes** (`#927`'s M-25), and it had only
+	a workspace's answer — right while no project role existed, and a control that refuses when
+	pressed the day one does. So the project is listed with what its role allows, answered by
+	the same ``explain`` the workspace's answer is, and the workspace's own answer is untouched.
+	"""
+
+	project = _project_role(session, setup, "web", "viewer")
+	_, secret = _token(session, setup.user)
+	space = _me(setup.application, secret).json()["workspaces"][0]
+
+	assert [one["address"] for one in space["projects"]] == [project.key], space["projects"]
+	assert space["projects"][0]["role"] == "Viewer"
+	assert subroutine.permissions.TASK_READ in space["projects"][0]["permissions"]
+	assert subroutine.permissions.TASK_WRITE not in space["projects"][0]["permissions"]
+	assert subroutine.permissions.TASK_WRITE in space["permissions"], "the workspace's answer moved"
+
+
+def test_no_project_is_listed_where_no_role_of_its_own_exists (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""A project the caller merely belongs to answers as the workspace does, so it is not listed.
+
+	**With a membership that carries no role**, which is the row every project's owner already
+	has — so this is the ordinary case, not an empty workspace.
+	"""
+
+	subroutine.domain.projects.create(
+		session, workspace_id=setup.workspace.id, key="web", title="Web", owner_id=setup.user.id
+	)
+	_, secret = _token(session, setup.user)
+
+	assert _me(setup.application, secret).json()["workspaces"][0]["projects"] == []
+
+
+def test_a_superuser_is_listed_no_project_role_because_none_applies (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""Roles are bypassed for a superuser, so a project role changes nothing they may do."""
+
+	_project_role(session, setup, "web", "viewer")
+	setup.user.is_superuser = True
+	session.flush()
+	_, secret = _token(session, setup.user)
+
+	assert _me(setup.application, secret).json()["workspaces"][0]["projects"] == []
 
 
 def test_instance_permissions_belong_to_superusers_only (

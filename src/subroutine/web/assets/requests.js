@@ -71,7 +71,7 @@ export function identityRequest () {
 	return { path: "/me", method: "GET" };
 }
 
-export function allowedIn (me, slug) {
+export function allowedIn (me, slug, project = null) {
 	/*
 		What this reader may actually do in one workspace.
 
@@ -85,10 +85,21 @@ export function allowedIn (me, slug) {
 		An empty set where the workspace is unknown, which is the state before `/v1/me` has
 		answered — controls appear when the answer says they may, rather than appearing and
 		being taken away.
+
+		**A project answers for itself where the reader holds a role of the project's own**
+		(`#2111`). `/v1/me` names those projects under each workspace, with what that role
+		allows, and every other project is the workspace's answer — so `project`, found by its id
+		or its address, can change the answer only where the instance says it differs. **What a
+		role allows is the instance's to say**, and nothing here works it out.
 	*/
 	const found = me && me.workspaces.find((space) => space.slug === slug);
+	const own = found && project
+		? (found.projects || []).find((one) => (project.id && one.id === project.id)
+			|| (project.address && one.address === project.address))
+		: null;
+	const answer = own || found;
 
-	return new Set((found && found.permissions) || []);
+	return new Set((answer && answer.permissions) || []);
 }
 
 

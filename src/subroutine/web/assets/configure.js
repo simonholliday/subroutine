@@ -18,6 +18,7 @@
 
 import { settingsAddress, titlesByPath } from "./address.js";
 import { html } from "./html.js";
+import { allowedIn } from "./requests.js";
 
 
 export function listedZones () {
@@ -470,11 +471,10 @@ export function ProjectSettings ({
 		that `#2110` §4 says read differently, and the reason the settings read carries
 		provenance at all.
 
-		**`may` is the reader's verbs in this project's workspace**, `allowedIn`'s answer, and a
-		project setting is gated on the verb the registry publishes for a project, which is
-		`project:write`. That is the project's own answer only while a project's permissions equal
-		its workspace's, which they do because nothing writes a project role yet — `#2111` is
-		what makes it the project's own.
+		**`may` is the reader's verbs in this project** — `allowedIn`'s answer, which is the
+		project's own where the reader holds a role there (`#2111`) and its workspace's
+		everywhere else — and a project setting is gated on the verb the registry publishes for
+		a project, which is `project:write`.
 	*/
 	if (!workspace || !project || !inForce) return html`<div class="empty">Reading…</div>`;
 
@@ -750,7 +750,11 @@ export function Settings ({
 		registry: meta.settings || [],
 		statuses: (meta.statuses && meta.statuses.task) || [],
 		inForce: current ? current.inForce : null,
-		may: (workspace && workspace.permissions) || [],
+		/* **This project's own answer where it has one** (`#2111`) — `allowedIn`'s rule, so this
+		   page and an open item cannot disagree about what a reader may do in one project. */
+		may: entity
+			? [...allowedIn(me, page.slug, page.scope === "project" ? { address: page.project } : null)]
+			: [],
 		onChoose: (key, value) => onChoose(page, key, value),
 		busy,
 	};
