@@ -45,6 +45,7 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.schedule
+import subroutine.domain.settings
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.fanout
@@ -2866,6 +2867,60 @@ def test_a_project_can_say_it_offers_every_status (
 	assert "opposite" in refused.output, (
 		f"saying both was accepted, so one of them silently won: {refused.output!r}"
 	)
+
+
+def test_a_project_says_what_it_is_configured_with_and_where_each_value_came_from (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2451`: the terminal could change a setting and could not say what was in force.
+
+	**Set here, inherited and never stated are three answers**, and which one somebody is
+	looking at is the question they ask before changing anything — so every line says. The
+	workspace hides a status, which is the arrangement where a project's answer is not its own.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+	run("workspace", "update", "projects", "--hide-status", "blocked")
+	run("project", "update", "web", "--colour", "teal")
+
+	shown = run("project", "settings", "web").output
+
+	assert "teal — set here" in shown, shown
+	assert "blocked — inherited from the workspace" in shown, shown
+
+
+def test_a_workspace_says_what_it_is_configured_with (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2451`, at the widest scope: a value is set there, or it is the default nobody chose."""
+
+	run("init")
+	run("workspace", "update", "projects", "--colour", "amber")
+
+	shown = run("workspace", "settings", "projects").output
+
+	assert "amber — set here" in shown, shown
+	assert "not set anywhere, so the default applies" in shown, shown
+
+
+def test_what_is_in_force_reads_as_json_with_every_setting_the_registry_offers (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""``--json`` is the settings read itself, with one entry per setting a project may carry.
+
+	**Held against the registry rather than a list written here**, so a setting added to it is
+	expected here with no edit — the promise that adding a setting is an entry and a default.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+
+	answer = json.loads(run("project", "settings", "web", "--json").output)
+	offered = subroutine.domain.settings.offered(subroutine.domain.settings.PROJECT)
+
+	assert answer["scope"] == "project", answer
+	assert {one["key"] for one in answer["settings"]} == set(offered), answer
 
 
 def test_an_unknown_help_topic_lists_the_real_ones (

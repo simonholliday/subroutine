@@ -5490,6 +5490,82 @@ def _project_sharing (program: Program, *, key: str, json_output: bool) -> None:
 			program.say(f"  {one.user.username}{'  (agent)' if one.user.is_service_account else ''}")
 
 
+def _settings_in_force (
+	program: Program,
+	*,
+	project: str | None = None,
+	workspace: str | None = None,
+	json_output: bool,
+) -> None:
+	"""Say what a project or a workspace is configured with, and where each value came from.
+
+	`#2451`, on `#2450`'s reads. **The answer is the instance's, rendered here and never worked
+	out here**: which ancestor a value came from is `domain.settings`' one walk, so a terminal
+	cannot come to disagree with a board about where a project's colour came from.
+	"""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		answer = (
+			where.client.project_settings(project, workspace=_writing_workspace(world))
+			if project is not None
+			else where.client.workspace_settings(workspace=workspace)
+		)
+
+		if json_output:
+			program.say(json.dumps(answer.model_dump(mode="json"), indent=2))
+
+			return
+
+		# **Said rather than left blank**, as an empty listing is: a scope with nothing to
+		# configure is an answer, and a command that prints nothing reads as one that failed.
+		if not answer.settings:
+			program.say(f"A {answer.scope} has nothing to configure.")
+
+			return
+
+		width = max(len(one.key) for one in answer.settings)
+
+		for one in answer.settings:
+			value = _setting_value(one.value)
+
+			program.say(f"  {one.key:<{width}}  {value} — {_setting_source(one)}")
+
+
+def _setting_value (value: typing.Any) -> str:
+	"""A setting's value as one line shows it: a list joined, and nothing said as ``none``."""
+
+	if value is None or value == []:
+		return "none"
+
+	if isinstance(value, list):
+		return ", ".join(str(one) for one in value)
+
+	return str(value)
+
+
+def _setting_source (stated: subroutine.views.InForce) -> str:
+	"""Where a value in force came from, in the words the browser's settings pages use.
+
+	**Three answers, and each is acted on differently** (`#2110` §4): a value set here is changed
+	here; an inherited one is overridden here or changed where it was set; and one stated nowhere
+	is the default, which nobody chose.
+	"""
+
+	if stated.set_here:
+		return "set here"
+
+	source = stated.inherited_from
+
+	if source is None:
+		return "not set anywhere, so the default applies"
+
+	if source.scope == "workspace":
+		return f"inherited from the workspace, {source.title or source.address}"
+
+	return f"inherited from {source.title or source.address} ({source.address})"
+
+
 def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> None:
 	"""Retire a workspace's short name, naming the members it changes the address for."""
 
@@ -7161,6 +7237,24 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		_project_sharing(program, key=key, json_output=json_output)
 
+	@project_app.command("settings")
+	def project_configured (
+		key: str = typer.Argument(..., help="The project, by its short name."),
+		json_output: bool = typer.Option(False, "--json", help="Print the settings as JSON."),
+	) -> None:
+		"""Show what a project is configured with, and where each value came from.
+
+		Examples:
+
+		  subroutine project settings web
+
+		A project states little of its own: most of what it shows comes from the project above
+		it or from its workspace, and each line says which. A value set here is changed with
+		'subroutine project update'; one set further up is changed where it was set.
+		"""
+
+		_settings_in_force(program, project=key, json_output=json_output)
+
 	@project_app.command("update")
 	def project_update (
 		key: str = typer.Argument(..., help="The project, by its short name."),
@@ -8033,6 +8127,23 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 			colour=colour,
 			hide_status=hide_status,
 		)
+
+	@workspace_app.command("settings")
+	def workspace_configured (
+		slug: str = typer.Argument(..., help="The workspace, by its short name."),
+		json_output: bool = typer.Option(False, "--json", help="Print the settings as JSON."),
+	) -> None:
+		"""Show what a workspace is configured with, and whether each value was set there.
+
+		Examples:
+
+		  subroutine workspace settings projects
+
+		What is set here is what every project in the workspace shows unless it says
+		otherwise. Change one with 'subroutine workspace update'.
+		"""
+
+		_settings_in_force(program, workspace=slug, json_output=json_output)
 
 	@workspace_app.command("delete")
 	def workspace_delete (

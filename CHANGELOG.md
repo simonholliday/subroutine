@@ -22,6 +22,13 @@ upgrade involves.
 
 ### Added
 
+- **See at a terminal what a project or a workspace is configured with.**
+
+  `subroutine project settings <key>` and `subroutine workspace settings <slug>` list each
+  setting with the value in force and where it came from — set there, inherited from a project
+  above or from the workspace, or not set anywhere — and `--json` prints the same for a script.
+  They sit beside the `update` commands that change those settings.
+
 - **Ask what you may do in a project where your role there is not the workspace's.**
 
   Each workspace in `GET /v1/me` now carries `projects`: every project in it where you hold a

@@ -341,15 +341,6 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 }
 
 #: Client methods the CLI does not call, and why.
-#: `SR#2451`, shared by the two reads because they are one missing command in two places.
-SETTINGS_IN_FORCE_AT_A_TERMINAL = (
-	"`#2451`. The terminal can change a setting — `--hide-status` on a project and on a "
-	"workspace — and cannot yet say what is in force or where it came from. Both clients reach "
-	"the read; the command is what is missing, and it belongs beside `--hide-status` rather than "
-	"on the personal path, which somebody keeping a to-do list must be able to walk without "
-	"meeting a settings table. **Deleting these entries is what closes `#2451`.**"
-)
-
 NOT_IN_CLI: dict[str, Excuse] = {
 	"statuses": (
 		"protocol",
@@ -442,8 +433,6 @@ NOT_IN_CLI: dict[str, Excuse] = {
 		"closes its clients through the context manager `opened()` wraps, which is the same "
 		"call by another spelling.",
 	),
-	"workspace_settings": ("tracked", SETTINGS_IN_FORCE_AT_A_TERMINAL),
-	"project_settings": ("tracked", SETTINGS_IN_FORCE_AT_A_TERMINAL),
 }
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
