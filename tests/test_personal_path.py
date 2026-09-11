@@ -8081,6 +8081,62 @@ def test_the_list_narrows_to_what_somebody_is_holding (
 	assert "Being worked on" not in run("list", "--claimed-by", "me").output
 
 
+def test_claiming_says_to_start_and_a_claim_on_started_work_says_to_finish (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#2486`: the next act after a claim is starting it, unless it is already started.
+
+	**This used to suggest `list --ready`** — what is free to start — which, the moment somebody
+	has taken an item, points them at other work. Measured over a fortnight, the start was the
+	step agents skipped.
+	"""
+
+	run("init")
+	run("add", "Being worked on")
+
+	claimed = run("claim", "1").output
+
+	assert "Tip: subroutine start 1" in claimed, claimed
+	assert "list --ready" not in claimed, claimed
+
+	run("start", "1")
+
+	renewed = run("claim", "1").output
+
+	assert "Tip: subroutine done 1" in renewed, renewed
+	assert "subroutine start" not in renewed, renewed
+
+
+def test_giving_back_started_work_says_how_to_stop_it_showing_as_started (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#2486`, the other side, and on both ways of giving something back.
+
+	**`--all` matters most**: it is what a session-end hook runs, and a session that ends mid-task
+	is exactly what leaves work shown as started with nobody holding it.
+	"""
+
+	run("init")
+	run("add", "Being worked on")
+	run("add", "Nobody started this")
+	run("claim", "1")
+	run("claim", "2")
+	run("start", "1")
+
+	assert "subroutine stop" not in run("release", "2").output, "unstarted work was warned about"
+
+	one = run("release", "1").output
+
+	assert "Tip: subroutine stop 1" in one, one
+
+	run("claim", "1")
+
+	everything = run("release", "--all").output
+
+	assert "Still shown as started" in everything, everything
+	assert "subroutine stop 1" in everything, everything
+
+
 def test_the_changes_feed_narrows_to_what_one_account_did (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

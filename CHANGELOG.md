@@ -202,6 +202,14 @@ upgrade involves.
 
 ### Changed
 
+- **Claiming something now says how to show you have started it.** A claim holds an item so
+  nobody else takes it, and it does not say work has begun — so the board went on showing
+  claimed work as not started until somebody said otherwise, and often nobody did.
+  `subroutine claim` now suggests `subroutine start` when the item has not been started, and
+  `subroutine done` when it has, and the agent tool's reply names the same step. Giving back
+  something still marked as started — one item, or everything with `release --all` — says
+  that it still shows as started with nobody holding it, and how to stop that.
+
 - **The item type `spike` is now called `question`, and a title says what kind of thing it is by its grammar.**
 
   `spike` is agile jargon. If you have not worked on a team that used the word, it tells you

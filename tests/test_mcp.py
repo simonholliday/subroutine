@@ -715,6 +715,72 @@ def test_a_listing_says_who_is_holding_something_and_forgets_when_the_lease_runs
 	assert "Rotate the certificates" in expired, "the row itself should still be there"
 
 
+def test_a_claim_on_unstarted_work_names_the_call_that_says_it_has_begun (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#2486`: a claim does not say work has begun, and the moment of claiming is when to say so.
+
+	Measured over a fortnight, agents that claimed an item and finished it had left it unstarted
+	the whole time for 37% and 78% of them — the claim landed and the start did not, because
+	nothing seen while claiming said the start was a second act. **Only while it is unstarted**:
+	a renewal on work in progress stays one line, or the nudge becomes noise an agent learns to
+	skip.
+	"""
+
+	ref = _added(bound, "Rewire the parser")
+	taken, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, taken
+	assert f'subroutine_update(ref={ref}, status="in_progress")' in taken, taken
+
+	_called(bound, "subroutine_update", ref=ref, status="in_progress")
+	renewed, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert not failed, renewed
+	assert "in_progress" not in renewed, f"a renewal on started work was nudged: {renewed!r}"
+
+
+def test_giving_back_started_work_says_it_still_shows_as_started (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#2486`, the other side: given back while in progress, it reads as worked on by nobody.
+
+	**With the quiet twin**, because a warning on every release would be one nobody reads.
+	"""
+
+	started = _added(bound, "Rewire the parser")
+	untouched = _added(bound, "Sweep the logs")
+
+	for ref in (started, untouched):
+		_called(bound, "subroutine_claim", ref=ref)
+
+	_called(bound, "subroutine_update", ref=started, status="in_progress")
+
+	warned = _called(bound, "subroutine_claim", ref=started, release=True)[0]
+	quiet = _called(bound, "subroutine_claim", ref=untouched, release=True)[0]
+
+	assert f'subroutine_update(ref={started}, status="open")' in warned, warned
+	assert "status=" not in quiet, f"giving back unstarted work warned anyway: {quiet!r}"
+
+
+def test_the_claim_tool_says_a_claim_is_not_a_start (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""The one lever that reaches an agent before it has claimed anything — `#2486`.
+
+	Work finished without ever being claimed never passes the claim reply, and it was 182 of
+	the fortnight's finishes; the description is read on every session, so the rule lives there
+	as well as in the reply.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	claim = next(
+		one for one in answered[0]["result"]["tools"] if one["name"] == "subroutine_claim"
+	)
+
+	assert "in_progress" in claim["description"], claim["description"]
+
+
 def test_a_documents_status_is_not_a_cell_in_a_listing (
 	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
 ) -> None:
@@ -1371,7 +1437,14 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: this raise. It is the honest entry in this record: not an addition that earned its place, but
 #: a rename whose point was that `spike` told a reader outside agile nothing, paid for in the
 #: unit this ceiling is denominated in.
-TOOL_BYTE_CEILING = 14_551
+#: **14,551 → 14,625 on 2026-09-11, and what 74 bytes bought** (`SR#2486`): one clause in
+#: ``subroutine_claim``'s description — *a claim does not say work has begun: set status to
+#: in_progress when you do*. Read from the journal over a fortnight, agents finished 182 items
+#: they had never claimed, and a reply to a claim reaches none of them; this description is the
+#: one thing on the surface read before anything is claimed. **It was read for fat first**, and
+#: its renewal sentence was kept rather than traded: a lease renews on a write to the task, and
+#: an agent working elsewhere can go longer than a lease without making one.
+TOOL_BYTE_CEILING = 14_625
 
 
 def test_the_whole_tool_surface_stays_small (

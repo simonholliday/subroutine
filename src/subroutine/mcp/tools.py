@@ -1340,6 +1340,7 @@ def _tools (
 			description=(
 				"Take a task so another worker does not start it too, or give one back. "
 				"'ready' listings hide what somebody else holds and never hide your own. A "
+				"claim does not say work has begun: set status to in_progress when you do. A "
 				"claim expires by itself, so say it again while you are still working."
 			),
 			schema={
@@ -1562,8 +1563,19 @@ def _claimed (
 
 	if arguments.get("release"):
 		freed = client.release(ref=ref, workspace=workspace)
+		said = f"Released #{freed.ref}  {freed.title}"
 
-		return f"Released #{freed.ref}  {freed.title}"
+		# **Given back while still in progress, it reads as being worked on by nobody**
+		# (`#2486`), which anybody looking at it cannot tell apart from somebody working on it.
+		# Said only then, so giving back something never started stays one line.
+		if freed.status_category == "in_progress":
+			said += (
+				f"\nIt still shows as {freed.status_label or freed.status}, now with nobody "
+				f"holding it. If the work has stopped: "
+				f"subroutine_update(ref={freed.ref}, status=\"open\")."
+			)
+
+		return said
 
 	held = client.claim(ref=ref, workspace=workspace)
 
@@ -1578,7 +1590,22 @@ def _claimed (
 		zone = subroutine.domain.dates.zone(_account_zone(client, workspace))
 		until = f", until {held.claim_expires_at.astimezone(zone):%d %b %H:%M}"
 
-	return f"Claimed #{held.ref}  {held.title}{until}"
+	said = f"Claimed #{held.ref}  {held.title}{until}"
+
+	# **A claim does not say work has begun, so the next call is named here** (`#2486`).
+	# Measured over a fortnight, agents that claimed an item and later finished it had left it
+	# unstarted the whole time for 37% and 78% of them: the claim landed and the start did not,
+	# because nothing seen at this moment said the start was a second act. **Only while it is
+	# unstarted**, so renewing the lease on work in progress stays one line. The key is the
+	# seeded one, which no workspace can rename today — `#826` holds that obligation.
+	if held.status_category == "todo":
+		said += (
+			f"\nStill {held.status_label or held.status} to anybody looking — a claim does not "
+			f"say work has begun. When you begin: "
+			f"subroutine_update(ref={held.ref}, status=\"in_progress\")."
+		)
+
+	return said
 
 
 def _whoami (

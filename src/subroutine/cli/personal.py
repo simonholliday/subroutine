@@ -6040,7 +6040,23 @@ def _claimed (program: Program, *, which: str, minutes: int) -> None:
 			program.fail(error)
 
 		program.say(_acted(world, dataclasses.replace(located, item=held), "Claimed"))
-		_suggest(program.console, "subroutine list --ready", "what is free to start")
+
+		# **The next act is starting it, unless it is already started** (`#2486`). This
+		# suggested `list --ready` — what is free to start — which, the moment somebody has taken
+		# an item, points them at other work; and measured over a fortnight, the start was the step
+		# agents skipped, leaving work nobody could see had begun. Renewing a claim on work already
+		# started points at finishing instead.
+		address = _typeable(world, located.connection, held)
+
+		if held.status_category == "todo":
+			_suggest(
+				program.console,
+				f"subroutine start {address}",
+				"when you begin, so it shows as started",
+			)
+
+		elif held.status_category == "in_progress":
+			_suggest(program.console, f"subroutine done {address}", "when it is finished")
 
 
 def _git (*arguments: str) -> str | None:
@@ -6153,6 +6169,7 @@ def _released_everything (program: Program) -> None:
 
 	with program.opened() as world:
 		freed: list[str] = []
+		started: list[str] = []
 		unanswered: list[str] = []
 
 		# **Per workspace rather than per connection**, like every other listing here: a task
@@ -6189,11 +6206,26 @@ def _released_everything (program: Program) -> None:
 
 					freed.append(f"#{task.ref}  {task.title}")
 
+					# **Still started, and now held by nobody** (`#2486`) — what a session-end
+					# hook leaves behind when the work stopped without being put down.
+					if task.status_category == "in_progress":
+						started.append(_typeable(world, reached.name, task))
+
 		if freed:
 			program.say(f"Released {len(freed)}:")
 
 			for line in freed:
 				program.say(f"  {line}")
+
+		if started:
+			program.say(
+				f"Still shown as started, with nobody holding them: {', '.join(started)}."
+			)
+			_suggest(
+				program.console,
+				f"subroutine stop {started[0]}",
+				"for each one whose work has stopped",
+			)
 
 		for line in unanswered:
 			program.warn(line)
@@ -6246,6 +6278,15 @@ def _released (program: Program, *, which: str) -> None:
 			program.fail(error)
 
 		program.say(_acted(world, dataclasses.replace(located, item=freed), "Released"))
+
+		# **Given back while still in progress, it shows as being worked on by nobody**
+		# (`#2486`) — the claim-time gap, seen from the other side.
+		if freed.status_category == "in_progress":
+			_suggest(
+				program.console,
+				f"subroutine stop {_typeable(world, located.connection, freed)}",
+				"if the work has stopped, so it no longer shows as started",
+			)
 
 
 def _project_prioritised (program: Program, *, key: str, none: bool) -> None:
