@@ -6027,3 +6027,137 @@ def published_settings () -> list[Setting]:
 		)
 		for found in subroutine.domain.settings.SETTINGS.values()
 	]
+
+
+class Source(pydantic.BaseModel):
+	"""Where a value in force was stated, when it was not stated on the entity asked about."""
+
+	#: ``project`` or ``workspace``.
+	scope: str
+
+	#: The project's address, or the workspace's short name — what a link to it is made of.
+	address: str
+
+	#: What that project or workspace is called.
+	title: str
+
+
+class InForce(pydantic.BaseModel):
+	"""One setting as it applies to one workspace or project, and where its value came from.
+
+	**Set here and inherited are different answers and read differently.** A value chosen on this
+	entity can be cleared from it; one inherited from further up can only be overridden here or
+	changed where it was set. Neither the raw ``settings`` map nor a resolved value can say which,
+	so this carries both.
+	"""
+
+	key: str
+
+	#: What is in force.
+	value: typing.Any = None
+
+	#: What it reads as where nothing states it.
+	default: typing.Any = None
+
+	#: Whether this entity states the value itself.
+	set_here: bool
+
+	#: Where the value was stated, when it was not stated here. Null when it was, and null when
+	#: nothing states it and the default applies — ``set_here`` tells those two apart.
+	inherited_from: Source | None = None
+
+
+class SettingsInForce(pydantic.BaseModel):
+	"""Every setting one workspace or project may carry, as it applies there."""
+
+	#: ``project`` or ``workspace``.
+	scope: str
+
+	settings: list[InForce]
+
+
+def settings_in_force (
+	session: sqlalchemy.orm.Session,
+	stated: typing.Sequence[subroutine.domain.settings.Stated],
+	*,
+	scope: str,
+) -> SettingsInForce:
+	"""Render what a settings page reads, naming each source it inherits from — `#2450`.
+
+	**One lookup per kind of source for the whole answer**, never one per setting: the sources
+	are at most one project's ancestors and its workspace, so their names come from one
+	:func:`subroutine.domain.projects.paths_for` call and one read of each table.
+
+	**A default that is a tuple is published as a list**, for :func:`published_settings`'
+	reason: the registry keeps defaults immutable and JSON has one sequence.
+	"""
+
+	inherited = [one.source for one in stated if one.source is not None and not one.set_here]
+	project_ids = {source.id for source in inherited if source.scope == subroutine.domain.settings.PROJECT}
+	workspace_ids = {source.id for source in inherited if source.scope == subroutine.domain.settings.WORKSPACE}
+
+	paths = subroutine.domain.projects.paths_for(session, project_ids) if project_ids else {}
+	project_model = subroutine.db.models.project.Project
+	workspace_model = subroutine.db.models.identity.Workspace
+	project_titles = (
+		dict(
+			session.execute(
+				sqlalchemy.select(project_model.id, project_model.title).where(
+					project_model.id.in_(project_ids)
+				)
+			)
+			.tuples()
+			.all()
+		)
+		if project_ids
+		else {}
+	)
+	workspaces = {
+		identity: (slug, title)
+		for identity, slug, title in (
+			session.execute(
+				sqlalchemy.select(workspace_model.id, workspace_model.slug, workspace_model.title).where(
+					workspace_model.id.in_(workspace_ids)
+				)
+			)
+			.tuples()
+			.all()
+			if workspace_ids
+			else []
+		)
+	}
+
+	def named (source: subroutine.domain.settings.Holder) -> Source:
+		"""Name one source, from the lookups above."""
+
+		if source.scope == subroutine.domain.settings.PROJECT:
+			return Source(
+				scope=source.scope,
+				address=paths.get(source.id, ""),
+				title=project_titles.get(source.id, ""),
+			)
+
+		slug, title = workspaces.get(source.id, ("", ""))
+
+		return Source(scope=source.scope, address=slug, title=title)
+
+	def plain (value: typing.Any) -> typing.Any:
+		"""A tuple as the list JSON has."""
+
+		return list(value) if isinstance(value, tuple) else value
+
+	return SettingsInForce(
+		scope=scope,
+		settings=[
+			InForce(
+				key=one.setting.key,
+				value=plain(one.value),
+				default=plain(one.setting.default),
+				set_here=one.set_here,
+				inherited_from=(
+					named(one.source) if one.source is not None and not one.set_here else None
+				),
+			)
+			for one in stated
+		],
+	)

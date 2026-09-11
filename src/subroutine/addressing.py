@@ -33,6 +33,9 @@ import typing
 #: **``members`` joined it with `#1444`**, which is the same arithmetic one route later: a
 #: project's address spans segments, so ``secret/members`` reads equally as a project keyed
 #: ``members`` inside ``secret`` and as who can see ``secret``. The route wins.
+#: **``settings`` joined it with `#2450`**, one route later again: ``parent/settings`` reads
+#: equally as a project keyed ``settings`` inside ``parent`` and as what is in force in
+#: ``parent``. The route wins, and nothing on the served instance was keyed that way.
 RESERVED_PATH_WORDS = frozenset(
 	{
 		"batch",
@@ -44,6 +47,7 @@ RESERVED_PATH_WORDS = frozenset(
 		"parse",
 		"restore",
 		"search",
+		"settings",
 		"sync",
 	}
 )

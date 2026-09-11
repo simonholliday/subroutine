@@ -1207,6 +1207,29 @@ class Client(typing.Protocol):
 
 		raise NotImplementedError
 
+	def workspace_settings (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one workspace may carry, as it applies there — `#2450`.
+
+		What is in force, what it would be by default, and whether the workspace states it: the
+		question a settings page asks before it draws a control.
+		"""
+
+		raise NotImplementedError
+
+	def project_settings (
+		self, project: str, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one project may carry, as it applies there, and where each came from.
+
+		**Where it came from is the point** (design `#2110` §4): *this project chose grey* and
+		*this project inherits grey* render and clear differently, and neither the raw settings
+		map nor the resolved value on :class:`~subroutine.views.Project` can tell them apart.
+		"""
+
+		raise NotImplementedError
+
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
 	) -> subroutine.views.Project:

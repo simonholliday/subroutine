@@ -553,6 +553,24 @@ def applied (
 	return stored
 
 
+def answered_by (
+	setting: Setting, *, stored: typing.Sequence[dict[str, typing.Any]]
+) -> int | None:
+	"""Return which of these holders answers for a setting, or ``None`` where none states it.
+
+	**The walk :func:`in_force` makes, exposed rather than repeated** (`#2450`). A settings page
+	has to say where a value came from, and a second function walking the same chain to find out
+	would be a second copy of the inheritance rule — free to disagree with the first about which
+	holder wins, which is the one disagreement nothing else would catch.
+	"""
+
+	for at, holder in enumerate(stored):
+		if setting.key in holder:
+			return at
+
+	return None
+
+
 def in_force (setting: Setting, *, stored: typing.Sequence[dict[str, typing.Any]]) -> typing.Any:
 	"""Return the value that applies, given each scope's own settings most specific first.
 
@@ -566,17 +584,28 @@ def in_force (setting: Setting, *, stored: typing.Sequence[dict[str, typing.Any]
 	key must still serve the entity holding it.
 	"""
 
-	for holder in stored:
-		if setting.key in holder:
-			return holder[setting.key]
+	at = answered_by(setting, stored=stored)
 
-	return setting.default
+	return setting.default if at is None else stored[at][setting.key]
 
 
-def _chains (
+class Holder (typing.NamedTuple):
+	"""One link in a chain: which entity it is, and what that entity has stated."""
+
+	#: :data:`PROJECT` or :data:`WORKSPACE`.
+	scope: str
+
+	#: The project's or the workspace's id.
+	id: uuid.UUID
+
+	#: What it has set, as stored — every key, including ones no setting declares.
+	settings: dict[str, typing.Any]
+
+
+def _holders (
 	session: sqlalchemy.orm.Session, ids: typing.Collection[uuid.UUID]
-) -> dict[uuid.UUID, list[dict[str, typing.Any]]]:
-	"""Return, for each project, the stored settings to consult and in what order.
+) -> dict[uuid.UUID, list[Holder]]:
+	"""Return, for each project, every entity whose settings apply to it, nearest first.
 
 	    this project -> its parent -> ... -> the workspace
 
@@ -660,13 +689,29 @@ def _chains (
 		# and the workspace is the last link after it.
 		chains[identity] = [
 			*[
-				dict(held.get(uuid.UUID(segment)) or {})
+				Holder(PROJECT, uuid.UUID(segment), dict(held.get(uuid.UUID(segment)) or {}))
 				for segment in reversed(subroutine.domain.hierarchy.path_segments(path))
 			],
-			dict(spaces.get(workspace_id) or {}),
+			Holder(WORKSPACE, workspace_id, dict(spaces.get(workspace_id) or {})),
 		]
 
 	return chains
+
+
+def _chains (
+	session: sqlalchemy.orm.Session, ids: typing.Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, typing.Any]]]:
+	"""Return, for each project, the stored settings to consult and in what order.
+
+	:func:`_holders` with the entities left out — which is all :func:`in_force` walks, and all a
+	listing needs. **The same three queries**, because the ids were already in hand: keeping them
+	costs nothing, and dropping them here is what keeps this the one walk for both readers.
+	"""
+
+	return {
+		identity: [holder.settings for holder in holders]
+		for identity, holders in _holders(session, ids).items()
+	}
 
 
 def several_for_projects (
@@ -710,3 +755,90 @@ def for_projects (
 	"""
 
 	return several_for_projects(session, [setting], ids)[setting.key]
+
+
+class Stated (typing.NamedTuple):
+	"""One setting as a page about one entity needs it: the value, and where it came from."""
+
+	setting: Setting
+
+	#: What is in force there — :func:`in_force`'s answer, and nothing else's.
+	value: typing.Any
+
+	#: The entity that stated it, or ``None`` where nothing does and the default applies.
+	source: Holder | None
+
+	#: Whether that entity is the one being asked about. **Set here and inherited read
+	#: differently** (`#2110` §4): clearing a value set here is a real act, where clearing one
+	#: that is inherited changes nothing.
+	set_here: bool
+
+
+def _stated (setting: Setting, holders: typing.Sequence[Holder]) -> Stated:
+	"""Resolve one setting along a chain, keeping the entity that answered."""
+
+	stored = [holder.settings for holder in holders]
+	at = answered_by(setting, stored=stored)
+
+	return Stated(
+		setting=setting,
+		value=in_force(setting, stored=stored),
+		source=None if at is None else holders[at],
+		set_here=at == 0,
+	)
+
+
+def stated_for_project (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> list[Stated]:
+	"""Every setting a project may carry, with the value in force there and where it came from.
+
+	**The walk every listing makes**, through :func:`_holders`, :func:`answered_by` and
+	:func:`in_force` — so a settings page and a board cannot disagree about which ancestor a
+	project's colour came from (`#2450`).
+
+	**Needs ``project:read``, checked here** so both transports ask it in the one place they
+	share. ``actor`` of ``None`` is an internal caller and skips it, as every service does.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session,
+			actor,
+			subroutine.permissions.PROJECT_READ,
+			workspace_id=project.workspace_id,
+			project=project,
+		)
+
+	holders = _holders(session, [project.id])[project.id]
+
+	return [_stated(setting, holders) for setting in offered(PROJECT).values()]
+
+
+def stated_for_workspace (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	actor: subroutine.domain.authentication.Principal | None,
+) -> list[Stated]:
+	"""Every setting a workspace may carry, with the value in force there and where it came from.
+
+	A chain of one, because a workspace is the widest scope there is: a value is set here or it
+	is the default, and nothing is inherited.
+
+	**Needs ``workspace:read``**, checked here for :func:`stated_for_project`'s reason. Naming a
+	workspace is not reading it: an administrator who may address any workspace still has to
+	belong to one to see how it is configured.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.WORKSPACE_READ, workspace_id=workspace.id
+		)
+
+	holders = [Holder(WORKSPACE, workspace.id, dict(workspace.settings or {}))]
+
+	return [_stated(setting, holders) for setting in offered(WORKSPACE).values()]

@@ -38,6 +38,7 @@ import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
+import subroutine.domain.settings
 import subroutine.domain.users
 import subroutine.errors
 import subroutine.views
@@ -286,6 +287,40 @@ class Share(subroutine.api.schemas.RequestModel):
 	#: Whose sight of the project this grants. A username rather than an id, because that is
 	#: what somebody has in front of them and what every other membership route takes.
 	username: str
+
+
+@router.get(
+	"/{id_or_key:path}/settings",
+	summary="What is in force in this project, and where it came from",
+	response_model=subroutine.views.SettingsInForce,
+)
+def project_settings (
+	id_or_key: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
+) -> subroutine.views.SettingsInForce:
+	"""Every setting this project may carry, as it applies here, and where each value came from.
+
+	A project inherits what it does not state from the nearest project above it that does, and
+	then from its workspace. Each setting says which of those answered — this project, an
+	ancestor named by its address, the workspace, or nobody, in which case the default applies —
+	because *chose grey* and *inherits grey* look the same and are cleared differently.
+
+	Needs ``project:read``.
+	"""
+
+	# **Registered before ``/{id_or_key:path}``, as ``/members`` is**, because routes match in
+	# the order they are declared and that path converter would otherwise read ``web/settings``
+	# as the address of a project.
+	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
+	project = resolve(session, actor, workspace, id_or_key)
+
+	return subroutine.views.settings_in_force(
+		session,
+		subroutine.domain.settings.stated_for_project(session, project, actor=actor),
+		scope=subroutine.domain.settings.PROJECT,
+	)
 
 
 @router.get(

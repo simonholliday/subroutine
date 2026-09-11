@@ -22,6 +22,21 @@ upgrade involves.
 
 ### Added
 
+- **Ask what a workspace or a project is configured with, and where each value came from.**
+
+  `GET /v1/workspaces/{slug}/settings` and `GET /v1/projects/{key}/settings` answer, for every
+  setting that can be made there, what is in force, what the default is, and whether it was set
+  on that workspace or project itself — or inherited, naming the project or workspace it came
+  from. A colour set on a parent project reads as the parent's on each project beneath it, which
+  is what a settings page needs to offer the right control: a value set here can be cleared,
+  and one that comes from further up can only be overridden. Both clients read it too.
+
+  > **`settings` is now a reserved project key.** `parent/settings` would read equally as a
+  > project keyed `settings` inside `parent` and as what is in force in `parent` — and the
+  > route wins, leaving the project listed and reachable by nothing. New projects cannot be
+  > keyed that way; an existing one is unaffected until it is renamed. Nothing on any
+  > instance we know of uses it.
+
 - **`/v1/meta` says what this installation can be configured with.**
 
   A new `settings` list names every setting, where it may be set, the kind of value it takes —

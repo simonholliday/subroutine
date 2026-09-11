@@ -757,6 +757,39 @@ def test_both_read_one_account_by_name (pair: Pair) -> None:
 	assert remote.user(username=pair.user.username).username == pair.user.username
 
 
+def test_both_read_what_is_in_force_the_same_way (pair: Pair) -> None:
+	"""`SR#2450`. A settings page's read, compared field by field across both transports.
+
+	**With a chain to walk**, because a read of defaults alone would agree on both transports while
+	the part most likely to differ — naming the entity a value was inherited from — was never
+	asked.
+	"""
+
+	local, remote = pair.both()
+	slug = pair.workspace.slug
+
+	local.create_project(key="alpha", title="The parent")
+	local.create_project(key="beta", title="The child", parent="alpha")
+	local.update_project("alpha", settings={"appearance.colour": "teal"}, workspace=slug)
+
+	assert local.workspace_settings(workspace=slug).model_dump() == (
+		remote.workspace_settings(workspace=slug).model_dump()
+	)
+	assert local.project_settings("alpha/beta", workspace=slug).model_dump() == (
+		remote.project_settings("alpha/beta", workspace=slug).model_dump()
+	)
+
+	# **And that the chain was really walked**, so the comparison above is not two empty answers
+	# agreeing with each other.
+	inherited = {
+		one.key: one for one in local.project_settings("alpha/beta", workspace=slug).settings
+	}
+
+	assert inherited["appearance.colour"].value == "teal"
+	assert inherited["appearance.colour"].inherited_from is not None
+	assert inherited["appearance.colour"].inherited_from.address == "alpha"
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

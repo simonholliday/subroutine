@@ -7,6 +7,7 @@ failure with more ceremony, so the guard that proves each entry is *read* is the
 module and not a nicety.
 """
 
+import itertools
 import pathlib
 import uuid
 
@@ -1125,3 +1126,145 @@ def test_a_project_setting_can_declare_a_stronger_verb_and_the_service_enforces_
 	)
 
 	assert project.settings[gated.key] == "teal"
+
+
+def test_answered_by_names_the_holder_in_force_answers_from () -> None:
+	"""`#2450`: the walk ``in_force`` makes, exposed so a page can say where a value came from.
+
+	**Held to ``in_force`` over every shape a chain of three can take**, rather than over the one
+	a test author thought of: each holder states the key or does not, so there are eight chains,
+	and in every one the index reported must be the holder whose value ``in_force`` returns. Two
+	functions answering one question are safe only while that holds.
+	"""
+
+	setting = subroutine.domain.settings.COLOUR
+	checked = 0
+
+	for pattern in itertools.product((False, True), repeat=3):
+		stored = [
+			{setting.key: f"from-{at}"} if states else {"unrelated.key": at}
+			for at, states in enumerate(pattern)
+		]
+		at = subroutine.domain.settings.answered_by(setting, stored=stored)
+		expected = next((index for index, states in enumerate(pattern) if states), None)
+
+		assert at == expected, (pattern, at)
+		assert subroutine.domain.settings.in_force(setting, stored=stored) == (
+			setting.default if at is None else f"from-{at}"
+		), pattern
+
+		checked += 1
+
+	assert checked == 8
+
+
+def test_a_project_is_told_which_entity_each_value_came_from (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""The precedence walk above, reading the source at each step as well as the value.
+
+	**Every step changes the answer**, for that test's reason: a level whose source equals the
+	level below it cannot be told from a level that was never consulted.
+	"""
+
+	parent = _project(session, world.id, "parent")
+	child = _project(session, world.id, "child")
+
+	def colour () -> subroutine.domain.settings.Stated:
+		"""The child's colour, with where it came from."""
+
+		return next(
+			one
+			for one in subroutine.domain.settings.stated_for_project(session, child, actor=None)
+			if one.setting is subroutine.domain.settings.COLOUR
+		)
+
+	nothing = colour()
+
+	assert (nothing.value, nothing.source, nothing.set_here) == (None, None, False)
+
+	world.settings = {"appearance.colour": "slate"}
+	session.flush()
+	from_workspace = colour()
+
+	assert from_workspace.value == "slate" and from_workspace.set_here is False
+	assert from_workspace.source is not None
+	assert (from_workspace.source.scope, from_workspace.source.id) == (
+		subroutine.domain.settings.WORKSPACE, world.id,
+	)
+
+	parent.settings = {"appearance.colour": "teal"}
+	session.flush()
+	from_parent = colour()
+
+	assert from_parent.value == "teal" and from_parent.set_here is False
+	assert from_parent.source is not None
+	assert (from_parent.source.scope, from_parent.source.id) == (
+		subroutine.domain.settings.PROJECT, parent.id,
+	)
+
+	child.settings = {"appearance.colour": "amber"}
+	session.flush()
+	own = colour()
+
+	assert own.value == "amber" and own.set_here is True
+	assert own.source is not None and own.source.id == child.id
+
+
+def test_a_settings_page_and_a_listing_resolve_every_setting_the_same_way (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2110` §4's obligation, at the layer both readers share: one walk, one answer.
+
+	``several_for_projects`` is what every listing asks, and ``stated_for_project`` what a
+	settings page asks. The two settings are set at different levels so each has a different
+	source, and both are asked of every project in the chain.
+	"""
+
+	parent = _project(session, world.id, "parent")
+	child = _project(session, world.id, "child")
+
+	world.settings = {"statuses.hidden": ["blocked"]}
+	parent.settings = {"appearance.colour": "teal"}
+	session.flush()
+
+	listed = subroutine.domain.settings.several_for_projects(
+		session, list(subroutine.domain.settings.SETTINGS.values()), [parent.id, child.id]
+	)
+	compared = 0
+
+	for project in (parent, child):
+		for one in subroutine.domain.settings.stated_for_project(session, project, actor=None):
+			assert one.value == listed[one.setting.key][project.id], (project.key, one.setting.key)
+
+			compared += 1
+
+	assert compared == 2 * len(
+		subroutine.domain.settings.offered(subroutine.domain.settings.PROJECT)
+	)
+
+
+def test_a_workspace_states_a_value_or_has_the_default (
+	world: subroutine.db.models.identity.Workspace, session: sqlalchemy.orm.Session
+) -> None:
+	"""A chain of one: set on the workspace, or stated nowhere — nothing is inherited."""
+
+	def hidden () -> subroutine.domain.settings.Stated:
+		"""The workspace's hidden statuses, with where they came from."""
+
+		return next(
+			one
+			for one in subroutine.domain.settings.stated_for_workspace(session, world, actor=None)
+			if one.setting is subroutine.domain.settings.HIDDEN_STATUSES
+		)
+
+	unset = hidden()
+
+	assert (unset.value, unset.set_here, unset.source) == ((), False, None)
+
+	world.settings = {"statuses.hidden": ["blocked"]}
+	session.flush()
+	stated = hidden()
+
+	assert (stated.value, stated.set_here) == (["blocked"], True)
+	assert stated.source is not None and stated.source.id == world.id

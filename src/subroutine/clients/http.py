@@ -1292,6 +1292,30 @@ class Client:
 			subroutine.views.ProjectMember.model_validate(row) for row in body.get("items", [])
 		]
 
+	def workspace_settings (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one workspace may carry, as it applies there."""
+
+		return self._parsed(
+			subroutine.views.SettingsInForce,
+			self._json("GET", f"/v1/workspaces/{self._workspace(workspace)}/settings"),
+		)
+
+	def project_settings (
+		self, project: str, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one project may carry, as it applies there."""
+
+		return self._parsed(
+			subroutine.views.SettingsInForce,
+			self._json(
+				"GET",
+				f"/v1/projects/{project}/settings",
+				params=_given(workspace_id=workspace),
+			),
+		)
+
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
 	) -> subroutine.views.Project:

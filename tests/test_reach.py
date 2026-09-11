@@ -199,6 +199,9 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/users/{username}"): "user",
 	("GET", "/v1/workspaces/{id_or_slug}/members"): "members",
 	("GET", "/v1/projects/{id_or_key:path}/members"): "project_members",
+	# What a settings page reads — `SR#2450`.
+	("GET", "/v1/workspaces/{id_or_slug}/settings"): "workspace_settings",
+	("GET", "/v1/projects/{id_or_key:path}/settings"): "project_settings",
 	("GET", "/v1/instance/workspaces"): "instance_workspaces",
 }
 
@@ -338,6 +341,15 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 }
 
 #: Client methods the CLI does not call, and why.
+#: `SR#2451`, shared by the two reads because they are one missing command in two places.
+SETTINGS_IN_FORCE_AT_A_TERMINAL = (
+	"`#2451`. The terminal can change a setting — `--hide-status` on a project and on a "
+	"workspace — and cannot yet say what is in force or where it came from. Both clients reach "
+	"the read; the command is what is missing, and it belongs beside `--hide-status` rather than "
+	"on the personal path, which somebody keeping a to-do list must be able to walk without "
+	"meeting a settings table. **Deleting these entries is what closes `#2451`.**"
+)
+
 NOT_IN_CLI: dict[str, Excuse] = {
 	"statuses": (
 		"protocol",
@@ -430,6 +442,8 @@ NOT_IN_CLI: dict[str, Excuse] = {
 		"closes its clients through the context manager `opened()` wraps, which is the same "
 		"call by another spelling.",
 	),
+	"workspace_settings": ("tracked", SETTINGS_IN_FORCE_AT_A_TERMINAL),
+	"project_settings": ("tracked", SETTINGS_IN_FORCE_AT_A_TERMINAL),
 }
 
 #: Client methods the MCP adapter does not call, and why. **The list `#149` is deleting.**
@@ -450,6 +464,11 @@ SHARING_IS_A_PERSONS_ACT = (
 	"`SR#1444`, and the argument that carried it into scope was **false**. It was *an agent can create a private project and cannot undo it* — but `subroutine_call_api` takes GET, POST, PATCH or DELETE on any path, so an agent reaches these three the moment the routes exist, with no schema change. What was left was discoverability, against a surface at **15 of 15 tools** under \u00a721.2, and a poor host: `subroutine_project` is list-or-create by its own description, so membership properties would make it tri-modal.\n\n**And it is the wrong population.** No agent can see a private project it did not create — `visible_projects` reads `principal.user.id`, service accounts *are* users, and nothing writes their row. So an agent is the thing being **shared with**, and the act is a person's.\n\n**What would change it**: an installation where agents routinely admit each other to projects, which would make this daily work rather than a person's occasional decision. `SR#1450` carries the wording that tells an agent the route is there."
 )
 
+
+#: `SR#2450`, shared by the two reads for the same reason as the CLI's.
+SETTINGS_ARE_A_PAGE = (
+	"`SR#2450`. What a workspace or a project is configured with, and where each value came from, is what a settings page draws before somebody changes something — an administrator's question rather than an agent's daily work, and an agent that needs it reaches both routes through `subroutine_call_api`, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that curates configuration, which would make this work rather than administration."
+)
 
 NOT_IN_MCP: dict[str, Excuse] = {
 	"instance_workspaces": (
@@ -797,6 +816,8 @@ NOT_IN_MCP: dict[str, Excuse] = {
 		"reaches the route for anything the hook cannot cover. **Deleting this entry is what a "
 		"fifteenth tool would mean.**",
 	),
+	"workspace_settings": ("budget", SETTINGS_ARE_A_PAGE),
+	"project_settings": ("budget", SETTINGS_ARE_A_PAGE),
 }
 
 

@@ -34,6 +34,7 @@ import subroutine.domain.authorization
 import subroutine.domain.paging
 import subroutine.domain.projects
 import subroutine.domain.selection
+import subroutine.domain.settings
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -525,6 +526,34 @@ class Regrade(subroutine.api.schemas.RequestModel):
 	#: and a body that could arrive empty would be a way to ask for nothing and be told it
 	#: worked.
 	role: str
+
+
+@router.get(
+	"/{id_or_slug}/settings",
+	summary="What is in force in this workspace, and where it came from",
+	response_model=subroutine.views.SettingsInForce,
+)
+def workspace_settings (
+	id_or_slug: str,
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+) -> subroutine.views.SettingsInForce:
+	"""Every setting this workspace may carry, as it applies here.
+
+	Each says what is in force, what it would be if nothing stated it, and whether this workspace
+	states it — so a settings page can tell a choice somebody made here from a default nobody
+	chose. A workspace is the widest scope there is, so nothing here is inherited.
+
+	Needs ``workspace:read``.
+	"""
+
+	found = resolve(session, actor, id_or_slug)
+
+	return subroutine.views.settings_in_force(
+		session,
+		subroutine.domain.settings.stated_for_workspace(session, found, actor=actor),
+		scope=subroutine.domain.settings.WORKSPACE,
+	)
 
 
 @router.get(

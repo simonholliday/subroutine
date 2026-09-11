@@ -69,6 +69,7 @@ import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.selection
 import subroutine.domain.sessions
+import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.tokens
@@ -2562,6 +2563,35 @@ class Client:
 				)
 				for row, account in rows
 			]
+
+	def workspace_settings (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one workspace may carry, as it applies there."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return subroutine.views.settings_in_force(
+				session,
+				subroutine.domain.settings.stated_for_workspace(session, chosen, actor=actor),
+				scope=subroutine.domain.settings.WORKSPACE,
+			)
+
+	def project_settings (
+		self, project: str, *, workspace: str | None = None
+	) -> subroutine.views.SettingsInForce:
+		"""Every setting one project may carry, as it applies there."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			found = subroutine.domain.selection.project(session, actor, chosen, project)
+
+			return subroutine.views.settings_in_force(
+				session,
+				subroutine.domain.settings.stated_for_project(session, found, actor=actor),
+				scope=subroutine.domain.settings.PROJECT,
+			)
 
 	def rename_project (
 		self, project: str, *, key: str, workspace: str | None = None
