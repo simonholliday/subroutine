@@ -23,7 +23,7 @@ import {
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
-	showingOf, titlesByPath, viewOf, withShowing, widened,
+	settingsPageOf, showingOf, titlesByPath, viewOf, withShowing, widened,
 } from "./address.js";
 import {
 	Boundary, accumulated, inOrder, mergeOrder, newestFirst, refusal, sunkOrder, unpacked,
@@ -32,6 +32,7 @@ import {
 import {
 	Facts, Foot, Note, Prose, THEMES, Theme, Wordmark, applyTheme, themeChoice,
 } from "./chrome.js";
+import { Settings, deviceZone, listedZones } from "./configure.js";
 import {
 	DEFAULT_ORDER, DEFERRED, ORDERINGS, calendarDay, completable, day, deferred, excluded,
 	holding, named, offeredOrders, orderedAs, orderingValue, overdue,
@@ -69,8 +70,8 @@ import {
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
 	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
-	signOutRequest, statusRequest, timeFor, touching, unlinkRequest, updateRequest, withTime,
-	written,
+	signOutRequest, statusRequest, timeFor, timezoneRequest, touching, unlinkRequest,
+	updateRequest, withTime, written,
 } from "./requests.js";
 import { Agenda, Board, Marks, Row, Stamp } from "./rows.js";
 import {
@@ -1122,8 +1123,9 @@ export function App () {
 			showing,
 			workspaces: me ? me.workspaces : [],
 			projects: filable,
+			area,
 		});
-	}, [everywhere, filable, me, open, project, showing, workspace]);
+	}, [area, everywhere, filable, me, open, project, showing, workspace]);
 
 	const start = useCallback(async () => {
 		setError(null);
@@ -1443,6 +1445,36 @@ export function App () {
 			setBusy(false);
 		}
 	}, [me, directoryFor]);
+
+	const zoned = useCallback(async (zone) => {
+		/*
+			Say where the reader is — `#1446`.
+
+			**`/v1/me` is read again afterwards rather than patched**, because the zone is not
+			one field on this page: `reader_timezone` is resolved from it, and every day the app
+			draws is worked out in it. Patching `user.timezone` here would leave the resolved
+			answer saying the old thing, which is `prioritise`'s argument one field along.
+		*/
+		if (!me) return;
+
+		setBusy(true);
+
+		try {
+			await sent(timezoneRequest(me.user.username, zone));
+
+			setMe(await sent(identityRequest()));
+			setNote({
+				text: zone
+					? `Your timezone is ${zone} now.`
+					: "Your timezone is not set now, so each workspace's own is used.",
+				tone: "good",
+			});
+		} catch (failure) {
+			setNote({ text: `Your timezone was not changed. ${failure.message}`, tone: "bad" });
+		} finally {
+			setBusy(false);
+		}
+	}, [me]);
 
 	/*
 		**Which workspace an action about the *open item* names** — `#1040`, Simon 2026-08-20.
@@ -2809,7 +2841,18 @@ export function App () {
 				`directory` is null until the read lands, which `People` renders as *Reading…*;
 				an instance with no accounts is a different answer and arrives as an empty list.
 			*/ null}
-			${area !== null
+			${area === "settings"
+				? html`<${Settings}
+					${/* **Which page is read from the address as it is now**, because nothing else
+					     holds it: an area owns everything under it (`areaOf`), the page is the rest
+					     of the path, and every way between two of its pages is a full load, so
+					     there is no step within the area for a piece of state to miss. Guarded on
+					     `window` for `area`'s own reason — this runs during render, and the render
+					     harness has none. */ null}
+					page=${settingsPageOf(typeof window === "undefined" ? "" : window.location.pathname)}
+					me=${me} zones=${listedZones()} device=${deviceZone()}
+					onZone=${zoned} busy=${busy} />`
+				: area !== null
 				? html`<${People} ...${directory || {}}
 					${/* **The offer is the operator's own reach** (`#1396`). A credential may
 					     never be wider than the one asking for it — `_refuse_amplification`,
@@ -3130,6 +3173,7 @@ export {
 	refAsked,
 	reloads,
 	selectionOf,
+	settingsPageOf,
 	shortVersion,
 	showingOf,
 	titlesByPath,
@@ -3275,6 +3319,15 @@ export {
 	vocabularyRequest,
 } from "./places.js";
 export {
+	ALWAYS_OFFERED,
+	Settings,
+	Timezone,
+	deviceZone,
+	listedZones,
+	zoneChoices,
+	zoneSaid,
+} from "./configure.js";
+export {
 	Credential,
 	Holdings,
 	Issuing,
@@ -3339,6 +3392,7 @@ export {
 	signOutRequest,
 	statusRequest,
 	timeFor,
+	timezoneRequest,
 	touching,
 	unlinkRequest,
 	updateRequest,

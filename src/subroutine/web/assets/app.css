@@ -2303,14 +2303,16 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
    down one column, so who-they-are and what-they-may-do each get a track.
    --------------------------------------------------------------------------------------- */
 
-.people {
+.people,
+.settings {
 	padding: var(--space-5) var(--space-7);
 }
 
 /* The area's own heading takes the step a section takes, not the step a page takes: this sits
    under the masthead, which is the page's name. `#1818`'s rule — a structural heading is one
    step above the content it heads, and no more. */
-.people h2.area {
+.people h2.area,
+.settings h2.area {
 	margin: 0 0 var(--space-5);
 	font-size: var(--text-section);
 }
@@ -2517,4 +2519,30 @@ li[data-colour="slate"] { --row-hue: var(--hue-slate); }
 
 .people .adding {
 	margin-block-start: var(--space-5);
+}
+
+/* ---------------------------------------------------------------------------------------
+   The settings area — `#1446`, design `#2110` §3. One page per scope, all drawn alike, under
+   the people page's frame and heading above, so the administrative area reads as one place.
+   --------------------------------------------------------------------------------------- */
+
+.settings .timezone h3,
+.settings .timezone p {
+	margin: 0 0 var(--space-4);
+}
+
+/* **The label above its control**, because a zone's name is long and a label beside it would
+   squeeze the list to nothing on a phone. */
+.settings .timezone label {
+	display: grid;
+	justify-items: start;
+	gap: var(--space-2);
+	margin: var(--space-5) 0 var(--space-4);
+}
+
+/* **Says where the zone in force came from**, which is the one fact here a reader cannot see in
+   the control itself. */
+.settings .hint {
+	color: var(--ink-soft);
+	font-size: var(--text-small);
 }

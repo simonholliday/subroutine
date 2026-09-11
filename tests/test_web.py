@@ -434,6 +434,27 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		],
 		"mayCreate": True,
 	},
+	# **The reader's own page, unset, with a device zone that differs from it** — `#1446`. Unset,
+	# so the sentence naming the installation's zone is the one drawn; a different device zone,
+	# so the one-press button is drawn too. Those two are reachable from no other sample.
+	"Settings": {
+		"page": {"scope": "me"},
+		"me": {
+			"user": {"username": "morpheus", "timezone": None},
+			"reader_timezone": "Europe/London",
+			"workspaces": [],
+		},
+		"zones": ["Europe/London", "Asia/Tokyo", "America/New_York"],
+		"device": "Asia/Tokyo",
+	},
+	# **Set, to the device's own zone**, which is the state somebody is in the moment after
+	# pressing that button — so the other sentence is drawn and the button is not.
+	"Timezone": {
+		"stored": "Asia/Tokyo",
+		"reading": "Asia/Tokyo",
+		"zones": ["Europe/London", "Asia/Tokyo"],
+		"device": "Asia/Tokyo",
+	},
 	# **A usable credential, so the act it carries is drawn.** The spent branch is reached
 	# through `Holdings` below, which holds one of each — a component gets one sample and this
 	# is the branch with a control in it.
@@ -536,9 +557,9 @@ def _bare_imports (text: str) -> set[str]:
 #: these scans before the split either. `test_every_module_we_wrote_is_accounted_for` is what
 #: stops this list going stale the day somebody adds a fourteenth.
 APP_MODULES = (
-	"app.js", "address.js", "answers.js", "chrome.js", "dates.js", "detail.js", "forms.js",
-	"grouping.js", "html.js", "marks.js", "people.js", "places.js", "requests.js", "rows.js",
-	"settings.js",
+	"app.js", "address.js", "answers.js", "chrome.js", "configure.js", "dates.js", "detail.js",
+	"forms.js", "grouping.js", "html.js", "marks.js", "people.js", "places.js", "requests.js",
+	"rows.js", "settings.js",
 )
 
 #: Ours, in this directory, and not part of the app: each needs a reason to be here.
@@ -8697,6 +8718,11 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		# than the shape.
 		("issueRequest", [{"title": "Driven from the browser"}]),
 		("revokeRequest", [{"id": place.credential}]),
+		# **Both directions, because clearing is a value rather than an omission** (`#1446`,
+		# §8.3) — `prioritiseRequest`'s rule one field along. The fixture's own account, because
+		# the route refuses a timezone for anybody but the caller.
+		("timezoneRequest", [place.username, "Europe/Paris"]),
+		("timezoneRequest", [place.username, None]),
 		# **The add form's two answers** (`SR#756`). `vocabularyRequest` is the one that has to
 		# name the workspace: `/v1/meta` without one answers 200 with `statuses`, `item_types`
 		# and `link_types` all empty, so a form built from it offers a type dropdown with no
@@ -16833,6 +16859,213 @@ def test_an_area_is_not_read_as_a_workspace (tmp_path: pathlib.Path) -> None:
 	assert answers["ordinary"]["workspace"] == "projects", (
 		"an ordinary address stopped resolving, so the refusal above is too wide"
 	)
+
+
+def test_the_settings_area_answers_the_one_page_it_has (tmp_path: pathlib.Path) -> None:
+	"""`#1446`: `/settings` and `/settings/me` are the reader's own page, and nothing else is.
+
+	**An address naming a page this area does not have is null, never the nearest page.** A
+	workspace's settings arrive with `#1447`; until then a link to one answered with the reader's
+	own settings would show them something other than what they were sent — so the page says
+	there is no such page and gives the way to the one there is.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify({{
+			root: app.settingsPageOf("/settings"),
+			mine: app.settingsPageOf("/settings/me"),
+			slashed: app.settingsPageOf("/settings/me/"),
+			unbuilt: app.settingsPageOf("/settings/workspace/projects"),
+			deeper: app.settingsPageOf("/settings/me/anything"),
+			elsewhere: app.settingsPageOf("/people"),
+			nowhere: app.settingsPageOf("/"),
+		}}));
+	""")
+
+	assert answers["root"] == {"scope": "me"}
+	assert answers["mine"] == {"scope": "me"}
+	assert answers["slashed"] == {"scope": "me"}, "a trailing slash is the same address"
+
+	for name in ("unbuilt", "deeper", "elsewhere", "nowhere"):
+		assert answers[name] is None, f"{name} named a settings page: {answers[name]!r}"
+
+	unknown = _rendered(tmp_path, {"Settings": {**SAMPLES["Settings"], "page": None}})["Settings"]
+
+	assert "no settings page at this address" in unknown, unknown
+	assert 'href="/settings/me"' in unknown, "the page that does exist is not offered"
+	assert "Your timezone" not in unknown, "an unknown page was answered with the nearest one"
+
+
+def test_a_timezone_control_offers_the_zone_in_force_whether_or_not_the_browser_lists_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1446`. **Measured on Node 18: `UTC` is not one of the 418 zones the browser lists.**
+
+	It is what a server set to UTC reports, so it is the likeliest zone of all on a machine nobody
+	configured — and a control that cannot show the value somebody chose reads *Not set* to them,
+	which is a false answer about their own account on the page that exists to tell them.
+
+	**Grouped by region, and a name with none goes last**, under *Other*.
+	"""
+
+	grouped = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(
+			app.zoneChoices(["Europe/London", "Asia/Tokyo"], ["UTC", null, "Europe/London"])
+		));
+	""")
+
+	assert grouped == [
+		{"region": "Asia", "zones": ["Asia/Tokyo"]},
+		{"region": "Europe", "zones": ["Europe/London"]},
+		{"region": "Other", "zones": ["UTC"]},
+	], grouped
+
+
+def test_a_zone_the_browser_does_not_list_is_still_shown_as_the_one_in_force (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The composition, in real markup: `UTC` in force, and a browser list without it — `#1446`.
+
+	**`_markup` rather than `_rendered`**, because the question is an attribute — which option is
+	`selected` — and the text harness drops every attribute but `href`.
+	"""
+
+	markup = _markup(tmp_path, {"Timezone": {
+		"stored": "UTC", "reading": "UTC", "zones": ["Europe/London"], "device": None,
+	}})["Timezone"]
+
+	assert re.search(r'<option[^>]*value="UTC"[^>]*selected', markup), (
+		f"the zone in force is not the one the control shows: {markup[:600]}"
+	)
+	assert not re.search(r'<option[^>]*value=""[^>]*selected', markup), (
+		"the control reads *Not set* for somebody who has set a zone"
+	)
+
+
+def test_the_timezone_page_says_where_the_zone_in_force_came_from (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2110` §4's provenance, for the one setting `/settings/me` holds.
+
+	**Chosen and not chosen are one zone and two facts**, and they read differently: *every date
+	is worked out in Tokyo* is a choice somebody can undo, where *not set* names the
+	installation's zone as the thing showing through.
+	"""
+
+	unset, chosen, unknown = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify([
+			app.zoneSaid(null, "Europe/London"),
+			app.zoneSaid("Asia/Tokyo", "Asia/Tokyo"),
+			app.zoneSaid(null, null),
+		]));
+	""")
+
+	assert unset.startswith("Not set") and "Europe/London" in unset, unset
+	assert "Asia/Tokyo" in chosen and "every workspace" in chosen, chosen
+	assert unknown.startswith("Not set"), unknown
+
+	for said in (unset, chosen, unknown):
+		assert "null" not in said and "undefined" not in said, said
+
+
+def test_clearing_a_timezone_sends_null_rather_than_leaving_it_out (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1446`, §8.3: null is a value on this route, and absent means *leave it alone*.
+
+	So a body without the field would make *Not set* a control that reports success and changes
+	nothing. An empty string is what the untouched first option gives, and it is clearing too.
+	"""
+
+	built = _built(tmp_path, [
+		("timezoneRequest", ["morpheus", None]),
+		("timezoneRequest", ["morpheus", ""]),
+		("timezoneRequest", ["morpheus", "Europe/Paris"]),
+	])
+
+	assert [one["body"] for one in built] == [
+		{"timezone": None}, {"timezone": None}, {"timezone": "Europe/Paris"},
+	], built
+	assert {(one["method"], one["path"]) for one in built} == {("PATCH", "/users/morpheus")}
+
+
+def test_the_zone_the_browser_sends_is_the_one_the_instance_keeps (
+	tmp_path: pathlib.Path, instance: Instance
+) -> None:
+	"""Chosen and then cleared, and read back from `/v1/me` each time — `#1446`.
+
+	**A status below 400 is not the claim.** The guard that drives every builder against the
+	instance sends both of these and would pass if clearing were an omission: the route answers
+	200 to a body it ignores. So the answer is read back, which is the only thing that can tell
+	*cleared* from *left alone*.
+	"""
+
+	chosen, cleared = _built(tmp_path, [
+		("timezoneRequest", [instance.username, "Europe/Paris"]),
+		("timezoneRequest", [instance.username, None]),
+	])
+
+	for request, expected in ((chosen, "Europe/Paris"), (cleared, None)):
+		answer = instance.call(request["method"], f"/v1{request['path']}", json=request["body"])
+
+		assert answer.status_code == 200, answer.text
+
+		held = instance.call("GET", "/v1/me").json()["user"]["timezone"]
+
+		assert held == expected, f"{request['body']!r} was accepted and the account holds {held!r}"
+
+
+def test_every_area_names_itself_in_the_tab (tmp_path: pathlib.Path) -> None:
+	"""`#2447`, measured before it was fixed: `/people` and `/` both titled their tab *Agenda*.
+
+	**Derived from `AREAS`**, so the next area is asked the day it is declared — and the people
+	page is in the population, which is the page this was found on. The root is asked too,
+	because a branch keyed on the wrong thing would rename the agenda and pass every other case.
+	"""
+
+	areas = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.AREAS));
+	""")
+
+	assert areas, "the browser claims no areas, so this is checking nothing"
+
+	for area in areas:
+		title = _driven(tmp_path, pathname=f"/{area}")["title"]
+
+		assert title == f"{area.capitalize()} · Subroutine", (
+			f"/{area} titles its tab {title!r}, which does not say which page it is"
+		)
+
+	assert _driven(tmp_path, pathname="/")["title"] == "Agenda · Subroutine", (
+		"the root stopped naming the agenda, so the branch above is too wide"
+	)
+
+
+def test_the_settings_page_draws_the_timezone_control_and_the_footer_leads_to_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#1446`: the page is reachable from every page, and it is the page it says it is.
+
+	**The harness's account states no zone**, so the page must say *Not set* rather than choose
+	one on the reader's behalf — which is the state every account arrives in.
+	"""
+
+	mounted = _driven(tmp_path, pathname="/settings/me")
+
+	assert "Your timezone" in mounted["said"], mounted["said"][:400]
+	assert "Not set, so each workspace" in mounted["said"], mounted["said"][:400]
+
+	footer = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
+
+	assert 'href="/settings"' in footer, footer
 
 
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (

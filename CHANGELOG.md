@@ -22,6 +22,19 @@ upgrade involves.
 
 ### Added
 
+- **Say where you are, from the browser.**
+
+  A new **Settings** link in the footer opens your own settings, and the first thing there is
+  your timezone — where *today*, *tomorrow* and every date you read are worked out. Until now
+  the only way to set it was `subroutine user timezone`, so somebody who never opens a
+  terminal had no way to say where they were, and nobody else could say it for them.
+
+  The page says where the zone in force comes from: one you chose holds in every workspace,
+  and with none chosen each workspace's own is used inside it and the installation's
+  everywhere else. **This device's zone is one press away** when it differs, and choosing
+  *Not set* clears yours. Nothing new on the server — it is the same field
+  `PATCH /v1/users/{username}` has always accepted.
+
 - **An item's type is shown in your workspace's own words.**
 
   A listing drew the raw key — `spec` where the word is *Specification*, `dead_end` where it is
@@ -74,6 +87,9 @@ upgrade involves.
   began without one and nothing asked.
 
 ### Fixed
+
+- **The People page's tab said *Agenda*.** With the agenda open beside it, two tabs read the
+  same word. Every page in the administrative area now names itself in the tab.
 
 - **The account directory no longer drops people and says there were no more.**
 

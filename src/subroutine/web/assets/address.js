@@ -778,7 +778,7 @@ export function titlesByPath (projects) {
 }
 
 export function pageTitle ({
-	item = null, place = null, showing = null, workspaces = [], projects = [],
+	item = null, place = null, showing = null, workspaces = [], projects = [], area = null,
 }) {
 	/*
 		What the browser tab says — `#1214`, Simon: *"I have multiple tabs open and they all just
@@ -791,6 +791,7 @@ export function pageTitle ({
 		| page | title |
 		| --- | --- |
 		| an item | `#1111 The release gate finishes inside its own timeout` |
+		| an administrative area | `People`, `Settings` |
 		| the root | `Agenda` |
 		| a workspace | `Projects: Agenda` |
 		| a project | `Projects / Subroutine: Board` |
@@ -820,6 +821,13 @@ export function pageTitle ({
 		fewer.
 	*/
 	const suffix = ` · ${PRODUCT}`;
+
+	/* **An administrative area is its own page and takes no scope** (`#2447`). `/people` names
+	   no place and no arrangement, so it fell through to an arrangement it was not showing and
+	   its tab said *Agenda* — the same word as the agenda's tab beside it. An area's word is its
+	   own, capitalised the way the view's is below, so a new area needs no second list of names
+	   going stale beside `AREAS`. */
+	if (area) return `${area.charAt(0).toUpperCase()}${area.slice(1)}${suffix}`;
 
 	/* **An item is its own page and takes no scope**, exactly as its address takes neither an
 	   arrangement nor a selection (`#766`): both describe a set of rows, and one item is not
@@ -1031,7 +1039,7 @@ export function frame (showing, open) {
 	workspace named after one of these would be listed and unreachable, which is `#678` verbatim.
 	`addressing.BROWSER_WORKSPACE_WORDS` is the other copy and the guard asserts they agree.
 */
-export const AREAS = ["people"];
+export const AREAS = ["people", "settings"];
 
 
 export function areaOf (pathname) {
@@ -1044,6 +1052,31 @@ export function areaOf (pathname) {
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
 	return parts.length > 0 && AREAS.includes(parts[0]) ? parts[0] : null;
+}
+
+
+export function settingsPageOf (pathname) {
+	/*
+		Which settings page an address under `/settings` names, or null for one that names none —
+		`#1446`, design `#2110` §3.
+
+		**`/settings` on its own is the reader's own page**, because it is the one page every
+		reader has: a workspace's or the installation's belongs to whoever administers it, and
+		somebody arriving at the area's root has not said which. So the root answers with the
+		page they certainly may open, rather than a list with one entry in it.
+
+		**Anything else is null, never the nearest page.** A workspace's page arrives with
+		`#1447`, and until it does an address naming one names nothing here — answering it with
+		the reader's own would show them something other than what the link says, which is
+		`#745`'s rule.
+	*/
+	const parts = String(pathname || "").split("/").filter((part) => part !== "");
+
+	if (parts[0] !== "settings") return null;
+
+	const rest = parts.slice(1);
+
+	return rest.length === 0 || (rest.length === 1 && rest[0] === "me") ? { scope: "me" } : null;
 }
 
 

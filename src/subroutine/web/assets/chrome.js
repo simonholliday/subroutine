@@ -206,6 +206,10 @@ export function Foot ({ count, theme, onTheme }) {
 				typed, bookmarked or shared.
 			*/ null}
 			<a href="/people">People</a>
+			${/* **The way to the settings area, beside the way to the people page** (`#1446`),
+			     and for the same reason: a timezone is said once and rarely, so it belongs with
+			     the set-once things rather than on the masthead. */ null}
+			<a href="/settings">Settings</a>
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
 			<${Theme} chosen=${theme} onChoose=${onTheme} />

@@ -312,6 +312,29 @@ export function revokeRequest (credential) {
 	return { path: `/tokens/${encodeURIComponent(credential.id)}`, method: "DELETE" };
 }
 
+export function timezoneRequest (username, zone) {
+	/*
+		Say where the reader is — `#1446`, and `PATCH /v1/users/{username}`'s one field that needs
+		no permission.
+
+		**Null is sent, never left out.** The route reads the field off what was *sent* rather
+		than off its value, because null is a value there: it clears the reader's zone and puts
+		them back on each workspace's (§8.3). A body without it is read as *leave it alone*, so
+		choosing *Not set* would report success and change nothing — `prioritiseRequest`'s rule
+		one field along, and this codebase's recorded shape for a control nobody notices is
+		inert.
+
+		**The reader's own account and nobody else's**, and that is the route's rule rather than
+		this builder's: it refuses a timezone for anybody but the caller, so the username is the
+		one `/v1/me` answered with.
+	*/
+	return {
+		path: `/users/${encodeURIComponent(username)}`,
+		method: "PATCH",
+		body: { timezone: zone || null },
+	};
+}
+
 export function collectionsFor (selection) {
 	/*
 		Which collections a selection reads, and the order the answers come back in.
