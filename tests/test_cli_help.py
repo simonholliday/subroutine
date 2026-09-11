@@ -325,16 +325,55 @@ BY_EXAMPLE = {
 }
 
 
+#: What may sit between two keys of a vocabulary somebody has written out in prose.
+#:
+#: **Anything that is not a letter or a digit, plus the one word English joins a last pair
+#: with.** Never an arbitrary word, and that restraint is what makes the whole pattern safe: a
+#: file has to carry every key in the seeded order with nothing but punctuation between them,
+#: which no passage merely *mentioning* two types can do by accident.
+#:
+#: **Bounded, because this is matched against the whole file rather than a line.** A separator
+#: allowed to run on would let a key at the end of one paragraph pair with a key at the start
+#: of the next. Sixteen characters is a comfortable ceiling over what a real one costs: two
+#: for ``", "``, six for ``"``, ``"``, eight when that same wrap falls across a line.
+_BETWEEN_KEYS = r"[^0-9A-Za-z]{1,16}(?:(?:or|and)[^0-9A-Za-z]{1,4})?"
+
+
+def _written_out (keys: typing.Sequence[str]) -> re.Pattern[str]:
+	"""Return a pattern matching those keys, in that order, however somebody joined them."""
+
+	return re.compile(
+		r"(?<![0-9A-Za-z])"
+		+ _BETWEEN_KEYS.join(re.escape(key) for key in keys)
+		+ r"(?![0-9A-Za-z])"
+	)
+
+
 def test_no_source_file_writes_a_seeded_vocabulary_out_by_hand () -> None:
 	"""`#1240`. The list was typed in six places and every one had to be edited by hand.
 
-	**Derived from the seeds, so it cannot be satisfied by editing this test.** The pattern is
-	built by joining the keys the way somebody writing prose joins them, in the seeded order —
-	which is exactly the string that was in two ``--help`` texts, two tool schemas and two model
-	docstrings, and that was wrong in all six the day decision `#1235` added ``event``.
+	**Derived from the seeds, so it cannot be satisfied by editing this test.** The keys come
+	off :data:`subroutine.db.seed.SEEDED_ITEM_TYPES` in the seeded order — the order that was
+	wrong in all six copies the day decision `#1235` added ``event``.
 
 	``db/seed.py`` is the one place allowed to contain it, because that is where the keys are
 	declared and the joining function lives.
+
+	**Two blindnesses, fixed together on 2026-09-11** (`#2405`), and the second was found only
+	by falsifying the fix for the first.
+
+	*It looked for a rendering, and a rendering is not the thing.* The pattern was
+	``named_types``' own output and one fallback with the commas taken out, so three copies
+	joining their last pair with *or* — both ``doc`` ``--type`` texts and
+	``subroutine_document``'s schema — sat in front of it reading False. The honest question is
+	over the keys and their order, whatever a writer put between them, which is
+	:func:`_written_out`.
+
+	*And it read one line at a time, so a copy that wrapped was invisible whatever it was
+	joined with.* A fourth copy — in ``clients/base.py``'s docstring, each key in double
+	backticks — broke across a line, and restoring it to a tree carrying only the first fix
+	**passed**. Prose wraps; that is what prose does. The scan reads the whole file and counts
+	newlines to name a line, which is why :data:`_BETWEEN_KEYS` has to be bounded.
 
 	**What this does not catch, and the item says so**: a list that names the seeds correctly is
 	still silent about a type a workspace added or renamed itself (`#1129`). Removing the copies
@@ -351,7 +390,13 @@ def test_no_source_file_writes_a_seeded_vocabulary_out_by_hand () -> None:
 	scanned = 0
 
 	for entity_type in ("task", "document"):
-		spelled = subroutine.db.seed.named_types(entity_type)
+		written_out = _written_out(
+			[
+				seed.key
+				for seed in subroutine.db.seed.SEEDED_ITEM_TYPES
+				if seed.entity_type == entity_type
+			]
+		)
 
 		for path in sorted(root.rglob("*.py")):
 			if path.name == "seed.py":
@@ -360,9 +405,10 @@ def test_no_source_file_writes_a_seeded_vocabulary_out_by_hand () -> None:
 			scanned += 1
 			text = path.read_text(encoding="utf-8")
 
-			for number, line in enumerate(text.splitlines(), start=1):
-				if spelled in line or spelled.replace(", ", " ") in line:
-					offenders.append(f"  {path.name}:{number}: {line.strip()[:96]}")
+			for found in written_out.finditer(text):
+				number = text.count("\n", 0, found.start()) + 1
+				wrote = " ".join(found.group().split())
+				offenders.append(f"  {path.name}:{number}: {wrote}")
 
 	# The floor beside the assertion, for the reason above: an empty offender list means
 	# nothing to report only if something was read.

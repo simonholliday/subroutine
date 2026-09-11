@@ -1388,10 +1388,11 @@ class Client(typing.Protocol):
 		nothing runs ``serve`` — a document could not be written at all, while the MCP
 		adapter's own ``subroutine_comment`` description told an agent to write one.
 
-		``type`` names one of the seeded document types — ``note``, ``spec``, ``design``,
-		``decision``, ``finding``, ``dead_end`` — and defaults to ``note``. It shadows the
-		builtin inside this signature on purpose: the HTTP field, the CLI flag and the view
-		all call it ``type``, and a fourth name for one thing costs more than the shadow does.
+		``type`` names one of the seeded document types — ``subroutine.db.seed.named_types``
+		builds that list, which is where it cannot go stale — and defaults to ``note``. It
+		shadows the builtin inside this signature on purpose: the HTTP field, the CLI flag
+		and the view all call it ``type``, and a fourth name for one thing costs more than
+		the shadow does.
 
 		``project`` is a key, resolved by ``domain.selection.project`` like everywhere else, so
 		an unknown one is refused identically whichever transport asked. Omitted means the

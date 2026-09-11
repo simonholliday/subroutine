@@ -1079,7 +1079,7 @@ def _tools (
 					"body": {"type": "string", "description": "The reasoning, in Markdown."},
 					"type": {
 						"type": "string",
-						"description": "note, spec, design, decision, finding or dead_end.",
+						"description": f"{subroutine.db.seed.named_types('document')}.",
 					},
 					"project": {"type": "string", "description": "Project key."},
 					"parent": {"type": A_REF, "description": "File it under this document."},

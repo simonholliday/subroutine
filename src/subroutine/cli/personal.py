@@ -96,6 +96,14 @@ TASK_TYPES_WITH_DEFAULT = (
 	f"{TASK_TYPES[:-1]}. Defaults to {subroutine.db.seed.default_type('task')}."
 )
 
+#: The same sentence one vocabulary along, for a document — `#2405`.
+#:
+#: **Written out by hand until 2026-09-11**, in ``doc create`` and again in ``doc edit``, and
+#: joined with *or* where the seeds join with commas. The guard that refuses a hand-written
+#: vocabulary was looking for the comma spelling, so of the two lists ``named_types`` serves,
+#: one was derived and the other was three copies nothing could see.
+DOCUMENT_TYPES = f"{subroutine.db.seed.named_types('document')}."
+
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
 DEFAULT_LIST_LIMIT = 50
 
@@ -6508,9 +6516,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 	def document_create (
 		title: str = typer.Argument(..., help="What it concludes, in one line."),
 		body: str = typer.Option("", "--body", help="The reasoning. Or pipe it in."),
-		kind: str = typer.Option(
-			"", "--type", help="note, spec, design, decision, finding or dead_end."
-		),
+		kind: str = typer.Option("", "--type", help=DOCUMENT_TYPES),
 		status: str = typer.Option(
 			"", "--status", help="A status key. A decision starts 'active'; use 'draft' if not."
 		),
@@ -6597,9 +6603,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		which: str = typer.Argument("", help="Which document, by its number."),
 		body: str = typer.Option("", "--body", help="Replace the text. Or pipe it in."),
 		title: str = typer.Option("", "--title", help="Say what it concludes, in one line."),
-		kind: str = typer.Option(
-			"", "--type", help="note, spec, design, decision, finding or dead_end."
-		),
+		kind: str = typer.Option("", "--type", help=DOCUMENT_TYPES),
 		status: str = typer.Option("", "--status", help="A status key, e.g. superseded."),
 		project: str = typer.Option("", "--project", help="File it under this project, by key."),
 		tag: list[str] | None = typer.Option(
