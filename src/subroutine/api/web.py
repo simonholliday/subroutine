@@ -17,6 +17,7 @@ asks for needs the cookie like everything else. Nothing here is workspace-scoped
 derived from a database — it is the same bytes for every caller, signed in or not.
 """
 
+import gzip
 import hashlib
 import json
 import pathlib
@@ -278,6 +279,116 @@ SHELL = "index.html"
 TAGS: typing.Final[dict[str, str]] = {name: _tag(body) for name, (body, _) in FILES.items()}
 
 
+#: Below this, a compressed copy is not worth holding. Gzip's own header and trailer are
+#: eighteen bytes, a response this small travels in one packet either way, and what is saved
+#: disappears into the framing. Everything above it in this app halves or better.
+SMALLEST_WORTH_COMPRESSING = 1024
+
+
+def _worth_compressing (kind: str, body: bytes) -> bool:
+	"""Whether this file is text large enough to be worth holding a second copy of.
+
+	**Asked of what the file *is*, not of its suffix**, so a new entry in :data:`TYPES` is
+	classified by the same rule rather than by a second list that has to agree with it — which
+	is the shape this codebase keeps finding wrong. A PNG or an icon is already compressed:
+	gzipping one spends processor time at both ends to produce a slightly larger file.
+	"""
+
+	if not (kind.startswith("text/") or kind.startswith("image/svg") or "json" in kind):
+		return False
+
+	return len(body) >= SMALLEST_WORTH_COMPRESSING
+
+
+def _compressed () -> dict[str, bytes]:
+	"""Compress every file worth it, once, at import — beside the bytes it came from.
+
+	**``mtime=0`` is load-bearing.** :func:`gzip.compress` stamps the current time into the
+	header unless told not to, so the same file would produce different bytes at every start —
+	and the tag below is derived from those bytes. Two workers, or one worker either side of a
+	restart, would then disagree about the identity of a file that never changed, and a browser
+	would be told its copy was stale by nothing more than an uptime.
+
+	**Level 9 because this runs once**, where a middleware compressing per response could not
+	afford it. The whole app is under a megabyte and the cost is paid at import, not per caller.
+	"""
+
+	found: dict[str, bytes] = {}
+
+	for name, (body, kind) in FILES.items():
+		if not _worth_compressing(kind, body):
+			continue
+
+		packed = gzip.compress(body, compresslevel=9, mtime=0)
+
+		# A file that does not get smaller is served as it is. Nothing here does that today;
+		# the check is what stops a later asset being sent *larger* for the sake of a rule.
+		if len(packed) < len(body):
+			found[name] = packed
+
+	return found
+
+
+#: Name to gzipped bytes, for the files where that is smaller. Frozen at import like
+#: :data:`FILES`, so a request never compresses anything.
+COMPRESSED: typing.Final[dict[str, bytes]] = _compressed()
+
+#: A tag per compressed copy, and **deliberately not the identity one**. The two encodings are
+#: different representations of one address: a cache that stored the compressed copy and
+#: revalidated with the raw file's tag would be told that what it holds is current, which is
+#: true of the file and false of the bytes. ``Vary`` keys the cache; separate tags keep the
+#: validators honest inside it.
+COMPRESSED_TAGS: typing.Final[dict[str, str]] = {
+	name: _tag(body) for name, body in COMPRESSED.items()
+}
+
+
+def _takes_gzip (request: starlette.requests.Request) -> bool:
+	"""Whether this caller said it will accept gzip.
+
+	**A quality of zero is a refusal**, which is the only way a client can turn this off — so
+	the header is parsed rather than searched for a substring, and ``gzip;q=0`` means *no*.
+	**No quality at all means yes**, which is what every browser sends and what the first
+	version of this got backwards: it read the empty parameter as a zero and compressed nothing,
+	silently, exactly as before the change.
+
+	Anything unreadable is taken as acceptance. Being wrong that way sends a response a browser
+	can still decode; being wrong the other way sends a page nobody can read.
+	"""
+
+	for offered in request.headers.get("accept-encoding", "").split(","):
+		name, _, parameters = offered.strip().partition(";")
+
+		if name.lower() not in ("gzip", "*"):
+			continue
+
+		quality = parameters.strip().lower().removeprefix("q=")
+
+		if quality:
+			try:
+				if float(quality) == 0:
+					continue
+			except ValueError:
+				pass
+
+		return True
+
+	return False
+
+
+def _representation (
+	name: str, request: starlette.requests.Request
+) -> tuple[bytes, str, str | None]:
+	"""Return the bytes to send this caller, their tag, and the encoding they are in."""
+
+	if name in COMPRESSED and _takes_gzip(request):
+		return COMPRESSED[name], COMPRESSED_TAGS[name], "gzip"
+
+	body, _ = FILES[name]
+
+	return body, TAGS[name], None
+
+
 def _asked_for (request: starlette.requests.Request, tag: str) -> bool:
 	"""Whether the caller already holds this exact version.
 
@@ -298,16 +409,25 @@ def _asked_for (request: starlette.requests.Request, tag: str) -> bool:
 def _served (name: str, request: starlette.requests.Request) -> starlette.responses.Response:
 	"""Answer with one of the app's files, or with ``304`` if the caller has it already."""
 
-	body, kind = FILES[name]
-	tag = TAGS[name]
+	_, kind = FILES[name]
+	body, tag, encoding = _representation(name, request)
 
-	headers = {"cache-control": REVALIDATE, "etag": tag}
+	# **``Vary`` on every answer, including the ``304``.** This address has two representations
+	# now, and a shared cache keying it on the address alone would hand the compressed copy to
+	# the next caller whatever they accept. There is exactly such a cache in front of the
+	# instance this was measured on.
+	headers = {"cache-control": REVALIDATE, "etag": tag, "vary": "accept-encoding"}
 
 	# **A `304` carries the validators and no body**, which is what makes revalidation cheap
 	# enough to do on every load — the alternative to this whole arrangement was a five-minute
-	# window in which a changed file could not arrive at all.
+	# window in which a changed file could not arrive at all. It carries no
+	# ``Content-Encoding``: there is nothing to decode, and the tag already says which of the
+	# two representations the caller is holding.
 	if _asked_for(request, tag):
 		return starlette.responses.Response(status_code=304, headers=headers)
+
+	if encoding:
+		headers["content-encoding"] = encoding
 
 	return starlette.responses.Response(content=body, media_type=kind, headers=headers)
 
@@ -456,9 +576,15 @@ def unmatched (
 	http = typing.cast(starlette.exceptions.HTTPException, exception)
 
 	if http.status_code == 404 and _navigating(request):
-		body, kind = FILES[SHELL]
+		_, kind = FILES[SHELL]
 
-		return starlette.responses.Response(content=body, media_type=kind)
+		# **Compressed here too, where it is worth the most.** Every deep link into the app
+		# arrives at this handler rather than at :func:`shell` — a bookmark, a pasted address,
+		# a reload of anything but ``/`` — so the page a person waits for is served from here.
+		body, _tag_unused, encoding = _representation(SHELL, request)
+		headers = {"vary": "accept-encoding"} | ({"content-encoding": encoding} if encoding else {})
+
+		return starlette.responses.Response(content=body, media_type=kind, headers=headers)
 
 	return subroutine.api.problems.handle_http_exception(request, http)
 

@@ -199,6 +199,125 @@ def test_a_changed_file_reaches_a_browser_that_holds_the_old_one (
 		assert stale.status_code == 200, f"{path} withheld itself from a caller holding an old copy"
 
 
+def test_a_browser_that_takes_gzip_is_sent_gzip (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#2509`: 940 KB of files went out raw where 380 KB would do.
+
+	**Measured against the served instance before this was written**: no `Content-Encoding` came
+	back even when the request offered `gzip, br`, and the proxy in front compresses nothing
+	either. On a local network that is invisible — a cold page is half a second — and from
+	anywhere else it is the difference between that and several seconds.
+
+	**Driven per file, like `SR#914`'s revalidation above.** The app is eighteen modules and a
+	stylesheet, so a rule proved on `app.js` alone would leave most of the bytes where they were.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for name in ("index.html", "app.css", "app.js", "preact.js"):
+		path = "/" if name == subroutine.api.web.SHELL else f"/app/{name}"
+
+		packed = api_support.call(application, "GET", path, headers={"accept-encoding": "gzip"})
+		plain = api_support.call(application, "GET", path, headers={"accept-encoding": "identity"})
+
+		assert packed.headers.get("content-encoding") == "gzip", f"{path} was sent raw"
+
+		assert plain.headers.get("content-encoding") is None, (
+			f"{path} was compressed for a caller that asked for it unencoded"
+		)
+
+		# The client decodes what it is told the encoding of, so this compares the *file*; the
+		# line below it is what compares the wire.
+		assert packed.content == plain.content, f"{path} does not decode to the file itself"
+
+		assert int(packed.headers["content-length"]) < len(plain.content), f"{path} grew"
+
+		assert "accept-encoding" in packed.headers.get("vary", "").lower(), (
+			f"{path} has two representations and does not say so, so a shared cache may hand "
+			f"the compressed copy to a caller that cannot read it"
+		)
+
+
+def test_a_picture_is_not_compressed_for_the_sake_of_a_rule (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""A PNG and an icon are already compressed (`SR#2509`).
+
+	Gzipping one spends processor time at both ends to produce a slightly *larger* file. What
+	decides is the content type rather than a list of suffixes — a second list would have to
+	agree with `TYPES` for ever — so this is what checks that the reading of it is right.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for name in ("favicon-on-black.ico", "icon-512-on-black.png"):
+		answer = api_support.call(
+			application, "GET", f"/app/{name}", headers={"accept-encoding": "gzip"}
+		)
+
+		assert answer.status_code == 200, f"{name} did not answer"
+
+		assert answer.headers.get("content-encoding") is None, (
+			f"{name} is already compressed and was compressed again"
+		)
+
+
+def test_the_two_encodings_do_not_share_a_tag (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#914`'s revalidation is per representation, and `SR#2509` gave every file a second one.
+
+	A caller holding the compressed copy revalidates with its tag; one holding the file itself
+	revalidates with the other. A server that answered `304` to both would be telling one of
+	them that what it holds is current when it is the other encoding — and a shared cache is
+	where that becomes somebody's blank page, which is what `Vary` and two tags keep apart.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	packed = api_support.call(
+		application, "GET", "/app/app.js", headers={"accept-encoding": "gzip"}
+	)
+	plain = api_support.call(
+		application, "GET", "/app/app.js", headers={"accept-encoding": "identity"}
+	)
+
+	assert packed.headers["etag"] != plain.headers["etag"], (
+		"the compressed copy answers with the file's own tag, so a cache holding one of them "
+		"believes it holds the other"
+	)
+
+	held = api_support.call(application, "GET", "/app/app.js", headers={
+		"accept-encoding": "gzip", "if-none-match": packed.headers["etag"],
+	})
+
+	assert held.status_code == 304, "a browser holding the current compressed copy re-fetched it"
+
+	crossed = api_support.call(application, "GET", "/app/app.js", headers={
+		"accept-encoding": "gzip", "if-none-match": plain.headers["etag"],
+	})
+
+	assert crossed.status_code == 200, (
+		"a caller holding the raw file was told its compressed copy was what it already had"
+	)
+
+
+def test_a_compressed_copy_carries_no_clock () -> None:
+	"""The tag is the bytes, so the bytes may not carry the time (`SR#2509`).
+
+	`gzip.compress` stamps the current time into its header unless told not to. With it, an
+	unchanged file would answer with a different tag after every restart — every browser
+	re-downloading the whole app because the server had been bounced, and two workers
+	disagreeing about what they are holding. The fourth to eighth bytes of a gzip member are
+	that field, and reading them is what makes this a measurement rather than a second copy of
+	the call being checked.
+	"""
+
+	for name, packed in subroutine.api.web.COMPRESSED.items():
+		stamp = int.from_bytes(packed[4:8], "little")
+
+		assert stamp == 0, (
+			f"{name}'s compressed copy carries the clock, so its tag moves on every restart"
+		)
+
+
 def test_two_files_that_differ_do_not_share_a_tag (session: sqlalchemy.orm.Session) -> None:
 	"""The tag is the content, which is what makes it need no maintenance (`#914`).
 

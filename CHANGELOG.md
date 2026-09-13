@@ -151,6 +151,13 @@ upgrade involves.
 
 ### Fixed
 
+- **The browser app is sent compressed.** Its modules and stylesheet went out raw — 940 KB of
+  files where 380 KB will do — because neither the app nor anything in front of it compressed
+  a thing. Every text file it serves now has a gzipped copy, made once at startup and chosen
+  when the browser says it takes one, with `Vary: Accept-Encoding` and a tag of its own so a
+  shared cache cannot hand that copy to a caller who cannot read it. Pictures are left alone:
+  they are already compressed, and gzipping one makes it slightly larger.
+
 - **A parked question said whose it was to nobody.** *Waiting on you* holds what is assigned to
   you or what you are holding, so setting a task to `needs_input` and naming nobody put the
   question on no agenda at all — while the skill, the agent guide and the README each promised
