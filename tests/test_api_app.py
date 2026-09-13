@@ -11,6 +11,7 @@ import pathlib
 import typing
 
 import fastapi
+import httpx
 import pytest
 import sqlalchemy.engine
 import sqlalchemy.orm
@@ -21,6 +22,7 @@ import subroutine.api.app
 import subroutine.api.mcp
 import subroutine.api.middleware
 import subroutine.api.routing
+import subroutine.api.web
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.models.system
@@ -34,6 +36,165 @@ def application (session: sqlalchemy.orm.Session) -> fastapi.FastAPI:
 	"""Build an application sharing the test's transaction."""
 
 	return api_support.build_app(api_support.factory_for(session))
+
+
+def test_the_in_process_transport_passes_on_a_decoded_body_as_decoded (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2539`, which `SR#2535` surfaced the moment anything compressed.
+
+	`api/inprocess` drives this application without a socket: `subroutine_call_api` on a local
+	connection has no server to send to (`SR#485`). It reads the response with `aread`, which
+	*decodes* it, and rebuilt the copy with the original headers — so the body was plain and the
+	headers still said `Content-Encoding: gzip`. The caller decoded a second time and was told
+	*Error -3 while decompressing data: incorrect header check*, which names zlib rather than
+	anything anybody could act on.
+
+	**330 tests failed on it at once** when the compressor went in, and none before: it is
+	exactly the shape of a fault that waits for a second mechanism to arrive before it can be
+	seen at all.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	with httpx.Client(
+		transport=api_support.SyncTransport(application), base_url="http://testserver"
+	) as client:
+		answer = client.get("/v1/openapi.json", headers={"accept-encoding": "gzip"})
+
+	assert answer.status_code == 200, "the transport did not reach the route"
+
+	assert answer.headers.get("content-encoding") is None, (
+		"the copy claims an encoding for a body that has already been decoded"
+	)
+
+	assert answer.json()["openapi"], (
+		"the document did not survive the transport, which is what decoding it twice looks like"
+	)
+
+
+def test_a_large_answer_is_compressed_for_a_caller_that_takes_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2535`: every answer went out whole, and the agenda is 167 KB of it.
+
+	**Measured against a served instance before this was written**: `GET /v1/agenda` answered
+	167,475 bytes with no `Content-Encoding`, whether or not the request offered one, and it is
+	the largest response this application makes. `SR#2509` had given the app's *files* a
+	compressed copy held at import; everything built per request was still going out raw.
+
+	**Driven on `/v1/openapi.json`** — public, large, and the same document for every caller. The
+	agenda needs a credential and rows before it is worth measuring, and what is being checked
+	here is the middleware rather than any one endpoint.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	packed = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "gzip"}
+	)
+	plain = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "identity"}
+	)
+
+	assert packed.headers.get("content-encoding") == "gzip", "a large answer went out whole"
+
+	assert plain.headers.get("content-encoding") is None, (
+		"an answer was compressed for a caller that asked for it unencoded"
+	)
+
+	assert packed.content == plain.content, "the compressed answer is not the same document"
+
+	assert int(packed.headers["content-length"]) < len(plain.content), (
+		"compressing the answer made it larger"
+	)
+
+	assert "accept-encoding" in packed.headers.get("vary", "").lower(), (
+		"the answer has two forms and does not say so, so a shared cache may hand the "
+		"compressed one to a caller that cannot read it"
+	)
+
+
+def test_a_small_answer_is_left_alone (session: sqlalchemy.orm.Session) -> None:
+	"""Below the threshold there is nothing to win (`SR#2535`).
+
+	Gzip's own framing is eighteen bytes, an answer this small travels in one packet either way,
+	and compressing it spends processor time at both ends for nothing. The figure is
+	`api/web`'s, imported rather than repeated, so the files and the answers cannot come to
+	disagree about what *small* means.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	answer = api_support.call(
+		application, "GET", "/healthz", headers={"accept-encoding": "gzip"}
+	)
+
+	assert len(answer.content) < subroutine.api.web.SMALLEST_WORTH_COMPRESSING, (
+		"the health check has grown past the threshold, so this no longer tests what it says"
+	)
+
+	assert answer.headers.get("content-encoding") is None, (
+		"a response too small to benefit was compressed anyway"
+	)
+
+
+def test_a_file_that_carries_its_own_compression_is_not_compressed_twice (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""The two halves of compression must not meet (`SR#2509`, `SR#2535`).
+
+	`api/web` holds a gzipped copy of every text file, made once at import. A middleware that
+	compressed it again would spend processor time per request to produce something slightly
+	larger, and the caller would have to unwrap it twice. What stops that is the middleware
+	leaving anything that already carries `Content-Encoding` alone — a rule that lives in
+	Starlette rather than here, which is exactly why it is worth a test of our own.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	answer = api_support.call(
+		application, "GET", "/app/app.js", headers={"accept-encoding": "gzip"}
+	)
+
+	assert answer.headers.get("content-encoding") == "gzip", "the file was sent raw"
+
+	assert answer.content == subroutine.api.web.FILES["app.js"][0], (
+		"unwrapping the answer once did not give the file, which is what a copy compressed "
+		"twice looks like from here"
+	)
+
+
+def test_a_head_carries_the_length_the_get_would_send (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`answer_head_with_get` rewrites the method, and now a compressor sits beside it.
+
+	A `HEAD` is answered with the headers of the `GET` and none of its bytes, so its
+	`Content-Length` has to be the length of what a `GET` would actually have sent — the
+	compressed length, now that there is one. A load balancer reading that header is the
+	caller this arrangement exists for (`SR#1246`), and it is the one that would never notice
+	being told the wrong number.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	packed = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "gzip"}
+	)
+	asked = api_support.call(
+		application, "HEAD", "/v1/openapi.json", headers={"accept-encoding": "gzip"}
+	)
+
+	assert asked.status_code == 200, "HEAD stopped reaching the GET at the same path"
+
+	assert asked.headers.get("content-encoding") == packed.headers.get("content-encoding"), (
+		"a HEAD describes a different encoding from the GET beside it"
+	)
+
+	assert asked.headers["content-length"] == packed.headers["content-length"], (
+		"a HEAD announces a length the GET would not have sent"
+	)
 
 
 def test_liveness_answers_without_touching_the_database (

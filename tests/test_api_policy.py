@@ -237,27 +237,28 @@ def test_a_browser_that_takes_gzip_is_sent_gzip (session: sqlalchemy.orm.Session
 		)
 
 
-def test_a_picture_is_not_compressed_for_the_sake_of_a_rule (
-	session: sqlalchemy.orm.Session,
-) -> None:
-	"""A PNG and an icon are already compressed (`SR#2509`).
+def test_a_picture_is_not_held_in_two_copies (session: sqlalchemy.orm.Session) -> None:
+	"""An already-compressed file is not worth *keeping* twice (`SR#2509`).
 
-	Gzipping one spends processor time at both ends to produce a slightly *larger* file. What
-	decides is the content type rather than a list of suffixes — a second list would have to
-	agree with `TYPES` for ever — so this is what checks that the reading of it is right.
+	**This asked the response until `SR#2535`, and that was the wrong level.** The rule is about
+	what `api/web` holds: a second copy of every file, for the life of the process, made at
+	import. A response is now also seen by a compressor that decides per request, so asking the
+	wire made this a test of two mechanisms and a statement about neither.
+
+	**And the reason it gave was wrong, which the move exposed.** It said gzipping a picture
+	makes it larger; measured, these icons go to 91 and 98 per cent — flat colour compresses even
+	after PNG has had it. So compressing one on the way out is a small win, and holding one for
+	ever to save 2 per cent of a file nobody re-fetches is not.
+
+	What decides is still the content type rather than a list of suffixes, since a second list
+	would have to agree with `TYPES` for ever.
 	"""
 
-	application = api_support.build_app(api_support.factory_for(session))
+	for name in ("favicon-on-black.ico", "icon-512-on-black.png", "apple-touch-icon.png"):
+		assert name in subroutine.api.web.FILES, f"{name} is not served at all any more"
 
-	for name in ("favicon-on-black.ico", "icon-512-on-black.png"):
-		answer = api_support.call(
-			application, "GET", f"/app/{name}", headers={"accept-encoding": "gzip"}
-		)
-
-		assert answer.status_code == 200, f"{name} did not answer"
-
-		assert answer.headers.get("content-encoding") is None, (
-			f"{name} is already compressed and was compressed again"
+		assert name not in subroutine.api.web.COMPRESSED, (
+			f"{name} is already compressed and a copy of it is being held at import anyway"
 		)
 
 

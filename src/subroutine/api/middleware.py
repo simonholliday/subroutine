@@ -107,10 +107,16 @@ def apply_headers (
 	if "cache-control" not in response.headers:
 		response.headers["Cache-Control"] = "no-store"
 
-		# What the answer depends on, for anything that stores it anyway. Both, because two
-		# credential kinds reach the same routes and a cache keyed on one would serve an
-		# agent's answer to a browser.
-		response.headers["Vary"] = "Cookie, Authorization"
+		# What the answer depends on, for anything that stores it anyway. Both credential
+		# kinds, because two of them reach the same routes and a cache keyed on one would
+		# serve an agent's answer to a browser.
+		#
+		# **And the encoding, since `#2535`.** A compressed answer and a whole one are two
+		# representations of one address. The compressor adds that itself, further in — and
+		# this line is an assignment rather than an append, so it overwrote it. Measured, not
+		# reasoned about: the header arrived as `Cookie, Authorization` with a gzipped body
+		# behind it, which is precisely the mix a shared cache hands to the wrong caller.
+		response.headers["Vary"] = "Cookie, Authorization, Accept-Encoding"
 
 
 #: Set on the ASGI scope when a body ran past the limit while being read. Named as an

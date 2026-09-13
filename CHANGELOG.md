@@ -151,6 +151,13 @@ upgrade involves.
 
 ### Fixed
 
+- **Every answer is compressed now, not only the app's files.** `GET /v1/agenda` was 190 KB on
+  the wire and is 50; the published API schema was 273 KB and is 44; a workspace's vocabulary
+  was 13 KB and is 3.5. It applies to anything above a kilobyte whose caller says it will take
+  one, leaves alone whatever is compressed already — the app's own files, which carry a copy
+  made at startup — and never touches an event stream. `Vary` names the encoding, so a shared
+  cache cannot hand a compressed answer to a caller that cannot read it.
+
 - **An administrative page no longer loads the work behind it.** Opening Settings or People
   fetched the agenda, a workspace roster and that workspace's vocabulary — four requests,
   the largest of them 167 KB of rows — and drew none of them, then asked for the agenda again

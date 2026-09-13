@@ -14,6 +14,7 @@ import fastapi
 import fastapi.middleware.cors
 import sqlalchemy.engine
 import sqlalchemy.orm
+import starlette.middleware.gzip
 
 import subroutine
 import subroutine.api.admin
@@ -289,6 +290,30 @@ def create_app (
 		application.state.session_factory = subroutine.db.session.create_session_factory(
 			engine, statement_timeout_seconds=resolved.request_timeout_seconds
 		)
+
+	# **Compression belongs to the application rather than to whatever is in front of it**
+	# (`#2535`, Simon's decision): a self-hosted instance may have nothing in front of it at
+	# all, and `#2509` already answered this question for the app's own files — a setting on
+	# one operator's proxy is a fix nobody else inherits.
+	#
+	# **Added first, so that it is the innermost, and that is load-bearing.** Measured while
+	# writing this: added anywhere outside `correlate`, every response reaches it as a *stream*
+	# — a `BaseHTTPMiddleware` turns one into the other — so its size is unknown when it has to
+	# decide, `minimum_size` never applies, and a fifty-byte health check comes back gzipped
+	# with no `Content-Length` at all. Innermost, it sees what the route actually produced.
+	#
+	# **It leaves anything already carrying `Content-Encoding` alone**, which is what keeps it
+	# off the app's own files: they hold a gzipped copy made once at import, and compressing
+	# that again would spend processor time per request to produce something slightly larger.
+	# It excludes `text/event-stream` by its own default, which matters the day `#1382`'s feed
+	# is built — a stream that buffers in order to compress is a stream that no longer arrives.
+	#
+	# **The threshold is `web`'s**, imported rather than repeated: two copies of one number
+	# agree right up until somebody changes one.
+	application.add_middleware(
+		starlette.middleware.gzip.GZipMiddleware,
+		minimum_size=subroutine.api.web.SMALLEST_WORTH_COMPRESSING,
+	)
 
 	application.middleware("http")(subroutine.api.middleware.correlate)
 

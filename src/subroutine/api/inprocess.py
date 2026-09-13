@@ -48,6 +48,28 @@ class SyncTransport(httpx.BaseTransport):
 
 		self._transport = httpx.ASGITransport(app=application, raise_app_exceptions=False)
 
+	def _carried (self, headers: httpx.Headers) -> httpx.Headers:
+		"""Return a response's headers without the two that describe its *encoded* body.
+
+		**The body handed on has been decoded, so the copy must stop saying otherwise**
+		(`#2539`). :meth:`httpx.Response.aread` unwraps whatever ``Content-Encoding`` named, and
+		a copy rebuilt with the original headers announces an encoding its bytes no longer
+		carry — the caller then decodes plain JSON a second time and is told *incorrect header
+		check*, which names zlib rather than anything a reader could act on.
+		``Content-Length`` goes with it: it measured the encoded body, and httpx measures what
+		it is handed.
+
+		**Invisible until something compressed.** Nothing did until `#2535` put a compressor in
+		front of every response, and then 330 tests failed at once — every one of them through
+		here, and none of them before.
+		"""
+
+		return httpx.Headers([
+			(name, value)
+			for name, value in headers.multi_items()
+			if name.lower() not in ("content-encoding", "content-length")
+		])
+
 	def handle_request (self, request: httpx.Request) -> httpx.Response:
 		"""Run one request through the application and return its complete response."""
 
@@ -68,7 +90,7 @@ class SyncTransport(httpx.BaseTransport):
 
 			return httpx.Response(
 				streamed.status_code,
-				headers=streamed.headers,
+				headers=self._carried(streamed.headers),
 				content=body,
 				request=request,
 			)
