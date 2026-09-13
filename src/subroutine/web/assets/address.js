@@ -1042,6 +1042,27 @@ export function frame (showing, open) {
 export const AREAS = ["people", "settings"];
 
 
+export function showsWork (area) {
+	/*
+		Whether the page at this address shows any of the work — rows, an agenda, a roster, or
+		the workspace's own words.
+
+		**An administrative area shows none of it** (`#1397`, measured by `#2508`). `Settings`
+		and `People` take no argument from the work views, and `pageTitle` answers on the area
+		before it reads a project, so the agenda, the roster and the vocabulary are answers
+		nothing on those pages can use. The agenda is the largest response this app asks for —
+		167 KB of rows behind a page of switches.
+
+		**A predicate rather than the test written at each call site**, because there are two
+		and they are six hundred lines apart: the arrival, and the poll. The poll is the one
+		that would have been missed, and it is the expensive one — it asks again for as long as
+		somebody leaves the page open.
+	*/
+
+	return !area;
+}
+
+
 export function areaOf (pathname) {
 	/*
 		Which administrative area an address names, or null for one that names none.

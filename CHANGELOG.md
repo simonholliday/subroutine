@@ -151,6 +151,12 @@ upgrade involves.
 
 ### Fixed
 
+- **An administrative page no longer loads the work behind it.** Opening Settings or People
+  fetched the agenda, a workspace roster and that workspace's vocabulary — four requests,
+  the largest of them 167 KB of rows — and drew none of them, then asked for the agenda again
+  on every poll for as long as the page was open. A settings page makes five requests now
+  rather than nine, and what it asks for is what it shows.
+
 - **The browser app is sent compressed.** Its modules and stylesheet went out raw — 940 KB of
   files where 380 KB will do — because neither the app nor anything in front of it compressed
   a thing. Every text file it serves now has a gzipped copy, made once at startup and chosen

@@ -7008,6 +7008,8 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
+			: name === "areas" ? app.AREAS
+			: name === "showsWork" ? app.showsWork(argument.area)
 			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
 			: name === "marks" ? app.marks(
 				argument.item, argument.ordering, argument.place, argument.linkable,
@@ -15316,6 +15318,41 @@ def test_a_project_label_is_a_link_only_where_something_can_follow_it (
 	assert linked[0]["href"] == "/projects/subroutine/ui"
 	assert [mark["text"] for mark in plain] == ["subroutine/ui"]
 	assert plain[0]["href"] is None, "a surface that cannot navigate drew a link anyway"
+
+
+def test_an_administrative_page_reads_none_of_the_work (tmp_path: pathlib.Path) -> None:
+	"""`SR#2508`: Settings and People each fetched four answers they render none of.
+
+	**Found by attributing every request to the call that issued it**, against the served
+	instance. On a settings page `configure` asked for the three the page draws, and arriving
+	asked for four more beside them: the agenda — 167 KB, the largest response this app makes —
+	a roster, and the workspace's vocabulary. `/people` was the same, and asked one workspace
+	for its members twice. Then the poll asked for the agenda again, every interval, for as long
+	as the page stayed open.
+
+	**The rule was already written down** and is `SR#1397`'s: an administrative area takes no
+	argument from the work views. `pageTitle` answers on the area before it reads a project, so
+	even the tab title wants none of it.
+
+	**Driven from `AREAS`**, so an area added later is covered the day it exists rather than the
+	day somebody remembers this test — which is what `SR#678`'s cross-surface guard does with
+	the same list.
+	"""
+
+	areas = _addressing(tmp_path, [("areas", None)])[0]
+
+	assert areas, "the app declares no administrative areas, so this test proves nothing"
+
+	answered = _addressing(tmp_path, [("showsWork", {"area": area}) for area in [None, *areas]])
+
+	assert answered[0] is True, (
+		"an ordinary address stopped reading the work it exists to show"
+	)
+
+	assert all(one is False for one in answered[1:]), (
+		f"an administrative area reads the work behind it: "
+		f"{dict(zip(areas, answered[1:], strict=True))}"
+	)
 
 
 def test_a_page_is_only_wide_where_a_board_is_on_it (tmp_path: pathlib.Path) -> None:

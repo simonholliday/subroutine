@@ -23,7 +23,8 @@ import {
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
-	settingsAddress, settingsPageOf, showingOf, titlesByPath, viewOf, withShowing, widened,
+	settingsAddress, settingsPageOf, showingOf, showsWork, titlesByPath, viewOf, withShowing,
+	widened,
 } from "./address.js";
 import {
 	Boundary, accumulated, inOrder, mergeOrder, newestFirst, refusal, sunkOrder, unpacked,
@@ -1043,9 +1044,14 @@ export function App () {
 				if (touching(fresh, held.current && held.current.item, seen.page,
 					held.current ? held.current.links : [])) await refresh();
 
-				await (onAgenda
-					? readAgenda(everywhere ? null : workspace, project)
-					: load(workspace, project));
+				/* **And an administrative area refreshes none of it** (`#2508`). The arrival
+				   skips these; without the same question here, a settings page left open went
+				   on fetching the agenda's 167 KB every interval, for rows it does not draw. */
+				if (showsWork(area)) {
+					await (onAgenda
+						? readAgenda(everywhere ? null : workspace, project)
+						: load(workspace, project));
+				}
 			} catch (failure) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -1089,7 +1095,8 @@ export function App () {
 		const tick = setInterval(poll, attention);
 
 		return () => clearInterval(tick);
-	}, [error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh, attention]);
+	}, [area, error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh,
+		attention]);
 
 	const signOut = useCallback(async () => {
 		/* **The answer is asked for and then acted on**, rather than the page being blanked
@@ -1209,7 +1216,15 @@ export function App () {
 				and every write need one — the merged agenda spans them all, but *adding*
 				something has to land somewhere.
 			*/
-			await Promise.all([
+			/*
+				**An administrative area reads none of this** (`#2508`, and `showsWork` holds the
+				argument). Found by attributing every request a settings page makes to the call
+				that issued it: `configure` asked for the three the page renders, and these four
+				arrived beside them — the agenda's 167 KB, a roster and a vocabulary that nothing
+				on the page can reach. `/people` was the same, and asked one workspace for its
+				members twice.
+			*/
+			await Promise.all(!showsWork(area) ? [] : [
 				/*
 					**The arrangement decides which reader now, not the address** (`#1215`,
 					amending `#649`). It was `asked === null`, so the agenda was the thing at
@@ -1234,7 +1249,7 @@ export function App () {
 		} finally {
 			setReady(true);
 		}
-	}, [load, nowShowing, readAgenda, roster, show, words, workspace]);
+	}, [area, load, nowShowing, readAgenda, roster, show, words, workspace]);
 
 	useEffect(() => {
 		start();
@@ -3316,6 +3331,7 @@ export {
 	settingsPageOf,
 	shortVersion,
 	showingOf,
+	showsWork,
 	titlesByPath,
 	viewOf,
 	withShowing,
