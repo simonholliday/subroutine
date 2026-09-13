@@ -105,9 +105,9 @@ and that is the half that is indexed, linked and permanent here.
   of the tree — read from git — so the record goes out of date exactly when the code moves,
   rather than on a timer that says *fresh* about a suite you ran before five files changed.
 - **An agent can park a question and find the answer next session.** Setting a task to
-  *needs input* puts it at the top of your agenda under **Waiting on you**, above overdue work.
-  Your answer is on the item when whoever picks it up comes back — usually a version of the same
-  agent with none of the conversation.
+  *needs input* and assigning it to you puts it at the top of your agenda under **Waiting on
+  you**, above overdue work. Your answer is on the item when whoever picks it up comes back —
+  usually a version of the same agent with none of the conversation.
 - **`--ready`, not "everything".** What can be started *now*, with nothing unfinished in the
   way. A backlog it can act on rather than one it has to re-read and re-reason about.
 - **Every item has a number, and that number is permanent.** `#42` is the same task tomorrow,

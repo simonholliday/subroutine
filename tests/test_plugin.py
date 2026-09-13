@@ -1158,6 +1158,38 @@ def test_both_channels_say_how_to_park_a_question_for_a_person () -> None:
 	)
 
 
+def test_both_channels_say_a_parked_question_needs_a_name_on_it () -> None:
+	"""`#2495`: *Waiting on you* holds what is assigned or held, so parking alone reaches nobody.
+
+	`71026a3` narrowed that bucket to *assigned to you, or held by you*, on the argument that a
+	row nobody has been given is not work anybody in particular is holding up. Both channels went
+	on teaching the rule it replaced — set the status, write the comment, and it arrives at the
+	top of that person's page — and the failure is silent in the worst direction: the agent
+	believes it has asked, and the person is never told.
+
+	**Measured the day this was written**: the instance's only two parked items were assigned to
+	nobody and held by nobody, so neither was on anybody's *Waiting on you*. One of them had been
+	parked for a person's decision eleven days earlier, by an agent following the skill exactly.
+	"""
+
+	skill = SKILL.read_text(encoding="utf-8")
+	guide = subroutine.api.meta.guide_text()
+
+	parked = next((block for block in skill.split("```") if "needs_input" in block), "")
+
+	assert "assignee=" in parked, (
+		"the skill's parking example sets a status and names nobody, so what it teaches lands "
+		"on no agenda at all"
+	)
+
+	row = next((line for line in guide.splitlines() if "needs_input" in line), "")
+
+	assert "assign" in row.lower(), (
+		"the guide parks a question without saying whose it is, and the guide is what an agent "
+		"with no plugin reads"
+	)
+
+
 def test_the_guaranteed_channel_names_the_practice_and_not_only_the_endpoint () -> None:
 	"""`#499`: the channel every agent gets must name what the optional ones teach.
 

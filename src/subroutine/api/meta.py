@@ -416,9 +416,9 @@ def guide_text () -> str:
 		"leaves their ready listing while you hold it — a lease, so nothing is stranded if you "
 		"stop first. Writing to it renews the lease, and finishing hands it back |",
 		"| You need an answer from a person and the conversation is about to end | Set the "
-		"status to `needs_input` and write the question as a comment | It is the first thing "
-		"on their agenda, and the answer is on the item when you or another agent comes back "
-		"— rather than in a conversation that ended with you |",
+		"status to `needs_input`, assign it to them, and write the question as a comment | "
+		"It is then on their agenda, and the answer is there when you or another agent "
+		"comes back — rather than in a conversation that ended with you |",
 		"| Nobody can see that you are working | `status_category` `in_progress`, set when "
 		"you begin | A person watching sees the work move, rather than items appearing "
 		"finished with nothing in between |",

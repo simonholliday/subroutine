@@ -151,6 +151,12 @@ upgrade involves.
 
 ### Fixed
 
+- **A parked question said whose it was to nobody.** *Waiting on you* holds what is assigned to
+  you or what you are holding, so setting a task to `needs_input` and naming nobody put the
+  question on no agenda at all — while the skill, the agent guide and the README each promised
+  it arrived at the top of that person's page. All three now say to assign it to whoever owes
+  the answer, and the skill's example does it.
+
 - **The People page's tab said *Agenda*.** With the agenda open beside it, two tabs read the
   same word. Every page in the administrative area now names itself in the tab.
 

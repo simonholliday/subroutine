@@ -348,15 +348,21 @@ putting down without finishing.
 conversation.** A conversation ends and takes the question with it; an item does not.
 
 ```
-subroutine_update(ref=42, status="needs_input")
+subroutine_update(ref=42, status="needs_input", assignee="morpheus")
 subroutine_comment(ref=42, body="Which way round should the flag read? Both work; the second
                                  matches the CLI.")
 ```
 
-It goes to the top of that person's agenda under *Waiting on you*, and the answer is on the
-item when you — or a different agent, days later — come back to it. Then move the status on and
-carry on with something else in the meantime; a question you are waiting on is not a reason to
-stop.
+**Assign it to the person you are asking, or it reaches nobody.** *Waiting on you* is the top
+of their agenda, and it holds what is assigned to them or what they are holding — so a parked
+item with nobody's name on it sits among the work nobody has taken, which is not a question
+anybody has been asked. Their answer is on the item when you — or a different agent, days
+later — come back to it. Move the status on then, and carry on with something else meanwhile;
+a question you are waiting on is not a reason to stop.
+
+**Parking is a status, on the item you already have, whatever its type — not a new
+`question`.** A `question` is work for whoever picks it up; parking says *this one is yours,
+and I cannot go on without it*.
 
 **Look before you file.** Searching costs one call and a duplicate costs somebody an afternoon
 of wondering which of two items is the real one:
