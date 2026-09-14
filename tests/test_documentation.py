@@ -2882,3 +2882,30 @@ def test_nothing_is_excused_from_the_doctor_transcript_that_it_actually_shows ()
 		f"{unknown} are excused from the transcript and diagnosis.py no longer reports them at "
 		f"all, so the entries excuse nothing"
 	)
+
+
+#: **The house style is a spaced hyphen, never an em dash** (Simon, 2026-09-14; `#2570`). Held page
+#: by page, so a page joins this list when it has been swept, and the list says how far the rule
+#: has reached rather than claiming the whole repository.
+SPACED_HYPHEN_PAGES = ("README.md",)
+
+#: The character the house style rules out, written as an escape so this file's own source never
+#: carries one and a sweep of the tests cannot find the guard counting itself.
+EM_DASH = "—"
+
+
+def test_a_page_held_to_the_house_style_carries_no_em_dash () -> None:
+	"""`#2570`. The house style's dash is a spaced hyphen: ``word - word``.
+
+	Named by line, because a page with one stray dash in it is fixed by going to that line, and a
+	count alone sends somebody searching for a character most editors draw like a hyphen.
+	"""
+
+	for name in SPACED_HYPHEN_PAGES:
+		lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
+		found = [number for number, line in enumerate(lines, start=1) if EM_DASH in line]
+
+		assert not found, (
+			f"{name} carries an em dash on line {', '.join(map(str, found))}. The house style is "
+			f"a spaced hyphen."
+		)
