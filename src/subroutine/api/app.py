@@ -325,7 +325,7 @@ def create_app (
 
 	# Outermost, because it decides what the request *is* before anything else reads the
 	# method. Added after `correlate` for that reason: Starlette runs the last one first.
-	application.middleware("http")(subroutine.api.middleware.answer_head_with_get)
+	application.add_middleware(subroutine.api.middleware.AnswerHeadWithGet)
 
 	if resolved.cors_origins:
 		# Only when configured. A browser is not the primary client here, and a default

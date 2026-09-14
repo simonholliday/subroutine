@@ -168,7 +168,7 @@ def test_a_file_that_carries_its_own_compression_is_not_compressed_twice (
 def test_a_head_carries_the_length_the_get_would_send (
 	session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`answer_head_with_get` rewrites the method, and now a compressor sits beside it.
+	"""`AnswerHeadWithGet` rewrites the method, and now a compressor sits beside it.
 
 	A `HEAD` is answered with the headers of the `GET` and none of its bytes, so its
 	`Content-Length` has to be the length of what a `GET` would actually have sent — the

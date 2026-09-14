@@ -17,8 +17,6 @@ import httpx
 import pytest
 import sqlalchemy
 import sqlalchemy.orm
-import starlette.requests
-import starlette.responses
 
 import api_support
 import subroutine.addressing
@@ -897,33 +895,42 @@ def test_head_where_nothing_answers_get_is_refused_as_head (
 	assert answered.headers.get("Allow") == "POST"
 
 
-def _asked (application: fastapi.FastAPI, method: str, path: str) -> str:
-	"""Run the HEAD middleware over one request and return the method routing would see."""
+def _asked (
+	application: fastapi.FastAPI,
+	method: str,
+	path: str,
+	*,
+	server: dict[str, typing.Any] | None = None,
+) -> str:
+	"""Run the HEAD middleware over one request and return the method routing would see.
+
+	``server`` is the scope the server holds, for a test that reads it back afterwards.
+	"""
 
 	seen: list[str] = []
 
-	async def onwards (request: starlette.requests.Request) -> starlette.responses.Response:
+	async def onwards (scope: typing.Any, receive: typing.Any, send: typing.Any) -> None:
 		"""Stand in for the rest of the application, recording what it was asked."""
 
-		seen.append(str(request.scope["method"]))
+		seen.append(str(scope["method"]))
 
-		return starlette.responses.Response(status_code=204)
+	async def unused (*_given: typing.Any) -> None:
+		"""Stand in for the server's channels, which the stand-in above never touches."""
 
-	request = starlette.requests.Request(
-		{
-			"type": "http",
-			"method": method,
-			"path": path,
-			"raw_path": path.encode(),
-			"query_string": b"",
-			"headers": [],
-			"scheme": "http",
-			"server": ("testserver", 80),
-			"app": application,
-		}
-	)
+	scope = server if server is not None else {}
+	scope.update({
+		"type": "http",
+		"method": method,
+		"path": path,
+		"raw_path": path.encode(),
+		"query_string": b"",
+		"headers": [],
+		"scheme": "http",
+		"server": ("testserver", 80),
+		"app": application,
+	})
 
-	asyncio.run(subroutine.api.middleware.answer_head_with_get(request, onwards))
+	asyncio.run(subroutine.api.middleware.AnswerHeadWithGet(onwards)(scope, unused, unused))
 
 	return seen[0]
 
@@ -933,8 +940,14 @@ def test_a_head_where_a_get_exists_reaches_the_route_as_a_get (
 ) -> None:
 	"""Which is what makes the ``GET`` handler answer at all — FastAPI pairs neither method."""
 
-	assert _asked(world.application, "HEAD", "/v1/tasks") == "GET"
+	server: dict[str, typing.Any] = {}
+
+	assert _asked(world.application, "HEAD", "/v1/tasks", server=server) == "GET"
 	assert _asked(world.application, "GET", "/v1/tasks") == "GET", "and nothing else moves"
+
+	# **The server's own scope still says ``HEAD``** (`SR#2622`): it is what uvicorn reads to
+	# decide whether to send a body, and a rewrite that reached it put the ``GET``'s on the wire.
+	assert server["method"] == "HEAD", "the rewrite reached the server's own scope"
 
 
 def test_a_head_where_no_get_exists_reaches_the_route_unchanged (

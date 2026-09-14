@@ -1251,6 +1251,37 @@ def test_an_address_called_unreachable_stays_unreachable_while_it_is_held () -> 
 			rival.bind(("127.0.0.1", port))
 
 
+def test_a_head_answered_by_the_get_beside_it_sends_no_body (tmp_path: pathlib.Path) -> None:
+	"""`SR#2622`: a ``HEAD`` carries the ``GET``'s headers and none of its bytes - on the wire.
+
+	The rewrite to ``GET`` was made on the server's own scope, and uvicorn reads the method from
+	there to decide whether to send a body, so a ``HEAD`` wrote the ``GET``'s whole body onto the
+	connection, where a client expecting none reads it as the start of the next response. **Only
+	a socket sees it**: an in-process transport has no wire, and httpx drops a ``HEAD``'s body
+	itself. ``/v1/openapi.json`` is the control, since FastAPI registers it outside the declared
+	routes and it is never rewritten.
+	"""
+
+	with served(tmp_path) as remote:
+		host, port = remote.url.removeprefix("http://").split(":")
+
+		for path in ("/healthz", "/v1/openapi.json"):
+			with socket.create_connection((host, int(port)), timeout=10) as held:
+				held.sendall(
+					f"HEAD {path} HTTP/1.1\r\nHost: x\r\n\r\n"
+					"GET /healthz HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n".encode()
+				)
+				received = b""
+
+				while chunk := held.recv(65536):
+					received += chunk
+
+			following = received[received.index(b"\r\n\r\n") + 4 :]
+			stray = following.find(b"HTTP/1.1")
+
+			assert stray == 0, f"HEAD {path} sent {stray} bytes of body before the next response"
+
+
 def test_a_port_taken_before_the_server_binds_it_is_tried_again (
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

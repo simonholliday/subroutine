@@ -173,6 +173,12 @@ upgrade involves.
 
 ### Fixed
 
+- **A `HEAD` request was answered with the body a `GET` would send.** Every route answers
+  `HEAD` as the `GET` at the same path, and that rewrite reached the server itself, so it wrote
+  the whole body onto the connection - for a load balancer's `HEAD /healthz` probe too. A client
+  or proxy that rightly expects no body reads those bytes as the start of the next response. A
+  `HEAD` now carries the headers and length of the `GET`, and none of its bytes.
+
 - **Leaving a settings or People page for your work showed that page again.** Pressing the
   Subroutine name, or choosing a place in the dropdown, changed the address and left the page
   on screen - a settings page then said there was no settings page at this address, until you

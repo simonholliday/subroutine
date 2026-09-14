@@ -240,12 +240,7 @@ class BodyLimit:
 		)
 
 
-async def answer_head_with_get (
-	request: starlette.requests.Request,
-	call_next: typing.Callable[
-		[starlette.requests.Request], typing.Awaitable[starlette.responses.Response]
-	],
-) -> starlette.responses.Response:
+class AnswerHeadWithGet:
 	"""Let ``HEAD`` reach the ``GET`` at the same path.
 
 	FastAPI's ``APIRoute`` does not pair the two, where Starlette's own ``Route`` does — so
@@ -260,20 +255,46 @@ async def answer_head_with_get (
 	doubling the published contract to say something no reader needs told.
 
 	Rewritten only where a ``GET`` really exists, so a ``HEAD`` at a write-only path is still
-	refused as ``HEAD`` rather than as a ``GET`` nobody sent. The body the handler produces is
-	discarded by the server, measured against uvicorn rather than assumed: a ``HEAD`` is
-	answered with the headers and ``Content-Length`` of the ``GET`` and none of its bytes.
+	refused as ``HEAD`` rather than as a ``GET`` nobody sent.
+
+	**The rewrite is made on a copy, and that is why this is pure ASGI** (`#2622`). It was a
+	``BaseHTTPMiddleware`` that set ``request.scope["method"]``, and that dict is the server's
+	own: uvicorn decides whether to send a body by reading the method from it as the response is
+	written, so a ``HEAD`` went out with the ``GET``'s whole body - bytes a client expecting none
+	reads as the start of the next response, on the probe load balancers send most. This said
+	the opposite had been measured. That class calls the rest of the application with the scope
+	it was handed, so no copy could be passed through it. Now the server keeps its ``HEAD`` and
+	sends the headers and ``Content-Length`` of the ``GET``, and none of its bytes.
 	"""
 
-	if request.scope["method"] == "HEAD":
-		declared = getattr(request.app.state, "declared_routes", None)
+	def __init__ (self, app: typing.Any) -> None:
+		"""Wrap an application."""
 
-		if declared is not None and "GET" in subroutine.api.routing.accepted(
-			declared, request.url.path
-		):
-			request.scope["method"] = "GET"
+		self.app = app
 
-	return await call_next(request)
+	async def __call__ (
+		self, scope: typing.Any, receive: typing.Any, send: typing.Any
+	) -> None:
+		"""Pass a ``HEAD`` on as a ``GET`` where one is declared, and anything else untouched."""
+
+		if scope["type"] != "http" or scope["method"] != "HEAD":
+			await self.app(scope, receive, send)
+
+			return
+
+		declared = getattr(scope["app"].state, "declared_routes", None)
+		path = starlette.requests.Request(scope).url.path
+
+		if declared is None or "GET" not in subroutine.api.routing.accepted(declared, path):
+			await self.app(scope, receive, send)
+
+			return
+
+		# **One ``state`` for both scopes**, made before the copy: the request id is kept there,
+		# and an error answered outside this layer has to find the id the inside assigned.
+		scope.setdefault("state", {})
+
+		await self.app({**scope, "method": "GET"}, receive, send)
 
 
 async def correlate (
