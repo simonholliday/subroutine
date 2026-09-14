@@ -772,6 +772,72 @@ def test_deactivating_somebody_names_the_agents_it_will_stop (
 	)
 
 
+def test_deactivating_the_last_member_of_a_private_project_names_it_and_the_way_back (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1453`, both halves at a terminal: say what nobody will see, then let somebody back in.
+
+	**The project is made in the database**, because no terminal command hands a project to
+	somebody else: ownership moves only through the API, and a project the operator makes is
+	theirs and cannot lose them.
+	"""
+
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.identity
+	import subroutine.db.session
+	import subroutine.domain.projects
+	import subroutine.domain.users
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			# The one superuser `init` made, which is who the terminal acts as here.
+			operator = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.User.username).where(
+					subroutine.db.models.identity.User.is_superuser.is_(True)
+				)
+			).one()
+			acme = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.Workspace).where(
+					subroutine.db.models.identity.Workspace.slug == "acme"
+				)
+			).one()
+			subroutine.domain.projects.create(
+				session,
+				workspace_id=acme.id,
+				key="secret",
+				title="Redundancies",
+				visibility="private",
+				owner_id=subroutine.domain.users.by_username(session, "thomas").id,
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	assert "can be seen by somebody" in run("instance", "projects").output
+
+	warned = run("user", "deactivate", "thomas", "--yes").output
+
+	assert "acme/secret can be seen by nobody" in warned, warned
+	assert "project share" in warned, "and it says how to let somebody back in"
+
+	assert "acme/secret  Redundancies" in run("instance", "projects").output
+
+	run("-w", "acme", "project", "share", "secret", operator)
+
+	assert "can be seen by somebody" in run("instance", "projects").output, (
+		"letting the operator in did not make it reachable again"
+	)
+
+
 def test_the_account_list_says_when_it_stopped (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

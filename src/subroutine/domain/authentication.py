@@ -781,20 +781,12 @@ def _refuse_an_agent_nobody_answers_for (
 	if not user.is_service_account:
 		return
 
-	try:
-		walked = subroutine.domain.accountability.chain(session, user)
-
-	except subroutine.errors.ValidationError as broken:
-		raise AuthenticationError(
-			AuthenticationFailure.USER_INACTIVE, prefix=prefix
-		) from broken
-
-	# Everybody in the chain, not only the person at the end: an intermediate agent that has
-	# been deactivated is a link somebody deliberately cut, and honouring only the far end
-	# would walk straight past it.
-	for entry in walked[1:]:
-		if not entry.is_active or entry.deleted_at is not None:
-			raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
+	# **Everybody in the chain, not only the person at the end**: an intermediate agent that has
+	# been deactivated is a link somebody deliberately cut, and honouring only the far end would
+	# walk straight past it. The rule is `accountability.can_act`, so what strands a private
+	# project (`#1453`) is decided by the same sentence that refuses the agent here.
+	if not subroutine.domain.accountability.can_act(session, user):
+		raise AuthenticationError(AuthenticationFailure.USER_INACTIVE, prefix=prefix)
 
 
 def revoke_token (

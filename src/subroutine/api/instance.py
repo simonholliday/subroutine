@@ -19,11 +19,16 @@ import subroutine.api.schemas
 import subroutine.api.security
 import subroutine.api.shaping
 import subroutine.domain.instances
+import subroutine.domain.projects
+import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.views
 
 #: What ``?fields=`` may name on the workspace listing, read off the view.
 ON_INSTANCE_FIELDS = subroutine.api.shaping.selectable(subroutine.views.WorkspaceOnInstance)
+
+#: What ``?fields=`` may name on the listing of projects nobody can reach, read off the view.
+UNREACHABLE_FIELDS = subroutine.api.shaping.selectable(subroutine.views.UnreachableProject)
 
 
 router = fastapi.APIRouter(
@@ -119,6 +124,56 @@ def workspaces (
 
 	return subroutine.api.shaping.response(
 		[subroutine.views.workspace_on_instance(row) for row in rows],
+		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
+		shape,
+	)
+
+
+@router.get(
+	"/unreachable-projects",
+	summary="Private projects nobody here can reach",
+	response_model=subroutine.views.Collection[subroutine.views.UnreachableProject],
+)
+def unreachable_projects (
+	actor: subroutine.api.security.PrincipalDep,
+	session: subroutine.api.dependencies.SessionDep,
+	leaving: str | None = fastapi.Query(
+		None,
+		description="Instead, the ones that would be left unreachable if this person left.",
+	),
+	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+) -> typing.Any:
+	"""List the private projects that no member who can still act is able to see.
+
+	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
+	that is not pinned to one workspace.
+
+	A private project is visible only to its members. When the last of them is deactivated - or
+	the only member is an agent whose person is - nobody can see it, so nothing can make it public
+	or share it again. This lists those projects by address, title and membership count, and
+	nothing inside them. ``POST /v1/projects/{id_or_key}/members`` then lets somebody back in, and
+	an administrator may do that for a project listed here; it is recorded like any other share.
+
+	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
+	projects that somebody can see now would nobody be able to see afterwards.
+	"""
+
+	shape = subroutine.api.shaping.wanted(
+		format=format,
+		fields=fields,
+		available=UNREACHABLE_FIELDS,
+		entity="project",
+		timezone=subroutine.views.reader_zone(session, actor),
+	)
+	rows = subroutine.domain.projects.unreachable(
+		session,
+		actor=actor,
+		leaving=None if leaving is None else subroutine.domain.users.by_username(session, leaving),
+	)
+
+	return subroutine.api.shaping.response(
+		[subroutine.views.unreachable_project(row) for row in rows],
 		subroutine.views.Page(limit=len(rows), has_more=False, next_cursor=None, total=None),
 		shape,
 	)

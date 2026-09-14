@@ -1219,6 +1219,20 @@ class Client:
 			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
 		)
 
+	def unreachable_projects (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.UnreachableProject]:
+		"""List the private projects nobody who can act here is able to see."""
+
+		body = self._json(
+			"GET", "/v1/instance/unreachable-projects", params=_given(leaving=leaving)
+		)
+
+		return [
+			subroutine.views.UnreachableProject.model_validate(row)
+			for row in body.get("items", [])
+		]
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not."""
 

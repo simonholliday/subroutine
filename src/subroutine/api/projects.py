@@ -407,7 +407,8 @@ def admit (
 	"""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
-	project = resolve(session, actor, workspace, id_or_key)
+	# A project nobody can reach is named here too, for an administrator, and nowhere else.
+	project = subroutine.domain.selection.project_to_share(session, actor, workspace, id_or_key)
 	account = subroutine.domain.users.by_username(session, body.username)
 	membership = subroutine.domain.projects.share(session, project, account, actor=actor)
 

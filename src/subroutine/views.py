@@ -5446,6 +5446,50 @@ def project_member (
 	)
 
 
+class UnreachableProject(pydantic.BaseModel):
+	"""A private project nobody who can act here is able to see - what exists, and where.
+
+	**Nothing from inside it**, for :class:`WorkspaceOnInstance`'s reason: the caller is not a
+	member, and what this answers is that the project is there and needs somebody let back in.
+	Its description, settings and work are still read through membership.
+	"""
+
+	id: uuid.UUID
+	workspace: str
+
+	#: The project's whole address inside its workspace, which is what letting somebody in names.
+	project: str
+	title: str
+	created_at: datetime.datetime
+
+	#: How many memberships it holds. Every one of them belongs to somebody who has left, or to an
+	#: agent whose person has - which is why nobody can see it.
+	members: int
+
+	def address (self) -> str:
+		"""Return what a caller names this by when letting somebody back in."""
+
+		return f"{self.workspace}/{self.project}"
+
+	def columns (self, reader: str | None) -> tuple[str, ...]:
+		"""Return one project as the cells of one compact line."""
+
+		return (self.workspace, self.project, self.title, str(self.members))
+
+
+def unreachable_project (row: subroutine.domain.projects.Unreachable) -> UnreachableProject:
+	"""Render one private project nobody can reach."""
+
+	return UnreachableProject(
+		id=row.project.id,
+		workspace=row.workspace.slug,
+		project=row.address,
+		title=row.project.title,
+		created_at=row.project.created_at,
+		members=row.members,
+	)
+
+
 def workspace_on_instance (
 	row: subroutine.domain.workspaces.OnInstance,
 ) -> WorkspaceOnInstance:

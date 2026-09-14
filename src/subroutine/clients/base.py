@@ -1144,6 +1144,17 @@ class Client(typing.Protocol):
 		mistake is somebody seeing a private project.
 		"""
 
+	def unreachable_projects (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.UnreachableProject]:
+		"""List the private projects nobody who can act here is able to see - item `#1453`.
+
+		``leaving`` asks instead which ones one person's departure would strand, which is what
+		``user deactivate`` names before it acts. Needs ``instance:admin``.
+		"""
+
+		raise NotImplementedError
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not — item `#1418`.
 

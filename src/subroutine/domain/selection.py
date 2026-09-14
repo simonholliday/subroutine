@@ -251,6 +251,63 @@ def project (
 	return addressed(session, actor, workspace, wanted, field="project")
 
 
+def project_to_share (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+	wanted: str,
+) -> subroutine.db.models.project.Project:
+	"""Find a project to let somebody into, including one nobody can reach - `#1453`.
+
+	:func:`project` narrows by visibility, so a private project nobody can see is *not found*
+	for everybody - including the administrator the decision says may repair it. This widens
+	that one lookup, **for sharing only**, to a project in this workspace that
+	:func:`subroutine.domain.projects.rescuable` says this caller may let somebody into. Reading
+	the project, its tasks or its settings still goes through :func:`project` and still answers
+	*not found*: naming is not reading, which is `#1418`'s line.
+	"""
+
+	try:
+		found: subroutine.db.models.project.Project = project(session, actor, workspace, wanted)
+
+		return found
+
+	except subroutine.errors.NotFound:
+		model = subroutine.db.models.project.Project
+		private = list(
+			session.scalars(
+				sqlalchemy.select(model).where(
+					model.workspace_id == workspace.id,
+					model.visibility == "private",
+					model.deleted_at.is_(None),
+				)
+			)
+		)
+		addresses = subroutine.domain.projects.paths_for(session, [row.id for row in private])
+		asked = {wanted, subroutine.domain.projects.normalize_path(wanted)}
+		matched = [
+			row
+			for row in private
+			if asked & {str(row.id), row.key, addresses.get(row.id, row.key)}
+			and subroutine.domain.projects.rescuable(session, actor, row)
+		]
+
+		if not matched:
+			raise
+
+		# **A bare key is not unique in a workspace** (decision `#957`), so two unreachable
+		# projects of one name are refused by name rather than one of them chosen.
+		if len(matched) > 1:
+			raise subroutine.errors.ValidationError(
+				f"{wanted!r} names {len(matched)} projects nobody can reach here.",
+				hint="Name one by its whole address: "
+				+ ", ".join(sorted(addresses.get(row.id, row.key) for row in matched))
+				+ ".",
+			) from None
+
+		return matched[0]
+
+
 def task (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal,

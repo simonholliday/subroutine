@@ -2481,6 +2481,25 @@ class Client:
 				session, chosen, account, actor=actor
 			)
 
+	def unreachable_projects (
+		self, *, leaving: str | None = None
+	) -> list[subroutine.views.UnreachableProject]:
+		"""List the private projects nobody who can act here is able to see."""
+
+		with self._opened() as (session, actor):
+			return [
+				subroutine.views.unreachable_project(row)
+				for row in subroutine.domain.projects.unreachable(
+					session,
+					actor=actor,
+					leaving=(
+						None
+						if leaving is None
+						else subroutine.domain.users.by_username(session, leaving)
+					),
+				)
+			]
+
 	def instance_workspaces (self) -> list[subroutine.views.WorkspaceOnInstance]:
 		"""List every workspace on this installation, member or not."""
 
@@ -2519,7 +2538,7 @@ class Client:
 
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
-			found = subroutine.domain.selection.project(session, actor, chosen, project)
+			found = subroutine.domain.selection.project_to_share(session, actor, chosen, project)
 			account = subroutine.domain.users.by_username(session, username)
 			membership = subroutine.domain.projects.share(session, found, account, actor=actor)
 

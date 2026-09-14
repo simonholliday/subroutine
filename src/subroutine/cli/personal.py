@@ -5455,6 +5455,132 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 			)
 
 
+def _deactivated (program: Program, *, username: str, yes: bool) -> None:
+	"""Mark somebody as having left, naming first what that stops and what it strands.
+
+	**Out of `register`, and `#1453` is what paid for it** (`#943`'s ratchet). The command gained
+	a second thing to name, and the closure only shrinks.
+	"""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		# **Asked of the server rather than derived from a page** (`SR#2387`). This walked every row
+		# the client held, which was correct while the directory came back whole and would have
+		# quietly under-reported the moment it was paged - on the one line whose entire purpose is
+		# to say what is about to stop.
+		stopping = [one.username for one in where.client.users(answers_to=username)]
+
+		# **And what nobody will be able to see afterwards** - `#1453`, decided by Simon on
+		# 2026-09-14. A private project is visible to its members only, so deactivating the last
+		# of them - or the person an agent member answers to - leaves it invisible to every
+		# surface. Asked of the server for the same reason as the agents. It needs
+		# `instance:admin`, which a credential allowed to deactivate somebody may not carry, so a
+		# refusal is said rather than read as *nothing stranded*.
+		try:
+			stranding = [one.address() for one in where.client.unreachable_projects(leaving=username)]
+			unchecked = None
+
+		except subroutine.errors.SubroutineError as refused:
+			stranding = []
+			unchecked = refused.detail
+
+		# **Named before it happens, not counted** - `project rename`'s rule. A deactivation that
+		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
+		# costs more than the thing it was protecting.
+		if (stopping or stranding or unchecked) and not yes:
+			if stopping:
+				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
+
+			if stranding:
+				program.say(
+					f"And nobody will be able to see {len(stranding)} private project(s): "
+					f"{', '.join(stranding)}"
+				)
+
+			if unchecked:
+				program.say(f"Whether this strands a private project was not checked: {unchecked}")
+
+			if not typer.confirm(f"Mark {username} as having left?"):
+				program.say("Left as they were.")
+
+				return
+
+		where.client.set_active(username=username, active=False)
+
+		program.say(f"{username} is marked as having left")
+
+		for name in stopping:
+			program.say(f"  {name} has stopped")
+
+		for address in stranding:
+			program.say(f"  {address} can be seen by nobody")
+
+		if stranding:
+			_suggest(
+				program.console,
+				"subroutine -w <workspace> project share <project> <username>",
+				"lets somebody back in; 'subroutine instance projects' lists them",
+			)
+
+
+def _register_unreachable (instance_app: typer.Typer, program: Program) -> None:
+	"""Add ``instance projects`` to the instance group - item `#1453`.
+
+	**A function `register` calls rather than lines inside it**, which is `#943`'s arrangement
+	for a new command: the closure only shrinks.
+	"""
+
+	@instance_app.command("projects")
+	def instance_projects (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show the private projects nobody here can see any more.
+
+		Examples:
+
+		  subroutine instance projects
+
+		A private project is visible only to the people shared into it. When the last of them
+		has left - or its only member is an agent whose person has - nobody can see it, and
+		nothing can make it public or share it again. This lists those, and nothing inside
+		them.
+
+		'subroutine -w <workspace> project share <project> <username>' lets somebody back in,
+		and joining one is recorded.
+		"""
+
+		_unreachable_listed(program, json_output=json_output)
+
+
+def _unreachable_listed (program: Program, *, json_output: bool) -> None:
+	"""Say which private projects nobody can reach - `#1453`."""
+
+	with program.opened() as world:
+		found = world.writing_to().client.unreachable_projects()
+
+		if json_output:
+			program.say(json.dumps([one.model_dump(mode="json") for one in found], indent=2))
+
+			return
+
+		# **Said, not left as an empty screen.** An empty answer is the ordinary one here, and a
+		# blank line reads as the command having done nothing.
+		if not found:
+			program.say("Every private project here can be seen by somebody who can act on it.")
+
+			return
+
+		for one in found:
+			held = "1 membership" if one.members == 1 else f"{one.members} memberships"
+
+			program.say(f"  {one.address()}  {one.title}  ({held}, none of them able to act)")
+
+		program.say("")
+		program.say(
+			"'subroutine -w <workspace> project share <project> <username>' lets somebody back in."
+		)
+
+
 def _instance_updated (program: Program, *, name: str, timezone: str) -> None:
 	"""Change what this installation is called, or where it says it is — `#1669`."""
 
@@ -7456,6 +7582,8 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		_instance_workspaces(program, json_output=json_output)
 
+	_register_unreachable(instance_app, program)
+
 	_register_workspace(app, program)
 
 	@project_app.command("prioritise")
@@ -7960,33 +8088,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		administer cannot be repaired from inside, and it would stop every agent at once.
 		"""
 
-		with program.opened() as world:
-			where = world.writing_to()
-			# **Asked of the server rather than derived from a page** (`SR#2387`). This walked
-			# every row the client held, which was correct while the directory came back whole
-			# and would have quietly under-reported the moment it was paged — on the one line
-			# whose entire purpose is to say what is about to stop.
-			stopping = [
-				one.username for one in where.client.users(answers_to=username)
-			]
-
-			# **Named before it happens, not counted** — `project rename`'s rule. A deactivation
-			# that silently stops a shared agent is how somebody learns to stop deactivating
-			# leavers, which costs more than the thing it was protecting.
-			if stopping and not yes:
-				program.say(f"This also stops {len(stopping)} agent(s): {', '.join(stopping)}")
-
-				if not typer.confirm(f"Mark {username} as having left?"):
-					program.say("Left as they were.")
-
-					return
-
-			where.client.set_active(username=username, active=False)
-
-			program.say(f"{username} is marked as having left")
-
-			for name in stopping:
-				program.say(f"  {name} has stopped")
+		_deactivated(program, username=username, yes=yes)
 
 	@user_app.command("reactivate")
 	def user_reactivate (

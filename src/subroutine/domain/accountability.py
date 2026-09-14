@@ -90,6 +90,38 @@ def chain (
 	return walked
 
 
+def can_act (
+	session: sqlalchemy.orm.Session,
+	user: subroutine.db.models.identity.User,
+	*,
+	leaving: typing.Collection[uuid.UUID] = (),
+) -> bool:
+	"""Report whether this account can act here, exactly as authentication decides it - `#1453`.
+
+	**One rule, with authentication as its first reader.** An account acts when it is live and
+	active, and an agent only while every account it answers to is too - decision `#473`: when
+	the person who gave an agent permission leaves, the permission goes with them. A chain that
+	cannot be walked is a refusal, because an agent nobody answers for is what the model exists
+	to prevent.
+
+	``leaving`` asks the same question of a future in which those accounts have gone, which is
+	what lets somebody be told what a deactivation will strand before they make it.
+	"""
+
+	walked: list[subroutine.db.models.identity.User]
+
+	try:
+		walked = chain(session, user)
+
+	except subroutine.errors.ValidationError:
+		return False
+
+	return all(
+		entry.is_active and entry.deleted_at is None and entry.id not in leaving
+		for entry in walked
+	)
+
+
 def answers_for (
 	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
 ) -> subroutine.db.models.identity.User:

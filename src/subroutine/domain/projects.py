@@ -21,6 +21,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.types
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.events
@@ -890,6 +891,135 @@ def _refuse_somebody_outside_the_workspace (
 	)
 
 
+class Unreachable(typing.NamedTuple):
+	"""A private project nobody who can act here is able to see, and where it is - `#1453`."""
+
+	project: subroutine.db.models.project.Project
+	workspace: subroutine.db.models.identity.Workspace
+	address: str
+	members: int
+
+
+def reachable_by_anybody (
+	session: sqlalchemy.orm.Session,
+	project: subroutine.db.models.project.Project,
+	*,
+	leaving: typing.Collection[uuid.UUID] = (),
+) -> bool:
+	"""Report whether somebody who can act here can see this project - `#1453`.
+
+	**A member who can act, and whom nothing hides it from.** A row alone is not enough: an
+	account that has left keeps its memberships, which is right, and an agent whose person has
+	left keeps its rows and can no longer act - so both are counted as nobody. And privacy
+	inherits down the tree, so a member of a private project inside another one they are not a
+	member of cannot see it either; :func:`hidden_by` is that rule, and it is asked rather than
+	restated.
+	"""
+
+	model = subroutine.db.models.project.ProjectMember
+	member = subroutine.db.models.identity.User
+
+	for account in session.scalars(
+		sqlalchemy.select(member)
+		.join(model, model.user_id == member.id)
+		.where(model.project_id == project.id)
+	):
+		if not subroutine.domain.accountability.can_act(session, account, leaving=leaving):
+			continue
+
+		if hidden_by(session, project, account.id) is None:
+			return True
+
+	return False
+
+
+def unreachable (
+	session: sqlalchemy.orm.Session,
+	*,
+	actor: subroutine.domain.authentication.Principal | None = None,
+	leaving: subroutine.db.models.identity.User | None = None,
+) -> list[Unreachable]:
+	"""Return the private projects nobody who can act here is able to see - item `#1453`.
+
+	**Decided by Simon on 2026-09-14, and it is `#1418`'s answer one level down**: membership is
+	reach, and an administrator may *discover* what nobody can reach and *join* it, and joining
+	is recorded. A private project whose last member leaves - or whose only member is an agent
+	whose person leaves - is otherwise invisible to every surface, and the only way back in was
+	to act as the person who left.
+
+	**Only what nobody can reach, and nothing inside it.** The key, the title, the workspace and
+	how many memberships it holds. A private project somebody can still see is not listed at all,
+	so its existence stays that somebody's to disclose.
+
+	**``leaving`` asks what one person's departure would strand**: projects reachable now that
+	would not be once they and every agent answering to them have stopped. That is the question
+	`user deactivate` puts before it acts, which is the other half of the decision.
+
+	Needs ``instance:admin``, and a credential pinned to one workspace is refused: this answers
+	for the whole installation.
+	"""
+
+	if actor is not None:
+		subroutine.domain.authorization.authorize_instance(
+			actor, subroutine.permissions.INSTANCE_ADMIN
+		)
+
+		if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
+			raise subroutine.errors.Forbidden(
+				"A token pinned to one workspace cannot ask which projects on this installation "
+				"nobody can reach.",
+				hint="Use a credential that was not pinned to a workspace.",
+			)
+
+	project = subroutine.db.models.project.Project
+	workspace = subroutine.db.models.identity.Workspace
+	membership = subroutine.db.models.project.ProjectMember
+
+	# **Instance-wide by construction, and bounded by how many private projects exist.** Each is
+	# asked about its own members, which is a handful of reads per project; there were none on
+	# this project's own instance when the question was filed.
+	candidates = session.execute(
+		sqlalchemy.select(project, workspace)
+		.join(workspace, workspace.id == project.workspace_id)
+		.where(
+			project.visibility == "private",
+			project.deleted_at.is_(None),
+			workspace.deleted_at.is_(None),
+		)
+		.order_by(workspace.slug, project.key, project.id)
+	).tuples().all()
+
+	gone = () if leaving is None else (leaving.id,)
+	stranded = [
+		(row, place)
+		for row, place in candidates
+		if not reachable_by_anybody(session, row, leaving=gone)
+		and (leaving is None or reachable_by_anybody(session, row))
+	]
+
+	if not stranded:
+		return []
+
+	counts = dict(
+		session.execute(
+			sqlalchemy.select(membership.project_id, sqlalchemy.func.count())
+			.where(membership.project_id.in_([row.id for row, _place in stranded]))
+			.group_by(membership.project_id)
+		).tuples().all()
+	)
+	addresses = paths_for(session, [row.id for row, _place in stranded])
+
+	return [
+		Unreachable(
+			project=row,
+			workspace=place,
+			address=addresses.get(row.id, row.key),
+			members=counts.get(row.id, 0),
+		)
+		for row, place in stranded
+	]
+
+
 def share (
 	session: sqlalchemy.orm.Session,
 	project: subroutine.db.models.project.Project,
@@ -920,7 +1050,12 @@ def share (
 	workspace.
 	"""
 
-	_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
+	# **An administrator may let somebody into a project nobody can reach** - `#1453`, decided
+	# with `#1418`'s rule. Nobody holds `project:write` *on* such a project, because nobody who can
+	# act can see it; that is the state being repaired. Only while it is unreachable, so a private
+	# project somebody can still see stays theirs to share. The event below records who did it.
+	if not rescuable(session, actor, project):
+		_permitted(session, actor, subroutine.permissions.PROJECT_WRITE, project=project)
 
 	_refuse_somebody_outside_the_workspace(session, project, user)
 
@@ -994,6 +1129,32 @@ def share (
 	)
 
 	return membership
+
+
+def rescuable (
+	session: sqlalchemy.orm.Session,
+	actor: subroutine.domain.authentication.Principal | None,
+	project: subroutine.db.models.project.Project,
+) -> bool:
+	"""Report whether this caller may let somebody into a project nobody can reach - `#1453`.
+
+	An ``instance:admin`` credential not pinned to a workspace, and a private project with no
+	member who can act and see it. Both, every time: the first is who may repair the state, and
+	the second is the state, so neither widens anything while the project is reachable.
+	"""
+
+	if actor is None or project.visibility != "private":
+		return False
+
+	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
+		return False
+
+	if not subroutine.domain.authorization.may_instance(
+		actor, subroutine.permissions.INSTANCE_ADMIN
+	):
+		return False
+
+	return not reachable_by_anybody(session, project)
 
 
 def unshare (
