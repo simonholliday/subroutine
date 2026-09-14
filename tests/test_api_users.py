@@ -29,6 +29,7 @@ import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 import test_api_tasks
@@ -86,6 +87,80 @@ def test_somebody_can_be_marked_as_having_left_over_http (
 	assert answer.username == leaver.username
 	assert not answer.is_active
 	assert person.is_active, "the request must act on the account it named"
+
+
+def test_a_username_holding_a_character_an_address_reads_names_that_account_over_http (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2623`: a username is one segment of the path, however it is spelled.
+
+	A username may hold ``#``, ``?`` and ``%``, and the client put it into the path as it was, so
+	``ops#1`` became ``ops`` and a fragment, ``jo?x=1`` became ``jo`` and a query, and ``pc%41``
+	was decoded to ``pcA``. Deactivating the first stopped ``ops``. **Each beside the account its
+	unquoted path reached**, because a request that found nobody fails loudly, and these found
+	somebody else.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Theirs"
+	)
+	mark = uuid.uuid4().hex[:6]
+	pairs = [
+		(f"ops{mark}#1", f"ops{mark}"),
+		(f"jo{mark}?x=1", f"jo{mark}"),
+		(f"pc%41{mark}", f"pca{mark}"),
+	]
+	accounts: dict[str, subroutine.db.models.identity.User] = {}
+
+	for name in [name for pair in pairs for name in pair]:
+		accounts[name] = subroutine.domain.users.create(session, username=name)
+		subroutine.domain.workspaces.add_member(
+			session, setup.workspace, accounts[name], role_key="member"
+		)
+
+	session.flush()
+
+	user = subroutine.db.models.identity.User
+	member = subroutine.db.models.identity.WorkspaceMember
+
+	def active (name: str) -> bool:
+		"""Read whether an account can act, from the database rather than the object."""
+
+		return bool(
+			session.scalars(
+				sqlalchemy.select(user.is_active).where(user.id == accounts[name].id)
+			).one()
+		)
+
+	def members () -> set[str]:
+		"""Read who belongs to the workspace, by username."""
+
+		return set(
+			session.scalars(
+				sqlalchemy.select(user.username)
+				.join(member, member.user_id == user.id)
+				.where(member.workspace_id == setup.workspace.id)
+			)
+		)
+
+	with _over_http(session, issued.value.get_secret_value()) as client:
+		for awkward, plain in pairs:
+			assert client.user(username=awkward).username == awkward, f"{awkward!r} read another"
+
+			client.remove_member(username=awkward, workspace=setup.workspace.slug)
+
+			assert awkward not in members() and plain in members(), (
+				f"taking {awkward!r} out of the workspace over HTTP took out {plain!r} instead"
+			)
+
+			client.set_active(username=awkward, active=False)
+
+			assert not active(awkward) and active(plain), (
+				f"deactivating {awkward!r} over HTTP stopped {plain!r} instead"
+			)
 
 
 def test_somebody_can_be_brought_back_over_http (session: sqlalchemy.orm.Session) -> None:

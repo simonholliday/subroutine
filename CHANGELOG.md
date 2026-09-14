@@ -173,6 +173,13 @@ upgrade involves.
 
 ### Fixed
 
+- **An account whose username holds `#`, `?` or `%` was mistaken for another over a
+  connection.** The username went into the address as it was typed, so `ops#1` was read as
+  `ops`: `subroutine user deactivate 'ops#1'` against a served instance warned about the right
+  account and then stopped `ops`, with every agent answering to them. Reading, removing and
+  handing over an account had the same fault, and so did renaming or deleting a tag whose
+  name holds one. Each is now sent as one part of the address.
+
 - **A `HEAD` request was answered with the body a `GET` would send.** Every route answers
   `HEAD` as the `GET` at the same path, and that rewrite reached the server itself, so it wrote
   the whole body onto the connection - for a load balancer's `HEAD /healthz` probe too. A client

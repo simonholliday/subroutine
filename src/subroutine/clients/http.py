@@ -20,6 +20,7 @@ results it did get.
 import datetime
 import types
 import typing
+import urllib.parse
 
 import httpx
 import pydantic
@@ -428,7 +429,7 @@ class Client:
 			subroutine.views.Status,
 			self._json(
 				"PATCH",
-				f"/v1/statuses/{which}",
+				f"/v1/statuses/{_segment(which)}",
 				json=_given(
 					key=key, label=label, is_default=is_default, position=position
 				),
@@ -440,7 +441,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		self._json("DELETE", f"/v1/statuses/{which}")
+		self._json("DELETE", f"/v1/statuses/{_segment(which)}")
 
 	def link_types (self, *, workspace: str | None = None) -> subroutine.views.Collection[subroutine.views.LinkType]:
 		"""List the ways two items can relate here."""
@@ -497,7 +498,7 @@ class Client:
 			subroutine.views.LinkType,
 			self._json(
 				"PATCH",
-				f"/v1/link-types/{which}",
+				f"/v1/link-types/{_segment(which)}",
 				json=_given(
 					key=key, title=title, inverse_title=inverse_title, category=category
 				),
@@ -509,7 +510,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		self._json("DELETE", f"/v1/link-types/{which}")
+		self._json("DELETE", f"/v1/link-types/{_segment(which)}")
 
 	def tags (
 		self, *, workspace: str | None = None, limit: int | None = None
@@ -553,7 +554,7 @@ class Client:
 
 		return self._parsed(
 			subroutine.views.TagEntry,
-			self._json("PATCH", f"/v1/tags/{which}", json=_given(name=name, description=description)),
+			self._json("PATCH", f"/v1/tags/{_segment(which)}", json=_given(name=name, description=description)),
 		)
 
 	def delete_tag (self, *, which: str) -> None:
@@ -561,7 +562,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		self._json("DELETE", f"/v1/tags/{which}")
+		self._json("DELETE", f"/v1/tags/{_segment(which)}")
 
 	def document (
 		self, *, ref: int, workspace: str | None = None
@@ -1004,7 +1005,7 @@ class Client:
 
 		return self._parsed(
 			subroutine.views.SignedOut,
-			self._json("POST", f"/v1/users/{username}/signout"),
+			self._json("POST", f"/v1/users/{_segment(username)}/signout"),
 		)
 
 	def revoke_token (self, *, id_or_prefix: str) -> subroutine.views.Token:
@@ -1088,7 +1089,7 @@ class Client:
 		"""Read one account by name."""
 
 		return self._parsed(
-			subroutine.views.User, self._json("GET", f"/v1/users/{username}")
+			subroutine.views.User, self._json("GET", f"/v1/users/{_segment(username)}")
 		)
 
 	def users (
@@ -1174,7 +1175,7 @@ class Client:
 
 		body = self._json(
 			"PATCH",
-			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
+			f"/v1/workspaces/{self._workspace(workspace)}/members/{_segment(username)}",
 			json={"role": role},
 		)
 
@@ -1185,7 +1186,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		answer = self._json("PATCH", f"/v1/users/{username}", json={"is_active": active})
+		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"is_active": active})
 
 		return subroutine.views.User.model_validate(answer)
 
@@ -1194,7 +1195,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		answer = self._json("PATCH", f"/v1/users/{username}", json={"responsible": to})
+		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"responsible": to})
 
 		return subroutine.views.User.model_validate(answer)
 
@@ -1205,7 +1206,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		answer = self._json("PATCH", f"/v1/users/{username}", json={"timezone": timezone})
+		answer = self._json("PATCH", f"/v1/users/{_segment(username)}", json={"timezone": timezone})
 
 		return subroutine.views.User.model_validate(answer)
 
@@ -1216,7 +1217,7 @@ class Client:
 
 		self._json(
 			"DELETE",
-			f"/v1/workspaces/{self._workspace(workspace)}/members/{username}",
+			f"/v1/workspaces/{self._workspace(workspace)}/members/{_segment(username)}",
 		)
 
 	def unreachable_projects (
@@ -1287,7 +1288,7 @@ class Client:
 
 		self._json(
 			"DELETE",
-			f"/v1/projects/{project}/members/{username}",
+			f"/v1/projects/{project}/members/{_segment(username)}",
 			params=_given(workspace_id=workspace),
 		)
 
@@ -2458,6 +2459,21 @@ def _resumed (
 		return {"since": found + 1} if how == BY_SEQ else {"before": found}
 
 	return None if cursor is None else {"cursor": cursor}
+
+
+def _segment (name: str) -> str:
+	"""Return a name as one path segment of an address - `#2623`.
+
+	**A username may hold ``#``, ``?`` and ``%``**, and put into a path as it was, ``ops#1`` ended
+	the path at a fragment and addressed ``ops``: deactivating one account over HTTP stopped
+	another, and every agent answering to it. A tag's name and a status's or link type's label are
+	the same kind of text. ``safe=""`` quotes ``/`` too, since a name is one segment however it is
+	spelled - the server decodes the path before routing, so a name holding one is refused rather
+	than read as two segments. Refs, ids, keys and slugs are held to characters a path already
+	takes, so they are left as they are.
+	"""
+
+	return urllib.parse.quote(name, safe="")
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:
