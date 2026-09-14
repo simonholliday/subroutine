@@ -42,12 +42,18 @@ def workspace (
 	principal: subroutine.domain.authentication.Principal,
 	*,
 	requested: str | None = None,
+	field: str = "workspace_id",
 ) -> subroutine.db.models.identity.Workspace:
 	"""Return the workspace this request is about, or refuse with the alternatives.
 
 	``requested`` accepts an id or a slug. The parameter is named ``workspace_id`` in the
 	API because §8.2 names it that, and it takes a slug as well because a person typing one
 	by hand has the slug in front of them and the id nowhere.
+
+	**``field`` is what the caller sent it as**, for a refusal to name. ``workspace_id``
+	everywhere a workspace is a parameter; ``id_or_slug`` on the routes that take it in their
+	path (`#2643`), where a refusal naming ``workspace_id`` would name something those routes
+	refuse to be sent.
 
 	**Never the trash.** A deleted workspace is addressable only through
 	``workspaces.for_restore``, which is what restoring it uses (`#704`) — a slug can name a
@@ -58,7 +64,7 @@ def workspace (
 
 	if requested is not None:
 		try:
-			return _named(requested, reachable)
+			return _named(requested, reachable, field=field)
 
 		except subroutine.errors.NotFound:
 			outside = _outside(session, principal, requested)
@@ -66,7 +72,7 @@ def workspace (
 			if outside is None:
 				raise
 
-			raise _not_a_member(principal, outside) from None
+			raise _not_a_member(principal, outside, field=field) from None
 
 	if principal.pinned_workspace_id is not None:
 		# The pin already narrowed `reachable` to one; this is only reporting it clearly if
@@ -142,6 +148,8 @@ def user (
 def _named (
 	requested: str,
 	reachable: typing.Sequence[subroutine.db.models.identity.Workspace],
+	*,
+	field: str,
 ) -> subroutine.db.models.identity.Workspace:
 	"""Return the requested workspace, if the caller can reach it."""
 
@@ -164,7 +172,7 @@ def _named (
 		f"There is no workspace {requested!r} that you can reach.",
 		errors=[
 			subroutine.errors.FieldError(
-				field="workspace_id",
+				field=field,
 				code="not_found",
 				message=f"No readable workspace matches {requested!r}.",
 				hint=_alternatives(reachable),
@@ -213,6 +221,8 @@ def _outside (
 def _not_a_member (
 	principal: subroutine.domain.authentication.Principal,
 	workspace: subroutine.db.models.identity.Workspace,
+	*,
+	field: str,
 ) -> subroutine.errors.NotFound:
 	"""Tell an administrator they are outside a workspace, and how to join it - `#2626`.
 
@@ -231,7 +241,7 @@ def _not_a_member (
 		),
 		errors=[
 			subroutine.errors.FieldError(
-				field="workspace_id",
+				field=field,
 				code="not_found",
 				message=f"You do not belong to {workspace.slug}.",
 			)

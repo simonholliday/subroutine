@@ -184,6 +184,13 @@ def resolve (
 	So an administrator can act on the container and still cannot see inside it until they
 	join — which is a membership row, and therefore an event with a date and an actor.
 
+	**So it serves the acts on the container and nothing else**: listing a workspace's members,
+	joining it and deleting it, which decision `#1860` names, and the other changes to who belongs
+	to it. Reading the workspace's own record, changing it or its short name, and reading how it
+	is configured resolve through ``selection.workspace`` instead. Each came through here until
+	`#2633`, `#2643` and `#2644`, so over HTTP a superuser outside a workspace read and changed
+	it, where the local client refused.
+
 	**Never the trash**, which :func:`unremove` reaches through ``workspaces.for_restore``
 	instead. A slug frees when a workspace is deleted, so it can name a deleted workspace and
 	a live one at once and this function would have to guess between them.
@@ -375,7 +382,11 @@ def read (
 	format: str | None = subroutine.api.shaping.FORMAT_QUERY,
 	fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
 ) -> typing.Any:
-	"""Return one workspace, by id or by short name."""
+	"""Return one workspace you are a member of, by id or by short name.
+
+	An administrator who is not a member finds out what exists from
+	``GET /v1/instance/workspaces``, and joins a workspace to read it.
+	"""
 
 	shape = subroutine.api.shaping.wanted(
 		format=format,
@@ -385,9 +396,13 @@ def read (
 		timezone=subroutine.views.reader_zone(session, actor),
 	)
 
-	return subroutine.api.shaping.single(
-		one(session, actor, resolve(session, actor, id_or_slug)), shape
+	# **Membership, not `resolve`** (`#2644`, decision `#1860`): the record carries the
+	# workspace's settings and what it has prioritised, and discovery says nothing from inside.
+	found = subroutine.domain.selection.workspace(
+		session, actor, requested=id_or_slug, field="id_or_slug"
 	)
+
+	return subroutine.api.shaping.single(one(session, actor, found), shape)
 
 
 @router.patch("/{id_or_slug}", summary="Change a workspace")
@@ -398,9 +413,18 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.Workspace:
-	"""Change a workspace. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
+	"""Change a workspace you are a member of, its short name included.
 
-	found = resolve(session, actor, id_or_slug)
+	Omitted fields are untouched; nulls clear (docs/design.md §8.3). An administrator who is not
+	a member joins the workspace first.
+	"""
+
+	# **Membership, not `resolve`** (`#2643`, Simon's answer on `#2642`): changing a workspace
+	# needs membership, like reading its settings. A rename is the same request with `slug` in
+	# the body, and the local client's `rename_workspace` already refused one from outside.
+	found = subroutine.domain.selection.workspace(
+		session, actor, requested=id_or_slug, field="id_or_slug"
+	)
 	supplied = body.model_fields_set
 	changes: dict[str, typing.Any] = {
 		name: getattr(body, name)
@@ -544,10 +568,17 @@ def workspace_settings (
 	states it — so a settings page can tell a choice somebody made here from a default nobody
 	chose. A workspace is the widest scope there is, so nothing here is inherited.
 
-	Needs ``workspace:read``.
+	Needs ``workspace:read``, and membership: an administrator who may name any workspace still
+	has to belong to one to read how it is configured.
 	"""
 
-	found = resolve(session, actor, id_or_slug)
+	# **Resolved as its contents are, not as the container** (`#2633`, decision `#1860`). `resolve`
+	# admits an instance administrator who belongs to none, which is right for the acts on the
+	# container, and the read check below cannot stop a superuser, whose roles it bypasses - so
+	# this answered a superuser outside the workspace, while the local client refused.
+	found = subroutine.domain.selection.workspace(
+		session, actor, requested=id_or_slug, field="id_or_slug"
+	)
 
 	return subroutine.views.settings_in_force(
 		session,

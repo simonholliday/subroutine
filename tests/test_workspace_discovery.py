@@ -18,6 +18,7 @@ reason if it could, and none can: each names two principals explicitly.
 
 import uuid
 
+import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
@@ -240,6 +241,50 @@ def test_naming_a_workspace_is_not_reading_what_is_in_it (
 	refused = theirs.call("GET", f"/v1/tasks?workspace_id={world.workspace.slug}")
 
 	assert refused.status_code == 404, refused.text
+
+
+@pytest.mark.parametrize(
+	("method", "suffix", "body"),
+	[
+		("GET", "", None),
+		("PATCH", "", {"title": "Changed from outside"}),
+		("PATCH", "", {"slug": "moved-from-outside"}),
+		("GET", "/settings", None),
+	],
+	ids=["its record", "a change", "a rename", "its settings"],
+)
+def test_an_administrator_outside_a_workspace_neither_reads_nor_changes_it (
+	session: sqlalchemy.orm.Session,
+	method: str,
+	suffix: str,
+	body: dict[str, str] | None,
+) -> None:
+	"""Naming a workspace is for acting on the container, and for nothing else - `#1860`.
+
+	``resolve`` admits an administrator to list a workspace's members, join it or delete it.
+	Three routes resolved through it that are none of those: reading the workspace's own record,
+	which carries its settings (`#2644`); changing its fields or its short name (`#2643`, decided
+	on `#2642`); and reading how it is configured (`#2633`). So over HTTP a superuser outside the
+	workspace did all of it, where the local client refused.
+
+	**Two principals, the refusal first**, so a change the member makes cannot move the address
+	the outsider is refused at. The member still does each; the administrator outside is told they
+	are not a member and how to join, and the refusal names the field they sent - the path's
+	``id_or_slug``, where a bare ``workspace_id`` would read as a body field these routes refuse.
+	"""
+
+	world = test_api_tasks._world(session)
+	_other, theirs = _a_second_superuser(session, world)
+	path = f"/v1/workspaces/{world.workspace.slug}{suffix}"
+	sent = {} if body is None else {"json": body}
+
+	refused = theirs.call(method, path, **sent)
+
+	assert refused.status_code == 404, refused.text
+	assert f"not a member of {world.workspace.slug}" in refused.json()["detail"], refused.text
+	assert [error["field"] for error in refused.json()["errors"]] == ["path.id_or_slug"]
+
+	assert world.call(method, path, **sent).status_code == 200, "the member stopped doing it"
 
 
 def test_somebody_without_the_permission_is_still_told_it_does_not_exist (

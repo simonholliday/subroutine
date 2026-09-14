@@ -173,6 +173,14 @@ upgrade involves.
 
 ### Fixed
 
+- **An administrator outside a workspace could read and change it over a connection.** A
+  superuser who was not a member could read a workspace's record and its settings, and change its
+  title, description, timezone, prioritised project, settings or short name, through a served
+  instance - where the same commands against the database directly refused. Each now needs
+  membership, as reading anything a workspace holds already did, and an administrator outside is
+  told they are not a member and how to join. Finding out which workspaces exist, listing a
+  workspace's members, joining it and deleting it still need no membership.
+
 - **A command an older instance could not answer named a parameter you never typed.** Against an
   instance one release behind, `subroutine user list` failed with *This endpoint does not accept
   'limit'*, and `user deactivate` and `user timezone` failed the same way about `answers_to` and

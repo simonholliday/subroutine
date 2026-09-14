@@ -3972,6 +3972,62 @@ def test_a_workspace_cannot_be_renamed_to_something_creation_would_refuse (pair:
 	assert local.rename_workspace(same, slug=same).slug == same
 
 
+def test_neither_transport_lets_an_administrator_outside_a_workspace_change_it (
+	pair: Pair,
+) -> None:
+	"""`#2643`, decided on `#2642`: changing a workspace needs membership, renaming included.
+
+	The local client resolved the workspace through ``selection.workspace`` and refused a superuser
+	who was not a member, while the route resolved it as an act on the container and let the same
+	account change its title and its short name. **One credential on both transports**, so a
+	difference between them is a difference in the code.
+	"""
+
+	outsider = subroutine.domain.users.create(
+		pair.session, username=f"root-{uuid.uuid4().hex[:8]}", is_superuser=True
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		pair.session, user=outsider, title="Outside the workspace"
+	)
+	pair.session.flush()
+
+	secret = issued.value.get_secret_value()
+	factory = api_support.factory_for(pair.session)
+	slug, title = pair.workspace.slug, pair.workspace.title
+
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
+	)
+	remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(api_support.build_app(factory)),
+		base_url=api_support.BASE_URL,
+	)
+
+	with local, remote:
+		for client in (local, remote):
+			with pytest.raises(subroutine.errors.NotFound) as changing:
+				client.update_workspace(slug, title="Changed from outside")
+
+			with pytest.raises(subroutine.errors.NotFound) as renaming:
+				client.rename_workspace(slug, slug="moved-from-outside")
+
+			for refused in (changing, renaming):
+				assert f"not a member of {slug}" in refused.value.detail, (
+					f"{client.connection.name}: {refused.value.detail}"
+				)
+
+	# Read from the row rather than through `pair.local`, which picks its operator by there being
+	# one account and has just been given a second.
+	pair.session.refresh(pair.workspace)
+
+	assert (pair.workspace.slug, pair.workspace.title) == (slug, title), "nothing changed"
+
+
 def test_both_delete_and_restore_a_workspace_the_same_way (pair: Pair) -> None:
 	"""``SR#704``. Soft, reversible, and the contents go and return with it.
 
