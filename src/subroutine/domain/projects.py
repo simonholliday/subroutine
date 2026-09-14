@@ -955,8 +955,8 @@ def unreachable (
 	would not be once they and every agent answering to them have stopped. That is the question
 	`user deactivate` puts before it acts, which is the other half of the decision.
 
-	Needs ``instance:admin``, and a credential pinned to one workspace is refused: this answers
-	for the whole installation.
+	Needs ``instance:admin``, and a credential pinned to one workspace or narrowed to some projects
+	is refused: this answers for every project on the installation (`#2619`).
 	"""
 
 	if actor is not None:
@@ -969,6 +969,13 @@ def unreachable (
 				"A token pinned to one workspace cannot ask which projects on this installation "
 				"nobody can reach.",
 				hint="Use a credential that was not pinned to a workspace.",
+			)
+
+		if subroutine.domain.authorization.narrowed_to_projects(actor):
+			raise subroutine.errors.Forbidden(
+				"A token narrowed to some projects cannot ask which projects on this installation "
+				"nobody can reach.",
+				hint="Use a credential that was not narrowed to projects.",
 			)
 
 	project = subroutine.db.models.project.Project
@@ -1131,6 +1138,28 @@ def share (
 	return membership
 
 
+def may_rescue (actor: subroutine.domain.authentication.Principal | None) -> bool:
+	"""Report whether this credential may let somebody into a project nobody can reach - `#1453`.
+
+	**The credential's half of :func:`rescuable`**, asked on its own where there is no project to
+	ask about yet. ``instance:admin``, on a credential that answers for every project on the
+	installation: not pinned to one workspace, and **not narrowed to some projects** (`#2619`). The
+	share this admits skips the check that applies a credential's project narrowing, so a narrowed
+	credential not refused here is a narrowing applied nowhere.
+	"""
+
+	if actor is None:
+		return False
+
+	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
+		return False
+
+	if subroutine.domain.authorization.narrowed_to_projects(actor):
+		return False
+
+	return subroutine.domain.authorization.may_instance(actor, subroutine.permissions.INSTANCE_ADMIN)
+
+
 def rescuable (
 	session: sqlalchemy.orm.Session,
 	actor: subroutine.domain.authentication.Principal | None,
@@ -1138,20 +1167,12 @@ def rescuable (
 ) -> bool:
 	"""Report whether this caller may let somebody into a project nobody can reach - `#1453`.
 
-	An ``instance:admin`` credential not pinned to a workspace, and a private project with no
-	member who can act and see it. Both, every time: the first is who may repair the state, and
-	the second is the state, so neither widens anything while the project is reachable.
+	A credential :func:`may_rescue` admits, and a private project with no member who can act and
+	see it. Both, every time: the first is who may repair the state, and the second is the state,
+	so neither widens anything while the project is reachable.
 	"""
 
-	if actor is None or project.visibility != "private":
-		return False
-
-	if not subroutine.domain.authorization.reaches_the_whole_installation(actor):
-		return False
-
-	if not subroutine.domain.authorization.may_instance(
-		actor, subroutine.permissions.INSTANCE_ADMIN
-	):
+	if project.visibility != "private" or not may_rescue(actor):
 		return False
 
 	return not reachable_by_anybody(session, project)

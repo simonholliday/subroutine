@@ -147,7 +147,7 @@ def unreachable_projects (
 	"""List the private projects that no member who can still act is able to see.
 
 	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
-	that is not pinned to one workspace.
+	that is neither pinned to one workspace nor narrowed to some projects.
 
 	A private project is visible only to its members. When the last of them is deactivated - or
 	the only member is an agent whose person is - nobody can see it, so nothing can make it public

@@ -401,6 +401,23 @@ def reaches_the_whole_installation (
 	return principal.pinned_workspace_id is None
 
 
+def narrowed_to_projects (principal: subroutine.domain.authentication.Principal) -> bool:
+	"""Report whether this credential reaches, or may change, only some projects - `#2619`.
+
+	``project_scope`` says which projects a credential reaches and ``project_write_scope`` where it
+	may change anything (`#371`), and ``None`` is no narrowing in either. **A question or a repair
+	that spans every project on the installation is outside both by construction**, for
+	:func:`reaches_the_whole_installation`'s reason: narrowing is how an operator hands a credential
+	to an agent, and ``scopes`` defaults to the owner's whole permission set, so an administrator's
+	narrowed token still carries ``instance:admin``.
+
+	A predicate beside that one, and for the same reason: the listing refuses such a credential by
+	name and the share answers *not found*, and both are right.
+	"""
+
+	return principal.project_scope is not None or principal.project_write_scope is not None
+
+
 def outside_token_scope (
 	principal: subroutine.domain.authentication.Principal, permission: str
 ) -> bool:

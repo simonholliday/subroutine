@@ -265,47 +265,88 @@ def project_to_share (
 	:func:`subroutine.domain.projects.rescuable` says this caller may let somebody into. Reading
 	the project, its tasks or its settings still goes through :func:`project` and still answers
 	*not found*: naming is not reading, which is `#1418`'s line.
+
+	**Widened by :func:`addressed`'s own rule, over both halves at once** (`#2620`). An id or a
+	whole address names one project exactly, whether anybody can see it or not, so it is tried
+	first: the listing gives a stranded root as its bare key, and asking the ordinary resolver
+	first let a namesake the administrator could see answer to that address instead. Only then
+	does a bare name resolve by search - over what this caller can see *and* what it may let
+	somebody into - and two answers are refused by name, as decision `#957` refuses them.
 	"""
 
-	try:
+	if not subroutine.domain.projects.may_rescue(actor):
 		found: subroutine.db.models.project.Project = project(session, actor, workspace, wanted)
 
 		return found
 
-	except subroutine.errors.NotFound:
-		model = subroutine.db.models.project.Project
-		private = list(
-			session.scalars(
-				sqlalchemy.select(model).where(
-					model.workspace_id == workspace.id,
-					model.visibility == "private",
-					model.deleted_at.is_(None),
-				)
+	model = subroutine.db.models.project.Project
+	private = list(
+		session.scalars(
+			sqlalchemy.select(model).where(
+				model.workspace_id == workspace.id,
+				model.visibility == "private",
+				model.deleted_at.is_(None),
 			)
 		)
-		addresses = subroutine.domain.projects.paths_for(session, [row.id for row in private])
-		asked = {wanted, subroutine.domain.projects.normalize_path(wanted)}
-		matched = [
-			row
-			for row in private
-			if asked & {str(row.id), row.key, addresses.get(row.id, row.key)}
-			and subroutine.domain.projects.rescuable(session, actor, row)
-		]
+	)
+	addresses = subroutine.domain.projects.paths_for(session, [row.id for row in private])
+	asked = subroutine.domain.projects.normalize_path(wanted)
+	exactly = [
+		row
+		for row in private
+		if (wanted.strip() == str(row.id) or asked == addresses.get(row.id, row.key))
+		and subroutine.domain.projects.rescuable(session, actor, row)
+	]
 
-		if not matched:
+	if exactly:
+		return exactly[0]
+
+	segments = subroutine.domain.projects.path_segments(wanted)
+	named = [
+		row
+		for row in private
+		if len(segments) == 1
+		and row.key == segments[0]
+		and subroutine.domain.projects.rescuable(session, actor, row)
+	]
+
+	try:
+		visible: subroutine.db.models.project.Project | None = project(
+			session, actor, workspace, wanted
+		)
+
+	except subroutine.errors.NotFound:
+		if not named:
 			raise
 
-		# **A bare key is not unique in a workspace** (decision `#957`), so two unreachable
-		# projects of one name are refused by name rather than one of them chosen.
-		if len(matched) > 1:
-			raise subroutine.errors.ValidationError(
-				f"{wanted!r} names {len(matched)} projects nobody can reach here.",
-				hint="Name one by its whole address: "
-				+ ", ".join(sorted(addresses.get(row.id, row.key) for row in matched))
-				+ ".",
-			) from None
+		visible = None
 
-		return matched[0]
+	# **A project found by its own id or address is the answer**, whatever else shares its name;
+	# only one found by searching for a name can collide with a namesake nobody can reach.
+	if visible is not None and (not named or _named_exactly(session, visible, wanted)):
+		return visible
+
+	candidates = ([visible] if visible is not None else []) + named
+
+	if len(candidates) > 1:
+		raise _named_twice(session, workspace, wanted, candidates, field="project")
+
+	return candidates[0]
+
+
+def _named_exactly (
+	session: sqlalchemy.orm.Session,
+	found: subroutine.db.models.project.Project,
+	wanted: str,
+) -> bool:
+	"""Report whether this text named the project by its id or whole address, not by a search."""
+
+	if wanted.strip() == str(found.id):
+		return True
+
+	address = subroutine.domain.projects.paths_for(session, [found.id]).get(found.id, found.key)
+
+	return address == subroutine.domain.projects.normalize_path(wanted)
 
 
 def task (
@@ -739,12 +780,30 @@ def _by_name (
 	if len(candidates) < 2:
 		return candidates[0] if candidates else None
 
+	raise _named_twice(session, workspace, wanted, candidates, field=field)
+
+
+def _named_twice (
+	session: sqlalchemy.orm.Session,
+	workspace: subroutine.db.models.identity.Workspace,
+	wanted: str,
+	candidates: typing.Sequence[subroutine.db.models.project.Project],
+	*,
+	field: str,
+) -> subroutine.errors.ValidationError:
+	"""Say that a name answers to more than one project, naming each by its whole address.
+
+	**One sentence for both searches** - :func:`_by_name`'s over what a caller can see, and
+	:func:`project_to_share`'s over that and what nobody can reach (`#2620`) - so the two cannot
+	come to teach the address form in different words.
+	"""
+
 	addresses = subroutine.domain.projects.paths_for(
 		session, [candidate.id for candidate in candidates]
 	)
 	listed = ", ".join(sorted(addresses[candidate.id] for candidate in candidates))
 
-	raise subroutine.errors.ValidationError(
+	return subroutine.errors.ValidationError(
 		f"More than one project in {workspace.slug} is called {wanted!r}: {listed}.",
 		errors=[
 			subroutine.errors.FieldError(
