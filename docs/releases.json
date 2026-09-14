@@ -5,6 +5,11 @@
   },
   "releases": [
     {
+      "version": "0.8.18",
+      "schema": "c3a7f21b9d40",
+      "date": "2026-09-14"
+    },
+    {
       "version": "0.8.15",
       "schema": "1f61c97bf2ca",
       "date": "2026-09-08"
