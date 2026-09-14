@@ -3584,6 +3584,7 @@ export {
 	WorkspaceSettings,
 	deviceZone,
 	hiddenValue,
+	hideableStatuses,
 	inForceSaid,
 	inheritsAt,
 	instanceChanges,

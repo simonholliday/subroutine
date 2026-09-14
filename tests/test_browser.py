@@ -35,6 +35,7 @@ import conftest
 import subroutine.api.policy
 import subroutine.api.web
 import subroutine.domain.comments
+import subroutine.views
 import test_web
 
 #: Every rendering the app can produce, which is what `SAMPLES` already is. Reused rather than
@@ -614,13 +615,47 @@ def _prioritised (
 	shared by every test in this file.
 	"""
 
-	chosen = json.loads(body or "{}").get("prioritised_project")
+	sent = json.loads(body or "{}")
+
+	# **Only a write that names a project**, since a workspace write may be about its settings
+	# instead (`SR#2621`), and reading every one as a choice of priority cleared it on the fake.
+	if "prioritised_project" not in sent:
+		return
+
+	chosen = sent.get("prioritised_project")
 	spaces = [
 		{**space, "prioritised_project": chosen} if space["slug"] == slug else space
 		for space in roster[0]["workspaces"]
 	]
 
 	roster[0] = {**roster[0], "workspaces": spaces}
+
+
+def _administering (identity: dict[str, typing.Any], slug: str) -> dict[str, typing.Any]:
+	"""Return the fake identity with one workspace's settings the reader's to change - `SR#2621`.
+
+	Copied rather than changed in place, for `_prioritised`'s reason, and `tidy` puts the holder
+	back afterwards.
+	"""
+
+	spaces = [
+		{**space, "permissions": [*space["permissions"], "workspace:admin"]}
+		if space["slug"] == slug else space
+		for space in identity["workspaces"]
+	]
+
+	return {**identity, "workspaces": spaces}
+
+
+def _settings_sent (written: list[typing.Any]) -> dict[str, typing.Any]:
+	"""Return every setting the page's workspace writes have sent so far, by key - `SR#2621`."""
+
+	return {
+		key: value
+		for method, wanted, body, _address in written
+		if method == "PATCH" and wanted.startswith("v1/workspaces/")
+		for key, value in json.loads(body or "{}").get("settings", {}).items()
+	}
 
 
 def _absent (wanted: str, refs: set[str]) -> bool:
@@ -648,6 +683,28 @@ META = {
 		{"key": "doing", "label": "Under way", "category": "in_progress", "is_default": True},
 	]},
 	"item_types": {}, "link_types": [], "linkable_types": [], "workspaces": [],
+	# **The settings registry as `/v1/meta` publishes it** (`SR#2621`), read off the real one so
+	# the page draws the controls an instance would. Absent, a settings page drew none, and no
+	# test here could drive one.
+	"settings": [one.model_dump(mode="json") for one in subroutine.views.published_settings()],
+}
+
+#: What a workspace's settings page reads - `SR#2621`. A colour and three hidden statuses set
+#: here, so the page has a stored value to put back: `ready` is in this vocabulary, `archived` is
+#: a document's status and `on_hold` a project's, both hidden at a terminal and drawn by nothing
+#: here (`SR#2627`).
+SETTINGS_HERE: dict[str, typing.Any] = {
+	"scope": "workspace",
+	"settings": [
+		{
+			"key": "appearance.colour", "value": "teal", "default": None, "set_here": True,
+			"inherited_from": None,
+		},
+		{
+			"key": "statuses.hidden", "value": ["ready", "archived", "on_hold"], "default": [],
+			"set_here": True, "inherited_from": None,
+		},
+	],
 }
 
 #: What the **other** workspace calls things — `SR#1041`. Until this existed one vocabulary was
@@ -1052,6 +1109,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# **One workspace has members and the other has none**, which is what makes an
 				# assignee control drawn from the wrong roster visible at all.
 				else MEMBERS if wanted == "v1/workspaces/projects/members"
+				else SETTINGS_HERE if wanted == "v1/workspaces/projects/settings"
 				# **One task, by its ref, before the collection it lives in** — narrower path
 				# first, which is the trap this block already warns about twice. `v1/tasks/42`
 				# starts with `v1/tasks`, so it was served the *collection* envelope: the app
@@ -3115,7 +3173,7 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	because most of them name a terminal command.
 	"""
 
-	opened, written, refusing, *rest = running
+	opened, written, refusing, roster, *rest = running
 	refused_with = rest[-2]
 	page = opened("/projects")
 
@@ -3159,6 +3217,47 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	assert item.input_value(".detail form.saying textarea") == "Forty lines of a log."
 
 	item.close()
+
+	# **And a choice on a settings page survives the page being drawn again** (`SR#2621`). Its two
+	# controls passed `checked`, which Preact re-applies against the live element on every render,
+	# and every poll renders the page - so a choice went back to the stored value and Save sent
+	# that, under *Saved.* Opening the menu under the reader's name renders the page as a poll
+	# does, without waiting one out. **And a save sends back what it did not draw** (`SR#2627`).
+	refusing[0] = None
+	roster[0] = _administering(IDENTITY, "projects")
+	settings = opened("/settings/workspace/projects")
+	settings.wait_for_selector(".setting-choice input[value='violet']", timeout=10_000)
+	settings.check(".setting-choice input[value='violet']")
+	settings.check(".setting-choice input[value='triage']")
+
+	opening = settings.locator(".you .reveal")
+	opening.click()
+	_until(settings, lambda: opening.get_attribute("aria-expanded") == "true")
+	settings.keyboard.press("Escape")
+	_until(settings, lambda: opening.get_attribute("aria-expanded") == "false")
+
+	assert settings.is_checked(".setting-choice input[value='violet']"), (
+		"drawing the page again put the colour back to the one stored, under the reader's hand"
+	)
+	assert settings.is_checked(".setting-choice input[value='triage']"), (
+		"drawing the page again cleared a status the reader had just ticked"
+	)
+
+	written.clear()
+	settings.click(".setting-row:has(input[value='violet']) button[type='submit']")
+	_until(settings, lambda: "appearance.colour" in _settings_sent(written))
+	settings.click(".setting-row:has(input[value='triage']) button[type='submit']")
+	_until(settings, lambda: "statuses.hidden" in _settings_sent(written))
+
+	sent = _settings_sent(written)
+
+	assert sent["appearance.colour"] == "violet", f"Save sent another colour: {sent}"
+	assert sorted(sent["statuses.hidden"]) == ["archived", "on_hold", "ready", "triage"], (
+		f"the save was not what was stored plus what was ticked, so it changed what it never drew: "
+		f"{sent}"
+	)
+
+	settings.close()
 
 
 def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -> None:

@@ -17736,6 +17736,51 @@ def test_nothing_hidden_and_not_stated_are_one_answer_only_at_the_top (
 	}, said
 
 
+def test_a_hidden_status_control_draws_both_vocabularies_and_keeps_what_it_does_not_draw (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2627`: the setting narrows a task's statuses and a document's, so its control draws both.
+
+	**A save replaces the whole list**, and the control drew only the task vocabulary, so ticking
+	one status in the browser un-hid every document status a terminal had hidden. Each kind is a
+	group of its own now, and **a stored key drawn in neither goes back as it came** - ``on_hold``
+	here, a project's status, which a terminal may store and no picker reads.
+
+	**And each box is an initial value** (`#2621`): ``defaultChecked`` renders as ``checked``
+	once, where ``checked`` itself is what Preact re-applied against the page on every render.
+	"""
+
+	said = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		process.stdout.write(JSON.stringify(app.hideableStatuses({{statuses: {{
+			task: [{{key: "open", label: "Open"}}, {{key: "done", label: "Done"}}],
+			document: [{{key: "draft", label: "Draft"}}, {{key: "archived", label: "Archived"}}],
+			project: [{{key: "on_hold", label: "On hold"}}],
+		}}}})));
+	""")
+
+	assert [(one["kind"], one["key"]) for one in said] == [
+		("task", "open"), ("task", "done"), ("document", "draft"), ("document", "archived"),
+	], "the control was offered a kind no picker narrows, or lost one that does"
+
+	markup = _markup(tmp_path, {"StatusChoice": {
+		"setting": STATUSES_SETTING,
+		"value": ["done", "archived", "on_hold"],
+		"statuses": said,
+	}})["StatusChoice"]
+
+	assert "Not offered to tasks" in markup and "Not offered to documents" in markup, markup
+	assert markup.index("Not offered to tasks") < markup.index("Not offered to documents")
+	assert re.search(r'<input type="checkbox" name="value" value="archived"[^>]*checked', markup), (
+		f"a document status hidden elsewhere was drawn as offered: {markup}"
+	)
+	assert not re.search(r'value="draft"[^>]*checked', markup), markup
+	assert re.search(r'<input type="hidden" name="value" value="on_hold"', markup), (
+		f"a stored key the control does not draw would be dropped by the next save: {markup}"
+	)
+
+
 def test_a_project_page_says_what_it_inherits_and_takes_back_only_what_it_set (
 	tmp_path: pathlib.Path,
 ) -> None:

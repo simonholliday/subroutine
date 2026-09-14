@@ -312,6 +312,45 @@ export function hiddenValue (ticked, inherits = false) {
 }
 
 
+/*
+	The kinds of item a hidden-status setting narrows, in the order its control draws them —
+	`#2627`. **Both, because the setting is one list and both pickers read it**: `forms.js` narrows
+	a task's statuses and a document's by the same project's list, so a control that drew only the
+	task vocabulary saved every document key away without showing it. Their seeded keys do not
+	overlap, which is what lets one list serve both.
+*/
+const HIDEABLE = [["task", "Not offered to tasks"], ["document", "Not offered to documents"]];
+
+
+export function hideableStatuses (vocabulary) {
+	/*
+		Every status a hidden-status control offers to hide, each marked with its kind — `#2627`.
+	*/
+	const statuses = (vocabulary && vocabulary.statuses) || {};
+
+	return HIDEABLE.flatMap(([kind]) => (statuses[kind] || []).map((one) => ({ ...one, kind })));
+}
+
+
+function statusGroups (statuses) {
+	/*
+		The statuses a control draws, one group per kind — `#2627`.
+
+		**A status with no kind is drawn in a group of its own**, under the one legend the control
+		always had, so a list from before kinds were marked still draws.
+	*/
+	const all = statuses || [];
+	const groups = HIDEABLE
+		.map(([kind, legend]) => ({ kind, legend, members: all.filter((one) => one.kind === kind) }))
+		.filter((group) => group.members.length > 0);
+	const unmarked = all.filter((one) => !HIDEABLE.some(([kind]) => kind === one.kind));
+
+	return unmarked.length > 0
+		? [...groups, { kind: "any", legend: "Not offered", members: unmarked }]
+		: groups;
+}
+
+
 function sourcePage (from, slug) {
 	/*
 		The settings page of whatever a value was inherited from, or null where there is none to
@@ -397,9 +436,12 @@ function SettingRow ({
 						? html`<p class="hint">Saving sets it on this ${scope}, and a change made
 								above it will no longer reach it.</p>`
 						: null}
-					<${Control} setting=${setting} value=${value} statuses=${statuses}
-						inherits=${inherits} onChoose=${onChoose} onTakeBack=${takeBack}
-						busy=${busy} />`}
+					${/* **Keyed on what it was drawn from** (`#2621`). A control takes its value once,
+					     so a save or a take-back that changes the value in force draws it afresh, and a
+					     poll, which changes neither, leaves a choice somebody is making where it is. */ null}
+					<${Control} key=${JSON.stringify([value, here])} setting=${setting} value=${value}
+						statuses=${statuses} inherits=${inherits} onChoose=${onChoose}
+						onTakeBack=${takeBack} busy=${busy} />`}
 		</div>
 	`;
 }
@@ -643,8 +685,11 @@ export function ColourChoice ({
 		through — so a project cannot say *no colour*, and a `None` there would do the opposite
 		of what it says. Taking a colour back is `onTakeBack`, named for what it does.
 
-		**Uncontrolled, like every form here** (`#757`): the value in force is `checked`, so a
-		re-render cannot undo a choice somebody is halfway through making.
+		**Uncontrolled, like every form here** (`#757`) - which this said and was not until `#2621`.
+		The value in force is `defaultChecked`, which Preact sets once. `checked` it re-applies
+		against the live element on every render, and every poll renders the page, so a choice
+		somebody was halfway through making went back to the stored value and Save sent that.
+		`SettingRow` keys the control on the value in force, so a save still draws it afresh.
 	*/
 	return html`
 		<form class="setting-choice" onSubmit=${(event) => {
@@ -658,12 +703,13 @@ export function ColourChoice ({
 					? null
 					: html`
 						<label class="setting-option">
-							<input type="radio" name="value" value="" checked=${!value} disabled=${busy} />
+							<input type="radio" name="value" value="" defaultChecked=${!value}
+								disabled=${busy} />
 							<span>None</span>
 						</label>`}
 				${(setting.choices || []).map((name) => html`
 					<label class="setting-option" key=${name}>
-						<input type="radio" name="value" value=${name} checked=${name === value}
+						<input type="radio" name="value" value=${name} defaultChecked=${name === value}
 							disabled=${busy} />
 						<span class="setting-swatch" data-colour=${name}></span>
 						<span>${name}</span>
@@ -691,8 +737,18 @@ export function StatusChoice ({
 		it clears the setting, and at a project it is *hide nothing here* (`#1448`) — the one
 		place `[]` and null are different answers, and the reason taking a value back is a
 		button of its own rather than an empty form.
+
+		**Tasks' statuses and documents', in a group each** (`#2627`). The setting narrows both
+		pickers and a save replaces the whole list, so a control drawing only tasks un-hid every
+		document status it did not show. **A stored key drawn in neither group goes back as it
+		came**, in a hidden field, for the same reason: a save changes what was ticked and nothing
+		else.
+
+		**Uncontrolled**, for `ColourChoice`'s reason (`#2621`).
 	*/
 	const hidden = new Set(value || []);
+	const groups = statusGroups(statuses);
+	const drawn = new Set(groups.flatMap((group) => group.members.map((one) => one.key)));
 
 	return html`
 		<form class="setting-choice" onSubmit=${(event) => {
@@ -700,16 +756,21 @@ export function StatusChoice ({
 
 			onChoose(setting.key, hiddenValue(new FormData(event.target).getAll("value"), inherits));
 		}}>
-			<fieldset>
-				<legend>Not offered</legend>
-				${(statuses || []).map((one) => html`
-					<label class="setting-option" key=${one.key}>
-						<input type="checkbox" name="value" value=${one.key}
-							checked=${hidden.has(one.key)} disabled=${busy} />
-						<span>${one.label || one.key}</span>
-					</label>
-				`)}
-			</fieldset>
+			${groups.map((group) => html`
+				<fieldset key=${group.kind}>
+					<legend>${group.legend}</legend>
+					${group.members.map((one) => html`
+						<label class="setting-option" key=${one.key}>
+							<input type="checkbox" name="value" value=${one.key}
+								defaultChecked=${hidden.has(one.key)} disabled=${busy} />
+							<span>${one.label || one.key}</span>
+						</label>
+					`)}
+				</fieldset>
+			`)}
+			${[...hidden].filter((key) => !drawn.has(key)).map((key) => html`
+				<input type="hidden" name="value" value=${key} key=${`kept-${key}`} />
+			`)}
 			${acts(onTakeBack, busy)}
 		</form>
 	`;
@@ -786,7 +847,7 @@ export function Settings ({
 	const called = { workspace: "workspace", project: "project", instance: "installation" };
 	const shared = {
 		registry: meta.settings || [],
-		statuses: (meta.statuses && meta.statuses.task) || [],
+		statuses: hideableStatuses(meta),
 		inForce: current ? current.inForce : null,
 		/* **This project's own answer where it has one** (`#2111`) — `allowedIn`'s rule, so this
 		   page and an open item cannot disagree about what a reader may do in one project. */
