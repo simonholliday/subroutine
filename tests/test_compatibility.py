@@ -33,14 +33,23 @@ The bodies below were **captured from a running instance one release behind** ra
 written by hand. That distinction is the point: a fixture written from the current models
 agrees with them by construction and would have passed on both of the days above. Identifiers
 are replaced with fixed ones; nothing about the shape is edited.
+
+**Requests are the other half, and before 1.0 they are not promised** (`SR#2618`). Simon's answer
+of 2026-09-14 was *reading only*, so an instance one release behind may refuse a parameter or a
+route this build sends. What is held at the end of this file is the refusal's sentence, which
+named a parameter the reader never typed (`SR#2625`), and those answers were captured from the
+tag too.
 """
 
+import inspect
+import json
 import typing
 
 import httpx
 import pydantic
 import pytest
 
+import subroutine.api.users
 import subroutine.clients.http
 import subroutine.connections
 import subroutine.errors
@@ -308,3 +317,346 @@ def test_an_instance_running_this_build_is_not_reported_as_skewed () -> None:
 
 	assert "not as a Subroutine instance" in str(refused.value)
 	assert "disagree about what a response contains" not in str(refused.value)
+
+
+#: ``GET /v1/me`` as ``v0.8.15`` answers it - `SR#2625`. Captured 2026-09-14 by driving the tag's
+#: application in process, from a ``git archive`` of it, with every XDG directory empty.
+#: Identifiers are replaced with fixed ones, and ``instance_version`` with the tag's own number:
+#: run from an archive, a program reports the version installed beside it.
+ME_AT_0_8_15: dict[str, typing.Any] = {
+	"api_version": "1.0",
+	"user": {
+		"id": "01a0a15e-0000-7000-8000-000000000001",
+		"username": "operator",
+		"display_name": None,
+		"email": None,
+		"timezone": "Etc/UTC",
+		"is_superuser": True,
+		"is_service_account": False,
+	},
+	"instance_version": "0.8.15",
+	"schema_revision": "1f61c97bf2ca",
+	"credential": {
+		"kind": "api_token",
+		"id": "01a0a15e-0000-7000-8000-000000000002",
+		"title": "capture",
+		"prefix": "0815cafe",
+		"scopes": [],
+		"project_scope": None,
+		"project_scope_keys": None,
+		"project_write_scope": None,
+		"project_write_scope_keys": None,
+		"workspace_id": None,
+		"narrows": False,
+		"expires_at": None,
+		"last_used_at": "2026-09-14T19:22:04.528871Z",
+	},
+	"instance_permissions": [
+		"instance:admin",
+		"instance:user_create",
+		"instance:workspace_create",
+	],
+	"reader_timezone": "Etc/UTC",
+	"workspaces": [
+		{
+			"id": "01a0a15e-0000-7000-8000-000000000003",
+			"slug": "projects",
+			"title": "Projects",
+			"reader_timezone": "Etc/UTC",
+			"prioritised_project": None,
+			"timezone": "Etc/UTC",
+			"role": "superuser",
+			"permissions": [
+				"comment:read",
+				"comment:write",
+				"link_type:write",
+				"project:delete",
+				"project:read",
+				"project:write",
+				"status:write",
+				"tag:write",
+				"task:delete",
+				"task:read",
+				"task:write",
+				"token:admin",
+				"user:admin",
+				"workspace:admin",
+				"workspace:delete",
+				"workspace:read",
+				"workspace:write",
+			],
+			"narrowed_by_credential": False,
+		},
+	],
+}
+
+#: What ``v0.8.15`` answered to requests this build sends, captured the same way and keyed by the
+#: request exactly as this build's client makes it. That release's account listing declared no
+#: query parameter and served no ``GET`` for one account, so the first three are refused by name.
+#: The last two are refusals no release explains, held to show they keep the instance's words.
+ANSWERED_AT_0_8_15: dict[tuple[str, str], tuple[int, dict[str, str], dict[str, typing.Any]]] = {
+	("GET", "/v1/users?limit=50"): (
+		422,
+		{},
+		{
+			"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#unknown_field",
+			"title": "Unknown field",
+			"status": 422,
+			"detail": "This endpoint does not accept 'limit'.",
+			"code": "unknown_field",
+			"instance": "/v1/users",
+			"request_id": "01a0a15e-0000-7000-8000-000000000811",
+			"hint": "Refused rather than ignored, because a request that quietly ignores 'fields' returns the whole object and charges you for it.",
+			"errors": [
+				{
+					"field": "limit",
+					"code": "unknown_field",
+					"message": "'limit' is not a parameter of this endpoint.",
+					"hint": "It accepts: fields, format.",
+				},
+			],
+		},
+	),
+	("GET", "/v1/users?limit=1000000&answers_to=operator"): (
+		422,
+		{},
+		{
+			"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#unknown_field",
+			"title": "Unknown field",
+			"status": 422,
+			"detail": "This endpoint does not accept 'answers_to'.",
+			"code": "unknown_field",
+			"instance": "/v1/users",
+			"request_id": "01a0a15e-0000-7000-8000-000000000812",
+			"hint": "Refused rather than ignored, because a request that quietly ignores 'fields' returns the whole object and charges you for it.",
+			"errors": [
+				{
+					"field": "answers_to",
+					"code": "unknown_field",
+					"message": "'answers_to' is not a parameter of this endpoint.",
+					"hint": "It accepts: fields, format.",
+				},
+				{
+					"field": "limit",
+					"code": "unknown_field",
+					"message": "'limit' is not a parameter of this endpoint.",
+					"hint": "It accepts: fields, format.",
+				},
+			],
+		},
+	),
+	("GET", "/v1/users/operator"): (
+		405,
+		{
+			"allow": "PATCH",
+		},
+		{
+			"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#method_not_allowed",
+			"title": "Method not allowed",
+			"status": 405,
+			"detail": "GET is not accepted at /v1/users/operator.",
+			"code": "method_not_allowed",
+			"instance": "/v1/users/operator",
+			"request_id": "01a0a15e-0000-7000-8000-000000000813",
+			"hint": "This path accepts PATCH.",
+		},
+	),
+	("PATCH", "/v1/workspaces/projects"): (
+		422,
+		{},
+		{
+			"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#invalid_field_value",
+			"title": "Invalid field value",
+			"status": 422,
+			"detail": "'appearence.colour' is not a setting a workspace has.",
+			"code": "invalid_field_value",
+			"instance": "/v1/workspaces/projects",
+			"request_id": "01a0a15e-0000-7000-8000-000000000814",
+			"errors": [
+				{
+					"field": "settings",
+					"code": "unknown_field",
+					"message": "Unknown setting 'appearence.colour'.",
+					"hint": "A workspace accepts: appearance.colour, statuses.hidden.",
+				},
+			],
+		},
+	),
+	("GET", "/v1/tasks/99999/comments"): (
+		404,
+		{},
+		{
+			"type": "https://github.com/simonholliday/subroutine/blob/main/docs/errors.md#not_found",
+			"title": "Not found",
+			"status": 404,
+			"detail": "There is no task '99999' here.",
+			"code": "not_found",
+			"instance": "/v1/tasks/99999/comments",
+			"request_id": "01a0a15e-0000-7000-8000-000000000815",
+			"errors": [
+				{
+					"field": "id_or_ref",
+					"code": "not_found",
+					"message": "No task in projects answers to '99999'.",
+					"hint": "Use a ref like '42' or a task id. GET /v1/tasks lists what you can see.",
+				},
+			],
+		},
+	),
+}
+
+#: The three commands `SR#2625` found refused by the release before, each as this build's client
+#: asks it: ``user list`` with its default page, ``user deactivate`` asking whose agents it stops,
+#: and ``user timezone`` reading one account.
+ASKING_WHAT_0_8_15_LACKS: dict[
+	str, tuple[tuple[str, str], typing.Callable[[subroutine.clients.http.Client], object]]
+] = {
+	"user list": (("GET", "/v1/users?limit=50"), lambda client: client.users(limit=50)),
+	"user deactivate": (
+		("GET", "/v1/users?limit=1000000&answers_to=operator"),
+		lambda client: client.users(answers_to="operator", limit=1_000_000),
+	),
+	"user timezone": (
+		("GET", "/v1/users/operator"),
+		lambda client: client.user(username="operator"),
+	),
+}
+
+
+def _at_0_8_15 (running: str) -> subroutine.clients.http.Client:
+	"""Return a client whose instance answers as ``v0.8.15`` did, saying it runs ``running``."""
+
+	def answer (request: httpx.Request) -> httpx.Response:
+		"""Answer one request with what the tag answered to it."""
+
+		if request.url.path == "/v1/me":
+			return httpx.Response(200, json={**ME_AT_0_8_15, "instance_version": running})
+
+		status, headers, body = ANSWERED_AT_0_8_15[(request.method, request.url.raw_path.decode())]
+
+		return httpx.Response(
+			status,
+			headers={"content-type": "application/problem+json", **headers},
+			content=json.dumps(body).encode(),
+		)
+
+	return subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://work.example.com"),
+		token="sr_x",
+		transport=httpx.MockTransport(answer),
+	)
+
+
+@pytest.mark.parametrize("command", sorted(ASKING_WHAT_0_8_15_LACKS))
+def test_a_request_the_release_before_lacks_is_refused_naming_both_releases (command: str) -> None:
+	"""`SR#2625`: *"This endpoint does not accept 'limit'."*, to somebody who typed `user list`.
+
+	Before 1.0 the command need not work (`SR#2618`), so what is held is the sentence. It names
+	what each side is running before anything else, keeps the instance's own words after that so
+	nothing the instance said is lost, and keeps the code a program reads.
+	"""
+
+	request_made, asking = ASKING_WHAT_0_8_15_LACKS[command]
+	answered = ANSWERED_AT_0_8_15[request_made][2]
+
+	with _at_0_8_15("0.8.15") as client:
+		client.me()
+
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			asking(client)
+
+	said = refused.value.detail
+
+	assert said.startswith(
+		f"work is running 0.8.15 and this program is {subroutine.installations.program()},"
+	), said
+	assert said.endswith(answered["detail"]), "the instance's own sentence, kept after the releases"
+	assert refused.value.code == answered["code"], "and the code a program reads"
+	assert refused.value.hint == subroutine.clients.http.UPDATE_THE_OLDER
+
+
+@pytest.mark.parametrize(
+	("request_made", "asking"),
+	[
+		(("GET", "/v1/tasks/99999/comments"), lambda client: client.comments(ref=99999)),
+		(
+			("PATCH", "/v1/workspaces/projects"),
+			lambda client: client.update_workspace(
+				"projects", settings={"appearence.colour": "dark"}
+			),
+		),
+	],
+	ids=["a missing item", "a mistyped setting"],
+)
+def test_a_refusal_no_release_explains_keeps_the_instance_s_words (
+	request_made: tuple[str, str],
+	asking: typing.Callable[[subroutine.clients.http.Client], object],
+) -> None:
+	"""A missing item and a mistyped setting are refused alike on every release.
+
+	**``not_found`` is the one to hold.** A path with no route answers with it too, so naming the
+	releases there would send somebody asking for an item that does not exist to go and upgrade.
+	A setting key is typed by the reader, and its refusal is ``invalid_field_value``: a value is
+	wrong, rather than the instance lacking something.
+	"""
+
+	with _at_0_8_15("0.8.15") as client:
+		client.me()
+
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			asking(client)
+
+	assert refused.value.detail == ANSWERED_AT_0_8_15[request_made][2]["detail"]
+
+
+def test_a_refusal_from_an_instance_on_this_release_keeps_its_own_words () -> None:
+	"""The `#481` shape, on the request side: two builds of one release have no gap to name.
+
+	A version string is compared rather than ranked, so the only case this can recognise as *no
+	difference* is the same string - which is also the arrangement where a refusal is a real one.
+	"""
+
+	with _at_0_8_15(subroutine.installations.program()) as client:
+		client.me()
+
+		with pytest.raises(subroutine.errors.SubroutineError) as refused:
+			client.users(limit=50)
+
+	assert refused.value.detail == "This endpoint does not accept 'limit'."
+
+
+def test_a_refusal_before_the_instance_has_said_its_release_keeps_its_own_words () -> None:
+	"""Nothing to compare, so nothing is guessed, which is the rule for a response too.
+
+	The command line reads ``/v1/meta`` when it opens a connection, so it knows the release before
+	any of these requests. A client that has asked nothing yet has only the refusal, and a refusal
+	does not say which release wrote it.
+	"""
+
+	with (
+		_at_0_8_15("0.8.15") as client,
+		pytest.raises(subroutine.errors.SubroutineError) as refused,
+	):
+		client.users(limit=50)
+
+	assert refused.value.detail == "This endpoint does not accept 'limit'."
+
+
+def test_the_captured_refusals_are_of_a_release_before_this_build () -> None:
+	"""The guard on the guard: a capture regenerated from this build would refuse none of it.
+
+	This build's listing declares both names the tag refused and serves the ``GET`` it refused,
+	while the tag's own refusal says what it accepted instead.
+	"""
+
+	declared = inspect.signature(subroutine.api.users.listing).parameters
+	served = {
+		(getattr(route, "path", None), method)
+		for route in subroutine.api.users.router.routes
+		for method in getattr(route, "methods", None) or ()
+	}
+	refused = ANSWERED_AT_0_8_15[("GET", "/v1/users?limit=50")][2]
+
+	assert {"limit", "answers_to"} <= set(declared)
+	assert ("/v1/users/{username}", "GET") in served
+	assert refused["errors"][0]["hint"] == "It accepts: fields, format."

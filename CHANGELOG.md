@@ -173,6 +173,14 @@ upgrade involves.
 
 ### Fixed
 
+- **A command an older instance could not answer named a parameter you never typed.** Against an
+  instance one release behind, `subroutine user list` failed with *This endpoint does not accept
+  'limit'*, and `user deactivate` and `user timezone` failed the same way about `answers_to` and
+  about a path. A refusal like that now says first which release each side is running, keeps the
+  instance's own words after that, and says to update whichever is older. Before 1.0, a newer
+  program reads what an older instance answers, and is not promised that the older one accepts
+  everything it sends.
+
 - **An account whose username holds `#`, `?` or `%` was mistaken for another over a
   connection.** The username went into the address as it was typed, so `ops#1` was read as
   `ops`: `subroutine user deactivate 'ops#1'` against a served instance warned about the right

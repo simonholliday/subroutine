@@ -64,6 +64,23 @@ BY_SEQ_BACKWARDS = "before"
 #: because "not found" from nginx and "not found" from Subroutine mean very different things.
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 
+#: **What this program promises an instance on another release, before 1.0** (`SR#2618`). Simon's
+#: answer of 2026-09-14 was *"pre-release-1.0 - reading only"*: this program reads what an older
+#: instance answers, because every field a response has gained since carries a default, which
+#: ``tests/test_response_compatibility.py`` holds. It does not promise that the older instance
+#: accepts everything this program sends, so a command needing something the other release lacks
+#: is refused, and the refusal says which releases the two are running (:meth:`Client._refused`).
+UPDATE_THE_OLDER = (
+	"Update whichever is older. Until then this connection works for anything the two versions "
+	"still agree about."
+)
+
+#: The refusals meaning *this instance does not have that*, rather than *that is wrong* (`SR#2625`):
+#: a query parameter or body field it does not know, and a method at a path it does not serve.
+#: **``not_found`` is not one of them.** A path with no route and an item that does not exist both
+#: answer with it, so naming the releases there would misreport every missing item.
+NOT_IN_THAT_RELEASE = frozenset({"unknown_field", "method_not_allowed"})
+
 
 class Client:
 	"""Another instance, reached over HTTP."""
@@ -2174,14 +2191,50 @@ class Client:
 				f"{self.connection.name} is running {running} and this program is "
 				f"{subroutine.installations.program()}, so they disagree about what a "
 				f"response contains: {because}.",
-				hint="Update whichever is older. Until then this connection works for "
-				"anything the two versions still agree about.",
+				hint=UPDATE_THE_OLDER,
 			)
 
 		return subroutine.errors.ServiceUnavailable(
 			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
 			hint=f"Check what is serving {self.connection.url} — a proxy, a captive portal or "
 			"an instance on a different API version will answer like this.",
+		)
+
+	def _refused (
+		self, failure: subroutine.errors.SubroutineError
+	) -> subroutine.errors.SubroutineError:
+		"""Return an instance's refusal, naming both releases first where they differ.
+
+		**The reader of *"This endpoint does not accept 'limit'."* never typed ``limit``**
+		(`SR#2625`). ``user list`` sends it, and an instance one release behind refuses it by
+		name, which is the misdiagnosis :meth:`_not_an_instance` exists to prevent, arriving on
+		the request side. Before 1.0 such a command is not promised to work
+		(:data:`UPDATE_THE_OLDER`), so this changes what the refusal says and not whether it
+		happens.
+
+		**Facts, then the instance's own sentence.** That the two run different releases, and that
+		the instance refused part of what this program sent, are both known; that the difference is
+		the reason is not, so nothing here says so. Left as the instance wrote it where the
+		releases agree, where the instance has not yet said which it runs, and for any refusal
+		outside :data:`NOT_IN_THAT_RELEASE`.
+
+		**A request the caller wrote never arrives here.** ``call_api`` hands back the instance's
+		answer as it came, so a parameter somebody typed is refused in the instance's words.
+		"""
+
+		running = self._instance_version
+		program = subroutine.installations.program()
+
+		if failure.code not in NOT_IN_THAT_RELEASE or running is None or running == program:
+			return failure
+
+		return type(failure)(
+			f"{self.connection.name} is running {running} and this program is {program}, and it "
+			f"refused part of what this program sent: {failure.detail}",
+			code=failure.code,
+			errors=failure.errors,
+			hint=UPDATE_THE_OLDER,
+			extensions=failure.extensions,
 		)
 
 	@staticmethod
@@ -2333,7 +2386,7 @@ class Client:
 				"portal will answer like this.",
 			)
 
-		raise subroutine.errors.from_problem(document, status=response.status_code)
+		raise self._refused(subroutine.errors.from_problem(document, status=response.status_code))
 
 
 def _parsed (response: httpx.Response) -> dict[str, typing.Any] | None:
