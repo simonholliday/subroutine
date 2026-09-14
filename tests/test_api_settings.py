@@ -9,8 +9,11 @@ its default, whether it is set here, and the entity it was inherited from.
 import typing
 
 import pytest
+import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.project
+import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.settings
 import test_api_tasks
@@ -114,6 +117,60 @@ def test_a_project_says_where_each_value_came_from (world: test_api_tasks.World)
 
 	assert parent["appearance.colour"]["set_here"] is True
 	assert parent["appearance.colour"]["inherited_from"] is None
+
+
+def test_a_credential_narrowed_below_a_project_is_not_told_what_it_is_called (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> None:
+	"""`#2639`: the source of an inherited value is named by its address alone where unreadable.
+
+	A credential narrowed to ``parent/child`` cannot read ``parent``, and was told its title as
+	the source of the colour ``child`` inherits. The address says nothing new - it is the start of
+	the one the credential asked about - so it stays. **Two principals**: the same person's
+	unnarrowed credential is still told the title.
+	"""
+
+	slug = _chain(world)
+	child = world.call("GET", f"/v1/projects/parent/child?workspace_id={slug}").json()["id"]
+	# **By id**, because a path is resolved a segment at a time and the credential cannot read the
+	# first one.
+	path = f"/v1/projects/{child}/settings?workspace_id={slug}"
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Below the parent", project_scope=[child]
+	)
+	session.flush()
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+
+	assert narrowed.call("GET", f"/v1/projects/parent?workspace_id={slug}").status_code == 404, (
+		"the credential reaches the parent after all, so this proves nothing"
+	)
+	assert _by_key(narrowed.call("GET", path))["appearance.colour"]["inherited_from"] == {
+		"scope": "project", "address": "parent", "title": "",
+	}
+	assert _by_key(world.call("GET", path))["appearance.colour"]["inherited_from"] == {
+		"scope": "project", "address": "parent", "title": "The parent",
+	}
+
+	# **Who may see a project, not whether it is current.** A parent that is archived, or in the
+	# trash, is still one its member may see, so its title is still theirs to be told. Archived on
+	# the row, because no route sets `archived_at` yet.
+	model = subroutine.db.models.project.Project
+	parent = session.scalars(
+		sqlalchemy.select(model).where(model.workspace_id == world.workspace.id, model.key == "parent")
+	).one()
+	parent.archived_at = subroutine.db.types.utcnow()
+	session.flush()
+
+	assert _by_key(world.call("GET", path))["appearance.colour"]["inherited_from"]["title"] == (
+		"The parent"
+	), "archived"
+
+	deleted = world.call("DELETE", f"/v1/projects/parent?workspace_id={slug}")
+
+	assert deleted.is_success, deleted.text
+	assert _by_key(world.call("GET", path))["appearance.colour"]["inherited_from"]["title"] == (
+		"The parent"
+	), "in the trash"
 
 
 def test_clearing_a_value_set_here_puts_the_inherited_one_back (

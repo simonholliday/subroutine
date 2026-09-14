@@ -769,7 +769,7 @@ def test_both_read_what_is_in_force_the_same_way (pair: Pair) -> None:
 	slug = pair.workspace.slug
 
 	local.create_project(key="alpha", title="The parent")
-	local.create_project(key="beta", title="The child", parent="alpha")
+	beta = local.create_project(key="beta", title="The child", parent="alpha")
 	local.update_project("alpha", settings={"appearance.colour": "teal"}, workspace=slug)
 
 	assert local.workspace_settings(workspace=slug).model_dump() == (
@@ -788,6 +788,42 @@ def test_both_read_what_is_in_force_the_same_way (pair: Pair) -> None:
 	assert inherited["appearance.colour"].value == "teal"
 	assert inherited["appearance.colour"].inherited_from is not None
 	assert inherited["appearance.colour"].inherited_from.address == "alpha"
+
+	# **And a credential narrowed below the parent is told its address and not its title, on
+	# both** (`SR#2639`). One credential for both clients, so a difference is the code's; the
+	# child by id, because a path is resolved through a parent this credential cannot read.
+	_row, issued = subroutine.domain.authentication.issue_token(
+		pair.session, user=pair.user, title="Below alpha", project_scope=[str(beta.id)]
+	)
+	pair.session.flush()
+
+	secret = issued.value.get_secret_value()
+	factory = api_support.factory_for(pair.session)
+	narrowed_local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=factory,
+		token=secret,
+	)
+	narrowed_remote = subroutine.clients.http.Client(
+		subroutine.connections.Connection(name="work", url="https://tasks.example.com"),
+		token=secret,
+		transport=api_support.SyncTransport(api_support.build_app(factory)),
+		base_url=api_support.BASE_URL,
+	)
+
+	with narrowed_local, narrowed_remote:
+		answers = [
+			{
+				one.key: one
+				for one in client.project_settings(str(beta.id), workspace=slug).settings
+			}["appearance.colour"].inherited_from
+			for client in (narrowed_local, narrowed_remote)
+		]
+
+	assert answers[0] == answers[1]
+	assert answers[0] is not None
+	assert (answers[0].address, answers[0].title) == ("alpha", "")
 
 
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:

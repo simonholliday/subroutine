@@ -60,6 +60,7 @@ import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
 import subroutine.domain.schedule
+import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -6226,7 +6227,8 @@ class Source(pydantic.BaseModel):
 	#: The project's address, or the workspace's short name — what a link to it is made of.
 	address: str
 
-	#: What that project or workspace is called.
+	#: What that project or workspace is called. **Empty for a project the reader cannot read**,
+	#: which is then named by its address alone (`#2639`).
 	title: str
 
 
@@ -6269,6 +6271,7 @@ def settings_in_force (
 	stated: typing.Sequence[subroutine.domain.settings.Stated],
 	*,
 	scope: str,
+	reader: subroutine.domain.authentication.Principal,
 ) -> SettingsInForce:
 	"""Render what a settings page reads, naming each source it inherits from — `#2450`.
 
@@ -6276,37 +6279,68 @@ def settings_in_force (
 	are at most one project's ancestors and its workspace, so their names come from one
 	:func:`subroutine.domain.projects.paths_for` call and one read of each table.
 
+	**A project the reader cannot read is named by its address alone** (`#2639`). A credential
+	narrowed below a project still inherits that project's settings, and the project's address
+	is already the start of the one the credential asked about. Its title is a column of
+	something outside what the credential reaches, so it is left empty, and both the browser
+	and the command line fall back to the address. Which projects the reader can read is
+	:func:`subroutine.domain.scoping.readable_projects`' answer, archived and deleted ones
+	included, because the question is who may see a project and not whether it is current.
+
 	**A default that is a tuple is published as a list**, for :func:`published_settings`'
 	reason: the registry keeps defaults immutable and JSON has one sequence.
 	"""
 
 	inherited = [one.source for one in stated if one.source is not None and not one.set_here]
-	project_ids = {source.id for source in inherited if source.scope == subroutine.domain.settings.PROJECT}
-	workspace_ids = {source.id for source in inherited if source.scope == subroutine.domain.settings.WORKSPACE}
+	project_ids = {
+		source.id for source in inherited if source.scope == subroutine.domain.settings.PROJECT
+	}
+	workspace_ids = {
+		source.id for source in inherited if source.scope == subroutine.domain.settings.WORKSPACE
+	}
 
-	paths = subroutine.domain.projects.paths_for(session, project_ids) if project_ids else {}
 	project_model = subroutine.db.models.project.Project
 	workspace_model = subroutine.db.models.identity.Workspace
-	project_titles = (
-		dict(
-			session.execute(
-				sqlalchemy.select(project_model.id, project_model.title).where(
-					project_model.id.in_(project_ids)
-				)
-			)
-			.tuples()
-			.all()
+
+	paths = subroutine.domain.projects.paths_for(session, project_ids) if project_ids else {}
+	projects = (
+		session.execute(
+			sqlalchemy.select(
+				project_model.id, project_model.title, project_model.workspace_id
+			).where(project_model.id.in_(project_ids))
 		)
+		.tuples()
+		.all()
 		if project_ids
-		else {}
+		else []
 	)
+
+	readable = (
+		{
+			row.id
+			for row in session.scalars(
+				subroutine.domain.scoping.readable_projects(
+					reader,
+					workspace_ids=sorted({workspace for _id, _title, workspace in projects}),
+					include_deleted=True,
+					include_archived=True,
+				).where(project_model.id.in_(project_ids))
+			)
+		}
+		if projects
+		else set()
+	)
+	project_titles = {
+		identity: title for identity, title, _workspace in projects if identity in readable
+	}
+
 	workspaces = {
 		identity: (slug, title)
 		for identity, slug, title in (
 			session.execute(
-				sqlalchemy.select(workspace_model.id, workspace_model.slug, workspace_model.title).where(
-					workspace_model.id.in_(workspace_ids)
-				)
+				sqlalchemy.select(
+					workspace_model.id, workspace_model.slug, workspace_model.title
+				).where(workspace_model.id.in_(workspace_ids))
 			)
 			.tuples()
 			.all()

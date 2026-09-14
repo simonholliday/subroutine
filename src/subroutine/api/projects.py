@@ -320,6 +320,7 @@ def project_settings (
 		session,
 		subroutine.domain.settings.stated_for_project(session, project, actor=actor),
 		scope=subroutine.domain.settings.PROJECT,
+		reader=actor,
 	)
 
 

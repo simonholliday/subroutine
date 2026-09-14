@@ -584,6 +584,7 @@ def workspace_settings (
 		session,
 		subroutine.domain.settings.stated_for_workspace(session, found, actor=actor),
 		scope=subroutine.domain.settings.WORKSPACE,
+		reader=actor,
 	)
 
 

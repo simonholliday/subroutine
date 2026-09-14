@@ -2595,6 +2595,7 @@ class Client:
 				session,
 				subroutine.domain.settings.stated_for_workspace(session, chosen, actor=actor),
 				scope=subroutine.domain.settings.WORKSPACE,
+				reader=actor,
 			)
 
 	def project_settings (
@@ -2610,6 +2611,7 @@ class Client:
 				session,
 				subroutine.domain.settings.stated_for_project(session, found, actor=actor),
 				scope=subroutine.domain.settings.PROJECT,
+				reader=actor,
 			)
 
 	def rename_project (

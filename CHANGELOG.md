@@ -173,6 +173,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A credential limited to part of a project tree was told the name of a project above it.** On
+  the settings of a project it could read, a value inherited from a parent it could not read named
+  that parent's title. The parent is now named by its address alone, which the credential already
+  holds as the start of its own project's address.
+
 - **An administrator outside a workspace could read and change it over a connection.** A
   superuser who was not a member could read a workspace's record and its settings, and change its
   title, description, timezone, prioritised project, settings or short name, through a served
