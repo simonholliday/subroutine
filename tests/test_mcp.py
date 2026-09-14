@@ -763,6 +763,39 @@ def test_giving_back_started_work_says_it_still_shows_as_started (
 	assert "status=" not in quiet, f"giving back unstarted work warned anyway: {quiet!r}"
 
 
+def test_giving_back_a_lease_that_already_ran_out_says_nothing_was_given_back (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2457`. *Released* was answered for three items whose leases had lapsed, and none changed.
+
+	**With both twins**: a live lease is still *Released*, and one never claimed says nobody was
+	holding it — so this is not a test that the word went away.
+	"""
+
+	lapsed = _added(bound, "Rotate the certificates")
+	live = _added(bound, "Sweep the logs")
+	never = _added(bound, "Water the plants")
+
+	for ref in (lapsed, live):
+		_called(bound, "subroutine_claim", ref=ref)
+
+	# Backdated rather than waited for, as the expired-lease test above does.
+	session.execute(
+		sqlalchemy.update(subroutine.db.models.work.Task)
+		.where(subroutine.db.models.work.Task.ref == lapsed)
+		.values(claim_expires_at=subroutine.db.types.utcnow() - datetime.timedelta(hours=1))
+	)
+	session.flush()
+
+	ran_out = _called(bound, "subroutine_claim", ref=lapsed, release=True)[0]
+
+	assert ran_out.startswith(f"Nothing to give back on #{lapsed}"), ran_out
+	assert "lease ran out at" in ran_out and "Released" not in ran_out
+
+	assert _called(bound, "subroutine_claim", ref=live, release=True)[0].startswith("Released")
+	assert "nobody was holding it" in _called(bound, "subroutine_claim", ref=never, release=True)[0]
+
+
 def test_the_claim_tool_says_a_claim_is_not_a_start (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

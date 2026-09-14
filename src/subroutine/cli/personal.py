@@ -6310,13 +6310,27 @@ def _released (program: Program, *, which: str) -> None:
 		)
 		client = _require_connection(program, world, located.connection)
 
+		# **Asked before giving it back, from the task as it stood** (`#2457`), so a release that
+		# changed nothing says so rather than *Released*.
+		unheld = subroutine.views.nothing_to_release(
+			task,
+			now=subroutine.db.types.utcnow(),
+			zone=lambda: world.account_zone(located.connection, located.workspace),
+		)
+
 		try:
 			freed = client.release(ref=task.ref, workspace=located.workspace)
 
 		except subroutine.errors.SubroutineError as error:
 			program.fail(error)
 
-		program.say(_acted(world, dataclasses.replace(located, item=freed), "Released"))
+		done = dataclasses.replace(located, item=freed)
+
+		program.say(
+			_acted(world, done, "Released")
+			if unheld is None
+			else f"{_acted(world, done, 'Nothing to give back')} — {unheld}."
+		)
 
 		# **Given back while still in progress, it shows as being worked on by nobody**
 		# (`#2486`) — the claim-time gap, seen from the other side.

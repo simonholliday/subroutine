@@ -8150,6 +8150,32 @@ def test_claiming_says_to_start_and_a_claim_on_started_work_says_to_finish (
 	assert "subroutine start" not in renewed, renewed
 
 
+def test_giving_back_a_lease_that_already_ran_out_says_so_at_the_terminal (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2457`, on the surface it was measured on: *Released* for three leases that had lapsed.
+
+	The clock is moved on rather than a lease backdated, because this path owns no session — and
+	moving it for everything is what makes the domain and the sentence agree the lease is over.
+	"""
+
+	run("init")
+	run("add", "Rotate the certificates")
+	run("add", "Water the plants")
+	run("claim", "1")
+
+	later = subroutine.db.types.utcnow() + datetime.timedelta(hours=2)
+
+	monkeypatch.setattr(subroutine.db.types, "utcnow", lambda: later)
+
+	ran_out = run("release", "1").output
+
+	assert "Nothing to give back" in ran_out and "lease ran out at" in ran_out, ran_out
+	assert "Released" not in ran_out
+
+	assert "nobody was holding it" in run("release", "2").output
+
+
 def test_giving_back_started_work_says_how_to_stop_it_showing_as_started (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

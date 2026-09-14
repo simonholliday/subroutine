@@ -2919,6 +2919,32 @@ def holder (item: "Task", *, now: datetime.datetime) -> str | None:
 	return None if item.claim_expires_at <= now else item.claimed_by
 
 
+def nothing_to_release (
+	item: "Task", *, now: datetime.datetime, zone: typing.Callable[[], str]
+) -> str | None:
+	"""Say why giving this back changes nothing, or ``None`` when somebody holds it — `#2457`.
+
+	**Releasing a lapsed lease answered *Released* and changed nothing.** The domain is right to
+	record nothing — under `#726` nobody holds an expired lease — and the command reported an act
+	that did not happen, for three items at once, while each row kept its old holder. So both
+	surfaces ask this first and say what they found instead.
+
+	**Through :func:`holder`**, so this cannot disagree with the rule every renderer applies.
+	``zone`` is asked only for a lease that ran out, because it can cost a request and the time
+	is the only thing that needs it.
+	"""
+
+	if holder(item, now=now) is not None:
+		return None
+
+	if item.claimed_by is None or item.claim_expires_at is None:
+		return "nobody was holding it"
+
+	ran_out = item.claim_expires_at.astimezone(subroutine.domain.dates.zone(zone()))
+
+	return f"@{item.claimed_by}'s lease ran out at {ran_out:%d %b %H:%M}"
+
+
 def _priority_cell (importance: int | None, urgency: int | None) -> str:
 	"""Render §6.3's two axes as one cell: ``I4/U5``, or a dash for what was not assessed.
 

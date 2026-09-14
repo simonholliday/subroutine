@@ -1576,8 +1576,24 @@ def _claimed (
 	workspace = _text(arguments, "workspace")
 
 	if arguments.get("release"):
+		# **Read first, so a release that changed nothing does not say it did** (`#2457`). The
+		# domain records nothing for a lease that already ran out, and this answered *Released*.
+		before = client.task(ref=ref, workspace=workspace)
+		unheld = (
+			None
+			if before is None
+			else subroutine.views.nothing_to_release(
+				before,
+				now=subroutine.db.types.utcnow(),
+				zone=lambda: _account_zone(client, workspace),
+			)
+		)
 		freed = client.release(ref=ref, workspace=workspace)
-		said = f"Released #{freed.ref}  {freed.title}"
+		said = (
+			f"Released #{freed.ref}  {freed.title}"
+			if unheld is None
+			else f"Nothing to give back on #{freed.ref}  {freed.title} — {unheld}."
+		)
 
 		# **Given back while still in progress, it reads as being worked on by nobody**
 		# (`#2486`), which anybody looking at it cannot tell apart from somebody working on it.
