@@ -14,6 +14,7 @@ These tests run against the real CLI, because the gap was in what somebody could
 than in what the domain could express — every service these commands call already existed.
 """
 
+import json
 import os
 import pathlib
 import typing
@@ -57,13 +58,15 @@ def run (home: pathlib.Path) -> typing.Callable[..., typer.testing.Result]:
 
 	runner = typer.testing.CliRunner()
 
-	def invoke (*arguments: str, expect: int = 0) -> typer.testing.Result:
-		"""Run one command and check how it ended."""
+	def invoke (
+		*arguments: str, expect: int = 0, input: str | None = None
+	) -> typer.testing.Result:
+		"""Run one command, answering any question it asks with ``input``, and check how it ended."""
 
 		os.environ.pop(subroutine.config.PROFILE_VARIABLE, None)
 		subroutine.cli.main._said_unknown_settings = False
 
-		result = runner.invoke(subroutine.cli.main.app, list(arguments))
+		result = runner.invoke(subroutine.cli.main.app, list(arguments), input=input)
 
 		assert result.exit_code == expect, (
 			f"'subroutine {' '.join(arguments)}' exited {result.exit_code}\n"
@@ -736,7 +739,7 @@ def test_a_superuser_credential_is_pinned_to_nothing (
 
 
 def test_deactivating_somebody_names_the_agents_it_will_stop (
-	run: typing.Callable[..., typer.testing.Result],
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
 	"""The confirmation that decided `SR#2387`, and nothing covered it until now.
 
@@ -748,17 +751,27 @@ def test_deactivating_somebody_names_the_agents_it_will_stop (
 	(`SR#2384`) would have made it quietly under-report — the one failure worse than the
 	truncation being fixed — which is why the server answers it now. This test is here so that
 	stays true: it is the property, not the mechanism, and it survives either.
+
+	**More agents than a page holds, and the question answered** (`SR#2624`). The server's answer
+	is paged too, and this planted one agent and passed ``--yes``, which skips the warning: three
+	agents and a page of two named two, stopped three, and passed.
 	"""
 
 	run("init", "--workspace", "Acme")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")
-	run("agent", "create", "deploy-bot", "--workspace", "acme")
-	run("user", "transfer", "deploy-bot", "--to", "thomas")
 
-	warned = run("user", "deactivate", "thomas", "--yes").output
+	agents = ["deploy-bot", "review-bot", "triage-bot"]
 
-	assert "deploy-bot" in warned, (
-		"the agent that stops has to be named before somebody agrees to it"
+	for agent in agents:
+		run("agent", "create", agent, "--workspace", "acme")
+		run("user", "transfer", agent, "--to", "thomas")
+
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_PAGE_SIZE", "2")
+
+	warned = run("user", "deactivate", "thomas", input="y\n").output
+
+	assert f"This also stops 3 agent(s): {', '.join(agents)}" in warned, (
+		f"the agents that stop have to be named, every one, before somebody agrees: {warned}"
 	)
 
 	# **Exactly which, not merely that one appears.** Asserting only the name passes just as
@@ -767,9 +780,32 @@ def test_deactivating_somebody_names_the_agents_it_will_stop (
 	# below are built from the same list, so the property is the same one.
 	stopped = [line.strip() for line in warned.splitlines() if "has stopped" in line]
 
-	assert stopped == ["deploy-bot has stopped"], (
+	assert stopped == [f"{agent} has stopped" for agent in agents], (
 		"only the agents answerable to the leaver stop, and they are named one by one"
 	)
+
+
+def test_adding_somebody_where_agents_fill_a_page_keeps_your_own_list (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2624`: whether one person is here is a question about the whole directory.
+
+	``user create`` pins local commands to the one person already here, so that adding a second
+	does not leave ``subroutine list`` unable to say whose list to show. It read one page of
+	accounts and gave up when that page was full - but a page counts accounts, agents included,
+	and the question counts people. An installation of one person and more agents than a page
+	holds pinned nothing, and ``list`` refused from then on.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	for agent in ("deploy-bot", "review-bot", "triage-bot"):
+		run("agent", "create", agent, "--workspace", "acme")
+
+	monkeypatch.setenv("SUBROUTINE_DEFAULT_PAGE_SIZE", "2")
+	run("user", "create", "thomas")
+
+	assert run("list").exit_code == 0, "adding a second person cost the first their own list"
 
 
 def test_deactivating_the_last_member_of_a_private_project_names_it_and_the_way_back (
@@ -919,3 +955,11 @@ def test_the_account_list_says_when_it_stopped (
 
 	assert "…and more" not in whole
 	assert "person2" in whole
+
+	# **And a script is told too** (`SR#2624`), on standard error, so standard output is still a
+	# list it parses - `journal`'s rule (`SR#2492`).
+	scripted = run("user", "list", "--limit", "2", "--json")
+
+	assert len(json.loads(scripted.stdout)) == 2
+	assert "…and more" in scripted.stderr, "a script got a page and nothing saying there was more"
+	assert "…and more" not in run("user", "list", "--limit", "50", "--json").stderr

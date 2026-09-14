@@ -40,6 +40,35 @@ export function sent (request) {
 	return api(request.path, { method: request.method, body: request.body ?? null });
 }
 
+export async function everyPage (read) {
+	/*
+		Every item of a paged listing, following its cursor to the end — `#2624`.
+
+		**For a page that means to show everybody**, which is rare here: a listing shows a page and
+		says there is more. The people page is the exception, because a reader comes to it to find
+		one account, and an account past the first page could be neither found nor have its
+		credentials revoked. **A cursor seen twice ends it**, so an answer that repeats one cannot
+		keep this asking for ever.
+
+		**`read` takes the cursor and sends the request itself**, as `sent(peopleRequest(cursor))`.
+		This sent whatever builder it was handed, and a request sent from inside a helper is one
+		the check that every request is built by name cannot see — it failed, rightly.
+	*/
+	const items = [];
+	const seen = new Set();
+	let cursor = null;
+
+	do {
+		const answer = await read(cursor);
+
+		items.push(...(answer.items || []));
+		seen.add(cursor);
+		cursor = answer.page && answer.page.has_more ? answer.page.next_cursor || null : null;
+	} while (cursor !== null && !seen.has(cursor));
+
+	return items;
+}
+
 export function scoped (path, slug) {
 	/* The workspace, on a path that may or may not already be asking something. */
 	return `${path}${path.includes("?") ? "&" : "?"}workspace_id=${encodeURIComponent(slug)}`;
@@ -230,9 +259,9 @@ export function rosterRequest (slug) {
 	return { path: `/workspaces/${encodeURIComponent(slug)}/members`, method: "GET" };
 }
 
-export function peopleRequest () {
+export function peopleRequest (cursor = null) {
 	/*
-		Every account on this instance — `#1397`.
+		Every account on this instance, a page at a time — `#1397`, `#2624`.
 
 		**Not narrowed to a workspace, which is the difference from `rosterRequest`.** That one
 		answers *who can be handed work here*; this answers *who is on this installation*, and an
@@ -240,19 +269,25 @@ export function peopleRequest () {
 		different questions and the page shows both: the roster call supplies the roles, this one
 		supplies the population.
 
-		**No `?fields=`, against the habit `#645` established**, and the reason is that this
-		listing is unpaginated by decision — `GET /v1/users` says an instance's people are
-		bounded by how many somebody hired, exactly as a task's links are. The row renders
-		username, agent-or-person, who it answers to and whether it is active, which is nearly
-		the whole of a small model; asking for a subset would buy nothing and would have to be
-		kept in step with what the page draws.
+		**Paged, and read to the end by `everyPage`** (`#2624`). This said the listing was
+		unpaginated by decision, which stopped being true at `#2384`: the page drew the first
+		fifty accounts, oldest first, and nothing saying there were more. `cursor` is where the
+		next page starts.
+
+		**No `?fields=`, against the habit `#645` established.** The row renders username,
+		agent-or-person, who it answers to and whether it is active, which is nearly the whole of
+		a small model; asking for a subset would buy nothing and would have to be kept in step
+		with what the page draws.
 
 		**Readable by anyone signed in, deliberately** — `#161` and `#174`: identifiers are
 		unique and public, content is neither, and this view carries no email address and no
 		content. So the page needs no permission of its own, which is why there is none to check
 		before drawing it.
 	*/
-	return { path: "/users", method: "GET" };
+	return {
+		path: cursor === null ? "/users" : `/users?cursor=${encodeURIComponent(cursor)}`,
+		method: "GET",
+	};
 }
 
 export function credentialsRequest () {

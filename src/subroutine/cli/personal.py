@@ -107,6 +107,13 @@ DOCUMENT_TYPES = f"{subroutine.db.seed.named_types('document')}."
 #: How many tasks ``ls`` shows before it stops. Enough to scroll, few enough to read.
 DEFAULT_LIST_LIMIT = 50
 
+#: How many accounts a question about the whole directory asks for - `#2624`. The directory is
+#: paged, and a warning about who stops, a count of the people here or a list of everybody must
+#: not read one page as all of it. A client's ``limit`` counts rows rather than a response - the
+#: HTTP client follows the cursor to it and the local one asks the database once - so a number no
+#: installation reaches reads to the end on both.
+WHOLE_DIRECTORY = 1_000_000
+
 #: Styles, applied to the parts of a line this program wrote and never to the parts the
 #: user did. Rich turns them off by itself when the output is not a terminal, which is what
 #: §12.2a means by "detected, never configured" — there is no flag and no setting.
@@ -2125,10 +2132,11 @@ def _keep_the_operators_own_list (
 	resolves an operator and finds the ambiguity this function had just written the cure for.
 	"""
 
-	# **A page that had to stop cannot answer "was there exactly one"** (`SR#2384`). This fires
-	# only where a single person exists, so a directory that does not fit in one page is one
-	# where the operator settled whose list to show long ago — which is the same reading the
-	# `len(people) != 1` below already takes of a second account.
+	# **A listing that stopped cannot answer "was there exactly one"** (`SR#2384`), so the caller
+	# reads the whole directory (`SR#2624`). It read one page, and this said a directory too big
+	# for one had long since settled whose list to show - false on an installation of one person
+	# and more agents than a page holds, where the page ran out before the people did and a second
+	# account then refused `subroutine list`. This stays for a directory larger than that read.
 	if before.has_more:
 		return None
 
@@ -5472,7 +5480,13 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# the client held, which was correct while the directory came back whole and would have
 		# quietly under-reported the moment it was paged - on the one line whose entire purpose is
 		# to say what is about to stop.
-		stopping = [one.username for one in where.client.users(answers_to=username)]
+		#
+		# **And every one of them, not a page of them** (`SR#2624`): an agent past the first page
+		# stopped with the rest and went unnamed.
+		stopping = [
+			one.username
+			for one in where.client.users(answers_to=username, limit=WHOLE_DIRECTORY)
+		]
 
 		# **And what nobody will be able to see afterwards** - `#1453`, decided by Simon on
 		# 2026-09-14. A private project is visible to its members only, so deactivating the last
@@ -7893,7 +7907,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# Read *before* creating, because the question is how many accounts there were —
 			# see `_keep_the_operators_own_list` for why that is the one that matters.
 			before = (
-				where.client.users()
+				where.client.users(limit=WHOLE_DIRECTORY)
 				if where.client.connection.is_local
 				else subroutine.clients.base.Listing([])
 			)
@@ -7994,6 +8008,13 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			if json_output:
 				program.say(json.dumps(payload, indent=2))
+
+				# **On standard error, so what standard output holds is still a list** (`SR#2624`),
+				# `journal`'s rule (`SR#2492`): a script got a page and nothing saying there was more.
+				if more:
+					program.warn(
+						f"…and more. 'subroutine user list --limit {limit * 2}' to see further."
+					)
 
 				return
 

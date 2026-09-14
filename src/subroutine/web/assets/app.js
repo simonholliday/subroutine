@@ -67,7 +67,7 @@ import {
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	moveRequest, movingTo, unreadableParent,
 	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
-	credentialsRequest, issueRequest, linkableTypes, listingRequests, localMoment,
+	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
 	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
@@ -629,9 +629,10 @@ export function App () {
 		/*
 			Who is on this instance and what each may do — `#1397`.
 
-			**Two calls of different shapes, and neither is an N+1 over rows.** One
-			`GET /v1/users` answers *who exists*, unpaginated because an instance's people are
-			bounded by how many somebody hired. Then one roster per workspace **the reader can
+			**Two calls of different shapes, and neither is an N+1 over rows.** `GET /v1/users`
+			answers *who exists*, **read page after page to the end** (`#2624`) - it is paged since
+			`#2384`, and one page left everybody past the fiftieth off a page whose use is finding
+			somebody. Then one roster per workspace **the reader can
 			already see**, which is what `/v1/me` just listed — so the count is the reader's own
 			workspaces, not the instance's, and it does not grow with the size of the backlog.
 
@@ -650,7 +651,7 @@ export function App () {
 
 		try {
 			const [found, rosters, credentials] = await Promise.all([
-				sent(peopleRequest()),
+				everyPage((cursor) => sent(peopleRequest(cursor))),
 				Promise.all(spaces.map(async (space) => {
 					try {
 						const members = await sent(rosterRequest(space.slug));
@@ -668,7 +669,7 @@ export function App () {
 			const reached = rosters.filter(Boolean);
 
 			setDirectory({
-				people: found.items,
+				people: found,
 				rosters: reached,
 				asked: spaces.length,
 				reached: reached.length,

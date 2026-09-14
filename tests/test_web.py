@@ -18144,6 +18144,35 @@ def test_an_open_item_is_gated_on_its_own_projects_answer (tmp_path: pathlib.Pat
 	assert refused.count("Edit") < allowed.count("Edit"), "a viewer's project was offered Edit"
 
 
+def test_the_people_page_reads_every_page_of_the_directory (tmp_path: pathlib.Path) -> None:
+	"""`#2624`: the directory is paged, and the people page is where somebody comes to find one.
+
+	It read the first page and drew it with nothing saying there were more, so every account past
+	the fiftieth - the newest, since the order is oldest first - could be neither found nor have
+	its credentials revoked in the browser. **Asked of what `App` requests**, because following
+	the cursor is a decision made inside it: the second page is asked for with the cursor the first
+	gave, and its account is drawn beside the first page's.
+	"""
+
+	person = {"is_service_account": False, "is_active": True}
+	driven = _driven(tmp_path, pathname="/people", answers={
+		"/users?cursor=page-two": {
+			"items": [{**person, "username": "newest"}],
+			"page": {"has_more": False, "next_cursor": None, "total": None},
+		},
+		"/users": {
+			"items": [{**person, "username": "oldest"}],
+			"page": {"has_more": True, "next_cursor": "page-two", "total": None},
+		},
+	})
+	paths = [one["path"] for one in driven["asked"]]
+
+	assert any(path.endswith("/users?cursor=page-two") for path in paths), (
+		f"the people page did not ask for the page after the first: {paths}"
+	)
+	assert "oldest" in driven["said"] and "newest" in driven["said"], driven["said"][:600]
+
+
 def test_the_directory_folds_every_workspace_into_one_answer_per_person (
 	tmp_path: pathlib.Path
 ) -> None:

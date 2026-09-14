@@ -250,7 +250,8 @@ upgrade involves.
 
   It pages like every other listing now: `limit`, `cursor`, `has_more`, and `include_total` when
   you want the count. `subroutine user list` takes `--limit` and says *…and more* when it
-  stopped.
+  stopped, on standard error with `--json` so what a script parses is still a list. The
+  browser's People page reads every page, so an account past the first can still be found.
 
   Nobody is likely to have hit this — it needed 201 accounts — but a listing that claims to be
   complete and is not is the kind of wrong that is invisible from the outside.
