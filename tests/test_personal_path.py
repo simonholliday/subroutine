@@ -6862,6 +6862,49 @@ def test_changes_withholds_what_was_only_just_written (
 	assert "Nothing new." in fresh.output
 
 
+def test_a_journal_that_stopped_says_so_in_both_forms (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2492`. A fortnight came back as its first day, and nothing said the rest was missing.
+
+	Both forms, because the JSON is the one a script writes a period up from: it stays a list a
+	parser reads, and the sentence arrives beside it rather than inside it.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	run("init")
+
+	for title in ("Call the dentist", "Pay the gas bill", "Book the car in"):
+		run("add", title)
+
+	human = run("journal", "--limit", "2").output
+
+	assert "…and more. '--limit 4', or a narrower period, to see further." in human, human
+
+	scripted = run("journal", "--limit", "2", "--json")
+
+	assert len(json.loads(scripted.stdout)) == 2
+	assert "…and more." in scripted.stderr
+
+	# And a period that fitted says nothing extra.
+	assert "…and more" not in run("journal", "--limit", "50").output
+
+
+def test_a_journal_the_instance_cut_short_names_the_period_not_the_limit () -> None:
+	"""`#2492`. Over HTTP a journal is one page with no cursor, so a larger limit reaches nothing.
+
+	Driven through the sentence rather than a served instance, because what is being decided is
+	which remedy is true — and a ``--limit`` suggestion that cannot work is the defect again.
+	"""
+
+	cut = subroutine.cli.personal.journal_stopped(range(200), limit=300)
+
+	assert "--limit" not in cut
+	assert "200 at a time" in cut and "narrow the period" in cut
+	assert "'--limit 100'" in subroutine.cli.personal.journal_stopped(range(50), limit=50)
+
+
 def test_changes_names_what_moved_and_how_to_carry_on (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

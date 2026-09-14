@@ -3557,12 +3557,35 @@ def _say_where_a_bare_number_goes (
 	)
 
 
+def journal_stopped (entries: typing.Sized, *, limit: int) -> str:
+	"""Say that a journal stopped before the period did, and what reaches the rest — `#2492`.
+
+	**Two causes, and only one of them has a flag for a remedy.** Where the answer is as long as
+	``--limit``, the caller chose where it stopped and a larger number reaches further. Where it
+	is shorter, the instance cut it — a journal over HTTP is one page with no cursor, by decision
+	`#1429`, because it is asked about a period rather than resumed — and no ``--limit`` will
+	reach past that, so the remedy is the period. Told apart by what is in hand, since the
+	instance's page size is its own setting and a number written here would be a second copy.
+	"""
+
+	if len(entries) >= limit:
+		return f"…and more. '--limit {limit * 2}', or a narrower period, to see further."
+
+	return (
+		f"…and more. The instance answers {len(entries)} at a time, so narrow the period to "
+		f"see the rest."
+	)
+
+
 def _say_journal (
 	world: World,
-	gathered: subroutine.fanout.Gathered[list[subroutine.views.JournalEntry]],
+	gathered: subroutine.fanout.Gathered[
+		subroutine.clients.base.Listing[subroutine.views.JournalEntry]
+	],
 	*,
 	console: rich.console.Console,
 	say: typing.Callable[[str], None],
+	limit: int,
 ) -> None:
 	"""Print what happened, grouped by connection and then by day — `#1430`.
 
@@ -3627,6 +3650,14 @@ def _say_journal (
 					subsequent_indent=" " * 12,
 				) or [" " * 12]:
 					console.print(rich.text.Text(line, style=DETAIL))
+
+		# **A journal that stopped says so** (`#2492`). A fortnight read here came back as its
+		# first day, and read as the whole of it — `subroutine list`'s rule, *a listing that had
+		# to stop says so*, broken on the command whose help calls it the one to write up from.
+		if answer.value.has_more:
+			console.print(
+				rich.text.Text(f"    {journal_stopped(answer.value, limit=limit)}", style=DETAIL)
+			)
 
 		say("")
 
@@ -11162,7 +11193,7 @@ def _read_journal (
 
 		def ask (
 			client: subroutine.clients.base.Client,
-		) -> list[subroutine.views.JournalEntry]:
+		) -> subroutine.clients.base.Listing[subroutine.views.JournalEntry]:
 			"""Ask one connection what happened."""
 
 			return client.journal(
@@ -11186,9 +11217,18 @@ def _read_journal (
 				)
 			)
 
+			# **On standard error, so what standard output holds is still a list a script reads**
+			# (`#2492`). The answer is a bare list with no envelope to carry `has_more`, and
+			# changing its shape is a change to what every script already parses.
+			for answer in gathered.answers:
+				if answer.value.has_more:
+					named = f"{answer.connection.label}: " if world.qualifies_connection else ""
+
+					program.warn(f"{named}{journal_stopped(answer.value, limit=limit)}")
+
 			return
 
-		_say_journal(world, gathered, console=program.console, say=program.say)
+		_say_journal(world, gathered, console=program.console, say=program.say, limit=limit)
 
 
 def _moved_under (program: Program, *, which: str, under: str, top: bool) -> None:
