@@ -171,6 +171,17 @@ upgrade involves.
 
 ### Fixed
 
+- **Leaving a settings or People page for your work showed that page again.** Pressing the
+  Subroutine name, or choosing a place in the dropdown, changed the address and left the page
+  on screen - a settings page then said there was no settings page at this address, until you
+  reloaded. Both now take you where they say, with the form for adding something ready to use.
+
+- **An item opened from the agenda had no search, no views and no place in the dropdown until
+  you reloaded.** The top of the page described the agenda behind the item rather than the
+  item, so it offered nothing to search or arrange and said *All workspaces*. It now describes
+  the item's own project, as reloading the same address always did, and its search and views
+  act on that project. *All items* still takes you back to the list you opened it from.
+
 - **A `+project` after a repeat the grammar could not read was lost.** In *"cue a variant on
   every grid on the page +superconductor"*, the unread phrase took the project with it, so the
   task was filed in no project with `+superconductor` left in its title. A repeat phrase now

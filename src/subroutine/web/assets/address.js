@@ -890,6 +890,39 @@ export function pageTitle ({
 	return (scope.length > 0 ? `${scope.join(" / ")}: ${shown}` : shown) + suffix;
 }
 
+export function placeShown (open, listing) {
+	/*
+		The place a page is about: the open item's own where one is open, and otherwise the
+		listing's - `SR#2607`. Shaped as `listingAddress` and `placesToGo` both read it, so
+		either can be handed the answer.
+
+		**An item page is about the item's place, however the reader arrived.** Its address is
+		the item's own (`addressOf`), and loading that address draws the masthead for that place:
+		its search, its views and its name in the dropdown. Opened by a click from the merged
+		agenda, the masthead described the listing behind instead, which is nowhere in
+		particular, so it had no search and no views and said *All workspaces* about one item in
+		one project. One address drew two pages depending on how the reader got there, which this
+		app refuses everywhere else it has been found (`#645`, `#652`, `#962`).
+
+		**The listing behind is not moved.** What is behind the item stays the place the reader
+		came from, so *All items* still returns there, and the dropdown's workspace still moves
+		only when the reader moves it (`#1040`). Only what the masthead describes, and what its
+		controls act on, is the item's.
+
+		**The workspace is the one the item was read from** (`open.slug`), which `show`'s own
+		comment calls the only copy that is always right.
+	*/
+	const item = open && open.item;
+
+	if (!item) return listing;
+
+	return {
+		agenda: false,
+		workspace: open.slug || listing.workspace,
+		project: item.project_path || item.project_key || null,
+	};
+}
+
 export function listingAddress (place) {
 	/*
 		The address of whatever listing is showing behind an open item.

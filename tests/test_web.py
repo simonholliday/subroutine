@@ -17303,6 +17303,53 @@ def test_a_place_names_itself_and_everything_above_it (tmp_path: pathlib.Path) -
 	)
 
 
+def test_an_item_page_is_about_the_items_own_place (tmp_path: pathlib.Path) -> None:
+	"""`SR#2607`: over an open item, the masthead describes the item's place however it was reached.
+
+	Simon, 2026-09-14: opened from the agenda, an item had no search, no views and a dropdown
+	saying *All workspaces*, and a reload drew all three. **The rule is `placeShown`'s and the
+	masthead reads it**, so it is asked here beside the two things it is handed to: the options
+	the dropdown marks and the address the views are built on. A listing with no item open is
+	answered with itself, which is what keeps every other page as it was.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const agenda = {{ agenda: true, workspace: "projects", project: null }};
+		const item = {{
+			slug: "personal", item: {{ ref: 2, project_key: "ui", project_path: "subroutine/ui" }},
+		}};
+		const here = app.placeShown(item, agenda);
+		const workspaces = [
+			{{ slug: "personal", title: "Personal" }}, {{ slug: "projects", title: "Projects" }},
+		];
+
+		process.stdout.write(JSON.stringify({{
+			nothing: app.placeShown(null, agenda),
+			here,
+			keyed: app.placeShown({{ slug: "personal", item: {{ ref: 3, project_key: "errands" }} }}, agenda),
+			unslugged: app.placeShown({{ item: item.item }}, agenda),
+			address: app.listingAddress(here),
+			chosen: app.placesToGo(workspaces, {json.dumps(SOME_PROJECTS)}, here)
+				.filter((one) => one.chosen).map((one) => one.value),
+		}}));
+	""")
+
+	assert answers["nothing"] == {"agenda": True, "workspace": "projects", "project": None}
+	assert answers["here"] == {
+		"agenda": False, "workspace": "personal", "project": "subroutine/ui",
+	}, answers["here"]
+	assert answers["keyed"]["project"] == "errands", "an item with no path is placed by its key"
+	assert answers["unslugged"]["workspace"] == "projects", (
+		"an item read from no named workspace takes the listing's, which is `openIn`'s own fallback"
+	)
+	assert answers["address"] == "/personal/subroutine/ui", answers["address"]
+	assert answers["chosen"] == ["/personal/subroutine/ui"], (
+		f"the dropdown marks {answers['chosen']} over an item in personal/subroutine/ui"
+	)
+
+
 def test_a_place_leads_to_its_settings_only_for_a_reader_who_may_change_one (
 	tmp_path: pathlib.Path,
 ) -> None:

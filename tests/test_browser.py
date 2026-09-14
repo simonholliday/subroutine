@@ -3285,7 +3285,7 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	project label in `SR#959`, and `widen`'s own missing half before it.
 	"""
 
-	opened, _written, _refusing, *_ = running
+	opened, _written, _refusing, _roster, _missing, reads, *_ = running
 	page = opened("/projects?view=board&include_completed=true")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
@@ -3365,6 +3365,28 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	assert int(on_agenda["menu"].split(",")[2]) == on_agenda["right"], (
 		f"the menu under the reader's name is not at the right-hand end of the masthead: "
 		f"{on_agenda}"
+	)
+
+	# **And home from an administrative area** - `SR#2606`, Simon's. `area` was read from the
+	# address when the app started and when Back moved it, and nowhere else, so the wordmark on
+	# a settings page wrote `/` and left the settings drawn under it, saying there was no settings
+	# page at this address, until a reload. The area also read none of the work, so the page it
+	# leaves for has to ask for the workspace the capture box files into.
+	settings = opened("/settings/me")
+	settings.wait_for_selector(".settings", timeout=10_000)
+	reads.clear()
+	settings.locator("h1 a").click()
+	settings.wait_for_url("http://app.test/", timeout=10_000)
+	settings.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	assert settings.locator(".settings").count() == 0, (
+		"the wordmark went home and the settings area is still drawn under the agenda's address"
+	)
+
+	_until(settings, lambda: any(one.startswith("v1/meta") for one in reads))
+
+	assert any(one.startswith("v1/meta") and "workspace_id=" in one for one in reads), (
+		f"leaving a settings page read nothing the capture box files from: {reads}"
 	)
 
 
@@ -3710,6 +3732,18 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
 	assert control.input_value() == "", "there is no way back to everything from the control"
+
+	# **And out of an administrative area** - `SR#2606`. The control is on a settings page too,
+	# and choosing a place there wrote its address and left the settings drawn beneath it.
+	page = opened("/settings/me")
+	page.wait_for_selector(".settings", timeout=10_000)
+	page.locator("header .where select").select_option("/projects")
+	page.wait_for_url("http://app.test/projects*", timeout=10_000)
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+
+	assert page.locator(".settings").count() == 0, (
+		"choosing a workspace on a settings page moved the address and left the settings drawn"
+	)
 
 
 def test_one_workspace_is_still_something_you_can_choose_and_go_into (
@@ -4401,6 +4435,40 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 			f"the search went to {one!r} — refs are per workspace, so this reader is searching "
 			f"somewhere other than the page they are looking at"
 		)
+
+	# **And a third way in, the masthead over the item** - `SR#2607`, Simon's. Opened from `/`,
+	# the item had no search and no views and its dropdown said *All workspaces* until a reload,
+	# because the masthead described the agenda behind the item. It describes the item's place
+	# now, as a load of the address does, and its views go there; the listing behind the item is
+	# still the one the reader came from, so *All items* still returns to `/`.
+	page.goto("http://app.test/")
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector(".detail", timeout=10_000)
+	page.wait_for_selector("header .views a", timeout=10_000)
+
+	views = page.locator("header .views a").evaluate_all(
+		"(links) => links.map((one) => one.getAttribute('href').split('?')[0])"
+	)
+
+	assert set(views) == {"/personal/subroutine/ui"}, (
+		f"over an item in personal/subroutine/ui the views lead to {views}, so the masthead "
+		f"still describes the agenda behind the item rather than the page it is on"
+	)
+	assert (page.locator(".detail a.back").get_attribute("href") or "").startswith("/?"), (
+		"All items no longer returns to the agenda the item was opened from"
+	)
+
+	reads.clear()
+	page.locator("header .views a", has_text="list").click()
+	page.wait_for_url(re.compile(r".*/personal/subroutine/ui\?view=list.*"), timeout=10_000)
+	_until(page, lambda: any(one.split("?")[0] == "v1/tasks" for one in reads))
+
+	arranged = [one for one in reads if one.split("?")[0] == "v1/tasks"]
+
+	assert arranged and all(
+		"workspace_id=personal" in one and "project=subroutine%2Fui" in one for one in arranged
+	), f"the item's list view asked for {arranged}, which is not the item's place: {reads}"
 
 	page.close()
 

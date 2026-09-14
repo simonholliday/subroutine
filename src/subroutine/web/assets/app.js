@@ -22,7 +22,7 @@ import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, MAX_REF, ONLY_FINISHED,
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
-	parseAddress, permits, placeTrail, projectLabel, refAsked, reloads, selectionOf,
+	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
 	shortVersion, settingsAddress, settingsPageOf, showingOf, showsWork, titlesByPath, viewOf,
 	withShowing, widened,
 } from "./address.js";
@@ -698,10 +698,19 @@ export function App () {
 		**A no-op where it is already that workspace**, which is what makes it safe to call
 		without asking: choosing the one you are in should not refetch its vocabulary, and both
 		of the other callers reach it far more often with the workspace unchanged than changed.
-	*/
-	const enter = useCallback((slug) => {
-		if (!slug || slug === workspace) return;
 
+		**Unless nothing has read that workspace yet** (`SR#2606`). An administrative area reads
+		none of the work (`#2508`), so a reader who arrived at a settings page is already *in* the
+		workspace `start` chose and has never been told what it calls things or who is in it. A
+		no-op keyed on the slug alone left the capture form with nothing to offer on the way out,
+		by a control or by the back button, so it is keyed on what was last asked instead.
+	*/
+	const furnishedFor = useRef(null);
+
+	const enter = useCallback((slug) => {
+		if (!slug || (slug === workspace && furnishedFor.current === slug)) return;
+
+		furnishedFor.current = slug;
 		setWorkspace(slug);
 
 		/* Not awaited, and neither is a failure lost: both swallow their own and leave the
@@ -1228,6 +1237,11 @@ export function App () {
 				on the page can reach. `/people` was the same, and asked one workspace for its
 				members twice.
 			*/
+			/* **What `enter` asks to know whether a workspace has been read** (`SR#2606`), set
+			   only where the reads below happen: an area skips them, so it leaves the workspace
+			   unread and the first control that leaves the area reads it. */
+			if (showsWork(area)) furnishedFor.current = slug;
+
 			await Promise.all(!showsWork(area) ? [] : [
 				/*
 					**The arrangement decides which reader now, not the address** (`#1215`,
@@ -2309,6 +2323,15 @@ export function App () {
 		*/
 		const plainly = { view: null, selection: {} };
 
+		/*
+			**Out of an administrative area too** (`SR#2606`). `area` is read from the address when
+			the app starts and when the back button moves it, and nowhere else, so pressing the
+			wordmark on a settings page wrote `/` and left the settings area drawn beneath it:
+			*there is no settings page at this address*, until a reload. `enter` then reads the
+			workspace the capture box files into, which an area never did.
+		*/
+		setArea(null);
+		enter(workspace);
 		nowOpen(null);
 		setProject(null);
 		setNote(null);
@@ -2321,7 +2344,7 @@ export function App () {
 		go("/", { arranged: plainly });
 
 		await readAgenda();
-	}, [go, me, nowOpen, nowShowing, readAgenda]);
+	}, [enter, go, me, nowOpen, nowShowing, readAgenda, workspace]);
 
 	const narrow = useCallback(async (address) => {
 		/*
@@ -2352,6 +2375,10 @@ export function App () {
 		   anything naming a project to this. */
 		const where = (place && place.workspace) || workspace;
 
+		/* **Leaving an administrative area if that is where the reader was** (`SR#2606`) — the
+		   dropdown reaches here from a settings page, and an area left drawn would sit under an
+		   address naming a project. `home` says why nothing else clears it. */
+		setArea(null);
 		setProject(wanted);
 		setEverywhere(false);
 		go(address);
@@ -2390,6 +2417,8 @@ export function App () {
 	const chooseWorkspace = useCallback(async (slug) => {
 		/* A workspace is the whole of it: a project from the one you were in does not exist
 		   here, and carrying it over would narrow to nothing and look like an empty backlog. */
+		/* **Leaving an administrative area** (`SR#2606`), for `narrow`'s reason one level up. */
+		setArea(null);
 		enter(slug);
 		setProject(null);
 		setNote(null);
@@ -2483,9 +2512,16 @@ export function App () {
 			workspace (§6.2), and this control is rendered only off the agenda, so a search is
 			always inside exactly one.
 		*/
+		/* **The place the masthead describes** (`SR#2607`): over an open item, the item's own,
+		   which is what the search box is drawn for. A ref is looked up there too, since refs
+		   are allocated per workspace. */
+		const place = placeShown(held.current, { agenda: everywhere, workspace, project });
 		const jumping = refAsked(asked);
 
-		if (jumping !== null && await show({ ref: jumping, kind: null }, { quiet: true })) return;
+		if (
+			jumping !== null
+			&& await show({ ref: jumping, kind: null }, { quiet: true, slug: place.workspace })
+		) return;
 
 		/*
 			**A search is a list of results, so searching leaves the agenda** (`#1215`).
@@ -2516,22 +2552,40 @@ export function App () {
 		   which is what `close` was fixed for, arriving from a third door now that the control
 		   is reachable over an item at all. */
 		nowOpen(null);
-		go(listingAddress({ agenda: everywhere, workspace, project }), { arranged: wanted });
+
+		/* **Into the item's place, where that is not the listing's** (`SR#2607`), the three
+		   steps `narrow` takes: the place is state as well as address, and the next write reads
+		   the state. */
+		const moving = place.agenda !== everywhere || place.workspace !== workspace
+			|| place.project !== project;
+
+		if (moving) {
+			setEverywhere(place.agenda);
+			setProject(place.project);
+			enter(place.workspace);
+		}
+
+		go(listingAddress(place), { arranged: wanted });
 
 		/* **Leaving the agenda if that is where the search started.** It returned here instead,
 		   which was right while the agenda had no search box; now the box is on every page that
 		   names a place, and a search that wrote an address and left the buckets on screen would
 		   be the page and the bar disagreeing. */
-		if (wanted.view === AGENDA_VIEW) return;
+		if (wanted.view === AGENDA_VIEW) {
+			if (moving) await readAgenda(place.workspace, place.project);
+
+			return;
+		}
 
 		setAgenda(null);
 
 		try {
-			await load(workspace, project);
+			await load(place.workspace, place.project);
 		} catch (failure) {
 			setNote({ text: `That search was refused. ${failure.message}`, tone: "bad" });
 		}
-	}, [agenda, go, load, nowOpen, nowShowing, project, show, showing, workspace]);
+	}, [agenda, enter, everywhere, go, load, nowOpen, nowShowing, project, readAgenda, show,
+		showing, workspace]);
 
 	const chooseOrder = useCallback(async (asked) => {
 		/*
@@ -2703,18 +2757,27 @@ export function App () {
 		*/
 		const again = reloads(showing, wanted);
 
+		/* **The place the masthead describes** (`SR#2607`), which over an open item is the
+		   item's own: that is where its views were drawn to go. */
+		const place = placeShown(held.current, { agenda: everywhere, workspace, project });
+		const moving = place.agenda !== everywhere || place.workspace !== workspace
+			|| place.project !== project;
+
 		nowShowing(wanted);
 
 		/* As `chooseSearch`: this writes a listing address, so it leaves the item (`#786`). */
 		nowOpen(null);
 
+		if (moving) {
+			setEverywhere(place.agenda);
+			setProject(place.project);
+			enter(place.workspace);
+		}
+
 		/* **The address first, then the reload** — and the order is the whole of why `load`
 		   needs no argument for this: it reads the arrangement from the address, which `go` has
 		   already written. */
-		go(
-			listingAddress({ agenda: everywhere, workspace, project }),
-			{ arranged: wanted },
-		);
+		go(listingAddress(place), { arranged: wanted });
 
 		/*
 			**Entering and leaving the agenda is this control's job now** (`#1215`).
@@ -2731,7 +2794,7 @@ export function App () {
 			place, and this only decides how it is drawn.
 		*/
 		if (wanted.view === AGENDA_VIEW) {
-			await readAgenda(everywhere ? null : workspace, project);
+			await readAgenda(place.agenda ? null : place.workspace, place.project);
 
 			return;
 		}
@@ -2739,14 +2802,15 @@ export function App () {
 		/* **Leaving the agenda always reloads, whatever `reloads` says about the selection.**
 		   The two arrangements read different endpoints, so there are no rows in hand to
 		   rearrange — a version that trusted `again` here would leave the agenda's buckets on
-		   screen under an address saying `?view=list`. */
+		   screen under an address saying `?view=list`. **And so does arriving somewhere else**
+		   (`SR#2607`), whose rows nobody has read. */
 		const leaving = agenda !== null;
 
 		if (leaving) setAgenda(null);
 
-		if (leaving || again) await load(workspace, project);
-	}, [agenda, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda, showing,
-		workspace]);
+		if (leaving || again || moving) await load(place.workspace, place.project);
+	}, [agenda, enter, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda,
+		showing, workspace]);
 
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
@@ -2754,6 +2818,14 @@ export function App () {
 	   what the view switcher hangs its arrangements off. One expression, because `close` and
 	   `chooseView` already agree on it and a second spelling here would be the thing that drifts. */
 	const behind = listingAddress({ agenda: everywhere, workspace, project });
+
+	/*
+		**What the masthead describes and what its controls act on** - `SR#2607`. Over an open
+		item that is the item's own place, which is what loading the item's address draws; the
+		listing's otherwise. `behind` above is still where *All items* goes, because the listing
+		behind an item is the one the reader came from.
+	*/
+	const here = placeShown(open, { agenda: everywhere, workspace, project });
 
 	/*
 		**The one question the render asks of the selection**, named once.
@@ -2866,8 +2938,12 @@ export function App () {
 						onChange=${(event) => (event.target.value
 							? goTo(event.target.value)
 							: home())}>
-						${placesToGo(me.workspaces, filable,
-							{ workspace, project, agenda: everywhere }).map((one) => html`
+						${/* **The open item's place, from its own workspace's projects** (`SR#2607`):
+						     `furnished` is the switcher's tree for an item in the switcher's
+						     workspace and the item's own otherwise, which `#1041` already reads
+						     for the item's form. */ null}
+						${placesToGo(me.workspaces, open ? furnished.projects : filable,
+							here).map((one) => html`
 							<option key=${one.value} value=${one.value} selected=${one.chosen}>
 								${"\u00a0\u00a0".repeat(one.depth) + one.label}
 							</option>
@@ -2900,9 +2976,9 @@ export function App () {
 				wiring rather than in rules. Two of the three are arrangements and one is a
 				selection (`#738`); they look alike because the taxonomy belongs in the address,
 				not in the furniture. **And each is a real link** (`#722`), so a reader can open the
-				board in a tab beside their list. **Shown over an open item too** (`#786`), and
-				`behind` is already the address of the listing underneath — so a chip on an item
-				page is the way back to that listing, arranged as the reader asked.
+				board in a tab beside their list. **Shown over an open item too** (`#786`), and since
+				`SR#2607` they are the item's own place's, as a load of the item's address draws them;
+				*All items* is the way back to the listing the reader came from.
 
 				**Still nothing at `/`.** The merged agenda spans every workspace and
 				`GET /v1/tasks` refuses an ambiguous one (§8.2), so there is nothing for a search
@@ -2910,12 +2986,12 @@ export function App () {
 				`/?view=list` for a backlog nothing implements. A control that led somewhere the
 				app cannot go is worse than no control.
 			*/ null}
-			${!everywhere && html`
+			${!here.agenda && html`
 				<div class="within">
 					<${Seeking} busy=${busy} onSearch=${chooseSearch}
 						asked=${showing.selection.q || ""} />
 					<nav class="views" aria-label="Which view">
-						${chips(behind, showing).map((chip) => html`
+						${chips(listingAddress(here), showing).map((chip) => html`
 							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}
 								href=${chip.href}
 								aria-current=${chip.chosen ? "true" : undefined}
@@ -3340,6 +3416,7 @@ export {
 	pageTitle,
 	parseAddress,
 	permits,
+	placeShown,
 	placeTrail,
 	projectLabel,
 	refAsked,
