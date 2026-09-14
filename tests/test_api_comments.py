@@ -197,6 +197,28 @@ def test_an_empty_or_enormous_body_is_refused (world: test_api_tasks.World) -> N
 	assert "body" in refused.text
 
 
+def test_a_comment_too_long_is_told_to_become_a_finding (world: test_api_tasks.World) -> None:
+	"""`#2434`, Simon 2026-09-14: the limit stays, and the refusal says what to do instead.
+
+	Two forty-line log excerpts were refused on a real item, and what the evidence wanted was a
+	finding document linked from it. Asserted on the problem document, which is what every
+	surface reads, so the terminal, an agent's tool and the browser say the same thing.
+	"""
+
+	task = world.call("POST", "/v1/tasks", json={"title": "A task"}).json()
+	refused = world.call(
+		"POST",
+		f"/v1/tasks/{task['ref']}/comments",
+		json={"body": "x" * (subroutine.domain.comments.MAX_BODY_LENGTH + 1)},
+	)
+	problem = refused.json()
+
+	assert refused.status_code == 413
+	assert problem["detail"].startswith("That comment is "), problem["detail"]
+	assert "document of type finding" in problem["hint"], problem
+	assert "link it to this item" in problem["hint"]
+
+
 def test_a_narrowed_token_cannot_comment (session: sqlalchemy.orm.Session) -> None:
 	"""``comment:write`` is a real verb and a read-only agent must not have it."""
 

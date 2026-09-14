@@ -52,6 +52,23 @@ ENTITY_TYPES = subroutine.db.mixins.COMMENT_ENTITY_TYPES
 #: and the limit — SQLite does not enforce a length at all.
 MAX_BODY_LENGTH = 10_000
 
+#: What a person or an agent is told to do instead, when a comment is too long - `#2434`.
+#:
+#: **The limit stays, and the refusal teaches the move it exists for** (Simon, 2026-09-14). Two
+#: forty-line log excerpts were refused on `#2195`, and what the evidence wanted was a finding
+#: document linked from the item: a comment says what happened, and a document is what was
+#: concluded along with what it rests on. Measured the same day, 1,503 comments over a fortnight
+#: had a median of 908 characters and a longest of 6,662, so prose never reaches this and pasted
+#: evidence is what does.
+#:
+#: **Named in no surface's own words**, because the same sentence reaches a terminal, an agent's
+#: tool and the browser: it says what to make, not which command makes it.
+TOO_LONG_HINT = (
+	"A comment says what happened. Evidence this long - a log, a table of results - belongs in a "
+	"document of type finding: write it there, link it to this item, and say in a comment what "
+	"it shows."
+)
+
 
 def _entity (
 	session: sqlalchemy.orm.Session,
@@ -199,6 +216,10 @@ def _clean (body: str) -> str:
 		subroutine.domain.text.require(body, field="body"),
 		field="body",
 		limit=MAX_BODY_LENGTH,
+		# *That comment is 14000 characters* rather than *that body*, which is the wire's name
+		# for it and not a word anybody writing one would use.
+		label="comment",
+		hint=TOO_LONG_HINT,
 		# **The one field here that is genuinely prose** (`#927` H-8). Everything else
 		# `text.fit` sees is a title, a name or a slug, and those are one line by definition —
 		# so the default collapses whitespace and this says out loud that a comment is the

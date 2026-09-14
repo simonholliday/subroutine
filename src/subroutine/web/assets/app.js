@@ -27,8 +27,8 @@ import {
 	widened,
 } from "./address.js";
 import {
-	Boundary, accumulated, inOrder, mergeOrder, newestFirst, refusal, sunkOrder, unpacked,
-	unrenderable,
+	Boundary, accumulated, inOrder, mergeOrder, newestFirst, notChanged, refusal, sunkOrder,
+	unpacked, unrenderable,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Prose, THEMES, Theme, Wordmark, applyTheme, themeChoice,
@@ -1698,7 +1698,7 @@ export function App () {
 			: load(workspace, project));
 	}, [agenda, everywhere, load, me, open, openIn, project, readAgenda, show, workspace]);
 
-	const wrote = useCallback(async (row, said, run) => {
+	const wrote = useCallback(async (row, said, run, { hinted = false } = {}) => {
 		/*
 			**One path for every write, and the whole of why it exists is the failure case.**
 
@@ -1721,7 +1721,7 @@ export function App () {
 
 			return answer;
 		} catch (failure) {
-			setNote({ text: `#${row.ref} was not changed. ${failure.message}`, tone: "bad" });
+			setNote({ text: notChanged(row.ref, failure, { hinted }), tone: "bad" });
 
 			return null;
 		} finally {
@@ -2113,6 +2113,9 @@ export function App () {
 			   the wrong item is the least recoverable of the seven: nothing about it looks
 			   like an accident afterwards. */
 			() => sent(commentRequest(open.item, body, openIn)),
+			/* **A comment's refusals are written for anybody**, so its hint is shown: one too
+			   long is told to become a finding document (`#2434`). */
+			{ hinted: true },
 		));
 	}, [open, openIn, wrote]);
 
@@ -3345,6 +3348,7 @@ export {
 	inOrder,
 	mergeOrder,
 	newestFirst,
+	notChanged,
 	refusal,
 	sunkOrder,
 	unpacked,

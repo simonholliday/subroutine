@@ -451,6 +451,22 @@ export function accumulated (held, arriving, { appending, collections, ordering 
 
 /* ---- surviving a component that throws (`#680`) -------------------------- */
 
+export function notChanged (ref, failure, { hinted = false } = {}) {
+	/*
+		What a reader is told when a write on an item was refused - `#2434`.
+
+		**The refusal's own sentence, and its hint only where the form asks for one.** A hint is
+		the half of a problem document that says what to do, and this page dropped every one of
+		them. They are not all written for a browser - twenty-two of the instance's name a
+		terminal command - so showing them everywhere would hand a reader advice they cannot
+		take. A form whose refusals are known to be written for anybody asks, and the comment box
+		is the first: a comment too long is told to become a finding document instead.
+	*/
+	const hint = hinted && failure && failure.body && failure.body.hint;
+
+	return `#${ref} was not changed. ${failure.message}${hint ? ` ${hint}` : ""}`;
+}
+
 export function unrenderable (failure, what) {
 	/*
 		What a reader is shown in place of something that would not render.

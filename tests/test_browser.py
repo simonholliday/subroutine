@@ -34,6 +34,7 @@ import pytest
 import conftest
 import subroutine.api.policy
 import subroutine.api.web
+import subroutine.domain.comments
 import test_web
 
 #: Every rendering the app can produce, which is what `SAMPLES` already is. Reused rather than
@@ -925,6 +926,9 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 	repeating: list[bool] = [False]
 	#: The status every write is answered with, or ``None`` for the ordinary success.
 	refusing: list[int | None] = [None]
+	#: The problem document a refused write carries - `SR#2434`. A holder for `listing`'s reason,
+	#: so one test can refuse a comment for its length, with the hint that refusal really sends.
+	refused_with: list[dict[str, typing.Any]] = [REFUSED]
 	#: Who the reader is, so one test can ask about an instance holding a single workspace —
 	#: `#975`. A holder for `listing`'s reason: the route is registered on the context once.
 	roster: list[typing.Any] = [IDENTITY]
@@ -1010,7 +1014,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				if refusing[0] is not None:
 					route.fulfill(
 						status=refusing[0],
-						body=json.dumps(REFUSED),
+						body=json.dumps(refused_with[0]),
 						content_type="application/problem+json",
 					)
 
@@ -1225,6 +1229,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		parts[0] = EMPTY
 		referring[0] = EMPTY
 		refusing[0] = None
+		refused_with[0] = REFUSED
 		roster[0] = IDENTITY
 		missing[0] = set()
 		repeating[0] = False
@@ -1234,7 +1239,9 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 
 	try:
 		yield (
-			opened, written, refusing, roster, missing, reads, unreadable, repeating, restore
+			# `refused_with` before `restore`, because `tidy` takes `restore` from the end.
+			opened, written, refusing, roster, missing, reads, unreadable, repeating, refused_with,
+			restore,
 		)
 	finally:
 		context.close()
@@ -3059,9 +3066,15 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	Both branches, because they are one line apart and fail in opposite directions: a refusal
 	must keep the text, and success must still clear it — a form that never cleared would put
 	the last capture into the next one.
+
+	**And a refused comment is told what to write instead** (`SR#2434`), in the box where the
+	typing costs most. The instance's real refusal, with the hint ``comments`` sends: a comment
+	too long is evidence that belongs in a finding document, and the page drops every other hint
+	because most of them name a terminal command.
 	"""
 
-	opened, written, refusing, *_ = running
+	opened, written, refusing, *rest = running
+	refused_with = rest[-2]
 	page = opened("/projects")
 
 	refusing[0] = 403
@@ -3083,6 +3096,27 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	)
 
 	page.close()
+
+	item = opened("/projects/subroutine/ui/42")
+
+	refusing[0] = 413
+	refused_with[0] = {
+		"type": "about:blank", "title": "Payload Too Large", "status": 413,
+		"code": "payload_too_large",
+		"detail": "That comment is 14000 characters, and the limit is 10000.",
+		"hint": subroutine.domain.comments.TOO_LONG_HINT,
+	}
+
+	item.fill(".detail form.saying textarea", "Forty lines of a log.")
+	item.click(".detail form.saying button[type='submit']")
+	item.wait_for_selector(".note.bad", timeout=10_000)
+
+	said = item.inner_text(".note.bad")
+
+	assert "document of type finding" in said, f"the refusal did not say what to write: {said}"
+	assert item.input_value(".detail form.saying textarea") == "Forty lines of a log."
+
+	item.close()
 
 
 def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -> None:

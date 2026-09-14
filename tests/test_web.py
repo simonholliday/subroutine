@@ -7022,6 +7022,38 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 	"""))
 
 
+def test_a_refused_write_shows_its_hint_only_where_the_form_asks (tmp_path: pathlib.Path) -> None:
+	"""`#2434`. The browser dropped every hint, including the one saying what to do instead.
+
+	**Only where asked**, because twenty-two of the instance's hints name a terminal command, and
+	showing those in a browser hands a reader advice they cannot take. Driven through the real
+	``refusal`` so the hint is read from the same problem document the page receives.
+	"""
+
+	module = _staged(tmp_path)
+	problem = {
+		"detail": "That comment is 14000 characters, and the limit is 10000.",
+		"hint": "Write it as a finding document and link it.",
+	}
+
+	asked, plain = _ran(tmp_path, f"""
+		import * as app from "{module.as_uri()}";
+
+		const failure = app.refusal(413, {json.dumps(problem)});
+
+		process.stdout.write(JSON.stringify([
+			app.notChanged(42, failure, {{ hinted: true }}),
+			app.notChanged(42, failure),
+		]));
+	""")
+
+	assert asked == (
+		"#42 was not changed. That comment is 14000 characters, and the limit is 10000. "
+		"Write it as a finding document and link it."
+	)
+	assert plain == "#42 was not changed. That comment is 14000 characters, and the limit is 10000."
+
+
 def test_an_item_has_a_readable_address_and_a_durable_one (tmp_path: pathlib.Path) -> None:
 	"""The readable form carries the project; the durable one cannot, because a key is renameable.
 
