@@ -190,6 +190,15 @@ upgrade involves.
   Subroutine name, or choosing a place in the dropdown, changed the address and left the page
   on screen - a settings page then said there was no settings page at this address, until you
   reloaded. Both now take you where they say, with the form for adding something ready to use.
+  And stepping back into one from your work drew that work's search and views above it, where
+  choosing one moved the address and left the page on screen; it is drawn as loading its
+  address draws it.
+
+- **Following a link on an item from another workspace opened the wrong item.** On an item
+  opened from the agenda that lives in another of your workspaces, a plain click on something
+  it links to, one of its parts, what it says to read first or what refers to it opened the item
+  with that number in the workspace you were in, or said there was none - while opening the
+  same link in a new tab was right. A click now opens the item the link names.
 
 - **An item opened from the agenda had no search, no views and no place in the dropdown until
   you reloaded.** The top of the page described the agenda behind the item rather than the

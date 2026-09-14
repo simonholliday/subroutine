@@ -3844,6 +3844,29 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 		"choosing a workspace on a settings page moved the address and left the settings drawn"
 	)
 
+	# **And back into it, drawn as a load draws it** - `SR#2628`. Stepping back kept the place of
+	# the listing it had left, so the settings page was drawn under that listing's search and
+	# views, and using one wrote a listing's address with the settings still on screen.
+	page.go_back()
+	page.wait_for_url("http://app.test/settings/me", timeout=10_000)
+	page.wait_for_selector(".settings", timeout=10_000)
+
+	assert page.locator("header .within").count() == 0, (
+		"back on a settings page, the search and views of the listing it left are drawn over it"
+	)
+
+	stepped = page.locator("header .where select").input_value()
+	page.close()
+	loaded = opened("/settings/me")
+	loaded.wait_for_selector(".settings", timeout=10_000)
+
+	assert stepped == loaded.locator("header .where select").input_value(), (
+		f"back on a settings page the dropdown says {stepped!r}, and a load of the same address "
+		f"says otherwise"
+	)
+
+	loaded.close()
+
 
 def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	running: typing.Any,
@@ -4373,6 +4396,32 @@ def test_an_open_item_is_furnished_from_the_workspace_it_is_in (
 	# **Put back**, because `running` is module-scoped and a read-only workspace left on the
 	# roster would take the controls off every later test that needs them.
 	roster[0] = before
+
+	# **And what the item refers to opens in its workspace** (`SR#2629`). The page was handed
+	# `show` without the item's workspace, so a left click on an entry read the switcher's item of
+	# that number, while the link it was drawn as named this item's.
+	page = opened("/", cited_by=REFERRING)
+	page.wait_for_selector(".listing.agenda", timeout=10_000)
+	page.click(".listing.agenda a.row[href='/personal/subroutine/ui/2']")
+	page.wait_for_selector("#section-referring li a", timeout=10_000)
+
+	entry = page.locator("#section-referring li a").first
+	address = entry.get_attribute("href") or ""
+	wanted = f"v1/tasks/{address.rsplit('/', 1)[-1]}"
+
+	assert address.startswith("/personal/"), f"the entry's own link names {address}"
+
+	reads.clear()
+	entry.click()
+	_until(page, lambda: any(read.split("?")[0] == wanted for read in reads))
+
+	followed = [read for read in reads if read.split("?")[0] == wanted]
+
+	assert followed and all("workspace_id=personal" in read for read in followed), (
+		f"a left click on {address} read {followed}, which is another workspace's item"
+	)
+
+	page.close()
 
 	# **Nothing rather than the wrong thing, which is the half a fallback would hide.** The two
 	# mutations that matter here are opposite: furnishing from the switcher fails the assertions

@@ -1327,6 +1327,13 @@ export function App () {
 			setArea(stepped);
 
 			if (stepped !== null) {
+				/* **And in the place `start` draws it in** (`#2628`). An administrative address
+				   names no place, so a load of `/settings/me` draws no search and no views. Back
+				   into one kept the place of the listing it had left, so the settings were drawn
+				   under that listing's search and views, and using one wrote a listing's address
+				   with the settings still on screen. */
+				setEverywhere(true);
+				setProject(null);
 				nowOpen(null);
 
 				return;
@@ -2489,6 +2496,10 @@ export function App () {
 			because they typed too many words is the failure `viewOf` already declined for a
 			mistyped arrangement, arriving by a third door.
 		*/
+		/* **Leaving an administrative area** (`#2628`), as `home`, `narrow` and
+		   `chooseWorkspace` do since `SR#2606`: this writes a listing's address too. */
+		setArea(null);
+
 		const asked = text.trim();
 
 		/*
@@ -2756,6 +2767,9 @@ export function App () {
 			render, so the closure still holds the previous one — the same reason `start` passes
 			`slug` rather than reading `workspace`.
 		*/
+		/* **Leaving an administrative area** (`#2628`), for `chooseSearch`'s reason. */
+		setArea(null);
+
 		const again = reloads(showing, wanted);
 
 		/* **The place the masthead describes** (`SR#2607`), which over an open item is the
@@ -3121,7 +3135,12 @@ export function App () {
 					issued=${issued} onIssued=${() => setIssued(null)}
 					onIssue=${issue} onRevoke=${revoke} busy=${busy} />`
 				: open
-				? html`<${Detail} ...${open} members=${furnished.members} onOpen=${show} busy=${busy}
+				? html`<${Detail} ...${open} members=${furnished.members}
+					${/* **Opened in the item's own workspace** (`#2629`), for `onStatus`'s reason
+					     below: read-first, links, parts and what refers to it each build their
+					     `href` from the item's workspace and opened from the switcher's, so a
+					     left click on an item from elsewhere read another item with that number. */ null}
+					onOpen=${(row) => show(row, { slug: openIn })} busy=${busy}
 					editing=${editing} conflict=${conflict} onSave=${mayWriteThere ? save : null}
 					reading=${reading} onReading=${readRepeat}
 					previewing=${previewing} onPreviewing=${setPreviewing}
