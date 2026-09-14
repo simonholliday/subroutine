@@ -251,6 +251,8 @@ def serving (environment: dict[str, str]) -> typing.Iterator[str]:
 
 		if said is None:
 			try:
+				_warm(url)
+
 				yield url
 
 			finally:
@@ -280,6 +282,25 @@ def _await (server: subprocess.Popen[str], url: str) -> str | None:
 		time.sleep(0.2)
 
 	pytest.fail(f"the server did not answer within {STARTUP_TIMEOUT_SECONDS:g} seconds")
+
+
+def _warm (url: str) -> None:
+	"""Pay a new server's one-time cost before a test's first request has to (`#2616`).
+
+	``/healthz`` answers before FastAPI has built the OpenAPI document, which it builds once, on
+	the first request that reads it. ``/v1/meta`` reads it, and a command asks ``/v1/meta`` who a
+	connection is, so the first command against a new server was paying for its start-up inside
+	the connection's five-second timeout: 0.55 s here against 0.03 s warm. On a CI runner with two
+	slow cores shared by four workers it once took longer than five seconds, and a test about
+	narrowing a listing failed as *"work did not answer within 5 seconds"*.
+
+	``/v1/openapi.json`` builds the same document and needs no credential. It is given the
+	start-up budget, because this is still the server starting; every request a test makes after
+	it keeps the product's own timeout. With the connection timeout cut to 0.3 s, 24 of this
+	file's tests fail without this and none with it.
+	"""
+
+	httpx.get(f"{url}/v1/openapi.json", timeout=STARTUP_TIMEOUT_SECONDS).raise_for_status()
 
 
 def _stop (server: subprocess.Popen[str]) -> None:
