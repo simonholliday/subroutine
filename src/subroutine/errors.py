@@ -70,7 +70,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"malformed_request",
 			400,
 			"Malformed request",
-			"The request could not be read at all — bad JSON, or a header this API has to "
+			"The request could not be read at all - bad JSON, or a header this API has to "
 			"parse and could not. A parameter of the wrong shape is a different answer: the "
 			"request was read, so it is 422 'invalid_field_value' naming the parameter.",
 		),
@@ -98,7 +98,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Not permitted",
 			"The credential is valid but does not permit this. Where the refusal turns on "
 			"a permission the caller lacks, that permission is named so they can ask for a "
-			"token carrying it — but several do not: a token pinned to another workspace, a "
+			"token carrying it - but several do not: a token pinned to another workspace, a "
 			"caller who is not a member, and a project scope narrower than the project "
 			"reached are each about reach rather than about a verb.",
 		),
@@ -129,14 +129,14 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"duplicate_key",
 			409,
 			"Already exists",
-			"Something with that identifying value is already here — a project key, a "
+			"Something with that identifying value is already here - a project key, a "
 			"username, a tag name, or a document that has already been superseded.",
 		),
 		_define(
 			"in_use",
 			409,
 			"Still in use",
-			"The thing being removed is still referenced — a status some tasks are in, a "
+			"The thing being removed is still referenced - a status some tasks are in, a "
 			"link type some links use. The message says how many, so the caller can move "
 			"them rather than guess. Removing a *tag* is deliberately not this: taking a "
 			"label off the things it is on is what deleting a label means.",
@@ -146,7 +146,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			409,
 			"Cycle detected",
 			"The change would make something its own ancestor, in a project tree, a task "
-			"hierarchy, or a chain of links that say which of a pair comes first — the "
+			"hierarchy, or a chain of links that say which of a pair comes first - the "
 			"blocking ones, and the one that says a document replaces another.",
 		),
 		_define(
@@ -158,7 +158,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"this version cannot interpret data it does not know the shape of and a partial "
 			"read is worse than a clear failure. Two things answer with it: a backup being "
 			"put back (docs/design.md §12.6), and any write against a live database that has "
-			"not been migrated yet (§12.4a) — reads are still served, so an instance mid-deploy "
+			"not been migrated yet (§12.4a) - reads are still served, so an instance mid-deploy "
 			"stays readable and refuses to be changed. /readyz reports the same condition as "
 			"503 service_unavailable rather than this, because a load balancer has to read the "
 			"instance as not ready rather than as arguing.",
@@ -206,7 +206,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Invalid status",
 			"The status asked for cannot be used here. Usually no status with that key "
 			"exists for this entity type in this workspace, and then the valid keys are "
-			"listed — an installation may rename them freely, so they are read from the "
+			"listed - an installation may rename them freely, so they are read from the "
 			"workspace rather than assumed. It also reports a workspace with no default "
 			"status at all, where there are no keys to list and the answer is to seed it.",
 		),
@@ -238,7 +238,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"service_unavailable",
 			503,
 			"Not ready",
-			"The instance is running but cannot serve requests yet — most often its "
+			"The instance is running but cannot serve requests yet - most often its "
 			"database is unreachable, or its schema has not been brought up to date. "
 			"Reported by the readiness check so that a deployment holds traffic back "
 			"rather than serving errors.",
@@ -772,7 +772,7 @@ def registry_markdown () -> str:
 				"",
 				f"## {entry.code}",
 				"",
-				f"**{entry.title}** — HTTP {entry.status}.",
+				f"**{entry.title}** - HTTP {entry.status}.",
 				"",
 				" ".join(entry.description.split()),
 			]

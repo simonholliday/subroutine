@@ -1,7 +1,7 @@
 # Running Subroutine as a service
 
 **Every `subroutine` command on this page has been run, and every quoted output is what it
-actually printed** — with only paths and hostnames moved to the deployment described here.
+actually printed** - with only paths and hostnames moved to the deployment described here.
 That includes the refusals, which are worth meeting on a page rather than at two in the
 morning, and a test fails the build if the two quoted bind refusals stop matching what the
 program says. It includes the credentials: a token is quoted whole, because a reader who has
@@ -22,7 +22,7 @@ organised by which of seven situations a person reaching an instance is in, and 
 you for. Sending it to whoever you issue a token to saves the conversation.
 
 > **One thing that is not optional.** Subroutine authenticates with bearer tokens, and a bearer
-> token sent over plain HTTP is a compromised token — anything on the path has it, and it does
+> token sent over plain HTTP is a compromised token - anything on the path has it, and it does
 > not expire on being read. `serve` refuses to listen beyond this machine unless you have said
 > out loud that TLS is handled. [Below](#tls-and-why-serve-refuses-without-it) is what that
 > refusal looks like and how to satisfy it honestly.
@@ -40,18 +40,18 @@ you for. Sending it to whoever you issue a token to saves the conversation.
 ```
 
 It is long, and the length is the point. It says on the line you are reading **who it runs as**,
-**which configuration and data it uses**, and **which copy of the program** — and those are the
+**which configuration and data it uses**, and **which copy of the program** - and those are the
 three things that decide which database you are about to change.
 
 **A bare `subroutine …` reads your own configuration, and that is not a failure you would
 notice.** It does not error: it finds whichever instance your account has, answers confidently
 about that one, and looks exactly like success. The commands on this page that *are* bare are
-bare on purpose — they are about a personal instance, or about a refusal any installation
-produces — and each one says so where it appears.
+bare on purpose - they are about a personal instance, or about a refusal any installation
+produces - and each one says so where it appears.
 
 **No alias, no shell function, no `PATH` change.** A second name for the program exists only in
 a shell somebody has already set up, so an instruction that depends on one depends on a step the
-reader can forget — and forgetting it does not fail, it addresses a different database. That is
+reader can forget - and forgetting it does not fail, it addresses a different database. That is
 the failure this convention exists to prevent, so it is not also the cure. Repetition is cheaper
 than ambiguity here.
 
@@ -92,10 +92,10 @@ That installs the newest published release. To track the repository instead, nam
 # /opt/subroutine/bin/pip install "subroutine[postgres] @ git+https://github.com/simonholliday/subroutine"
 ```
 
-Everything below works the same way, with one exception that has a section of its own — see
+Everything below works the same way, with one exception that has a section of its own - see
 [tracking a git ref](#tracking-a-git-ref-rather-than-a-release) under *Upgrading*.
 
-Subroutine keeps its files under the XDG directories — configuration in
+Subroutine keeps its files under the XDG directories - configuration in
 `$XDG_CONFIG_HOME/subroutine`, the database in `$XDG_DATA_HOME/subroutine`, the current
 context in `$XDG_STATE_HOME/subroutine`. The unit below points all three inside
 `/var/lib/subroutine`, so the service does not depend on the account having a home directory
@@ -105,7 +105,7 @@ is usually in.
 ## First run, and what it writes
 
 **Make the state directory first.** The unit below carries `StateDirectory=subroutine`, which
-creates `/var/lib/subroutine` and hands it to the service account — but only when the service
+creates `/var/lib/subroutine` and hands it to the service account - but only when the service
 first starts, and the service cannot start until `init` has run. So on this one occasion you
 make it yourself:
 
@@ -130,8 +130,8 @@ database and the signing key land where the service will look for them:
 ```
 
 One line, because `init` is written for somebody setting up a to-do list. It has made the
-database, the first workspace, an Inbox and the first user — who is this instance's
-administrator — and it has written exactly one setting:
+database, the first workspace, an Inbox and the first user - who is this instance's
+administrator - and it has written exactly one setting:
 
 ```toml
 # Subroutine configuration. See 'subroutine config show'.
@@ -139,7 +139,7 @@ secret_key = "9ZetNDEWdo6Nu35ujhcOYa7baweWIi66A38HUPSLjaU"
 ```
 
 That file is created `0600`, and so is `credentials.toml`. The key signs pagination cursors
-and nothing else — it is deliberately *not* mixed into stored token hashes, so rotating it
+and nothing else - it is deliberately *not* mixed into stored token hashes, so rotating it
 costs an in-flight page of results rather than every credential in the installation.
 
 **Everything else in `config.toml` you add yourself.** When a value surprises you, ask where it
@@ -162,7 +162,7 @@ came from rather than guessing:
 It lists every setting, not only the ones you have changed, which is how you find out what
 there is to change. Flags beat the environment, the environment beats the file, the file beats the defaults, and
 that column tells you which one won. Every setting can also be given as
-`SUBROUTINE_<NAME>` in the environment — useful for `database_url` when the credential comes
+`SUBROUTINE_<NAME>` in the environment - useful for `database_url` when the credential comes
 from a secrets manager rather than from a file on disk.
 
 **The process reads its configuration once, at start.** Change `config.toml` and restart the
@@ -177,13 +177,13 @@ disagree, so a setting that exists and is not here cannot ship.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `database_url` | SQLite under `$XDG_DATA_HOME` | Which database to use. The one setting most installations change |
-| `host` | `127.0.0.1` | What `serve` binds to. Never `0.0.0.0` by default — see TLS below |
+| `host` | `127.0.0.1` | What `serve` binds to. Never `0.0.0.0` by default - see TLS below |
 | `port` | `8471` | What `serve` binds to |
 | `public_url` | unset | The address a proxy serves this instance on. Published in `/v1/meta`, and what makes a non-loopback bind legal |
 | `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
 | `source_url` | this project | Where this instance's source can be had. A promise the product makes, not a licence obligation |
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
-| `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone — never your routine backups, which go only when `db backup --keep N` asks |
+| `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone - never your routine backups, which go only when `db backup --keep N` asks |
 | `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |
 | `local_user` | unset | Which account to act as when the database holds more than one and nobody logged in |
@@ -192,25 +192,25 @@ disagree, so a setting that exists and is not here cannot ship.
 | `rate_limit_per_minute` | `600` | Requests per credential per minute, once limiting is on |
 | `rate_limit_failures_per_minute` | `30` | Failed authentications per **address** per minute. Keyed on the address on purpose: a token prefix is the caller's to choose, so keying failures on it would hand an attacker a fresh allowance per guess |
 | `rate_limit_polls_per_minute` | `60` | Calendar fetches per **feed** per minute. Its own bucket rather than a share of the one above: a poller and a person make requests at different rates, and one misconfigured calendar client should not empty the allowance its owner's terminal draws from |
-| `calendars_enabled` | `true` | Whether this instance has calendar feeds at all. A feed URL is a bearer credential that ends up in a phone's settings and possibly in a screenshot, and a leak is undetectable from here — turn it off and every address answers 404 exactly as an address naming nothing does, and no new feed can be minted. Listing and revoking keep working, so an operator who turned it off *because* something leaked can still end the subscription |
-| `request_timeout_seconds` | `30` | How long the database work behind one request may spend on any single statement before it is given up on. A backstop rather than a budget: a request that reaches it has met something the design does not account for, and a bound is what turns a hang into a message somebody can act on. **PostgreSQL only** — see below |
-| `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy — every field has its own limit, and ten megabytes is far more than any legitimate write |
+| `calendars_enabled` | `true` | Whether this instance has calendar feeds at all. A feed URL is a bearer credential that ends up in a phone's settings and possibly in a screenshot, and a leak is undetectable from here - turn it off and every address answers 404 exactly as an address naming nothing does, and no new feed can be minted. Listing and revoking keep working, so an operator who turned it off *because* something leaked can still end the subscription |
+| `request_timeout_seconds` | `30` | How long the database work behind one request may spend on any single statement before it is given up on. A backstop rather than a budget: a request that reaches it has met something the design does not account for, and a bound is what turns a hang into a message somebody can act on. **PostgreSQL only** - see below |
+| `max_body_bytes` | `10485760` | The largest request body this instance will read. A backstop against the request nobody meant to send, not a policy - every field has its own limit, and ten megabytes is far more than any legitimate write |
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
-| `cors_origins` | `[]` | Other origins a browser may call this API from — **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
+| `cors_origins` | `[]` | Other origins a browser may call this API from - **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |
 | `dev_mode` | `false` | Development only. Substitutes a fixed, well-known signing key when `secret_key` is unset, so a throwaway instance starts without one. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
-| `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything — so this bounds a body rather than a call |
+| `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything - so this bounds a body rather than a call |
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |
 | `claim_lease_minutes` | `30` | How long a task claim lasts before it expires. A lease rather than a lock, so a worker that dies does not strand the work |
-| `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** — see below |
+| `search_backend` | `like` | Which implementation answers a search. `native` uses a full-text index and is **PostgreSQL only** - see below |
 
 **`search_backend` changes what a search finds, not only how fast it finds it**, which is why
 it is off by default and why it is worth a paragraph rather than a row.
 
 `like` is what every instance has had until now: it matches your words anywhere inside the
 text, so `ursor` finds *cursor*. It cannot be served by an index, so it reads every row's
-prose — fine for a personal backlog and increasingly not fine as one grows.
+prose - fine for a personal backlog and increasingly not fine as one grows.
 
 `native` builds a full-text index. Measured at 20,000 tasks, a search matching nothing goes
 from **119 ms to 1 ms**. In exchange it matches whole words rather than fragments: `seed` now
@@ -220,16 +220,16 @@ the start, and `ursor` finds nothing at all.
 **And a very common word stops narrowing.** PostgreSQL's text search drops `the`, `of`, `and`
 and their kind before the query is built, so `cursor the` finds whatever `cursor` finds, where
 `like` requires both and would find nothing. That is inherent to full-text search rather than
-a choice made here — it is written down because the rest of this product promises that every
+a choice made here - it is written down because the rest of this product promises that every
 word you type must appear, and under this backend that is one word short of true.
 
 **It also changes the order, and for a growing backlog that is the larger of the two gains.**
 `native` ranks: the best match comes first, and a hit in a title outranks one in a body. `like`
-has no relevance to rank by, so its results fall back to the listing's ordinary order — newest
+has no relevance to rank by, so its results fall back to the listing's ordinary order - newest
 first unless you asked for something else. Measured on a real workspace, the same query found
 the same 28 rows under both and put entirely different ones at the top.
 
-It exists on PostgreSQL only. Asking for it on SQLite is not an error — you get `like`, and
+It exists on PostgreSQL only. Asking for it on SQLite is not an error - you get `like`, and
 `GET /v1/meta` reports which one is actually answering. Turning it on needs no migration
 beyond the ordinary `subroutine db upgrade`; turning it off again is a configuration change
 and nothing else.
@@ -237,7 +237,7 @@ and nothing else.
 **`request_timeout_seconds` is what stops an outage being a silence.** Nothing bounded how
 long one statement could run, so a row lock, a query that would never finish, or a database
 that had stopped answering all reached the caller the same way: no reply, for ever. From
-outside an instance that is indistinguishable from a deploy, a network fault or your proxy —
+outside an instance that is indistinguishable from a deploy, a network fault or your proxy -
 and it has been read as exactly that here, by somebody being careful.
 
 It becomes PostgreSQL's `statement_timeout` on the transaction each request opens, so it is
@@ -247,21 +247,21 @@ actually hangs on a laptop and is not configurable.
 
 **It does not reach a backup**, which is the reason it is worth being precise about where it
 is applied. `POST /v1/admin/backups` legitimately takes minutes on a large database, and it
-does not run on the request's own session — `pg_dump` is a separate process — so no exception
+does not run on the request's own session - `pg_dump` is a separate process - so no exception
 had to be written for it. The same is true of a restore and of `subroutine db upgrade`.
 
 A request that hits the limit is answered with `503 request_timed_out` saying so, and nothing
 it was doing was written. Set it to `0` to go back to waiting indefinitely.
 
 **There are deliberately no retention settings.** §5.11 and §6.9 both describe a retention
-period, and nothing purges anything yet — so `events_retention_days` and
+period, and nothing purges anything yet - so `events_retention_days` and
 `trash_retention_days` were removed rather than documented. A setting that silently does
 nothing is worse than an absent one: you can set it, get no error, and believe it. They come
 back with what enforces them.
 
 ## PostgreSQL, and when to switch
 
-SQLite is the default and it is not a toy — it is the right answer for one person, and for a
+SQLite is the default and it is not a toy - it is the right answer for one person, and for a
 small team that is not writing concurrently. Switch when any of these is true:
 
 - More than a handful of people or agents write at the same time. SQLite serialises writers.
@@ -290,13 +290,13 @@ Then a role and a database, and **both take the name of the service account**:
 ```
 
 `postgresql+psycopg:///subroutine` names no host and no user, so it connects over a Unix socket
-as the *operating system* user — which under the unit is `subroutine`. The default
+as the *operating system* user - which under the unit is `subroutine`. The default
 `pg_hba.conf` maps that straight through with peer authentication, so there is no password to
 keep anywhere and nothing listening on the network.
 
 **`--owner` is load-bearing, and it looks decorative.** Since PostgreSQL 15 the `public` schema
 no longer lets every user create tables in it; the database owner does. Create the database
-without it and the first migration stops on `permission denied for schema public` — a message
+without it and the first migration stops on `permission denied for schema public` - a message
 about schemas, arriving a long way from the decision that caused it.
 
 Worth confirming before Subroutine touches it at all, because both are much cheaper to fix now
@@ -312,11 +312,11 @@ The first should report connecting as `subroutine` over a socket. In the second,
 `SQL_ASCII` cluster.
 
 A database on **another machine**, or one that wants a password, takes the full URL form
-instead — and then `After=postgresql.service` in the unit is meaningless and can go.
+instead - and then `After=postgresql.service` in the unit is meaningless and can go.
 
 ### Starting on PostgreSQL
 
-If you are setting a server up now, this is the order — and step 3 is the one that costs an
+If you are setting a server up now, this is the order - and step 3 is the one that costs an
 afternoon when it is skipped.
 
 **1. Run `init` with the database named in the environment.** It cannot come from
@@ -342,7 +342,7 @@ afternoon when it is skipped.
 
 **`init` will not write it for you, and that is deliberate.** A PostgreSQL URL routinely
 carries a password, and a password belongs with the tokens rather than beside the connection
-settings — that is why `credentials.toml` exists. (`config.toml` is `0600` and holds
+settings - that is why `credentials.toml` exists. (`config.toml` is `0600` and holds
 `secret_key`; what it does not hold is anything that authenticates you to something else.)
 
 **3. So write it yourself**, into
@@ -359,7 +359,7 @@ finds nothing, and restarts every five seconds.
 **And do not answer that by running `init` again**, which is what the message used to suggest.
 Without `database_url` set it will build a *second*, empty instance in SQLite, and everything
 after that looks healthy: `db current` reports a schema, `list` reports an empty backlog, and
-the service starts and serves nothing. `init` warns before doing it — but the remedy is step 3,
+the service starts and serves nothing. `init` warns before doing it - but the remedy is step 3,
 not another `init`.
 
 **4. Check before starting anything**, as the service account:
@@ -376,7 +376,7 @@ A schema revision means the configuration and the data agree. If it names a path
 `.db`, step 3 has not taken effect.
 
 **All three variables, even though this only reads.** Left off, the SQLite default resolves
-against *your* data directory rather than the service's — so a check written to catch "it is
+against *your* data directory rather than the service's - so a check written to catch "it is
 using the SQLite default" can report a perfectly healthy schema from the wrong file, which is
 the confusion the paragraph above is warning about.
 
@@ -384,14 +384,14 @@ the confusion the paragraph above is warning about.
 
 Two different situations wear this heading, and the second one is where most people are.
 
-If the instance is **already the service account's** — you set it up here, on SQLite, and now
-want PostgreSQL — the copy below is the whole of it. If the instance is **yours**, in your own
+If the instance is **already the service account's** - you set it up here, on SQLite, and now
+want PostgreSQL - the copy below is the whole of it. If the instance is **yours**, in your own
 home directory under a personal install, and you want it to become a service, read
 [promoting your own instance](#promoting-your-own-instance-to-a-service) first: the copy is the
 same command with two more things to get right, and there are two steps around it that the
 greenfield path does for you.
 
-**If you already have data in SQLite, copy it across first.** Do not just change the URL — that
+**If you already have data in SQLite, copy it across first.** Do not just change the URL - that
 gives you an empty database and leaves everything you have in a file nothing is reading. A
 backup will not do it either: backups are per-engine, so a SQLite one cannot be restored into
 PostgreSQL.
@@ -422,7 +422,7 @@ and counted before the command reports success. Stop the service first, so nothi
 the old database after the copy is taken.
 
 When the new one looks right, set `database_url`, restart, and confirm with `subroutine db
-current`. Keep the SQLite file until you are sure — deleting it is the only irreversible step
+current`. Keep the SQLite file until you are sure - deleting it is the only irreversible step
 in the whole move, and nothing here does it for you.
 
 It works in the other direction too, which is what you want for a laptop copy of a served
@@ -452,12 +452,12 @@ own home directory, and turns it into the service the rest of this page describe
 end to end on a live instance with real data before being written down.
 
 Do the account, the virtualenv and the PostgreSQL database from
-[the sections above](#an-account-and-an-install) first, up to but **not including** `init` — the
+[the sections above](#an-account-and-an-install) first, up to but **not including** `init` - the
 database already exists and `init` would make a second one. Then:
 
 **1. Find out where your data is.** Under a personal install it is wherever your own XDG
 directories point, which by default is `~/.local/share/subroutine/subroutine.db`. Ask rather
-than assume — `subroutine doctor` prints the three roots in force, and if they are not the ones
+than assume - `subroutine doctor` prints the three roots in force, and if they are not the ones
 you expect then neither is the database.
 
 **2. Take a backup, and copy from that rather than from the live database.** This is better
@@ -478,12 +478,12 @@ The filename carries the instant and the schema, so put the one it actually prin
 rather than reading the path off this page.
 
 A plain `cp` of `subroutine.db` is **not** a copy of your data. The instance runs in WAL mode, so
-anything written since the last checkpoint is in the `-wal` file beside it — and a copy of the
+anything written since the last checkpoint is in the `-wal` file beside it - and a copy of the
 `.db` alone opens cleanly, counts its rows, and is silently out of date. `db backup` is the
 supported way to get one file.
 
 **3. Run the copy as the service account.** Not as yourself: `db copy` writes the tables as
-whoever runs it, and with PostgreSQL's peer authentication that makes *you* their owner — after
+whoever runs it, and with PostgreSQL's peer authentication that makes *you* their owner - after
 which the service cannot write to its own database. Running it as the service account is also
 why step 2 put the file somewhere that account can read.
 
@@ -496,7 +496,7 @@ why step 2 put the file somewhere that account can read.
     /opt/subroutine/bin/subroutine db copy --to postgresql+psycopg:///subroutine
 ```
 
-It refuses a source older than this build's schema, so upgrade the copy first if it says so —
+It refuses a source older than this build's schema, so upgrade the copy first if it says so -
 `db upgrade` against the same URL, which is why it is a file the service account owns rather
 than the one in your home directory.
 
@@ -507,7 +507,7 @@ passed every health check, satisfied `doctor`, and failed on the first listing l
 page.
 
 `subroutine config show` prints your own instance's settings and where each one came from,
-which is the shortest way to see what belongs in the file. The key is not one of them —
+which is the shortest way to see what belongs in the file. The key is not one of them -
 generate a fresh one rather than copying yours, since the two instances have no reason to share
 it and what it signs is in flight rather than stored:
 
@@ -521,14 +521,14 @@ else [every setting](#every-setting-and-what-it-does) says you need. Then carry 
 [the systemd unit](#the-systemd-unit).
 
 **5. Decide what happens to the install you started with.** Once the service is answering, the
-old one is a rollback and nothing else, and it is worth being deliberate about it — two copies
+old one is a rollback and nothing else, and it is worth being deliberate about it - two copies
 of your work with no idea which is current is the thing this step exists to prevent.
 
 Reaching the new instance from your own machine is
 [its own section](#reaching-it-from-your-own-machine), and the one thing to know here is that
 adding it as a connection while your old local database is still configured is the case
 `connections add` checks for. It will tell you they are the same instance and refuse the second
-name. Keep the old database as your rollback by all means — just do not point a second
+name. Keep the old database as your rollback by all means - just do not point a second
 connection at what is now the same work.
 
 ## TLS, and why `serve` refuses without it
@@ -547,7 +547,7 @@ $ subroutine serve --host 0.0.0.0
 There are three honest ways past it, and one of them is the right one.
 
 **Put a proxy in front and keep Subroutine on loopback.** This is the recommended arrangement
-and the refusal never fires, because the bind is `127.0.0.1` — the default. Set `public_url` to
+and the refusal never fires, because the bind is `127.0.0.1` - the default. Set `public_url` to
 the address the proxy serves, which is what clients and agents are told to come back to:
 
 ```toml
@@ -555,7 +555,7 @@ public_url = "https://tasks.example.com"
 ```
 
 **Bind publicly with `public_url` set to an `https://` address.** For the case where TLS is
-terminated somewhere the check cannot see — a load balancer, a service mesh. The check is
+terminated somewhere the check cannot see - a load balancer, a service mesh. The check is
 satisfied by the `https://` scheme, so this is you taking responsibility rather than the
 program verifying anything. A wrong scheme is caught:
 
@@ -589,7 +589,7 @@ Group=subroutine
 
 # systemd creates /var/lib/subroutine, owned by the service account. Subroutine keeps its
 # configuration, database and current context under the XDG directories, so point those
-# inside it — a service account should not depend on having a home directory.
+# inside it - a service account should not depend on having a home directory.
 StateDirectory=subroutine
 Environment=XDG_CONFIG_HOME=/var/lib/subroutine/config
 Environment=XDG_DATA_HOME=/var/lib/subroutine/data
@@ -628,11 +628,11 @@ WantedBy=multi-user.target
 accepting, gives requests already in flight **15 seconds** to finish, and then exits. systemd's
 timeout has to be the longer of the two, or it would kill a shutdown that was about to
 complete. Left at the default, stopping a server with a request stuck on something takes 90
-seconds — and you find that out during an incident, because that is the only time anything is
+seconds - and you find that out during an incident, because that is the only time anything is
 stuck for long enough to notice.
 
-**When the proxy is on another machine** — a router, a NAS, a box running Nginx Proxy Manager
-or Caddy — loopback is no longer enough, because the proxy has to reach this host over the
+**When the proxy is on another machine** - a router, a NAS, a box running Nginx Proxy Manager
+or Caddy - loopback is no longer enough, because the proxy has to reach this host over the
 network. Bind wider and say where the proxy serves it, both in `config.toml`:
 
 ```toml
@@ -642,7 +642,7 @@ public_url = "https://tasks.example.com"
 
 That is the second of the three ways past the TLS refusal above, and it needs **no flag**: the
 `https://` scheme in `public_url` is what satisfies the check. `public_url` is also published
-at `GET /v1/meta`, so an agent handed a token finds out the address to come back to — which
+at `GET /v1/meta`, so an agent handed a token finds out the address to come back to - which
 `--insecure` would not tell it. Restart, and `journalctl -u subroutine` should show it
 listening on `0.0.0.0`.
 
@@ -651,7 +651,7 @@ follow you onto a café's wifi if this is a laptop, and it makes the intent legi
 reads the file next.
 
 **`--insecure` is for the case where there is no proxy at all** and the network is genuinely
-trusted — a home LAN with nothing exposed. It goes on `ExecStart`, because it is a decision
+trusted - a home LAN with nothing exposed. It goes on `ExecStart`, because it is a decision
 about this invocation rather than a property of the installation:
 
 ```ini
@@ -662,7 +662,7 @@ Either way, be clear about what a bind beyond loopback without TLS means: **bear
 cross that network in clear**, and anything that can see the traffic can replay them. On a home
 LAN that is a reasonable trade. It should be one you have made rather than one you have
 inherited from a flag you copied. `ProtectSystem=strict` makes the whole filesystem read-only apart from
-what `StateDirectory` grants, which is why a backup directory elsewhere needs naming — a
+what `StateDirectory` grants, which is why a backup directory elsewhere needs naming - a
 `ReadWritePaths` you forgot shows up as a backup that cannot be written, on the day you need
 one. If the directory is on a network mount, add `Wants=` and `After=` on that mount's unit
 in `[Unit]` (`mnt-backups.mount` for `/mnt/backups`) so it is there before the service starts.
@@ -687,8 +687,8 @@ $ curl -s localhost:8471/readyz
 ```
 
 `/healthz` says the process is up. `/readyz` says it can reach its database, that the database
-is at the schema this build expects — which is the one that goes red after an upgrade you have
-not finished — and that it is still serving the same instance it started on.
+is at the schema this build expects - which is the one that goes red after an upgrade you have
+not finished - and that it is still serving the same instance it started on.
 
 That last one is the answer to *am I serving the data I think I am*. A process whose database
 file is replaced underneath it keeps its handles on the old one, so it goes on reading data
@@ -741,7 +741,7 @@ the service is not. `public_url` is how this instance knows the difference.
 ### Telling it which address a request came from
 
 Failed authentications are counted per address, so that guessing a token gets slower. Through
-a proxy every request arrives from the *proxy*, so without help they all share one allowance —
+a proxy every request arrives from the *proxy*, so without help they all share one allowance -
 one client hammering with a stale credential makes other people's mistakes answer `429`
 instead of `401`.
 
@@ -770,14 +770,14 @@ is not a cross-origin caller and needs no entry here. Adding one because a web i
 exists is the one mistake this setting invites.
 
 **What an entry does, in full.** It lets a page on that origin call this API from a browser
-*and read the replies* — which is what CORS has always been — **and it lets that page act as
+*and read the replies* - which is what CORS has always been - **and it lets that page act as
 somebody who is signed in here.** Since browser sessions arrived, a write authenticated by a
 session cookie is refused unless the page making it is one this instance serves, and this list
 is how you say another origin counts as one. That is deliberate: naming an origin is already a
 statement that a browser there may act on your behalf. It is worth knowing you are making it.
 
 **`*` gives that up to every site on the internet.** Not in the toothless way a wildcard usually
-is — this application echoes the requesting origin back with credentials allowed, so a page
+is - this application echoes the requesting origin back with credentials allowed, so a page
 anywhere can read your data and change it, using the session of any of your people who happens
 to visit it while signed in. There is no case where a self-hosted instance needs this.
 
@@ -789,13 +789,13 @@ cors_origins = ["https://boards.example.com"]
 ```
 
 **The instance says what is in force, on every published install.** `subroutine doctor` reports
-this setting in its own right — `empty, so only this instance's own pages may call it`, or
+this setting in its own right - `empty, so only this instance's own pages may call it`, or
 `1 named`, or, if the list is `*`, the whole warning above followed by `needs attention`. It is
 stated either way rather than only when something is wrong, so you can tell *this is what I
 chose* from *nothing looked*. `serve` prints the same warning at startup for a `*`.
 
 **And a way to check what your instance actually answers**, which is the question neither of
-those asks — they read the setting, this reads the reply:
+those asks - they read the setting, this reads the reply:
 
 ```console
 $ curl -si https://subroutine.example.com/v1/meta -H 'Origin: https://somewhere-else.example' \
@@ -807,9 +807,9 @@ answering an origin you did not intend to name.
 
 ## Adding the people
 
-An instance starts with one account — whoever ran `init`, who is its administrator. Everybody
-else is **one command**. It makes the account, puts them in a workspace with a role, and — if
-you say how they will reach this instance — hands you the link or the credential in the same
+An instance starts with one account - whoever ran `init`, who is its administrator. Everybody
+else is **one command**. It makes the account, puts them in a workspace with a role, and - if
+you say how they will reach this instance - hands you the link or the credential in the same
 breath.
 
 ```console
@@ -840,7 +840,7 @@ breath.
 
 **The role is `member` unless you say otherwise**, and `--workspace` can be left out when there
 is only one. Both defaults do the same thing: they stop the ordinary case being a decision, and
-they still get out of the way — `--role viewer` narrows, `--role admin` widens, and once there
+they still get out of the way - `--role viewer` narrows, `--role admin` widens, and once there
 is more than one workspace the command asks which rather than choosing.
 
 An account with no workspace can see nothing at all, which reads as a broken credential rather
@@ -849,11 +849,11 @@ a second command somebody has to remember.
 
 `subroutine user add` is still how somebody already here joins a **second** workspace.
 
-**There is no password**, so what Thomas needs next depends on what they are going to use — and
+**There is no password**, so what Thomas needs next depends on what they are going to use - and
 `--browser` and `--terminal` produce it without a second command at all.
 
 **If they are going to open the web interface, hand them a sign-in link.** It signs in as
-whoever it names, once, and stops working after half an hour — so it is handed over the way
+whoever it names, once, and stops working after half an hour - so it is handed over the way
 anything private is, and a second one costs nothing if the first goes stale.
 
 ```console
@@ -875,7 +875,7 @@ token.** It is readable exactly once:
     /opt/subroutine/bin/subroutine token create --username thomas --title "Thomas's laptop"
 ```
 
-Neither is a lesser version of the other and somebody may want both — the link opens a browser
+Neither is a lesser version of the other and somebody may want both - the link opens a browser
 session, the token is what a terminal and an agent present. What they must not do is try to use
 the token to sign in to the browser: a bearer token is not a session, and a **narrowed** token
 cannot mint a link for itself either, because a session carries no scopes and issuing one would
@@ -889,14 +889,14 @@ anything else working.
 **The address in the link comes from `public_url`**, and where that is unset the link falls back
 to the address the instance listens on and says that it has. On the arrangement above that is
 `http://127.0.0.1:8471`, which is a working address on the server itself and the wrong one to
-hand to anybody else — so if you are proxying this, set `public_url` and mint a fresh link. An
+hand to anybody else - so if you are proxying this, set `public_url` and mint a fresh link. An
 instance listening beyond this machine with `public_url` unset refuses to mint one at all,
 because `0.0.0.0` names no destination and only you can say which address people use.
 
 `--username` is for somebody who already has an account; `--service-account` is for a machine
 identity and creates one if there is none. They are separate flags because they are separate
-decisions — naming a person under `--service-account` is refused rather than quietly handing
-out their credential. Everything else — scopes, a workspace pin, an expiry — is the same for
+decisions - naming a person under `--service-account` is refused rather than quietly handing
+out their credential. Everything else - scopes, a workspace pin, an expiry - is the same for
 either.
 
 A credential is never issued for an account that could not use it: a deactivated account is
@@ -908,7 +908,7 @@ administers the server's credentials from a laptop that holds no database of its
 matters because setting an agent up is something you do on the machine the agent runs on, and
 until 0.3 these were the three commands that could only be run while sitting on the server.
 
-They still open a database *directly* when the connection is local — which, on the server, it
+They still open a database *directly* when the connection is local - which, on the server, it
 is. That is not a leftover: §12.4 requires the commands that administer credentials to work
 when the service is the thing that has gone wrong, and reaching a local database never involved
 the service. The route follows the connection precisely so that both remain true.
@@ -926,8 +926,8 @@ $ subroutine user role thomas admin
 thomas is now admin in acme
 ```
 
-It moves an existing member and turns down somebody who is not one yet, pointing at `user add`
-— the pair each name the other, so whichever you reach for first tells you the other exists.
+It moves an existing member and turns down somebody who is not one yet, pointing at `user add` -
+the pair each name the other, so whichever you reach for first tells you the other exists.
 
 Somebody added by mistake can be removed with `subroutine user remove`. That takes away the
 membership and not the account: what they wrote stays, and stays attributed to them. Their
@@ -935,7 +935,7 @@ membership of any project inside the workspace survives too, so removing and re-
 does not silently take a private project away from them.
 
 **The last account able to administer a workspace cannot be removed from it, or moved out of an
-administering role** — a workspace nobody can administer has thrown away the remedy for every
+administering role** - a workspace nobody can administer has thrown away the remedy for every
 later mistake, including that one, and cannot be repaired from inside. The two commands are
 refused for the same reason and by the same rule.
 
@@ -945,7 +945,7 @@ there and says so. Setting somebody up should not take something away from you.
 
 ### A screen that only reads
 
-**A wall display, a kiosk, a dashboard in a corridor — that is an account with the `viewer`
+**A wall display, a kiosk, a dashboard in a corridor - that is an account with the `viewer`
 role**, and it needs nothing built:
 
 ```console
@@ -953,14 +953,14 @@ role**, and it needs nothing built:
 ```
 
 **The browser genuinely hides the controls rather than refusing them.** What a reader may do is
-resolved per workspace — the role narrowed by whatever the credential allows — and the page is
+resolved per workspace - the role narrowed by whatever the credential allows - and the page is
 drawn from that answer, so the capture box, *Complete*, *Edit*, the status and assignee
 controls, the comment box and the link controls are **absent**. A control that appears and then
 says no is worse than one that is not there, and this is the same mechanism that decides it for
 everybody else.
 
-**Read-only does not mean inert.** Controls that change how the page is *read* stay — revealing
-the rest of a truncated list, for one — because that is a fact about the reader rather than
+**Read-only does not mean inert.** Controls that change how the page is *read* stay - revealing
+the rest of a truncated list, for one - because that is a fact about the reader rather than
 about the item. A viewer looking at five of twenty-six links with no way to see the rest would
 be a different complaint with the same shape.
 
@@ -972,12 +972,12 @@ device left in a drawer stops working two weeks later.
 of doing it this way:
 
 - **Getting it signed in is a person's job, at the machine.** A sign-in link works once and
-  lasts half an hour, so the first sign-in — and any after a lapse — means somebody standing at
+  lasts half an hour, so the first sign-in - and any after a lapse - means somebody standing at
   the screen with a fresh link. There is no long-lived read-only credential a browser can hold;
   a token is for a terminal and will not sign a browser in.
 - **It is an account, so it is a row in `user list`.** On an instance where accounts are people
-  that is a small lie, and the remedy is only to name it as what it is — `standup`, `foyer`,
-  `wallboard` — so nobody later wonders who that is.
+  that is a small lie, and the remedy is only to name it as what it is - `standup`, `foyer`,
+  `wallboard` - so nobody later wonders who that is.
 
 **Give it its own account rather than sharing somebody's.** It is revocable on its own, it says
 who did what if the screen is ever used to write, and turning it off does not lock a person out.
@@ -1019,7 +1019,7 @@ Three things it does that doing it by hand does not.
 
 **The account, its membership and its credential are one act**, in one transaction. An account
 with no membership authenticates and can do nothing, which reads as a broken token rather than
-as a missing role — and over a network the alternative is three requests with a half-finished
+as a missing role - and over a network the alternative is three requests with a half-finished
 agent if the second fails.
 
 **The credential is checked by being presented.** What it can do is read back from the instance
@@ -1028,13 +1028,13 @@ a pin on a workspace the account cannot reach, is visible here rather than on th
 call.
 
 **The last line is not a warning, it is the other half of the job.** Until the credential is
-recorded, the agent's shell resolves whatever the command line resolves — normally your own —
+recorded, the agent's shell resolves whatever the command line resolves - normally your own -
 so the restriction above bounds the tools and nothing else.
 
 ### Saying what the credential is for
 
 `--profile` names a scenario instead of assembling one out of flags. It works on both
-`agent create` and `token create`, and it expands into exactly the flags below — there is
+`agent create` and `token create`, and it expands into exactly the flags below - there is
 nothing a profile can express that you could not have typed.
 
 | Profile | Reaches | Writes in | For |
@@ -1108,7 +1108,7 @@ Note what the refusal distinguishes: the *role* would have allowed it and the *t
 not. An agent reading that knows it has been deliberately bounded rather than misconfigured.
 
 `--workspace` pins a token to one workspace. A token can never be wider than the credential
-that issued it — `token create` presented with a narrow token will not mint a broad one, which
+that issued it - `token create` presented with a narrow token will not mint a broad one, which
 is what stops an agent quietly promoting itself.
 
 `--project` is the other axis, and the one to reach for when an agent works on one thing.
@@ -1127,11 +1127,11 @@ reach at all:
 
 **It brings the sub-projects with it**, which is why the command says so rather than echoing
 what you typed: a restriction that stopped at one level would be useless on any tree deeper
-than one. Everything outside it is not merely absent from a listing — the project does not
+than one. Everything outside it is not merely absent from a listing - the project does not
 resolve at all, so the agent is told there is no such project rather than that it may not look.
 
 Name the project by its key. Keys are unique per workspace rather than per instance, so if two
-workspaces both hold a `web` the command refuses and asks which, rather than picking one — an
+workspaces both hold a `web` the command refuses and asks which, rather than picking one - an
 agent pointed at the wrong tree works perfectly, against the wrong tree.
 
 **Give the token to the client as `SUBROUTINE_TOKEN`.** It is never accepted in a query string
@@ -1146,7 +1146,7 @@ agent is bounded.
 
 **A credential is resolved per process, not per agent.** An AI agent typically reaches an
 instance two ways at once: through tools its editor wired up, and by running `subroutine` in a
-shell. Those are separate processes and they resolve credentials separately — so configuring
+shell. Those are separate processes and they resolve credentials separately - so configuring
 the agent's tools with its own token does *nothing* about the shell, which finds whatever the
 command line finds, normally yours.
 
@@ -1157,11 +1157,11 @@ there, on the half that went through its tools.
 **`--store` settles it, and it is the only thing that reaches both halves.** Credentials are
 looked for in this order:
 
-1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment — the connection name upper-cased, with
+1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment - the connection name upper-cased, with
    anything that is not a letter or a digit as an underscore
 2. `SUBROUTINE_TOKEN`, for the default connection only
 3. whatever the connection's own `token_env` or `token_command` names
-4. `credentials.toml` — the **agent's** token where one is stored and this is an agent's
+4. `credentials.toml` - the **agent's** token where one is stored and this is an agent's
    process, and yours otherwise
 
 The first wins. Step 4 is where the two of you stop sharing a name, because it is the only step
@@ -1169,7 +1169,7 @@ that can tell you apart: you are the same account, in the same directory, readin
 files, and the one thing that differs is the environment each process was started in.
 
 **How it knows.** An editor sets a variable on every process it starts and on nothing above
-itself — `CLAUDECODE` for Claude Code, which is the shipped default. A connection can name a
+itself - `CLAUDECODE` for Claude Code, which is the shipped default. A connection can name a
 different one:
 
 ```toml
@@ -1179,7 +1179,7 @@ agent_when = "SOME_OTHER_EDITOR"
 ```
 
 Only its *presence* is read, never its value. It is not a place a token can live, and it decides
-attribution rather than authority — claiming to be the agent selects the *narrower* credential,
+attribution rather than authority - claiming to be the agent selects the *narrower* credential,
 so there is nothing to be gained by it.
 
 **It costs nothing until you use it.** With one token stored, every step behaves exactly as it
@@ -1187,7 +1187,7 @@ did. Remove the agent's token and the mechanism is gone, completely.
 
 **An earlier version of this page told you to set `SUBROUTINE_TOKEN_<CONNECTION>` where you
 launch the agent.** That still works, and on the commonest setup there is nowhere to do it: in
-an editor extension nobody launches the agent, so there is no command to prefix — and a shell
+an editor extension nobody launches the agent, so there is no command to prefix - and a shell
 profile reaches *your* terminal and not the agent's, which is the wrong way round.
 
 **Check it rather than assuming it**, from inside the agent's own shell:
@@ -1206,7 +1206,7 @@ answer alone.
 
 **The cheaper answer, where it fits:** your own token does not have to be on a machine an agent
 uses. If you work from your laptop and only agents work on the build box, then
-`credentials.toml` there should hold the *agent's* credential and nothing else — and the split
+`credentials.toml` there should hold the *agent's* credential and nothing else - and the split
 stops mattering, because both halves are the agent.
 
 ## Reaching it from your own machine
@@ -1224,10 +1224,10 @@ correct rather than a mistake.** Subroutine keeps its files under the XDG direct
 service account's instance lives under `/var/lib/subroutine` and yours under `~/.config` and
 `~/.local/share`. Running `subroutine list` as yourself shows *your* items and always will;
 `subroutine config show` will say `database_url … [default]` pointing at your own SQLite file.
-Reaching the server is not a matter of changing that — it is a matter of adding a connection
+Reaching the server is not a matter of changing that - it is a matter of adding a connection
 beside it.
 
-**One command, and it asks for the token** — which you issue on the server first, as the
+**One command, and it asks for the token** - which you issue on the server first, as the
 service account. That is further down this section, and it is worth reading before you start:
 a token is shown once and stored nowhere, so there is nothing to go back and look up.
 
@@ -1239,20 +1239,20 @@ Added work to …/config.toml
 Its token is in …/credentials.toml, readable only by you.
 ```
 
-The name — `work` here — is *yours*. It is the first segment of every address the server's
+The name - `work` here - is *yours*. It is the first segment of every address the server's
 items print as, so `work/acme/#42`, and two people connected to the same server may call it
 different things. A name must start with a letter, because one made only of digits would read
 as a ref.
 
-**It reaches the instance before it writes anything**, with the credential you just gave it —
+**It reaches the instance before it writes anything**, with the credential you just gave it -
 the same call every listing begins with. A mistyped address, a revoked token, a proxy
 answering instead of the server: each is refused there and then, with nothing recorded, rather
 than becoming one line of failure among tomorrow's results. That is also why it can tell you
 the name the server knows you by, which is the only thing that confirms you pasted the token
 you meant to.
 
-If the machine has no instance of its own — a second laptop, a workstation whose work all
-lives on the server — it also makes that connection where new work goes, and says so. On a
+If the machine has no instance of its own - a second laptop, a workstation whose work all
+lives on the server - it also makes that connection where new work goes, and says so. On a
 machine that already has its own list it leaves that alone, because moving somebody's writes
 off their own to-do list is their decision. `--default` asks for it either way.
 
@@ -1273,8 +1273,8 @@ file can be copied, committed or pasted into a bug report without taking a crede
 that is another way in and needs no file.
 
 **It is not `secret_key`,** which is the only thing in `config.toml` that looks like a
-credential and is the wrong one. Every instance writes its own at `init` — the server has one
-already — and it signs pagination cursors and nothing else. Copying it across achieves nothing.
+credential and is the wrong one. Every instance writes its own at `init` - the server has one
+already - and it signs pagination cursors and nothing else. Copying it across achieves nothing.
 
 **And there is nothing to look up.** Only a hash of a token is stored, so no command can show
 you one that was issued earlier; `token list` prints prefixes, which is what `revoke` takes. If
@@ -1306,7 +1306,7 @@ $ subroutine list
 ```
 
 **`subroutine connections` is how you check it**, and it is worth knowing about because it
-stays out of `subroutine --help` until a second connection exists — which is to say, until the
+stays out of `subroutine --help` until a second connection exists - which is to say, until the
 thing you are checking has already worked. `connections add` is hidden with it, for the same
 reason and with the opposite effect, which is why this page names it: nothing on a machine can
 tell "not set up yet" from "never will be", so the command that fixes the second cannot
@@ -1319,15 +1319,15 @@ $ subroutine connections
 ```
 
 No token is printed and none can be recovered from what is. If your new connection is missing
-from that list, `config.toml` is not being read the way you think — check the table name and
+from that list, `config.toml` is not being read the way you think - check the table name and
 the spelling of `[connections.<name>]`.
 
-Each row prints **the shortest address that resolves** — a bare number for your own, and the
+Each row prints **the shortest address that resolves** - a bare number for your own, and the
 connection and workspace for anything that needs them. Whatever it prints is what you can type
 back, which is the point: a bare number beside an item on somebody else's server would be an
 invitation to act on the wrong one.
 
-`subroutine use work` changes which connection a *write* goes to — `subroutine add` and the
+`subroutine use work` changes which connection a *write* goes to - `subroutine add` and the
 rest. It never changes what you can see: reads always span everything reachable, which is what
 makes switching safe (§13.7).
 
@@ -1345,20 +1345,20 @@ is refused by name rather than ignored.
 
 **Two connections may not name one instance**, and `connections add` refuses a second name for
 a server this machine already reaches. A merged listing would count everything on it twice, so
-the refusal is at the moment you can pick a different word rather than on the first listing —
+the refusal is at the moment you can pick a different word rather than on the first listing -
 where it withholds every result and can only tell you to go and edit a file.
 
 ## Reaching it from an agent, with nothing installed
 
 Everything above assumes the person has Subroutine on their machine. **An agent does not need
 it.** The server speaks MCP itself, at `POST /mcp`, so a coding agent reaches this instance with
-a URL and a token and nothing else — no Python, no package, no `config.toml`.
+a URL and a token and nothing else - no Python, no package, no `config.toml`.
 
 This is the case worth designing for: somebody works with you for a month, you send them a URL
 and a token, and their agent files work against your instance the same afternoon.
 
-Issue them a credential exactly as above — `subroutine agent create`, or `token create
---service-account` — and give them two things:
+Issue them a credential exactly as above - `subroutine agent create`, or `token create
+--service-account` - and give them two things:
 
 ```
 URL:   https://subroutine.example.com/mcp
@@ -1400,18 +1400,18 @@ https://subroutine.example.com/mcp?workspace=projects
 ```
 
 **This is yours to get right rather than theirs.** Without it, an agent on a multi-workspace
-instance has every read refused as ambiguous — the refusal names the workspaces it could have
+instance has every read refused as ambiguous - the refusal names the workspaces it could have
 meant, but the person receiving it has no way to know which one you intended, and on the plugin
 path the remedy is a settings field they would have to be told about. You know the answer; put
 it in the address.
 
-It is a default rather than a limit — a call may still name another workspace, and a token
+It is a default rather than a limit - a call may still name another workspace, and a token
 pinned to one is what actually narrows access.
 
 **The endpoint needs the instance to be reachable from wherever the agent runs.** Claude Code
 connects from the user's own machine, so a LAN address or a VPN-only host is fine. The Claude
 desktop and web clients connect from Anthropic's servers instead, which means a publicly
-reachable address — see [A reverse proxy](#a-reverse-proxy).
+reachable address - see [A reverse proxy](#a-reverse-proxy).
 
 `GET` on the endpoint answers `405`, which is correct rather than a fault: this server has
 nothing to send that a client did not ask for, so there is no event stream to hold open. A
@@ -1427,7 +1427,7 @@ feature is on unless you turn it off, and each person makes their own subscripti
 subroutine calendar create "My work"
 ```
 
-which prints one address, once. That address **is** the credential — there is no header to send
+which prints one address, once. That address **is** the credential - there is no header to send
 and no account to sign in to, because a calendar application has nowhere to put either. This is
 the whole of what you need to know about it, and it has three consequences worth reading before
 you decide whether to leave it on.
@@ -1435,19 +1435,19 @@ you decide whether to leave it on.
 **The address is built from `public_url`**, so an instance that has not been told its own
 address mints the feed and says it cannot give you one. Set `public_url` and run
 `subroutine calendar reset <reference>`; the feed itself was never broken. Nothing guesses from
-the `Host` header, deliberately — a proxy rewrites that, and a guessed host is a secret sent
+the `Host` header, deliberately - a proxy rewrites that, and a guessed host is a secret sent
 somewhere nobody chose, every fifteen minutes, for as long as the subscription lives.
 
 **A leak is not detectable from here.** The address ends up in a phone's account settings and
 in whatever synced them, and a fetch from somewhere unexpected looks exactly like a fetch from
 somewhere expected. What there is instead is the `last polled` column
-`subroutine calendar list` prints — a subscription nobody has fetched for months is one to
+`subroutine calendar list` prints - a subscription nobody has fetched for months is one to
 revoke, and revoking costs nothing.
 
 **Revoking is immediate and resetting keeps the feed.** `subroutine calendar reset` gives a
 subscription a new address and stops the old one working that instant, keeping its name and its
-scope; `subroutine calendar revoke` stops it for good. Whoever held the old address is not told
-— there is nobody to tell — so their calendar quietly stops updating and you send them the new
+scope; `subroutine calendar revoke` stops it for good. Whoever held the old address is not told -
+there is nobody to tell - so their calendar quietly stops updating and you send them the new
 one the same way you sent the first.
 
 Two settings decide the shape of this, and both are in
@@ -1455,7 +1455,7 @@ Two settings decide the shape of this, and both are in
 
 | | |
 | --- | --- |
-| `calendars_enabled` | Turn the whole feature off. Every feed address then answers `404`, exactly as an address naming nothing does — so an instance with it off is indistinguishable from one that never had a feed — and creating or resetting one is refused by name. Listing and revoking still work, because turning a feature off must not be a way to trap a credential somebody cannot end |
+| `calendars_enabled` | Turn the whole feature off. Every feed address then answers `404`, exactly as an address naming nothing does - so an instance with it off is indistinguishable from one that never had a feed - and creating or resetting one is refused by name. Listing and revoking still work, because turning a feature off must not be a way to trap a credential somebody cannot end |
 | `rate_limit_polls_per_minute` | How often one feed may be fetched. Its own bucket rather than a share of the ordinary allowance, because a misconfigured calendar client should not empty the one its owner's terminal draws from |
 
 **Turn it off if you would rather not have bearer credentials in URLs at all.** That is a
@@ -1464,7 +1464,7 @@ path, and the reason this does is that no calendar application will send anythin
 
 **A feed shows what its owner may see, asked afresh on every fetch.** Somebody who loses sight
 of a project stops seeing it in their calendar the same day, and there is no way to make a feed
-of somebody else's work — the owner is whoever ran the command. Marking an account as having
+of somebody else's work - the owner is whoever ran the command. Marking an account as having
 left stops its feeds too, which is why offboarding needs nothing extra here.
 
 ## Backups
@@ -1481,7 +1481,7 @@ backup_directory = "/srv/backups/subroutine"
 ```
 
 That is a judgement about what you are protecting against, not a requirement. Nothing here
-refuses a path, warns about one, or nags about how old the newest copy is — how old is too old
+refuses a path, warns about one, or nags about how old the newest copy is - how old is too old
 depends on whether this is a laptop or a server, and only you know which.
 
 A network mount is the intended destination and works. The file is built locally and then
@@ -1492,7 +1492,7 @@ than left looking like a backup.
 
 **Permissions may not survive the trip, and that is worth knowing rather than working around.**
 A backup is written `0600`, because it holds every task, comment and token hash. Many network
-mounts fix their permissions at mount time — CIFS with `file_mode=`, for instance — so the
+mounts fix their permissions at mount time - CIFS with `file_mode=`, for instance - so the
 `chmod` succeeds and changes nothing, and the file is as readable as everything else on the
 share. If that matters, the answer is on the share rather than here.
 
@@ -1515,22 +1515,22 @@ share. If that matters, the answer is on the share rather than here.
 ```
 
 **The name is `subroutine-<instance>-<when>-<schema><suffix>`, and the suffix says how to
-read it back** — `.dump` for a PostgreSQL archive, which `pg_restore` loads, and `.db` for a
+read it back** - `.dump` for a PostgreSQL archive, which `pg_restore` loads, and `.db` for a
 SQLite copy, which is a database. They are not interchangeable in either direction, and a
 restore refuses the wrong one rather than discovering it partway through.
 
 **Match on `subroutine-*` in a retention script, never on one suffix.** A glob written against
 `*.sql` matches nothing on SQLite, nothing on a current PostgreSQL instance, and *only* the
-backups taken before 0.8.8 — which is the worst of the three, because it looks like it works.
+backups taken before 0.8.8 - which is the worst of the three, because it looks like it works.
 
 **`.sql` files taken by an earlier version still restore.** PostgreSQL backups used to be
 plain-format scripts, and they are still read; nothing writes one any more. The change is that
 a script is executed by `psql`, which runs backslash commands embedded in it, and an archive is
-loaded by `pg_restore`, which has no such notion — so a tampered backup has nowhere to put an
+loaded by `pg_restore`, which has no such notion - so a tampered backup has nowhere to put an
 instruction. If you keep old `.sql` backups where anybody else can write, take a fresh one and
 treat the old files as you would any other file you did not write.
 
-`--keep N` prunes to the newest N *routine* backups afterwards. Run it from a timer — it names
+`--keep N` prunes to the newest N *routine* backups afterwards. Run it from a timer - it names
 every file it deletes, so the timer's log is the record of what went.
 
 **Three kinds of copy share this directory and each has its own lifetime.** A routine backup is
@@ -1542,12 +1542,12 @@ routine backup, and `--keep` never counts or deletes either of them.
 
 That separation is the point rather than a detail. One shared counter meant an hourly
 `--keep 24` reached back a day and deleted the rollback point for the upgrade that had gone
-wrong the day before — the copy you want precisely then. It also meant nothing ever removed a
+wrong the day before - the copy you want precisely then. It also meant nothing ever removed a
 rollback point at all, so one accumulated per upgrade for ever.
 
 **A copy taken before this rule existed says `purpose not recorded`, and counts as routine.**
 Nothing recorded what it was for, and keeping it is the safer of the two readings. If a pile of
-those has built up from past upgrades, one deliberate `db backup --keep N` clears it — until
+those has built up from past upgrades, one deliberate `db backup --keep N` clears it - until
 you run that, they stay.
 
 **This governs the copies on this machine.** Anything shipping backups off the node keeps its
@@ -1556,7 +1556,7 @@ own retention, and the two are separate mechanisms with separate lifetimes.
 Backups are written owner-only, like the database and `config.toml`. A backup is the whole
 database, so it is exactly as sensitive as the thing it copies.
 
-**Every backup carries the schema version it was taken on, inside the file** — the filename
+**Every backup carries the schema version it was taken on, inside the file** - the filename
 echoes it, but the value inside is the authority, because anybody can rename a file. Restoring
 an older one works and offers you the upgrade; restoring a *newer* one is refused outright,
 because there is no downgrade and a partial read is worse than a clear failure.
@@ -1568,11 +1568,11 @@ $ curl -s -X POST -H "Authorization: Bearer $TOKEN" https://tasks.example.com/v1
   {"name":"subroutine-…-d5d0458f5ad5.dump","schema_head":"d5d0458f5ad5","size_bytes":61311,…}
 ```
 
-That endpoint needs `instance:admin`, which **no role carries** — only an administrator of the
+That endpoint needs `instance:admin`, which **no role carries** - only an administrator of the
 instance holds it, so an ordinary agent token gets a 403 naming the permission.
 
 **There is deliberately no restore endpoint.** Putting a backup back replaces the database the
-serving process has open, and recovery has to work when the service will not start — which is
+serving process has open, and recovery has to work when the service will not start - which is
 exactly when you need it. `subroutine db restore` is the only way, and it will not run without
 you saying which kind of restore this is:
 
@@ -1590,7 +1590,7 @@ same. Getting it wrong is invisible in both directions, so you are asked.
 
 **Stop the service before you restore.** A running one keeps its file handles on the database
 that was just replaced: it goes on writing to something with no name any more, its reads are
-stale, and its next checkpoint can land on top of the restored file and corrupt it — while the
+stale, and its next checkpoint can land on top of the restored file and corrupt it - while the
 API answers normally throughout. Subroutine refuses when it can see another connection, and
 `--force` overrides that for the case where it cannot:
 
@@ -1606,17 +1606,17 @@ API answers normally throughout. Subroutine refuses when it can see another conn
 
 `/readyz` is the exception, and only since it began comparing the instance identity: it used to
 answer `ready` throughout this, which is how the problem was found in the first place. Do not
-rely on it to notice — it can only see a replacement that changed the identity, so a `--recover`
+rely on it to notice - it can only see a replacement that changed the identity, so a `--recover`
 restore of the same instance underneath a running process is still silent, and stopping the
 service first is still the answer.
 
 Two more things this will not do to you. **A backup from the other engine is refused before
-anything is dropped** — a `.db` is a SQLite database and a `.dump` is a PostgreSQL archive,
+anything is dropped** - a `.db` is a SQLite database and a `.dump` is a PostgreSQL archive,
 they cannot be read by each other's tools, and `subroutine db backups` names the engine when a
 directory holds both. To move an instance between engines, use `subroutine db copy`, not a
 backup. And **the safety copy taken before a restore is never allowed to block the restore**:
-if the database being replaced is too damaged to copy — which is the usual reason to be
-restoring at all — you are told so plainly and asked whether to go on, rather than refused.
+if the database being replaced is too damaged to copy - which is the usual reason to be
+restoring at all - you are told so plainly and asked whether to go on, rather than refused.
 
 Mark a production instance as one worth protecting, and destructive commands will require
 agreement before touching it:
@@ -1631,7 +1631,7 @@ before, nothing said so.
 
 ## Credentials
 
-`subroutine token list` shows every credential this instance has issued — its prefix, who owns
+`subroutine token list` shows every credential this instance has issued - its prefix, who owns
 it, what it can reach, when it expires and when it was last used. No secret is stored, so
 there is nothing in that listing to leak, and the prefix is what revoking takes:
 
@@ -1655,21 +1655,21 @@ there is nothing in that listing to leak, and the prefix is what revoking takes:
 
 Revoking is immediate: a revoked credential is checked on every request rather than cached, so
 there is no session to wait out. That is the answer to "a key leaked", and it is why the
-listing shows what each one can reach — the question at that moment is which of them could
+listing shows what each one can reach - the question at that moment is which of them could
 write.
 
 ### Keeping credentials out of your logs
 
 **A sign-in link travels in a URL, so it reaches every access log that sees the request.** It
 has to: a link is opened by clicking one, and a click is a `GET`. `subroutine serve` redacts it
-from its own access log — you will see `GET /signin?link=REDACTED` rather than the secret — and
+from its own access log - you will see `GET /signin?link=REDACTED` rather than the secret - and
 it does the same for an API token somebody has wrongly put in `?token=`, `?api_key=` or
 `?access_token=`, which is refused but is a real credential by the time it is refused.
 
 **A calendar feed's address carries its credential in the path, not in the query**, and that is
 the one you should care most about: a subscription polls roughly every fifteen minutes for as
-long as somebody keeps it, and a feed secret does not expire. `subroutine serve` redacts it too —
-`GET /v1/calendars/145ed614/REDACTED.ics` — keeping the short prefix, which identifies the feed
+long as somebody keeps it, and a feed secret does not expire. `subroutine serve` redacts it too -
+`GET /v1/calendars/145ed614/REDACTED.ics` - keeping the short prefix, which identifies the feed
 so that you can still tell which subscription is polling. `subroutine calendar revoke <ref>`
 ends one, and `reset` gives it a new address without disturbing anything else.
 
@@ -1682,7 +1682,7 @@ log_format subroutine '$remote_addr - "$request_method $uri" $status';
 access_log /var/log/nginx/subroutine.log subroutine;
 ```
 
-**That handles the query and not the path**, so it is not enough on its own for calendar feeds —
+**That handles the query and not the path**, so it is not enough on its own for calendar feeds -
 `$uri` is exactly the part a feed's secret sits in. If you serve feeds through a proxy and keep
 its access log, either turn logging off for `/v1/calendars/` or rewrite the path before it is
 recorded:
@@ -1697,7 +1697,7 @@ location /v1/calendars/ {
 Two things worth knowing rather than guessing:
 
 - **A logged link is usually already spent**, because the log line is written when the response
-  goes out and the link is consumed before that. The exception is the confirmation page — if
+  goes out and the link is consumed before that. The exception is the confirmation page - if
   the browser was already signed in as somebody else, the link is deliberately left usable so
   that saying *no* costs nothing, and it stays usable for the rest of its half hour.
 - **A link is good for thirty minutes and works once.** That is the reason a lapse here is
@@ -1735,9 +1735,9 @@ answers, and when a backup was last taken.
 
 That is a real run on a published instance, pasted whole. **Two tokens in it are not what the
 command printed**: the backup directory, which on the machine this came from names a host, and
-the account name, which was a real login — a public page carries neither, and `morpheus` is the
-operator throughout these pages. Everything else — the versions, the schema revision, the
-counts, the alignment — is as it came out.
+the account name, which was a real login - a public page carries neither, and `morpheus` is the
+operator throughout these pages. Everything else - the versions, the schema revision, the
+counts, the alignment - is as it came out.
 
 **A published instance prints these nine lines. An unpublished one prints eight**, and the
 difference is not the one you would guess: it shows a single `exposure` line saying nothing is
@@ -1746,23 +1746,23 @@ in force when nothing can reach it. So if you are comparing this against a machi
 published yet, expect that substitution rather than a missing line.
 
 Run it **as the service account, with the same three variables** as everything else in this
-section — that is the whole point of the `config`, `data` and `state` lines. If they are not
+section - that is the whole point of the `config`, `data` and `state` lines. If they are not
 the ones the unit sets, you are looking at a different installation from the one that serves
 requests, and everything below them is true about the wrong machine.
 
 **The line that should move is `program`, and only in that run.** That is the whole
 before-and-after: it names the version and the path of the copy this procedure upgrades, so a
 number that has not changed means step one did not take. `local` moves as well when the release
-carried a migration, and stays put when it did not — the CHANGELOG says which before you start.
+carried a migration, and stays put when it did not - the CHANGELOG says which before you start.
 
 **Run `doctor` from your own shell and `program` will not move, correctly.** It is shorter and
-it works, so it is what an operator reaches for — and it reports *your* install,
+it works, so it is what an operator reaches for - and it reports *your* install,
 `~/.local/bin/subroutine`, which this procedure never touches. The server then appears as a
 connection line rather than as `program`, and that connection is what moves. An unchanged
 `program` there is not a failed upgrade; it is a different question being answered.
 
 **And your own client is now behind the server, which is expected and says so.** Nothing
-upgraded it, so it is an older program talking to a newer instance — `subroutine whoami` prints
+upgraded it, so it is an older program talking to a newer instance - `subroutine whoami` prints
 both versions and ends with *the program and the instance disagree, so a call may be refused for
 a field one of them does not have*. Meeting that for the first time immediately after an upgrade
 reads like damage and is the check working. Upgrade your own copy the way you installed it,
@@ -1782,16 +1782,16 @@ instance can run for years without making an outbound request. Asking is somethi
     /opt/subroutine/bin/subroutine db upgrade --check
 ```
 
-It answers in two or three lines — what is running, what has been released, and **whether
+It answers in two or three lines - what is running, what has been released, and **whether
 taking it changes the database schema**. That last line is the reason the command exists: it
 is the difference between planning a short outage and meeting one halfway through an install.
 
-It reports what is *running*, which is not always what a package manager thinks is installed —
+It reports what is *running*, which is not always what a package manager thinks is installed -
 an editable install carries the version it was made at. And it changes nothing at all, so it is
 safe on a machine you have not decided about yet.
 
 The package manager moves the code. Subroutine moves the database. In that order, and it will
-not try to do the first for you — a tool that installs software over itself fights whatever
+not try to do the first for you - a tool that installs software over itself fights whatever
 installed it, cannot do it safely while running, and is worse at it than your package manager.
 
 ```console
@@ -1807,7 +1807,7 @@ installed it, cannot do it safely while running, and is worse at it than your pa
 
 **Those three variables are not decoration, and this step is the one place leaving them off
 fails quietly.** `upgrade` acts on a *database*, and it finds that database through
-configuration — so without them it reads *your* `config.toml` rather than the service's, finds
+configuration - so without them it reads *your* `config.toml` rather than the service's, finds
 whatever database that names, and reports on the wrong one. It will look like it worked. They
 are the same three the unit sets and the same three [`init`](#first-run-and-what-it-writes) was
 run with; a test fails the build if the two lists stop matching.
@@ -1815,7 +1815,7 @@ run with; a test fails the build if the two lists stop matching.
 **Stop the service before upgrading, not after.** The order above is deliberate: install first
 and start last, so there is never a moment where new code is serving an old database.
 
-If there is one anyway — and a mistimed deploy is the ordinary way to get there — the instance
+If there is one anyway - and a mistimed deploy is the ordinary way to get there - the instance
 does not pretend everything is fine. `/readyz` returns 503 naming both revisions, and **every
 write is refused with a 409 saying the same thing** while reads go on being served. That is a
 deliberate choice rather than a half-measure: refusing to start would take the `/readyz` sentence
@@ -1847,7 +1847,7 @@ copy where it landed, migrate, then read the schema back rather than assuming.
   Upgraded from f159c8635e54 to c3a7f21b9d40.
 ```
 
-It is safe to run when there is nothing to do — it prints the three numbers and stops, which is
+It is safe to run when there is nothing to do - it prints the three numbers and stops, which is
 also the cheapest way to ask the question:
 
 ```console
@@ -1863,14 +1863,14 @@ also the cheapest way to ask the question:
 
 **Read the version on that first line, because it is the only part of this that can tell you
 step one worked.** A release that carries no migration and an upgrade that never happened print
-the same two schema numbers and the same `Nothing to do.` — so if the version is not the one you
+the same two schema numbers and the same `Nothing to do.` - so if the version is not the one you
 just installed, the database is fine and the *software* did not move. That happens more easily
 than it sounds: a copy installed from a checkout carries a development version, which compares as
 newer than anything published, so `pip install --upgrade` declines it without failing. The
 command says so when it sees one.
 
 Add `--yes` when the instance is marked `protected` and there is no terminal to answer the
-prompt — a timer or a deploy script. On a **protected** instance without it, the command says
+prompt - a timer or a deploy script. On a **protected** instance without it, the command says
 what it was about to touch and stops.
 
 If the migration fails, the message says where it stopped and where the backup is, with the
@@ -1893,7 +1893,7 @@ deciding the remedy:
     Run 'subroutine db upgrade' — it backs up first, then migrates.
 ```
 
-A database *newer* than the software is refused the other way — update the software, because
+A database *newer* than the software is refused the other way - update the software, because
 there is no downgrade. **The administrative commands are deliberately outside the check**:
 `db current`, `db backup`, `db backups`, `db restore` and `upgrade` itself all keep working
 while it is firing, because they are what you reach for once it does.
@@ -1903,7 +1903,7 @@ so. `subroutine --version` prints the release and the schema this build wants.
 
 **Whether a release needs a migration at all is on the release itself.** Each entry in
 [CHANGELOG.md](../CHANGELOG.md) that moves the schema carries a notice saying so, with the
-revisions it moves between — and CI refuses a release that moves the schema without one, by
+revisions it moves between - and CI refuses a release that moves the schema without one, by
 comparing the migration history against the previous tag rather than by trusting anybody to
 remember. So the question "will this upgrade need downtime?" is answered before you download
 anything, which is the whole point.
@@ -1924,7 +1924,7 @@ reference by name:
 
 **Check that it took, because pip may say nothing either way.** On a direct URL it clones,
 resolves the commit, builds the metadata and prints neither *Successfully installed* nor
-*already up to date* — so its output cannot tell *already at HEAD* from *declined to replace*.
+*already up to date* - so its output cannot tell *already at HEAD* from *declined to replace*.
 The version is what answers:
 
 ```console
@@ -1938,7 +1938,7 @@ install printed.
 
 **`subroutine db upgrade --check` asks about releases, so it cannot answer this question.** It
 compares what is running against what has been published, which for a build from a branch is a
-comparison between two different things — and it says so rather than guessing:
+comparison between two different things - and it says so rather than guessing:
 
 ```console
 # sudo -u subroutine env \
@@ -1953,7 +1953,7 @@ comparison between two different things — and it says so rather than guessing:
 
 **`subroutine db current` is what replaces it**, and it is the one to run between installing and
 upgrading. It compares the database in front of it against the build that is now installed,
-which is exactly the question `--check` was being asked — **and it needs the same three
+which is exactly the question `--check` was being asked - **and it needs the same three
 variables as everything else here**, for the same reason:
 
 ```console
@@ -1965,14 +1965,14 @@ variables as everything else here**, for the same reason:
   Schema is at 4f177421eb91; newest is c3a7f21b9d40.
 ```
 
-When the two match it says so in one line — `Schema is at c3a7f21b9d40.` — and there is nothing
+When the two match it says so in one line - `Schema is at c3a7f21b9d40.` - and there is nothing
 to do.
 
 **Run bare, it answers about your own account's database** and the answer looks just like the one
 you asked for. That is the paragraph above this section arriving in the one place it is easiest
 to skip: this command reads a *database*, it finds it through configuration, and without the
 variables the configuration it reads is yours. It says which database it looked at, so the
-sentence to check is the path — not the schema.
+sentence to check is the path - not the schema.
 
 **And a schema change arrives with no notice.** The migration notice at the top of a changelog
 entry belongs to a *release*, and CI refuses a release that moves the schema without one. From a
@@ -1980,8 +1980,8 @@ branch there is no release to carry it, so the mechanism that exists to stop som
 migration halfway through an install never fires. `db current` between the two steps is the
 substitute.
 
-`subroutine db upgrade` itself needs no different handling — the same invocation as
-[above](#upgrading), variables and all — and says the useful half unprompted:
+`subroutine db upgrade` itself needs no different handling - the same invocation as
+[above](#upgrading), variables and all - and says the useful half unprompted:
 
 ```console
 # sudo -u subroutine env \
@@ -1998,11 +1998,11 @@ substitute.
 ## What the licence asks of you, which is almost nothing
 
 Subroutine is [FSL-1.1-ALv2](../LICENSE). **Running it, modifying it and serving it to your own
-people are all free and unconditional** — internally, commercially, at any size, for ever. There
+people are all free and unconditional** - internally, commercially, at any size, for ever. There
 is no obligation to publish anything, and nothing here is triggered by having users.
 
 The one thing the licence withholds is **selling other people access to it as a service**. If
-that is what you are setting up, write to simon.holliday@protonmail.com first — a commercial
+that is what you are setting up, write to simon.holliday@protonmail.com first - a commercial
 licence is available by agreement, and it is cheaper than finding out afterwards.
 
 Each release becomes Apache-2.0 two years after it ships, automatically.

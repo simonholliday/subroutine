@@ -17,7 +17,7 @@ That will change once the shape has settled, and this file will say so when it d
   not. An issue saying "I wanted X and there was no way to do it" is worth more than a guess.
 
 **A vulnerability is the exception, and please treat it as one.** An issue is public from the
-moment it is filed, so it is the one report that must not start there —
+moment it is filed, so it is the one report that must not start there -
 [SECURITY.md](SECURITY.md) says where it should go instead.
 
 The rest of this file is kept for two reasons: an unsolicited pull request still needs the
@@ -31,13 +31,13 @@ first pull request is merged.** Say so in the pull request:
 
 > I have read the CLA document and I hereby agree to its terms.
 
-That is the whole process — there is nothing to print, sign or post.
+That is the whole process - there is nothing to print, sign or post.
 
 It exists because Subroutine is offered under FSL-1.1-ALv2 *and* under a commercial
 licence by agreement. Offering the second one means being able to grant rights in all of
 the code, and a contribution that arrived under the FSL alone could not be included in it,
 because the FSL grants rights for a Permitted Purpose and selling a service is not one. The
-CLA solves that by having you grant those rights up front. **You keep your copyright** —
+CLA solves that by having you grant those rights up front. **You keep your copyright** -
 it is a licence, not an assignment, and you remain free to do anything you like with your
 own work.
 
@@ -56,8 +56,8 @@ $ pip install -e '.[dev,postgres]'
 $ pytest
 ```
 
-That runs the suite against SQLite. To run it against both backends — which CI does, and
-which you should before opening a pull request — you need a PostgreSQL you can create
+That runs the suite against SQLite. To run it against both backends - which CI does, and
+which you should before opening a pull request - you need a PostgreSQL you can create
 databases on:
 
 ```console
@@ -66,15 +66,15 @@ $ pytest
 ```
 
 That variable is only needed if your server is somewhere other than the default, which is
-a local Unix socket (`postgresql+psycopg:///postgres`) — the suite tries PostgreSQL without
+a local Unix socket (`postgresql+psycopg:///postgres`) - the suite tries PostgreSQL without
 being asked. If it cannot be reached, that half of the suite **skips**, so a laptop without
 PostgreSQL can still run the tests. In CI, `SUBROUTINE_TEST_REQUIRE_POSTGRES=1` turns those
-skips into failures — a green build there means both backends really ran.
+skips into failures - a green build there means both backends really ran.
 
 Each run creates and drops its own database, named with a random suffix, so two `pytest`
 processes on one machine do not destroy each other's schema.
 
-That is also what makes the suite safe to spread across every core, which is worth doing —
+That is also what makes the suite safe to spread across every core, which is worth doing -
 it is over four thousand tests and the great majority of them are fast:
 
 ```console
@@ -89,7 +89,7 @@ and the default scheduler strands workers at the tail waiting for them.
 It is deliberately not switched on for you. A bare `pytest` stays serial so that running one
 test while you debug it costs a second rather than four, and so that the output is in order
 when reading it is the point. The **one** thing not to parallelise is
-`pytest tests/test_browser.py` on its own — a worker apiece launches its own browser and they
+`pytest tests/test_browser.py` on its own - a worker apiece launches its own browser and they
 time each other out.
 
 Before pushing:
@@ -109,7 +109,7 @@ project's own backlog:
 $ python scripts/install_hooks.py
 ```
 
-Two things then happen. A commit message has to cite an item that exists — written `SR#42`,
+Two things then happen. A commit message has to cite an item that exists - written `SR#42`,
 never a bare `#42`, because GitHub auto-links that to *this repository's* issues and the link
 resolves, so nobody can see it is about something else. And after the commit lands, the sha is
 written back onto every item it cites, so "what closed #46" and "what did `abc1234` do" are
@@ -124,8 +124,8 @@ $ git commit --no-verify
 
 **The installer puts a shim outside the working tree and points `core.hooksPath` at it**,
 rather than writing into `.git/hooks`. That is not tidiness: a working tree on a filesystem
-that forces its permission bits — a CIFS or SMB share mounted `file_mode=0666`, which is where
-this project is developed — cannot hold an executable file at all, and **git skips a hook it
+that forces its permission bits - a CIFS or SMB share mounted `file_mode=0666`, which is where
+this project is developed - cannot hold an executable file at all, and **git skips a hook it
 cannot execute without saying anything**. The shim runs the tracked hook by path, so editing
 `hooks/` takes effect immediately and there is no copy to go stale.
 
@@ -138,8 +138,8 @@ about most of them.
 `src/subroutine/db/migrations/versions/`, which Alembic generates space-indented and
 which is left in Alembic's conventions rather than half-converted to ours.
 
-**Ruff is a linter here, never a formatter.** Run `ruff check`. Do not run `ruff format`
-— it would convert the whole codebase to spaces and strip the space in `def foo (x)`.
+**Ruff is a linter here, never a formatter.** Run `ruff check`. Do not run `ruff format` -
+it would convert the whole codebase to spaces and strip the space in `def foo (x)`.
 
 **Imports are `import x` only, never `from x import y`,** and things are called by their
 fully-qualified names: `sqlalchemy.select`, not `select`. The exceptions are
@@ -148,13 +148,13 @@ fully-qualified names: `sqlalchemy.select`, not `select`. The exceptions are
 Note the consequence: `import a.b.c` binds only `a`, so Ruff's unused-import check cannot
 see a stale `import subroutine.x.y`, and in the other direction `a.b.c.thing` resolves
 through somebody else's import. `tests/test_imports.py` checks both directions, so the
-suite will tell you — but it is worth knowing why a linter never will.
+suite will tell you - but it is worth knowing why a linter never will.
 
 **Function definitions take a space before the parenthesis, calls do not.** `def foo (x)`
 and `foo(x)`. It marks a definition apart from a call at a glance.
 
 **Docstrings are mandatory** on every function, and blank lines separate paragraphs of
-code the way they separate paragraphs of prose — a guard clause is followed by a blank
+code the way they separate paragraphs of prose - a guard clause is followed by a blank
 line, and so is a shift from validating to acting.
 
 **Type hints are mandatory and use PEP 604**: `str | None`, `list[str]`, not
@@ -162,9 +162,9 @@ line, and so is a shift from validating to acting.
 so.
 
 **Every test runs against SQLite *and* PostgreSQL.** The engine fixture is parameterised;
-please do not add a test that silently covers one backend only. The bugs this catches —
+please do not add a test that silently covers one backend only. The bugs this catches -
 event ordering, NULL sort order, `LIKE` case sensitivity, string-length enforcement,
-collation — are invisible on SQLite by construction.
+collation - are invisible on SQLite by construction.
 
 **Schema changes go through Alembic.** `Base.metadata.create_all` is for tests. A CI
 check asserts that `--autogenerate` produces an empty diff against the models, and a

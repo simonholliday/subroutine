@@ -2887,11 +2887,44 @@ def test_nothing_is_excused_from_the_doctor_transcript_that_it_actually_shows ()
 #: **The house style is a spaced hyphen, never an em dash** (Simon, 2026-09-14; `#2570`). Held page
 #: by page, so a page joins this list when it has been swept, and the list says how far the rule
 #: has reached rather than claiming the whole repository.
-SPACED_HYPHEN_PAGES = ("README.md",)
+#:
+#: **User-facing documentation, and nothing else** (Simon, same day; `#2595`): the README,
+#: ``CONTRIBUTING.md`` and ``docs/``. ``docs/design.md`` is out because it is frozen (`#945`), and
+#: ``docs/errors.md`` is in because its source is: the registry in ``subroutine/errors.py``.
+SPACED_HYPHEN_PAGES = (
+	"README.md",
+	"CONTRIBUTING.md",
+	"docs/connecting.md",
+	"docs/errors.md",
+	"docs/hosting.md",
+)
 
 #: The character the house style rules out, written as an escape so this file's own source never
 #: carries one and a sweep of the tests cannot find the guard counting itself.
 EM_DASH = "—"
+
+
+def _outside_quoted_output (text: str) -> typing.Iterator[tuple[int, str]]:
+	"""Yield each numbered line of a page that is not inside a ``console`` block.
+
+	**A console block quotes what the program printed**, and the pages promise those quotes are
+	real. Program output is outside the house-style sweep (`#2595`), so a dash the program prints
+	stays in its transcript until the program's own wording changes. Every other block is written
+	for the page, so it is held like prose: the example unit file's comments are the case.
+	"""
+
+	fence: str | None = None
+
+	for number, line in enumerate(text.splitlines(), start=1):
+		opened = re.match(r"^\s*```(\S*)", line)
+
+		if opened:
+			fence = opened.group(1) if fence is None else None
+
+			continue
+
+		if fence != "console":
+			yield number, line
 
 
 def test_a_page_held_to_the_house_style_carries_no_em_dash () -> None:
@@ -2902,8 +2935,8 @@ def test_a_page_held_to_the_house_style_carries_no_em_dash () -> None:
 	"""
 
 	for name in SPACED_HYPHEN_PAGES:
-		lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
-		found = [number for number, line in enumerate(lines, start=1) if EM_DASH in line]
+		text = (ROOT / name).read_text(encoding="utf-8")
+		found = [number for number, line in _outside_quoted_output(text) if EM_DASH in line]
 
 		assert not found, (
 			f"{name} carries an em dash on line {', '.join(map(str, found))}. The house style is "
