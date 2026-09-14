@@ -1444,7 +1444,18 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: one thing on the surface read before anything is claimed. **It was read for fat first**, and
 #: its renewal sentence was kept rather than traded: a lease renews on a write to the task, and
 #: an agent working elsewhere can go longer than a lease without making one.
-TOOL_BYTE_CEILING = 14_625
+#: **14,625 → 14,710 on 2026-09-14, and what 85 bytes bought** (`SR#2373`): ``project`` on
+#: ``subroutine_update``. A capture naming no project lands in the Inbox, and over a served
+#: instance that is every such capture, because the checkout marker is read where the instance
+#: runs (`SR#1438`). Nothing on this surface could move a task back out: an agent sent this very
+#: argument, was refused, and reported the item stranded — and the way out it found later was
+#: ``subroutine_call_api``, the most context-expensive call here. ``subroutine_document`` has
+#: refiled on revision since `SR#1219`, so this is one entity along rather than new ground.
+#: **It was read for fat first and none was taken.** What reading found is that the tool's own
+#: description leaves out ``type``, ``description``, ``assignee``, ``until``, ``repeat`` and now
+#: ``project`` — an enumeration nobody kept up — and it was left alone rather than lengthened,
+#: because the schema lists them all and the agent that wanted this one found it by argument.
+TOOL_BYTE_CEILING = 14_710
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -2666,6 +2677,63 @@ def test_an_agent_can_ask_what_has_been_assigned_to_it (
 	assert not failed, listed
 	assert "For me" in listed, listed
 	assert "For nobody" not in listed, f"the filter narrowed nothing: {listed}"
+
+
+def test_a_task_filed_in_the_inbox_can_be_moved_to_its_project_from_here (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#2373`. A capture naming no project lands in the Inbox, and nothing here could move it.
+
+	Over a served instance that is every such capture, because the checkout marker is read
+	where the instance runs (`#1438`). An agent that met it sent ``project`` to this tool, was
+	refused, and concluded the item was stranded — true of this surface, and it left a
+	misfiling that only a shell or ``subroutine_call_api`` could undo.
+
+	**Sent in capitals and echoed in the stored spelling**, which is what shows the echo is read
+	off the task rather than repeated from the argument: a key is not unique since decision
+	`#957`, so what was sent and where it went can differ.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+
+	added, failed = _called(bound, "subroutine_add", text="Fix the header on mobile")
+
+	assert not failed, added
+	assert "filed in inbox" in added, "the premise: nothing chose, so the default answered"
+
+	ref = _numbered(added)
+	moved, failed = _called(bound, "subroutine_update", ref=ref, project="WEB")
+
+	assert not failed, moved
+	assert "set project web" in moved, moved
+
+	# Read back from the instance rather than from the sentence the tool just printed.
+	shown, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "+web" in shown, shown
+
+
+def test_a_task_cannot_be_moved_to_no_project (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#2373`. ``''`` clears an assignee on this tool, and there is no project to clear to.
+
+	``PATCH /v1/tasks`` reads a null project as *not sent*, so an empty one passed through would
+	change nothing and be answered as a success — on the surface where that echo is the only
+	confirmation an agent gets.
+	"""
+
+	_called(bound, "subroutine_project", key="web", title="Website")
+
+	ref = _added(bound, "Fix the footer +web")
+	refused, failed = _called(bound, "subroutine_update", ref=ref, project="")
+
+	assert failed, refused
+	assert "cannot be cleared" in refused, refused
+
+	shown, _ = _called(bound, "subroutine_show", ref=ref)
+
+	assert "+web" in shown, f"and it stayed where it was: {shown}"
 
 
 def test_every_argument_published_as_a_ref_accepts_the_way_this_program_prints_one (

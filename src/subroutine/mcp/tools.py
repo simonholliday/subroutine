@@ -1141,6 +1141,20 @@ def _tools (
 						"type": "string",
 						"description": "Hand it to somebody, by username. '' for nobody.",
 					},
+					# **The only way back from a misfiling that nothing on this surface could undo**
+					# (`#2373`). A capture that names no project lands in the Inbox, and over a
+					# served instance that is every such capture: `#1438`'s marker is read where
+					# the instance runs, not where the agent is. `subroutine_document` has refiled
+					# a document on revision since `#1219`; a task had no equivalent short of
+					# `subroutine_call_api`, and an agent that tried this very argument was
+					# refused and concluded the item was stranded.
+					#
+					# **Worded as the terminal's `update --project` is**, so the two surfaces say
+					# one thing.
+					"project": {
+						"type": "string",
+						"description": "File it under this project, by key.",
+					},
 					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
 					"until": {
 						"type": "string",
@@ -4251,6 +4265,20 @@ def _updated (
 	if "assignee" in arguments:
 		changes["assignee"] = arguments["assignee"] or None
 
+	# **Refused when empty, rather than cleared like the assignee above** (`#2373`). Every task
+	# is in a project, and `PATCH /v1/tasks` reads a null one as *not sent* — so passing `''`
+	# through would change nothing and answer as if it had.
+	if "project" in arguments:
+		named = _text(arguments, "project")
+
+		if named is None:
+			raise ValueError(
+				"Every task is in a project, so project cannot be cleared. Name the one to file "
+				"it under."
+			)
+
+		changes["project"] = named
+
 	# **`description` is here because the skill's own argument depends on it** (`#392`). It
 	# tells an agent to write an outcome-shaped title on the grounds that "your motivation is
 	# not lost, because it belongs in the description — which is one field away". From this
@@ -4313,7 +4341,7 @@ def _updated (
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
-			"description, repeat, plan, until or defer."
+			"description, assignee, project, repeat, plan, until or defer."
 		)
 
 	# **Two calls, because they are two endpoints** — `PATCH /v1/tasks` and the scheduling
@@ -4402,6 +4430,12 @@ def _updated (
 	# carried too because a caller that sent four fields should not have to diff a row to see
 	# that all four took. This is `subroutine_add`'s `(read …)` parenthetical, which is the
 	# thing on this surface agents report relying on, applied to the write next door.
+	# **Where it went, read off the task rather than echoed from the argument** (`#2373`). A key
+	# is not unique in its workspace since decision `#957`, so the name sent and the address it
+	# resolved to can differ — and the address is the one that says which project it is now.
+	if "project" in changes:
+		changes["project"] = changed.project_path or changed.project_key
+
 	settled = [f"{name} {value}" for name, value in sorted(changes.items()) if value is not None]
 	settled += [f"{name} cleared" for name, value in sorted(changes.items()) if value is None]
 	# **`plan` is a day and `defer` is a moment**, which is `#858`'s distinction and the reason
