@@ -549,6 +549,86 @@ def test_an_agents_token_is_never_offered_to_the_person (
 	assert resolved.source == "nowhere"
 
 
+def _also_stored (monkeypatch: pytest.MonkeyPatch, *, agent: bool) -> list[str]:
+	"""Resolve ``work`` as the agent or the person would, and name what else is stored."""
+
+	if agent:
+		monkeypatch.setenv(subroutine.connections.DEFAULT_AGENT_WHEN, "1")
+
+	else:
+		monkeypatch.delenv(subroutine.connections.DEFAULT_AGENT_WHEN, raising=False)
+
+	answered = subroutine.credentials.resolve(
+		connection(), default_connection="local", describe_only=True
+	)
+
+	return subroutine.credentials.also_stored(connection(), answered)
+
+
+def test_what_else_is_stored_is_named_from_both_sides_and_never_shown (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2572`. Each of `#1449`'s two readers is told the other half exists, and nothing of it.
+
+	An agent was refused for walking ``credentials.toml``'s keys, which was the only way to
+	learn whether a person's token sat beside its own. **Both sides, because either alone
+	proves nothing** — the pair above is this module's own precedent.
+	"""
+
+	subroutine.credentials.store("work", "sr_person")
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	as_agent = _also_stored(monkeypatch, agent=True)
+	as_person = _also_stored(monkeypatch, agent=False)
+
+	assert as_agent == ["a person's token"]
+	assert as_person == ["an agent's token"]
+
+	for said in (as_agent, as_person):
+		assert not any("sr_" in part for part in said), said
+
+
+def test_the_half_nobody_is_offered_is_still_named (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2572`. A person where only an agent's token is stored reads *nowhere*, and more is true.
+
+	``nowhere`` is right about the person, which is why :func:`test_an_agents_token_is_never_offered_to_the_person`
+	keeps it — and without this it is also the whole of what they are told about a file that is
+	not empty.
+	"""
+
+	subroutine.credentials.store("work", "sr_agent", agent=True)
+
+	assert _also_stored(monkeypatch, agent=False) == ["an agent's token"]
+
+
+def test_a_token_that_answered_is_not_named_again (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2572`. One stored token that is in use is the ordinary case, and says nothing extra."""
+
+	subroutine.credentials.store("work", "sr_person")
+
+	assert _also_stored(monkeypatch, agent=False) == []
+	assert _also_stored(monkeypatch, agent=True) == [], "no agent's token, so the person's answers"
+
+
+def test_a_stored_token_shadowed_by_a_variable_is_named (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2572`. A variable above the file leaves what is stored unused, and not removed.
+
+	That is the case somebody debugging a refusal most needs: the listing names the variable,
+	and the file still holds a token nobody is using.
+	"""
+
+	subroutine.credentials.store("work", "sr_person")
+	monkeypatch.setenv(subroutine.credentials.variable_for("work"), "sr_by_hand")
+
+	assert _also_stored(monkeypatch, agent=False) == ["a person's token"]
+
+
 def test_a_connection_can_name_a_different_editors_variable (
 	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1122,7 +1122,13 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# CLI" — and narrowing it would mean parsing English, which is a check that would be wrong in
 	# ways nobody can enumerate. The ceiling still does its job: a seventh could not appear
 	# without somebody writing this paragraph.
-	assert len(commands) <= 7, (
+	# **Raised to 8 for `#2572`, and it is `whoami`'s argument one command along.** An agent was
+	# refused for walking `credentials.toml` to learn what was stored, and the skill now tells
+	# every agent never to read a credential and names `connections` as what answers instead. No
+	# tool can: over a served instance they run on the server (`#539`), which has never seen the
+	# file on the caller's machine — the same reason `whoami` is here, and nothing belongs in
+	# `NOT_IN_MCP`, which lists routes, because there is no route to a file nobody sends.
+	assert len(commands) <= 8, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

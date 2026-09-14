@@ -279,6 +279,16 @@ agent's in a process an agent started and theirs everywhere else, including in `
 which no editor setting reaches. Where an agent already has an identity through its tools and
 only the shell is wrong, that one command is the whole of it.
 
+**Never read a credential to find out what is stored** — not `credentials.toml`, not a `.env`,
+not a variable holding a token. Not to list its keys, not to check that a token is there, not to
+count its characters. The program answers all of that without printing a secret:
+`subroutine connections` names where each connection's token comes from and which other
+tokens are stored beside it, and `subroutine whoami` says which one is in use and what it may
+do. **Reading one yourself is exploring credentials, and a harness that watches for it will
+refuse the command — rightly**, because nothing can tell a script that lists keys from one that
+copies the values. If those two commands cannot answer what you need, say what you were trying to
+find out and ask; do not look.
+
 **Ask what can be started, not what exists.** This is the one thing Subroutine answers that a
 list of tasks does not:
 

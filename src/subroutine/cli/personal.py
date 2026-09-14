@@ -5073,9 +5073,17 @@ def _connection_row (
 	"""Describe one connection: its name, where it is, its token, and what it is."""
 
 	try:
-		token = subroutine.credentials.resolve(
+		answered = subroutine.credentials.resolve(
 			connection, default_connection=roster.default, describe_only=True
-		).source
+		)
+		token = answered.source
+		# **What else is stored, so the file never has to be opened to learn it** (`#2572`).
+		# Only the token that won is in `source`, and the other half of `#1449`'s pair is the
+		# question an agent otherwise answers by reading the secrets file.
+		unused = subroutine.credentials.also_stored(connection, answered)
+
+		if unused:
+			token = f"{token}; also stored: {' and '.join(unused)}"
 
 	except subroutine.errors.SubroutineError as error:
 		token = f"unusable — {error.detail}"

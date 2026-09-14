@@ -257,6 +257,42 @@ def _from_file (connection: subroutine.connections.Connection) -> Resolved:
 	return Resolved(token=None, source="nowhere")
 
 
+def also_stored (connection: subroutine.connections.Connection, answered: Resolved) -> list[str]:
+	"""Name each token stored for this connection that did not answer, and print neither — `#2572`.
+
+	**So that nobody has to open the file to find out what is in it.** Since `#1449` one entry
+	can hold a person's token and an agent's, and :func:`resolve` reports only the one that won:
+	an agent session reads *agent, CLAUDECODE is set* and cannot learn whether the person's is
+	there too, and a person where only an agent's is stored reads *nowhere*. Walking the file's
+	keys was the only other way to see both, and an agent that did so was refused, rightly, as
+	exploring credentials — nothing watching can tell a script that lists keys from one that
+	copies values.
+
+	**Presence, never content.** The tokens are compared in memory to tell which half answered,
+	which is a question about identity rather than about a sentence in ``source``, and nothing
+	about either value — not even its length — reaches what this returns.
+
+	**Asked of the file whatever answered**, because a variable set above it shadows what is
+	stored without removing it: a stored token is unused while ``SUBROUTINE_TOKEN`` is set, and
+	that is exactly the thing somebody debugging a ``401`` needs to hear.
+	"""
+
+	stored = read_file().get(connection.name)
+
+	if stored is None:
+		return []
+
+	named = []
+
+	if stored.token and answered.token != stored.token:
+		named.append("a person's token")
+
+	if stored.agent_token and not answered.by_agent:
+		named.append("an agent's token")
+
+	return named
+
+
 def _from_command (connection: subroutine.connections.Connection) -> str:
 	"""Run a connection's credential helper and return what it printed.
 

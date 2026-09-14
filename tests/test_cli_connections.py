@@ -750,6 +750,23 @@ def test_connections_reports_where_each_token_came_from_without_printing_one (
 	assert "default" in output
 
 
+def test_connections_names_the_token_stored_beside_the_one_in_use (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`#2572`. What an agent opened ``credentials.toml`` to find out, answered by the program.
+
+	Driven through the command rather than the function beneath it, because the claim is that
+	the listing an agent is told to run says it — and says nothing of either secret.
+	"""
+
+	subroutine.credentials.store("work", "sr_the_agents_own", agent=True)
+
+	output = run("connections").output
+
+	assert "also stored: an agent's token" in output, output
+	assert "sr_the_agents_own" not in output and two.token not in output
+
+
 # --- Adding a connection ----------------------------------------------------------------
 
 
