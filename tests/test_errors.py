@@ -6,7 +6,9 @@ into a different shape, that the documented registry matches the enforced one, a
 the class reporting a failure cannot disagree with the status its code claims.
 """
 
+import importlib.util
 import pathlib
+import types
 
 import pytest
 
@@ -160,8 +162,46 @@ def test_the_published_registry_matches_the_enforced_one () -> None:
 	assert DOCUMENTED_REGISTRY.is_file(), f"{DOCUMENTED_REGISTRY} is missing"
 
 	assert DOCUMENTED_REGISTRY.read_text(encoding="utf-8") == subroutine.errors.registry_markdown(), (
-		"docs/errors.md is out of date — regenerate it from subroutine.errors"
+		"docs/errors.md is out of date. Run: python scripts/errors_page.py"
 	)
+
+
+def _errors_page () -> types.ModuleType:
+	"""Load ``scripts/errors_page.py`` by path, the way the release-notes script's tests do."""
+
+	spec = importlib.util.spec_from_file_location(
+		"errors_page", pathlib.Path(__file__).resolve().parent.parent / "scripts" / "errors_page.py"
+	)
+
+	assert spec is not None and spec.loader is not None
+
+	module = importlib.util.module_from_spec(spec)
+	spec.loader.exec_module(module)
+
+	return module
+
+
+def test_the_command_the_guard_names_writes_what_the_guard_compares (
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""`#2327`. The guard above now names a command, so the command has to satisfy the guard.
+
+	Handed a file of its own, stale, and asked twice: the first run writes exactly what the
+	guard compares against, and the second says there was nothing to do.
+	"""
+
+	page = tmp_path / "errors.md"
+	page.write_text("# Error codes\n\nSomething somebody pasted a week ago.\n", encoding="utf-8")
+
+	script = _errors_page()
+
+	assert script.main(page) == 0
+	assert page.read_text(encoding="utf-8") == subroutine.errors.registry_markdown()
+	assert "Wrote errors.md" in capsys.readouterr().out
+
+	assert script.main(page) == 0
+	assert "already current" in capsys.readouterr().out
+	assert script.PAGE == DOCUMENTED_REGISTRY, "and by default it writes the page the guard reads"
 
 
 def test_an_authentication_failure_says_nothing_about_which_one_it_was () -> None:

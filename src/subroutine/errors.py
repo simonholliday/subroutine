@@ -764,6 +764,9 @@ def registry_markdown () -> str:
 	for code in sorted(REGISTRY):
 		entry = REGISTRY[code]
 
+		# **The heading is a published address, not a label** (`#2327`). ``ERROR_TYPE_BASE``
+		# links every problem document ever emitted to ``#<code>`` on this page, so renaming a
+		# heading breaks links already in people's logs. ``scripts/errors_page.py`` writes it.
 		lines.extend(
 			[
 				"",
