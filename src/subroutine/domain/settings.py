@@ -286,7 +286,7 @@ COLOUR = Setting(
 	scopes=(PROJECT, WORKSPACE),
 	kind=A_COLOUR,
 	default=None,
-	summary="The colour this project's work is marked with, inherited by anything under it.",
+	summary="The colour work here is marked with, inherited by anything beneath.",
 	read_by="src/subroutine/views.py",
 	# Setting the workspace's colour decides what every project under it shows unless it says
 	# otherwise, which is administration rather than running one project — see the field.
@@ -356,7 +356,7 @@ HIDDEN_STATUSES = Setting(
 	# mutable one would be a single list handed to every unconfigured project on the page. The
 	# stored value is a list either way; nothing here compares the two by type.
 	default=(),
-	summary="Statuses this project does not offer when somebody sets one.",
+	summary="Statuses not offered here when somebody sets one.",
 	read_by="src/subroutine/views.py",
 	# The workspace's list is what every project inherits, so hiding a status here narrows what
 	# is offered to everybody — the same argument as the colour's, and the same answer.

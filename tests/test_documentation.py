@@ -2899,9 +2899,9 @@ SPACED_HYPHEN_PAGES = (
 	"docs/hosting.md",
 )
 
-#: The character the house style rules out, written as an escape so this file's own source never
-#: carries one and a sweep of the tests cannot find the guard counting itself.
-EM_DASH = "—"
+#: The character the house style rules out, written as an escape so that the line says which
+#: character it is: set literally, an em dash is easily read as the hyphen it is being told from.
+EM_DASH = "\u2014"
 
 
 def _outside_quoted_output (text: str) -> typing.Iterator[tuple[int, str]]:

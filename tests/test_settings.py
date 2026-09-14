@@ -9,6 +9,7 @@ module and not a nicety.
 
 import itertools
 import pathlib
+import re
 import uuid
 
 import pytest
@@ -448,6 +449,34 @@ def test_asking_about_no_projects_asks_the_database_nothing () -> None:
 		)
 		== {}
 	)
+
+
+def test_a_setting_offered_at_more_than_one_scope_names_none_of_them () -> None:
+	"""`#2637`: a workspace's settings page said *this project*, twice.
+
+	Each setting has one ``summary`` for every scope it is offered at, and the browser heads each
+	row of a settings page with it - so a sentence written from one scope's side is read on every
+	other scope's page, and ``/v1/meta`` publishes it for all of them. **Driven over the
+	registry**, so a setting added tomorrow is held to it, and floored so an empty walk fails.
+	"""
+
+	shared = [
+		setting for setting in subroutine.domain.settings.SETTINGS.values()
+		if len(setting.scopes) > 1
+	]
+
+	assert shared, "no setting is offered at two scopes, so this checks nothing"
+
+	for setting in shared:
+		named = [
+			scope for scope in setting.scopes
+			if re.search(rf"\b{scope}s?\b", setting.summary, re.IGNORECASE)
+		]
+
+		assert not named, (
+			f"{setting.key}'s summary {setting.summary!r} names {named}, and is read on the "
+			f"page of every scope it is offered at"
+		)
 
 
 def test_every_declared_setting_is_read_by_something () -> None:

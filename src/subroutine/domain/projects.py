@@ -1011,6 +1011,12 @@ def unreachable (
 	).tuples().all()
 
 	gone = () if leaving is None else (leaving.id,)
+
+	# **Twice per private project when somebody is leaving** (`#2638`): once without them and once
+	# with, because a project nobody could reach before they left is not theirs to strand. Each
+	# walk is a members query and a climb of the project's chain, so `user deactivate`, which asks
+	# with `leaving`, pays both for every private project on the installation. Bounded, as above,
+	# by how many private projects exist - which is the number to watch if this grows slow.
 	stranded = [
 		(row, place)
 		for row, place in candidates
