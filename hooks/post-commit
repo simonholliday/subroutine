@@ -22,6 +22,20 @@
 
 set -u
 
+# **Once more after a pause, before giving up on one item** — SR#2074. Everything below is a
+# request per item, and a message citing several spends a burst of them on the credential an
+# agent's own tools are spending; what the instance throttled was reported as *could not
+# record*, silently leaving the refs that happened to land last with no record of this commit.
+# A throttled request succeeds once the allowance refills, so asking again is the remedy the
+# refusal itself names. `SUBROUTINE_HOOK_PAUSE` is the commit-msg hook's, for the same reasons.
+pause="${SUBROUTINE_HOOK_PAUSE:-2}"
+
+again () {
+	"$@" && return 0
+	sleep "$pause"
+	"$@"
+}
+
 short=$(git rev-parse --short HEAD)
 subject=$(git log -1 --pretty=%s)
 body=$(git log -1 --pretty=%B | grep -v '^#' || true)
@@ -65,7 +79,7 @@ esac
 for ref in $refs; do
 	# Read once and asked three times: what kind of thing this is, whether this commit is
 	# already written down, and whether a gate is the kind of evidence it can carry.
-	record=$(subroutine show "$ref" --json 2>/dev/null || true)
+	record=$(again subroutine show "$ref" --json 2>/dev/null || true)
 
 	# **Nothing is recorded against a document**, anchored at two spaces for SR#1153's
 	# reason, which is written out below.
@@ -93,7 +107,7 @@ for ref in $refs; do
 		subroutine uncomment "$ref" "Committed as $replaced" >/dev/null 2>&1 || true
 	fi
 
-	if ! subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
+	if ! again subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
 		printf '%s\n' "Could not record $short against SR#$ref." >&2
 	fi
 
@@ -143,7 +157,7 @@ for ref in $refs; do
 	fi
 
 	if [ -n "$gate" ] && [ -n "$implements" ]; then
-		if ! subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$(git rev-parse HEAD)" >/dev/null 2>&1; then
+		if ! again subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$(git rev-parse HEAD)" >/dev/null 2>&1; then
 			printf '%s\n' "Could not record the gate against SR#$ref." >&2
 		fi
 	fi

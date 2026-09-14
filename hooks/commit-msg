@@ -105,18 +105,40 @@ fi
 
 # **Resolvable, not merely well-formed.** A message citing SR#999 reads exactly like one
 # citing real work, and is the shape that makes a history untrustworthy rather than wrong.
-missing=""
+#
+# **Asked again, a moment apart, before anything is called missing** — SR#2074. One `show` is
+# nine requests, so a message citing seven items spends sixty in a burst, on the same credential
+# an agent's own tools are spending; the instance throttles it, and every ref it throttled failed
+# here exactly as a wrong number does. The refused set *changed on every attempt*, which a
+# missing item cannot do. The CLI's exit status cannot tell the two apart — a failing connection
+# is reported and carried past by design — so what separates them is the one property they do
+# not share: a throttled ref resolves once the allowance refills, which is about a second, and a
+# missing one never does. Only the refs still failing are asked again.
+#
+# `SUBROUTINE_HOOK_PAUSE` is how long to wait between rounds, for a slow link or a test.
+pause="${SUBROUTINE_HOOK_PAUSE:-2}"
+missing="$refs"
+round=1
 
-for ref in $refs; do
-	if ! subroutine show "$ref" --json >/dev/null 2>&1; then
-		missing="$missing $ref"
+while :; do
+	still=""
+
+	for ref in $missing; do
+		if ! subroutine show "$ref" --json >/dev/null 2>&1; then
+			still="$still $ref"
+		fi
+	done
+
+	missing="$still"
+
+	if [ -z "$missing" ] || [ "$round" -ge 3 ]; then
+		break
 	fi
-done
 
-if [ -n "$missing" ]; then
 	# **An unreachable instance must not stop anybody committing.** Told apart from a bad ref
 	# by asking the program whether it can reach anything at all — if it cannot, this check
-	# has no opinion and says so.
+	# has no opinion and says so. Asked before waiting rather than after the last round, so a
+	# laptop on a train is not made to sit through every lookup timing out three times.
 	if ! subroutine whoami >/dev/null 2>&1; then
 		printf '%s\n' \
 			"The instance could not be reached, so the items this message cites were not" \
@@ -124,9 +146,15 @@ if [ -n "$missing" ]; then
 		exit 0
 	fi
 
+	sleep "$pause"
+	round=$((round + 1))
+done
+
+if [ -n "$missing" ]; then
 	printf '%s\n' \
 		"This message cites work that is not here:$missing" \
 		"" \
+		"Asked three times, a few seconds apart, so it is not the instance being busy." \
 		"Check the number, or file the item first — 'subroutine add \"...\"' prints it." >&2
 	exit 1
 fi

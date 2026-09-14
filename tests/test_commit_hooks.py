@@ -125,6 +125,13 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 			#!/bin/sh
 			echo "$@" >> "{tmp_path}/calls.log"
 
+			# A ref named in `busy` is refused once and then answered, which is what a
+			# throttled request looks like from here (`#2074`).
+			if [ -f "{tmp_path}/busy.$1.$2" ]; then
+				rm "{tmp_path}/busy.$1.$2"
+				exit 1
+			fi
+
 			case "$1" in
 				whoami) exit 0 ;;
 				show)
@@ -161,6 +168,8 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 		"GIT_AUTHOR_EMAIL": "test@example.com",
 		"GIT_COMMITTER_NAME": "Test",
 		"GIT_COMMITTER_EMAIL": "test@example.com",
+		# No waiting between attempts; the tests below say which attempt answered.
+		"SUBROUTINE_HOOK_PAUSE": "0",
 	}
 
 	built = Repo(path=work, environment=environment)
@@ -294,6 +303,49 @@ def test_a_reference_to_work_that_does_not_exist_is_refused (repo: Repo) -> None
 	assert "not here: 77" in refused.stderr
 
 
+def test_a_ref_the_instance_was_too_busy_to_answer_is_asked_again (
+	repo: Repo, tmp_path: pathlib.Path
+) -> None:
+	"""`#2074`. A throttled lookup failed exactly as a wrong number does, and was refused as one.
+
+	Measured committing `182fe0b`: seven real items, refused three times, with a different set
+	each time — which a missing item cannot produce. The stub refuses ``42`` once and then
+	answers, and the commit has to go through with nothing said about missing work.
+	"""
+
+	(tmp_path / "busy.show.42").write_text("")
+
+	repo.write("thing.py", "value = 1\n")
+	allowed = repo.commit("Do the thing\n\nSR#42 — real work, asked while the instance was busy")
+
+	assert allowed.returncode == 0, allowed.stderr
+	assert "not here" not in allowed.stderr
+	assert [call for call in repo.recorded() if call.startswith("show 42")][:2] == [
+		"show 42 --json",
+		"show 42 --json",
+	], "asked, refused, and asked again"
+
+
+def test_a_record_the_instance_was_too_busy_to_take_is_written_on_the_second_try (
+	repo: Repo, tmp_path: pathlib.Path
+) -> None:
+	"""`#2074`'s other half. The commit had landed, and two of its seven items never heard of it.
+
+	``Could not record 182fe0b against SR#1020`` was the whole of what was said, for the refs
+	that happened to land last. The stub refuses the first comment, and the record has to be
+	written anyway.
+	"""
+
+	(tmp_path / "busy.comment.42").write_text("")
+
+	repo.write("thing.py", "value = 1\n")
+	made = repo.commit("Do the thing\n\nSR#42 — real work")
+
+	assert made.returncode == 0, made.stderr
+	assert "Could not record" not in made.stderr, made.stderr
+	assert (tmp_path / "comments.42").read_text().startswith("Committed as ")
+
+
 def test_an_unreachable_instance_does_not_stop_anybody_committing (
 	repo: Repo, tmp_path: pathlib.Path
 ) -> None:
@@ -312,6 +364,27 @@ def test_an_unreachable_instance_does_not_stop_anybody_committing (
 
 	assert allowed.returncode == 0, allowed.stderr
 	assert "could not be reached" in allowed.stderr
+
+
+def test_an_unreachable_instance_is_not_asked_three_times (
+	repo: Repo, tmp_path: pathlib.Path
+) -> None:
+	"""`#2074`'s retry must not become a wait on a machine with no instance to ask.
+
+	Asking again is for an instance that answered *busy*. One that cannot be reached is asked
+	whether it can be reached before any second round, so every lookup timing out is paid once.
+	"""
+
+	(tmp_path / "bin" / "subroutine").write_text(
+		f'#!/bin/sh\necho "$@" >> "{tmp_path}/calls.log"\nexit 1\n'
+	)
+	(tmp_path / "bin" / "subroutine").chmod(0o755)
+
+	repo.write("thing.py", "value = 1\n")
+	allowed = repo.commit("Do the thing\n\nSR#42 — real work")
+
+	assert allowed.returncode == 0, allowed.stderr
+	assert [call for call in repo.recorded() if call.startswith("show 42")] == ["show 42 --json"]
 
 
 def test_a_comment_only_change_needs_no_item (repo: Repo) -> None:
