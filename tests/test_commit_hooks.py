@@ -132,21 +132,40 @@ def repo (tmp_path: pathlib.Path) -> Repo:
 				exit 1
 			fi
 
+			# One named in `lost` is written and then reported as failing, once: a write that
+			# landed with its answer lost on the way back (`#2635`).
+			outcome=0
+			if [ -f "{tmp_path}/lost.$1.$2" ]; then
+				rm "{tmp_path}/lost.$1.$2"
+				outcome=1
+			fi
+
 			case "$1" in
-				whoami) exit 0 ;;
+				whoami)
+					# `whoami.answers` holds how many more times the instance answers, for one
+					# that is lost part of the way through (`#2635`).
+					if [ -f "{tmp_path}/whoami.answers" ]; then
+						left=$(cat "{tmp_path}/whoami.answers")
+						[ "$left" -gt 0 ] || exit 1
+						echo $((left - 1)) > "{tmp_path}/whoami.answers"
+					fi
+					exit 0
+					;;
 				show)
 					grep -qx "$2" "{tmp_path}/known" 2>/dev/null || exit 1
 					cat "{tmp_path}/shape.$2" 2>/dev/null
 					cat "{tmp_path}/comments.$2" 2>/dev/null
+					cat "{tmp_path}/verifications.$2" 2>/dev/null
 					exit 0
 					;;
 				verify)
 					grep -qx "$2" "{tmp_path}/known" 2>/dev/null || exit 1
-					exit 0
+					echo "$@" >> "{tmp_path}/verifications.$2"
+					exit $outcome
 					;;
 				comment)
 					echo "$3" >> "{tmp_path}/comments.$2"
-					exit 0
+					exit $outcome
 					;;
 				uncomment)
 					grep -v "$3" "{tmp_path}/comments.$2" > "{tmp_path}/c.tmp" 2>/dev/null || true
@@ -344,6 +363,69 @@ def test_a_record_the_instance_was_too_busy_to_take_is_written_on_the_second_try
 	assert made.returncode == 0, made.stderr
 	assert "Could not record" not in made.stderr, made.stderr
 	assert (tmp_path / "comments.42").read_text().startswith("Committed as ")
+
+
+def test_an_instance_lost_after_the_second_round_is_not_blamed_on_the_refs (repo: Repo) -> None:
+	"""`#2635`: the third round stopped before asking whether the instance could be reached.
+
+	So an instance that answered the first two checks and was then lost turned every ref into
+	missing work, refused the commit, and said it was *not the instance being busy* - the
+	opposite of what happened. It asks after the last round too now.
+	"""
+
+	repo.write("a.txt", "a")
+	(repo.path.parent / "whoami.answers").write_text("2\n")
+
+	result = repo.commit("Something (SR#77)")
+
+	assert result.returncode == 0, result.stderr
+	assert "were not checked" in " ".join(result.stderr.split()), result.stderr
+	assert "not here" not in result.stderr, result.stderr
+
+
+def test_a_write_whose_answer_was_lost_is_not_made_twice (repo: Repo) -> None:
+	"""`#2635`: a record written and then reported as failed was written again.
+
+	The retry that `#2074` added for a throttled request repeated ``comment`` and ``verify``
+	whatever had happened, and neither is idempotent - so a lost answer recorded one commit twice.
+	The item is read again before the second attempt now, and a write already there is not made.
+	"""
+
+	repo.write("a.txt", "a")
+	repo.looks_like("42", "task", "started")
+	(repo.path.parent / "lost.comment.42").write_text("")
+	(repo.path.parent / "lost.verify.42").write_text("")
+
+	result = repo.commit("Work (SR#42)\n\nGate: 3 passed")
+
+	assert result.returncode == 0, result.stderr
+	assert "Could not record" not in result.stderr, result.stderr
+
+	comments = (repo.path.parent / "comments.42").read_text().splitlines()
+	verifications = (repo.path.parent / "verifications.42").read_text().splitlines()
+
+	assert sum("Committed as" in line for line in comments) == 1, comments
+	assert len(verifications) == 1, verifications
+
+
+def test_a_write_that_really_failed_is_still_made_on_the_second_try (repo: Repo) -> None:
+	"""The other half of the check above: a failure that wrote nothing is written again.
+
+	``busy`` refuses before writing, so the item holds nothing when it is read, and skipping the
+	second attempt would leave the commit recorded nowhere - the loss `#2074` was fixed for.
+	"""
+
+	repo.write("a.txt", "a")
+	repo.looks_like("42", "task", "started")
+	(repo.path.parent / "busy.verify.42").write_text("")
+
+	result = repo.commit("Work (SR#42)\n\nGate: 3 passed")
+
+	assert result.returncode == 0, result.stderr
+
+	verifications = (repo.path.parent / "verifications.42").read_text().splitlines()
+
+	assert len(verifications) == 1, verifications
 
 
 def test_an_unreachable_instance_does_not_stop_anybody_committing (

@@ -131,7 +131,7 @@ while :; do
 
 	missing="$still"
 
-	if [ -z "$missing" ] || [ "$round" -ge 3 ]; then
+	if [ -z "$missing" ]; then
 		break
 	fi
 
@@ -139,11 +139,19 @@ while :; do
 	# by asking the program whether it can reach anything at all — if it cannot, this check
 	# has no opinion and says so. Asked before waiting rather than after the last round, so a
 	# laptop on a train is not made to sit through every lookup timing out three times.
+	#
+	# **And asked after the last round too** — SR#2635. This used to stop before asking on the
+	# third, so an instance lost after the second answer turned every ref into missing work and
+	# said *"it is not the instance being busy"*, the opposite of what had happened.
 	if ! subroutine whoami >/dev/null 2>&1; then
 		printf '%s\n' \
 			"The instance could not be reached, so the items this message cites were not" \
 			"checked. Committing anyway." >&2
 		exit 0
+	fi
+
+	if [ "$round" -ge 3 ]; then
+		break
 	fi
 
 	sleep "$pause"

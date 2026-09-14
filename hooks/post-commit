@@ -36,6 +36,25 @@ again () {
 	"$@"
 }
 
+# **A write is repeated only where it did not land** — SR#2635. A failure can be an answer lost
+# after the write succeeded, and `comment` and `verify` are not idempotent, so `again` on either
+# recorded one commit twice. Before the second attempt the item is read once more, and the write
+# is skipped where what it would say is there already: the first argument is the text that
+# proves it landed, and the rest is the write. A read that fails here falls back to writing,
+# because a record written twice can be taken back and one never written cannot be rebuilt.
+once () {
+	landed="$1"
+	shift
+	"$@" && return 0
+	sleep "$pause"
+
+	if subroutine show "$ref" --json 2>/dev/null | grep -qF -- "$landed"; then
+		return 0
+	fi
+
+	"$@"
+}
+
 short=$(git rev-parse --short HEAD)
 subject=$(git log -1 --pretty=%s)
 body=$(git log -1 --pretty=%B | grep -v '^#' || true)
@@ -107,7 +126,7 @@ for ref in $refs; do
 		subroutine uncomment "$ref" "Committed as $replaced" >/dev/null 2>&1 || true
 	fi
 
-	if ! again subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
+	if ! once "Committed as $short" subroutine comment "$ref" "Committed as $short — $subject" >/dev/null 2>&1; then
 		printf '%s\n' "Could not record $short against SR#$ref." >&2
 	fi
 
@@ -157,7 +176,9 @@ for ref in $refs; do
 	fi
 
 	if [ -n "$gate" ] && [ -n "$implements" ]; then
-		if ! again subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$(git rev-parse HEAD)" >/dev/null 2>&1; then
+		commit=$(git rev-parse HEAD)
+
+		if ! once "$commit" subroutine verify "$ref" --summary "$gate" --tree "$tree" --commit "$commit" >/dev/null 2>&1; then
 			printf '%s\n' "Could not record the gate against SR#$ref." >&2
 		fi
 	fi

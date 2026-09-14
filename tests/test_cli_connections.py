@@ -788,6 +788,35 @@ def test_connections_names_the_token_stored_beside_the_one_in_use (
 	assert "sr_the_agents_own" not in output and two.token not in output
 
 
+def test_a_token_from_the_environment_is_not_called_unusable_by_a_broken_file (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	home: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#2632`: the listing read the file for what else was stored, inside the token's own `try`.
+
+	So a malformed ``credentials.toml`` turned a connection whose token comes from the environment
+	- and which answers perfectly well - into *"unusable"*. It says where its token comes from
+	now, and that the file cannot be read, beside it. **The local row is not asked about**: its
+	token is read from that file, so the file's error is its own.
+	"""
+
+	variable = subroutine.credentials.variable_for("work")
+	monkeypatch.setenv(variable, two.token)
+
+	broken = home / "xdg_config_home" / "subroutine" / "credentials.toml"
+	broken.write_text("[work\ntoken =\n", encoding="utf-8")
+
+	output = run("connections").output
+	flat = " ".join(output.split())
+
+	assert re.search(rf"\bwork {re.escape(str(two.url))} {variable}; ", flat), output
+	assert not re.search(rf"\bwork {re.escape(str(two.url))} unusable", flat), output
+	assert "what else is stored cannot be read" in flat and "not valid TOML" in flat, output
+	assert two.token not in output
+
+
 # --- Adding a connection ----------------------------------------------------------------
 
 

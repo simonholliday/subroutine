@@ -41,8 +41,10 @@ upgrade involves.
 - **See what else is stored for a connection, without opening the credentials file.**
   `subroutine connections` names the token each connection uses and where it came from, and now
   adds any other token stored beside it: *also stored: a person's token*. It says whether one is
-  there and never what it is. The skill tells agents to ask this and `subroutine whoami`, and
-  never to read a credential to find out what is stored.
+  there and never what it is, and when the credentials file cannot be read it says so beside the
+  token that answered, rather than calling a connection whose token comes from elsewhere
+  unusable. The skill tells agents to ask this and `subroutine whoami`, and never to read a
+  credential to find out what is stored.
 
 - **See at a terminal what a project or a workspace is configured with.**
 
@@ -94,10 +96,10 @@ upgrade involves.
   and one that comes from further up can only be overridden. Both clients read it too.
 
   > **`settings` is now a reserved project key.** `parent/settings` would read equally as a
-  > project keyed `settings` inside `parent` and as what is in force in `parent` — and the
-  > route wins, leaving the project listed and reachable by nothing. New projects cannot be
-  > keyed that way; an existing one is unaffected until it is renamed. Nothing on any
-  > instance we know of uses it.
+  > project keyed `settings` inside `parent` and as what is in force in `parent`, and the route
+  > wins. New projects cannot be keyed that way. One that already is stays listed, and can still
+  > be changed at its address and read by its id, but reading it at its address answers what is
+  > in force in `parent` instead - rename it. Nothing on any instance we know of uses it.
 
 - **`/v1/meta` says what this installation can be configured with.**
 

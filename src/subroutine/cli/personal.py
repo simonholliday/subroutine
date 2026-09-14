@@ -5124,10 +5124,20 @@ def _connection_row (
 		# **What else is stored, so the file never has to be opened to learn it** (`#2572`).
 		# Only the token that won is in `source`, and the other half of `#1449`'s pair is the
 		# question an agent otherwise answers by reading the secrets file.
-		unused = subroutine.credentials.also_stored(connection, answered)
+		#
+		# **Asked on its own, because an unreadable file says nothing about the token that
+		# answered** (`#2632`). A token from the environment works whatever the file holds, and
+		# the file's error, raised inside the `try` around both, called that working connection
+		# unusable - the one word in this column that sends somebody to fix the wrong thing.
+		try:
+			unused = subroutine.credentials.also_stored(connection, answered)
 
-		if unused:
-			token = f"{token}; also stored: {' and '.join(unused)}"
+		except subroutine.errors.SubroutineError as unreadable:
+			token = f"{token}; what else is stored cannot be read: {unreadable.detail}"
+
+		else:
+			if unused:
+				token = f"{token}; also stored: {' and '.join(unused)}"
 
 	except subroutine.errors.SubroutineError as error:
 		token = f"unusable — {error.detail}"
