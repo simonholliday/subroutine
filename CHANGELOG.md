@@ -22,6 +22,26 @@ upgrade involves.
 
 ### Added
 
+- **Find a private project nobody can see any more, and let somebody back in.** A private project
+  is visible only to its members, so when the last of them left - or its only member was an
+  agent whose person left - nobody could see it, and nothing could make it public or share it
+  again. `subroutine instance projects` and `GET /v1/instance/unreachable-projects` list those
+  projects by address, title and membership count, and nothing inside them, for an instance
+  administrator; `subroutine project share` then lets somebody back in, recorded like any other
+  share. `subroutine user deactivate` names the private projects nobody would be able to see
+  before it asks, beside the agents it stops.
+
+- **Move a task you filed in the wrong project, from an agent's tools.** `subroutine_update`
+  takes `project`, as `subroutine update --project` already did. A line captured with no
+  `+project` over a served instance lands in the Inbox, and until now an agent holding only the
+  tools had no way to move it out again short of composing a raw API call.
+
+- **See what else is stored for a connection, without opening the credentials file.**
+  `subroutine connections` names the token each connection uses and where it came from, and now
+  adds any other token stored beside it: *also stored: a person's token*. It says whether one is
+  there and never what it is. The skill tells agents to ask this and `subroutine whoami`, and
+  never to read a credential to find out what is stored.
+
 - **See at a terminal what a project or a workspace is configured with.**
 
   `subroutine project settings <key>` and `subroutine workspace settings <slug>` list each
@@ -151,6 +171,20 @@ upgrade involves.
 
 ### Fixed
 
+- **A `+project` after a repeat the grammar could not read was lost.** In *"cue a variant on
+  every grid on the page +superconductor"*, the unread phrase took the project with it, so the
+  task was filed in no project with `+superconductor` left in its title. A repeat phrase now
+  stops short of any field - a project, a tag, an assignee, a priority or an estimate.
+
+- **`subroutine journal` said nothing when it stopped early.** A fortnight came back as its
+  first day. It now ends an answer that stopped before the period did with *…and more*, and
+  says whether a larger `--limit` or a narrower period reaches the rest; with `--json` the same
+  sentence goes to standard error, so the list a script reads is unchanged.
+
+- **Releasing a claim whose lease had already run out said *Released*.** Nothing had changed,
+  because nobody holds an expired lease. `subroutine release` and an agent's claim tool now say
+  there was nothing to give back, and whose lease ran out when.
+
 - **Every answer is compressed now, not only the app's files.** `GET /v1/agenda` was 190 KB on
   the wire and is 50; the published API schema was 273 KB and is 44; a workspace's vocabulary
   was 13 KB and is 3.5. It applies to anything above a kilobyte whose caller says it will take
@@ -169,7 +203,8 @@ upgrade involves.
   a thing. Every text file it serves now has a gzipped copy, made once at startup and chosen
   when the browser says it takes one, with `Vary: Accept-Encoding` and a tag of its own so a
   shared cache cannot hand that copy to a caller who cannot read it. Pictures are left alone:
-  they are already compressed, and gzipping one makes it slightly larger.
+  they are already compressed, so a second copy would save a few percent and double what is
+  held in memory.
 
 - **A parked question said whose it was to nobody.** *Waiting on you* holds what is assigned to
   you or what you are holding, so setting a task to `needs_input` and naming nobody put the
@@ -227,6 +262,12 @@ upgrade involves.
   is thrown away regardless.
 
 ### Changed
+
+- **A comment too long says what to write instead.** The limit stays at 10,000 characters, and
+  the refusal now says that evidence this long - a log, a table of results - belongs in a
+  document of type finding, linked from the item, with a comment saying what it shows. It reads
+  *that comment is* rather than *that body is*, and the browser shows the advice beside the
+  text you typed, which it keeps.
 
 - **Claiming something now says how to show you have started it.** A claim holds an item so
   nobody else takes it, and it does not say work has begun — so the board went on showing
