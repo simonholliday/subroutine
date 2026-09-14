@@ -10,6 +10,8 @@ import json
 import re
 import typing
 
+import starlette.datastructures
+import starlette.middleware.gzip
 import starlette.requests
 import starlette.responses
 import uuid6
@@ -237,6 +239,63 @@ class BodyLimit:
 			f"({self.limit // 1024} KB).",
 			hint="Send less in one request — a listing takes 'limit', and a document's body "
 			"is the one field that is meant to be long.",
+		)
+
+
+class CompressAnswers:
+	"""Compress what the application builds per request, where the caller accepts it (`#2630`).
+
+	**Each answer is negotiated by exactly one layer** (Simon's decision of 2026-09-14). The app's
+	own files negotiate for themselves - ``leaves`` names their paths - and this does not touch
+	them; everything else is Starlette's ``GZipMiddleware``, at ``compresslevel`` rather than its
+	default of 9. Before this, both layers saw the app's files: the route honoured ``gzip;q=0``
+	and sent the file unencoded, and the middleware, which searches the header for the word
+	``gzip``, compressed it anyway and kept the file's tag on the result.
+
+	**The header the middleware reads is replaced by the parser's answer** - ``accepts``, the one
+	the routes use - so a refusal is a refusal on every path, and ``*`` accepts gzip here as it
+	does there. Outside ``leaves`` the one reader of ``Accept-Encoding`` is the page served for a
+	deep link, and it asks the same parser, so replacing the header with that parser's answer, on
+	a copy of the scope, changes nothing it decides.
+
+	**The parser and the paths are handed in** rather than imported from ``api/web``, which
+	imports this module by way of ``api/problems``.
+	"""
+
+	def __init__ (
+		self,
+		app: typing.Any,
+		*,
+		minimum_size: int,
+		compresslevel: int,
+		accepts: typing.Callable[[str], bool],
+		leaves: typing.Callable[[str], bool],
+	) -> None:
+		"""Wrap an application."""
+
+		self.app = app
+		self.accepts = accepts
+		self.leaves = leaves
+		self.compressing = starlette.middleware.gzip.GZipMiddleware(
+			app, minimum_size=minimum_size, compresslevel=compresslevel
+		)
+
+	async def __call__ (
+		self, scope: typing.Any, receive: typing.Any, send: typing.Any
+	) -> None:
+		"""Hand an answer to the compressor with the caller's decision, or leave it alone."""
+
+		if scope["type"] != "http" or self.leaves(scope["path"]):
+			await self.app(scope, receive, send)
+
+			return
+
+		asked = starlette.datastructures.Headers(scope=scope).get("accept-encoding", "")
+		decided = b"gzip" if self.accepts(asked) else b"identity"
+		headers = [(name, value) for name, value in scope["headers"] if name != b"accept-encoding"]
+
+		await self.compressing(
+			{**scope, "headers": [*headers, (b"accept-encoding", decided)]}, receive, send
 		)
 
 

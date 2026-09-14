@@ -1411,6 +1411,11 @@ def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
 
 	tag = answered.headers["etag"]
 
+	# **Weak, and said to vary** (`SR#2630`): the feed is compressed on the way out for a caller
+	# that takes gzip, so one tag names two sets of bytes and may only promise the same calendar.
+	assert tag.startswith('W/"'), f"the feed's tag {tag} is strong, and one of its encodings breaks it"
+	assert "accept-encoding" in answered.headers.get("vary", "").lower()
+
 	# **The claim that the tag ignores `DTSTAMP` is asserted on `_etag` directly**, and that is
 	# not belt-and-braces — it is the only place it *can* be asserted. Two requests in one test
 	# land in the same second, so the round trip below succeeds whether or not the timestamp is
@@ -1434,6 +1439,16 @@ def test_the_feed_endpoint_serves_a_calendar_and_revalidates (
 
 	assert again.status_code == 304, again.text
 	assert again.headers["etag"] == tag
+	assert "accept-encoding" in again.headers.get("vary", "").lower(), "the 304 does not say it varies"
+
+	# **Every entry is read, weak or not** (`SR#2630`): a client holding two copies names both, and
+	# this compared the first and ignored the rest.
+	listed = api_support.call(
+		world.application, "GET", address,
+		headers={"if-none-match": f'"something-older", {tag.removeprefix("W/")}'},
+	)
+
+	assert listed.status_code == 304, "the current tag, second in a list, was not recognised"
 
 	# And a change moves it, or the tag is a constant and every poll is a false 304.
 	_task(session, project, world.user, title="Standup", starts=NOW + datetime.timedelta(days=2))

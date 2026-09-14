@@ -14,7 +14,6 @@ import fastapi
 import fastapi.middleware.cors
 import sqlalchemy.engine
 import sqlalchemy.orm
-import starlette.middleware.gzip
 
 import subroutine
 import subroutine.api.admin
@@ -302,17 +301,22 @@ def create_app (
 	# decide, `minimum_size` never applies, and a fifty-byte health check comes back gzipped
 	# with no `Content-Length` at all. Innermost, it sees what the route actually produced.
 	#
-	# **It leaves anything already carrying `Content-Encoding` alone**, which is what keeps it
-	# off the app's own files: they hold a gzipped copy made once at import, and compressing
-	# that again would spend processor time per request to produce something slightly larger.
-	# It excludes `text/event-stream` by its own default, which matters the day `#1382`'s feed
-	# is built — a stream that buffers in order to compress is a stream that no longer arrives.
+	# **It stays off the app's own files, and reads the header the way their routes do**
+	# (`#2630`, Simon's decision that each answer is negotiated by one layer). Those routes hold a
+	# gzipped copy made once at import and choose between it and the file; a second layer
+	# deciding by substring compressed the file a caller had refused, under the file's own tag.
+	# `CompressAnswers` carries the argument. It excludes `text/event-stream` by Starlette's
+	# default, which matters the day `#1382`'s feed is built — a stream that buffers in order to
+	# compress is a stream that no longer arrives.
 	#
-	# **The threshold is `web`'s**, imported rather than repeated: two copies of one number
-	# agree right up until somebody changes one.
+	# **The threshold, the level, the parser and the paths are `web`'s**, handed in rather than
+	# repeated: two copies of one rule agree right up until somebody changes one.
 	application.add_middleware(
-		starlette.middleware.gzip.GZipMiddleware,
+		subroutine.api.middleware.CompressAnswers,
 		minimum_size=subroutine.api.web.SMALLEST_WORTH_COMPRESSING,
+		compresslevel=subroutine.api.web.PER_REQUEST_LEVEL,
+		accepts=subroutine.api.web.takes_gzip,
+		leaves=subroutine.api.web.negotiates_for_itself,
 	)
 
 	application.middleware("http")(subroutine.api.middleware.correlate)

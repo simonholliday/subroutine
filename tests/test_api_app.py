@@ -6,6 +6,7 @@ answered, and that a failure looks the same whether a service refused it, the ro
 found it, or something broke.
 """
 
+import gzip
 import json
 import pathlib
 import typing
@@ -38,9 +39,7 @@ def application (session: sqlalchemy.orm.Session) -> fastapi.FastAPI:
 	return api_support.build_app(api_support.factory_for(session))
 
 
-def test_the_in_process_transport_passes_on_a_decoded_body_as_decoded (
-	session: sqlalchemy.orm.Session,
-) -> None:
+def test_the_in_process_transport_passes_on_a_decoded_body_as_decoded () -> None:
 	"""`SR#2539`, which `SR#2535` surfaced the moment anything compressed.
 
 	`api/inprocess` drives this application without a socket: `subroutine_call_api` on a local
@@ -53,14 +52,28 @@ def test_the_in_process_transport_passes_on_a_decoded_body_as_decoded (
 	**330 tests failed on it at once** when the compressor went in, and none before: it is
 	exactly the shape of a fault that waits for a second mechanism to arrive before it can be
 	seen at all.
+
+	**Driven on an application that compresses whatever it is asked**, since `SR#2630`: the
+	transport no longer asks this application for gzip, so nothing in it would compress, and a
+	test driven on it could no longer fail.
 	"""
 
-	application = api_support.build_app(api_support.factory_for(session))
+	application = fastapi.FastAPI()
+
+	@application.get("/packed")
+	def packed () -> fastapi.Response:
+		"""Answer compressed, whatever the request accepted."""
+
+		return fastapi.Response(
+			content=gzip.compress(json.dumps({"openapi": "3.1.0"}).encode()),
+			media_type="application/json",
+			headers={"content-encoding": "gzip"},
+		)
 
 	with httpx.Client(
 		transport=api_support.SyncTransport(application), base_url="http://testserver"
 	) as client:
-		answer = client.get("/v1/openapi.json", headers={"accept-encoding": "gzip"})
+		answer = client.get("/packed")
 
 	assert answer.status_code == 200, "the transport did not reach the route"
 
@@ -71,6 +84,30 @@ def test_the_in_process_transport_passes_on_a_decoded_body_as_decoded (
 	assert answer.json()["openapi"], (
 		"the document did not survive the transport, which is what decoding it twice looks like"
 	)
+
+
+def test_the_in_process_transport_does_not_ask_for_gzip () -> None:
+	"""`SR#2630`: httpx offers gzip on every request, and the answer was decoded in the same process.
+
+	So the application compressed an answer for a caller holding it in memory, which spends
+	processor time at both ends to move bytes no further than the next function. Asked with the
+	header given outright, because httpx's own default is the one a caller never sees.
+	"""
+
+	application = fastapi.FastAPI()
+
+	@application.get("/asked")
+	def asked (request: fastapi.Request) -> dict[str, str | None]:
+		"""Say which encodings the request offered."""
+
+		return {"accept_encoding": request.headers.get("accept-encoding")}
+
+	with httpx.Client(
+		transport=api_support.SyncTransport(application), base_url="http://testserver"
+	) as client:
+		answer = client.get("/asked", headers={"accept-encoding": "gzip"})
+
+	assert answer.json() == {"accept_encoding": None}, "the application was offered gzip"
 
 
 def test_a_large_answer_is_compressed_for_a_caller_that_takes_it (
@@ -112,6 +149,71 @@ def test_a_large_answer_is_compressed_for_a_caller_that_takes_it (
 	assert "accept-encoding" in packed.headers.get("vary", "").lower(), (
 		"the answer has two forms and does not say so, so a shared cache may hand the "
 		"compressed one to a caller that cannot read it"
+	)
+
+
+def test_a_refusal_of_gzip_is_a_refusal_on_an_answer_too (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2630`: the middleware searched the header for the word ``gzip``, so ``gzip;q=0`` was yes.
+
+	It reads the header through `api/web`'s parser now, the one the app's own files are served by,
+	so a refusal means the same on every path - and ``*``, which names every coding the header
+	does not, accepts gzip here as it does there.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for refusing in ("gzip;q=0", "gzip;q=0, *", "identity, gzip;q=0"):
+		answer = api_support.call(
+			application, "GET", "/v1/openapi.json", headers={"accept-encoding": refusing}
+		)
+
+		assert answer.headers.get("content-encoding") is None, (
+			f"an answer was compressed for a caller whose header said {refusing!r}"
+		)
+		assert "accept-encoding" in answer.headers.get("vary", "").lower(), (
+			f"the answer for {refusing!r} has two forms and does not say so"
+		)
+
+	accepting = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "*"}
+	)
+
+	assert accepting.headers.get("content-encoding") == "gzip", (
+		"an answer was sent whole to a caller that takes any encoding"
+	)
+
+
+def test_an_answer_is_compressed_at_the_level_measured_for_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2630`: every answer was compressed at Starlette's default of 9, on every request.
+
+	`api/web` compresses its files at 9 because that happens once; an answer is compressed each
+	time it is asked for, and the level chosen for that is written beside the constant with the
+	measurement behind it. **Asked of the bytes on the wire**: the same body at the same level
+	comes to the same length, and the schema is large enough that 9 and 5 differ by kilobytes.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	packed = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "gzip"}
+	)
+	plain = api_support.call(
+		application, "GET", "/v1/openapi.json", headers={"accept-encoding": "identity"}
+	)
+
+	expected = len(
+		gzip.compress(plain.content, compresslevel=subroutine.api.web.PER_REQUEST_LEVEL, mtime=0)
+	)
+	strongest = len(gzip.compress(plain.content, compresslevel=9, mtime=0))
+
+	assert expected != strongest, "the two levels agree on this body, so this proves nothing"
+	assert int(packed.headers["content-length"]) == expected, (
+		f"the answer was {packed.headers['content-length']} bytes: level "
+		f"{subroutine.api.web.PER_REQUEST_LEVEL} gives {expected} and level 9 gives {strongest}"
 	)
 
 

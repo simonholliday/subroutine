@@ -241,12 +241,13 @@ upgrade involves.
   because nobody holds an expired lease. `subroutine release` and an agent's claim tool now say
   there was nothing to give back, and whose lease ran out when.
 
-- **Every answer is compressed now, not only the app's files.** `GET /v1/agenda` was 190 KB on
-  the wire and is 50; the published API schema was 273 KB and is 44; a workspace's vocabulary
-  was 13 KB and is 3.5. It applies to anything above a kilobyte whose caller says it will take
-  one, leaves alone whatever is compressed already — the app's own files, which carry a copy
-  made at startup — and never touches an event stream. `Vary` names the encoding, so a shared
-  cache cannot hand a compressed answer to a caller that cannot read it.
+- **Every answer is compressed now, not only the app's files.** `GET /v1/agenda` was 156 KB on
+  the wire and is 42, and the published API schema was 284 KB and is 47. It applies to anything
+  above a kilobyte whose caller says it will take gzip - `gzip;q=0` says it will not, with `*`
+  beside it or without - at a level chosen for work done on every request. The app's own files
+  are left to the copies made at startup, and an event stream is never touched. `Vary` names the
+  encoding, so a shared cache cannot hand a compressed answer to a caller that cannot read it, and
+  the calendar feed's tag is a weak one, since the same calendar now goes out in two encodings.
 
 - **An administrative page no longer loads the work behind it.** Opening Settings or People
   fetched the agenda, a workspace roster and that workspace's vocabulary — four requests,

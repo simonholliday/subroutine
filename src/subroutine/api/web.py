@@ -284,6 +284,16 @@ TAGS: typing.Final[dict[str, str]] = {name: _tag(body) for name, (body, _) in FI
 #: disappears into the framing. Everything above it in this app halves or better.
 SMALLEST_WORTH_COMPRESSING = 1024
 
+#: How hard an answer built per request is compressed (`#2630`) - by
+#: :class:`subroutine.api.middleware.CompressAnswers`, never by the routes below.
+#:
+#: **Level 5, measured rather than chosen.** On the 300 KB API schema, level 9 comes to 15.3 per
+#: cent of the original in 9.0 ms, level 6 to 15.5 in 6.8, level 5 to 16.0 in 4.0 and level 1 to
+#: 20.1 in 2.0. The app's own files take level 9 because :func:`_compressed` runs once, at import;
+#: an answer is compressed on every request, so the last point of size is not worth twice the
+#: time. Starlette's own default is 9.
+PER_REQUEST_LEVEL = 5
+
 
 def _worth_compressing (kind: str, body: bytes) -> bool:
 	"""Whether this file is text large enough to be worth holding a second copy of.
@@ -343,8 +353,8 @@ COMPRESSED_TAGS: typing.Final[dict[str, str]] = {
 }
 
 
-def _takes_gzip (request: starlette.requests.Request) -> bool:
-	"""Whether this caller said it will accept gzip.
+def takes_gzip (accepted: str) -> bool:
+	"""Whether an ``Accept-Encoding`` header accepts gzip.
 
 	**A quality of zero is a refusal**, which is the only way a client can turn this off — so
 	the header is parsed rather than searched for a substring, and ``gzip;q=0`` means *no*.
@@ -352,28 +362,70 @@ def _takes_gzip (request: starlette.requests.Request) -> bool:
 	version of this got backwards: it read the empty parameter as a zero and compressed nothing,
 	silently, exactly as before the change.
 
+	**A coding named outright outranks ``*``** (`#2630`), because RFC 9110 §12.5.3 makes ``*``
+	stand for the codings a header does not name. So ``gzip;q=0, *`` refuses gzip; read in order,
+	the ``*`` after the refusal used to be taken as acceptance.
+
+	**The one parser for every answer** (`#2630`): the routes serving the app's own files ask it,
+	and :class:`subroutine.api.middleware.CompressAnswers` asks it for everything else. Two layers
+	reading one header two ways is how a refusal came to be honoured by one and ignored by the
+	other.
+
 	Anything unreadable is taken as acceptance. Being wrong that way sends a response a browser
 	can still decode; being wrong the other way sends a page nobody can read.
 	"""
 
-	for offered in request.headers.get("accept-encoding", "").split(","):
-		name, _, parameters = offered.strip().partition(";")
+	named: float | None = None
+	anything: float | None = None
 
-		if name.lower() not in ("gzip", "*"):
+	for offered in accepted.split(","):
+		name, _, parameters = offered.strip().partition(";")
+		coding = name.strip().lower()
+
+		if coding == "gzip":
+			named = _quality(parameters)
+
+		elif coding == "*":
+			anything = _quality(parameters)
+
+	chosen = named if named is not None else anything
+
+	return chosen is not None and chosen > 0
+
+
+def _quality (parameters: str) -> float:
+	"""Return the quality an ``Accept-Encoding`` entry gives, where none means one.
+
+	An unreadable number is read as one, for :func:`takes_gzip`'s reason: acceptance is the
+	direction that still sends something a browser can decode.
+	"""
+
+	for parameter in parameters.split(";"):
+		name, _, value = parameter.strip().partition("=")
+
+		if name.strip().lower() != "q":
 			continue
 
-		quality = parameters.strip().lower().removeprefix("q=")
+		try:
+			return float(value.strip())
 
-		if quality:
-			try:
-				if float(quality) == 0:
-					continue
-			except ValueError:
-				pass
+		except ValueError:
+			return 1.0
 
-		return True
+	return 1.0
 
-	return False
+
+def negotiates_for_itself (path: str) -> bool:
+	"""Whether a path is one of the app's own, whose routes choose their own encoding (`#2630`).
+
+	**The page and everything under ``/app/``**, which :func:`_served` answers with a gzipped copy
+	held at import, a tag per copy and ``Vary`` - or unencoded, with the file's own tag, for a
+	caller who refused gzip or a file with no compressed copy, such as an icon.
+	:class:`subroutine.api.middleware.CompressAnswers` leaves these alone, where it used to
+	compress what a route had chosen to send unencoded and keep the file's tag on the result.
+	"""
+
+	return path == "/" or path.startswith("/app/")
 
 
 def _representation (
@@ -381,7 +433,7 @@ def _representation (
 ) -> tuple[bytes, str, str | None]:
 	"""Return the bytes to send this caller, their tag, and the encoding they are in."""
 
-	if name in COMPRESSED and _takes_gzip(request):
+	if name in COMPRESSED and takes_gzip(request.headers.get("accept-encoding", "")):
 		return COMPRESSED[name], COMPRESSED_TAGS[name], "gzip"
 
 	body, _ = FILES[name]

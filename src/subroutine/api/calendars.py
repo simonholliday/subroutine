@@ -324,16 +324,18 @@ def feed (
 	# **`DTSTAMP` is excluded from the tag**, or every poll would look like a change: it is the
 	# moment the document was generated, so a tag over the whole body would differ on every
 	# request and a conditional GET would never once succeed.
-	if _asked_for(request) == tag:
-		return starlette.responses.Response(
-			status_code=304, headers={"ETag": tag, "Cache-Control": CACHE_CONTROL}
-		)
+	#
+	# **A weak tag, and `Vary` on every answer, the `304` included** (`#2630`). The feed is
+	# compressed on the way out for a caller that takes gzip, so one address has two sets of
+	# bytes, and a strong tag promises byte-for-byte sameness that only one of them can keep. The
+	# tag says the calendar is the same; `Vary` keeps a shared cache from handing the compressed
+	# copy to a caller that did not ask for it.
+	headers = {"ETag": f"W/{tag}", "Cache-Control": CACHE_CONTROL, "Vary": "Accept-Encoding"}
 
-	return starlette.responses.Response(
-		content=body,
-		media_type=CONTENT_TYPE,
-		headers={"ETag": tag, "Cache-Control": CACHE_CONTROL},
-	)
+	if _holds(request, tag):
+		return starlette.responses.Response(status_code=304, headers=headers)
+
+	return starlette.responses.Response(content=body, media_type=CONTENT_TYPE, headers=headers)
 
 
 def _etag (body: str) -> str:
@@ -353,29 +355,20 @@ def _etag (body: str) -> str:
 	return f'"{hashlib.sha256(stable.encode("utf-8")).hexdigest()[:32]}"'
 
 
-def _asked_for (request: starlette.requests.Request) -> str | None:
-	"""Return the validator this request is asking about, or ``None``.
+def _holds (request: starlette.requests.Request, tag: str) -> bool:
+	"""Whether this request says it already holds the feed with this tag.
 
 	``If-None-Match`` may carry a list and may carry ``W/`` weak markers; a client that sends
 	either and is answered as though it had sent nothing simply re-downloads, which is a
-	correct response and a wasted one.
+	correct response and a wasted one. **Every entry is read** (`#2630`): this compared the first
+	and ignored the rest, and weak comparison, which RFC 9110 requires here, drops ``W/`` from
+	both sides - the tag this answers with is weak now, and the tag it compares is not.
 	"""
 
-	header = request.headers.get("if-none-match")
-
-	if header is None:
-		return None
-
-	for candidate in header.split(","):
-		cleaned = candidate.strip()
-
-		if cleaned.startswith("W/"):
-			cleaned = cleaned[2:]
-
-		if cleaned:
-			return cleaned
-
-	return None
+	return any(
+		candidate.strip().removeprefix("W/") == tag
+		for candidate in request.headers.get("if-none-match", "").split(",")
+	)
 
 
 def _unknown () -> subroutine.errors.NotFound:

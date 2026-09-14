@@ -237,6 +237,110 @@ def test_a_browser_that_takes_gzip_is_sent_gzip (session: sqlalchemy.orm.Session
 		)
 
 
+def test_a_refusal_of_gzip_is_a_refusal_on_the_app_s_own_files (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2630`: the route honoured ``gzip;q=0`` and the middleware compressed the file anyway.
+
+	Two layers read one header two ways - the route parsed the quality, the middleware searched
+	for the word - so a caller who refused gzip was sent it, under the file's own tag. **And
+	``*`` stands for the codings a header does not name** (RFC 9110 §12.5.3), so ``gzip;q=0, *``
+	refuses gzip too, where the route's parser had read the ``*`` after the refusal as yes.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for name in (subroutine.api.web.SHELL, "app.js"):
+		path = "/" if name == subroutine.api.web.SHELL else f"/app/{name}"
+
+		for refusing in ("gzip;q=0", "gzip;q=0, *", "*;q=0", "br, gzip; q=0.0"):
+			answer = api_support.call(
+				application, "GET", path, headers={"accept-encoding": refusing}
+			)
+
+			assert answer.headers.get("content-encoding") is None, (
+				f"{path} was sent gzipped to a caller whose header said {refusing!r}"
+			)
+			assert answer.headers["etag"] == subroutine.api.web.TAGS[name], (
+				f"{path} was not sent as the file itself for {refusing!r}"
+			)
+
+		accepting = api_support.call(application, "GET", path, headers={"accept-encoding": "*"})
+
+		assert accepting.headers.get("content-encoding") == "gzip", (
+			f"{path} was sent raw to a caller that takes any encoding"
+		)
+
+	# **And the page a deep link is answered with**, which is served outside ``/app/`` - so the
+	# compressor does see it, and must reach the decision the page's own reading reaches.
+	deep = "/projects/some/deep/address"
+
+	for refusing in ("gzip;q=0", "gzip;q=0, *"):
+		page = api_support.call(
+			application, "GET", deep, headers={"accept": "text/html", "accept-encoding": refusing}
+		)
+
+		assert page.status_code == 200 and "<html" in page.text.lower(), "no page for a deep link"
+		assert page.headers.get("content-encoding") is None, (
+			f"a deep link's page was sent gzipped to a caller whose header said {refusing!r}"
+		)
+
+	taken = api_support.call(
+		application, "GET", deep, headers={"accept": "text/html", "accept-encoding": "gzip"}
+	)
+
+	assert taken.headers.get("content-encoding") == "gzip", "a deep link's page was sent raw"
+
+
+def test_a_file_held_only_unencoded_is_sent_unencoded_under_its_own_tag (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2630`: an icon went out gzipped by the middleware, carrying the tag of its raw bytes.
+
+	`api/web` keeps no compressed copy of a picture, so the route sends the file with the file's
+	tag - and the middleware then compressed it, so one strong tag named two sets of bytes and a
+	cache revalidating either was told it held the other. The middleware stays off the app's own
+	paths now, and each route negotiates for itself.
+	"""
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	for name in ("favicon-on-black.ico", "icon-512-on-black.png", "apple-touch-icon.png"):
+		body = subroutine.api.web.FILES[name][0]
+
+		assert len(body) >= subroutine.api.web.SMALLEST_WORTH_COMPRESSING, (
+			f"{name} is below the threshold, so nothing would compress it and this proves nothing"
+		)
+
+		answer = api_support.call(
+			application, "GET", f"/app/{name}", headers={"accept-encoding": "gzip"}
+		)
+
+		assert answer.headers.get("content-encoding") is None, f"{name} was compressed on the way out"
+		assert answer.headers["etag"] == subroutine.api.web.TAGS[name]
+		assert answer.content == body
+
+
+def test_every_route_serving_the_app_s_files_negotiates_for_itself () -> None:
+	"""The paths the compressor leaves alone are the paths `api/web` serves, and no others.
+
+	**Read off the router**, so a route added to `api/web` outside ``/app/`` is caught here rather
+	than compressed a second time, and the API is checked to be outside the rule.
+	"""
+
+	for route in subroutine.api.web.router.routes:
+		path = getattr(route, "path", "")
+
+		assert subroutine.api.web.negotiates_for_itself(path), (
+			f"{path} is served by api/web and the compressor would not leave it alone"
+		)
+
+	for path in ("/v1/openapi.json", "/healthz", "/signin", "/application"):
+		assert not subroutine.api.web.negotiates_for_itself(path), (
+			f"{path} would be left uncompressed as though it were one of the app's files"
+		)
+
+
 def test_a_picture_is_not_held_in_two_copies (session: sqlalchemy.orm.Session) -> None:
 	"""An already-compressed file is not worth *keeping* twice (`SR#2509`).
 

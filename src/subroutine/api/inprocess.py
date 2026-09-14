@@ -77,6 +77,11 @@ class SyncTransport(httpx.BaseTransport):
 		# the ASGI transport will only iterate it asynchronously.
 		request.read()
 
+		# **Nothing here asks for gzip** (`#2630`). httpx offers it on every request, and the
+		# application would compress an answer only for this to decode it in the same process -
+		# processor time at both ends to move bytes no further than memory.
+		request.headers.pop("accept-encoding", None)
+
 		async def run () -> httpx.Response:
 			"""Make the call and drain the response inside the loop that opened it."""
 
