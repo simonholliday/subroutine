@@ -1862,10 +1862,9 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.views a.chosen',
 		'.views a:focus-visible',
 		'.views a:hover',
-		'.who',
-		'.who .link',
-		'.who .link:hover',
-		'.who strong',
+		'.where',
+		'.where select',
+		'.within',
 		'.written > .rendered',
 		'.written > .rendered:empty::before',
 		':root[data-theme="dark"]',
@@ -2946,6 +2945,49 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 		"on every load"
 	)
 
+	# **And the control that pins it is in the menu under the reader's name** - `SR#2599`,
+	# which moved it there from the footer. Driven rather than read, because a popover is shown
+	# by the browser: its markup holds the control whether or not a reader can reach it, so only
+	# opening it says anything.
+	opening = page.locator(".you .reveal")
+	shown = "() => document.querySelector('.you-menu').matches(':popover-open')"
+
+	assert not page.evaluate(shown), "the menu is open before anybody asked for it"
+
+	opening.click()
+	# **Waited for on the button, not only on the menu** - the browser opens a popover at once
+	# and tells the page in a `toggle` event queued after it, so the menu is open a moment
+	# before anything the page draws can say so. Reading `aria-expanded` straight after the
+	# menu opened measured that moment, not the page.
+	_until(page, lambda: opening.get_attribute("aria-expanded") == "true")
+
+	assert page.evaluate(shown), "pressing the reader's name did not open the menu"
+	assert opening.get_attribute("aria-expanded") == "true", (
+		"the menu is open and its button says it is not, so its caret and a screen reader "
+		"both report the wrong state"
+	)
+
+	for word in ("Settings", "People", "Sign out"):
+		assert page.locator(".you-menu").get_by_text(word, exact=True).is_visible(), (
+			f"{word!r} is not in the open menu"
+		)
+
+	page.select_option(".you-menu .theme select", "dark")
+
+	assert page.evaluate("document.documentElement.dataset.theme") == "dark", (
+		"choosing a theme in the menu did not apply it"
+	)
+
+	# Put back, because `running` is module-scoped and every later test reads this storage.
+	page.select_option(".you-menu .theme select", "light")
+	page.keyboard.press("Escape")
+	_until(page, lambda: opening.get_attribute("aria-expanded") == "false")
+
+	assert not page.evaluate(shown), "Escape did not close the menu"
+	assert opening.get_attribute("aria-expanded") == "false", (
+		"the menu closed and its button still says it is open"
+	)
+
 
 def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None:
 	"""`#911`, reported by Simon from the board on a real screen.
@@ -3247,6 +3289,22 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	page = opened("/projects?view=board&include_completed=true")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
 
+	def masthead () -> dict[str, typing.Any]:
+		"""Where the masthead and the menu under the reader's name are drawn."""
+
+		return dict(page.evaluate(
+			"""() => {
+				const round = (box) => [box.left, box.top, box.right, box.bottom].map(Math.round);
+				const [left, top, right] = round(
+					document.querySelector('header.top').getBoundingClientRect(),
+				);
+				const menu = round(document.querySelector('.you .reveal').getBoundingClientRect());
+				return { left, top, right, menu: menu.join(',') };
+			}"""
+		))
+
+	on_board = masthead()
+
 	page.locator("h1 a").click()
 
 	# The agenda has neither, so both halves of the defect are one assertion.
@@ -3287,6 +3345,26 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	assert frame < screen, (
 		f"the agenda is {frame}px of a {screen}px screen — it kept the board's frame, because "
 		f"going home wrote the address and left the view saying 'board'"
+	)
+
+	# **And the masthead did not come with it** - `SR#2599`, Simon's: the reader's own controls
+	# are always in the same place, top right. A board and the agenda are the pair whose frames
+	# differ most, and the masthead used to take whichever width its frame had, so the wordmark
+	# moved 410px between them at 1920px wide and the menu's predecessor moved with it.
+	on_agenda = masthead()
+
+	assert on_agenda == on_board, (
+		f"the masthead moved between the board and the agenda: {on_board} then {on_agenda}"
+	)
+
+	assert on_agenda["right"] - on_agenda["left"] > frame, (
+		f"the masthead is {on_agenda['right'] - on_agenda['left']}px wide over a {frame}px "
+		f"frame, so it is still inside the frame rather than spanning the screen"
+	)
+
+	assert int(on_agenda["menu"].split(",")[2]) == on_agenda["right"], (
+		f"the menu under the reader's name is not at the right-hand end of the masthead: "
+		f"{on_agenda}"
 	)
 
 
@@ -3611,7 +3689,7 @@ def test_the_workspace_control_says_what_is_showing_and_goes_both_ways (
 	page = opened("/")
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
-	control = page.locator("header .who select")
+	control = page.locator("header .where select")
 
 	assert control.input_value() == "", (
 		"the agenda shows every workspace and the control names one of them"
@@ -3660,7 +3738,7 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	page = opened("/")
 	page.wait_for_selector(".listing.agenda", timeout=10_000)
 
-	control = page.locator("header .who select")
+	control = page.locator("header .where select")
 
 	assert control.count() == 1, "one workspace still has no control to choose it with"
 
@@ -3691,7 +3769,7 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	# for a policy the product is right to have. `attached` because an `<option>` is never
 	# *visible* to Playwright, so the default state times out on a control already correct.
 	page.wait_for_selector(
-		"header .who select option:nth-child(3)", state="attached", timeout=10_000
+		"header .where select option:nth-child(3)", state="attached", timeout=10_000
 	)
 
 	assert [one.strip() for one in control.locator("option").all_inner_texts()] == [
@@ -3717,6 +3795,27 @@ def test_one_workspace_is_still_something_you_can_choose_and_go_into (
 	# when it is the default, so what you send somebody is what you were looking at.
 	assert page.url.split("?")[0] == "http://app.test/projects/websites/handouts", (
 		"the page moved and the address did not"
+	)
+
+	# **And a place's heading goes up the way the dropdown goes across** - `SR#2599`. A step in
+	# the trail is `goTo`'s address, so the three-step move above applies to it and so does the
+	# defect it guards: an address that moves under a page that does not. Asserted on the read,
+	# for `SR#962`'s reason already written out above.
+	above = page.locator(".place .trail a", has_text="Websites")
+	above.wait_for(timeout=10_000)
+	reads.clear()
+	above.click()
+	page.wait_for_url(re.compile(r"http://app\.test/projects/websites(\?.*)?$"), timeout=10_000)
+
+	def asked_for_the_parent () -> bool:
+		"""Whether the page asked for the project above rather than the one it left."""
+
+		return any("project=websites" in one and "websites%2F" not in one for one in reads)
+
+	_until(page, asked_for_the_parent)
+
+	assert asked_for_the_parent(), (
+		f"the trail moved the address to the project above and the page did not follow: {reads}"
 	)
 
 	# **Put back, which this did not do until `SR#1040`.** `running` is module-scoped, so a
@@ -4270,11 +4369,11 @@ def test_the_rows_a_page_shows_come_from_the_workspace_its_address_names (
 	page.wait_for_selector(".listing .adding", timeout=10_000)
 
 	page.wait_for_selector(
-		"header .who select option:text('Errands')", state="attached", timeout=10_000
+		"header .where select option:text('Errands')", state="attached", timeout=10_000
 	)
 
 	places = [
-		one.strip() for one in page.locator("header .who select option").all_inner_texts()
+		one.strip() for one in page.locator("header .where select option").all_inner_texts()
 	]
 
 	assert "Errands" in places and "Websites" not in places, (

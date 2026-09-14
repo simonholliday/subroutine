@@ -777,6 +777,43 @@ export function titlesByPath (projects) {
 	return found;
 }
 
+export function placeTrail ({ workspace = null, project = null, workspaces = [], projects = [] }) {
+	/*
+		A place and everything above it, outermost first: each one's name and its address —
+		`#2599`.
+
+		**One answer to *what is this place called*, read by the tab and by the heading**, which
+		is why `pageTitle` below is built on it rather than beside it. Two copies of a naming rule
+		agree on the day they are written and on no day after, which is the defect this codebase
+		keeps meeting.
+
+		**Titles for the words and keys for the addresses**, `titlesByPath`'s own split: a title is
+		what a reader calls the place, and the address is what the router reads back. A segment
+		the tree does not describe - the projects have not arrived, or one is not visible - keeps
+		its key rather than vanishing, because a trail with a hole in it names a different place.
+
+		**Empty where no workspace is named**, which is the merged agenda at `/`: it is nowhere in
+		particular, so there is nothing to walk up from.
+	*/
+	if (!workspace) return [];
+
+	const space = (workspaces || []).find((one) => one.slug === workspace);
+	const titles = titlesByPath(projects);
+	const parts = project ? String(project).split(PATH_SEPARATOR) : [];
+
+	return [
+		{ label: `${(space && space.title) || workspace}`, address: listingAddress({ workspace }) },
+		...parts.map((part, at) => {
+			const path = parts.slice(0, at + 1).join(PATH_SEPARATOR);
+
+			return {
+				label: titles[path] || part,
+				address: listingAddress({ workspace, project: path }),
+			};
+		}),
+	];
+}
+
 export function pageTitle ({
 	item = null, place = null, showing = null, workspaces = [], projects = [], area = null,
 }) {
@@ -834,24 +871,17 @@ export function pageTitle ({
 	   part of any set. */
 	if (item) return `#${item.ref} ${item.title || ""}`.trim() + suffix;
 
-	const named = (place && place.workspace) || null;
-	const space = (workspaces || []).find((one) => one.slug === named);
-	const titles = titlesByPath(projects);
-	const filed = (place && place.project) || "";
-
 	/* Each segment of the project path in turn, so a sub-project reads as its whole lineage.
-	   A segment the tree does not describe falls back to its key rather than vanishing — the
-	   listing does the same, for `#959`'s reason: a chip that disappears is worse than one
-	   naming something unfamiliar. */
-	const chain = filed
-		? filed.split(PATH_SEPARATOR).map((_part, at, parts) => {
-			const path = parts.slice(0, at + 1).join(PATH_SEPARATOR);
-
-			return titles[path] || parts[at];
-		})
-		: [];
-
-	const scope = named ? [`${(space && space.title) || named}`, ...chain] : [];
+	   **The names are `placeTrail`'s** (`#2599`), which the place's own heading reads too, so
+	   the tab and the page cannot call one place two things. A segment the tree does not
+	   describe falls back to its key rather than vanishing, for `#959`'s reason: a chip that
+	   disappears is worse than one naming something unfamiliar. */
+	const scope = placeTrail({
+		workspace: (place && place.workspace) || null,
+		project: (place && place.project) || null,
+		workspaces,
+		projects,
+	}).map((step) => step.label);
 	const chosen = (chips("", showing || { view: DEFAULT_VIEW, selection: {} })
 		.find((chip) => chip.chosen) || {}).name;
 	const view = `${chosen || (showing && showing.view) || DEFAULT_VIEW}`;

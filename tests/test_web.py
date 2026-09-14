@@ -375,8 +375,22 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			"undo": {"ref": 42, "kind": "task", "title": "Fix it", "status": "open"},
 		}
 	},
-	"Foot": {"count": 7, "theme": "system"},
+	"Foot": {"count": 7},
 	"Wordmark": {"version": "0.6.7"},
+	# **The reader's menu, closed** - `#2599`. Closed because every page draws it that way, and
+	# a popover's content is in the page whether or not the browser is showing it.
+	"You": {"username": "morpheus", "theme": "dark"},
+	# **A place three steps deep, with somewhere to configure it** - `#2599`. Three, so a step
+	# that is a link, the separator and the step that is where you are are all drawn; and with a
+	# settings address, so the link beside the trail is drawn too.
+	"Place": {
+		"trail": [
+			{"label": "Projects", "address": "/projects"},
+			{"label": "Subroutine", "address": "/projects/subroutine"},
+			{"label": "Web UI", "address": "/projects/subroutine/ui"},
+		],
+		"settings": "/settings/project/projects/subroutine/ui",
+	},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
 	# **The directory `#1397` draws, and the three samples divide its branches between them.**
@@ -13840,6 +13854,7 @@ CONTROLS_BY_CLASS = {
 	".finish": "a row's Complete, which is a button and says so nowhere in its selector",
 	".views a": "the view switcher, anchors since `#722` so a middle-click opens a tab",
 	".narrowed a.widen": "*show everything*, an anchor for the same reason",
+	".place-settings": "a place's way to its settings, an anchor for the same reason (`#2599`)",
 	# **The six roles** (design `#1045`, `#1046`). A button's size lives on its role now rather
 	# than on wherever it happened to be written, so these carry every padding this scan
 	# existed to count — and the floor below fell to 14 the moment they did.
@@ -17216,13 +17231,18 @@ def test_every_area_names_itself_in_the_tab (tmp_path: pathlib.Path) -> None:
 	)
 
 
-def test_the_settings_page_draws_the_timezone_control_and_the_footer_leads_to_it (
+def test_the_settings_page_draws_the_timezone_control_and_the_menu_leads_to_it (
 	tmp_path: pathlib.Path,
 ) -> None:
 	"""`#1446`: the page is reachable from every page, and it is the page it says it is.
 
 	**The harness's account states no zone**, so the page must say *Not set* rather than choose
 	one on the reader's behalf — which is the state every account arrives in.
+
+	**Reached from the menu under the reader's name since `#2599`**, with the people page and
+	the theme, and no longer from the footer, which on a board sits below every column. Both
+	halves are asserted, because a way in added to the menu and left in the footer is two ways
+	in that will drift apart.
 	"""
 
 	mounted = _driven(tmp_path, pathname="/settings/me")
@@ -17230,9 +17250,170 @@ def test_the_settings_page_draws_the_timezone_control_and_the_footer_leads_to_it
 	assert "Your timezone" in mounted["said"], mounted["said"][:400]
 	assert "Not set, so each workspace" in mounted["said"], mounted["said"][:400]
 
+	menu = _rendered(tmp_path, {"You": SAMPLES["You"]})["You"]
 	footer = _rendered(tmp_path, {"Foot": SAMPLES["Foot"]})["Foot"]
 
-	assert 'href="/settings"' in footer, footer
+	for address in ('href="/settings"', 'href="/people"'):
+		assert address in menu, menu
+		assert address not in footer, footer
+
+	assert "Theme" in menu and "Sign out" in menu, menu
+	assert "Theme" not in footer, footer
+
+	# **The footer rendered**, or every absence above is true of a footer that drew nothing.
+	assert "7 items" in footer, footer
+
+
+def test_a_place_names_itself_and_everything_above_it (tmp_path: pathlib.Path) -> None:
+	"""`#2599`: the trail a place's heading draws, and the tab's title read from the same words.
+
+	**Titles for the words and keys for the addresses**, because a key is what the router reads
+	back and a title is what a reader calls the place. **A step the tree does not describe keeps
+	its key**, because a trail with a hole in it names a different place. The tab's title is
+	asked beside it, since the point of one function is that the two cannot disagree.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const workspaces = [{{ slug: "projects", title: "Projects" }}];
+		const projects = {json.dumps(SOME_PROJECTS)};
+		const place = (project) => ({{ workspace: "projects", project, workspaces, projects }});
+
+		process.stdout.write(JSON.stringify({{
+			nested: app.placeTrail(place("subroutine/ui")),
+			unknown: app.placeTrail(place("subroutine/gone")),
+			nowhere: app.placeTrail({{ workspace: null, project: null, workspaces, projects }}),
+			title: app.pageTitle({{
+				place: {{ workspace: "projects", project: "subroutine/ui" }},
+				showing: {{ view: "board", selection: {{}} }}, workspaces, projects,
+			}}),
+		}}));
+	""")
+
+	assert answers["nested"] == [
+		{"label": "Projects", "address": "/projects"},
+		{"label": "Subroutine", "address": "/projects/subroutine"},
+		{"label": "Web UI", "address": "/projects/subroutine/ui"},
+	], answers["nested"]
+	assert answers["unknown"][-1] == {"label": "gone", "address": "/projects/subroutine/gone"}
+	assert answers["nowhere"] == [], "the merged agenda is nowhere in particular"
+	assert answers["title"] == "Projects / Subroutine / Web UI: Board · Subroutine", (
+		answers["title"]
+	)
+
+
+def test_a_place_leads_to_its_settings_only_for_a_reader_who_may_change_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2599`, Simon's: a workspace or a project links to its settings if the reader may edit them.
+
+	**Asked of the registry `/v1/meta` publishes and the permissions `/v1/me` does**, so each
+	case is a reader the instance could really describe:
+
+	- **an owner** may change both, so both places lead somewhere;
+	- **a member who may write to projects** may change a project's settings and not the
+	  workspace's, which the registry gates on `workspace:admin`;
+	- **a reader who may only read** is led nowhere, and still reaches both pages through the
+	  settings area's own navigation;
+	- **a role in one project** (`#2111`) answers for that project and for no other.
+
+	**Nothing is offered before the registry has arrived**, which is `allowedIn`'s rule: a link
+	that appears when the answer says so beats one that appears and is taken away.
+	"""
+
+	def reader (
+		permissions: list[str], projects: list[dict[str, typing.Any]] | None = None,
+	) -> dict[str, typing.Any]:
+		"""An identity holding these permissions in one workspace, and a role in these projects."""
+
+		return {
+			"workspaces": [
+				{"slug": "projects", "permissions": permissions, "projects": projects or []},
+			],
+		}
+
+	cases = {
+		"owner": reader(["workspace:admin", "project:write", "task:write"]),
+		"member": reader(["project:write", "task:write"]),
+		"viewer": reader(["task:read", "project:read"]),
+		"own role": reader(
+			["task:read"], [{"address": "subroutine/ui", "permissions": ["project:write"]}],
+		),
+	}
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const registry = {json.dumps(REGISTRY)};
+		const cases = {json.dumps(cases)};
+		const places = {{
+			workspace: {{ workspace: "projects", project: null }},
+			project: {{ workspace: "projects", project: "subroutine/ui" }},
+			other: {{ workspace: "projects", project: "subroutine" }},
+		}};
+		const out = {{}};
+
+		for (const [name, me] of Object.entries(cases)) {{
+			out[name] = Object.fromEntries(Object.entries(places).map(
+				([where, place]) => [where, app.settingsHere(me, registry, place)],
+			));
+		}}
+
+		out.unread = app.settingsHere(cases.owner, null, places.project);
+		out.unplaced = app.settingsHere(cases.owner, registry, {{ workspace: null, project: null }});
+
+		process.stdout.write(JSON.stringify(out));
+	""")
+
+	assert answers["owner"] == {
+		"workspace": "/settings/workspace/projects",
+		"project": "/settings/project/projects/subroutine/ui",
+		"other": "/settings/project/projects/subroutine",
+	}, answers["owner"]
+	assert answers["member"] == {
+		"workspace": None,
+		"project": "/settings/project/projects/subroutine/ui",
+		"other": "/settings/project/projects/subroutine",
+	}, f"a workspace's settings need workspace:admin, which a member does not hold: {answers}"
+	assert answers["viewer"] == {"workspace": None, "project": None, "other": None}, answers
+	assert answers["own role"] == {
+		"workspace": None, "project": "/settings/project/projects/subroutine/ui", "other": None,
+	}, f"a role in one project answers for that project and no other (SR#2111): {answers}"
+	assert answers["unread"] is None, "a link was offered before the registry said what exists"
+	assert answers["unplaced"] is None, "somewhere that is nowhere was given settings"
+
+
+def test_a_place_heading_leads_to_its_settings_and_the_menu_is_on_every_page (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2599`'s wiring, which is where this app's faults have shipped from (`#640`).
+
+	**Which place leads where is decided by a function asked directly next door**; what is left
+	is that `App` hands it the registry it already fetched and the place in the address, and
+	draws the answer. So a project page a writer may configure leads to its settings, the same
+	page read by somebody who may not leads nowhere, and the menu's two ways in are on the
+	merged agenda too, which names no place and so has no place's settings to offer.
+	"""
+
+	registry = {"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}}}
+
+	writer = _driven(
+		tmp_path, pathname="/projects/subroutine/ui", answers=registry,
+		permissions=("task:write", "project:write"),
+	)
+	reader = _driven(
+		tmp_path, pathname="/projects/subroutine/ui", answers=registry, permissions=("task:read",),
+	)
+	home = _driven(tmp_path, pathname="/", answers=registry)
+
+	assert "/settings/project/projects/subroutine/ui" in writer["links"], writer["links"]
+	assert not any(one.startswith("/settings/") for one in reader["links"]), reader["links"]
+	assert not any(one.startswith("/settings/") for one in home["links"]), home["links"]
+
+	for driven in (writer, reader, home):
+		assert "/settings" in driven["links"], driven["links"]
+		assert "/people" in driven["links"], driven["links"]
 
 
 def test_a_workspace_has_a_settings_page_of_its_own (tmp_path: pathlib.Path) -> None:

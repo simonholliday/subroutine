@@ -464,15 +464,92 @@ fieldset {
 	max-width: none;
 }
 
+/*
+	**The masthead: where you are, what a place offers, and who you are, in three zones that stay
+	put** - `#2599`, Simon's decision of 2026-09-14.
+
+	**A grid, so each zone keeps its track whether or not the others are drawn.** It was one flex
+	row spreading up to four groups apart, so everything moved when a group came or went: the
+	reader's name and *Sign out* sat at the right-hand edge on `/` and 706px further left on every
+	workspace, at 1440px wide.
+
+	**Outside the frame, and as wide as the screen on every page**, so a board's width moves
+	nothing in it. Its side margins are the frame's own padding, which keeps the rule beneath it
+	level with a board's columns and a list's rows alike, and puts the menu the same distance from
+	the edge everywhere.
+*/
 .top {
-	display: flex;
-	align-items: baseline;
-	justify-content: space-between;
-	gap: var(--space-8);
-	padding-bottom: var(--space-6);
+	/* **The height of one line of the masthead, which is the search box's**: a field's line, its
+	   padding and its border. The wordmark and the menu are centred in a line this tall on every
+	   page, whether or not the page has a search box, so neither moves between `/` and a place. */
+	--masthead-line: calc(var(--text-body) * 1.55 + 2 * var(--space-5) + 2px);
+
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: start;
+	gap: var(--space-4) var(--space-8);
+	margin: 0 var(--space-8);
+	padding: var(--space-8) 0 var(--space-6);
 	border-bottom: 1px solid var(--line);
-	margin-bottom: var(--space-8);
+}
+
+/* Where you are: the wordmark, which goes home, and the dropdown naming the place. */
+.where {
+	grid-column: 1;
+	grid-row: 1;
+	display: flex;
 	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-2) var(--space-8);
+	min-height: var(--masthead-line);
+	min-width: 0;
+}
+
+.where select { font-size: var(--text-small); }
+
+/* What only a place has: its search and its views. Absent at `/`, which is nowhere in
+   particular, and its track stays empty rather than letting the menu slide left. */
+.within {
+	grid-column: 2;
+	grid-row: 1;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-4) var(--space-8);
+	min-width: 0;
+}
+
+/* Who you are, at the right-hand end whatever else is drawn. */
+.you {
+	grid-column: 3;
+	grid-row: 1;
+	justify-self: end;
+	display: flex;
+	align-items: center;
+	min-height: var(--masthead-line);
+}
+
+/*
+	**Narrower than a tablet held sideways, a place's controls take a row of their own** and the
+	menu stays on the first, beside the wordmark. Measured on 2026-09-14 in Chromium against the
+	browser suite's fixture: the search box, the four views, the wordmark with its dropdown and
+	the menu stop fitting on one line between 941 and 950px. The dropdown is as wide as the
+	longest place name it offers, so a real instance needs more than the fixture did, and 1024px
+	leaves room for that. A name longer still wraps the controls inside their own zone, which
+	leaves the wordmark and the menu where they are.
+
+	**The second row is placed rather than declared**, so a page with no place's controls has no
+	row and no gap for one.
+*/
+@media (max-width: 1023px) {
+	.top { grid-template-columns: minmax(0, 1fr) auto; }
+
+	.you { grid-column: 2; }
+
+	.within {
+		grid-column: 1 / -1;
+		grid-row: 2;
+	}
 }
 
 .top h1 {
@@ -532,28 +609,143 @@ fieldset {
 	color: var(--ink-soft);
 }
 
-.who {
-	color: var(--ink-soft);
+/*
+	**The reader's menu** - `#2599`. A `.reveal`, because pressing it shows more of what is already
+	here and its caret turns with `aria-expanded`; tight, because it sits in the masthead; and the
+	name in the reader's ink, because it is the one word on it.
+*/
+.you .reveal {
+	padding: var(--control-tight);
 	font-size: var(--text-small);
 }
 
-.who strong { font-weight: 600; color: var(--ink); }
+.you .reveal strong { font-weight: 600; color: var(--ink); }
 
 /*
-	Signing out is a button because it *does* something — `#927`'s M-26 — and it looks like the
-	text around it because it belongs to that line rather than to the page's actions. `#763`'s
-	three control sizes are for controls that act on work; this is one word beside a username.
+	**The browser's own popover, placed under the name that opened it.** Anchored where the
+	browser can, which puts it under the button however tall the masthead has grown; at the top
+	right of the page where it cannot, which is where that button always is now that the masthead
+	spans the screen.
+
+	**`display` is set only while it is open**, because a rule of ours beats the user agent's
+	however specific theirs is: a bare `display: flex` here would draw the menu for good.
 */
-.who .link {
-	padding: 0;
-	border: 0;
-	background: none;
-	color: var(--accent);
-	font: inherit;
-	cursor: pointer;
+.you-menu {
+	inset: auto;
+	margin: 0;
+	padding: var(--space-3) 0;
+	min-width: 12rem;
+	background: var(--bg-raised);
+	color: var(--ink);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	font-size: var(--text-small);
 }
 
-.who .link:hover { text-decoration: underline; }
+.you-menu:popover-open {
+	display: flex;
+	flex-direction: column;
+}
+
+@supports (anchor-name: --you) {
+	.you .reveal { anchor-name: --you; }
+
+	.you-menu {
+		position-anchor: --you;
+		top: anchor(bottom);
+		right: anchor(right);
+		margin-top: var(--space-2);
+	}
+}
+
+@supports not (anchor-name: --you) {
+	.you-menu {
+		position: absolute;
+		top: 3.5rem;
+		right: var(--space-8);
+	}
+}
+
+/* Each entry is a row of the menu, and the one button reads as the links beside it do. */
+.you-menu > a,
+.you-menu > .inline {
+	display: block;
+	padding: var(--space-3) var(--space-7);
+	color: var(--ink);
+	text-align: start;
+	text-decoration: none;
+}
+
+.you-menu > a:hover,
+.you-menu > .inline:hover {
+	background: var(--bg-sunken);
+	text-decoration: none;
+}
+
+.you-menu > a:focus-visible,
+.you-menu > .inline:focus-visible {
+	outline: var(--focus-ring);
+	outline-offset: -2px;
+}
+
+/* The theme, which is a choice rather than a destination, ruled off from the entries either
+   side of it. */
+.you-menu .theme {
+	justify-content: space-between;
+	gap: var(--space-6);
+	margin: var(--space-3) 0;
+	padding: var(--space-3) var(--space-7);
+	border-block: 1px solid var(--line);
+	color: var(--ink-soft);
+}
+
+/*
+	**Where a page is, named above its content** - `#2599`. A section heading's step rather than
+	a page's, for `#1818`'s rule and the settings area's reason: the masthead is the page's name,
+	and this says which part of it you are in.
+
+	**The steps above this one are quieter than this one**, which is what a trail is for: the eye
+	lands on where you are, and what is above it is there to be followed.
+*/
+.place {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-4) var(--space-8);
+	margin-bottom: var(--space-7);
+}
+
+.place .trail {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-2) var(--space-4);
+	margin: 0 auto 0 0;
+	font-size: var(--text-section);
+	font-weight: 600;
+}
+
+.place .trail a { color: var(--ink-soft); text-decoration: none; }
+.place .trail a:hover { color: var(--ink); text-decoration: underline; }
+.place .trail a:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.place .step { color: var(--ink-faint); font-weight: 400; }
+
+/* **The way to a place's settings, an anchor drawn as the control it is** - `.narrowed a.widen`'s
+   treatment, since both are a way somewhere offered beside a statement about the page. */
+.place-settings {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--control-tight);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius);
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+	text-decoration: none;
+}
+
+.place-settings:hover { color: var(--ink); border-color: var(--ink-soft); }
+.place-settings:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* ---- adding, and what just happened ------------------------------------ */
 
@@ -1154,7 +1346,6 @@ textarea.field { resize: vertical; }
 .views {
 	display: flex;
 	gap: var(--space-2);
-	margin-top: var(--space-5);
 }
 
 /* Anchors since `#722`, so each arrangement can be opened in its own tab. `inline-block` is what
@@ -2055,8 +2246,8 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 
 .foot a { color: inherit; }
 
-/* The theme control (`#908`). Deliberately plain: `#763` is what gives this project's controls
-   a look, and it lands next on the tokens this file now has. */
+/* The theme control (`#908`), in the menu under the reader's name since `#2599`. Deliberately
+   plain: `#763` is what gives this project's controls a look. */
 .theme {
 	display: flex;
 	align-items: center;

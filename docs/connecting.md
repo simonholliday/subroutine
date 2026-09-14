@@ -107,7 +107,7 @@ hour.
 real Chromium reads the manifest without complaint. Other browsers we have not tested - tell us
 what yours does, either way.
 
-**Signing out is the same as in a tab**: the **Sign out** control on the page, or ask whoever
+**Signing out is the same as in a tab**: **Sign out** in the menu under your name, or ask whoever
 runs the instance to run `subroutine login revoke` for you, which ends every browser and every
 installed app you are signed in on at once. **Removing the icon does not sign you out.**
 

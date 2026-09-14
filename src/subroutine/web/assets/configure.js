@@ -16,9 +16,46 @@
 	from, and was named long before this area existed.
 */
 
-import { settingsAddress, titlesByPath } from "./address.js";
+import { placeTrail, settingsAddress, titlesByPath } from "./address.js";
+import { Place } from "./chrome.js";
 import { html } from "./html.js";
 import { allowedIn } from "./requests.js";
+
+
+export function settingsHere (me, registry, place) {
+	/*
+		The settings page a workspace or a project leads to, or null where this reader may change
+		nothing there - `#2599`, Simon's: *"A workspace page should link to its settings (if the
+		user has permission to edit them), and likewise a project page should do the same."*
+
+		**Decided by what the instance publishes and nothing written here.** Which settings a scope
+		has and which verb changes each come from the registry in `/v1/meta` (`#2365`), and what
+		this reader holds from `allowedIn`, which is the project's own answer where they hold a
+		role there (`#2111`). So a setting added on the server moves this with no change to this
+		file, and no verb is copied into the browser to fall behind it.
+
+		**At least one, not every one**: a page on which one row can be changed is a page worth
+		opening, and each row still says for itself why it cannot be (`SettingRow`).
+
+		**Null for a reader who can only read**, as asked. The page itself still answers *why is it
+		like this* for them, and the settings area's own navigation still leads there.
+
+		Null before either answer has arrived, which is `allowedIn`'s rule: a link that appears
+		when the answer says it may is better than one that appears and is taken away.
+	*/
+	if (!place || !place.workspace) return null;
+
+	const scope = place.project ? "project" : "workspace";
+	const held = allowedIn(me, place.workspace, place.project ? { address: place.project } : null);
+	const changeable = (registry || []).some((setting) => (setting.scopes || []).includes(scope)
+		&& held.has((setting.permission || {})[scope]));
+
+	if (!changeable) return null;
+
+	return settingsAddress(place.project
+		? { scope, slug: place.workspace, project: place.project }
+		: { scope, slug: place.workspace });
+}
 
 
 export function listedZones () {
@@ -683,8 +720,9 @@ function SettingsNav ({ page = null, workspaces = [] }) {
 	/*
 		The pages this area holds, for this reader — `#1447`.
 
-		**Plain anchors, like the footer's**: a settings page is opened deliberately and rarely, a
-		full load between two of them costs nothing, and the address is the page (`#745`).
+		**Plain anchors, like the menu's that leads here** (`#2599`): a settings page is opened
+		deliberately and rarely, a full load between two of them costs nothing, and the address is
+		the page (`#745`).
 
 		**Every workspace the reader can reach is listed**, not only those they administer: a page
 		they cannot change still answers *why is it like this*, and a list that left the others
@@ -759,9 +797,29 @@ export function Settings ({
 		busy,
 	};
 
+	/*
+		**A workspace's or a project's page is headed by where it is** (`#2599`): the same trail
+		that place's own pages wear, ending in *Settings*. Every step is a link here, the place's
+		own included, because this is where a reader who came to change something goes back to
+		the work from - which until now only the wordmark did, and that goes to `/`.
+
+		Titled from the workspace's projects once they have arrived, and from the keys in the
+		address until then, which is `placeTrail`'s own fallback.
+	*/
+	const trail = entity && workspace
+		? placeTrail({
+			workspace: page.slug,
+			project: page.scope === "project" ? page.project : null,
+			workspaces: spaces,
+			projects: current ? current.projects : [],
+		})
+		: [];
+
 	return html`
 		<div class="settings">
-			<h2 class="area">Settings</h2>
+			${trail.length > 0
+				? html`<${Place} trail=${trail} atSettings=${true} />`
+				: html`<h2 class="area">Settings</h2>`}
 			<${SettingsNav} page=${page} workspaces=${spaces} />
 			${!page
 				? html`<p class="empty">There is no settings page at this address.

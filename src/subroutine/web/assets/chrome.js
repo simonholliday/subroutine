@@ -1,6 +1,6 @@
 /*
-	The frame around a page rather than the page: the theme, the wordmark, the footer, an
-	item's fact sheet, and prose rendered from Markdown.
+	The frame around a page rather than the page: the theme, the wordmark, the reader's menu, a
+	place's heading, the footer, an item's fact sheet, and prose rendered from Markdown.
 
 	**Split out of `app.js` by `#1849`**, which moved 10,286 lines into thirteen modules and
 	changed nothing about what any of them do. Read `app.js` for what the whole app is; this
@@ -9,10 +9,13 @@
 
 import * as markdown from "./markdown.js";
 import { html } from "./html.js";
-import { PRODUCT, addressOf, encodedPath, parseAddress, shortVersion } from "./address.js";
+import {
+	PRODUCT, addressOf, encodedPath, parseAddress, shortVersion, withShowing,
+} from "./address.js";
 import { unrenderable } from "./answers.js";
 import { day, rankOf } from "./dates.js";
 import { followed } from "./grouping.js";
+import { Icon } from "./marks.js";
 import { written } from "./requests.js";
 
 export function Note ({ note, onUndo, onDismiss }) {
@@ -108,9 +111,11 @@ export function Theme ({ chosen, onChoose }) {
 	/*
 		The reader's light-or-dark control — `#908`, requirement 8 of `#441`.
 
-		**In the footer** because §1.4 says a control nobody needs is not shown, and a theme is
-		wanted by roughly everybody once and almost never again — so it belongs with the
-		set-once things rather than on the masthead, which answers *what am I looking at*.
+		**In the menu under the reader's name** (`#2599`, Simon's, reversing `#906` §4's footer).
+		The reason it was in the footer still holds and the menu keeps it: §1.4 says a control
+		nobody needs is not shown, and a theme is wanted by roughly everybody once and almost never
+		again. What the footer could not do was be found, since on a board it sits below every
+		column (`#847`); a menu under your own name is where people look for exactly this.
 
 		Hook-free like everything else here, so the render harness can call it (`#640`). What it
 		is given is the current choice; what it does is hand back a new one.
@@ -169,9 +174,119 @@ export function Wordmark ({ version, onHome }) {
 	`;
 }
 
-export function Foot ({ count, theme, onTheme }) {
+export function You ({
+	username = null, theme = "system", onTheme, onSignOut, expanded = false, onToggle = null,
+}) {
 	/*
-		What is on screen, and the two ways out.
+		The reader's own controls, in a menu under their name at the right-hand end of the
+		masthead - `#2599`, Simon's.
+
+		**Everything about the reader and nothing about the place**: their settings, the people on
+		this instance, how the page looks on this device, and signing out. The place is the
+		dropdown at the other end of the masthead, and keeping the two apart is what lets this
+		stay put. They were one group with the dropdown in the middle, laid out by whatever else
+		the header held, so at 1440px it sat at the right-hand edge on `/` and 706px further left
+		on every workspace.
+
+		**People, Settings and the theme came here from the footer**, which is where `#1397`,
+		`#1446` and `#906` §4 had put them for one good reason that still holds: each is opened
+		deliberately and rarely, so none belongs where a reader looks while working. A menu keeps
+		that and adds the half the footer could not give, which is being found. On a board the
+		footer is below every column (`#847`).
+
+		**The browser's own popover**, which is behaviour bought rather than built (`#1848`): it
+		closes on Escape or a click anywhere else, returns focus, and sits above everything with
+		no stacking order of ours. **`expanded` mirrors it and does not decide it**, which is why
+		it arrives through `onToggle`: the browser opens and closes the menu, and the caret and
+		`aria-expanded` follow.
+
+		**Plain anchors**, the settings area's own rule: a page opened deliberately and rarely costs
+		nothing as a full load, and a real anchor opens in a tab.
+
+		Hook-free, so the render harness can call it (`#640`). Nothing until `/v1/me` has said who
+		the reader is, because a menu under nobody's name is a claim about nobody.
+	*/
+	if (!username) return null;
+
+	return html`
+		<div class="you">
+			<button type="button" class="reveal" popovertarget="you-menu"
+				aria-expanded=${expanded ? "true" : "false"}>
+				<strong>${username}</strong>
+				<${Icon} name="caret-down" />
+			</button>
+			<div id="you-menu" class="you-menu" popover="auto"
+				onToggle=${onToggle ? (event) => onToggle(event.newState === "open") : undefined}>
+				<a href="/settings">Settings</a>
+				<a href="/people">People</a>
+				<${Theme} chosen=${theme} onChoose=${onTheme} />
+				${/* **A button because it does something** (`#927`'s M-26), and `inline` because it
+				     stands in a list of links and must read as one of them. */ null}
+				<button type="button" class="inline" onClick=${onSignOut}>Sign out</button>
+			</div>
+		</div>
+	`;
+}
+
+export function Place ({
+	trail = [], settings = null, atSettings = false, showing = null, onGo = null,
+}) {
+	/*
+		Where a page is, named above its content, and the way to that place's settings - `#2599`.
+
+		**A place never named itself on the page it opens to.** On a project's agenda the only
+		thing saying *Websites* was the chosen option of the dropdown, so a settings link had
+		nowhere in context to go. This names the workspace and every project down to this one,
+		`placeTrail`'s words, and each step above this one is a link to it.
+
+		**The settings link is drawn only where there is one to follow**: `settings` is
+		`settingsHere`'s answer, null for a reader who may change nothing here. **A word beside the
+		gear**, never the gear alone (`#102`, `#906` §5).
+
+		**On the settings page itself the trail ends in *Settings*** and every step is a link, the
+		place's own included, because that is the way back to the work from there.
+
+		**`showing` rides on each address** where the page has one, so a middle-click opens the
+		place arranged as the reader has it, and `onGo` moves this tab without a load. That is the
+		dropdown's route exactly, since a trail is the same places read upwards; the settings page
+		passes neither and its steps are plain anchors, like everything else in that area.
+	*/
+	if (!trail || trail.length === 0) return null;
+
+	const last = trail.length - 1;
+
+	return html`
+		<div class="place">
+			<h2 class="trail">
+				${trail.map((step, at) => html`
+					${at > 0 ? html`<span class="step" aria-hidden="true">›</span>` : null}
+					${at === last && !atSettings
+						? html`<span aria-current="page">${step.label}</span>`
+						: html`<a href=${showing ? withShowing(step.address, showing) : step.address}
+								onClick=${onGo
+									? (event) => followed(event, () => onGo(step.address))
+									: undefined}>${step.label}</a>`}
+				`)}
+				${atSettings ? html`
+					<span class="step" aria-hidden="true">›</span>
+					<span aria-current="page">Settings</span>
+				` : null}
+			</h2>
+			${settings && !atSettings ? html`
+				<a class="place-settings" href=${settings}><${Icon} name="gear" />Settings</a>
+			` : null}
+		</div>
+	`;
+}
+
+export function Foot ({ count }) {
+	/*
+		What is on screen, and where this instance's own reference is.
+
+		**Nothing here is a way into anything a reader works with** (`#2599`). People, Settings
+		and the theme moved to the menu under the reader's name: on a board this footer sits below
+		every column (`#847`), and a way in that nobody finds is a way in that does not exist. What
+		stays is looked up rather than used.
 
 		**Which instance served the page moved to the masthead** (`#1536`), and this no longer
 		reports it. `#784` put it here because Simon reads this browser from another machine
@@ -189,30 +304,8 @@ export function Foot ({ count, theme, onTheme }) {
 		<footer class="foot">
 			${/* **Counts what is on screen, not what was last fetched** (`#652`). */ null}
 			<span>${count} items</span>
-			${/*
-				**The way into the administrative area** (`#1397`), and it is here rather than in
-				the masthead because that is what it is: a page a reader opens deliberately and
-				rarely, not a fourth arrangement of their work. §1.4's whole constraint is that
-				somebody keeping a to-do list never has to meet a workspace, a role or a
-				credential — putting this beside the workspace switcher would make it the first
-				thing they read.
-
-				**A plain anchor, exactly like its two neighbours.** Every internal navigation in
-				this app goes through `followed` so that a click updates the address without a
-				reload; this one deliberately does not, because a full load of a page read once
-				an hour costs nothing and threading a handler through `Foot` would give this
-				component its first reason to know what the app is. The 404 fallback in
-				`api/web.unmatched` serves the shell for it, which is what makes the address work
-				typed, bookmarked or shared.
-			*/ null}
-			<a href="/people">People</a>
-			${/* **The way to the settings area, beside the way to the people page** (`#1446`),
-			     and for the same reason: a timezone is said once and rarely, so it belongs with
-			     the set-once things rather than on the masthead. */ null}
-			<a href="/settings">Settings</a>
 			<a href="/v1/docs/agent">API</a>
 			<a href="https://github.com/simonholliday/subroutine">Source</a>
-			<${Theme} chosen=${theme} onChoose=${onTheme} />
 		</footer>
 	`;
 }

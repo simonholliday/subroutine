@@ -22,18 +22,18 @@ import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, MAX_REF, ONLY_FINISHED,
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
-	parseAddress, permits, projectLabel, refAsked, reloads, selectionOf, shortVersion,
-	settingsAddress, settingsPageOf, showingOf, showsWork, titlesByPath, viewOf, withShowing,
-	widened,
+	parseAddress, permits, placeTrail, projectLabel, refAsked, reloads, selectionOf,
+	shortVersion, settingsAddress, settingsPageOf, showingOf, showsWork, titlesByPath, viewOf,
+	withShowing, widened,
 } from "./address.js";
 import {
 	Boundary, accumulated, inOrder, mergeOrder, newestFirst, notChanged, refusal, sunkOrder,
 	unpacked, unrenderable,
 } from "./answers.js";
 import {
-	Facts, Foot, Note, Prose, THEMES, Theme, Wordmark, applyTheme, themeChoice,
+	Facts, Foot, Note, Place, Prose, THEMES, Theme, Wordmark, You, applyTheme, themeChoice,
 } from "./chrome.js";
-import { Settings, deviceZone, listedZones } from "./configure.js";
+import { Settings, deviceZone, listedZones, settingsHere } from "./configure.js";
 import {
 	DEFAULT_ORDER, DEFERRED, ORDERINGS, calendarDay, completable, day, deferred, excluded,
 	holding, named, offeredOrders, orderedAs, orderingValue, overdue,
@@ -194,6 +194,10 @@ export function App () {
 	   document by the time this runs, so re-applying it on mount would be a second copy of a
 	   decision the page has made. */
 	const [theme, setTheme] = useState(() => themeChoice(globalThis.localStorage));
+	/* **Whether the menu under the reader's name is open** (`#2599`). The browser opens and
+	   closes it, since it is a popover, so this follows its `toggle` event rather than deciding
+	   anything: it is here so the caret and `aria-expanded` say what the browser did. */
+	const [menuOpen, setMenuOpen] = useState(false);
 	/* **What this browser remembers about collapsed columns** (`#1008`), read once for the
 	   same reason the theme is: the value belongs to the browser rather than to a request, and
 	   re-reading it on every render would make storage a dependency of the poll.
@@ -2798,17 +2802,18 @@ export function App () {
 
 	return html`
 		${/*
-			**The board is the one view that wants the screen** (`#846`). A list wants a
-			readable line length, which is what the 1100px cap is for; a board wants as many
-			columns visible as will fit, and on a wide display the cap was hiding three of
-			seven behind a scrollbar at the bottom of a three-thousand-pixel page.
+			**The masthead spans the screen on every page, in three zones that stay put** - `#2599`,
+			Simon's decision of 2026-09-14.
 
-			One class rather than two containers, because everything else about the frame —
-			the header, the capture box, the footer — is the same in both and duplicating it
-			is how two layouts come to disagree.
+			**Outside the frame, which is the decision.** The frame's width is a question about what is
+			on the page (`frame`), and the header was inside it, so switching to the board moved the
+			wordmark 410px at 1920px wide. And it laid up to four groups out across one row, so the
+			reader's own name and *Sign out* sat at the right-hand edge on `/` and 706px further left
+			on every workspace. Now where you are is on the left, the place's own controls follow it,
+			and the reader's menu holds the right-hand end whether or not the middle is there.
 		*/ null}
-		<div class=${frame(showing, open)}>
-			<header class="top">
+		<header class="top">
+			<div class="where">
 				${/*
 					**The masthead goes home** (`#868`), which is the convention every reader
 					already has — and `/` is the right destination by decision `#649` rather
@@ -2823,122 +2828,92 @@ export function App () {
 				*/ null}
 				<${Wordmark} version=${me ? me.instance_version : null}
 					onHome=${(event) => followed(event, home)} />
-				<div class="who">
-					${me && html`<strong>${me.user.username}</strong>`}
-					${me && html`
-						${" · "}
-						${/* **Named, because there is nowhere to put a visible label** (`#927`'s
-						     L-7). Every other select in this app sits inside a `<label>` carrying
-						     a `<span>`; this one is a chip in the masthead between a username and
-						     a sign-out link, and a word in front of it would cost more than it
-						     explains. `aria-label` is what the link-type select already does for
-						     the same reason. Without it a screen reader announces a combo box
-						     with no name at all — the control that decides which backlog you are
-						     looking at. */ null}
-						${/* **It says what is showing, and every choice on it is reachable**
-						     (`#969`, Simon's). It marked a workspace selected while the agenda
-						     was showing *every* workspace — untrue, and a dead end with it: a
-						     `<select>` fires no `change` for the option already selected, so the
-						     one workspace the control claimed was the one it could not reach.
+				${me && html`
+					${/* **Named, because there is nowhere to put a visible label** (`#927`'s
+					     L-7). Every other select in this app sits inside a `<label>` carrying
+					     a `<span>`; this one sits beside the wordmark as the name of where you are,
+					     and a word in front of it would cost more than it explains. `aria-label` is
+					     what the link-type select already does for the same reason. Without it a
+					     screen reader announces a combo box with no name at all — the control that
+					     decides which backlog you are looking at.
 
-						     **`All workspaces` is a real option rather than a hint**, and that
-						     is the part worth keeping. A disabled placeholder fixes the claim
-						     and leaves the control one-way — having narrowed, the way back to
-						     everything is a link elsewhere on the page — which is the same
-						     inert shape one step along. This is descriptive rather than an
-						     instruction: it says what you are looking at, which is what `/` is,
-						     and choosing it goes there.
+					     **Beside the wordmark rather than between the reader's name and *Sign out***
+					     (`#2599`): it is about where you are, and they are about who you are. */ null}
+					${/* **It says what is showing, and every choice on it is reachable**
+					     (`#969`, Simon's). It marked a workspace selected while the agenda
+					     was showing *every* workspace — untrue, and a dead end with it: a
+					     `<select>` fires no `change` for the option already selected, so the
+					     one workspace the control claimed was the one it could not reach.
 
-						     **Shown however many workspaces there are** (`#975`, Simon's). One
-						     workspace used to render the name as inert text, so the only thing
-						     naming it could not be used to reach it — and on the agenda, `/` is
-						     the only address a reader has. Both options stay meaningful with one
-						     workspace, because `/` and `/{workspace}` are different pages: the
-						     agenda buckets by date and a listing does not.
+					     **`All workspaces` is a real option rather than a hint**, and that
+					     is the part worth keeping. A disabled placeholder fixes the claim
+					     and leaves the control one-way — having narrowed, the way back to
+					     everything is a link elsewhere on the page — which is the same
+					     inert shape one step along. This is descriptive rather than an
+					     instruction: it says what you are looking at, which is what `/` is,
+					     and choosing it goes there.
 
-						     **What it offers is `placesToGo`**, which is pure and Node-tested —
-						     `#640`'s cheapest route, and the reason this markup holds no rule. */ null}
-						<select aria-label="Where to look"
-							onChange=${(event) => (event.target.value
-								? goTo(event.target.value)
-								: home())}>
-							${placesToGo(me.workspaces, filable,
-								{ workspace, project, agenda: everywhere }).map((one) => html`
-								<option key=${one.value} value=${one.value} selected=${one.chosen}>
-									${"\u00a0\u00a0".repeat(one.depth) + one.label}
-								</option>
-							`)}
-						</select>
-					`}
-					${me && html`
-						${" · "}
-						<button class="link inline" onClick=${signOut}>Sign out</button>
-					`}
-				</div>
+					     **Shown however many workspaces there are** (`#975`, Simon's). One
+					     workspace used to render the name as inert text, so the only thing
+					     naming it could not be used to reach it — and on the agenda, `/` is
+					     the only address a reader has. Both options stay meaningful with one
+					     workspace, because `/` and `/{workspace}` are different pages: the
+					     agenda buckets by date and a listing does not.
 
-				${/*
-					**A search is a control for the same reason the chips are** (`#651`): an
-					address is not a way to find something, and a reader who has never seen one
-					cannot type a word they have not been told.
+					     **What it offers is `placesToGo`**, which is pure and Node-tested —
+					     `#640`'s cheapest route, and the reason this markup holds no rule. */ null}
+					<select aria-label="Where to look"
+						onChange=${(event) => (event.target.value
+							? goTo(event.target.value)
+							: home())}>
+						${placesToGo(me.workspaces, filable,
+							{ workspace, project, agenda: everywhere }).map((one) => html`
+							<option key=${one.value} value=${one.value} selected=${one.chosen}>
+								${"\u00a0\u00a0".repeat(one.depth) + one.label}
+							</option>
+						`)}
+					</select>
+				`}
+			</div>
 
-					**On a listing, and over an item opened from one** (`#786`). The condition
-					used to carry `!open` as well, and `.top` is `justify-content: space-between`
-					— so opening an item took two of the header's four children away and the box
-					pushed the workspace switcher hard right. Simon found it by comparing two
-					addresses. Nothing moved; two things vanished.
+			${/*
+				**A search is a control for the same reason the chips are** (`#651`): an
+				address is not a way to find something, and a reader who has never seen one
+				cannot type a word they have not been told.
 
-					**The agenda half stays and has a reason the other half never had**: a day is
-					not a set of rows to narrow, and arranging it by status would answer a
-					question nobody asked of it.
-				*/ null}
-				${/* **On every page that names a place, including an agenda** (`#1215`). The
-				     reason below for hiding it — a day is not a set of rows to narrow — is still
-				     true of the agenda itself and is no longer a reason to withhold the control:
-				     since a place opens on an agenda by default, hiding it here would mean a
-				     reader has no way to search from the page they land on. `chooseSearch`
-				     answers it by moving the arrangement, because results are a list.
+				**On a listing, and over an item opened from one** (`#786`). The condition
+				used to carry `!open` as well, and the header then spread its children across
+				one row, so opening an item took two of them away and pushed the workspace
+				switcher hard right. Simon found it by comparing two addresses. Nothing moved;
+				two things vanished. Since `#2599` the header's zones hold their places when a
+				group goes, and the search stays over an item for the reason it always had.
 
-				     **Still nothing at `/`.** The merged agenda spans every workspace and
-				     `GET /v1/tasks` refuses an ambiguous one (§8.2), so there is nothing for a
-				     search to be a search *of*. */ null}
-				${!everywhere && html`
+				**On every page that names a place, including an agenda** (`#1215`). A day is not
+				a set of rows to narrow, and that is no longer a reason to withhold the control:
+				since a place opens on an agenda by default, hiding it would mean a reader has no
+				way to search from the page they land on. `chooseSearch` answers it by moving
+				the arrangement, because results are a list.
+
+				**Controls, because an address is not a way to find something** (`#651`). What
+				each chip writes, and which is highlighted, is `chips` — a pure function, which is
+				`#640`'s cheapest route and the reason this arc's four shipped faults were all in
+				wiring rather than in rules. Two of the three are arrangements and one is a
+				selection (`#738`); they look alike because the taxonomy belongs in the address,
+				not in the furniture. **And each is a real link** (`#722`), so a reader can open the
+				board in a tab beside their list. **Shown over an open item too** (`#786`), and
+				`behind` is already the address of the listing underneath — so a chip on an item
+				page is the way back to that listing, arranged as the reader asked.
+
+				**Still nothing at `/`.** The merged agenda spans every workspace and
+				`GET /v1/tasks` refuses an ambiguous one (§8.2), so there is nothing for a search
+				to be a search *of* and no listing behind it to arrange — `#649` reserves
+				`/?view=list` for a backlog nothing implements. A control that led somewhere the
+				app cannot go is worse than no control.
+			*/ null}
+			${!everywhere && html`
+				<div class="within">
 					<${Seeking} busy=${busy} onSearch=${chooseSearch}
 						asked=${showing.selection.q || ""} />
-				`}
-
-				${/*
-					**Controls, because an address is not a way to find something** (`#651`). A
-					reader who has never seen one cannot type a word they have not been told. They
-					are on a listing only: the agenda is chosen by the path, and arranging it by
-					status would answer a question nobody asked of it.
-
-					**What each one writes, and which is highlighted, is `chips`** — a pure
-					function, which is `#640`'s cheapest route and the reason this arc's four
-					shipped faults were all in wiring rather than in rules. Two of the three are
-					arrangements and one is a selection (`#738`); they look alike because the
-					taxonomy belongs in the address, not in the furniture.
-
-					**And each is a real link** (`#722`), so a reader can open the board in a tab
-					beside their list rather than replacing it. `chips` builds exactly the address
-					`chooseView` is about to write, which is what makes the two agree.
-
-					**Shown over an open item too** (`#786`), and `behind` is already the address
-					of the listing underneath — so a chip on an item page is the way back to that
-					listing, arranged as the reader asked.
-				*/ null}
-				${/* **Shown wherever a place is named, which since `#1215` includes an agenda**
-				     (`#649`'s amendment). The test was `agenda === null`, and it was right while
-				     the agenda existed only at the root: there was nothing to arrange and no
-				     listing to switch to. Now a project's agenda is the *default*, so that test
-				     would have hidden the switcher on the page most readers land on and left
-				     them no way to reach the list or the board at all.
-
-				     **Still nothing at `/`.** The merged agenda spans every workspace and
-				     `GET /v1/tasks` refuses an ambiguous one (§8.2), so there is no listing
-				     behind it to offer — `#649` reserves `/?view=list` for a backlog nothing
-				     implements. A control that led somewhere the app cannot go is worse than
-				     no control. */ null}
-				${!everywhere && html`
 					<nav class="views" aria-label="Which view">
 						${chips(behind, showing).map((chip) => html`
 							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}
@@ -2948,8 +2923,51 @@ export function App () {
 								>${chip.name}</a>
 						`)}
 					</nav>
-				`}
-			</header>
+				</div>
+			`}
+
+			${/* **The reader's own end of the masthead** (`#2599`): their settings, the people here,
+			     the theme and signing out, in a menu under their name. It renders nothing until
+			     `/v1/me` has said who that is. */ null}
+			<${You} username=${me ? me.user.username : null} theme=${theme}
+				onTheme=${(chosen) => setTheme(
+					applyTheme(chosen, globalThis.localStorage, document.documentElement)
+				)}
+				onSignOut=${signOut} expanded=${menuOpen} onToggle=${setMenuOpen} />
+		</header>
+
+		${/*
+			**The board is the one view that wants the screen** (`#846`). A list wants a
+			readable line length, which is what the 1100px cap is for; a board wants as many
+			columns visible as will fit, and on a wide display the cap was hiding three of
+			seven behind a scrollbar at the bottom of a three-thousand-pixel page.
+
+			One class rather than two containers, because everything else about the frame — the
+			capture box, the notes, the footer — is the same in both and duplicating it is how two
+			layouts come to disagree. **The masthead is not in it** (`#2599`), because it is the one
+			thing that must not move when the frame does.
+		*/ null}
+		<div class=${frame(showing, open)}>
+			${/*
+				**The place names itself above everything it holds** (`#2599`), with its settings at
+				the end for a reader who may change them. On its agenda, list and board, and not on an
+				open item, which has a title of its own and names its project in its fact sheet.
+
+				**The trail is `placeTrail`'s, which the tab's title reads too**, and the link is
+				`settingsHere`'s: the registry this page already holds for the capture form, and what
+				the reader may do here, so it costs no request. A step goes where the dropdown's own
+				choice for that place goes, through `goTo`.
+			*/ null}
+			${area === null && !open && !everywhere && html`
+				<${Place}
+					trail=${placeTrail({
+						workspace, project, workspaces: me ? me.workspaces : [], projects: filable,
+					})}
+					showing=${showing} onGo=${goTo}
+					settings=${settingsHere(
+						me, vocabulary && vocabulary.settings, { workspace, project },
+					)} />
+			`}
 
 			${released && html`
 				${/* **Never reloads by itself** (`#785`). Somebody may be halfway through an
@@ -2991,8 +3009,8 @@ export function App () {
 			${/*
 				**The administrative area is the first branch, and it takes no arguments from
 				the work views** (`#1397`). It is inside the frame rather than a page of its own
-				because a reader needs the masthead to get back — `#868`'s anchor home is the
-				only way out of here — and the footer is where the way *in* is.
+				because it wears the masthead every page wears, and that is where the ways in are
+				since `#2599`: the menu under the reader's name, and a place's own heading.
 
 				`directory` is null until the read lands, which `People` renders as *Reading…*;
 				an instance with no accounts is a different answer and arrives as an empty list.
@@ -3244,11 +3262,7 @@ export function App () {
 
 			${/* `items` is the listing's state and is empty while the agenda is showing, so
 			     counting it unconditionally put "0 items" under a full day (`#652`). */ null}
-			<${Foot} count=${agenda !== null ? counted(agenda) : items.length}
-				theme=${theme}
-				onTheme=${(chosen) => setTheme(
-					applyTheme(chosen, globalThis.localStorage, document.documentElement)
-				)} />
+			<${Foot} count=${agenda !== null ? counted(agenda) : items.length} />
 		</div>
 	`;
 }
@@ -3326,6 +3340,7 @@ export {
 	pageTitle,
 	parseAddress,
 	permits,
+	placeTrail,
 	projectLabel,
 	refAsked,
 	reloads,
@@ -3358,10 +3373,12 @@ export {
 	Facts,
 	Foot,
 	Note,
+	Place,
 	Prose,
 	THEMES,
 	Theme,
 	Wordmark,
+	You,
 	applyTheme,
 	themeChoice,
 } from "./chrome.js";
@@ -3494,6 +3511,7 @@ export {
 	inheritsAt,
 	instanceChanges,
 	listedZones,
+	settingsHere,
 	valueSaid,
 	zoneChoices,
 	zoneSaid,

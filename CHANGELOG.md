@@ -76,7 +76,7 @@ upgrade involves.
 
 - **A workspace's settings, in the browser.**
 
-  **Settings** in the footer now lists every workspace you can reach beside your own account.
+  The settings page now lists every workspace you can reach beside your own account.
   A workspace's page shows each thing it can be configured with — the colour its projects are
   marked with, and the statuses it does not offer — with where the value came from and, if you
   administer the workspace, the control to change it. Colours are drawn as the swatches a row's
@@ -107,7 +107,7 @@ upgrade involves.
 
 - **Say where you are, from the browser.**
 
-  A new **Settings** link in the footer opens your own settings, and the first thing there is
+  **Settings**, in the menu under your name, opens your own settings, and the first thing there is
   your timezone — where *today*, *tomorrow* and every date you read are worked out. Until now
   the only way to set it was `subroutine user timezone`, so somebody who never opens a
   terminal had no way to say where they were, and nobody else could say it for them.
@@ -262,6 +262,22 @@ upgrade involves.
   is thrown away regardless.
 
 ### Changed
+
+- **Your own controls are in a menu under your name, and a workspace or a project leads to its own settings.**
+
+  The top of every page is laid out the same way now, and nothing in it moves from one page to
+  the next. On the left is where you are: the Subroutine name, which takes you home, and the
+  dropdown of places. Beside it, on a workspace or a project, are its search and its views. At
+  the right-hand end is your name, which opens a menu holding **Settings**, **People**, the
+  theme and **Sign out**. Until now Settings, People and the theme were in the footer, which on
+  a board is below every column, and your name and Sign out moved across the page depending on
+  what else was showing. The top of the page spans the screen on every page, so switching to
+  the board no longer shifts it; lists keep their reading width underneath.
+
+  A workspace or a project now names itself above its content, with each project above it as a
+  link back up, and ends in **Settings** when you are allowed to change something there. On
+  that settings page the same line ends in *Settings*, and each name in it leads back to the
+  work.
 
 - **A comment too long says what to write instead.** The limit stays at 10,000 characters, and
   the refusal now says that evidence this long - a log, a table of results - belongs in a
