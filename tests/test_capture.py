@@ -253,6 +253,74 @@ def test_a_time_given_back_is_not_reported_as_a_failed_repeat () -> None:
 	assert "not a repeat this understands" in about_a_repeat
 
 
+def test_a_repeat_that_cannot_be_read_does_not_swallow_the_field_after_it () -> None:
+	"""`#2490`, from a real refusal an agent met filing work on another machine.
+
+	An unread repeat reserves its whole phrase, and the phrase's optional tail took any next
+	word — so ``every grid on the page +superconductor`` held the project inside a span no rule
+	could read. The task was filed into no project, and only a parent in that project made it
+	a refusal at all, which then blamed the parent. Every sigil, because the tail's ``\\S+`` took
+	any of them.
+	"""
+
+	for field, expected in (
+		("+superconductor", ("project_key", "superconductor")),
+		("#stage", ("tags", ("stage",))),
+		("@oli", ("assignee", "oli")),
+		("~2h", ("estimate_minutes", 120)),
+		("!3", ("importance", 3)),
+	):
+		captured = _parse(f"Cue a variant on every grid on the page {field}")
+		name, value = expected
+
+		assert getattr(captured, name) == value, f"{field} was swallowed: {captured}"
+		assert captured.unparsed == ("every grid on the page",), captured.unparsed
+		assert field not in captured.title, captured.title
+
+	# The reporter's own line, whole, with the priority after the project.
+	line = _parse(
+		"Scenes: a row in the bar that cues the same variant on every grid on the page "
+		"+superconductor !3/3"
+	)
+
+	assert line.project_key == "superconductor"
+	assert (line.importance, line.urgency) == (3, 3)
+
+
+def test_a_repeat_that_can_be_read_still_takes_its_qualifier_and_leaves_the_project () -> None:
+	"""`#2490`'s other half: stopping at a sigil must not cost a qualifier the grammar reads."""
+
+	captured = _parse("Pay the rent every month on the last friday +home")
+
+	assert captured.recurrence is not None
+	assert captured.recurrence_text == "every month on the last friday"
+	assert captured.project_key == "home"
+
+
+def test_every_sigil_a_line_can_carry_is_one_a_phrase_stops_at () -> None:
+	"""`#2490`. ``SIGILS`` is named once and each field's pattern spells its own character.
+
+	So a sixth field added with a new sigil and not added to the set would be swallowed by a
+	repeat again, silently. Read off the compiled patterns rather than listed here, which would
+	be a third copy.
+	"""
+
+	started = [
+		pattern.pattern[len(subroutine.domain.capture._STARTS_A_WORD):]
+		for pattern in (
+			subroutine.domain.capture._TAG,
+			subroutine.domain.capture._ASSIGNEE,
+			subroutine.domain.capture._IMPORTANCE,
+			subroutine.domain.capture._ESTIMATE,
+			subroutine.domain.capture._PROJECT,
+		)
+	]
+
+	assert "".join(sorted(one.lstrip("\\")[0] for one in started)) == "".join(
+		sorted(subroutine.domain.capture.SIGILS)
+	)
+
+
 def test_a_project_name_the_grammar_cannot_read_is_reported (  ) -> None:
 	"""`SR#778`, Simon 2026-08-10, reading a title in the browser.
 

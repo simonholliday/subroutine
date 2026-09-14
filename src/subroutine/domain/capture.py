@@ -53,6 +53,18 @@ BARE_PLANNED_WORDS = ("today", "tomorrow")
 #: what rule 1 forbids. Measured, not theorised: it was the first thing tried.
 _STARTS_A_WORD = r"(?<![^\s])"
 
+#: The characters that begin a field in a captured line: a tag, an assignee, a priority, an
+#: estimate and a project, in :func:`_collect_sigils`' order. Named once so a phrase that is
+#: not one of them can refuse to swallow one, and held to the patterns below by a test rather
+#: than trusted, since each of those spells its own sigil.
+SIGILS = "#@!~+"
+
+#: One word of a phrase that may run on — and that stops short of a sigil (`#2490`). A repeat's
+#: optional tail took *any* next word, so ``every grid on the page +superconductor`` reserved the
+#: project with the rest of a phrase nothing could read, and the task was filed into no project
+#: with ``+superconductor`` left in its title. A word beginning a field is never part of a date.
+_PLAIN_WORD = rf"(?![{re.escape(SIGILS)}])\S+"
+
 #: Recurrence is M7. Until the RRULE parser exists this is recognised only well enough to
 #: be *left alone* — publishing a grammar the installation does not implement is worse than
 #: publishing a smaller one, so `/v1/meta` omits the row and the text stays in the title.
@@ -77,8 +89,9 @@ _STARTS_A_WORD = r"(?<![^\s])"
 #: the phrasing the brief was written in.
 _EVERY = re.compile(
 	rf"{_STARTS_A_WORD}(?:"
-	rf"on\s+the\s+\S+(?:\s+\S+)?\s+of\s+every\s+\S+"
-	rf"|every\s+(?:other\s+)?(?:\d+\s+)?\S+(?:\s+on\s+(?:the\s+)?\S+(?:\s+\S+)?)?"
+	rf"on\s+the\s+{_PLAIN_WORD}(?:\s+{_PLAIN_WORD})?\s+of\s+every\s+{_PLAIN_WORD}"
+	rf"|every\s+(?:other\s+)?(?:\d+\s+)?{_PLAIN_WORD}"
+	rf"(?:\s+on\s+(?:the\s+)?{_PLAIN_WORD}(?:\s+{_PLAIN_WORD})?)?"
 	rf")",
 	re.IGNORECASE,
 )
