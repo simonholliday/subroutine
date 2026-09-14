@@ -160,10 +160,15 @@ class Governing (typing.NamedTuple):
 #:
 #: **A type cannot answer whether something is in force and never could**, which is why the
 #: obvious fix — give ``spec`` and ``design`` an in-force default beside the three above — is
-#: wrong. `#506` admits a type when it is *true the moment it is written*; a design is not.
-#: `#445` carries eight open questions and is correctly a draft, while `#1023` records five
-#: decisions taken and is incorrectly one. One type, both states, so only the status separates
-#: them and this set says nothing about it.
+#: wrong. `#506` admits a type when it is *true the moment it is written*; a design is not. A
+#: design with its questions still open is correctly a draft, and one whose questions have all
+#: been answered is not — measured on 2026-09-04 (`#1852`), twenty of the twenty-two governing
+#: documents at draft, twenty-one of them designs, still carried open questions and two did not.
+#: One type, both states, so only the status separates them and this set says nothing about it.
+#:
+#: *This named two documents until `#2058`, one of them as a draft whose decisions were all
+#: taken; it had six questions still open. A claim about one row of an instance, written into
+#: source, is true on one instance at one moment — so the measurement carries its date instead.*
 #:
 #: **``finding`` is deliberately out, and the cost is named rather than hidden** (Simon,
 #: 2026-08-20). 37 of 39 findings in force here are code reviews, whose actionable half already
