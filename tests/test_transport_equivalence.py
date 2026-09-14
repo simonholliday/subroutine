@@ -826,6 +826,44 @@ def test_both_read_what_is_in_force_the_same_way (pair: Pair) -> None:
 	assert (answers[0].address, answers[0].title) == ("alpha", "")
 
 
+def test_both_list_the_projects_nobody_can_reach_the_same_way (pair: Pair) -> None:
+	"""`SR#2636`: ``unreachable_projects`` over HTTP had never run, and `user deactivate` asks it.
+
+	Asked both ways it is asked: what a departure *would* strand, which is the form `user
+	deactivate` sends before it acts, and what is stranded once it has happened - each compared
+	field by field, with one credential on both transports.
+	"""
+
+	operator = _as_the_operator(pair)
+	thomas = subroutine.domain.users.create(pair.session, username="thomas")
+	subroutine.domain.workspaces.add_member(
+		pair.session, pair.workspace, thomas, role_key="admin"
+	)
+	subroutine.domain.projects.create(
+		pair.session,
+		workspace_id=pair.workspace.id,
+		key="secret",
+		title="Redundancies",
+		visibility="private",
+		owner_id=thomas.id,
+	)
+	pair.session.flush()
+
+	with operator:
+		leaving = operator.unreachable_projects(leaving="thomas")
+
+		assert [one.project for one in leaving] == ["secret"], leaving
+		assert pair.remote.unreachable_projects(leaving="thomas") == leaving
+
+		subroutine.domain.users.set_active(pair.session, thomas, active=False)
+		pair.session.flush()
+
+		stranded = operator.unreachable_projects()
+
+		assert [one.project for one in stranded] == ["secret"], stranded
+		assert pair.remote.unreachable_projects() == stranded
+
+
 def test_both_create_a_service_account_and_its_credential_in_one_call (pair: Pair) -> None:
 	"""Three writes — an account, a membership, a credential — as one call and one transaction.
 

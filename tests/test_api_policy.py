@@ -10,6 +10,7 @@ response, including the ones no route produced, and that the hash is derived fro
 rather than written down beside it.
 """
 
+import pytest
 import sqlalchemy.orm
 
 import api_support
@@ -339,6 +340,34 @@ def test_every_route_serving_the_app_s_files_negotiates_for_itself () -> None:
 		assert not subroutine.api.web.negotiates_for_itself(path), (
 			f"{path} would be left uncompressed as though it were one of the app's files"
 		)
+
+
+@pytest.mark.parametrize(
+	("header", "takes"),
+	[
+		("gzip", True),
+		("GZip;Q=0.5", True),
+		("gzip; q=0", False),
+		("gzip;q=0.0", False),
+		("*", True),
+		("*;q=0", False),
+		("br, deflate", False),
+		("", False),
+		("gzip;q=0, *", False),
+		("*, gzip;q=0", False),
+		("*;q=0, gzip", True),
+		("gzip;q=high", True),
+	],
+)
+def test_what_an_accept_encoding_header_says_about_gzip (header: str, takes: bool) -> None:
+	"""The parser `SR#2630` made the one reading for every answer, over the shapes a header takes.
+
+	A coding named outright outranks ``*`` in either order, as RFC 9110 §12.5.3 has it. **And a
+	quality that is not a number reads as acceptance** (`SR#2636`, a branch nothing ran): wrong
+	that way, a browser still decodes what it is sent.
+	"""
+
+	assert subroutine.api.web.takes_gzip(header) is takes
 
 
 def test_a_picture_is_not_held_in_two_copies (session: sqlalchemy.orm.Session) -> None:

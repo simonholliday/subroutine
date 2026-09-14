@@ -392,6 +392,43 @@ def test_the_address_the_listing_gives_reaches_that_project_and_not_a_namesake (
 	assert _listed(world) == []
 
 
+def test_a_stranded_project_below_another_is_reached_by_its_bare_key (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2636`: a key naming a stranded project and nothing visible was driven by nothing.
+
+	The listing gives a nested project's whole address, and its key alone is what somebody types
+	next. Nothing the administrator can see answers to it, so the ordinary resolver refuses, and
+	the rescue takes the one stranded project of that name.
+	"""
+
+	world = test_api_tasks._world(session)
+	thomas, _theirs = _somebody(session, world)
+	jo, _hers = _somebody(session, world, name="jo")
+	outer = subroutine.domain.projects.create(
+		session, workspace_id=world.workspace.id, key="outer", title="Outer"
+	)
+	inner = subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="inner",
+		title="Inner",
+		parent=outer,
+		visibility="private",
+		owner_id=thomas.id,
+	)
+	subroutine.domain.users.set_active(session, thomas, active=False)
+	session.flush()
+
+	assert [row["project"] for row in _listed(world)] == ["outer/inner"]
+
+	shared = world.call("POST", "/v1/projects/inner/members", json={"username": jo.username})
+
+	assert shared.status_code == 201, shared.text
+	assert jo.id in _members(session, inner), "the stranded project named by its key gained nobody"
+	assert _listed(world) == []
+
+
 def test_two_stranded_projects_of_one_name_are_each_reached_by_their_own_address (
 	session: sqlalchemy.orm.Session,
 ) -> None:

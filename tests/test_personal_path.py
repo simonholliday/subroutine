@@ -1905,7 +1905,9 @@ def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 	run("add", "Something ordinary")
 	run("add", "Something wrong")
 
-	assert "task" not in run("show", "1").output, "the seeded default was already announced"
+	# **On the label, which is what `show` prints** (`SR#2636`). These asserted the lowercase key,
+	# which `show` has not printed since it moved to labels, so both passed whatever the rule did.
+	assert "Task" not in run("show", "1").output, "the seeded default was already announced"
 
 	engine = subroutine.db.session.create_engine(
 		subroutine.config.load_settings().database_url
@@ -1934,7 +1936,7 @@ def test_an_item_says_nothing_about_the_type_its_workspace_defaults_to (
 
 	run("update", "2", "--type", "story")
 
-	assert "story" not in run("show", "2").output, (
+	assert "Bug" not in run("show", "2").output, (
 		"the workspace's own default type was announced on every item that has it"
 	)
 	assert "Task" in run("show", "1").output, (
@@ -2921,6 +2923,41 @@ def test_what_is_in_force_reads_as_json_with_every_setting_the_registry_offers (
 
 	assert answer["scope"] == "project", answer
 	assert {one["key"] for one in answer["settings"]} == set(offered), answer
+
+
+def test_a_value_inherited_from_a_project_above_names_that_project (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2636`: *inherited from <project>* was a line no test had printed.
+
+	A value set on a parent reads, on the project beneath it, as the parent's - by its title and
+	its address, which is the pair a reader needs to go and change it where it was set.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+	run("project", "create", "docs", "Documentation", "--parent", "web")
+	run("project", "update", "web", "--colour", "teal")
+
+	shown = run("project", "settings", "web/docs").output
+
+	assert "teal — inherited from Web (web)" in shown, shown
+
+
+def test_a_scope_with_nothing_to_configure_says_so (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2636`: an empty answer is said, because a command printing nothing reads as a failure.
+
+	Unreachable with this build's registry, which offers every scope something, so the registry is
+	emptied for the length of the test - the state a scope added with no settings yet would be in.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+	monkeypatch.setattr(subroutine.domain.settings, "SETTINGS", {})
+
+	assert "A project has nothing to configure." in run("project", "settings", "web").output
 
 
 def test_an_unknown_help_topic_lists_the_real_ones (

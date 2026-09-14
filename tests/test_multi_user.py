@@ -24,6 +24,8 @@ import sqlalchemy
 import typer.testing
 
 import subroutine.cli.main
+import subroutine.cli.personal
+import subroutine.clients.local
 import subroutine.config
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -785,6 +787,42 @@ def test_deactivating_somebody_names_the_agents_it_will_stop (
 	)
 
 
+def test_a_departure_that_cannot_be_checked_for_stranded_projects_says_so (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2636`: a refusal to say what a departure strands, and a *no*, were driven by nothing.
+
+	Asking what a departure would strand needs ``instance:admin``, which a credential allowed to
+	deactivate somebody need not hold. A refusal is said rather than read as *nothing stranded*,
+	and the question is still put - answered no, nobody is marked as having left. The client is
+	made to refuse, because this is about what the command does with the refusal; who is refused
+	is `test_unreachable_projects.py`'s question.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+
+	def refused (_client: typing.Any, *, leaving: str | None = None) -> typing.NoReturn:
+		"""Refuse as an instance does a credential without ``instance:admin``."""
+
+		raise subroutine.errors.Forbidden("Only an administrator of this installation may ask.")
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "unreachable_projects", refused)
+
+	answered = run("user", "deactivate", "thomas", input="n\n").output
+
+	assert "Whether this strands a private project was not checked: Only an administrator" in (
+		answered
+	), answered
+	assert "Left as they were." in answered, answered
+
+	accounts = json.loads(run("user", "list", "--json").output)
+
+	assert [one["is_active"] for one in accounts if one["username"] == "thomas"] == [True], (
+		"answering no still marked them as having left"
+	)
+
+
 def test_adding_somebody_where_agents_fill_a_page_keeps_your_own_list (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -868,6 +906,13 @@ def test_deactivating_the_last_member_of_a_private_project_names_it_and_the_way_
 	listed = run("instance", "projects").output
 
 	assert "acme/secret  Redundancies  (1 member, who cannot see it)" in listed, listed
+
+	# **And as JSON for a script** (`SR#2636`), the flag no test had passed.
+	scripted = json.loads(run("instance", "projects", "--json").output)
+
+	assert [(one["workspace"], one["project"], one["members"]) for one in scripted] == [
+		("acme", "secret", 1)
+	], scripted
 	assert "do not belong" not in listed, "the operator was told they are outside their own workspace"
 
 	run("-w", "acme", "project", "share", "secret", operator)

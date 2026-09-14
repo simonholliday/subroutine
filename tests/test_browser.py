@@ -631,15 +631,18 @@ def _prioritised (
 	roster[0] = {**roster[0], "workspaces": spaces}
 
 
-def _administering (identity: dict[str, typing.Any], slug: str) -> dict[str, typing.Any]:
+def _administering (
+	identity: dict[str, typing.Any], slug: str, permission: str = "workspace:admin"
+) -> dict[str, typing.Any]:
 	"""Return the fake identity with one workspace's settings the reader's to change - `SR#2621`.
 
-	Copied rather than changed in place, for `_prioritised`'s reason, and `tidy` puts the holder
-	back afterwards.
+	``permission`` is the verb a settings page asks for: ``workspace:admin`` for a workspace's own
+	settings, ``project:write`` for its projects' (`SR#2636`). Copied rather than changed in place,
+	for `_prioritised`'s reason, and `tidy` puts the holder back afterwards.
 	"""
 
 	spaces = [
-		{**space, "permissions": [*space["permissions"], "workspace:admin"]}
+		{**space, "permissions": [*space["permissions"], permission]}
 		if space["slug"] == slug else space
 		for space in identity["workspaces"]
 	]
@@ -656,6 +659,34 @@ def _settings_sent (written: list[typing.Any]) -> dict[str, typing.Any]:
 		if method == "PATCH" and wanted.startswith("v1/workspaces/")
 		for key, value in json.loads(body or "{}").get("settings", {}).items()
 	}
+
+
+def _in_force_after (
+	base: dict[str, typing.Any], written: list[typing.Any], target: str
+) -> dict[str, typing.Any]:
+	"""Return a settings read with every write this test sent to ``target`` applied - `SR#2636`.
+
+	**The page reads what is in force again after it writes**, and a stand-in that answered the
+	same thing every time would draw each write undone. A value sent is set here; null takes it
+	back and leaves the default in force, which is the one inheritance modelled - enough for a
+	take-back to change what is drawn, and no more.
+	"""
+
+	rows = {row["key"]: dict(row) for row in base["settings"]}
+
+	for method, wanted, body, _address in written:
+		if method != "PATCH" or wanted != target:
+			continue
+
+		for key, value in json.loads(body or "{}").get("settings", {}).items():
+			rows[key] = {
+				**rows[key],
+				"value": rows[key]["default"] if value is None else value,
+				"set_here": value is not None,
+				"inherited_from": None,
+			}
+
+	return {**base, "settings": list(rows.values())}
 
 
 def _absent (wanted: str, refs: set[str]) -> bool:
@@ -703,6 +734,23 @@ SETTINGS_HERE: dict[str, typing.Any] = {
 		{
 			"key": "statuses.hidden", "value": ["ready", "archived", "on_hold"], "default": [],
 			"set_here": True, "inherited_from": None,
+		},
+	],
+}
+
+#: What a project's settings page reads - `SR#2636`. `ready` is hidden on the project itself and
+#: the colour comes from its workspace, so the page offers to take the statuses back; what is in
+#: force afterwards is :func:`_in_force_after`'s answer.
+PROJECT_SETTINGS_HERE: dict[str, typing.Any] = {
+	"scope": "project",
+	"settings": [
+		{
+			"key": "appearance.colour", "value": "teal", "default": None, "set_here": False,
+			"inherited_from": {"scope": "workspace", "address": "projects", "title": "Projects"},
+		},
+		{
+			"key": "statuses.hidden", "value": ["ready"], "default": [], "set_here": True,
+			"inherited_from": None,
 		},
 	],
 }
@@ -1110,6 +1158,8 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 				# assignee control drawn from the wrong roster visible at all.
 				else MEMBERS if wanted == "v1/workspaces/projects/members"
 				else SETTINGS_HERE if wanted == "v1/workspaces/projects/settings"
+				else _in_force_after(PROJECT_SETTINGS_HERE, written, "v1/projects/acme")
+				if wanted == "v1/projects/acme/settings"
 				# **One task, by its ref, before the collection it lives in** — narrower path
 				# first, which is the trap this block already warns about twice. `v1/tasks/42`
 				# starts with `v1/tasks`, so it was served the *collection* envelope: the app
@@ -3258,6 +3308,42 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	)
 
 	settings.close()
+
+	# **And a value taken back is drawn as what is in force after it** (`SR#2636`). A box is ticked
+	# by its default when first drawn, and one the reader has ticked keeps its tick through any
+	# redraw after that - so each control is keyed on the value in force, and that key is what
+	# draws it afresh when *Stop setting it here* changes the value. Without it, a status ticked
+	# just before taking the value back stayed ticked over an answer holding nothing, and a later
+	# Save would have hidden it here. **A box the reader has touched**, because an untouched one
+	# follows its default on a redraw with or without the key, which is why the first version of
+	# this passed with the key removed.
+	written.clear()
+	roster[0] = _administering(IDENTITY, "projects", "project:write")
+	project = opened("/settings/project/projects/acme")
+	ready = ".setting-choice input[value='ready']"
+	triage = ".setting-choice input[value='triage']"
+	project.wait_for_selector(ready, timeout=10_000)
+
+	assert project.is_checked(ready), "the status hidden on the project was not drawn ticked"
+
+	project.check(triage)
+	project.click(".setting-row:has(input[value='ready']) button:has-text('Stop setting it here')")
+	_until(project, lambda: not project.is_checked(ready) and not project.is_checked(triage))
+
+	taken = [
+		json.loads(body or "{}").get("settings", {})
+		for method, wanted, body, _address in written
+		if method == "PATCH" and wanted == "v1/projects/acme"
+	]
+
+	assert taken == [{"statuses.hidden": None}], f"the take-back sent {taken}"
+	assert not project.is_checked(triage), (
+		"a status ticked before the value was taken back is still drawn ticked over nothing in "
+		"force, so a later Save would hide it on the project"
+	)
+	assert not project.is_checked(ready), "the status taken back is still drawn ticked"
+
+	project.close()
 
 
 def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -> None:
