@@ -899,6 +899,11 @@ class Unreachable(typing.NamedTuple):
 	address: str
 	members: int
 
+	#: Whether the caller belongs to the workspace it is in - `#2626`. Letting somebody in happens
+	#: inside a workspace, and an administrator joins one rather than reaching into it (`#1860`), so
+	#: where this is false, joining comes before the share.
+	member_of_workspace: bool
+
 
 def reachable_by_anybody (
 	session: sqlalchemy.orm.Session,
@@ -908,20 +913,29 @@ def reachable_by_anybody (
 ) -> bool:
 	"""Report whether somebody who can act here can see this project - `#1453`.
 
-	**A member who can act, and whom nothing hides it from.** A row alone is not enough: an
-	account that has left keeps its memberships, which is right, and an agent whose person has
-	left keeps its rows and can no longer act - so both are counted as nobody. And privacy
-	inherits down the tree, so a member of a private project inside another one they are not a
-	member of cannot see it either; :func:`hidden_by` is that rule, and it is asked rather than
-	restated.
+	**A member who can act, who still belongs to the workspace, and whom nothing hides it from.**
+	A row alone is not enough: an account that has left keeps its memberships, which is right, and
+	an agent whose person has left keeps its rows and can no longer act - so both are counted as
+	nobody. **So is somebody taken out of the workspace** (`#2626`): ``workspaces.remove_member``
+	leaves their project rows as well, and belonging to the workspace is what grants reach at all
+	(`#1860`). And privacy inherits down the tree, so a member of a private project inside another
+	one they are not a member of cannot see it either; :func:`hidden_by` is that rule, and it is
+	asked rather than restated.
 	"""
 
 	model = subroutine.db.models.project.ProjectMember
 	member = subroutine.db.models.identity.User
+	belongs = subroutine.db.models.identity.WorkspaceMember
 
 	for account in session.scalars(
 		sqlalchemy.select(member)
 		.join(model, model.user_id == member.id)
+		.join(
+			belongs,
+			sqlalchemy.and_(
+				belongs.user_id == member.id, belongs.workspace_id == project.workspace_id
+			),
+		)
 		.where(model.project_id == project.id)
 	):
 		if not subroutine.domain.accountability.can_act(session, account, leaving=leaving):
@@ -1016,12 +1030,26 @@ def unreachable (
 	)
 	addresses = paths_for(session, [row.id for row, _place in stranded])
 
+	# **Which of these workspaces the caller is inside** (`#2626`), from the same membership rows
+	# `reachable_by_anybody` joins: this answers for the installation, and a share does not.
+	belongs = subroutine.db.models.identity.WorkspaceMember
+	mine = (
+		set()
+		if actor is None
+		else set(
+			session.scalars(
+				sqlalchemy.select(belongs.workspace_id).where(belongs.user_id == actor.user.id)
+			)
+		)
+	)
+
 	return [
 		Unreachable(
 			project=row,
 			workspace=place,
 			address=addresses.get(row.id, row.key),
 			members=counts.get(row.id, 0),
+			member_of_workspace=place.id in mine,
 		)
 		for row, place in stranded
 	]
@@ -1066,11 +1094,14 @@ def share (
 
 	_refuse_somebody_outside_the_workspace(session, project, user)
 
-	# **Before asking what is hiding it**, because somebody already shared in is not hidden
-	# from it, and the question below would then answer about the workspace at large.
 	existing = _membership_of(session, project, user.id)
+	blocking = hidden_by(session, project, user.id)
 
-	if existing is not None:
+	# **Somebody already shared in sees it only while nothing above hides it** (`#2631`). This was
+	# asked before what hides it, so a member a private parent hides was told they could already
+	# see the project - sending whoever is letting them in to the wrong remedy. The sentence about a
+	# hiding parent, below, is theirs too.
+	if existing is not None and blocking is None:
 		raise subroutine.errors.ValidationError(
 			f"{user.username} can already see {project.key}.",
 			errors=[
@@ -1081,8 +1112,6 @@ def share (
 				)
 			],
 		)
-
-	blocking = hidden_by(session, project, user.id)
 
 	if blocking is None:
 		raise subroutine.errors.ValidationError(

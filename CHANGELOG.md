@@ -27,9 +27,11 @@ upgrade involves.
   agent whose person left - nobody could see it, and nothing could make it public or share it
   again. `subroutine instance projects` and `GET /v1/instance/unreachable-projects` list those
   projects by address, title and membership count, and nothing inside them, for an instance
-  administrator; `subroutine project share` then lets somebody back in, recorded like any other
-  share. `subroutine user deactivate` names the private projects nobody would be able to see
-  before it asks, beside the agents it stops.
+  administrator, and say which of their workspaces you do not belong to; `subroutine project
+  share` then lets somebody back in, recorded like any other share, once you have joined its
+  workspace. A member taken out of a workspace, or hidden by a private project above, counts as
+  nobody who can see it. `subroutine user deactivate` names the private projects nobody would be
+  able to see before it asks, beside the agents it stops.
 
 - **Move a task you filed in the wrong project, from an agent's tools.** `subroutine_update`
   takes `project`, as `subroutine update --project` already did. A line captured with no

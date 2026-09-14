@@ -149,11 +149,14 @@ def unreachable_projects (
 	Needs ``instance:admin``, which no role carries and only a superuser holds, and a credential
 	that is neither pinned to one workspace nor narrowed to some projects.
 
-	A private project is visible only to its members. When the last of them is deactivated - or
-	the only member is an agent whose person is - nobody can see it, so nothing can make it public
-	or share it again. This lists those projects by address, title and membership count, and
-	nothing inside them. ``POST /v1/projects/{id_or_key}/members`` then lets somebody back in, and
-	an administrator may do that for a project listed here; it is recorded like any other share.
+	A private project is visible only to its members. When none of them can see it any more -
+	each has been deactivated, answers to somebody who has, has been taken out of the workspace, or
+	is hidden from it by a private project above - nothing can make it public or share it again.
+	This lists those projects by address, title and membership count, and nothing inside them.
+	``POST /v1/projects/{id_or_key}/members`` then lets somebody back in, and an administrator may
+	do that for a project listed here; it is recorded like any other share. ``member_of_workspace``
+	says whether you belong to the project's workspace: where you do not, join it first, with
+	``POST /v1/workspaces/{id_or_slug}/members``.
 
 	With ``leaving``, it answers the question to ask before deactivating somebody instead: which
 	projects that somebody can see now would nobody be able to see afterwards.

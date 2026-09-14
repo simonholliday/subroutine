@@ -136,6 +136,11 @@ ELSEWHERE = "elsewhere"
 #: unaware that a record exists.
 COMMENTS_SHOWN = 5
 
+#: How an administrator joins a workspace they can see and are not in (`#1860`), in one wording
+#: for every command that sends somebody to do it. **The role is part of it** (`#2640`): ``user
+#: add`` names one rather than assuming it, so advice that left it out was refused when followed.
+JOIN_A_WORKSPACE = "subroutine user add <you> --workspace <workspace> --role <role>"
+
 
 #: What a ref may turn out to name. **One counter per workspace serves both** (§6.2), so
 #: ``#4`` is as likely to be a specification as a job — and a command that only ever asked
@@ -5450,8 +5455,7 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 		if outside:
 			program.say("")
 			program.say(
-				f"{len(outside)} of these you cannot see into. "
-				f"'subroutine user add <you> --workspace <name>' joins one."
+				f"{len(outside)} of these you cannot see into. '{JOIN_A_WORKSPACE}' joins one."
 			)
 
 
@@ -5477,12 +5481,14 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		# `instance:admin`, which a credential allowed to deactivate somebody may not carry, so a
 		# refusal is said rather than read as *nothing stranded*.
 		try:
-			stranding = [one.address() for one in where.client.unreachable_projects(leaving=username)]
+			stranded = where.client.unreachable_projects(leaving=username)
 			unchecked = None
 
 		except subroutine.errors.SubroutineError as refused:
-			stranding = []
+			stranded = []
 			unchecked = refused.detail
+
+		stranding = [one.address() for one in stranded]
 
 		# **Named before it happens, not counted** - `project rename`'s rule. A deactivation that
 		# silently stops a shared agent is how somebody learns to stop deactivating leavers, which
@@ -5515,6 +5521,15 @@ def _deactivated (program: Program, *, username: str, yes: bool) -> None:
 		for address in stranding:
 			program.say(f"  {address} can be seen by nobody")
 
+		# **Joining comes first where the operator is outside** (`#2626`): somebody is let back in
+		# from inside a workspace, and an administrator joins one rather than reaching into it.
+		if any(not one.member_of_workspace for one in stranded):
+			_suggest(
+				program.console,
+				JOIN_A_WORKSPACE,
+				"first, for a workspace you do not belong to",
+			)
+
 		if stranding:
 			_suggest(
 				program.console,
@@ -5540,13 +5555,14 @@ def _register_unreachable (instance_app: typer.Typer, program: Program) -> None:
 
 		  subroutine instance projects
 
-		A private project is visible only to the people shared into it. When the last of them
-		has left - or its only member is an agent whose person has - nobody can see it, and
-		nothing can make it public or share it again. This lists those, and nothing inside
-		them.
+		A private project is visible only to the people shared into it. When none of them can see
+		it any more - they have left, or answer to somebody who has, or are no longer in its
+		workspace, or a private project above hides it - nothing can make it public or share it
+		again. This lists those, and nothing inside them.
 
 		'subroutine -w <workspace> project share <project> <username>' lets somebody back in,
-		and joining one is recorded.
+		and joining one is recorded. In a workspace you do not belong to, 'subroutine user add
+		<you> --workspace <workspace> --role <role>' comes first.
 		"""
 
 		_unreachable_listed(program, json_output=json_output)
@@ -5570,12 +5586,25 @@ def _unreachable_listed (program: Program, *, json_output: bool) -> None:
 
 			return
 
+		# **Who cannot see it, not who cannot act** (`#2631`): a member a private parent hides can act
+		# perfectly well, and so can one taken out of the workspace, and neither can see it.
 		for one in found:
-			held = "1 membership" if one.members == 1 else f"{one.members} memberships"
+			held = (
+				"no members"
+				if one.members == 0
+				else "1 member, who cannot see it"
+				if one.members == 1
+				else f"{one.members} members, none of whom can see it"
+			)
+			outside = "" if one.member_of_workspace else f"  - you do not belong to {one.workspace}"
 
-			program.say(f"  {one.address()}  {one.title}  ({held}, none of them able to act)")
+			program.say(f"  {one.address()}  {one.title}  ({held}){outside}")
 
 		program.say("")
+
+		if any(not one.member_of_workspace for one in found):
+			program.say(f"'{JOIN_A_WORKSPACE}' comes first, in a workspace you do not belong to.")
+
 		program.say(
 			"'subroutine -w <workspace> project share <project> <username>' lets somebody back in."
 		)

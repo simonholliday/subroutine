@@ -25,6 +25,7 @@ import subroutine.db.models.identity
 import subroutine.db.models.project
 import subroutine.db.models.work
 import subroutine.domain.authentication
+import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.hierarchy
 import subroutine.domain.projects
@@ -33,6 +34,7 @@ import subroutine.domain.scoping
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
+import subroutine.permissions
 
 
 def workspace (
@@ -55,7 +57,16 @@ def workspace (
 	reachable = subroutine.domain.workspaces.readable(session, principal)
 
 	if requested is not None:
-		return _named(requested, reachable)
+		try:
+			return _named(requested, reachable)
+
+		except subroutine.errors.NotFound:
+			outside = _outside(session, principal, requested)
+
+			if outside is None:
+				raise
+
+			raise _not_a_member(principal, outside) from None
 
 	if principal.pinned_workspace_id is not None:
 		# The pin already narrowed `reachable` to one; this is only reporting it clearly if
@@ -157,6 +168,72 @@ def _named (
 				code="not_found",
 				message=f"No readable workspace matches {requested!r}.",
 				hint=_alternatives(reachable),
+			)
+		],
+	)
+
+
+def _outside (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	requested: str,
+) -> subroutine.db.models.identity.Workspace | None:
+	"""Return the live workspace a name means, where this caller may discover it and is outside it.
+
+	**Only for somebody decision `#1860` lets discover workspaces** - ``instance:admin``, on a
+	credential that answers for the installation, which is the pair
+	``api/workspaces._for_an_administrator`` asks. Anybody else keeps :func:`_named`'s refusal,
+	which confirms nothing (§8.7).
+	"""
+
+	if not subroutine.domain.authorization.reaches_the_whole_installation(principal):
+		return None
+
+	if not subroutine.domain.authorization.may_instance(
+		principal, subroutine.permissions.INSTANCE_ADMIN
+	):
+		return None
+
+	wanted = requested.strip()
+	model = subroutine.db.models.identity.Workspace
+
+	try:
+		named = model.id == uuid.UUID(wanted)
+
+	except ValueError:
+		named = model.slug == subroutine.domain.workspaces.normalize_slug(wanted)
+
+	found: subroutine.db.models.identity.Workspace | None = session.scalars(
+		sqlalchemy.select(model).where(named, model.deleted_at.is_(None))
+	).first()
+
+	return found
+
+
+def _not_a_member (
+	principal: subroutine.domain.authentication.Principal,
+	workspace: subroutine.db.models.identity.Workspace,
+) -> subroutine.errors.NotFound:
+	"""Tell an administrator they are outside a workspace, and how to join it - `#2626`.
+
+	Still *not found*, because nothing inside it is theirs to reach until they join, and a status
+	that changed for this one caller would be a second answer to one question. The sentence is what
+	changes: *there is no workspace* sent an administrator following the unreachable-projects
+	listing to look for a workspace that is there.
+	"""
+
+	return subroutine.errors.NotFound(
+		f"You are not a member of {workspace.slug}, so nothing in it can be reached from here.",
+		hint=(
+			f"Join it first - 'subroutine user add {principal.user.username} --workspace "
+			f"{workspace.slug} --role <role>', or POST /v1/workspaces/{workspace.slug}/members - "
+			"and joining is recorded."
+		),
+		errors=[
+			subroutine.errors.FieldError(
+				field="workspace_id",
+				code="not_found",
+				message=f"You do not belong to {workspace.slug}.",
 			)
 		],
 	)

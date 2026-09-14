@@ -5462,9 +5462,14 @@ class UnreachableProject(pydantic.BaseModel):
 	title: str
 	created_at: datetime.datetime
 
-	#: How many memberships it holds. Every one of them belongs to somebody who has left, or to an
-	#: agent whose person has - which is why nobody can see it.
+	#: How many memberships it holds. None of them gives sight: each belongs to somebody who has
+	#: left, to an agent whose person has, to somebody no longer in the workspace, or to somebody a
+	#: private project above hides it from.
 	members: int
+
+	#: Whether you belong to the workspace it is in. Letting somebody back in happens inside that
+	#: workspace, so where this is false, joining it comes first.
+	member_of_workspace: bool
 
 	def address (self) -> str:
 		"""Return what a caller names this by when letting somebody back in."""
@@ -5487,6 +5492,7 @@ def unreachable_project (row: subroutine.domain.projects.Unreachable) -> Unreach
 		title=row.project.title,
 		created_at=row.project.created_at,
 		members=row.members,
+		member_of_workspace=row.member_of_workspace,
 	)
 
 

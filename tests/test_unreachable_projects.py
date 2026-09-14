@@ -123,7 +123,10 @@ def test_a_project_whose_last_member_left_is_found_by_an_administrator (
 	assert found[0]["members"] == 1
 
 	# **Nothing from inside it**: what exists and where, and no description, settings or work.
-	assert set(found[0]) == {"id", "workspace", "project", "title", "created_at", "members"}
+	assert set(found[0]) == {
+		"id", "workspace", "project", "title", "created_at", "members", "member_of_workspace"
+	}
+	assert found[0]["member_of_workspace"] is True
 
 
 def test_an_agent_whose_person_left_reaches_nothing_either (
@@ -528,3 +531,160 @@ def test_a_root_the_administrator_can_see_is_still_named_by_its_own_address (
 
 	assert shared.status_code == 201, shared.text
 	assert jo.id in _members(session, root) and jo.id not in _members(session, stranded)
+
+
+def test_a_member_removed_from_the_workspace_no_longer_counts_as_somebody_who_can_see_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2626`: membership of the workspace is what grants reach, so a removed member reaches nothing.
+
+	``workspaces.remove_member`` leaves somebody's ``project_member`` rows, and reach was counted
+	from those rows and whether the account can act. So a private project whose only member was
+	taken out of the workspace was invisible to them, missing from the listing, and refused to the
+	rescue as reachable - stranded, and admitted by no surface.
+
+	**Thomas still belongs to another workspace**, as most people do: belonging *somewhere* is not
+	belonging to the workspace the project is in, and a member of none would not tell the two apart.
+	"""
+
+	world = test_api_tasks._world(session)
+	thomas, theirs = _somebody(session, world)
+	project = _private(session, world, thomas)
+	subroutine.domain.workspaces.create(
+		session, slug=f"elsewhere{uuid.uuid4().hex[:6]}", title="Elsewhere", owner=thomas
+	)
+
+	here = {"workspace_id": world.workspace.slug}
+
+	assert _listed(world) == []
+	assert theirs.call("GET", f"/v1/projects/{project.key}", params=here).status_code == 200
+
+	subroutine.domain.workspaces.remove_member(session, world.workspace, thomas)
+	session.flush()
+
+	assert theirs.call("GET", f"/v1/projects/{project.key}", params=here).status_code == 404
+	assert [row["project"] for row in _listed(world)] == [project.key], (
+		"a member taken out of the workspace was counted as somebody who can see it"
+	)
+
+	let_in = world.call(
+		"POST", f"/v1/projects/{project.key}/members", json={"username": world.user.username}
+	)
+
+	assert let_in.status_code == 201, let_in.text
+
+
+def test_an_administrator_outside_the_workspace_is_told_to_join_it_first (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2626`: the listing spans the installation, and letting somebody in happens inside a workspace.
+
+	**Decision `#1860`**: an administrator discovers a workspace and joins it, as a recorded act,
+	and never reaches inside one without belonging to it. So the listing says which workspaces the
+	caller does not belong to, and naming one says to join it rather than that there is no such
+	workspace. **Only to somebody who may discover workspaces**: anybody else is told what §8.7
+	says, which confirms nothing.
+	"""
+
+	world = test_api_tasks._world(session)
+	_thomas, theirs = _somebody(session, world)
+	leaver = subroutine.domain.users.create(session, username=f"leaver-{uuid.uuid4().hex[:6]}")
+	hr = subroutine.domain.workspaces.create(
+		session, slug=f"hr{uuid.uuid4().hex[:6]}", title="People", owner=leaver
+	)
+	subroutine.domain.projects.create(
+		session,
+		workspace_id=hr.id,
+		key="secret",
+		title="Redundancies",
+		visibility="private",
+		owner_id=leaver.id,
+	)
+	subroutine.domain.users.set_active(session, leaver, active=False)
+	session.flush()
+
+	found = _listed(world)
+
+	assert [(row["workspace"], row["project"], row["member_of_workspace"]) for row in found] == [
+		(hr.slug, "secret", False)
+	]
+
+	refused = world.call(
+		"POST",
+		"/v1/projects/secret/members",
+		params={"workspace_id": hr.slug},
+		json={"username": world.user.username},
+	)
+
+	assert refused.status_code == 404, refused.text
+	assert f"not a member of {hr.slug}" in refused.text, refused.text
+	assert "user add" in refused.text, "and it says how to join"
+
+	stranger = theirs.call(
+		"POST",
+		"/v1/projects/secret/members",
+		params={"workspace_id": hr.slug},
+		json={"username": world.user.username},
+	)
+
+	assert stranger.status_code == 404, stranger.text
+	assert "not a member of" not in stranger.text, "a caller who may not discover was told it exists"
+
+	joined = world.call(
+		"POST",
+		f"/v1/workspaces/{hr.slug}/members",
+		json={"username": world.user.username, "role": "admin"},
+	)
+
+	assert joined.status_code == 201, joined.text
+
+	rescued = world.call(
+		"POST",
+		"/v1/projects/secret/members",
+		params={"workspace_id": hr.slug},
+		json={"username": world.user.username},
+	)
+
+	assert rescued.status_code == 201, rescued.text
+	assert _listed(world) == []
+
+
+def test_a_member_a_private_parent_hides_is_told_about_the_parent_not_that_they_can_see_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2631`: a membership grants no sight while a private project above hides it.
+
+	``share`` asked whether somebody was already a member before asking what hides the project,
+	so carol - shared into ``p1/p3`` and hidden by a private ``p1`` - was told she could already
+	see ``p3``, and the listing said nobody holding a membership could act. Both sent an
+	administrator to the wrong remedy. The sentence for a hiding parent names the project to share.
+	"""
+
+	world = test_api_tasks._world(session)
+	carol, _hers = _somebody(session, world, name="carol")
+	parent = subroutine.domain.projects.create(
+		session, workspace_id=world.workspace.id, key="p1", title="Parent", owner_id=world.user.id
+	)
+	subroutine.domain.projects.create(
+		session,
+		workspace_id=world.workspace.id,
+		key="p3",
+		title="Carol's child",
+		parent=parent,
+		visibility="private",
+		owner_id=carol.id,
+	)
+	session.flush()
+
+	assert _listed(world) == []
+
+	made_private = world.call("PATCH", "/v1/projects/p1", json={"visibility": "private"})
+
+	assert made_private.status_code == 200, made_private.text
+	assert [row["project"] for row in _listed(world)] == ["p1/p3"]
+
+	refused = world.call("POST", "/v1/projects/p1/p3/members", json={"username": carol.username})
+
+	assert refused.status_code == 422, refused.text
+	assert "can already see" not in refused.text, refused.text
+	assert "hidden by p1" in refused.text, refused.text

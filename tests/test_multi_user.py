@@ -829,13 +829,71 @@ def test_deactivating_the_last_member_of_a_private_project_names_it_and_the_way_
 	assert "acme/secret can be seen by nobody" in warned, warned
 	assert "project share" in warned, "and it says how to let somebody back in"
 
-	assert "acme/secret  Redundancies" in run("instance", "projects").output
+	listed = run("instance", "projects").output
+
+	assert "acme/secret  Redundancies  (1 member, who cannot see it)" in listed, listed
+	assert "do not belong" not in listed, "the operator was told they are outside their own workspace"
 
 	run("-w", "acme", "project", "share", "secret", operator)
 
 	assert "can be seen by somebody" in run("instance", "projects").output, (
 		"letting the operator in did not make it reachable again"
 	)
+
+
+def test_the_way_back_into_a_workspace_the_operator_is_not_in_starts_by_joining_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2626`: every stranded project is listed, and somebody is let in only from inside its workspace.
+
+	**Decision `SR#1860`**: an administrator discovers a workspace and joins it, as a recorded act.
+	The advice named only the share, which then answered that there was no such workspace, so a
+	row outside the operator's workspaces says so and the advice names the join first.
+	"""
+
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.session
+	import subroutine.domain.projects
+	import subroutine.domain.users
+	import subroutine.domain.workspaces
+
+	run("init", "--workspace", "Acme")
+	run("user", "create", "thomas", "--name", "Thomas Anderson")
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			thomas = subroutine.domain.users.by_username(session, "thomas")
+			people = subroutine.domain.workspaces.create(
+				session, slug="hr", title="People", owner=thomas
+			)
+			subroutine.domain.projects.create(
+				session,
+				workspace_id=people.id,
+				key="secret",
+				title="Redundancies",
+				visibility="private",
+				owner_id=thomas.id,
+			)
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+	warned = run("user", "deactivate", "thomas", "--yes").output
+
+	assert "hr/secret can be seen by nobody" in warned, warned
+	assert "user add" in warned, "the way back did not start by joining the workspace"
+
+	listed = run("instance", "projects").output
+
+	assert "hr/secret  Redundancies  (1 member, who cannot see it)" in listed, listed
+	assert "you do not belong to hr" in listed, listed
+	assert "user add" in listed, listed
 
 
 def test_the_account_list_says_when_it_stopped (
