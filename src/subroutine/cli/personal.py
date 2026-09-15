@@ -70,6 +70,7 @@ import subroutine.domain.search
 import subroutine.domain.settings
 import subroutine.domain.tasks
 import subroutine.domain.text
+import subroutine.domain.verifications
 import subroutine.errors
 import subroutine.fanout
 import subroutine.installations
@@ -6303,6 +6304,20 @@ def _git (*arguments: str) -> str | None:
 	return written if answered.returncode == 0 and written else None
 
 
+def _against_the_tree (recorded: str | None, here: str | None) -> str:
+	"""Say which tree a check ran against, and whether it is the one this checkout is on."""
+
+	if recorded is None:
+		return "no tree"
+
+	stale = subroutine.domain.verifications.is_stale(recorded, here=here)
+
+	if stale is None:
+		return f"tree {recorded[:7]}"
+
+	return f"tree {recorded[:7]}, {'not the tree here' if stale else 'the tree here'}"
+
+
 def _tree_here () -> str:
 	"""Return the tree object this checkout's `HEAD` names, or nothing.
 
@@ -12193,6 +12208,11 @@ def _render_item (
 		console.print("")
 		console.print(rich.text.Text(f"Recorded checks ({len(checked)})", style=HEADING))
 
+		# **Compared with the tree this checkout is on** (`#1173`), and said as a comparison:
+		# in some other repository's checkout a different tree is still true where *out of
+		# date* would not be. Asked once, and only here where there are records to compare.
+		here = _tree_here() or None
+
 		for record in checked:
 			line = rich.text.Text()
 			line.append(
@@ -12204,10 +12224,7 @@ def _render_item (
 				style=DETAIL,
 			)
 			line.append(record.summary or "")
-			line.append(
-				f"  ({'tree ' + record.tree_hash[:7] if record.tree_hash else 'no tree'})",
-				style=DETAIL,
-			)
+			line.append(f"  ({_against_the_tree(record.tree_hash, here)})", style=DETAIL)
 			console.print(line)
 
 	if remarks:

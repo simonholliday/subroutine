@@ -132,9 +132,7 @@ def against (
 	)
 
 
-def is_stale (
-	written: subroutine.db.models.work.Verification, *, tree_hash: str | None
-) -> bool | None:
+def is_stale (recorded: str | None, *, here: str | None) -> bool | None:
 	"""Say whether a record has expired against the tree the caller is standing on.
 
 	**Three answers, not two**, and the third is why this returns ``None`` rather than
@@ -148,12 +146,17 @@ def is_stale (
 	is not on this row and is not on the instance either. Only somebody standing in the
 	checkout can answer it, which is why the comparison lives here and the value arrives from
 	outside rather than being computed.
+
+	**Given the two hashes rather than a row**, so a caller holding the published view can ask
+	it as well as one holding the table. ``subroutine show`` is that caller (`#1173`): it has the
+	record and a checkout to compare it with, which is both halves. An MCP tool is not given it,
+	because over a served instance the tool runs where the server does, not where the reader is.
 	"""
 
-	if written.tree_hash is None or tree_hash is None:
+	if recorded is None or here is None:
 		return None
 
-	return written.tree_hash != tree_hash
+	return recorded != here
 
 
 def _within (value: str | None, *, limit: int, field: str) -> str | None:

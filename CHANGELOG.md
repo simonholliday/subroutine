@@ -32,6 +32,9 @@ upgrade involves.
   `subroutine unlink 1 2 --type blocks`. `link` and `unlink --type` also say that a relation
   written with a hyphen here is the one the API and the agent tools spell with an underscore.
 
+- **`subroutine show` says whether a recorded check ran on the tree you are standing on**:
+  *the tree here* or *not the tree here* beside each one, and nothing more outside a checkout.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

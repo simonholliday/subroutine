@@ -8067,6 +8067,37 @@ def test_show_says_what_has_been_checked_and_against_what (
 	assert "aaaaaaa" in shown, f"the tree it ran against is not shown: {shown}"
 
 
+def test_show_says_whether_a_check_ran_on_the_tree_here (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1173`: the question a recorded check exists for is whether it still holds here.
+
+	**Said as a comparison, never as expiry.** Standing in some other repository's checkout, a
+	different tree is still true and *out of date* would not be, so the words are *the tree
+	here* and *not the tree here*. With no checkout at all nothing is added, because a reader
+	with no tree cannot judge one.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the release")
+	run("verify", "1", "--summary", "on this tree", "--tree", "a" * 40)
+	run("verify", "1", "--summary", "on another", "--tree", "b" * 40)
+	run("verify", "1", "--summary", "from nowhere")
+
+	monkeypatch.setattr(subroutine.cli.personal, "_tree_here", lambda: "a" * 40)
+	here = run("show", "1").output
+
+	assert "tree aaaaaaa, the tree here" in here, here
+	assert "tree bbbbbbb, not the tree here" in here, here
+	assert "(no tree)" in here, here
+
+	monkeypatch.setattr(subroutine.cli.personal, "_tree_here", lambda: "")
+	nowhere = run("show", "1").output
+
+	assert "the tree here" not in nowhere, f"a reader with no checkout was given a verdict:\n{nowhere}"
+	assert "tree aaaaaaa" in nowhere, nowhere
+
+
 def test_a_failing_check_is_recorded_and_says_so (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

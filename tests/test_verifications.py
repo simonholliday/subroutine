@@ -162,16 +162,16 @@ def test_staleness_is_the_readers_comparison_and_has_three_answers (
 	against_a_tree, against_nothing = rows
 
 	assert subroutine.domain.verifications.is_stale(
-		against_a_tree, tree_hash="a" * 40
+		against_a_tree.tree_hash, here="a" * 40
 	) is False
 	assert subroutine.domain.verifications.is_stale(
-		against_a_tree, tree_hash="c" * 40
+		against_a_tree.tree_hash, here="c" * 40
 	) is True
 	assert subroutine.domain.verifications.is_stale(
-		against_a_tree, tree_hash=None
+		against_a_tree.tree_hash, here=None
 	) is None, "a caller with no tree cannot judge one that has"
 	assert subroutine.domain.verifications.is_stale(
-		against_nothing, tree_hash="a" * 40
+		against_nothing.tree_hash, here="a" * 40
 	) is None, "a record with no tree read as current"
 
 
