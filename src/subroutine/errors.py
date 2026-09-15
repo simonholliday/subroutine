@@ -108,7 +108,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Not found",
 			"There is no such thing, or it is not visible to this caller. The two are "
 			"deliberately not distinguished: saying 'forbidden' about a private project "
-			"would confirm it exists (docs/design.md §7.3a).",
+			"would confirm it exists.",
 		),
 		_define(
 			"method_not_allowed",
@@ -157,8 +157,8 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"can be migrated forward and the refusal says so; a *newer* one cannot, because "
 			"this version cannot interpret data it does not know the shape of and a partial "
 			"read is worse than a clear failure. Two things answer with it: a backup being "
-			"put back (docs/design.md §12.6), and any write against a live database that has "
-			"not been migrated yet (§12.4a) - reads are still served, so an instance mid-deploy "
+			"put back, and any write against a live database that has "
+			"not been migrated yet - reads are still served, so an instance mid-deploy "
 			"stays readable and refuses to be changed. /readyz reports the same condition as "
 			"503 service_unavailable rather than this, because a load balancer has to read the "
 			"instance as not ready rather than as arguing.",
@@ -168,7 +168,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			410,
 			"Cursor expired",
 			"A change-feed cursor names a point older than the events this instance still "
-			"holds, so the gap between there and now cannot be reported (docs/design.md §5.11). "
+			"holds, so the gap between there and now cannot be reported. "
 			"The client resyncs from the beginning rather than being handed a page that "
 			"silently omits everything pruned in between.",
 		),
@@ -177,7 +177,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			413,
 			"Too large",
 			"A field or the request body exceeds the configured limit. The limit is "
-			"reported rather than the value being silently truncated (docs/design.md §6.10).",
+			"reported rather than the value being silently truncated.",
 		),
 		_define(
 			"invalid_field_value",
@@ -198,7 +198,7 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"Unknown field",
 			"The request carried a field or query parameter this endpoint does not "
 			"accept. Rejected rather than ignored, because silently dropping a typo is how "
-			"a caller comes to believe it set something it did not (docs/design.md §8.1).",
+			"a caller comes to believe it set something it did not.",
 		),
 		_define(
 			"invalid_status",

@@ -162,7 +162,7 @@ def call (
 	"""Answer one MCP message.
 
 	``workspace`` is a *default* for the tools' own argument rather than a pin, exactly as
-	``subroutine mcp --workspace`` is: the credential is what pins (§7.3), and a session that
+	``subroutine mcp --workspace`` is: the credential is what pins, and a session that
 	could not look anywhere else would leave an agent unable to read a decision filed next
 	door. A plugin puts it in the URL, which is the one place a static configuration file can
 	put it.

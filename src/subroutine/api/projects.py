@@ -84,7 +84,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	``key`` **may be changed**. It was absent here on the grounds that it is "the
 	first half of every ref the project has minted" — which stopped being true on 2026-07-29,
-	when §6.2 made a ref a bare workspace-scoped integer. A project key is in no ref.
+	when a ref became a bare workspace-scoped integer. A project key is in no ref.
 
 	What a rename costs is *addresses*: this URL, a ``.subroutine`` marker in somebody's
 	checkout, ``+KEY`` in a capture line. The old key stops resolving and there is deliberately
@@ -121,7 +121,7 @@ class Move(subroutine.api.schemas.RequestModel):
 	"""Where a project should sit in the tree.
 
 	``parent: null`` makes it a root, which is why this is a body rather than a query
-	parameter — "no parent" and "unchanged" have to be distinguishable (§8.3).
+	parameter — "no parent" and "unchanged" have to be distinguishable.
 
 	**And they were not, until 2026-07-30.** The handler read ``body.parent`` directly, so an
 	*omitted* parent and an explicit ``null`` both meant "move to root" — and
@@ -342,7 +342,7 @@ def sharing (
 	Needs ``project:read``. Nothing anywhere else answers *who can see this*, and until this
 	existed the question had no home on any surface.
 
-	Enveloped and unpaginated, like a workspace's members and a task's links (§8.4) — a
+	Enveloped and unpaginated, like a workspace's members and a task's links — a
 	project's membership is bounded by how many people somebody put in it.
 
 	**A public project ordinarily reports just its owner, and that is honest rather than
@@ -490,7 +490,7 @@ def change (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
-	"""Change a project. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
+	"""Change a project. Omitted fields are untouched; nulls clear."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	project = resolve(session, actor, workspace, id_or_key)
@@ -589,7 +589,7 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Project:
-	"""Restore a soft-deleted project, and everything filed in it (docs/design.md §6.9).
+	"""Restore a soft-deleted project, and everything filed in it.
 
 	**`DELETE` has always said its tasks "come back with it" and nothing brought them back.**
 	Tasks and documents gained a restore before their container did, so deleting a project

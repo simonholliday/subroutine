@@ -50,7 +50,7 @@ SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Token)
 class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tokens`` accepts.
 
-	Every field narrows. There is no field that widens, and there could not be: §7.4's whole
+	Every field narrows. There is no field that widens, and there could not be: the whole
 	least-privilege story rests on a credential staying at most as wide as the one that asked
 	for it, which ``issue_token`` enforces rather than this model.
 	"""

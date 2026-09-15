@@ -253,8 +253,8 @@ had to be written for it. The same is true of a restore and of `subroutine db up
 A request that hits the limit is answered with `503 request_timed_out` saying so, and nothing
 it was doing was written. Set it to `0` to go back to waiting indefinitely.
 
-**There are deliberately no retention settings.** §5.11 and §6.9 both describe a retention
-period, and nothing purges anything yet - so `events_retention_days` and
+**There are deliberately no retention settings.** The history and the trash are both meant to
+have a retention period, and nothing purges anything yet - so `events_retention_days` and
 `trash_retention_days` were removed rather than documented. A setting that silently does
 nothing is worse than an absent one: you can set it, get no error, and believe it. They come
 back with what enforces them.
@@ -909,7 +909,7 @@ matters because setting an agent up is something you do on the machine the agent
 until 0.3 these were the three commands that could only be run while sitting on the server.
 
 They still open a database *directly* when the connection is local - which, on the server, it
-is. That is not a leftover: §12.4 requires the commands that administer credentials to work
+is. That is not a leftover: the commands that administer credentials have to work
 when the service is the thing that has gone wrong, and reaching a local database never involved
 the service. The route follows the connection precisely so that both remain true.
 
@@ -1214,7 +1214,7 @@ stops mattering, because both halves are the agent.
 Everything above set up a server. This is the other end: your own account, on your own laptop
 or on the same machine, listing the server's work beside your own.
 
-**It is a *connection*, and your own database is one too.** That is the whole design (§13.7):
+**It is a *connection*, and your own database is one too.** That is the whole design:
 `subroutine agenda` asks every connection and merges the answers, so the dentist and the
 stand-up appear in one list rather than in two tools. Your own database is called `local` and
 exists whether or not you declare it.
@@ -1261,13 +1261,13 @@ Other things it takes: `--read-only` to reach an instance and refuse to write to
 `pass`, `gpg`, `secret-tool` or a password manager instead of storing one.
 
 **There is no `--token`, deliberately.** A credential passed as an argument lands in shell
-history and in the process list (§12.3a). Piping one in works, for a script or an agent:
+history and in the process list. Piping one in works, for a script or an agent:
 
 ```console
 $ pass show work/subroutine | subroutine connections add work --url http://127.0.0.1:8471
 ```
 
-**Tokens live in their own file and never in `config.toml`** (§12.3a), so that a configuration
+**Tokens live in their own file and never in `config.toml`**, so that a configuration
 file can be copied, committed or pasted into a bug report without taking a credential with it.
 `credentials.toml` is written `chmod 600`. If your shell already has `SUBROUTINE_TOKEN` set,
 that is another way in and needs no file.
@@ -1329,7 +1329,7 @@ invitation to act on the wrong one.
 
 `subroutine use work` changes which connection a *write* goes to - `subroutine add` and the
 rest. It never changes what you can see: reads always span everything reachable, which is what
-makes switching safe (§13.7).
+makes switching safe.
 
 If a connection cannot be reached, the rest of the list still prints and one line says which
 one failed. That is deliberate: being told nothing about your own to-do list because a work

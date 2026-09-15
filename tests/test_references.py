@@ -38,13 +38,20 @@ direction, relative *links* on the published pages, and the two do not overlap: 
 ``](target)`` on three pages, a mention is bare prose anywhere.
 """
 
+import json
 import pathlib
 import re
 import subprocess
 import typing
 
 import subroutine.api.app
+import subroutine.api.meta
+import subroutine.cli.topics
+import subroutine.clients.base
 import subroutine.config
+import subroutine.errors
+import subroutine.mcp.session
+import subroutine.mcp.tools
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -780,3 +787,136 @@ def test_the_personal_scanner_finds_a_planted_identifier (tmp_path: pathlib.Path
 		assert not [
 			one for pattern, _what, _instead in PERSONAL for one in pattern.findall(allowed)
 		], f"{allowed!r} is the recommended form and the rule refuses it"
+
+
+# --- The design document is not something a reader of the product is shown -----------------
+#
+# `#2667`, Simon's decision of 2026-09-15. ``docs/design.md`` stays in the repository for anybody
+# who goes looking, and says on its first page that it is wrong in places. What the product
+# publishes for its readers must not send them there, by name or by the section sign its
+# citations use - the commoner form, and one that names no document at all. A comment beside the
+# code keeps its citation, which is where the trail from code to design is worth having.
+
+#: A citation of the design document, by name or by section.
+_CITES_THE_DESIGN = re.compile(r"§|design\.md")
+
+#: The pages a reader of the product is handed. Narrower than :data:`PUBLISHED_PAGES` on purpose:
+#: ``CHANGELOG.md`` is a record of what shipped, and a released section is not rewritten, and
+#: ``CONTRIBUTING.md`` is for somebody working on the code, who is the reader the design document
+#: is kept for.
+READER_PAGES: tuple[str, ...] = (
+	"README.md",
+	"SECURITY.md",
+	"docs/hosting.md",
+	"docs/connecting.md",
+	"docs/errors.md",
+	"plugins/subroutine/skills/subroutine/SKILL.md",
+	"plugins/subroutine-remote/skills/subroutine/SKILL.md",
+)
+
+
+def _served_text () -> list[tuple[str, str, str]]:
+	"""Return what the product publishes to a reader with no copy of the code, as ``(surface, where, text)``.
+
+	The OpenAPI document and the error registry, which any instance answers without a
+	credential; the agent guide and its examples; what ``subroutine explain`` prints; and what an
+	MCP client is told about the server and each tool. Command help is held by
+	``test_cli_help``'s own list of what help may not contain.
+	"""
+
+	served = [("openapi", where, line) for _kind, where, line in _published_prose()]
+
+	for code, definition in subroutine.errors.REGISTRY.items():
+		served.append(("errors", code, f"{definition.title}\n{definition.description}"))
+
+	served.append(("guide", "GET /v1/docs/agent", subroutine.api.meta.guide_text()))
+	served.append(("guide", "GET /v1/docs/examples", subroutine.api.meta.examples_text()))
+
+	for topic in subroutine.cli.topics.TOPICS:
+		served.append(("topics", f"explain {topic.name}", f"{topic.summary}\n{topic.body}"))
+
+	served.append(("mcp", "instructions", subroutine.mcp.session._instructions("example")))
+
+	# **No connection is needed to describe a tool**, so none is given: a catalogue that ever
+	# asked one while being described would fail here loudly rather than pass having read nothing.
+	# Dumped with ``ensure_ascii=False``, or a section sign would be read as its escape and missed.
+	for tool in subroutine.mcp.tools.catalogue(typing.cast(subroutine.clients.base.Client, None)):
+		served.append(("mcp", tool.name, json.dumps(tool.described(), ensure_ascii=False)))
+
+	return served
+
+
+def test_nothing_the_product_serves_cites_the_design_document () -> None:
+	"""A reader of what an instance or the program publishes is never sent to ``docs/design.md``.
+
+	**Read off what is built, not off the source.** One of the 67 citing lines the published
+	document carried when this was written was spelled ``\\u00a78.4`` in its docstring, which a
+	search of the tree for the section sign walks straight past and FastAPI publishes as a section
+	sign all the same.
+
+	Nearly every citation was a trailing parenthesis after the reason, so taking it out left a
+	sentence that already stood on its own.
+	"""
+
+	offenders = [
+		f"  {surface} {where}: {line.strip()[:120]}"
+		for surface, where, text in _served_text()
+		for line in text.splitlines()
+		if _CITES_THE_DESIGN.search(line)
+	]
+
+	assert not offenders, (
+		"the product publishes a citation of the design document, which its reader is never "
+		"shown. Say the reason rather than pointing at the section; a comment beside the code may "
+		"keep the citation.\n" + "\n".join(offenders)
+	)
+
+
+def test_the_scan_of_served_text_reads_every_surface () -> None:
+	"""The floor under the test above, per surface, for `#1204`'s reason.
+
+	A scan that finds nothing reports the same clean result whether it read everything or nothing,
+	so each surface has to have been read, and read in quantity, before its silence means anything.
+	The floors sit well under what is there - 21 error codes, 15 tools, 7 topics and a guide of
+	15,000 characters when this was written - because they are here to catch a surface going dark.
+	"""
+
+	entries: dict[str, int] = {}
+	characters: dict[str, int] = {}
+
+	for surface, _where, text in _served_text():
+		entries[surface] = entries.get(surface, 0) + 1
+		characters[surface] = characters.get(surface, 0) + len(text)
+
+	assert entries.keys() == {"openapi", "errors", "guide", "topics", "mcp"}, entries
+	assert entries["openapi"] > 500, entries
+	assert entries["errors"] > 15, entries
+	assert entries["topics"] > 4, entries
+	assert entries["mcp"] > 10, entries
+	assert characters["guide"] > 10_000, characters
+
+
+def test_no_page_a_reader_is_handed_cites_the_design_document () -> None:
+	"""The README, the user documents and the skills never send their reader to ``docs/design.md``.
+
+	**The README linked to it** until `#2667`, and that was the one removal with a cost, because the
+	link was useful to somebody reading the repository. But each of these pages is published whole
+	somewhere its reader never sees the repository, so a link there is a mention there.
+
+	A page that has moved fails rather than being skipped: reading a missing file raises, which is
+	the floor a list of paths needs.
+	"""
+
+	offenders = []
+
+	for relative in READER_PAGES:
+		text = (ROOT / relative).read_text(encoding="utf-8")
+
+		for number, line in enumerate(text.splitlines(), start=1):
+			if _CITES_THE_DESIGN.search(line):
+				offenders.append(f"  {relative}:{number}: {line.strip()[:96]}")
+
+	assert not offenders, (
+		"a page a reader is handed cites the design document, which that reader is never shown. "
+		"Say the thing rather than pointing at it.\n" + "\n".join(offenders)
+	)

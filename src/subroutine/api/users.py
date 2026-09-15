@@ -53,7 +53,7 @@ class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/users`` accepts.
 
 	**No password**, and that is a decision rather than an omission. Subroutine authenticates
-	with bearer tokens (§7.4); a password field here would imply a login this build does not
+	with bearer tokens; a password field here would imply a login this build does not
 	have, and would put a credential in a request body for no one to use. A new account is
 	given a token with ``subroutine token create --username``.
 	"""
@@ -154,7 +154,7 @@ def update (
 	somebody works here and deciding they no longer do are the same decision twice.
 
 	**Except ``timezone``, which needs no permission and is refused for anybody but yourself.**
-	The check is *are you this person*, not something anybody can be granted: §6.5's user level
+	The check is *are you this person*, not something anybody can be granted: a user's zone
 	records where somebody keeps their diary, and a permission to write it would be a
 	permission to be wrong on their behalf.
 
@@ -242,7 +242,7 @@ def listing (
 	``GET /v1/users/{username}`` (`SR#2386`) rather than this listing and a filter in their own
 	code.
 
-	**``total`` is opt-in**, which is §8.4's rule; the old envelope answered null and meant
+	**``total`` is opt-in**, as on every listing; the old envelope answered null and meant
 	nothing by it.
 	"""
 

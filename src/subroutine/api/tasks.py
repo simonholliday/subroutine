@@ -82,9 +82,9 @@ SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Task)
 class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tasks`` accepts.
 
-	Either ``text`` — one captured line, parsed per §6.13 — or the structured fields, or
-	both: **anything given explicitly wins over what the text said**, so a client that wants
-	no magic simply sends structured fields and no text.
+	Either ``text`` — one captured line, as ``subroutine add`` takes it — or the structured
+	fields, or both: **anything given explicitly wins over what the text said**, so a client
+	that wants no magic simply sends structured fields and no text.
 	"""
 
 	text: str | None = None
@@ -157,7 +157,7 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/tasks/{id_or_ref}`` accepts.
 
-	**A field left out is unchanged; a field sent as ``null`` is cleared** (§8.3). The two
+	**A field left out is unchanged; a field sent as ``null`` is cleared.** The two
 	are told apart by ``model_fields_set``, never by comparing against a default — that is
 	what makes "clear the due date" expressible at all.
 	"""
@@ -433,7 +433,7 @@ def listing (
 			"Only tasks that can actually be started: nothing unfinished blocks them and "
 			"they are not deferred to a future date. Does not yet consider a task's own "
 			"status — one marked 'blocked' by hand is still returned, because that is a "
-			"declared block rather than a tracked dependency (see §5.5)."
+			"declared block rather than a tracked dependency."
 		),
 	),
 	to_act_on: bool = fastapi.Query(
@@ -864,7 +864,7 @@ def change (
 	settings: subroutine.api.dependencies.SettingsDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Change a task. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
+	"""Change a task. Omitted fields are untouched; nulls clear."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
@@ -1031,7 +1031,7 @@ def occurrences (
 ) -> subroutine.views.Occurrences:
 	"""Expand a repeating task's rule into the dates it produces.
 
-	§6.7 reserved this, and the decision behind it is why it exists at all: **one occurrence is real
+	The decision behind this is why it exists at all: **one occurrence is real
 	and the rest are computed**, so *show me every birthday* is a question about a view rather
 	than about the backlog. Nothing is stored and nothing is materialised — a `GET` that wrote
 	would break a read-only credential and race two concurrent readers.
@@ -1221,7 +1221,7 @@ def take (
 ) -> subroutine.views.Task:
 	"""Take a lease on a task, or renew one you already hold.
 
-	A **lease, not a lock** (docs/design.md §14.11): it expires, and an expired one is ignored rather
+	A **lease, not a lock**: it expires, and an expired one is ignored rather
 	than needing anybody to clear it. Workers die mid-task, and a claim that outlived its
 	holder would strand the work permanently.
 
@@ -1282,7 +1282,7 @@ class Move(subroutine.api.schemas.RequestModel):
 	"""Where a task should sit in the tree.
 
 	``parent: null`` promotes it to a top-level task, which is why this is a body rather than
-	a query parameter — "no parent" and "unchanged" have to be distinguishable (§8.3), and
+	a query parameter — "no parent" and "unchanged" have to be distinguishable, and
 	``POST /v1/projects/{key}/move`` learned that the expensive way: an omitted parent read as
 	"move to root" and flattened whole subtrees.
 	"""
@@ -1311,7 +1311,7 @@ def move (
 ) -> subroutine.views.Task:
 	"""Re-parent a task, taking its subtask tree with it.
 
-	**The endpoint §8 reserved**, rather than a field on ``PATCH``. Changing a project is a
+	**An endpoint of its own**, rather than a field on ``PATCH``. Changing a project is a
 	field being wrong and the subtree following is an invariant; changing a parent can be
 	refused *for being a cycle*, which is a question about the shape of the tree and cannot be
 	answered from this row alone.
@@ -1361,10 +1361,10 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Restore a soft-deleted task (docs/design.md §6.9).
+	"""Restore a soft-deleted task.
 
-	**The half that made soft delete soft**, and for a long time it did not exist — §6.9
-	promised a deleted item was restorable, a `trash_retention_days` setting was declared, and
+	**The half that made soft delete soft**, and for a long time it did not exist — a deleted
+	item was promised to be restorable, a `trash_retention_days` setting was declared, and
 	`EventAction.RESTORED` has always been in the vocabulary, with nothing clearing
 	`deleted_at`. That setting is gone — nothing ever purged the trash, so it was one more
 	place the promise was made.
@@ -1398,7 +1398,7 @@ def remove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Task:
-	"""Soft-delete a task. It stays recoverable (docs/design.md §6.9).
+	"""Soft-delete a task. It stays recoverable.
 
 	The deleted task is returned rather than an empty 204, so a caller can see when it
 	happened without asking again — and so an agent can tell a repeat call apart from a

@@ -64,7 +64,8 @@ class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/{entity}/{ref}/comments`` accepts.
 
 	Only a body. No title, no type, no project — a comment that needed those would be a
-	document, and offering them here would blur the one distinction §5.10 is about.
+	document, and offering them here would blur the one distinction between them: a comment
+	is what happened, and a document is what somebody concluded.
 	"""
 
 	body: str
@@ -277,7 +278,7 @@ def change (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.Comment:
-	"""Edit a comment's text. Only its author may (docs/design.md §5.10)."""
+	"""Edit a comment's text. Only its author may, because the words go out under their name."""
 
 	found = subroutine.domain.comments.get(session, comment_id, actor=actor)
 	supplied = body.model_fields_set

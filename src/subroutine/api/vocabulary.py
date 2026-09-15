@@ -119,7 +119,7 @@ class UpdateLinkType(subroutine.api.schemas.RequestModel):
 class CreateTag(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tags`` accepts.
 
-	A tag is still made by being *used* (§5.8) — this is the other door, for declaring one in
+	A tag is still made by being *used* — this is the other door, for declaring one in
 	advance and saying what it means here.
 	"""
 
@@ -252,7 +252,7 @@ def list_statuses (
 ) -> subroutine.views.Collection[subroutine.views.Status]:
 	"""Return this workspace's statuses, in the order a client should show them.
 
-	**Enveloped like every other listing**, with ``has_more`` always false — §5.7's link
+	**Enveloped like every other listing**, with ``has_more`` always false — the link
 	listing settled that a bare array is the one shape a caller cannot tell complete from
 	truncated, and *always false* here is a statement rather than a shrug: a workspace's
 	vocabulary is bounded by how many somebody wrote.
@@ -416,8 +416,8 @@ def list_tags (
 ) -> subroutine.views.Collection[subroutine.views.TagEntry]:
 	"""Return this workspace's tags as things to curate — id, name and what it means.
 
-	**No usage counts here, and `/v1/meta` is where they stay.** §5.5's table says *List (with
-	usage counts)* and `/v1/meta` already answers exactly that, narrowed to the tasks this
+	**No usage counts here, and `/v1/meta` is where they stay.** It already answers how often
+	each tag is used, narrowed to the tasks this
 	caller can see — a tag used only in a private project they are not a member of does not
 	appear. Recomputing that beside a curation listing would either duplicate a
 	disclosure-sensitive aggregate or publish an unscoped one.
@@ -430,7 +430,7 @@ def list_tags (
 	before that machinery and never revisited.
 
 	**``total`` is opt-in now and used to be free.** It was computed because the query fetched
-	every row anyway; §8.4 makes it a second query about the same question, which is what it
+	every row anyway; paging makes it a second query about the same question, which is what it
 	now costs.
 	"""
 

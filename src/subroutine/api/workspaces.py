@@ -262,7 +262,7 @@ def create (
 	"""Create a workspace, stocked with its vocabulary, owned by you.
 
 	Needs ``instance:workspace_create``, which is an *instance*-tier verb: it happens outside
-	every workspace, so no role can carry it and only a superuser holds it (§7.1). A token still
+	every workspace, so no role can carry it and only a superuser holds it. A token still
 	narrows it.
 	"""
 
@@ -415,7 +415,7 @@ def change (
 ) -> subroutine.views.Workspace:
 	"""Change a workspace you are a member of, its short name included.
 
-	Omitted fields are untouched; nulls clear (docs/design.md §8.3). An administrator who is not
+	Omitted fields are untouched; nulls clear. An administrator who is not
 	a member joins the workspace first.
 	"""
 
@@ -605,7 +605,7 @@ def members (
 	Needs ``workspace:read``: knowing who you are working alongside is part of working
 	somewhere, and it is the question anybody about to add or remove somebody asks first.
 
-	Enveloped and unpaginated, like a task's links (§8.4) and for the same reason — a
+	Enveloped and unpaginated, like a task's links and for the same reason — a
 	workspace's membership is bounded by how many people somebody put in it.
 	"""
 

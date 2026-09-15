@@ -338,7 +338,7 @@ def _unbuilt () -> str:
 
 @router.get("/docs/agent", summary="A guide written for an agent", response_class=fastapi.responses.PlainTextResponse)
 def agent_guide (actor: subroutine.api.security.PrincipalDep) -> str:
-	"""Serve §13.3's guide. The text is :func:`guide_text`, so a client can reach it too."""
+	"""Serve the guide written for agents. The text is :func:`guide_text`, so a client can reach it too."""
 
 	return guide_text()
 

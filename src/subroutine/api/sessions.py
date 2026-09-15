@@ -112,8 +112,8 @@ def issue (
 
 	**This is what makes browser sign-in safe to ship at all.** A
 	self-hoster whose mail relay is misconfigured would otherwise be locked out of their own
-	instance with no way back in, which is §12.4's recovery property applied to a login: the
-	console has to be a way in when the ordinary path is broken.
+	instance with no way back in. The console has to be a way in when the ordinary path is
+	broken, as it is for every other kind of recovery.
 	"""
 
 	for_whom = (

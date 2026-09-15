@@ -109,7 +109,7 @@ def workspaces (
 	not in, and until this route the owner's answer to *what is here* silently left it out —
 	an empty list, which reads as nothing being there rather than as something unseen.
 
-	Enveloped and unpaginated, like a workspace's members (\u00a78.4): the number of workspaces on
+	Enveloped and unpaginated, like a workspace's members: the number of workspaces on
 	an installation is bounded by how many somebody made.
 	"""
 

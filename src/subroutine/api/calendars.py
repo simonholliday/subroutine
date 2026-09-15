@@ -74,7 +74,7 @@ SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Calendar)
 class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/calendars`` accepts.
 
-	**There is no owner field, deliberately.** A feed renders with its owner's sight (§20.1),
+	**There is no owner field, deliberately.** A feed renders with its owner's sight,
 	so naming somebody else would mint a URL that reads their work and hand it to whoever
 	asked — the escalation already found on sign-in links, and worse here because a feed has no
 	session to end and nothing to audit. The owner is the caller, structurally.
@@ -166,7 +166,7 @@ def listing (
 
 	**Yours and nobody else's, including an instance administrator's** — which is where this
 	differs from ``GET /v1/tokens``. A list of somebody's feeds says which projects they watch
-	and from how many devices, and §20.6 already accepts that a feed URL is a bearer credential
+	and from how many devices, and a feed URL is already accepted as a bearer credential
 	nobody can audit; an inventory of them is the map that makes one worth stealing.
 
 	Not paginated, for the reason ``GET /v1/users`` gives: how many exist is bounded by how

@@ -426,7 +426,7 @@ class Grouped(pydantic.BaseModel, typing.Generic[Item]):
 class Instance(pydantic.BaseModel):
 	"""Which installation this is, and where it thinks it is.
 
-	``id`` is the one value in this program that must never change (docs/design.md §13.7). A client
+	``id`` is the one value in this program that must never change. A client
 	keys its caches on it, notices the same instance configured twice under two names by it,
 	and labels merged results with it — so an id that moved would silently corrupt all three
 	at once. ``name`` is the server's own label and may be changed freely; neither is the
@@ -521,7 +521,7 @@ class Reading(pydantic.BaseModel):
 class Occurrences(pydantic.BaseModel):
 	"""When a repeating task comes round, over a stretch of time.
 
-	§6.7 reserved this for a calendar, and a decision taken since is why it is computed rather than
+	Built for a calendar, and a decision taken since is why it is computed rather than
 	stored: **one occurrence is real and the rest are arithmetic**. A birthday is one row for
 	ever rather than one row per year since 1974, and *show me every occurrence* turns out to
 	be a question about a **view** rather than about the backlog.
@@ -1060,7 +1060,7 @@ class Backlink(pydantic.BaseModel):
 	"""One piece of prose that refers to an item.
 
 	**The mention table has been written by every title, description, body and comment since
-	M1 and read by nothing.** `domain/mentions.backlinks` had no caller and §8.5's
+	M1 and read by nothing.** `domain/mentions.backlinks` had no caller and the planned
 	``?include=backlinks`` was honestly refused, so *what refers to this?* — the question the
 	whole table exists for — was answerable on no surface at all.
 
@@ -1093,7 +1093,7 @@ class Backlink(pydantic.BaseModel):
 
 
 class Comment(pydantic.BaseModel):
-	"""One entry in an item's record of what happened (docs/design.md §5.10).
+	"""One entry in an item's record of what happened.
 
 	No ``parent_comment_id``: comments are flat and chronological by decision, and the column
 	stays in the schema as the escape hatch rather than as a field anybody can set.
@@ -1148,7 +1148,7 @@ class Comment(pydantic.BaseModel):
 
 
 class Event(pydantic.BaseModel):
-	"""One thing that happened, as the history and the change feed both report it (§5.11).
+	"""One thing that happened, as the history and the change feed both report it.
 
 	**Addressed by ``seq``, not by ``id``.** The sequence number is the primary key, and it
 	is the only field a client can order or resume on; the UUID is carried because every
@@ -1162,7 +1162,7 @@ class Event(pydantic.BaseModel):
 
 	**Both actor fields, and both nullable.** A system action has no user and a
 	session-authenticated one has no token; recording which is which is what makes an audit
-	trail worth reading (§5.11). Ids rather than names, per §8.5 — an unrequested relation is
+	trail worth reading. Ids rather than names — an unrequested relation is
 	an id, and resolving every actor on every page is what the compact format exists to avoid.
 
 	``subject_*`` is what the event happened *on* when that differs from the entity, and it is
@@ -1392,7 +1392,7 @@ class Beneath(pydantic.BaseModel):
 
 
 class Link(pydantic.BaseModel):
-	"""One link, seen from the item that was asked about (docs/design.md §5.7).
+	"""One link, seen from the item that was asked about.
 
 	A link is one stored row displayed from both ends, so ``label`` arrives already the right
 	way round: "Blocks" from one end and "Blocked by" from the other, off the same row. A
@@ -1473,8 +1473,8 @@ class Governing(pydantic.BaseModel):
 	``subroutine://conventions`` narrowed to one item: that resource says what binds anybody
 	working in this workspace, and this says what binds whoever picks *this* up.
 
-	**Titles and refs, never bodies**, which is what makes it affordable. §6.14 makes a
-	document's title state its conclusion, so the list is readable on its own and a reader
+	**Titles and refs, never bodies**, which is what makes it affordable. A document's title
+	states its conclusion, so the list is readable on its own and a reader
 	fetches only the one they need — a reading list that inlined its reading would be the cost
 	it exists to remove.
 	"""
@@ -1790,7 +1790,7 @@ class Credential(pydantic.BaseModel):
 	left is the part a caller acts on: what it lets them do.
 
 	Never the secret, and never anything from which one could be rebuilt: ``prefix`` is the
-	public half a token is looked up by and is safe to quote in a log (§7.4).
+	public half a token is looked up by and is safe to quote in a log.
 	"""
 
 	kind: str
@@ -1953,7 +1953,7 @@ class Me(pydantic.BaseModel):
 	"""Who the caller is and exactly what they may do, in one round trip.
 
 	The answer :func:`me` assembles, reported by ``GET /v1/me`` and by the local client alike.
-	An agent should not have to discover its own authority by being refused things (§13.1),
+	An agent should not have to discover its own authority by being refused things,
 	and should not have to infer its own *identity* from a side effect
 	either.
 	"""
@@ -2047,7 +2047,7 @@ class Token(pydantic.BaseModel):
 	"""A credential as it can safely be described.
 
 	**Everything but the secret, and nothing from which it could be rebuilt.** Only a
-	``sha256`` of the secret is stored (§7.4), so there is nothing here to leak; ``prefix`` is
+	``sha256`` of the secret is stored, so there is nothing here to leak; ``prefix`` is
 	the public half a token is looked up by and is what revoking takes.
 
 	``usable`` is stated rather than left to be worked out from two nullable columns, for the
@@ -2147,13 +2147,13 @@ class IssuedToken(Token):
 
 
 class Calendar(pydantic.BaseModel):
-	"""A calendar feed as it can safely be described — docs/design.md §20.3.
+	"""A calendar feed as it can safely be described.
 
 	**Everything but the secret**, exactly as :class:`Token` is: only a hash of it is stored,
 	so there is nothing here to rebuild one from. ``prefix`` is the public half, and is what a
 	listing prints and what resetting and revoking take.
 
-	``last_polled_at`` is why this view is worth having at all. §20.3: a URL nobody has fetched
+	``last_polled_at`` is why this view is worth having at all: a URL nobody has fetched
 	for six months is one to revoke, and there is no other way to tell — a feed has no login,
 	so *when was this last used* is the only signal that it is still wanted.
 	"""
@@ -2236,7 +2236,7 @@ class Member(pydantic.BaseModel):
 	"""One person's role in one workspace.
 
 	The join is reported as a thing in its own right rather than as a field on either side,
-	because that is what it is: §7.3a grants sight of a private project to holders of a
+	because that is what it is: sight of a private project is granted to holders of a
 	``project_member`` row, and membership of a workspace is the same shape one level up.
 	"""
 
@@ -2376,7 +2376,7 @@ class Document(pydantic.BaseModel):
 	"""A document as the API reports it.
 
 	No ``due_at``, ``starts_at``, ``estimate_minutes`` or ``assignee_id``, and their
-	absence is the point (docs/design.md §6.14): a specification is never "done" and nobody is
+	absence is the point: a specification is never "done" and nobody is
 	working on it. A deadline about a document belongs on a task that ``documents`` it.
 	"""
 
@@ -2593,7 +2593,7 @@ class Agenda(pydantic.BaseModel):
 	"""The sections of a day, and what they were computed against.
 
 	``date`` and ``timezone`` are both reported because "today" is not a fact about the
-	server (docs/design.md §6.5) — and a client merging several instances resolves the date *once*,
+	server — and a client merging several instances resolves the date *once*,
 	in its own zone, then asks every connection for that explicit day. Without that, a person
 	whose work profile says ``America/New_York`` and whose personal one says
 	``Europe/London`` would get two different days merged into one list.
@@ -5829,7 +5829,7 @@ class ItemType(Named):
 
 	**A sibling of :class:`Status` rather than a field on :class:`Named`**, and for its reason:
 	a link type is a ``Named`` too and has no category, so putting one on the base would publish
-	a field that is empty for one of the three vocabularies — §12.2a's column that says nothing,
+	a field that is empty for one of the three vocabularies — a column that says nothing,
 	one layer up.
 
 	The category exists for exactly one branch: a client draws by key when it

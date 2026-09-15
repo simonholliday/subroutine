@@ -99,7 +99,7 @@ class Create(subroutine.api.schemas.RequestModel):
 class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/documents/{id_or_ref}`` accepts.
 
-	Omitted is unchanged; null clears (§8.3).
+	Omitted is unchanged; null clears.
 
 	**Superseding is a link, not a field here** (`SR#1684`). ``POST /v1/tasks/{ref}/links`` and
 	the document equivalent take a ``supersedes`` link, which is the same mechanism a task uses
@@ -556,7 +556,7 @@ def change (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Change a document. Omitted fields are untouched; nulls clear (docs/design.md §8.3)."""
+	"""Change a document. Omitted fields are untouched; nulls clear."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
@@ -672,9 +672,9 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Restore a soft-deleted document — the task endpoint's counterpart (docs/design.md §6.9).
+	"""Restore a soft-deleted document — the task endpoint's counterpart.
 
-	Both, because one ref counter serves both kinds (§6.2): a restore that worked on half the
+	Both, because one ref counter serves both kinds: a restore that worked on half the
 	numbers would surprise anybody holding a ref.
 	"""
 
@@ -700,7 +700,7 @@ def remove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Soft-delete a document. It stays recoverable (docs/design.md §6.9)."""
+	"""Soft-delete a document. It stays recoverable."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	document = _resolve(session, actor, workspace, id_or_ref)
@@ -732,7 +732,7 @@ def _links_for (entity_type: str) -> typing.Any:
 	) -> subroutine.views.Collection[subroutine.views.Link]:
 		"""Return every link touching this item, labelled from its point of view.
 
-		Enveloped like every other collection (§8.4), and returned whole: an item's links are
+		Enveloped like every other collection, and returned whole: an item's links are
 		bounded by how many somebody typed, so there is nothing to page through. ``has_more``
 		is therefore always false — which is a *statement* the caller can rely on, and is the
 		reason this is worth an envelope rather than a bare array. Until 2026-07-30 it was a
@@ -912,18 +912,18 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 	) -> subroutine.views.Collection[subroutine.views.Backlink]:
 		"""Return everything whose prose refers to this item.
 
-		**A sub-resource rather than §8.5's ``?include=backlinks``**, and the departure is
-		deliberate. ``INCLUDABLE``'s own rule is that every entry promises a bounded number of
+		**A sub-resource rather than the ``?include=backlinks`` first planned**, deliberately.
+		``INCLUDABLE``'s own rule is that every entry promises a bounded number of
 		queries *per page*, and backlinks on a page of fifty is either fifty lookups or a join
 		nobody asked for — the N+1 that parameter exists to remove, moved inside the server.
 		Every other section ``subroutine show`` renders is already a sub-resource: links,
 		comments and history.
 
-		Enveloped like every other collection (§8.4) and returned whole, for the reason the
+		Enveloped like every other collection and returned whole, for the reason the
 		links listing gives: what refers to an item is bounded by how much somebody wrote, so
 		``has_more`` is a statement rather than a shrug.
 
-		**Narrowed in the domain**, which is where §6.15's rule belongs — a mention from a
+		**Narrowed in the domain**, which is where visibility is decided — a mention from a
 		project the reader cannot see is omitted entirely, because *something you cannot see
 		mentioned this* discloses that activity exists and explains nothing.
 		"""

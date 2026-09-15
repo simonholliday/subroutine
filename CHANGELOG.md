@@ -12,6 +12,18 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Changed
+
+- **What an instance publishes, and the pages it ships with, no longer send a reader to the
+  design document.** The route and schema descriptions in the OpenAPI document, five error
+  descriptions, `docs/hosting.md` and the README cited sections of a document their reader is
+  never shown, most of them by section number alone. Each explanation now stands on its own,
+  and a test over what an instance serves - the OpenAPI document, the error registry, the agent
+  guide, the help topics and the MCP tools - keeps citations from coming back. The design
+  document is still in the repository for anybody who goes looking.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.
