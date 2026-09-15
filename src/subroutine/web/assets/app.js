@@ -23,7 +23,8 @@ import {
 	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
 	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
-	shortVersion, settingsAddress, settingsPageOf, showingOf, showsWork, titlesByPath, viewOf,
+	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
+	titlesByPath, viewOf,
 	withShowing, widened,
 } from "./address.js";
 import {
@@ -2843,6 +2844,16 @@ export function App () {
 	const here = placeShown(open, { agenda: everywhere, workspace, project });
 
 	/*
+		**And a settings page is about the place it configures** - `#2603`. Only the dropdown is
+		given it, because the search and the views act on work and a settings page lists none. Its
+		projects are the ones the page read for itself, where the dropdown's usual list is filled
+		for the work pages.
+	*/
+	const settled = area === "settings"
+		? settingsPlace(settingsPageOf(typeof window === "undefined" ? "" : window.location.pathname))
+		: null;
+
+	/*
 		**The one question the render asks of the selection**, named once.
 
 		Everything below that used to ask `view === "done"` is really asking this: *is this page
@@ -2957,8 +2968,10 @@ export function App () {
 						     `furnished` is the switcher's tree for an item in the switcher's
 						     workspace and the item's own otherwise, which `#1041` already reads
 						     for the item's form. */ null}
-						${placesToGo(me.workspaces, open ? furnished.projects : filable,
-							here).map((one) => html`
+						${placesToGo(me.workspaces, open
+							? furnished.projects
+							: settled ? (configured && configured.projects) || [] : filable,
+							settled || here).map((one) => html`
 							<option key=${one.value} value=${one.value} selected=${one.chosen}>
 								${"\u00a0\u00a0".repeat(one.depth) + one.label}
 							</option>
@@ -3444,6 +3457,7 @@ export {
 	selectionOf,
 	settingsAddress,
 	settingsPageOf,
+	settingsPlace,
 	shortVersion,
 	showingOf,
 	showsWork,

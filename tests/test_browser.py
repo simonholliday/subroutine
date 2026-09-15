@@ -650,6 +650,24 @@ def _administering (
 	return {**identity, "workspaces": spaces}
 
 
+def _where_it_says (page: typing.Any) -> str:
+	"""Return the option the masthead's place dropdown has chosen, as a reader sees it."""
+
+	return str(page.eval_on_selector(
+		"select[aria-label='Where to look']",
+		"element => element.options[element.selectedIndex].textContent.trim()",
+	))
+
+
+def _offered_places (page: typing.Any) -> list[str]:
+	"""Return every option the masthead's place dropdown offers, as a reader reads them."""
+
+	return list(page.eval_on_selector_all(
+		"select[aria-label='Where to look'] option",
+		"options => options.map((option) => option.textContent.trim())",
+	))
+
+
 def _settings_sent (written: list[typing.Any]) -> dict[str, typing.Any]:
 	"""Return every setting the page's workspace writes have sent so far, by key - `SR#2621`."""
 
@@ -3277,6 +3295,10 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	roster[0] = _administering(IDENTITY, "projects")
 	settings = opened("/settings/workspace/projects")
 	settings.wait_for_selector(".setting-choice input[value='violet']", timeout=10_000)
+
+	# **The masthead names the place the page configures** (`SR#2603`), where it said *All
+	# workspaces* over a page about one workspace.
+	assert _where_it_says(settings) == "Subroutine", _where_it_says(settings)
 	settings.check(".setting-choice input[value='violet']")
 	settings.check(".setting-choice input[value='triage']")
 
@@ -3309,6 +3331,21 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 
 	settings.close()
 
+	# **And the projects it offers are that workspace's own** (`SR#2603`). The dropdown's usual list
+	# is filled for the first workspace, which on another workspace's page is the wrong one - so a
+	# page for the second workspace is what tells the two lists apart.
+	roster[0] = _administering(IDENTITY, "personal")
+	elsewhere = opened("/settings/workspace/personal")
+	_until(elsewhere, lambda: "Errands" in _offered_places(elsewhere))
+
+	assert _where_it_says(elsewhere) == "Personal", _where_it_says(elsewhere)
+	assert "Errands" in _offered_places(elsewhere), (
+		f"the page's own workspace offered none of its projects: {_offered_places(elsewhere)}"
+	)
+	assert "Websites" not in _offered_places(elsewhere), _offered_places(elsewhere)
+
+	elsewhere.close()
+
 	# **And a value taken back is drawn as what is in force after it** (`SR#2636`). A box is ticked
 	# by its default when first drawn, and one the reader has ticked keeps its tick through any
 	# redraw after that - so each control is keyed on the value in force, and that key is what
@@ -3323,6 +3360,7 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	ready = ".setting-choice input[value='ready']"
 	triage = ".setting-choice input[value='triage']"
 	project.wait_for_selector(ready, timeout=10_000)
+	_until(project, lambda: _where_it_says(project) == "Acme")
 
 	assert project.is_checked(ready), "the status hidden on the project was not drawn ticked"
 

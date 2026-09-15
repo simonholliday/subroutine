@@ -54,6 +54,9 @@ upgrade involves.
   showed a day late and a calendar feed drew the occurrence twice. Both now keep their day, and
   an occurrence re-dated on its own in a new zone stays on its slot.
 
+- **A workspace's or a project's settings page names that place in the dropdown beside the
+  wordmark**, where it said *All workspaces*, and lists that workspace's projects under it.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

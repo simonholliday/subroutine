@@ -17368,6 +17368,49 @@ def test_an_item_page_is_about_the_items_own_place (tmp_path: pathlib.Path) -> N
 	)
 
 
+def test_a_settings_page_is_about_the_place_it_configures (tmp_path: pathlib.Path) -> None:
+	"""`SR#2603`: a workspace's or a project's settings page names that place in the dropdown.
+
+	An administrative area names no place in its address, so the dropdown fell back to *All
+	workspaces* over a page headed by the one workspace or project it configures. **Asked beside
+	`placesToGo`**, which is what marks the option, and for the two pages about no place as well,
+	which keep the answer they had.
+	"""
+
+	answers = _ran(tmp_path, f"""
+		import * as app from "{_staged(tmp_path).as_uri()}";
+
+		const workspaces = [
+			{{ slug: "personal", title: "Personal" }}, {{ slug: "projects", title: "Projects" }},
+		];
+		const chosen = (address) => app.placesToGo(
+			workspaces,
+			{json.dumps(SOME_PROJECTS)},
+			app.settingsPlace(app.settingsPageOf(address)) || {{ agenda: true }},
+		).filter((one) => one.chosen).map((one) => one.value);
+
+		process.stdout.write(JSON.stringify({{
+			workspace: app.settingsPlace(app.settingsPageOf("/settings/workspace/projects")),
+			project: app.settingsPlace(app.settingsPageOf("/settings/project/projects/subroutine/ui")),
+			mine: app.settingsPlace(app.settingsPageOf("/settings/me")),
+			instance: app.settingsPlace(app.settingsPageOf("/settings/instance")),
+			nowhere: app.settingsPlace(null),
+			onTheWorkspace: chosen("/settings/workspace/projects"),
+			onTheProject: chosen("/settings/project/projects/subroutine/ui"),
+			onYourOwn: chosen("/settings/me"),
+		}}));
+	""")
+
+	assert answers["workspace"] == {"agenda": False, "workspace": "projects", "project": None}
+	assert answers["project"] == {
+		"agenda": False, "workspace": "projects", "project": "subroutine/ui",
+	}, answers["project"]
+	assert (answers["mine"], answers["instance"], answers["nowhere"]) == (None, None, None)
+	assert answers["onTheWorkspace"] == ["/projects"], answers["onTheWorkspace"]
+	assert answers["onTheProject"] == ["/projects/subroutine/ui"], answers["onTheProject"]
+	assert answers["onYourOwn"] == [""], "a page about no place stopped saying *All workspaces*"
+
+
 def test_a_place_leads_to_its_settings_only_for_a_reader_who_may_change_one (
 	tmp_path: pathlib.Path,
 ) -> None:

@@ -1218,6 +1218,25 @@ export function settingsAddress (page) {
 	return null;
 }
 
+export function settingsPlace (page) {
+	/*
+		The place a settings page is about, shaped as `placesToGo` reads one, or null for a page
+		about no place — `#2603`.
+
+		**A workspace's page and a project's are each about one place**, and the masthead said
+		*All workspaces* over both: an administrative area names no place in its address, so the
+		dropdown fell back to nowhere in particular on a page headed by the place it configures.
+		The reader's own page and the installation's are about no workspace, and keep that answer.
+	*/
+	if (!page || (page.scope !== "workspace" && page.scope !== "project")) return null;
+
+	return {
+		agenda: false,
+		workspace: page.slug,
+		project: page.scope === "project" ? page.project : null,
+	};
+}
+
 
 export function parseAddress (pathname) {
 	/*
