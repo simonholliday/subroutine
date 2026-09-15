@@ -758,13 +758,14 @@ NOT_A_COLUMN = (
 	"than filter on it."
 )
 
-#: The task properties an ordering may name and a filter may not — `#1803`, design `#1801` §1.
+#: The task properties other than dates that an ordering may name — `#1803`, design `#1801` §1.
 #:
-#: **Five, and none of them carried a reason before this.** They were simply in one list and
-#: not the other, which is how ``importance`` and ``urgency`` came to be sortable and
-#: unaskable — Simon's own ``urgent>3`` example, and the finding that decided the registry's
-#: shape. Two of the five are gaps with items against them; three are arguments.
-_ORDER_ONLY: dict[str, Property] = {
+#: **Named ``_ORDER_ONLY`` until `#2360`, which two of the five had stopped being.** They were
+#: once in the ordering list and not the filtering one, which is how ``importance`` and
+#: ``urgency`` came to be sortable and unaskable — Simon's own ``urgent>3`` example, and the
+#: finding that decided the registry's shape. `#1804` made both filterable and the name stayed.
+#: The other three still cannot be filtered on, and each entry says why.
+_ORDERABLE: dict[str, Property] = {
 	# **Both filterable since `#1804`**, which is what the registry was built to make possible:
 	# they were sortable and unaskable, so a reader could sort the whole backlog by urgency and
 	# not ask for the urgent ones. Simon's own `urgent>3` example, and it was two lists rather
@@ -815,18 +816,22 @@ _ORDER_ONLY: dict[str, Property] = {
 #: name spelled in both is the duplication the registry exists to remove.
 STATUS_CATEGORY = "status_category"
 
-#: The task properties a listing can be asked *whether* about, and not yet *what* — `#1804`.
+#: The task properties whose value names something the instance resolves — an account, a tag,
+#: a vocabulary key, a project or an item — `#1804` and `#1829`.
 #:
-#: **Both answer a question that had no spelling at all.** ``parent=none`` looked up a task
-#: called *none* and answered **404**; ``assignee=none`` did the same for an account. Those are
-#: two of the four rows in `#1804`'s table, and both are now ``.is=unset``.
+#: **Every one takes ``eq``, ``in`` and ``is``, and none can be ordered by**: the row holds an
+#: id, an ordering by an id means nothing, and each entry says what to sort by instead.
 #:
-#: **Declared with a kind that offers only `is`**, because *which* parent and *which* assignee
-#: need a name resolved to an id — a ``REFERENCE`` kind, which is the rest of `#1804` and lands
-#: with the flat parameters it takes over. Offering ``eq`` here before that exists would accept
-#: a UUID and refuse the username the flat spelling already takes, which is worse than not
-#: offering it.
-_CONDITION_ONLY: dict[str, Property] = {
+#: **Named ``_CONDITION_ONLY`` until `#2360`.** When `#1804` wrote it, ``parent`` and
+#: ``assignee`` took only ``is``, because resolving a name to an id was not built yet, and
+#: offering ``eq`` before it was would have accepted a UUID and refused the username the flat
+#: spelling took. Resolving shipped, the group grew to nine and the name stayed — and a design
+#: document read the container's name as a fact about its members and concluded that
+#: ``assignee.in`` did not exist (`#2110` §6.3).
+#:
+#: ``parent=none`` used to look up a task called *none* and answer **404**, and
+#: ``assignee=none`` did the same for an account; both are ``.is=unset``.
+_RESOLVED_BY_NAME: dict[str, Property] = {
 	"assignee": Property(
 		column=subroutine.db.models.work.Task.assignee_id,
 		kind=REFERENCE,
@@ -1045,9 +1050,9 @@ TASK_PROPERTIES: dict[str, Property] = {
 		),
 	),
 	**_worked_on(subroutine.db.models.work.Task.id),
-	**_ORDER_ONLY,
+	**_ORDERABLE,
 	**_AXES_ONLY,
-	**_CONDITION_ONLY,
+	**_RESOLVED_BY_NAME,
 }
 
 #: What a document listing can be asked about.
