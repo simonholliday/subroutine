@@ -6595,9 +6595,6 @@ NOT_ON_THE_FORM = {
 	# The capture line *is* the title, and sending both with one empty is refused by name.
 	# Goes away if the line ever stops being the primary path, which §1.4 forbids.
 	"title": "the capture line is the title (§1.4)",
-	# Sub-tasks are not a browser concept yet, and `SR#17`/`SR#44` are open on what membership
-	# even means — whether a parent is `blocks` or `parent_task_id` is undecided.
-	"parent_task_id": "sub-tasks are undecided — SR#17, SR#44",
 	# **Derived from the value rather than chosen.** Measured: `2026-08-14` is stored as the end
 	# of that day and all-day, `2026-08-14T15:00` is stored at 15:00 and not. A checkbox beside
 	# each date would be a control whose only effect is to contradict the field next to it.
@@ -6909,6 +6906,18 @@ def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 	offers |= set(listed("REPEATED"))
 	offers |= {"text", "tags", "workspace_id"}
 
+	# **A ref control is sent under the route's name for it rather than its own** (`SR#2201`):
+	# the form's `parent` is `parent_task_id` here. Read off `SAID_AS_A_REF` and translated, and a
+	# control this cannot translate fails rather than counting as nothing. Until `SR#2665` this
+	# read three of the lists `filed` sends from and not the one `parent` arrives through, so the
+	# register went on excusing `parent_task_id` as undecided after the control had shipped.
+	sent_as = {"parent": "parent_task_id"}
+	refs = set(listed("SAID_AS_A_REF"))
+
+	assert refs <= sent_as.keys(), f"{sorted(refs - sent_as.keys())} has no wire name here"
+
+	offers |= {sent_as[name] for name in refs}
+
 	accepted = set(subroutine.api.tasks.Create.model_fields)
 	missing = accepted - offers - set(NOT_ON_THE_FORM)
 
@@ -6922,6 +6931,15 @@ def test_the_form_can_set_every_field_the_endpoint_accepts () -> None:
 
 	assert not stale, (
 		f"NOT_ON_THE_FORM excuses {sorted(stale)}, which the endpoint no longer accepts"
+	)
+
+	# **And an excuse for a field the form does offer is just as stale** (`SR#2665`). The check
+	# above catches the endpoint dropping a field; this catches the commoner way a register goes
+	# wrong, which is a control arriving while its excuse stays.
+	offered_anyway = set(NOT_ON_THE_FORM) & offers
+
+	assert not offered_anyway, (
+		f"NOT_ON_THE_FORM excuses {sorted(offered_anyway)}, which the form offers; delete it"
 	)
 
 
