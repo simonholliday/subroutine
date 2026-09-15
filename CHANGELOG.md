@@ -62,6 +62,11 @@ upgrade involves.
   smaller still. Headings now run from the page title's size down, each above the text, so
   section headings across the browser and an item's title are a little larger than they were.
 
+- **`subroutine doc edit` says when text piped to it was not read.** Given `--title`, another
+  field or `--body` as well as a pipe, it changes what was named, as it always has, and now says
+  the piped text went unused and that `--body -` reads it. It used to answer *Revised* and drop
+  the text without a word.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

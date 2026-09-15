@@ -30,6 +30,7 @@ import operator
 import os
 import pathlib
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -6988,7 +6989,10 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 
 		  cat revised.md | subroutine document edit 42
 
-		With nothing to change, this opens the document in your editor.
+		  cat revised.md | subroutine document edit 42 --title "Settled" --body -
+
+		With nothing to change, this opens the document in your editor. Text piped in is read
+		when nothing else is named; beside another flag, '--body -' is what reads it.
 
 		A conclusion that cannot be revised is a record of what you concluded once — so this
 		is what keeps the instance the place the *current* answer lives.
@@ -7100,6 +7104,15 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 					document.version if revised is not subroutine.clients.base.UNSET else None
 				),
 			)
+
+			# **Text handed in and never read is said so** (`#2681`). `#299` leaves the pipe
+			# unread once a field is named, and `--body "…"` brings text of its own, so in both a
+			# pipe is ignored - rightly, and until this in silence: `doc edit 906 --title "…" <
+			# revised.md` answered *Revised*, changed the title and dropped the text. After the
+			# change, so the note sits beside what did happen, and on standard error, so a
+			# `--json` reader is not handed it.
+			if body != STANDARD_INPUT and (said or named) and _something_was_piped():
+				program.warn("Anything piped in was not read. Pass '--body -' to use it as the text.")
 
 			if json_output:
 				program.say(_written_back(changed, without_body=without_body))
@@ -10485,6 +10498,30 @@ def _a_terminal_is_attached () -> bool:
 	"""
 
 	return sys.stdin.isatty()
+
+
+def _something_was_piped () -> bool:
+	"""Say whether text could have been handed in, without reading standard input — `#2681`.
+
+	**What is attached, never what it holds.** Whether a pipe has anything in it cannot be told
+	without reading it, and reading is `#299`'s hang, so this asks what *kind* of thing standard
+	input is. A pipe or a redirected file is somebody handing text over. A terminal, `/dev/null`
+	and a socket are not, and a socket is what a bare command's standard input is under an
+	agent's shell (measured under Claude Code on 2026-09-15), so an agent retitling a document
+	is not told about a pipe it never used.
+
+	**`False` wherever the question cannot be put**, which includes a closed standard input and
+	``CliRunner``'s replacement stream. A note that fires when nothing was piped is noise on the
+	ordinary path; a missing one is only the state before this existed.
+	"""
+
+	try:
+		mode = os.fstat(sys.stdin.fileno()).st_mode
+
+	except (AttributeError, OSError, ValueError):
+		return False
+
+	return stat.S_ISFIFO(mode) or stat.S_ISREG(mode)
 
 
 def _which_occurrences (

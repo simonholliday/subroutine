@@ -17,6 +17,8 @@ import os
 import pathlib
 import re
 import shlex
+import socket
+import subprocess
 import sys
 import typing
 import uuid
@@ -7585,6 +7587,109 @@ def test_revising_a_document_reads_a_pipe_like_writing_one_does (
 	run("doc", "edit", "1", input="After, from a pipe.\n")
 
 	assert "After, from a pipe." in run("show", "1").output
+
+
+def test_text_piped_beside_a_named_field_is_said_to_be_unread (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#2681`: a body piped beside ``--title`` was dropped under the word *Revised*.
+
+	Met on 2026-09-15 revising a decision: ``doc edit 906 --title "…" < revised.md`` changed the
+	title, left the text as it was, and said nothing about the file. `SR#299` is right that the
+	pipe goes unread once a field is named, so what this holds is that the caller hears so, and
+	is told the spelling that does read it.
+
+	**The pipe is stood in for, and nothing else is.** ``CliRunner`` hands the command a stream
+	with no descriptor, which is never a pipe, so *is anything attached* is answered here by
+	substitution and asked of the real operating system by the test below.
+	"""
+
+	run("init")
+	run("doc", "create", "A conclusion", "--body", "Before.")
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: True)
+
+	retitled = run("doc", "edit", "1", "--title", "Settled", input="After, from a pipe.\n")
+
+	assert "was not read" in retitled.output and "--body -" in retitled.output, retitled.output
+
+	shown = run("show", "1").output
+
+	assert "Settled" in shown and "Before." in shown, shown
+	assert "After, from a pipe." not in shown, "the note is about a pipe that was not read"
+
+	# **Text given with `--body` leaves a pipe unread as well**, so it is told the same.
+	given = run("doc", "edit", "1", "--body", "Given.", input="After, from a pipe.\n")
+
+	assert "was not read" in given.output, given.output
+
+	# **And the two ordinary paths hear nothing**: a pipe that was read, and no pipe at all.
+	read = run("doc", "edit", "1", "--title", "Again", "--body", "-", input="After, from a pipe.\n")
+
+	assert "was not read" not in read.output, read.output
+	assert "After, from a pipe." in run("show", "1").output
+
+	monkeypatch.setattr(subroutine.cli.personal, "_something_was_piped", lambda: False)
+
+	quiet = run("doc", "edit", "1", "--title", "Once more")
+
+	assert "was not read" not in quiet.output, quiet.output
+
+
+def test_a_pipe_is_told_from_no_pipe_without_reading_either (tmp_path: pathlib.Path) -> None:
+	"""`SR#2681`'s question, asked of the operating system rather than of a stand-in.
+
+	**The pipe that stays open is the case that matters.** A pipe nobody writes to or closes is
+	`SR#299`'s hang: a command that read it would wait for ever. This child is given exactly
+	that and has to answer and exit with the pipe still open, which is what shows nothing was
+	read. **The socket is what an agent's shell leaves on standard input**, so a wrong answer
+	there would put the note on every document an agent retitles.
+	"""
+
+	asked = [
+		sys.executable, "-c",
+		"import subroutine.cli.personal as p; print(p._something_was_piped())",
+	]
+	revised = tmp_path / "revised.md"
+	revised.write_text("From a file.\n", encoding="utf-8")
+
+	with revised.open("rb") as handle:
+		from_a_file = subprocess.run(asked, stdin=handle, capture_output=True, text=True, timeout=60)
+
+	from_nothing = subprocess.run(
+		asked, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60
+	)
+	ours, theirs = socket.socketpair()
+
+	try:
+		from_a_socket = subprocess.run(
+			asked, stdin=theirs.fileno(), capture_output=True, text=True, timeout=60
+		)
+
+	finally:
+		ours.close()
+		theirs.close()
+
+	held_open = subprocess.Popen(
+		asked, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+	)
+
+	try:
+		# **Waited on with the pipe still open**, so a child that read it would never exit, and
+		# this raises rather than hanging the suite.
+		held_open.wait(timeout=60)
+
+	except subprocess.TimeoutExpired:
+		held_open.kill()
+		raise
+
+	finally:
+		from_an_open_pipe, _said = held_open.communicate()
+
+	assert from_a_file.stdout.strip() == "True", from_a_file.stderr
+	assert from_an_open_pipe.strip() == "True", _said
+	assert from_nothing.stdout.strip() == "False", from_nothing.stderr
+	assert from_a_socket.stdout.strip() == "False", from_a_socket.stderr
 
 
 def test_revising_a_document_with_nothing_to_change_opens_an_editor (
