@@ -151,24 +151,29 @@ def _capture_body () -> str:
 
 	units = ", ".join(unit for unit, _minutes in subroutine.domain.durations.UNITS)
 
+	# **Each meaning kept short on purpose.** The agent guide inlines this table under §13.3's
+	# budget (`#1578`), and the span row `#2687` added was paid for by trimming meanings rather
+	# than by raising it - `#12` is explained in the rules below, so the row no longer repeats it.
 	rows = (
 		(f"{', '.join(subroutine.domain.capture.DEADLINE_WORDS)} <date>", "sets a deadline"),
 		(
 			f"{', '.join(subroutine.domain.capture.PLANNED_WORDS)} <date>",
 			"sets when it starts",
 		),
-		(", ".join(subroutine.domain.capture.BARE_PLANNED_WORDS), "the same, said shorter"),
+		(", ".join(subroutine.domain.capture.BARE_PLANNED_WORDS), "the same, shorter"),
 		(f"{', '.join(subroutine.domain.capture.DEFER_WORDS)} <date>", "hides it until then"),
-		("at <time>", "the time of day, after a date or on its own"),
+		# **`#2687`**: a span is told from a defer by the word after its first date.
+		("from <date> to <date>", "a span of days; also 'until', '2-12 October'"),
+		("at <time>", "a time of day, after a date or alone"),
 		# Added when the page was found still saying repeats were unread, four days after
 		# they shipped (`#929`). The grammar reads them, so the table that lists the grammar
 		# has to say so.
-		("every <phrase>", "repeats — 'every day', 'every other tuesday'"),
-		("#tag", "labels it, creating the tag if it is new — but #12 means task 12"),
+		("every <phrase>", "repeats: 'every day', 'every other tuesday'"),
+		("#tag", "labels it, creating the tag if it is new"),
 		("@name", "assigns it to somebody"),
 		("!1 to !5", "how important it is"),
-		("!3/5", "important and urgent — both, and how a list shows it back"),
-		("~90m, ~2h", "how long you think it will take"),
+		("!3/5", "important and urgent, as a list shows it back"),
+		("~90m, ~2h", "how long it will take"),
 		# **"that already exists" is the whole of `#588`.** A tag and a project are the two
 		# structural tokens here and they behave oppositely on first use — `#errand` creates
 		# a tag silently and `+music` is refused — which is defensible, since a tag is a

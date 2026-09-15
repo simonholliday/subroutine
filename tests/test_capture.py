@@ -804,6 +804,7 @@ def test_a_word_vanishes_only_when_something_was_parsed () -> None:
 				captured.assignee,
 				captured.project_key,
 				captured.recurrence,
+				captured.ends_at,
 			)
 		)
 
@@ -1210,6 +1211,8 @@ REPORTED_AS = {
 	"due_is_all_day": "date, rendered beside the title",
 	"starts_at": "date, rendered beside the title",
 	"starts_is_all_day": "date, rendered beside the title",
+	#: **A span's end is drawn with its start**, as one fact (`SR#2687`, `SR#576`).
+	"ends_at": "date, rendered beside the title with its start",
 	"snooze": "date, rendered beside the title",
 	#: **Rendered rather than echoed**, exactly as a date is, and for the same reason: the
 	#: useful confirmation is *what it turned out to mean*. `recurrence.describe` reads the
@@ -1656,3 +1659,119 @@ def test_a_month_name_in_ordinary_prose_is_left_alone () -> None:
 			f"{line!r} set a date nobody asked for"
 		)
 
+
+
+@pytest.mark.parametrize(
+	("text", "start", "end"),
+	[
+		# **The line as it was typed, which is where this began** (`SR#2687`).
+		("Holiday in Dawlish from 2nd October to 12th October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish from 2 October until 12 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish on 2 October until 12 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish from 2 to 12 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish 2\u201312 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish 2-12 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish October 2\u201312", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish 2 October \u2013 12 October", (2026, 10, 2), (2026, 10, 12)),
+		("Holiday in Dawlish from 30 September to 2 October", (2026, 9, 30), (2026, 10, 2)),
+		("Holiday in Dawlish from 2026-10-02 to 2026-10-12", (2026, 10, 2), (2026, 10, 12)),
+		# A weekday needs its opening word, and has it. Thursday 30 July: Monday is the 3rd.
+		("Holiday in Dawlish from Monday to Wednesday", (2026, 8, 3), (2026, 8, 5)),
+	],
+)
+def test_a_span_of_whole_days_is_a_start_and_an_end (
+	text: str, start: tuple[int, int, int], end: tuple[int, int, int]
+) -> None:
+	"""`SR#2687`: *from 2nd October to 12th October* filed a task hidden until the 2nd.
+
+	``from`` was a defer, and ``to 12th October`` was left in the title. **A span is told from a
+	defer by what follows the first date**, Simon's rule of 2026-09-15, so each of these is a
+	start and an end of whole days, and none of them is a defer.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == "Holiday in Dawlish", captured
+	assert (captured.starts_at, captured.ends_at) == (
+		datetime.date(*start), datetime.date(*end)
+	), captured
+	assert captured.starts_is_all_day is True, captured
+	assert captured.snooze is None, "a span was read as the defer its first word also is"
+	assert captured.unparsed == (), captured.unparsed
+
+
+def test_the_end_of_a_span_is_resolved_from_its_start () -> None:
+	"""`SR#2687`'s second rule, and `SR#1239`'s defect if it were broken.
+
+	Said on Thursday 30 July, *20 July* has gone, so the span starts next year - and its end
+	has to follow it there, where *5 August* read on its own is this year's, ending the span
+	eleven months before it begins.
+	"""
+
+	captured = _parse("Conference from 20 July to 5 August")
+
+	assert (captured.starts_at, captured.ends_at) == (
+		datetime.date(2027, 7, 20), datetime.date(2027, 8, 5)
+	), captured
+
+
+def test_a_bare_from_is_still_a_defer () -> None:
+	"""The other half of the rule: with nothing after its date, ``from`` hides the item as before."""
+
+	captured = _parse("Chase the invoice from 2 October")
+
+	assert captured.snooze == datetime.date(2026, 10, 2), captured
+	assert (captured.starts_at, captured.ends_at) == (None, None), captured
+
+
+@pytest.mark.parametrize(
+	"text",
+	[
+		"Holiday in Dawlish 12\u20132 October",
+		"Holiday in Dawlish from 2026-10-12 to 2026-10-02",
+		"Holiday in Dawlish from 30 to 31 September",
+	],
+)
+def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None:
+	"""A span running backwards, or naming a day its month has not got, is reported.
+
+	**And nothing else may take it**, which is the half that matters: left to the date rules,
+	``from 2026-10-12`` would become exactly the defer this reading exists to stop.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == text, captured
+	assert (captured.starts_at, captured.ends_at, captured.snooze) == (None, None, None), captured
+	assert captured.unparsed, f"an unreadable span was not reported: {captured}"
+
+
+def test_days_joined_by_a_word_are_prose_without_an_opening_word () -> None:
+	"""Only a dash joins two days on its own, and a weekday needs ``from`` or ``on`` in front.
+
+	*Read pages 2 to 12 October* is not somebody's holiday, and neither is *Standup
+	Monday\u2013Friday*, so both keep every word.
+	"""
+
+	for text in ("Read pages 2 to 12 October", "Standup Monday\u2013Friday"):
+		captured = _parse(text)
+
+		assert captured.title == text, captured
+		assert (captured.starts_at, captured.ends_at) == (None, None), captured
+
+
+def test_a_time_on_a_span_of_days_goes_back_into_the_title () -> None:
+	"""One flag describes both ends of a span (decision `SR#1235` §2), so a clock is not put on one.
+
+	An appointment's end time is `SR#675`'s. Here the time is given back and said, which is
+	§6.13 rule 1's answer to a word that was read and not used.
+	"""
+
+	captured = _parse("Holiday in Dawlish from 2 to 12 October at 9am")
+
+	assert (captured.starts_at, captured.ends_at) == (
+		datetime.date(2026, 10, 2), datetime.date(2026, 10, 12)
+	), captured
+	assert captured.starts_is_all_day is True, captured
+	assert "9am" in captured.title, captured
+	assert captured.unparsed, captured

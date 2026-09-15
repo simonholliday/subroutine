@@ -1097,6 +1097,7 @@ def create_from_text (
 		"due_is_all_day": captured.due_is_all_day,
 		"starts": captured.starts_at,
 		"starts_is_all_day": captured.starts_is_all_day,
+		"ends": captured.ends_at,
 		# **`recurrence_text` is not passed**: `create` derives it from what it parsed, and a
 		# captured line and a structured field must not disagree about the words somebody wrote.
 		"recurrence": captured.recurrence,

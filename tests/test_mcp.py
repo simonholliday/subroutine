@@ -8040,6 +8040,28 @@ def test_a_deferred_capture_says_it_is_deferred (bound: subroutine.mcp.protocol.
 	assert "deferred until 2099-12-01" in shown, shown
 
 
+def test_a_span_in_a_captured_line_is_filed_as_its_days (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2687`, end to end: the line a person writes for a holiday files in one call.
+
+	It took a lookup and two writes when this was found. **The type is not inferred** from the
+	span, by decision: *write the report from Monday to Wednesday* is work with the same shape.
+	"""
+
+	answer, failed = _called(
+		bound, "subroutine_add", text="Holiday in Dawlish from 2099-10-02 to 2099-10-12"
+	)
+
+	assert not failed, answer
+
+	first = answer.splitlines()[0]
+
+	assert "Holiday in Dawlish" in first and "task" in first.split(), answer
+	assert "2099-10-02 to 2099-10-12" in first, answer
+	assert "deferred until" not in answer, "a span was filed as a defer"
+
+
 def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

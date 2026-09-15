@@ -48,6 +48,19 @@ DEFER_WORDS = ("from", "defer")
 #: of the title.
 BARE_PLANNED_WORDS = ("today", "tomorrow")
 
+#: The words that close a span of whole days after its first date (`#2687`, Simon 2026-09-15).
+#:
+#: **A span is told from a defer by what follows the first date, not by a word of its own.**
+#: English opens one with ``from`` - *Holiday in Dawlish from 2nd October to 12th October* -
+#: and ``from`` was already a defer, the only date that hides an item. So ``from X to Y`` and
+#: ``from X until Y`` are spans and a bare ``from X`` stays a defer: one rule a reader can
+#: predict from the line. ``on`` opens one the same way, and a dash between two written dates
+#: needs no word at all.
+SPAN_WORDS = ("to", "until")
+
+#: The words a worded span may open with: the defer's and the planned day's own.
+SPAN_OPENING_WORDS = ("from", "on")
+
 #: **Every sigil must start a word.** Without this, ``Email bob@example.com`` assigns the
 #: task to "example.com" and leaves "Email bob about it" as the title — data lost, exactly
 #: what rule 1 forbids. Measured, not theorised: it was the first thing tried.
@@ -148,6 +161,50 @@ _PHRASE = (
 	rf"|(?:{_WEEKDAY_ALTERNATION})"
 	r")"
 )
+
+#: What a line of whole days is joined by: a closing word, or a dash of any length (`#2687`).
+_SPAN_JOINT = rf"(?:\s+(?P<word>{'|'.join(SPAN_WORDS)})\s+|\s*[-\u2013\u2014]\s*)"
+
+_ORDINAL = r"(?:st|nd|rd|th)?"
+
+#: A calendar date written out, either way round, or an ISO day — the two forms that name a day
+#: without needing a preposition in front to be believed.
+_WRITTEN_DAY = (
+	rf"(?:\d{{1,2}}{_ORDINAL}\s+(?:{_MONTH_ALTERNATION})"
+	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}{_ORDINAL}"
+	r"|\d{4}-\d{2}-\d{2}(?![T ]?\d))"
+)
+
+#: ``from 2nd October to 12th October``, ``on Monday until Wednesday``, ``from 2 October -
+#: 12 October``: an opening word, a date, a joint and a date.
+_WORDED_SPAN = re.compile(
+	rf"{_STARTS_A_WORD}(?:{'|'.join(SPAN_OPENING_WORDS)})\s+(?P<start>{_PHRASE})"
+	rf"{_SPAN_JOINT}(?P<end>{_PHRASE})(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: ``2-12 October``, ``from 2 to 12 October``, ``October 2-12``: two days of one month with the
+#: month written once. **Without an opening word only a dash joins them**, because *pages 2 to
+#: 12 October* is not somebody's holiday and *2-12 October* nearly always is.
+_DAYS_OF_A_MONTH = re.compile(
+	rf"{_STARTS_A_WORD}(?:(?P<opening>{'|'.join(SPAN_OPENING_WORDS)})\s+)?(?:"
+	rf"(?P<first>\d{{1,2}}){_ORDINAL}{_SPAN_JOINT}(?P<last>\d{{1,2}}){_ORDINAL}"
+	rf"\s+(?P<month>{_MONTH_ALTERNATION})"
+	rf"|(?P<month_first>{_MONTH_ALTERNATION})\s+(?P<first_after>\d{{1,2}}){_ORDINAL}"
+	rf"{_SPAN_JOINT.replace('(?P<word>', '(?P<word_after>')}(?P<last_after>\d{{1,2}}){_ORDINAL}"
+	r")(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: ``2 October - 12 October``, ``30 September-2 October``: two written dates and a dash. **A
+#: weekday or a keyword is not enough here**, so *Standup Monday-Friday* keeps its title; they
+#: need an opening word, which is :data:`_WORDED_SPAN`.
+_DATES_AND_A_DASH = re.compile(
+	rf"{_STARTS_A_WORD}(?P<start>{_WRITTEN_DAY})\s*[-\u2013\u2014]\s*(?P<end>{_WRITTEN_DAY})"
+	r"(?![\w'])",
+	re.IGNORECASE,
+)
+
 
 #: A date preposition and the phrase after it — ``by friday``, ``due 2026-08-19``.
 #:
@@ -365,6 +422,10 @@ class Capture:
 	due_is_all_day: bool | None = None
 	starts_at: datetime.datetime | datetime.date | str | None = None
 	starts_is_all_day: bool | None = None
+
+	#: The last day of a span, from ``from 2 to 12 October`` (`#2687`). Whole days only, so
+	#: ``starts_is_all_day`` describes both ends, as decision `#1235` §2 has one flag do.
+	ends_at: datetime.date | None = None
 	snooze: datetime.date | str | None = None
 	snoozed_is_all_day: bool | None = None
 
@@ -669,6 +730,10 @@ def parse (
 		repeated.append((start, start + len(words)))
 
 	before = len(claimed)
+
+	_collect_spans(
+		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
+	)
 
 	_collect_dates(
 		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
@@ -1054,6 +1119,12 @@ def _apply_time (
 		if value is not None:
 			named_a_day = True
 
+		# **A span of whole days takes no clock** (`#2687`). One flag describes both of its ends
+		# (decision `#1235` §2), so a time on the start alone would make it say two things - and
+		# an appointment's end time is `#675`'s. The time goes back into the title and is said.
+		if field == "starts_at" and "ends_at" in fields:
+			continue
+
 		if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
 			fields[field] = datetime.datetime.combine(value, at)
 			fields[flag] = False
@@ -1075,6 +1146,130 @@ def _apply_time (
 	fields["starts_is_all_day"] = False
 
 	return True
+
+
+def _collect_spans (
+	text: str,
+	claimed: list[tuple[int, int]],
+	reserved: list[tuple[int, int]],
+	fields: dict[str, typing.Any],
+	unparsed: list[str],
+	*,
+	today: datetime.date,
+	now: datetime.datetime,
+	timezone: str,
+) -> None:
+	"""Read the first span of whole days in a line as a start and an end — `#2687`.
+
+	**Before the dates, because both of its dates would otherwise be read on their own**, and
+	wrongly: the first as a defer, since ``from`` is one, and the second not at all.
+
+	**The end is resolved from the start, never on its own.** Each written date means the
+	soonest such date counting today, so *from 20 July to 5 August*, said on 30 July, would
+	start next July and end this August - `#1239`'s defect, a start and an end resolving
+	independently, in a new field. Read from the start, it ends the August after.
+
+	**A span that cannot be read is said, and nothing else may take it.** A range running
+	backwards, or a day its month has not got, stays in the title and is reported - and it is
+	held back from the date rules too, or ``from`` would quietly become the defer the writer
+	was trying not to set.
+
+	**Whole days only.** A clock on either side is an appointment with an end, which is
+	`#675`'s, so such a line is left to the rules it met before.
+	"""
+
+	found = sorted(
+		(match for pattern in (_WORDED_SPAN, _DAYS_OF_A_MONTH, _DATES_AND_A_DASH)
+		 for match in pattern.finditer(text)),
+		key=lambda match: match.start(),
+	)
+
+	for match in found:
+		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
+			continue
+
+		groups = match.groupdict()
+
+		# **A worded joint needs an opening word**: only a dash stands on its own.
+		if groups.get("first") is not None or groups.get("first_after") is not None:
+			worded = groups.get("word") or groups.get("word_after")
+
+			if worded is not None and groups.get("opening") is None:
+				continue
+
+		if ":" in match.group(0):
+			continue
+
+		days = _span_days(groups, today=today, now=now, timezone=timezone)
+
+		if days is None:
+			reserved.append(match.span())
+			unparsed.append(match.group(0).strip())
+
+			return
+
+		fields["starts_at"], fields["ends_at"] = days
+		fields["starts_is_all_day"] = True
+		claimed.append(match.span())
+
+		return
+
+
+def _span_days (
+	groups: dict[str, str | None],
+	*,
+	today: datetime.date,
+	now: datetime.datetime,
+	timezone: str,
+) -> tuple[datetime.date, datetime.date] | None:
+	"""Return the first and last day a span names, or ``None`` where it cannot be read as one.
+
+	**A side it cannot read makes the whole span unreadable**, rather than handing that side to
+	the date rules: both sides matched a date's shape, so the writer wrote a span, and reading
+	half of it would set a field the line did not say.
+	"""
+
+	if groups.get("first") is not None or groups.get("first_after") is not None:
+		month = groups.get("month") or groups.get("month_first") or ""
+		first = int(groups.get("first") or groups.get("first_after") or 0)
+		last = int(groups.get("last") or groups.get("last_after") or 0)
+
+		if first > last:
+			return None
+
+		start = subroutine.domain.dates.written_date(f"{first} {month}", today=today)
+
+		if start is None:
+			return None
+
+		end = subroutine.domain.dates.written_date(f"{last} {month}", today=start)
+
+		return None if end is None else (start, end)
+
+	start = _span_day(groups.get("start") or "", today=today, now=now, timezone=timezone)
+
+	if start is None:
+		return None
+
+	end = _span_day(groups.get("end") or "", today=start, now=now, timezone=timezone)
+
+	if end is None or end < start:
+		return None
+
+	return start, end
+
+
+def _span_day (
+	phrase: str, *, today: datetime.date, now: datetime.datetime, timezone: str
+) -> datetime.date | None:
+	"""Return the calendar day one side of a span names, counting from ``today``."""
+
+	value, _all_day = _read_phrase(phrase, today=today, now=now, timezone=timezone)
+
+	if value is None or isinstance(value, datetime.date):
+		return value
+
+	return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now)
 
 
 def _collect_bare_days (

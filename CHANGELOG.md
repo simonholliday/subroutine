@@ -46,6 +46,16 @@ upgrade involves.
   `defer` command, the agent tools' `defer` and `--deferred` already use. A start is described as
   *when it starts* rather than as the day you will do it, which read oddly for an event.
 
+### Added
+
+- **A captured line reads a span of whole days.** *Holiday in Dawlish from 2nd October to 12th
+  October* files a start on the 2nd and an end on the 12th in one call, where it used to file a
+  task hidden until the 2nd with *to 12th October* left in its title. `from 2 to 12 October`,
+  `from 2 October until 12 October`, `on Monday until Wednesday`, `2-12 October` and
+  `2 October - 12 October` all read the same way, and the end is worked out from the start, so
+  a span never finishes before it begins. A bare `from` with nothing after its date is still a
+  defer, and a span does not decide an item's type.
+
 ### Fixed
 
 - **A credential narrowed to a project below one it cannot read reaches that project by the

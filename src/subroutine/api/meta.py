@@ -883,6 +883,8 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				# `subroutine_link` published three of five seeded link types.
 				*(f"{word} <date>" for word in sorted(subroutine.domain.capture.DEFER_WORDS)),
 				*sorted(subroutine.domain.capture.BARE_PLANNED_WORDS),
+				# **A span, told from a defer by what follows the first date** (`#2687`).
+				"from <date> to <date>, from <date> until <date>, or <date>-<date>",
 				# **Published because it has to be signalled** (`#797`). A time is read only
 				# after `at`, or immediately after a date this grammar already read — so unlike
 				# the words above, a caller who does not know the rule writes something that
@@ -894,6 +896,7 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				"Renew the domain by friday !4",
 				"Fix the header +web #bug ~2h @alice",
 				"Call the dentist tomorrow",
+				"Holiday in Dawlish from 2 to 12 October",
 				"Solar eclipse today at 18:30",
 			],
 		),
