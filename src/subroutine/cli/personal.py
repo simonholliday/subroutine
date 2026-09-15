@@ -7151,6 +7151,9 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		Those are the five a new workspace is given. A workspace can rename them or add its
 		own, and naming one this workspace does not have lists the ones it does.
 
+		Each is stored with an underscore, which is how the API and the agent tools name it:
+		derives-from and derives_from are the same relation, and either works here.
+
 		Several numbers separated by commas make one link each, all of the same kind. Either
 		side takes them, and both sides at once means every one of the first joined to every
 		one of the second — which is what 'each of these blocks each of those' says and is the
@@ -7177,12 +7180,17 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 	def unlink_items (
 		which: str = typer.Argument("", help="Which item, by its number."),
 		other: str = typer.Argument("", help="The item it is joined to. Or several: 9,11,12."),
+		# **Caught rather than left to Click** (`#1619`), as `list` catches stray words: a third
+		# word here is nearly always `unlink 1 blocks 2`, written the way `link` is, and Click's
+		# answer is about how many words there were.
+		stray: list[str] | None = typer.Argument(None, hidden=True),
 		relation: str = typer.Option(
 			"",
 			"--type",
 			show_default=False,
 			help=f"Which kind to undo, when there is more than one: "
-			f"{subroutine.db.seed.named_link_types()}.",
+			f"{subroutine.db.seed.named_link_types()}. An underscore works in place of a hyphen, "
+			f"as in derives_from.",
 		),
 	) -> None:
 		"""Undo a link between two items.
@@ -7206,6 +7214,9 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		Several numbers separated by commas undo one link each, which is what a plan laid out
 		the wrong way round needs.
 		"""
+
+		if stray:
+			_refuse_a_third_word(program, which=which, other=other, stray=stray)
 
 		with program.opened() as world:
 			_unjoined(
@@ -8258,9 +8269,21 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 	"""
 
 	workspace_app = typer.Typer(
-		help="Look after the spaces work is kept in.", no_args_is_help=True
+		help="Look after the spaces work is kept in.", invoke_without_command=True
 	)
 	app.add_typer(workspace_app, name="workspace")
+
+	# **A bare `workspace` lists, as a bare `project` does** (`#1619`). It printed help, so the
+	# two nouns answered the same bare command differently — `#1355`'s disagreement between the
+	# terminal and the tools, left standing one noun along.
+	@workspace_app.callback()
+	def workspace_group (context: typer.Context) -> None:
+		"""Look after the spaces work is kept in."""
+
+		if context.invoked_subcommand is not None:
+			return
+
+		_workspaces_listed(program, json_output=False)
 
 	# **You could make one and rename one and never see one** (`#1355`). Every other verb here
 	# takes a slug, so the listing that tells you the slugs was the gap — and `/v1/meta` and the
@@ -11662,6 +11685,34 @@ def _joined (
 		program.console,
 		f"subroutine show {_typeable(world, near[0].connection, near[0].item)}",
 		"see everything it is joined to",
+	)
+
+
+def _refuse_a_third_word (
+	program: Program, *, which: str, other: str, stray: list[str]
+) -> typing.NoReturn:
+	"""Say what ``unlink`` takes when it was given three words, and the command that works.
+
+	**The middle word is read as a relation when it has no digit in it**, since a number, a
+	list of numbers and an address all do and a link type's key does not. The two answers are
+	the two mistakes there are: ``link``'s word order, and several items without their commas.
+	"""
+
+	rest = ",".join(stray)
+
+	if not any(character.isdigit() for character in other):
+		program.fail(
+			subroutine.errors.ValidationError(
+				"'subroutine unlink' takes the two items, and the kind of link goes in --type.",
+				hint=f"Try: subroutine unlink {which} {rest} --type {other}",
+			)
+		)
+
+	program.fail(
+		subroutine.errors.ValidationError(
+			"'subroutine unlink' takes two items, and several on one side are one word.",
+			hint=f"Try: subroutine unlink {which} {other},{rest}",
+		)
 	)
 
 

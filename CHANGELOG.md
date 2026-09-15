@@ -24,6 +24,14 @@ upgrade involves.
   guide, the help topics and the MCP tools - keeps citations from coming back. The design
   document is still in the repository for anybody who goes looking.
 
+- **`subroutine workspace` on its own lists your workspaces**, as `subroutine project` lists
+  projects, rather than printing help.
+
+- **`subroutine unlink 1 blocks 2` says what it takes.** Written the way `link` is, it answered
+  with a message about how many words it was given; it now names the command that works,
+  `subroutine unlink 1 2 --type blocks`. `link` and `unlink --type` also say that a relation
+  written with a hyphen here is the one the API and the agent tools spell with an underscore.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

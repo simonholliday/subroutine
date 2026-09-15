@@ -4916,6 +4916,67 @@ def test_a_bare_project_lists_rather_than_printing_help (
 	assert bare == named, f"'project' and 'project list' answer differently:\n{bare}\n---\n{named}"
 
 
+def test_a_bare_workspace_lists_rather_than_printing_help (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1619`. A bare ``project`` lists and a bare ``workspace`` printed help.
+
+	Compared against ``workspace list`` rather than against remembered text, for the reason the
+	``project`` test above gives: the claim is that the two forms agree.
+	"""
+
+	run("init")
+
+	bare = run("workspace").output
+	named = run("workspace", "list").output
+
+	assert "Usage:" not in bare, f"a bare 'workspace' still printed help:\n{bare}"
+	assert bare == named, f"'workspace' and 'workspace list' answer differently:\n{bare}\n---\n{named}"
+
+
+def test_unlink_written_like_link_says_where_the_kind_goes (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1619`. ``unlink 1 blocks 2`` is the shape somebody used for ``link`` ten seconds ago.
+
+	It answered *Got unexpected extra argument(s) (2)*, which is about how many words there
+	were rather than about what they meant. The refusal now names the command that works, and
+	nothing is removed on the way to saying so.
+	"""
+
+	run("init")
+
+	for title in ("Alpha", "Beta", "Gamma"):
+		run("add", title)
+
+	run("link", "1", "blocks", "2")
+
+	refused = run("unlink", "1", "blocks", "2", expect=1).output
+
+	assert "unexpected extra" not in refused, refused
+	assert "subroutine unlink 1 2 --type blocks" in refused, refused
+	assert "Blocked by" in run("show", "2").output, "the refusal removed the link anyway"
+
+	several = run("unlink", "1", "2", "3", expect=1).output
+
+	assert "subroutine unlink 1 2,3" in several, several
+
+
+def test_link_says_its_hyphens_are_the_published_underscores (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1619`. ``derives-from`` here and ``derives_from`` in ``/v1/meta`` are one relation.
+
+	The help offered only the hyphen and everything an agent reads offers only the underscore,
+	so the two learned different words for one key and nothing said they were the same.
+	"""
+
+	for command in ("link", "unlink"):
+		said = run(command, "--help").output
+
+		assert "derives_from" in said, f"'{command} --help' names only the hyphen:\n{said}"
+
+
 def test_the_workspaces_a_listing_names_are_the_ones_whoami_names (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
