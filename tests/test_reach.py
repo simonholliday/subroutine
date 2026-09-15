@@ -37,6 +37,7 @@ and declaring it would be a third copy of the matrix in ``#146``.
 """
 
 import ast
+import fnmatch
 import inspect
 import pathlib
 import re
@@ -1427,6 +1428,86 @@ def reached_routes (source: str) -> dict[tuple[str, str], set[str]]:
 			found.setdefault((verb.value, _shaped(literal)), set()).add(node.name)
 
 	return found
+
+
+def _could_send (called: str, route: str) -> bool:
+	"""Whether a path the client builds can be this route, compared one segment at a time.
+
+	**Flattened on both sides, and then the client's side read as a pattern.** One f-string,
+	``f"/v1/{_plural(kind)}/{ref}/comments"``, serves tasks, documents and projects, and
+	flattens to ``/v1/*/*/comments`` - so comparing flattened strings for equality, which is
+	enough for :func:`unreached_fields`, matches none of those routes and reported 30 of the 97
+	mapped entries as sent by nothing. A placeholder matches exactly one segment, so a path
+	cannot be stretched over a route with a different number of parts.
+	"""
+
+	calls, parts = called.split("/"), _shaped(route).split("/")
+
+	return len(calls) == len(parts) and all(
+		fnmatch.fnmatchcase(part, pattern) for pattern, part in zip(calls, parts, strict=True)
+	)
+
+
+def _mismatched (
+	reached: dict[tuple[str, str], set[str]], mapping: dict[tuple[str, str], str]
+) -> list[str]:
+	"""Return each mapped route whose named method never sends a request to it."""
+
+	wrong = []
+
+	for (verb, route), method in mapping.items():
+		senders = {
+			sender
+			for (sent, called), methods in reached.items()
+			if sent == verb and _could_send(called, route)
+			for sender in methods
+		}
+
+		if method not in senders:
+			wrong.append(f"  {verb} {route} names {method}; sent by {sorted(senders) or 'nothing'}")
+
+	return wrong
+
+
+def test_every_mapped_method_really_sends_its_route () -> None:
+	"""`#340`: the method a route is mapped to must be one that sends a request to that route.
+
+	``REACHED_BY`` and ``READ_BY`` are written by hand, and every guard above asks only whether
+	the method they name *exists*. `#336` is what that misses: ``GET /v1/me`` was mapped to
+	``identity``, which calls ``/v1/meta``, and the pair was transposed consistently enough that
+	every check passed while *who am I* was reachable from no client. :func:`reached_routes` has
+	read what each method actually sends since `#427`, and nothing asked the two to agree.
+	"""
+
+	reached = reached_routes(
+		pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	)
+	wrong = _mismatched(reached, REACHED_BY) + _mismatched(reached, READ_BY)
+
+	assert not wrong, (
+		"a route is mapped to a client method that never sends a request to it, so the guards "
+		"counting it as reached are reading a claim rather than the client:\n" + "\n".join(wrong)
+	)
+
+
+def test_a_transposed_mapping_would_be_caught () -> None:
+	"""`#336`'s own defect, fed through the comparison, and one case it must not report.
+
+	The second half exercises the segment matching in the direction that passes: a comment
+	listing the client reaches through a path shared by three kinds of item. A comparison that
+	matched nothing would fail it, and one that matched everything would fail the first.
+	"""
+
+	reached = reached_routes(
+		pathlib.Path(subroutine.clients.http.__file__).read_text(encoding="utf-8")
+	)
+
+	assert _mismatched(reached, {("GET", "/v1/me"): "identity"}), (
+		"GET /v1/me mapped to identity, which calls /v1/meta, went unreported - #336 again"
+	)
+	assert not _mismatched(reached, {("GET", "/v1/tasks/{id_or_ref}/comments"): "comments"}), (
+		"a route the client reaches through a path shared by several kinds is reported unsent"
+	)
 
 
 def sent_by (source: str) -> dict[str, set[str]]:
