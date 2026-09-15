@@ -149,6 +149,11 @@ setup interview is how a tool loses the person who just installed it.
    and that it is safe to commit — it names a project, not a credential. From then on, work
    added anywhere under this directory goes to that project unless a line says `+other`.
 
+   **Only where the directory is the project's own.** A marker covers everything beneath it, so
+   one written in a home directory would file every capture made anywhere under it into that
+   project, and nothing would say so. If you are not standing in a checkout of this project, do
+   not write one: name the project on each call instead.
+
 7. **Do not import an existing to-do list unless asked.** Filing thirty items out of a
    `TODO.md` is a large write that is tedious to undo and that nobody requested.
 
@@ -200,7 +205,7 @@ subroutine_whoami()
 It names the account, the credential by its title, what that credential is limited to, and the
 versions of everything in play. One machine commonly holds more than one credential — the
 person's own, and one per agent — so the answer is not obvious and is not something to assume.
-Three answers are worth acting on:
+Four answers are worth acting on:
 
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
@@ -208,6 +213,10 @@ Three answers are worth acting on:
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
+- **More than one workspace** means a number can name a different item in each, so a call that
+  does not say which is refused, naming them. Pass `workspace` on every call from the first one,
+  or ask the person to set the plugin's `workspace` setting, which every tool then takes as its
+  default.
 - **A line after the versions** names something worth acting on, and they are different
   problems: *the program and the instance disagree* means one of them has a field the other does
   not; *the plugin is older than the program* — or *older than the instance*, where you reached
@@ -353,6 +362,10 @@ call and it is gone deliberately: an obligation falling at the end of a session 
 attends, because the end of a session is compaction or a killed process rather than a moment
 anybody is present for. `subroutine_claim(ref=42, release=true)` is still there for work you are
 putting down without finishing.
+
+**If your session keeps a task list of its own, lay a claimed item's steps out in it** and work
+them there. The item stays the record, and the session's list is the working surface for the
+next hour. Not every session has one, and then there is nothing to do.
 
 **When you need an answer from a person, park the question rather than asking in the
 conversation.** A conversation ends and takes the question with it; an item does not.
@@ -627,10 +640,18 @@ and asks first — which a tool call cannot do here yet. The refusal names the c
   this matters: one measured project needed 37 links, which is 37 round trips one at a time.
   Every number is read before any link is written, so a bad one leaves nothing half-made.
 
+  **A link joins tasks and documents, never projects.** So a milestone that has to follow
+  another is an item blocked by the work it stands for, and a feature is a parent task: a plan
+  laid out as projects is a set of folders, with no way to say that one comes after another.
+
 - **Waiting on something outside the system is a deferral with a reason**:
   `subroutine_update(ref=42, defer="now+7d")` and a comment saying what you are waiting for.
   The link above resolves itself; an external wait does not, so it needs the reason in prose
   and a date to look again.
+- **When you make something a person has to look at, say where it is.** A screenshot, a
+  rendered page, a report: put it where they can reach it and give the path if you share a
+  filesystem, or the address if there is one. Do not describe it as delivered because a tool
+  said it sent it. Whether it arrived is a fact about their screen, not about your call.
 - **Do not close somebody else's work** without being asked, and do not edit their comments —
   a comment is attributed prose. Add your own.
 

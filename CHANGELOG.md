@@ -35,6 +35,11 @@ upgrade involves.
 - **`subroutine show` says whether a recorded check ran on the tree you are standing on**:
   *the tree here* or *not the tree here* beside each one, and nothing more outside a checkout.
 
+- **The agent skill says four things it did not**: that a project cannot be linked, so a plan's
+  order lives in items; not to write a checkout marker in a directory that is not the project's
+  own; to name a workspace from the first call when a credential reaches several; and to say
+  where it put anything a person has to look at.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.
