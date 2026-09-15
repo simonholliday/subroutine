@@ -134,6 +134,15 @@ CHECKS: tuple[Check, ...] = (
 	),
 )
 
+#: What names the tests that failed once a run's own output is gone — item ``#635``.
+#:
+#: **Read back from pytest's record rather than kept here.** One run printed ``2 failed`` and was
+#: piped through ``tail``, which kept the summary and cut the names, and every run after it was
+#: green: two failures nobody could ever identify. pytest records each failure in its cache and
+#: ``--lf`` reads that record; ``--lfnf none`` makes an empty record collect nothing rather than
+#: everything, and ``--collect-only`` lists the names without running anything again.
+NAMES_THE_FAILURES = ("pytest", "--lf", "--lfnf", "none", "--collect-only", "-q")
+
 #: CI steps this command deliberately does not run, each with the answer to "what makes this
 #: entry go away?" — the question every allow-list in this repository is supposed to answer
 #: and only some of them do.
@@ -257,6 +266,13 @@ def main (argv: list[str] | None = None) -> int:
 
 	if failed:
 		print(f"\n{len(failed)} of {len(results)} failed.", file=sys.stderr)
+
+		if any(check.command[0] == "pytest" for check in failed):
+			print(
+				"The failing tests are named above, and stay named after that output is gone: "
+				+ " ".join(NAMES_THE_FAILURES),
+				file=sys.stderr,
+			)
 
 		return 1
 

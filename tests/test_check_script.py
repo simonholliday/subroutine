@@ -383,6 +383,81 @@ def test_a_step_is_given_its_own_refusals_whatever_its_caller_set (
 	assert driven >= 2, f"only {driven} steps declare a refusal, and both test steps should"
 
 
+def test_a_failed_suite_says_how_to_name_its_failures_afterwards (
+	monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+	"""Item ``#635``: the last lines of a red run say how to recover the names it printed above.
+
+	On standard error, beside the count of what failed, because those are the lines that survive
+	``| tail``: the pipe that lost the names once carried only standard output. Only when a test
+	step failed, since a red ruff has nothing for pytest to name.
+	"""
+
+	monkeypatch.setattr(script, "_not_yet_added", list)
+	command = " ".join(script.NAMES_THE_FAILURES)
+
+	monkeypatch.setattr(script, "_run", lambda check: check.command[0] != "pytest")
+
+	assert script.main([]) == 1
+	assert command in capsys.readouterr().err
+
+	monkeypatch.setattr(script, "_run", lambda check: check.command[0] != "ruff")
+
+	assert script.main([]) == 1
+	assert command not in capsys.readouterr().err
+
+
+def test_the_command_that_names_failures_really_names_them (tmp_path: pathlib.Path) -> None:
+	"""A published recovery step is driven, not trusted: fail a test, then ask for the names.
+
+	Run in a project of its own, so this reads nothing of the suite's own record, and with the
+	harness's variables removed so the inner run is a plain one. The passing test, and the run in
+	which the broken one is mended, are there so a command that listed everything fails this too.
+	"""
+
+	(tmp_path / "test_sample.py").write_text(
+		"def test_broken ():\n\tassert False\n\n\ndef test_fine ():\n\tassert True\n",
+		encoding="utf-8",
+	)
+	environment = {
+		name: value
+		for name, value in os.environ.items()
+		if not name.startswith(("PYTEST_", "COV_CORE_"))
+	}
+
+	def pytest_in_there (*arguments: str) -> subprocess.CompletedProcess[str]:
+		"""Run pytest in the sample project and return what it printed."""
+
+		return subprocess.run(
+			[sys.executable, "-m", "pytest", *arguments],
+			cwd=tmp_path,
+			env=environment,
+			capture_output=True,
+			text=True,
+			check=False,
+		)
+
+	assert pytest_in_there("-q").returncode == 1
+
+	named = pytest_in_there(*script.NAMES_THE_FAILURES[1:]).stdout
+
+	assert "test_sample.py::test_broken" in named, named
+	assert "test_fine" not in named, named
+
+	# **And once the failure passes, it names nothing** rather than falling back to every test,
+	# which is what ``--lf`` does alone and would read as seven thousand failures.
+	(tmp_path / "test_sample.py").write_text(
+		"def test_broken ():\n\tassert True\n\n\ndef test_fine ():\n\tassert True\n",
+		encoding="utf-8",
+	)
+
+	assert pytest_in_there("-q").returncode == 0
+
+	afterwards = pytest_in_there(*script.NAMES_THE_FAILURES[1:]).stdout
+
+	assert "test_sample.py::" not in afterwards, afterwards
+
+
 def test_the_comparison_notices_a_command_that_has_drifted () -> None:
 	"""Item ``#405``: the falsification that was done by hand, left as a test.
 
