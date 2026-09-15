@@ -9,6 +9,8 @@ next needs to skip all of them without caring which applies:
   actionable before it. **Only this field hides a row**: a ``starts_at`` in the future is an
   appointment or an intended day, and hiding those was `#854`'s whole defect;
 * it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`);
+* it is **parked on a question for somebody else** — ``needs_input``, which only the person
+  it is waiting on may pick up (`#1192`);
 * it is **in a project that is not running** — on hold, finished or abandoned (`#983`).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
@@ -55,6 +57,18 @@ GATING = "gating"
 #: **The category and never the key**, so a workspace adding ``holiday`` or ``freeze`` under it
 #: through `#1129` inherits all three without a release.
 OCCASION = "occasion"
+
+#: The status key that says an item is parked on a question for a person (`#1116`).
+#:
+#: **Owned here since `#1192`, which made readiness read it too.** It was declared in
+#: :mod:`subroutine.domain.agenda` first, and the agenda imports this module rather than the other
+#: way round, so ``agenda.WAITING_STATUS`` is this constant rather than a copy of it - two
+#: literals that merely agree is :data:`GATING`'s reason for owning a name in one place.
+#:
+#: **A key rather than a category.** `#96` refused a fifth status category, so nothing says
+#: *waiting on a person* but the seeded key; a workspace that renames it has renamed the thing
+#: both rules are about.
+WAITING_STATUS = "needs_input"
 
 
 def is_occasion (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
@@ -988,6 +1002,25 @@ def yours_to_answer (
 	)
 
 
+def parked (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching items parked on a question for a person — `#1192`.
+
+	**Uncorrelated, which is the reason for the shape.** The subquery reads the status table
+	alone - one row per workspace carries the key - so it is evaluated once for a listing
+	rather than once for every row it considers, where a correlated ``EXISTS`` would have put a
+	lookup on every ``?ready=true``. ``status_id`` is never null, so ``NOT IN`` cannot drop a row
+	by three-valued logic.
+	"""
+
+	status = subroutine.db.models.vocabulary.Status
+
+	predicate: sqlalchemy.ColumnElement[bool] = model.status_id.in_(
+		sqlalchemy.select(status.id).where(status.key == WAITING_STATUS)
+	)
+
+	return predicate
+
+
 def yours_to_act_on (
 	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
 ) -> sqlalchemy.ColumnElement[bool]:
@@ -1080,12 +1113,13 @@ def ready (
 	``include_completed``, which every listing already has — repeating it here would give two
 	parameters an argument about the same rows.
 
-	**The claim clause is the one that is about the *viewer* rather than the work**, and that
-	is worth naming because this module's other predicates are deliberately not. ``unblocked``
-	reads blocker tasks without narrowing by visibility precisely because readiness is a fact
-	about the work; a claim is not, and cannot be — "can I start this" has a different answer
-	for the agent holding the lease than for anybody else. So ``by`` is passed rather than
-	assumed.
+	**Two clauses are about the *viewer* rather than the work**, and that is worth naming
+	because this module's other predicates are deliberately not. ``unblocked`` reads blocker
+	tasks without narrowing by visibility precisely because readiness is a fact about the work;
+	a claim is not, and cannot be — "can I start this" has a different answer for the agent
+	holding the lease than for anybody else — and since `#1192` neither is a parked question,
+	which the person it waits on may pick up and nobody else may. So ``by`` is passed rather
+	than assumed.
 
 	**Required rather than defaulted** (`#361`). It defaulted to ``None``, which is the
 	strictest reading, for a caller with no principal — and there is no such caller: both
@@ -1115,6 +1149,20 @@ def _startable_apart_from_blocking (
 	return sqlalchemy.and_(
 		undeferred(model, now=now),
 		unclaimed(model, now=now, by=by),
+		# **A parked item is started by the person it is waiting on, and by nobody else** —
+		# `#1192`, Simon's decision of 2026-09-15. Parking puts a question to somebody; offering
+		# the item to the next worker the moment nothing blocks it hands it to somebody who will
+		# ask again or guess, which is what parking was for. **The exception is his**: a question
+		# put to you is yours to act on. Read through `yours_to_answer`, the predicate *Waiting on
+		# you* reads, so the two cannot disagree about whose it is.
+		#
+		# **What this cannot tell apart, recorded rather than guessed at**: somebody who parks an
+		# item on themselves while they wait on somebody outside the instance keeps it in their own
+		# `ready`. Assigning and parking are two acts, and only the first is a column.
+		sqlalchemy.or_(
+			sqlalchemy.not_(parked(model)),
+			sqlalchemy.false() if by is None else yours_to_answer(model, now=now, user_id=by),
+		),
 		in_a_running_project(model),
 		# **A container is not work anybody can start** (`#1353`, Simon 2026-08-27). Its
 		# sibling `#1610` lives in `unblocked`, because a row under a blocked ancestor

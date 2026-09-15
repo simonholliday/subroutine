@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Changed
 
+- **A task waiting on an answer is no longer offered as ready to anybody but the person it is
+  waiting on.** Setting *needs input* parks a question for somebody; `--ready`, `?ready=true` and
+  the agent tools' `ready` went on offering the task to everybody the moment nothing blocked it,
+  so the next agent to ask for work picked it up and asked the question again. It is now left out
+  for everybody except whoever it is assigned to or whoever holds it, for whom answering it is
+  the work.
+
 - **What an instance publishes, and the pages it ships with, no longer send a reader to the
   design document.** The route and schema descriptions in the OpenAPI document, five error
   descriptions, `docs/hosting.md` and the README cited sections of a document their reader is

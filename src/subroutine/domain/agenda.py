@@ -79,7 +79,10 @@ TIEBREAK = "created_at"
 #: It has been seeded since M1, published in `/v1/meta`, settable through every client,
 #: filterable and rendered by the board, and **used zero times in 925 tasks** — because nothing
 #: ever put it in front of the person who could answer.
-WAITING_STATUS = "needs_input"
+#:
+#: **Readiness's constant since `#1192`**, which made ``ready`` read the key as well; this
+#: module imports that one, so the name lives there and this is it rather than a copy.
+WAITING_STATUS = subroutine.domain.readiness.WAITING_STATUS
 
 #: How each bucket is ordered, in ``?order=``'s own grammar.
 #:

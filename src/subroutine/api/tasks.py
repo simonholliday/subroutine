@@ -431,9 +431,10 @@ def listing (
 		False,
 		description=(
 			"Only tasks that can actually be started: nothing unfinished blocks them and "
-			"they are not deferred to a future date. Does not yet consider a task's own "
-			"status — one marked 'blocked' by hand is still returned, because that is a "
-			"declared block rather than a tracked dependency."
+			"they are not deferred to a future date. A task parked with 'needs_input' is "
+			"left out for everybody except the person it is waiting on, who is its assignee "
+			"or whoever holds it. No other status is read: one marked 'blocked' by hand is "
+			"still returned, because that is a declared block rather than a tracked dependency."
 		),
 	),
 	to_act_on: bool = fastapi.Query(

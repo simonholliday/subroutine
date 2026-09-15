@@ -901,8 +901,8 @@ def _tools (
 					"ready": {
 						"type": "boolean",
 						"description": (
-							"Only work that can be started: nothing unfinished blocks it and "
-							"it is not deferred. Does not read an item's own status."
+							"Only work that can be started: nothing unfinished blocks it, not "
+							"deferred, not needs_input unless it waits on you."
 						),
 					},
 					"to_act_on": {

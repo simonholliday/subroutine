@@ -2562,6 +2562,36 @@ def test_ready_excludes_a_task_deferred_to_the_future (world: World) -> None:
 	assert later not in listed
 
 
+def test_ready_leaves_out_a_parked_question_unless_it_waits_on_the_caller (
+	world: World,
+) -> None:
+	"""`SR#1192` through the endpoint, which is the wiring rather than the rule.
+
+	The rule is `test_agenda`'s, where there are two readers. What this adds is that
+	``?ready=true`` really goes through it - one reader is enough for that, because the
+	exception is about the caller: the same parked row leaves the page and comes back when it is
+	put to them.
+	"""
+
+	parked = world.call(
+		"POST", "/v1/tasks", json={"title": "Which way round?", "status": "needs_input"}
+	).json()["ref"]
+
+	def offered () -> list[int]:
+		"""Return the refs ``?ready=true`` offers this caller."""
+
+		return [
+			item["ref"]
+			for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+		]
+
+	assert parked not in offered(), "a question put to nobody was offered as ready"
+
+	world.call("PATCH", f"/v1/tasks/{parked}", json={"assignee": world.user.username})
+
+	assert parked in offered(), "a question put to the caller is theirs to act on"
+
+
 def test_a_defer_that_has_passed_does_not_hold_a_task_back (world: World) -> None:
 	"""The boundary, which is where an off-by-one in the comparison would live."""
 

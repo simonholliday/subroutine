@@ -32,6 +32,7 @@ import subroutine.domain.claims
 import subroutine.domain.links
 import subroutine.domain.ordering
 import subroutine.domain.projects
+import subroutine.domain.readiness
 import subroutine.domain.scoping
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -1256,6 +1257,71 @@ def test_work_held_up_by_somebody_elses_item_gets_its_own_section (
 	)
 	assert agenda.assigned_elsewhere_total == 1, (
 		"and it is not silently gone either — a listing at this scope still holds it"
+	)
+
+
+def _offered (world: World, user: subroutine.db.models.identity.User | None) -> list[str]:
+	"""Return the titles ``ready`` offers one reader, or ``None`` for a reader with no account."""
+
+	task = subroutine.db.models.work.Task
+
+	return list(
+		world.session.scalars(
+			sqlalchemy.select(task.title).where(
+				task.workspace_id == world.workspace.id,
+				subroutine.domain.readiness.ready(
+					task, now=NOW, by=None if user is None else user.id
+				),
+			)
+		)
+	)
+
+
+def test_a_parked_question_is_ready_only_for_the_person_it_waits_on (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1192`, Simon's decision of 2026-09-15: *needs input counts as not ready*.
+
+	The skill tells an agent to start from ``ready``, so a parked item offered there the moment
+	nothing blocks it goes to the next worker, who asks the question again or guesses - which
+	is what parking was for.
+
+	**The exception is his and it is the half a one-reader test cannot see**: a question put to
+	somebody is theirs to act on, so it stays in *their* ``ready``. Read through
+	`readiness.yours_to_answer`, which is why the claim case is here too: holding a question
+	makes it yours on *Waiting on you*, and it has to make it yours here, or the two surfaces
+	disagree about whose it is.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Their question")
+	_waiting(world, theirs, on=other.id)
+
+	unowned = world.task("Nobody's question")
+	_waiting(world, unowned, on=None)
+
+	world.task("Ordinary work")
+
+	mine = _offered(world, world.user)
+
+	assert "Ordinary work" in mine, f"nothing is offered at all, so this says nothing: {mine}"
+	assert "Their question" not in mine, "a question put to somebody else was offered to this reader"
+	assert "Nobody's question" not in mine, "a question put to nobody was offered as ready"
+
+	assert "Their question" in _offered(world, other), (
+		"the person a question waits on is the exception: it is theirs to act on"
+	)
+	assert "Their question" not in _offered(world, None), (
+		"a reader with no account is not the person anything waits on"
+	)
+
+	subroutine.domain.claims.claim(world.session, unowned, now=NOW, actor=world.principal)
+	world.session.flush()
+
+	assert "Nobody's question" in _offered(world, world.user), (
+		"holding a parked question makes it the reader's, as it does on Waiting on you"
 	)
 
 
