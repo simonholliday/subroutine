@@ -3508,6 +3508,29 @@ def _added (
 	return answer if left is None else f"{answer}\n{left}"
 
 
+def _settled (name: str, value: typing.Any) -> str:
+	"""Say what one written field now holds, in the form that confirms it — `#2689`.
+
+	**A value the instance resolved is said in full, and text somebody wrote is not.** The
+	parenthetical exists because ``now+3M`` and ``friday`` cannot be checked by inspection
+	(`#1196`), and that holds for every scalar here. It does not hold for a title or a
+	description, which come back byte for byte as they were sent: a 4 KB body was answered
+	with the whole 4 KB, so an edit cost its length twice, and a rewrite is the ordinary way a
+	body changes (`#1766`).
+
+	**So a description is counted rather than repeated**, which still says the write landed
+	whole, and a title is only named, because the row this follows already prints it.
+	"""
+
+	if name == "description" and isinstance(value, str):
+		return f"description of {len(value):,} characters"
+
+	if name == "title":
+		return "title"
+
+	return f"{name} {value}"
+
+
 def _wrote (
 	client: subroutine.clients.base.Client, arguments: dict[str, typing.Any]
 ) -> str:
@@ -4484,7 +4507,7 @@ def _updated (
 	if "project" in changes:
 		changes["project"] = changed.project_path or changed.project_key
 
-	settled = [f"{name} {value}" for name, value in sorted(changes.items()) if value is not None]
+	settled = [_settled(name, value) for name, value in sorted(changes.items()) if value is not None]
 	settled += [f"{name} cleared" for name, value in sorted(changes.items()) if value is None]
 	# **`plan` is a day and `defer` is a moment**, which is `#858`'s distinction and the reason
 	# these cannot share one renderer: a day is a label that never converts, and a moment has no

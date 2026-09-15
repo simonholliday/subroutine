@@ -78,6 +78,11 @@ upgrade involves.
   narrows the answer to that kind, as it already did at the command line, and a word neither
   keeps is still refused by name.
 
+- **Changing a description from the agent tools no longer repeats it back.** `subroutine_update`
+  answered with the whole new description inside its confirmation, so a long edit cost its
+  length twice. It now says how many characters the description holds, and names a changed title
+  rather than printing it a second time.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

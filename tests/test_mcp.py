@@ -7974,6 +7974,44 @@ def test_changing_a_task_says_what_changed_not_only_what_it_now_is (
 	)
 
 
+def test_changing_a_description_is_confirmed_without_repeating_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2689`: a changed description came back in full inside the confirmation.
+
+	The parenthetical earns its place with values the instance resolved, which a caller cannot
+	check by inspection. A description is returned exactly as sent, so repeating it confirmed
+	nothing and spent its length a second time - 4 KB, when this was found.
+	"""
+
+	ref = _added(bound, "Write up the capture findings")
+	body = "\n\n".join(
+		f"Paragraph {number} of what was found, written out at length." for number in range(1, 60)
+	)
+
+	answer, failed = _called(
+		bound, "subroutine_update", ref=ref, description=body, importance=3
+	)
+
+	assert not failed, answer
+	assert "Paragraph 2 of" not in answer, f"the description came back in full:\n{answer[:400]}"
+	assert f"description of {len(body):,} characters" in answer, answer
+	assert "importance 3" in answer, "a resolved value stopped being said with it"
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed and "Paragraph 59 of" in shown, "the count was of a body that did not land"
+
+	# **And a title is named rather than repeated**, since the row already says it.
+	retitled, failed = _called(
+		bound, "subroutine_update", ref=ref, title="Write up what capture drops"
+	)
+
+	assert not failed, retitled
+	assert retitled.count("Write up what capture drops") == 1, retitled
+	assert "(set title)" in retitled, retitled
+
+
 def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
