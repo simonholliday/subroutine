@@ -1325,6 +1325,157 @@ def test_a_parked_question_is_ready_only_for_the_person_it_waits_on (
 	)
 
 
+def _agent_of (
+	world: World, answers_to: subroutine.db.models.identity.User
+) -> subroutine.db.models.identity.User:
+	"""Add an agent to this workspace that answers to ``answers_to``, which may itself be an agent."""
+
+	agent = subroutine.domain.users.create(
+		world.session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=answers_to.id,
+	)
+
+	subroutine.domain.workspaces.add_member(
+		world.session, workspace=world.workspace, user=agent, role_key="member"
+	)
+	world.session.flush()
+
+	return agent
+
+
+def test_work_held_by_your_own_agent_is_not_waiting_on_somebody_else (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1432`'s first half, agreed by Simon on 2026-09-15.
+
+	His reasoning on `SR#1287` settles it: *"the claimant may be an agent - and it may be the
+	assignee's agent, not mine. If I need that task pushed through quicker, I cannot instruct
+	my agent, only they can."* An agent that answers to **you** is exactly the one you can push,
+	so work it holds is not held up by somebody else.
+
+	**A sub-agent too**, because the chain is walked rather than read one level deep: an agent
+	that spawns another becomes the link it answers to (`#473`), and the person at the end is
+	still you. **And a row held up by your agent and by somebody else is still waiting on
+	somebody else**, because one of its blockers is theirs to move.
+	"""
+
+	world = World(session)
+	agent = _agent_of(world, world.user)
+	sub_agent = _agent_of(world, agent)
+	other = _somebody_else(world)
+
+	ours = world.task("Held by my agent")
+	ours.assignee_id = agent.id
+	deeper = world.task("Held by its sub-agent")
+	deeper.assignee_id = sub_agent.id
+	theirs = world.task("Held by somebody else")
+	theirs.assignee_id = other.id
+
+	pushable = world.task("Mine, behind my agent")
+	further = world.task("Mine, behind the sub-agent")
+	both = world.task("Mine, behind my agent and theirs")
+
+	_blocks(world, ours, pushable)
+	_blocks(world, deeper, further)
+	_blocks(world, ours, both)
+	_blocks(world, theirs, both)
+
+	agenda = world.agenda()
+
+	assert _titles(agenda.blocked_by_others) == ["Mine, behind my agent and theirs"], (
+		"work held by the reader's own agent, or its sub-agent, was reported as waiting on somebody "
+		f"else: {_titles(agenda.blocked_by_others)}"
+	)
+	assert "Mine, behind my agent" in _titles(agenda.unscheduled), (
+		"and it is relabelled rather than hidden - it falls through to where its dates put it"
+	)
+
+
+def test_a_question_you_parked_on_somebody_else_waits_on_your_agenda (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1432`'s second half: the mirror of *Waiting on you*, and one exception to `SR#1265`.
+
+	Simon, on the item: *"I should see items in Waiting on somebody else when I am blocked by
+	someone else, or I have assigned something to someone with needs_input"*. Before this a
+	question you put to somebody was on no agenda of yours at all, because `SR#1265` narrows an
+	agenda to your own work - so you found it again only by remembering you had asked.
+
+	**Narrow, which is the half the exception has to prove.** Only a parked item, only one the
+	reader assigned, and only to somebody else as *Waiting on somebody else* reads it - so not a
+	question parked on the reader's own agent, not one somebody else assigned, and not ordinary
+	work the reader handed over. **And it is not described as blocked**: a question waits on its
+	assignee, so the view gives it no list of blockers to read as *somebody you cannot see*.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+	third = _somebody_else(world)
+	agent = _agent_of(world, world.user)
+
+	asked = world.task("Which way round?")
+	_waiting(world, asked, on=other.id)
+	# Late, so a scope widened for every bucket would draw it under *Overdue* instead.
+	asked.due_at = NOW - datetime.timedelta(days=1)
+
+	of_my_agent = world.task("Asked of my agent")
+	_waiting(world, of_my_agent, on=agent.id)
+
+	by_somebody = world.task("Asked by somebody else")
+	subroutine.domain.tasks.update(
+		world.session,
+		by_somebody,
+		status_key=subroutine.domain.agenda.WAITING_STATUS,
+		assignee_id=other.id,
+		now=NOW,
+		actor=subroutine.domain.authentication.Principal(user=third),
+	)
+
+	handed_over = world.task("Handed over, not asked")
+	subroutine.domain.tasks.update(
+		world.session, handed_over, assignee_id=other.id, now=NOW, actor=world.principal
+	)
+	world.session.flush()
+
+	mine = world.agenda()
+
+	assert _titles(mine.blocked_by_others) == ["Which way round?"], (
+		"only a question the reader put to somebody else waits under this heading: "
+		f"{_titles(mine.blocked_by_others)}"
+	)
+	assert "Which way round?" not in [
+		title for bucket in subroutine.domain.agenda.BUCKETS
+		if bucket != "blocked_by_others"
+		for title in _titles(getattr(mine, bucket))
+	], "the exception is one section, not the reader's whole agenda"
+	assert asked.id not in mine.blockers, (
+		"a question was given an empty list of blockers, which says somebody the reader cannot "
+		"see is holding it up"
+	)
+
+	# **Counted once.** It is not the reader's work, so it is in what the agenda leaves to
+	# others - and it is drawn, so it must not be counted there as well.
+	assert mine.assigned_elsewhere_total == 3, (
+		f"expected the three other rows assigned elsewhere, and not the question on the page: "
+		f"{mine.assigned_elsewhere_total}"
+	)
+
+	# **Anywhere on theirs**: it is late, so `#1846` puts it under *Overdue* there, above
+	# *Waiting on you* - which is their agenda's own rule and not this one's.
+	theirs = _agenda_of(world, other)
+	owed = [
+		title
+		for bucket in subroutine.domain.agenda.BUCKETS
+		for title in _titles(getattr(theirs, bucket))
+	]
+
+	assert "Which way round?" in owed, (
+		f"and it is still on the agenda of the person who owes the answer: {owed}"
+	)
+
+
 def _agenda_of (
 	world: World, user: subroutine.db.models.identity.User
 ) -> subroutine.domain.agenda.Agenda:

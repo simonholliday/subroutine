@@ -33,6 +33,7 @@ import sqlalchemy.orm
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.dates
 import subroutine.domain.ordering
@@ -211,7 +212,8 @@ BUCKETS: tuple[str, ...] = (
 	"waiting",
 	# **Directly under `waiting`, and the pair is what makes both legible** (`#1285`, decision
 	# `#1267` §3): *Waiting on you* is a question somebody parked for you, and *Waiting on
-	# somebody else* is your work held up by their item.
+	# somebody else* is your work held up by their item - or, since `#1432`, a question you
+	# parked on them.
 	#
 	# **It was above `overdue` too**, on the same reasoning as `#1116`: *you are late* is not
 	# the useful sentence about work you cannot start, because chasing the other person is the
@@ -411,6 +413,7 @@ def _named_blockers (
 	*,
 	workspace_ids: typing.Sequence[uuid.UUID],
 	now: datetime.datetime,
+	asked: typing.Collection[uuid.UUID],
 ) -> dict[uuid.UUID, tuple[subroutine.db.models.work.Task, ...]]:
 	"""Return what is holding each row up, for every row on the page — `SR#1847`.
 
@@ -425,6 +428,11 @@ def _named_blockers (
 	dropping it would hide work the reader really is waiting on. That distinction is guarded and
 	is why this cannot simply filter on truth.
 
+	**Except for the questions in that section** (`#1432`), which ``asked`` names. A row there
+	because the reader parked a question on somebody is not held up by anything, so naming
+	nobody would claim a blocker the reader cannot see where there is none. It gets an entry
+	only if something nameable really is holding it up, as a row outside the section does.
+
 	**Elsewhere the row is not known to be blocked**, and finding out would cost a statement to
 	save one, so absent goes on meaning *nothing to say here* — which is what every bucket
 	outside that section has always meant.
@@ -437,7 +445,7 @@ def _named_blockers (
 		workspace_ids=workspace_ids,
 		now=now,
 	)
-	blocked = {row.id for row in rows["blocked_by_others"]}
+	blocked = {row.id for row in rows["blocked_by_others"]} - set(asked)
 
 	return {
 		held: blockers
@@ -518,6 +526,48 @@ def build (
 		return _edge(column, day=on, timezone=timezone, zones=zones, reader=reader)
 
 	base = _visible(scoped, until=edge("snoozed_until", on=day, reader=day_end))
+
+	# **Who counts as somebody else, resolved once** (`#1432`, Simon 2026-09-15): anybody but
+	# the reader and the live agents answerable to them. Work held by your own agent is work
+	# you can push, so *Waiting on somebody else* reads this set in both of its halves.
+	#
+	# **One statement per level of agents, and one when there are none** - the walk `answers_to`
+	# already makes, rather than a second copy of it written in SQL.
+	ours = [
+		principal.user.id,
+		*(
+			agent.id
+			for agent in subroutine.domain.accountability.agents_answering_to(
+				session, principal.user
+			)
+		),
+	]
+
+	# **The questions this reader parked on somebody else** (`#1432`), and the one narrow
+	# exception to `#1265` Simon agreed: they are not the reader's work, so `_scoped` leaves them
+	# out, and *Waiting on somebody else* takes them back.
+	#
+	# **Resolved to ids rather than carried as a clause, and that costs one statement on
+	# purpose.** `_named_blockers` has to tell these rows from the held-up ones beside them: an
+	# empty list of blockers says *somebody you cannot see* about a held-up row, and would be
+	# false about a question, which is waiting on its assignee and on nothing else.
+	asked = set(
+		session.scalars(
+			subroutine.domain.scoping.readable_tasks(
+				principal, workspace_ids=workspace_ids, include_completed=False
+			)
+			.where(*(
+				[] if project is None
+				else [subroutine.domain.scoping.within_project(project)]
+			))
+			.where(
+				subroutine.domain.readiness.asked_of_somebody_else(
+					model, user_id=principal.user.id, ours=ours
+				)
+			)
+			.with_only_columns(model.id)
+		)
+	)
 
 	# **The look-ahead, resolved before the buckets so that `upcoming` is a predicate like the
 	# rest of them.** ``None`` means no window was asked for, which is the API's default, and
@@ -620,7 +670,8 @@ def build (
 			),
 		),
 		# **The other kind of waiting, and the narrow reading of it** (`#1285`, decision
-		# `#1267` §3a): a live blocker that somebody who is not the caller is assigned to.
+		# `#1267` §3a): a live blocker assigned to somebody who is neither the caller nor, since
+		# `#1432`, an agent answerable to them.
 		# The predicate is `unblocked`'s edges with one more join, and the reasoning for
 		# every clause in it — including why an unassigned blocker does not count — is on
 		# `readiness.blocked_by_somebody_else`.
@@ -629,9 +680,25 @@ def build (
 		# no branch here; an agent's credential and its operator's are two principals with
 		# two accounts (`#335`), which is what makes an agent's *waiting on somebody else*
 		# mean the agent's own work rather than Simon's.
-		"blocked_by_others": base.where(
-			subroutine.domain.readiness.blocked_by_somebody_else(
-				model, now=now, user_id=principal.user.id
+		#
+		# **And the mirror of *Waiting on you*, since `#1432`**: a question the reader parked on
+		# somebody else. Those rows are not the reader's work and `_scoped` drops them, so this one
+		# bucket widens its scope by the ids resolved above - rather than every bucket widening,
+		# which would put somebody else's deadline under the reader's *Overdue*.
+		"blocked_by_others": _visible(
+			_scoped(
+				workspace_ids,
+				principal=principal,
+				sortable=sortable,
+				now=now,
+				project=project,
+				also=model.id.in_(asked),
+			),
+			until=edge("snoozed_until", on=day, reader=day_end),
+		).where(
+			sqlalchemy.or_(
+				subroutine.domain.readiness.blocked_by_somebody_else(model, now=now, ours=ours),
+				model.id.in_(asked),
 			)
 		),
 		# **Uncapped, and bounded by nothing — which is not the reason `#888` gave** (`#927`
@@ -916,6 +983,13 @@ def build (
 		)
 	)
 
+	# **Less what the page already shows** (`#1432`). A question the reader parked on somebody
+	# else is not theirs to act on, so it is counted here, and it is also drawn under *Waiting
+	# on somebody else* - so without this the page would account for one row twice, which is
+	# what the accounting guard adds up.
+	if seen:
+		elsewhere = elsewhere.where(model.id.not_in(seen))
+
 	return Agenda(
 		date=day,
 		timezone=timezone,
@@ -947,7 +1021,7 @@ def build (
 		# knowingly: `#1295`'s count is unmoved, and the property it used to have — *none at all
 		# when nothing is held up* — is now *none at all when the page is empty*.
 		blockers=_named_blockers(
-			session, principal, rows, workspace_ids=workspace_ids, now=now
+			session, principal, rows, workspace_ids=workspace_ids, now=now, asked=asked
 		),
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],
@@ -1014,6 +1088,7 @@ def _scoped (
 	sortable: typing.Mapping[str, subroutine.domain.ordering.Sortable],
 	now: datetime.datetime,
 	project: subroutine.db.models.project.Project | None = None,
+	also: sqlalchemy.ColumnElement[bool] | None = None,
 ) -> sqlalchemy.Select[tuple[subroutine.db.models.work.Task]]:
 	"""Return the live, unfinished, visible work this agenda is about, before any of its rules.
 
@@ -1055,11 +1130,15 @@ def _scoped (
 		else [subroutine.domain.scoping.within_project(project)]
 	)
 
-	narrowed.append(
-		subroutine.domain.readiness.yours_to_act_on(
-			subroutine.db.models.work.Task, now=now, user_id=principal.user.id
-		)
+	mine = subroutine.domain.readiness.yours_to_act_on(
+		subroutine.db.models.work.Task, now=now, user_id=principal.user.id
 	)
+
+	# **``also`` widens that rule for one caller and is never a default** (`#1432`). *Waiting on
+	# somebody else* takes back the questions the reader parked on other people, which is the
+	# one exception to `#1265` Simon agreed; every other caller passes nothing and gets the rule
+	# exactly as it was.
+	narrowed.append(mine if also is None else sqlalchemy.or_(mine, also))
 
 	return (
 		subroutine.domain.scoping.readable_tasks(

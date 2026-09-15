@@ -5774,10 +5774,17 @@ def test_both_transports_agree_about_who_is_holding_a_row_up (pair: Pair) -> Non
 
 	answers = {}
 
+	# **Every section, since `SR#1432`.** Local mode allows one person, so the holder here is an
+	# agent answering to the reader - which is not somebody else any more, so the row sits where
+	# its dates put it rather than under *Waiting on somebody else*. It is named wherever it lands,
+	# which `SR#1847` made true of every blocked row, so the comparison reads the whole agenda.
 	for client in (local, remote):
+		agenda = client.agenda()
 		held = {
-			row.ref: [(end.ref, end.assignee) for end in (row.blocked_by or [])]
-			for row in client.agenda().blocked_by_others
+			row.ref: [(end.ref, end.assignee) for end in row.blocked_by]
+			for bucket in subroutine.views.AGENDA_BUCKETS
+			for row in getattr(agenda, bucket)
+			if row.blocked_by
 		}
 		answers[repr(client)] = held
 

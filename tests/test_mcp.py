@@ -1102,7 +1102,15 @@ def test_an_agent_is_told_who_is_holding_a_row_up (
 		line for line in on_today.splitlines() if line.startswith(f"#{mine}  ")
 	)
 
-	assert "blocked_by_others" in row, f"the section is the reason the far end is named: {row}"
+	# **Not under *Waiting on somebody else*, since `SR#1432`**, and this fixture is why that is
+	# asserted here. Local mode allows one person, so the blocker's holder is an agent - and it
+	# answers to the reader, which Simon agreed makes it theirs to push rather than somebody
+	# else. The row stays where its dates put it and the far end is still named, because since
+	# `SR#1847` every blocked row on the agenda names what holds it up: the section was never the
+	# reason, only the first place that did.
+	assert "unscheduled" in row and "blocked_by_others" not in row, (
+		f"work held by the reader's own agent was reported as waiting on somebody else: {row}"
+	)
 	assert f"waiting on #{theirs} @{other.username} (agent, @{person.username})" in row, (
 		f"an agent is named with the person who answers for it, which is Simon's own reason "
 		f"for naming the assignee — the reader can instruct them:\n{row}"

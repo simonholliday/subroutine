@@ -4312,11 +4312,12 @@ def _holding_up (
 
 	**The distinction this keeps is between two silences**, and which rows carry which changed
 	with `SR#1847`. ``built.blockers`` now holds an entry for **every blocked row on the page**
-	that has something nameable, plus every row of *Waiting on somebody else* whether or not it
-	has. So a row present with nothing left is one whose blockers the caller may not see — the
-	`#1287` case, in the one section where being blocked is true by construction — and a row
-	absent from it either was never blocked or is blocked with nothing to name, which read the
-	same way here and did before.
+	that has something nameable, plus every held-up row of *Waiting on somebody else* whether or
+	not it has. So a row present with nothing left is one whose blockers the caller may not see
+	— the `#1287` case — and a row absent from it either was never blocked or is blocked with
+	nothing to name, which read the same way here and did before. **A question the reader parked
+	on somebody** sits in that section since `#1432` and is not held up at all, so it is absent
+	unless something nameable really is holding it up.
 
 	The first is ``None`` and the second is ``[]``, and a client can still tell them apart.
 	"""

@@ -540,8 +540,50 @@ def _live_blocks_edge (
 	)
 
 
+def somebody_else (
+	column: typing.Any, ours: typing.Collection[uuid.UUID]
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching an account that is neither the reader nor theirs — `#1432`.
+
+	**One definition for both halves of that item**, so *Waiting on somebody else* means one
+	thing whether a row is there because it is held up or because it is a question the reader
+	is waiting on. ``ours`` is the reader and every live agent answerable to them, resolved once
+	by :func:`subroutine.domain.accountability.agents_answering_to`.
+
+	**A null account is not somebody else.** ``NULL NOT IN`` is unknown and a ``WHERE`` drops
+	it, which is the rule both callers want: an unassigned blocker has nobody to chase, and a
+	question put to nobody is waiting on nobody.
+	"""
+
+	predicate: sqlalchemy.ColumnElement[bool] = column.not_in(list(ours))
+
+	return predicate
+
+
+def asked_of_somebody_else (
+	model: type[typing.Any], *, user_id: uuid.UUID, ours: typing.Collection[uuid.UUID]
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching a question the reader parked on somebody else — `#1432`.
+
+	**The mirror of *Waiting on you***, in Simon's words on the item: *"I should see items in
+	Waiting on somebody else when I am blocked by someone else, or I have assigned something to
+	someone with needs_input"*. Parked, assigned **by** the reader, and assigned **to** somebody
+	else as :func:`somebody_else` reads it - so a question parked on the reader's own agent is not
+	here, for the reason a blocker it holds is not: it is the reader's to push.
+
+	**It reads who made the assignment, not who parked it.** Only the first is a column, which
+	is the limit `#1192` recorded, met from the other side.
+	"""
+
+	return sqlalchemy.and_(
+		parked(model),
+		model.assigned_by_id == user_id,
+		somebody_else(model.assignee_id, ours),
+	)
+
+
 def blocked_by_somebody_else (
-	model: type[typing.Any], *, now: datetime.datetime, user_id: uuid.UUID
+	model: type[typing.Any], *, now: datetime.datetime, ours: typing.Collection[uuid.UUID]
 ) -> sqlalchemy.ColumnElement[bool]:
 	"""Return the predicate matching work held up by an item that is somebody else's.
 
@@ -550,6 +592,11 @@ def blocked_by_somebody_else (
 	work, which is `#96`'s original argument and still holds there. What this asks is narrower:
 	is there a live blocker whose assignee is a person, and is that person somebody other than
 	the one asking.
+
+	**Somebody other than the one asking means the account and the agents answerable to it**
+	(`#1432`, Simon 2026-09-15). ``ours`` is that set and :func:`somebody_else` is the one
+	spelling of the comparison: work held by your own agent is work you can push, which is
+	Simon's reasoning on `#1287` read from the other side.
 
 	**`#96` is amended by this rather than overturned.** Its rule was *blocked is tracked;
 	waiting is a defer with a reason*, and its reason was that a ``blocks`` link resolves
@@ -584,13 +631,14 @@ def blocked_by_somebody_else (
 		.where(
 			link.target_type == "task",
 			link.target_id == model.id,
-			# **One clause, and an unassigned blocker falls out of it on its own.** `NULL !=
-			# x` is unknown and a `WHERE` drops it, so a second `IS NOT NULL` beside this
-			# grants nothing — measured, by deleting it and watching every test still pass,
-			# which is `#303`'s shape and the reason it is not here. What holds the rule is
-			# the test, on both backends, because *unassigned does not count* is a decision
-			# rather than an accident of three-valued logic.
-			blocker.assignee_id != user_id,
+			# **One clause, and an unassigned blocker falls out of it on its own.** `NULL NOT
+			# IN` is unknown and a `WHERE` drops it, as `NULL != x` was before `#1432` widened
+			# the comparison, so a second `IS NOT NULL` beside this grants nothing — measured, by
+			# deleting it and watching every test still pass, which is `#303`'s shape and the
+			# reason it is not here. What holds the rule is the test, on both backends, because
+			# *unassigned does not count* is a decision rather than an accident of three-valued
+			# logic.
+			somebody_else(blocker.assignee_id, ours),
 			*_live_blocks_edge(link, kind, blocker, filed_in, now=now),
 		)
 		.correlate(model)

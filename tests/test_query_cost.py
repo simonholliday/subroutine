@@ -1059,9 +1059,16 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 #: level, so it asks nothing at all when no agent holds anything on the page. Both are one query
 #: per *level* and never per row, which is the property this ceiling exists to hold.
 #:
+#: **Thirty-five since `SR#1432`**, which added two statements to the build, both once per page
+#: rather than per row. One walks the agents answerable to the reader, level by level - one
+#: statement when there are none, which is this fixture - because an agent's work is not
+#: *waiting on somebody else*. The other resolves the questions the reader parked on somebody
+#: else to ids: that section takes them back, and `_named_blockers` must not give them an empty
+#: list of blockers, which would say something unseen is holding them up.
+#:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
-AGENDA_STATEMENTS = 33
+AGENDA_STATEMENTS = 35
 
 
 def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (

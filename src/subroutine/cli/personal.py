@@ -480,7 +480,8 @@ _HEADINGS: dict[str, tuple[str, bool]] = {
 	"waiting": ("Waiting on you", True),
 	# **The pair with the one above it, and that is what makes both legible** (`#1285`,
 	# decision `#1267` §3). *Waiting on you* is a question somebody parked for you; this is
-	# your work held up by somebody else's row. The key says the mechanism and the heading
+	# your work held up by somebody else's row, or since `#1432` a question you parked on
+	# them. The key says the first mechanism and the heading
 	# says the experience, which is `occasions`/*Happening*'s established shape.
 	#
 	# **Not marked late as a section**, unlike the one above. Nothing here is a commitment you

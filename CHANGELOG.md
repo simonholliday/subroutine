@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Changed
 
+- **An agenda's *Waiting on somebody else* treats your own agents as yours, and holds the
+  questions you are waiting on.** Work held up only by something your own agent has was
+  listed as waiting on somebody else, though moving it along is yours to do; it now sits
+  wherever its dates put it. And a task you set to *needs input* and assigned to somebody
+  else appeared on no agenda of yours at all; it now waits under that heading until they
+  answer.
+
 - **A task waiting on an answer is no longer offered as ready to anybody but the person it is
   waiting on.** Setting *needs input* parks a question for somebody; `--ready`, `?ready=true` and
   the agent tools' `ready` went on offering the task to everybody the moment nothing blocked it,
