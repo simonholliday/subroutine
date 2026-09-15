@@ -23,8 +23,10 @@ checks while pytest is still collecting.
 """
 
 import importlib.util
+import os
 import pathlib
 import re
+import subprocess
 import sys
 import tomllib
 import types
@@ -324,6 +326,61 @@ def test_the_suite_offers_the_skips_this_file_thinks_it_does () -> None:
 		"SUBROUTINE_TEST_REQUIRE_NODE",
 		"SUBROUTINE_TEST_REQUIRE_BROWSER",
 	} <= found, f"only {sorted(found)} were found under {TESTS}"
+
+
+def test_a_step_is_given_its_own_refusals_whatever_its_caller_set (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A step gets its ``SUBROUTINE_TEST_REQUIRE_*`` from this script, not from whoever ran it.
+
+	**``scripts/release.py`` relies on this** (`#2649`). It runs the gate with nothing added, and
+	both other ways of running it would hide a lapse, because each sets the variables itself:
+	the workflow in every step's ``env``, and the documented local command by exporting all
+	three. So if ``_run`` stopped applying a step's own ``env``, a release would be the one run
+	left that skipped a missing resource and reported success.
+
+	Driven through the real runner, with the caller's variables removed and ``subprocess.run``
+	recording what each step was started with, so what is checked is the environment a test
+	step receives rather than what the script declares.
+	"""
+
+	for name in list(os.environ):
+		if name.startswith(_REFUSES_A_SKIP):
+			monkeypatch.delenv(name)
+
+	started: list[dict[str, str]] = []
+
+	def recording (
+		command: typing.Any, **options: typing.Any
+	) -> subprocess.CompletedProcess[bytes]:
+		"""Keep the environment a step was started with, and report that it passed."""
+
+		started.append(options["env"])
+
+		return subprocess.CompletedProcess(command, 0)
+
+	monkeypatch.setattr(script.subprocess, "run", recording)
+
+	driven = 0
+
+	for entry in script.CHECKS:
+		wanted = {name: value for name, value in entry.env if name.startswith(_REFUSES_A_SKIP)}
+
+		if not wanted:
+			continue
+
+		started.clear()
+		script._run(entry)
+
+		received = {
+			name: value for name, value in started[-1].items() if name.startswith(_REFUSES_A_SKIP)
+		}
+
+		assert received == wanted, f"{entry.step!r} was started with {received}, not {wanted}"
+
+		driven += 1
+
+	assert driven >= 2, f"only {driven} steps declare a refusal, and both test steps should"
 
 
 def test_the_comparison_notices_a_command_that_has_drifted () -> None:

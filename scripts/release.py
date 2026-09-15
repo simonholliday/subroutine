@@ -27,7 +27,6 @@ this stops at a commit and a tag, and prints the two commands that finish the jo
 import argparse
 import datetime
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -227,8 +226,11 @@ def _gate () -> str | None:
 	list would have anticipated.
 
 	**Strictly, so a missing backend cannot make it green.** A release is the one act where a
-	half-run is worse than a refusal, and the two variables CI sets are the two that turn an
-	absent PostgreSQL or an absent browser from a skip into a failure.
+	half-run is worse than a refusal. Nothing is added to the environment here, because
+	`check.py` gives each test step its own `SUBROUTINE_TEST_REQUIRE_*` variables and a test
+	holds those to the workflow's. A copy of them lived here until `#2649`: two of CI's three,
+	under a sentence calling them CI's two, which read as though a release skipped a missing
+	Node when every step was being given all three.
 
 	**After the commit and before the tag**, deliberately. A failure then leaves an ordinary
 	commit, which `git revert` undoes safely; the alternative — gating the working tree — leaves
@@ -243,11 +245,6 @@ def _gate () -> str | None:
 	ran = subprocess.run(
 		[sys.executable, str(ROOT / "scripts" / "check.py")],
 		cwd=ROOT,
-		env={
-			**os.environ,
-			"SUBROUTINE_TEST_REQUIRE_POSTGRES": "1",
-			"SUBROUTINE_TEST_REQUIRE_BROWSER": "1",
-		},
 		check=False,
 	)
 
