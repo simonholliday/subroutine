@@ -1873,7 +1873,7 @@ def test_the_stale_half_of_the_excuse_list () -> None:
 #: ``.align-left`` family exists for exactly them and is reachable no other way.
 RICH: dict[str, str] = {
 	"text": (
-		"### Three\n#### Four\n##### Five\n###### Six\n\n"
+		"# One\n## Two\n### Three\n#### Four\n##### Five\n###### Six\n\n"
 		"A description with a **word** in it, a mention of #42, `code`, ~~struck~~ text "
 		"and [a link](/projects/sr).\n\n"
 		"> A quotation.\n\n"
@@ -1989,8 +1989,8 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.where',
 		'.where select',
 		'.within',
-		'.written > .rendered',
-		'.written > .rendered:empty::before',
+		'.written > .rendered .mention',
+		'.written > .rendered li > p',
 		':root[data-theme="dark"]',
 		':root[data-theme="light"]',
 		'li[data-colour]',
@@ -2025,7 +2025,14 @@ def reaching (
 	_showing, bare = looks
 
 	staged = tmp_path_factory.mktemp("markup")
-	rendered = test_web._markup(staged, {**SAMPLES, "App": {}, "Prose": RICH})
+	# **The item page with its comment box previewing `RICH`** (`SR#2680`), so the rules a
+	# preview needs reach real markup and can be compared with the same text in `.prose`.
+	# `SAMPLES` stays in the writing state, which is where a box is most of the time and what
+	# the text harness reads; only this page is asked for the other.
+	previewing = {**SAMPLES["Detail"], "previewing": {"name": "body", "text": RICH["text"]}}
+	rendered = test_web._markup(
+		staged, {**SAMPLES, "App": {}, "Prose": RICH, "Detail": previewing}
+	)
 	stylesheet = (test_web.ASSETS / "app.css").read_text(encoding="utf-8")
 
 	context = bare.context.browser.new_context()
@@ -2257,7 +2264,7 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 	# at all and took the browser's own 0.83em. `SR#1818`'s lesson again - a rule that conforms
 	# to the scale is not thereby doing its job.
 	detail = showing("Detail")
-	containers = (".prose", ".comments .body")
+	containers = (".prose", ".comments .body", ".written > .rendered")
 	levels = ("h3", "h4", "h5", "h6")
 	measured = detail.evaluate(
 		"""(selectors) => Object.fromEntries(selectors.map((selector) => {
@@ -2296,6 +2303,46 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 			f"a ## in {container} drew at {ladder[1]}px, outranking the page's own {section}px "
 			f"section headings - `SR#1818`'s defect from the other side"
 		)
+
+	# **And a preview draws what it previews the way it will be read** (`SR#2680`). The same
+	# Markdown is on both pages - `RICH` in a description's `.prose`, and in the comment box's
+	# preview on the item page - so each construct is asked for what makes it look like itself.
+	# The preview had none of the prose rules, so a `###` previewed at the browser's 0.83em, a
+	# list at its 40px and a quotation with no rule beside it.
+	constructs = (
+		"p", *levels, "ul", "ol", "li", "blockquote", "code", "pre", "table", "th", "td", "hr",
+		"del",
+	)
+	looks_like = (
+		"font-size", "font-weight", "color", "background-color", "margin-top", "margin-bottom",
+		"padding-left", "border-left-width", "border-top-width", "text-align",
+	)
+	saved = showing("Prose")
+	as_saved = {tag: _computed(saved, f".prose {tag}", 0, looks_like) for tag in constructs}
+	previewed = showing("Detail")
+	as_previewed = {
+		tag: _computed(previewed, f".written > .rendered {tag}", 0, looks_like)
+		for tag in constructs
+	}
+	absent = sorted(
+		tag for tag in constructs if not as_saved[tag] or not as_previewed[tag]
+	)
+
+	assert not absent, f"{absent} are not drawn on both pages, so they compare nothing"
+
+	unlike = {
+		tag: {
+			name: (as_saved[tag][name], as_previewed[tag][name])
+			for name in looks_like
+			if as_saved[tag][name] != as_previewed[tag][name]
+		}
+		for tag in constructs
+	}
+	unlike = {tag: differences for tag, differences in unlike.items() if differences}
+
+	assert not unlike, (
+		f"the preview draws these unlike the text it previews, as (saved, previewed): {unlike}"
+	)
 
 
 def test_this_file_stays_the_size_of_its_argument () -> None:

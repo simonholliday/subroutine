@@ -67,6 +67,10 @@ upgrade involves.
   the piped text went unused and that `--body -` reads it. It used to answer *Revised* and drop
   the text without a word.
 
+- **Previewing a description or a comment shows it as it will be read.** The preview drew
+  headings, lists, quotations, code and tables with the browser's own defaults, so a heading
+  could preview smaller than the text under it.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

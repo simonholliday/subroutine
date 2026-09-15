@@ -2109,18 +2109,25 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 /* ---- rendered Markdown (`#637`) ---------------------------------------- */
 
 /*
-	Two selectors rather than a class on every element: the renderer emits plain tags, so the
-	styling hangs off whatever contains them. That keeps `markdown.js` about meaning and this
-	file about appearance, and it means a construct added there is styled without touching it.
+	Selectors on the container rather than a class on every element: the renderer emits plain
+	tags, so the styling hangs off whatever contains them. That keeps `markdown.js` about meaning
+	and this file about appearance, and it means a construct added there is styled without
+	touching it.
+
+	**Three containers, and the third is the preview** (`#2680`). `Written` draws what is being
+	typed through `Prose` as `.rendered`, and it had none of these rules, so a heading, a list or
+	a table previewed as the browser's own rather than as it would be read - which is the one
+	thing *Preview* promises (`#776`).
 */
 
-.prose > :first-child, .comments .body > :first-child { margin-top: 0; }
-.prose > :last-child, .comments .body > :last-child { margin-bottom: 0; }
+.prose > :first-child, .comments .body > :first-child, .written > .rendered > :first-child { margin-top: 0; }
+.prose > :last-child, .comments .body > :last-child, .written > .rendered > :last-child { margin-bottom: 0; }
 
-.prose p, .comments .body p { margin: 0 0 var(--space-6); }
+.prose p, .comments .body p, .written > .rendered p { margin: 0 0 var(--space-6); }
 
 .prose h3, .prose h4, .prose h5, .prose h6,
-.comments .body h3, .comments .body h4, .comments .body h5, .comments .body h6 {
+.comments .body h3, .comments .body h4, .comments .body h5, .comments .body h6,
+.written > .rendered h3, .written > .rendered h4, .written > .rendered h5, .written > .rendered h6 {
 	margin: var(--space-section) 0 var(--space-4);
 	line-height: 1.3;
 	text-transform: none;
@@ -2144,25 +2151,27 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	**A comment is prose too**, and had no heading rules at all, so its `###` fell back to the
 	browser's own 0.83em.
 */
-.prose h3, .comments .body h3 { font-size: var(--text-page); }
-.prose h4, .comments .body h4 { font-size: var(--text-section); }
-.prose h5, .prose h6, .comments .body h5, .comments .body h6 { font-size: var(--text-subsection); }
+.prose h3, .comments .body h3, .written > .rendered h3 { font-size: var(--text-page); }
+.prose h4, .comments .body h4, .written > .rendered h4 { font-size: var(--text-section); }
+.prose h5, .prose h6, .comments .body h5, .comments .body h6,
+.written > .rendered h5, .written > .rendered h6 { font-size: var(--text-subsection); }
 
-.prose ul, .prose ol, .comments .body ul, .comments .body ol { margin: 0 0 var(--space-6); padding-left: var(--space-section); }
-.prose li, .comments .body li { margin: var(--space-1) 0; }
+.prose ul, .prose ol, .comments .body ul, .comments .body ol,
+.written > .rendered ul, .written > .rendered ol { margin: 0 0 var(--space-6); padding-left: var(--space-section); }
+.prose li, .comments .body li, .written > .rendered li { margin: var(--space-1) 0; }
 
 /* A nested list makes its parent item hold a paragraph, which would otherwise open a gap
    the writer did not put there. */
-.prose li > p, .comments .body li > p { margin: 0 0 var(--space-2); }
+.prose li > p, .comments .body li > p, .written > .rendered li > p { margin: 0 0 var(--space-2); }
 
-.prose blockquote, .comments .body blockquote {
+.prose blockquote, .comments .body blockquote, .written > .rendered blockquote {
 	margin: 0 0 var(--space-6);
 	padding: var(--space-1) 0 var(--space-1) var(--space-7);
 	border-left: 3px solid var(--line-strong);
 	color: var(--ink-soft);
 }
 
-.prose code, .comments .body code {
+.prose code, .comments .body code, .written > .rendered code {
 	padding: var(--space-1) var(--space-2);
 	background: var(--bg-sunken);
 	border: 1px solid var(--line);
@@ -2170,7 +2179,7 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	font-size: var(--text-code);
 }
 
-.prose pre, .comments .body pre {
+.prose pre, .comments .body pre, .written > .rendered pre {
 	margin: 0 0 var(--space-6);
 	padding: var(--space-5) var(--space-6);
 	background: var(--bg-sunken);
@@ -2181,7 +2190,7 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	overflow-x: auto;
 }
 
-.prose pre code, .comments .body pre code {
+.prose pre code, .comments .body pre code, .written > .rendered pre code {
 	padding: 0;
 	background: transparent;
 	border: 0;
@@ -2189,14 +2198,14 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	white-space: pre;
 }
 
-.prose hr { margin: var(--space-8) 0; border: 0; border-top: 1px solid var(--line); }
+.prose hr, .written > .rendered hr { margin: var(--space-8) 0; border: 0; border-top: 1px solid var(--line); }
 
 /*
 	A table is the one construct that cannot be made narrow, and 20% of the prose here has
 	one. It scrolls inside its own box; the wrapper is the table itself because the renderer
 	emits no container, and `display: block` is what lets it scroll at all.
 */
-.prose table, .comments .body table {
+.prose table, .comments .body table, .written > .rendered table {
 	display: block;
 	overflow-x: auto;
 	max-width: 100%;
@@ -2205,27 +2214,27 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	font-size: var(--text-small);
 }
 
-.prose th, .prose td, .comments .body th, .comments .body td {
+.prose th, .prose td, .comments .body th, .comments .body td, .written > .rendered th, .written > .rendered td {
 	padding: var(--space-3) var(--space-5);
 	border: 1px solid var(--line);
 	text-align: left;
 	vertical-align: top;
 }
 
-.prose th, .comments .body th { background: var(--bg-sunken); font-weight: 600; }
+.prose th, .comments .body th, .written > .rendered th { background: var(--bg-sunken); font-weight: 600; }
 
 /*
 	A Markdown table says how each column is aligned, and the renderer used to say so with an
 	inline style — which `#805`'s policy blocks, because the policy was written on a measurement
 	that the app emits none. Three classes cost three rules and keep both true.
 */
-.prose .align-left, .comments .body .align-left { text-align: left; }
-.prose .align-center, .comments .body .align-center { text-align: center; }
-.prose .align-right, .comments .body .align-right { text-align: right; }
+.prose .align-left, .comments .body .align-left, .written > .rendered .align-left { text-align: left; }
+.prose .align-center, .comments .body .align-center, .written > .rendered .align-center { text-align: center; }
+.prose .align-right, .comments .body .align-right, .written > .rendered .align-right { text-align: right; }
 
-.prose a, .comments .body a { color: var(--accent); }
+.prose a, .comments .body a, .written > .rendered a { color: var(--accent); }
 
-.prose del, .comments .body del { color: var(--ink-faint); }
+.prose del, .comments .body del, .written > .rendered del { color: var(--ink-faint); }
 
 /* Anchors since `#722` — the other end of a link is the thing a reader on this page is most
    likely to want in a tab. The `button` rules stay for the one case that has no address.
@@ -2301,7 +2310,7 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 /* A mention of another item, inside rendered prose (`#638`). Underlined rather than only
    coloured, because `#102` says a colour may not be the only thing carrying a meaning — and
    "this is a link" is a meaning. */
-.prose .mention, .comments .body .mention {
+.prose .mention, .comments .body .mention, .written > .rendered .mention {
 	color: var(--accent);
 	text-decoration: underline;
 	text-underline-offset: 2px;
