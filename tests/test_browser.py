@@ -1972,8 +1972,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.ordered select:disabled',
 		'.priority',
 		'.prose .mention',
-		'.prose h3',
-		'.prose h4',
 		'.prose li > p',
 		'.reveal[aria-expanded="true"] .icon',
 		'.row.with-assignee',
@@ -2251,6 +2249,53 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 		f"{revived} are registered as reaching nothing and now reach something. Delete them: "
 		f"an excuse outliving the thing it excused is how a register stops meaning anything"
 	)
+
+	# **And a heading rule has to make a heading of what it reaches** (`SR#2679`). Asked here
+	# because this page is already drawn and the file is held to its count of tests, and because
+	# it is the question the register above cannot ask: `.prose h5` reached its element and drew
+	# it smaller than the text under it, and a comment's headings were reached by no heading rule
+	# at all and took the browser's own 0.83em. `SR#1818`'s lesson again - a rule that conforms
+	# to the scale is not thereby doing its job.
+	detail = showing("Detail")
+	containers = (".prose", ".comments .body")
+	levels = ("h3", "h4", "h5", "h6")
+	measured = detail.evaluate(
+		"""(selectors) => Object.fromEntries(selectors.map((selector) => {
+			const found = document.querySelector(selector);
+			return [selector, found ? parseFloat(getComputedStyle(found).fontSize) : null];
+		}))""",
+		["div.detail h2", "div.detail > h3"] + [
+			f"{container} {tag}" for container in containers for tag in ("p", *levels)
+		],
+	)
+	missing = sorted(selector for selector, size in measured.items() if size is None)
+
+	assert not missing, f"the Detail sample draws no {missing}, so the sizes below compare nothing"
+
+	title, section = measured["div.detail h2"], measured["div.detail > h3"]
+
+	for container in containers:
+		text = measured[f"{container} p"]
+		ladder = [measured[f"{container} {tag}"] for tag in levels]
+
+		assert all(size > text for size in ladder), (
+			f"a heading in {container} is no larger than the {text}px text under it - #, ##, ### "
+			f"and #### drew at {ladder}"
+		)
+		assert ladder == sorted(ladder, reverse=True), (
+			f"a deeper heading in {container} outranks a shallower one: {ladder}"
+		)
+		assert ladder[1] > ladder[2], (
+			f"## and ### in {container} both drew at {ladder[1]}px, and they are the two levels "
+			f"people write"
+		)
+		assert ladder[0] <= title, (
+			f"a # in {container} drew at {ladder[0]}px, above the page's {title}px title"
+		)
+		assert ladder[1] <= section, (
+			f"a ## in {container} drew at {ladder[1]}px, outranking the page's own {section}px "
+			f"section headings - `SR#1818`'s defect from the other side"
+		)
 
 
 def test_this_file_stays_the_size_of_its_argument () -> None:

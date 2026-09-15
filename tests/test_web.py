@@ -277,7 +277,14 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		}
 	},
 	"Detail": {
-		"item": {"ref": 42, "title": "A task", "description": "Why it matters."},
+		# **Every heading a writer can make, in the description and in a comment** (`SR#2679`):
+		# the browser suite compares each one's size with the text under it and with the page's
+		# own headings, and this is the one page that draws all of them together.
+		"item": {
+			"ref": 42,
+			"title": "A task",
+			"description": "# Where it stands\n\n## Why\n\n### Measured\n\n#### Deeper\n\nWhy it matters.",
+		},
 		"links": [
 			{
 				"id": "one",
@@ -285,7 +292,11 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				"other": {"ref": 43, "title": "The next one", "entity_type": "task"},
 			}
 		],
-		"comments": [{"id": "c1", "created_at": "2026-08-08T10:00:00Z", "body": "Reproduced."}],
+		"comments": [{
+			"id": "c1",
+			"created_at": "2026-08-08T10:00:00Z",
+			"body": "# Found\n\n## Tried\n\n### Again\n\n#### Once more\n\nReproduced.",
+		}],
 		# Same reason as `Row`'s: without it the linked items have no address and render as
 		# buttons, so the default sample would go on testing the fallback (`SR#722`).
 		"workspace": "personal",
@@ -1722,8 +1733,9 @@ def test_the_app_is_served_from_files_that_exist () -> None:
 INKS = ("--ink", "--ink-soft", "--ink-faint", "--accent", "--warn")
 GROUNDS = ("--bg", "--bg-sunken", "--bg-raised")
 
-#: WCAG 2.1 AA for text below 18pt. The stylesheet's largest step is 20px, so everything here
-#: is small text and there is no large-text exemption to reason about.
+#: WCAG 2.1 AA for text below 18pt. The stylesheet's largest step is 22px, under 18pt's 24px, so
+#: everything here is held to the small-text ratio and there is no large-text exemption to reason
+#: about.
 AA_SMALL_TEXT = 4.5
 
 #: AAA, which is what a reader asking their system for more contrast should get.

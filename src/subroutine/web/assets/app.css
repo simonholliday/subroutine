@@ -77,17 +77,24 @@
 	--hue-magenta: light-dark(#980363, #ff71bb);
 	--hue-slate: light-dark(#5b646f, #808a95);
 
-	/* **The type scale** (`#906`, decided from `#441`). Five steps, and nothing outside them —
+	/* **The type scale** (`#906`, decided from `#441`). Six steps, and nothing outside them —
 	   which is the whole difference between what colour has here and what type had. There were
 	   45 `font-size` declarations across eight values and **39 of them sat in three values
 	   spanning 2px**, so this is not eight tiers collapsed, it is one cluster of small text
 	   given names. `--text-body` is `body`'s own 15px, unchanged and mostly inherited: only one
-	   rule ever declared it, and everything else overrode downward. */
+	   rule ever declared it, and everything else overrode downward.
+
+	   **Six since every heading has had to be larger than the text under it** (`#2679`, Simon,
+	   2026-09-15). Five left one step between the body and the page's title, and a stored `##`
+	   and `###` - the two levels people write - each need a step above the body and a visible
+	   one between them. So the title and a section heading each moved up, and 17px stayed as
+	   the heading inside a section. */
 	--text-fine: 12px;
 	--text-small: 13px;
 	--text-body: 15px;
-	--text-section: 17px;
-	--text-page: 20px;
+	--text-subsection: 17px;
+	--text-section: 19px;
+	--text-page: 22px;
 
 	/* **Relative on purpose.** Code inside a 13px row should be 13px-ish and code inside 15px
 	   prose 15px-ish. It was the one relative unit among forty-five, which read as the tell that
@@ -552,8 +559,10 @@ fieldset {
 	}
 }
 
+/* **The product's name kept its 17px** when section headings moved up a step (`#2679`). It names
+   what the page belongs to rather than heading a part of it. */
 .top h1 {
-	font-size: var(--text-section);
+	font-size: var(--text-subsection);
 	font-weight: 600;
 	margin: 0;
 	letter-spacing: -0.01em;
@@ -2110,7 +2119,8 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 
 .prose p, .comments .body p { margin: 0 0 var(--space-6); }
 
-.prose h3, .prose h4, .prose h5, .prose h6 {
+.prose h3, .prose h4, .prose h5, .prose h6,
+.comments .body h3, .comments .body h4, .comments .body h5, .comments .body h6 {
 	margin: var(--space-section) 0 var(--space-4);
 	line-height: 1.3;
 	text-transform: none;
@@ -2118,9 +2128,25 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	color: var(--ink);
 }
 
-.prose h3 { font-size: var(--text-section); }
-.prose h4 { font-size: var(--text-body); }
-.prose h5, .prose h6 { font-size: var(--text-small); color: var(--ink-soft); }
+/*
+	**Every heading somebody writes is larger than the text under it** (`#2679`). `markdown.js`
+	pushes a stored heading down two levels, so `#` is an `h3`, `##` an `h4` and `###` an `h5` -
+	and `##` was drawn at the body's own size, and `###` below it and muted. Those are the two
+	levels people write: across this instance's documents `##` opens 173 of the 193 that have
+	headings, and `###` is on 741 lines.
+
+	`#` takes the title's step, because it is usually a document repeating its own title. `##`
+	takes a section heading's, the same as the page's own *Links* and *Comments*, so the
+	author's structure and the app's are one size - `#1818`'s rule. `###` and deeper take the
+	step below, and a deep heading is no longer muted: colour marks exceptions and never
+	encodes a scale (`#102`).
+
+	**A comment is prose too**, and had no heading rules at all, so its `###` fell back to the
+	browser's own 0.83em.
+*/
+.prose h3, .comments .body h3 { font-size: var(--text-page); }
+.prose h4, .comments .body h4 { font-size: var(--text-section); }
+.prose h5, .prose h6, .comments .body h5, .comments .body h6 { font-size: var(--text-subsection); }
 
 .prose ul, .prose ol, .comments .body ul, .comments .body ol { margin: 0 0 var(--space-6); padding-left: var(--space-section); }
 .prose li, .comments .body li { margin: var(--space-1) 0; }

@@ -57,6 +57,11 @@ upgrade involves.
 - **A workspace's or a project's settings page names that place in the dropdown beside the
   wordmark**, where it said *All workspaces*, and lists that workspace's projects under it.
 
+- **A heading written in a description, a document or a comment is larger than the text under
+  it.** A `##` was drawn at the same size as its text and a `###` smaller, and in a comment
+  smaller still. Headings now run from the page title's size down, each above the text, so
+  section headings across the browser and an item's title are a little larger than they were.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.
