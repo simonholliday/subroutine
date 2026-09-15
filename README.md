@@ -350,7 +350,7 @@ $ subroutine list --order -priority_score
 $ subroutine search "dentist"
 ```
 
-Anything you have put off until a later date is held back from the list, and the list says
+Anything you have deferred until a later date is held back from the list, and the list says
 how much it is holding back. `--deferred` includes it, at the bottom - visible, and not mixed
 in with the work you could start now.
 

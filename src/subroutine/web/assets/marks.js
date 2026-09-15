@@ -454,7 +454,7 @@ export function marks (
 	*/
 	if (deferred(item)) {
 		states.push({
-			text: `Deferred to ${day(item.snoozed_until, item.timezone, item.snoozed_is_all_day)}`,
+			text: `Deferred until ${day(item.snoozed_until, item.timezone, item.snoozed_is_all_day)}`,
 			family: "state",
 		});
 	}

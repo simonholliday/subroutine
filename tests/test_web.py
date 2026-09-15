@@ -2285,7 +2285,7 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 	assert "4 more waiting on somebody else" in shown, (
 		f"the blocked section capped what it drew and did not say so: {shown}"
 	)
-	assert "9 put off until later" in shown, (
+	assert "9 deferred until later" in shown, (
 		f"work somebody deferred vanishes with nothing saying so, which is the gap this was "
 		f"built for: {shown}"
 	)

@@ -200,7 +200,7 @@ def test_the_sections_cover_every_bucket_the_agenda_carries () -> None:
 #: claim being made here is that the figure is *said at all*.
 AGENT_SAYS_EACH_TOTAL = {
 	"later_total": "dated further out",
-	"deferred_total": "put off until later",
+	"deferred_total": "deferred until later",
 	"paused_total": "nobody is running",
 	"passed_total": "already past",
 	# **Both of the agenda's own caps are counted into one figure, deliberately** (`SR#1285`):

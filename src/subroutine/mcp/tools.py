@@ -1113,8 +1113,8 @@ def _tools (
 			name="subroutine_update",
 			title="Change a task",
 			description=(
-				"Change a task: priority, estimate, status, title, or the day it is planned "
-				"for or hidden until. Set both priority axes — one alone sorts below "
+				"Change a task: priority, estimate, status, title, or when it starts, ends "
+				"or is deferred until. Set both priority axes — one alone sorts below "
 				"everything ranked. Omitted fields are unchanged."
 			),
 			schema={
@@ -1155,7 +1155,7 @@ def _tools (
 						"type": "string",
 						"description": "File it under this project, by key.",
 					},
-					"plan": {"type": "string", "description": "The day to do it. A date or ''."},
+					"plan": {"type": "string", "description": "When it starts. A date or ''."},
 					"until": {
 						"type": "string",
 						"description": "The last day, if it lasts more than one. A date or ''.",
@@ -2059,7 +2059,7 @@ def _listed (
 		if agenda.deferred_total > 0:
 			rows = [
 				*rows,
-				f"{agenda.deferred_total} put off until later. "
+				f"{agenda.deferred_total} deferred until later. "
 				f"List with filter snoozed_until.gt=today.",
 			]
 
@@ -2676,6 +2676,22 @@ def _line (
 		# `#674`'s guard compares the two renderings field by field, so an end shown at the
 		# command line and not here is a build failure rather than an oversight.
 		# **An end shares the start's flag**, having none of its own (decision `#1235` §2).
+		# **A defer, while it is still hiding the item** (`#2686`). This row is what
+		# `subroutine_add` answers with, and it had a place for a planned day, a span, a deadline
+		# and a repeat and none for the one date that hides anything - so a line captured as
+		# *Holiday in Dawlish from 2nd October* came back as an ordinary task and vanished from
+		# every listing for a fortnight. **The terminal's rule for a row**: once the moment has
+		# passed the task behaves like any other and the cell would explain nothing, which is
+		# what `ordering.put_off` decides for both. `show` reports it either way.
+		if (
+			item.snoozed_until is not None
+			and subroutine.domain.ordering.put_off(item) == subroutine.domain.ordering.DEFERRED_BAND
+		):
+			cells.append(
+				"deferred until "
+				f"{_moment_of(item.snoozed_until, item, all_day=item.snoozed_is_all_day)}"
+			)
+
 		if item.starts_at is not None:
 			started = _moment_of(item.starts_at, item, all_day=item.starts_is_all_day)
 			cells.append(
@@ -2817,7 +2833,7 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 		# one that has come round is still the answer to why this was not on the list in June.
 		if item.snoozed_until is not None:
 			facts.append(
-				"from "
+				"deferred until "
 				f"{_moment_of(item.snoozed_until, item, all_day=item.snoozed_is_all_day)}"
 			)
 

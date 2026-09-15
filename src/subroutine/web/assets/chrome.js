@@ -398,7 +398,7 @@ export function Facts ({
 	   line and the one above both read `snoozed_until` and `start_at` before the rename, so
 	   the item page said *Starts* about a defer while the form beneath it said *Hidden until*
 	   about the same value — one column under two opposite names, three clicks apart. */
-	add("Hidden until", day(item.snoozed_until, item.timezone, item.snoozed_is_all_day));
+	add("Deferred until", day(item.snoozed_until, item.timezone, item.snoozed_is_all_day));
 	/*
 		**How it repeats, in the words the *rule* produces** — `#925`, and §6.7's whole argument.
 		Simon: *"an indicator of how the task repeats, based on its parsed and translated status

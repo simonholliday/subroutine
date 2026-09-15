@@ -513,7 +513,7 @@ export function Agenda ({
 		   rows this page chose not to draw, where the three below are rows the day itself
 		   holds back. */
 		{ count: heldUp, said: `${heldUp} more waiting on somebody else` },
-		{ count: deferred, said: `${deferred} put off until later` },
+		{ count: deferred, said: `${deferred} deferred until later` },
 		{ count: paused, said: `${paused} in projects nobody is running` },
 		{ count: later, said: `${later} dated further out` },
 		/* **The fifth, and the only one nobody chose** — decision `#1235` §3. A list at this

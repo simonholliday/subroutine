@@ -116,6 +116,18 @@ TERMS: dict[str, tuple[str, str]] = {
 		"one action apart. `sub-project` was hyphenated everywhere already, so only this "
 		"compound was split.",
 	),
+	"hidden until": (
+		"deferred until",
+		"`SR#2688`, Simon's word of 2026-09-15. A defer read *Hidden until* in the browser and in "
+		"`explain dates`, *from* in `show` and on a listing's rows, and nothing on an agent's "
+		"row. It is *deferred until* on every surface now, the word already written: the command, "
+		"the agent's argument and the flag all say defer.",
+	),
+	"put off": (
+		"deferred",
+		"`SR#2688`: the agenda counted what was *put off until later* beside rows saying "
+		"*deferred until*, one concept in two words a line apart.",
+	),
 }
 
 

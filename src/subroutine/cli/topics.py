@@ -83,8 +83,9 @@ def _dates_body () -> str:
                moment — a holiday, a conference, a code freeze. Set it
                with 'plan 7 "14 august" --until "28 august"'. A calendar
                you have subscribed shows the whole run of days.
-  hidden until A defer. The task does not appear at all before this. It is
-               the only one of the four that hides anything.
+  deferred until
+               The task does not appear at all before this. It is the
+               only one of the four that hides anything.
 
 Most tasks use one of them. Many use none.
 
@@ -154,7 +155,7 @@ def _capture_body () -> str:
 		(f"{', '.join(subroutine.domain.capture.DEADLINE_WORDS)} <date>", "sets a deadline"),
 		(
 			f"{', '.join(subroutine.domain.capture.PLANNED_WORDS)} <date>",
-			"sets the day you will do it",
+			"sets when it starts",
 		),
 		(", ".join(subroutine.domain.capture.BARE_PLANNED_WORDS), "the same, said shorter"),
 		(f"{', '.join(subroutine.domain.capture.DEFER_WORDS)} <date>", "hides it until then"),

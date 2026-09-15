@@ -79,7 +79,7 @@ export const PRIORITIES = [
 */
 export const DATE_FIELDS = [
 	["starts", "Starts", "When it begins. This is what 'agenda' shows.", true],
-	["snooze", "Hidden until", "A defer. The task does not appear at all before this.", true],
+	["snooze", "Deferred until", "The task does not appear at all before this.", true],
 	["due", "Due", "A deadline. The date something has to be finished by.", true],
 ];
 

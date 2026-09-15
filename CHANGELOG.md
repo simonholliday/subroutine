@@ -40,6 +40,12 @@ upgrade involves.
   own; to name a workspace from the first call when a credential reaches several; and to say
   where it put anything a person has to look at.
 
+- **Something deferred says *deferred until* wherever its date is shown.** The browser said
+  *Hidden until*, `subroutine show` and a listing's rows said *from*, the agenda counted what was
+  *put off until later*, and an agent's rows said nothing. Every surface now uses the word the
+  `defer` command, the agent tools' `defer` and `--deferred` already use. A start is described as
+  *when it starts* rather than as the day you will do it, which read oddly for an event.
+
 ### Fixed
 
 - **A credential narrowed to a project below one it cannot read reaches that project by the
@@ -82,6 +88,11 @@ upgrade involves.
   answered with the whole new description inside its confirmation, so a long edit cost its
   length twice. It now says how many characters the description holds, and names a changed title
   rather than printing it a second time.
+
+- **Adding something from the agent tools says when it is deferred.** `subroutine_add` answered a
+  line it had deferred to 2 October as an ordinary task, and the item was then hidden from every
+  list for a fortnight with nothing on screen having said so. A row now says *deferred until*
+  while the defer still hides the item, as the terminal's rows do.
 
 ## 0.8.18 — 2026-09-14
 

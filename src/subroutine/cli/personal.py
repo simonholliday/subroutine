@@ -2800,17 +2800,17 @@ def _hidden (
 		changed = client.schedule(
 			ref=task.ref,
 			workspace=located.workspace,
-			snooze=_moment(world, _asked(when, "Hide it until when?"), at=located),
+			snooze=_moment(world, _asked(when, "Defer it until when?"), at=located),
 			applies_to=_which_occurrences(
 				program, task, just_this_one=just_this_one, from_now_on=from_now_on
 			),
 		)
 
-		hidden = f"Hidden until {_when_rendered(changed)}"
+		deferred = f"Deferred until {_when_rendered(changed)}"
 
-		_because(client, located, because, what=hidden)
+		_because(client, located, because, what=deferred)
 
-		program.say(_acted(world, dataclasses.replace(located, item=changed), hidden))
+		program.say(_acted(world, dataclasses.replace(located, item=changed), deferred))
 		_suggest(program.console, "subroutine agenda")
 
 
@@ -4217,7 +4217,7 @@ def _listed (
 			_say_unread(gathered, console=program.console)
 
 			if not deferred:
-				_suggest(program.console, f'subroutine search "{q}" --deferred', "look in what you have put off too")
+				_suggest(program.console, f'subroutine search "{q}" --deferred', "look in what you have deferred too")
 
 			return
 
@@ -8780,7 +8780,7 @@ def register (
 			"", "--connection", help="Only this connection, by name."
 		),
 		deferred: bool = typer.Option(
-			False, "--deferred", help="Include things you have put off until a later date."
+			False, "--deferred", help="Include what you have deferred until a later date."
 		),
 		ready: bool = READY_OPTION,
 		to_act_on: bool = TO_ACT_ON_OPTION,
@@ -8854,7 +8854,7 @@ def register (
 			"", "--connection", help="Only this connection, by name."
 		),
 		deferred: bool = typer.Option(
-			False, "--deferred", help="Include things you have put off until a later date."
+			False, "--deferred", help="Include what you have deferred until a later date."
 		),
 		dated: list[str] | None = typer.Option(
 			None,
@@ -9025,7 +9025,7 @@ def register (
 			"", "--connection", help="Only this connection, by name."
 		),
 		deferred: bool = typer.Option(
-			False, "--deferred", help="Include things you have put off until a later date."
+			False, "--deferred", help="Include what you have deferred until a later date."
 		),
 		ready: bool = READY_OPTION,
 		to_act_on: bool = TO_ACT_ON_OPTION,
@@ -10938,7 +10938,7 @@ def _render (
 	# spends a line per fact above.
 	if deferred > 0:
 		console.print(
-			rich.text.Text(f"      and {deferred} put off until later", style=DETAIL)
+			rich.text.Text(f"      and {deferred} deferred until later", style=DETAIL)
 		)
 
 	if paused > 0:
@@ -12391,7 +12391,7 @@ def _facts (located: Located) -> list[str]:
 		# to "why was this not on my list in June" — where a field that erased itself on
 		# arrival would leave that question permanently unanswerable.
 		if item.snoozed_until is not None:
-			facts.append(f"from {_when_rendered(item)}")
+			facts.append(f"deferred until {_when_rendered(item)}")
 
 		if item.due_at is not None:
 			facts.append(
@@ -12615,7 +12615,7 @@ def _when (item: Item) -> str:
 	# agenda looks broken. A deadline still prints alongside it, because "not until December,
 	# and wanted by the fifteenth" is two facts and dropping either misinforms.
 	if _deferred(task):
-		deferred = f"from {_when_rendered(task)}"
+		deferred = f"deferred until {_when_rendered(task)}"
 
 		if task.due_at is not None:
 			return (
@@ -13084,7 +13084,7 @@ def _say_parked (
 	things = "thing" if total == 1 else "things"
 	console.print(
 		rich.text.Text(
-			f"      {total} {things} put off until later. 'subroutine list --deferred' to "
+			f"      {total} {things} deferred until later. 'subroutine list --deferred' to "
 			f"include them.",
 			style=DETAIL,
 		)

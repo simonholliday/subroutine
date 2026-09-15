@@ -493,7 +493,7 @@ def interpret_written_moment (
 #: seen in time; starting work after its deadline is just work being late.
 _ORDERED_BEFORE_DUE: dict[str, tuple[str, str]] = {
 	"snoozed_until": (
-		"A task cannot be hidden until after it is due.",
+		"A task cannot be deferred until after it is due.",
 		"Move the hidden-until date earlier, or the deadline later.",
 	),
 }

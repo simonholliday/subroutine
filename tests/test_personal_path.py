@@ -1326,7 +1326,7 @@ def test_plan_and_defer_move_a_task_between_days (
 
 	hidden = run("defer", "1", "2026-12-01")
 
-	assert "Hidden until" in hidden.output
+	assert "Deferred until" in hidden.output
 
 	# Deferred means hidden: the agenda is empty again.
 	assert "Buy milk" not in run("agenda").output
@@ -1384,7 +1384,7 @@ def test_a_defer_keeps_the_time_of_day_it_was_given (
 
 	timed = run("defer", "1", "2026-12-01 06:00")
 
-	assert "Hidden until" in timed.output
+	assert "Deferred until" in timed.output
 	assert "06:00" in timed.output
 
 	stored = json.loads(run("show", "1", "--json").output)["item"]
@@ -2312,12 +2312,12 @@ def test_a_defer_can_say_what_it_is_waiting_for (
 
 	hidden = run("defer", "1", "2026-12-01", "--because", "waiting on the provider's reply")
 
-	assert "Hidden until" in hidden.output
+	assert "Deferred until" in hidden.output
 
 	shown = run("show", "1")
 
 	# The act and the reason in one sentence, so the record reads without the event beside it.
-	assert "Hidden until" in shown.output
+	assert "Deferred until" in shown.output
 	assert "waiting on the provider's reply" in shown.output
 
 
@@ -2351,7 +2351,7 @@ def test_an_act_without_a_reason_records_nothing (
 	run("add", "Buy milk")
 	run("defer", "1", "2026-12-01")
 
-	assert "Hidden until" not in run("show", "1").output
+	assert "Deferred until" not in run("show", "1").output
 
 
 def test_each_reason_is_kept_rather_than_replacing_the_last (
@@ -2610,7 +2610,7 @@ def test_a_weekday_names_a_day_wherever_a_day_is_named (
 
 	assert "Starts " in run("plan", "1", "friday").output
 	assert "Starts " in run("plan", "1", "next friday").output
-	assert "Hidden until" in run("defer", "1", "monday").output
+	assert "Deferred until" in run("defer", "1", "monday").output
 
 	# Abbreviations too — they are in the same table `explain dates` prints.
 	assert "Starts " in run("plan", "1", "fri").output
@@ -3995,13 +3995,13 @@ def test_a_deferred_task_says_so_wherever_it_appears (
 
 	listed = run("ls", "--deferred").output
 
-	assert "from Tue 1 Dec" in listed
+	assert "deferred until Tue 1 Dec" in listed
 
 	# **The deadline survives alongside it.** "Not until December, and wanted by the
 	# fifteenth" is two facts, and a phrase that could carry only one used to drop this one.
 	assert "due Tue 15 Dec" in listed
 
-	assert "from Tue 1 Dec" in run("show", "1").output
+	assert "deferred until Tue 1 Dec" in run("show", "1").output
 
 
 def test_a_defer_that_has_come_round_is_reported_only_where_it_is_asked_about (
@@ -4022,8 +4022,8 @@ def test_a_defer_that_has_come_round_is_reported_only_where_it_is_asked_about (
 	# Still in the listing: `#73` hides work whose start has *not* arrived, and this one's
 	# has. The row is shown, and shown without the marker.
 	assert "Chase the invoice" in run("ls").output
-	assert "from Sun 5 Jan" not in run("ls").output
-	assert "from Sun 5 Jan" in run("show", "1").output
+	assert "deferred until Sun 5 Jan" not in run("ls").output
+	assert "deferred until Sun 5 Jan" in run("show", "1").output
 
 
 def test_the_listing_ranks_a_backlog_when_asked (
@@ -4243,7 +4243,7 @@ def test_the_listing_holds_back_deferred_work_and_says_how_much (
 
 	assert "Do this now" in listed
 	assert "Renew the passport" not in listed
-	assert "1 thing put off until later" in listed
+	assert "1 thing deferred until later" in listed
 
 	widened = run("list", "--deferred").output
 
@@ -4251,7 +4251,7 @@ def test_the_listing_holds_back_deferred_work_and_says_how_much (
 
 	# And when it is shown, it is labelled — `#72`'s marker is what makes the widened list
 	# readable rather than just longer.
-	assert "from" in widened
+	assert "deferred until" in widened
 
 
 def test_a_list_that_is_entirely_parked_does_not_read_as_empty (
@@ -4271,7 +4271,7 @@ def test_a_list_that_is_entirely_parked_does_not_read_as_empty (
 
 	assert "Nothing on your list" not in listed
 	assert "Nothing you can start yet" in listed
-	assert "1 thing put off until later" in listed
+	assert "1 thing deferred until later" in listed
 	assert 'subroutine add "something to do"' not in listed
 
 
@@ -4319,7 +4319,7 @@ def test_a_list_held_back_by_a_blocked_parent_does_not_read_as_empty (
 	# deferred work, so the two can never be non-zero on one page. The branch is written as two
 	# independent statements anyway and this says why that is not tested rather than leaving a
 	# reader to wonder.
-	assert "put off until later" not in listed, (
+	assert "deferred until later" not in listed, (
 		f"a parked count appeared under --ready, where its own site skips it: {listed}"
 	)
 

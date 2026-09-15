@@ -8012,6 +8012,34 @@ def test_changing_a_description_is_confirmed_without_repeating_it (
 	assert "(set title)" in retitled, retitled
 
 
+def test_a_deferred_capture_says_it_is_deferred (bound: subroutine.mcp.protocol.Server) -> None:
+	"""`SR#2686`: a defer read from a captured line was left out of the line confirming it.
+
+	``from <date>`` is a defer, the only date that hides an item, and ``subroutine_add``
+	answered with a row that had no place for one - so *Holiday in Dawlish from 2nd October*
+	came back as an ordinary task and was gone from every listing for a fortnight, on the line
+	the skill tells an agent to check.
+	"""
+
+	answer, failed = _called(bound, "subroutine_add", text="Renew the passport from 2099-12-01")
+
+	assert not failed, answer
+	assert "deferred until 2099-12-01" in answer, answer
+
+	# **Only while it still hides the item**, as the terminal's rows have it: a defer that has
+	# come round explains nothing on a row.
+	passed, failed = _called(bound, "subroutine_add", text="Chase the invoice from 2020-01-05")
+
+	assert not failed, passed
+	assert "deferred until" not in passed, passed
+
+	# **And `show` says it in the same words**, where it was *from* (`SR#2688`).
+	shown, failed = _called(bound, "subroutine_show", ref=int(answer.split()[1].lstrip("#")))
+
+	assert not failed, shown
+	assert "deferred until 2099-12-01" in shown, shown
+
+
 def test_an_agent_can_refuse_to_lose_somebody_elses_paragraphs (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
