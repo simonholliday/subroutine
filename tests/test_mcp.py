@@ -4453,6 +4453,66 @@ def test_search_without_words_says_so_rather_than_listing_everything (
 	assert "look for" in text
 
 
+def test_a_type_in_the_search_line_narrows_to_the_kind_that_keeps_it (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2685`: every ``type:`` term was refused here, including this tool's own example.
+
+	Tasks and documents keep different types (§5.5), and the tool asked both the same line and
+	returned whichever refusal came - so ``type:bug`` was refused by the documents and
+	``type:decision`` by the tasks, while both listings and the terminal answered each of them.
+	**A word one kind keeps narrows the answer to that kind, and a word neither keeps is still
+	refused by name.**
+	"""
+
+	bug, failed = _called(
+		bound, "subroutine_add", text="The capture parser drops a word", type="bug"
+	)
+
+	assert not failed, bug
+
+	_added(bound, "Tidy the capture notes")
+	decision, failed = _called(
+		bound,
+		"subroutine_document",
+		title="Capture reads asterisks only",
+		body="Because.",
+		type="decision",
+	)
+
+	assert not failed, decision
+
+	bugs, failed = _called(bound, "subroutine_search", q="type:bug capture")
+
+	assert not failed, bugs
+	assert "The capture parser drops a word" in bugs, bugs
+	assert "Tidy the capture notes" not in bugs, bugs
+	assert "Capture reads asterisks only" not in bugs, bugs
+
+	decisions, failed = _called(bound, "subroutine_search", q="type:decision capture")
+
+	assert not failed, decisions
+	assert "Capture reads asterisks only" in decisions, decisions
+	assert "The capture parser drops a word" not in decisions, decisions
+
+	# **A status is kept per kind too**, and `active` is a document's.
+	active, failed = _called(bound, "subroutine_search", q="status:active capture")
+
+	assert not failed and "Capture reads asterisks only" in active, active
+
+	nowhere, failed = _called(bound, "subroutine_search", q="type:nonsense capture")
+
+	assert failed and "nonsense" in nowhere, nowhere
+
+	# **With documents left out, the task's refusal is the whole answer.** Readiness is about
+	# tasks, so a document's type asked of it is refused rather than answered with nothing.
+	ready, failed = _called(
+		bound, "subroutine_list", filter={"type.eq": "decision"}, ready=True
+	)
+
+	assert failed and "decision" in ready, ready
+
+
 def test_the_listing_no_longer_advertises_a_search_argument (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

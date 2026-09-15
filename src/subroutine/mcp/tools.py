@@ -2126,17 +2126,37 @@ def _listed (
 	# re-measured.
 	assignee = _text(arguments, "assignee")
 
-	tasks = client.tasks(
-		workspace=workspace,
-		project=project,
-		limit=limit,
-		order=_text(arguments, "order"),
-		ready=ready,
-		to_act_on=to_act_on,
-		q=query,
-		assignee=assignee,
-		filters=filters,
-	)
+	# **A word only one kind keeps narrows the answer to that kind** (`#2685`). A status and a
+	# type belong to a kind (§5.5), so ``type:bug`` is refused by the documents and
+	# ``type:decision`` by the tasks - and this asked both the same line and returned whichever
+	# refusal came, so no ``type:`` term could succeed here, including the ``type:bug deploy``
+	# this tool's own description offers. The terminal tolerates the refusal of one kind and
+	# raises only when every kind refuses, and both now read that rule from one place.
+	#
+	# **Only when the other kind will be asked.** With documents left out a task's refusal is
+	# the whole answer, and swallowing it would say *Nothing open* about a word nobody has.
+	documents_asked = not ready and _asks_only_of_documents(filters)
+	refused: subroutine.errors.ValidationError | None = None
+
+	try:
+		tasks = client.tasks(
+			workspace=workspace,
+			project=project,
+			limit=limit,
+			order=_text(arguments, "order"),
+			ready=ready,
+			to_act_on=to_act_on,
+			q=query,
+			assignee=assignee,
+			filters=filters,
+		)
+
+	except subroutine.errors.ValidationError as unknown:
+		if not documents_asked or not subroutine.clients.base.names_a_word_not_kept_here(unknown):
+			raise
+
+		refused = unknown
+		tasks = subroutine.clients.base.Listing()
 
 	# **`limit` bounds the answer, not each kind**, which is what the caller's budget means —
 	# asking for five and receiving five tasks followed by five documents spends it twice.
@@ -2157,17 +2177,29 @@ def _listed (
 	# document is not scheduled (§6.14), so *what did I complete yesterday* is a question about
 	# tasks — and a second call that dropped the filter it could not honour would answer it by
 	# adding every decision in the workspace.
-	documents = (
-		client.documents(
-			workspace=workspace,
-			project=project,
-			limit=limit,
-			q=query,
-			filters=filters,
-		)
-		if not ready and _asks_only_of_documents(filters)
-		else []
-	)
+	documents: typing.Any = []
+
+	if documents_asked:
+		try:
+			documents = client.documents(
+				workspace=workspace,
+				project=project,
+				limit=limit,
+				q=query,
+				filters=filters,
+			)
+
+		except subroutine.errors.ValidationError as unknown:
+			if not subroutine.clients.base.names_a_word_not_kept_here(unknown):
+				raise
+
+			# **Both kinds refusing is what makes it a typo**, and the task's refusal is the one
+			# said, for the terminal's reason: somebody writing ``type:`` means a task's type far
+			# more often than a document's.
+			if refused is not None:
+				raise refused from None
+
+			documents = subroutine.clients.base.Listing()
 
 	# **The order the server put each of them in, read off the rows** — `ordering.merge_order`,
 	# which the terminal and the browser have both read since `#875`/`#878` and this surface

@@ -71,6 +71,13 @@ upgrade involves.
   headings, lists, quotations, code and tables with the browser's own defaults, so a heading
   could preview smaller than the text under it.
 
+- **Searching from the agent tools with a type in the line works.** `subroutine_search` and
+  `subroutine_list` refused every `type:` term, including the `type:bug deploy` example the
+  search tool's own description gives, because tasks and documents keep different types and the
+  refusal of whichever did not have it was returned. A type, status or tag one kind keeps now
+  narrows the answer to that kind, as it already did at the command line, and a word neither
+  keeps is still refused by name.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

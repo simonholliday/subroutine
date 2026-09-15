@@ -67,6 +67,38 @@ CALLABLE_METHODS = READING_VERBS | frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #: checks this against the routes the application actually mounts.
 API_PREFIX = "/v1"
 
+#: The narrowing words whose value belongs to one workspace, and within it to one kind of item.
+#:
+#: A read spans every workspace a credential can reach (§13.7), so one of these being absent
+#: from *a* workspace is the ordinary answer and the workspace is passed over; one that is
+#: absent from *every* workspace is a typo and is still refused by name. That distinction is
+#: `#332`'s, corrected by `#1468`, and this register exists because it was written out twice
+#: and `tag` was added to neither — `#1575`, which made `--tag` refuse on every instance with
+#: more than one workspace while the API answered the same question correctly.
+#:
+#: **And a status and a type belong to a kind as well as to a workspace** (§5.5), so a word one
+#: kind has and the other has not narrows a read that spans both, rather than refusing it.
+#: **Here rather than in the terminal since `#2685`**: the agent's tools asked tasks and
+#: documents the same ``type:bug`` and returned the documents' refusal, so no ``type:`` term
+#: could succeed there while the terminal answered every one of them.
+#:
+#: **An assignee is deliberately not here.** An account belongs to the instance, so a name that
+#: resolves nowhere is a typo wherever it was asked, and tolerating it would turn one into
+#: "nothing on your list" across every workspace at once.
+PER_WORKSPACE_WORDS = frozenset({"status", "type", "tag"})
+
+
+def names_a_word_not_kept_here (refusal: subroutine.errors.ValidationError) -> bool:
+	"""Say whether a listing refused a word this workspace keeps for another kind or not at all.
+
+	**Identified by the field it names rather than by its code**, because the lookups disagree
+	about the code: ``status_for`` raises ``invalid_status`` and ``item_type_for`` takes the
+	default. The field is what actually says *a vocabulary key this workspace has not got*, and
+	matching on it means a genuine refusal about something else is still raised.
+	"""
+
+	return bool({problem.field for problem in refusal.errors} & PER_WORKSPACE_WORDS)
+
 
 #: What a listing method returns — the rows, and whether they are all of them.
 #:
