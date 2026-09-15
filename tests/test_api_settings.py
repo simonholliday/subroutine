@@ -132,8 +132,8 @@ def test_a_credential_narrowed_below_a_project_is_not_told_what_it_is_called (
 
 	slug = _chain(world)
 	child = world.call("GET", f"/v1/projects/parent/child?workspace_id={slug}").json()["id"]
-	# **By id**, because a path is resolved a segment at a time and the credential cannot read the
-	# first one.
+	# **By id**, as it was written while an address could not reach a project through a parent
+	# the credential cannot read (`#2645`, fixed since), so this stays a test of settings alone.
 	path = f"/v1/projects/{child}/settings?workspace_id={slug}"
 	_row, issued = subroutine.domain.authentication.issue_token(
 		session, user=world.user, title="Below the parent", project_scope=[child]

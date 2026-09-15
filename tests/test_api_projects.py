@@ -936,3 +936,50 @@ def test_a_project_nobody_can_see_is_not_sharable_by_a_stranger (
 	)
 
 	assert refused.status_code == 404
+
+
+def test_a_credential_narrowed_below_a_project_reaches_it_by_the_address_it_is_listed_under (
+	session: sqlalchemy.orm.Session, world: test_api_tasks.World
+) -> None:
+	"""`#2645`: a listing that prints ``parent/child`` has to be answered at ``parent/child``.
+
+	A credential narrowed to the child cannot read ``parent``, and an address was walked a segment
+	at a time among what the credential can read, so the address its own listing gave it answered
+	*there is no project*, while the key alone and the id both reached it.
+
+	**And it reaches nothing else.** The parent, a sibling outside the credential's scope and a
+	guessed parent all stay unreachable, which is what makes walking through an unreadable
+	ancestor safe: the whole address was already in the listing.
+	"""
+
+	slug = world.workspace.slug
+
+	for body in (
+		{"key": "parent", "title": "The parent", "workspace_id": slug},
+		{"key": "child", "title": "The child", "workspace_id": slug, "parent": "parent"},
+		{"key": "other", "title": "Not in scope", "workspace_id": slug, "parent": "parent"},
+	):
+		made = world.call("POST", "/v1/projects", json=body)
+
+		assert made.status_code == 201, made.text
+
+	child = world.call("GET", f"/v1/projects/child?workspace_id={slug}").json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=world.user, title="Below the parent", project_scope=[child]
+	)
+	session.flush()
+	narrowed = world._replace(secret=issued.value.get_secret_value())
+
+	listed = narrowed.call("GET", f"/v1/projects?workspace_id={slug}").json()["items"]
+
+	assert [row["path"] for row in listed if row["id"] == child] == ["parent/child"], listed
+
+	reached = narrowed.call("GET", f"/v1/projects/parent/child?workspace_id={slug}")
+
+	assert reached.status_code == 200, reached.text
+	assert reached.json()["id"] == child
+
+	for unreachable in ("parent", "parent/other", "guess/child", "child/parent"):
+		answer = narrowed.call("GET", f"/v1/projects/{unreachable}?workspace_id={slug}")
+
+		assert answer.status_code == 404, f"{unreachable} answered {answer.status_code}"

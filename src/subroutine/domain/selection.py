@@ -642,11 +642,14 @@ def addressed (
 	"""
 
 	model = subroutine.db.models.project.Project
+	# **Every project in the workspace, for walking the ancestors of an address** (`#2645`), and
+	# the whole of what the unauthenticated internal caller may resolve — see :func:`_walked`.
+	through = sqlalchemy.select(model).where(
+		model.workspace_id == workspace.id,
+		sqlalchemy.true() if include_deleted else model.deleted_at.is_(None),
+	)
 	statement = (
-		sqlalchemy.select(model).where(
-			model.workspace_id == workspace.id,
-			sqlalchemy.true() if include_deleted else model.deleted_at.is_(None),
-		)
+		through
 		if actor is None
 		else subroutine.domain.scoping.readable_projects(
 			actor,
@@ -677,7 +680,7 @@ def addressed (
 		# It is not a guess, which is what `#957` ruled out. An exact address resolving exactly
 		# is that decision's other half, and this is the one-segment case of it.
 		segments = subroutine.domain.projects.path_segments(wanted)
-		found = _walked(session, statement, segments)
+		found = _walked(session, statement, segments, through=through)
 
 		# **Only a single segment falls back to a search.** A whole address that does not
 		# resolve is a whole address that does not resolve; searching for its first segment
@@ -688,7 +691,12 @@ def addressed (
 
 	if found is None:
 		misread = _a_workspace_read_as_a_project(
-			session, actor, workspace, statement, segments if identifier is None else []
+			session,
+			actor,
+			workspace,
+			statement,
+			segments if identifier is None else [],
+			through=through,
 		)
 
 		raise subroutine.errors.NotFound(
@@ -712,6 +720,8 @@ def _a_workspace_read_as_a_project (
 	workspace: subroutine.db.models.identity.Workspace,
 	statement: typing.Any,
 	segments: typing.Sequence[str],
+	*,
+	through: typing.Any,
 ) -> str | None:
 	"""Say that an address begins with a workspace, if that is what went wrong — item `#1417`.
 
@@ -747,7 +757,7 @@ def _a_workspace_read_as_a_project (
 		# **Named only when it resolves.** Suggesting `+ui` for an address whose remainder is
 		# also wrong would replace one refusal with another, and the reader would have learned
 		# nothing about which half they got wrong.
-		instead = _walked(session, statement, segments[1:])
+		instead = _walked(session, statement, segments[1:], through=through)
 		advice = f" — write {rest!r} instead" if instead is not None else ""
 
 		return (
@@ -813,6 +823,8 @@ def _walked (
 	session: sqlalchemy.orm.Session,
 	statement: typing.Any,
 	segments: typing.Sequence[str],
+	*,
+	through: typing.Any,
 ) -> subroutine.db.models.project.Project | None:
 	"""Follow a whole address, a key at a time, from a root of the workspace.
 
@@ -821,14 +833,23 @@ def _walked (
 	`#39`'s N+1. Reading ``project.path`` instead is not the shortcut it looks like: that
 	path is made of **ids**, so composing one from keys would need every ancestor fetched
 	anyway.
+
+	**Only the project at the end has to be one the caller can read** (`#2645`). The ancestors
+	are walked among ``through``, every project in the workspace, and the last step among
+	``statement``. A credential narrowed to ``parent/child`` cannot read ``parent``, and walking
+	among what it could read answered *there is no project* for the address its own listing
+	prints. Walking through tells it nothing, since that whole address is already in its
+	listing, and a guessed ancestor still finds nothing, because the project the walk reaches
+	has to be readable before it is returned.
 	"""
 
 	model = subroutine.db.models.project.Project
 	found: subroutine.db.models.project.Project | None = None
 
-	for segment in segments:
+	for position, segment in enumerate(segments):
+		within = statement if position == len(segments) - 1 else through
 		found = session.scalars(
-			statement.where(
+			within.where(
 				model.key == segment,
 				model.parent_id == found.id if found is not None else model.parent_id.is_(None),
 			)

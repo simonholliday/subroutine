@@ -40,6 +40,14 @@ upgrade involves.
   own; to name a workspace from the first call when a credential reaches several; and to say
   where it put anything a person has to look at.
 
+### Fixed
+
+- **A credential narrowed to a project below one it cannot read reaches that project by the
+  address it is listed under.** `GET /v1/projects` gave such a credential `parent/child`, and
+  `parent/child` answered that there was no such project, while the key alone and the id both
+  worked. Nothing it could not already see becomes reachable: the parent, and anything under it
+  outside the credential's scope, still answer not found.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.
