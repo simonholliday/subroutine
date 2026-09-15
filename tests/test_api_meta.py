@@ -541,8 +541,16 @@ def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
 	"""docs/design.md §13.3 targets under 15 KB. Response size is a first-order cost for an agent."""
 
 	guide = world.call("GET", "/v1/docs/agent").text
+	size = len(guide.encode("utf-8"))
 
-	assert len(guide.encode("utf-8")) < GUIDE_BUDGET, "the guide has grown past its budget"
+	# **The message names where the growth usually came from** (`#1578`), because the sentence
+	# that pushes the guide over is most often added to a terminal help topic that the guide
+	# inlines, by somebody who has never heard of this budget.
+	assert size < GUIDE_BUDGET, (
+		f"the agent guide is {size:,} bytes against a budget of {GUIDE_BUDGET:,}. It inlines the "
+		f"{' and '.join(sorted(subroutine.api.meta.GUIDE_TOPICS))} help topics from cli/topics.py, "
+		f"so a sentence added to one of those counts here: trim, or inline fewer topics"
+	)
 
 
 def test_the_guide_never_calls_a_built_thing_unbuilt (

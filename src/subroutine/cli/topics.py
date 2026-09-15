@@ -298,6 +298,13 @@ To mean a value that happens to be a reserved word, quote it:
 'assignee:"unset"' is the person called unset."""
 
 
+#: Every topic ``subroutine explain`` knows.
+#:
+#: **Some of these are published twice, and the second place has a byte budget** (`#1578`).
+#: ``/v1/docs/agent`` inlines each topic named in :data:`subroutine.api.meta.GUIDE_TOPICS`, and
+#: ``tests/test_api_meta.py`` holds that guide under a fixed size, so a sentence added to one of
+#: those topics can fail a test about the API. Look there before writing more: the remedy is to
+#: trim, or to take a topic out of the guide, and not to raise the budget.
 TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="dates",

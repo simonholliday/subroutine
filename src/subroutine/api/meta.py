@@ -78,7 +78,7 @@ router = fastapi.APIRouter(
 TAG_LIMIT = 50
 
 #: Which ``subroutine explain`` topics the agent guide inlines. **Not all of them**, because
-#: §13.3 caps the guide at 8 KB and the topics are what push it over: `scripting` is about a
+#: §13.3 caps the guide's size and the topics are what push it over: `scripting` is about a
 #: terminal and `refs` says useful things about how a *shell* treats ``#``, neither of which an
 #: HTTP client needs. The two that carry grammar it cannot guess — the date vocabulary and the
 #: capture line — stay. The rest are one request away at ``/v1/docs/examples`` and in the CLI.
