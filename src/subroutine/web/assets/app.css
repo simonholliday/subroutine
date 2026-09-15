@@ -1841,6 +1841,23 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 }
 
 /*
+	The four controls above a listing share one row — `SR#2698`. Simon, 2026-09-15: *"a lot of
+	empty space wasted near the top of the view, because the filter form section gives a full
+	row to each item"*.
+
+	**The gap is between the controls rather than a margin under each**, so a narrow frame that
+	wraps them spaces the lines evenly, and the margin under the whole row is the one each
+	control used to carry.
+*/
+.controls {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-5) var(--space-8);
+	margin-bottom: var(--space-5);
+}
+
+/*
 	How the list is ordered, above the rows (`#661`).
 
 	Deliberately lighter than `.narrowed` beside it: that one describes a *filter somebody
@@ -1886,7 +1903,6 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	align-items: center;
 	flex-wrap: wrap;
 	gap: var(--space-5);
-	margin-bottom: var(--space-5);
 	padding: 0 var(--space-1);
 	color: var(--ink-faint);
 	font-size: var(--text-small);
@@ -1922,8 +1938,9 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 .judged select:disabled,
 .whose select:disabled { opacity: 0.5; }
 
-/* What the page is *doing*, beside what you may choose. A select names the options and says
-   nothing about the consequence — which for a ranked page is that it holds no documents. */
+/* What choosing an order does to the page, beside the control that chose it (`SR#2698`) —
+   which for a ranked page is that it holds no documents. The choice itself is the select's to
+   show, and this used to say it a second time. */
 .ordered .says { color: var(--ink-faint); }
 
 /*

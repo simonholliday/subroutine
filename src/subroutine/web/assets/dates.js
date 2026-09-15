@@ -368,10 +368,15 @@ export const ORDERINGS = {
 			`shows` still names both axes because that is what tells the request to ask for
 			them, which is a separate question from who draws them.
 		*/
-		sentence: "Most important first, and documents have no importance",
-		offer: "Most important", field: "priority_score",
+		sentence: "Most important first", offer: "Most important", field: "priority_score",
 		shows: "importance,urgency", render: "none", label: "",
 		compare: "number", descending: true, both: false, sinks: true,
+		/* **What choosing it does to the page, which the control beside it cannot say** —
+		   `SR#2698`. The sentence carried this until the control began repeating the rest of
+		   it back, so it has a field of its own and `Ordered` draws only this beside the
+		   control. `tests/test_web.py` holds the pairing with `both`: an offered order that
+		   leaves documents off the page has one, and an order that keeps them has none. */
+		consequence: "Documents have no importance, so none are shown.",
 	},
 	"-completed_at": {
 		/* Not offered as a choice: it is the *finished* view's order, reached by the chip that

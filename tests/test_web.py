@@ -12481,6 +12481,15 @@ def test_the_list_a_reader_arrives_at_says_how_it_is_ordered (tmp_path: pathlib.
 		f"the list does not say how it is ordered: {driven['said'][:400]}"
 	)
 
+	# **Once, and it is the control saying it** — `SR#2698`. The sentence beside the select
+	# repeated the order the select already shows, so a list said *Newest first* twice in one
+	# line. Which option is chosen is an attribute this harness drops, so the browser test that
+	# opens each control on an address holds that half.
+	assert driven["said"].count("Newest first") == 1, (
+		f"the list says its order twice, in the control and again beside it: "
+		f"{driven['said'][:400]}"
+	)
+
 
 def test_every_order_a_reader_can_choose_is_one_the_api_can_sort_by (
 	tmp_path: pathlib.Path,
@@ -12792,9 +12801,32 @@ def test_a_ranked_page_asks_for_no_documents_and_says_why (tmp_path: pathlib.Pat
 	assert not [call for call in driven["asked"] if call["path"].startswith("/v1/documents?")], (
 		"a ranked page asked for documents, which GET /v1/documents refuses outright"
 	)
-	assert "documents have no importance" in driven["said"], (
+	assert "Documents have no importance" in driven["said"], (
 		f"the page dropped every document and said nothing about it: {driven['said'][:300]}"
 	)
+
+	# **And only that, beside a control that already says the order** — `SR#2698`: the whole
+	# sentence stood there, and it began with the option's own label.
+	assert driven["said"].count("Most important") == 1, (
+		f"a ranked page says its order twice, in the control and again beside it: "
+		f"{driven['said'][:300]}"
+	)
+
+	# **Held from the table rather than for this one order.** `both` is what leaves documents
+	# off and `consequence` is what says so, so an order offered tasks-only with nothing to say
+	# would be this test's failure arriving by a new route - and a consequence on an order that
+	# keeps both collections would be a sentence about documents that are there.
+	for key, ordering in _orderings().items():
+		if "offer" not in ordering:
+			continue
+
+		says = "consequence" in ordering
+		drops = ordering["both"] == "false"
+
+		assert says == drops, (
+			f"{key} leaves documents off the page and says nothing about it" if drops
+			else f"{key} keeps documents on the page and says they are gone"
+		)
 	assert "!4/3" in driven["said"], "a ranked row does not show what it is ranked by"
 
 
@@ -14978,7 +15010,13 @@ def test_a_board_says_how_it_is_ordered_and_lets_a_reader_change_it (
 		f"the board offers an order and does not say which one it is on: {board['said']!r}"
 	)
 
-	assert "documents have no importance" in ranked["said"], (
+	# **Once** — `SR#2698`, which Simon met on a board: the select shows the order and the
+	# sentence beside it said it again.
+	assert board["said"].count("Newest first") == 1, (
+		f"the board says its order twice, in the control and again beside it: {board['said']!r}"
+	)
+
+	assert "Documents have no importance" in ranked["said"], (
 		f"a ranked board dropped its document columns and said nothing — which is this "
 		f"backlog's signature defect rather than a new one: {ranked['said']!r}"
 	)

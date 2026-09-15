@@ -929,11 +929,15 @@ export function Ordered ({ ordering, order, onOrder, busy = false, empty = false
 					</label>
 				`
 				: html`<span>${ordering.sentence}</span>`}
-			${/* **The sentence stays beside the control rather than being replaced by it.** A
-			     select says what you may choose; it does not say what the page is doing, and
-			     `#661` is about the second. It also carries the part a control cannot — that a
-			     ranked page holds no documents, which on a board is a whole column gone. */ null}
-			${onOrder && html`<span class="says">${ordering.sentence}</span>`}
+			${/* **Beside the control, only what the control cannot say** — `SR#2698`, Simon
+			     2026-09-15: *"the Order dropdown has its value duplicated to the right of the
+			     control"*. The whole sentence stood here on `#661`'s argument that a select says
+			     what may be chosen and not what the page is doing, but a closed select shows the
+			     choice, so for every order offered the sentence was that label again. **What a
+			     control cannot carry is a consequence**: a ranked page holds no documents, which
+			     on a board is a whole column gone. That half is kept, and said with a control or
+			     without one. */ null}
+			${ordering.consequence && html`<span class="says">${ordering.consequence}</span>`}
 		</div>
 	`;
 }
@@ -1350,30 +1354,36 @@ export function Listing ({
 				*before* reading the first one — and not on an empty page, where there is no
 				order to describe and the sentence would be a claim about nothing.
 			*/ null}
-			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
-				busy=${busy} empty=${items.length === 0} />
+			${/* **The four controls share one row** — `SR#2698`, Simon 2026-09-15: *"a lot of
+			     empty space wasted near the top of the view, because the filter form section gives
+			     a full row to each item"*. One element holding all four, so the gap is between them
+			     rather than a margin under each, and `Board` holds the same four the same way. */ null}
+			<div class="controls">
+				<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
+					busy=${busy} empty=${items.length === 0} />
 
-			${/*
-				**Under the order and above what is showing**, which is the sequence a reader
-				needs them in: how the page is arranged, then what it was narrowed to, then the
-				sentence saying so and the way back out.
+				${/*
+					**Under the order and above what is showing**, which is the sequence a reader
+					needs them in: how the page is arranged, then what it was narrowed to, then the
+					sentence saying so and the way back out.
 
-				**Offered on an empty page, unlike the order.** An order describes rows and has
-				nothing to describe when there are none; this one is how a reader got here, and
-				a page narrowed to somebody with no work is exactly where the control has to
-				stay reachable.
-			*/ null}
-			${/* **All three answers, not the one that was here when the control had one**
-			     (`#2199`). `answerable` and `unassigned` were added to `App` and not to the
-			     two components between, so a page narrowed by either presented a control
-			     saying it was not narrowed — and the obvious next act replaces a narrowing
-			     the reader could not see they had. */ null}
-			<${Whose} members=${members} whose=${whose} answerable=${answerable}
-				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
+					**Offered on an empty page, unlike the order.** An order describes rows and has
+					nothing to describe when there are none; this one is how a reader got here, and
+					a page narrowed to somebody with no work is exactly where the control has to
+					stay reachable.
+				*/ null}
+				${/* **All three answers, not the one that was here when the control had one**
+				     (`#2199`). `answerable` and `unassigned` were added to `App` and not to the
+				     two components between, so a page narrowed by either presented a control
+				     saying it was not narrowed — and the obvious next act replaces a narrowing
+				     the reader could not see they had. */ null}
+				<${Whose} members=${members} whose=${whose} answerable=${answerable}
+					unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 
-			<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
+				<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
-			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+				<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+			</div>
 
 			${/*
 				**Said only where it changes the answer** (`#986`). A prioritised project raises work

@@ -87,6 +87,11 @@ upgrade involves.
   headings, lists, quotations, code and tables with the browser's own defaults, so a heading
   could preview smaller than the text under it.
 
+- **The controls above a list and a board share one row.** *Order*, *Whose work*, *Priority* and
+  *Top level only* took a row each, pushing the work down the page, and the order control
+  repeated the order it was on beside itself. Beside it now is only what the control cannot
+  show: that ordering by importance leaves documents off the page.
+
 - **Searching from the agent tools with a type in the line works.** `subroutine_search` and
   `subroutine_list` refused every `type:` term, including the `type:bug deploy` example the
   search tool's own description gives, because tasks and documents keep different types and the

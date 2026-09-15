@@ -1583,6 +1583,10 @@ def test_whose_work_offers_both_questions_and_sets_one_of_them (running: typing.
 		),
 		# And off is off, rather than a checkbox that is checked whatever the address says.
 		("/projects?view=list", ".narrowing input", "one => one.checked", False),
+		# **And the order, because the select is now the only thing saying it** — `SR#2698`
+		# took away the sentence that repeated the chosen order beside the control, so a select
+		# that ignored the address would leave the page with no true statement of its order.
+		("/projects?view=list&order=title", ".ordered select", "one => one.value", "title"),
 	):
 		page = opened(address)
 
@@ -3014,17 +3018,58 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	wrong — ``auto-fit`` did exactly what it says against two different widths. Asking the
 	stylesheet whether ``.adding`` declares a cap would be guarding a spelling, which is a trap
 	this repository has recorded three times.
+
+	**And the controls above the list and the board share one row** — `SR#2698`. Order, whose
+	work, priority and the top-level collapse took a row each, which Simon met as space wasted
+	above the work. The cause was a margin under each control, which is correct CSS doing what it
+	says, so it is measured here as the rows a reader sees, in the test that already opens each
+	view wide.
 	"""
 
 	opened, _written, _refusing, *_ = running
 	measured = {}
+	rows = {}
 
-	for view, address in (("list", "/projects"), ("board", "/projects?view=board")):
+	# **`/projects` opens the agenda**, which this loop called the list until `SR#2698` needed
+	# the list itself. All three share the form, so all three are compared now.
+	for view, address in (
+		("agenda", "/projects"), ("list", "/projects?view=list"), ("board", "/projects?view=board"),
+	):
 		page = opened(address)
 
 		# Wide on purpose: at a narrow viewport both views collapse to one column and agree for
 		# a reason that has nothing to do with the fix.
 		page.set_viewport_size({"width": 2200, "height": 900})
+
+		# **The controls above the work, where a view draws them**, which the agenda does not.
+		# Waiting for the two drawn from answers: the order needs rows and whose work needs
+		# members, and a count taken before either arrived would find two controls and call that
+		# a row. Grouped by vertical overlap rather than by equal tops, because a checkbox and a
+		# select centred on one line do not start at the same pixel.
+		if view != "agenda":
+			page.wait_for_selector(".ordered select", timeout=10_000)
+			page.wait_for_selector(".whose select", timeout=10_000)
+			rows[view] = page.eval_on_selector(
+				".listing",
+				"""node => {
+					const boxes = [...node.querySelectorAll(".ordered, .whose, .judged, .narrowing")]
+						.map(one => one.getBoundingClientRect())
+						.filter(box => box.height > 0)
+						.sort((one, other) => one.top - other.top);
+					let lines = 0;
+					let bottom = -Infinity;
+					for (const box of boxes) {
+						if (box.top >= bottom) {
+							lines += 1;
+							bottom = box.bottom;
+						} else {
+							bottom = Math.max(bottom, box.bottom);
+						}
+					}
+					return { controls: boxes.length, lines };
+				}""",
+			)
+
 		page.click(".adding .more")
 		page.wait_for_selector(".adding .details", timeout=10_000)
 
@@ -3049,7 +3094,7 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 
 		page.close()
 
-	assert measured["list"] == measured["board"], (
+	assert measured["agenda"] == measured["list"] == measured["board"], (
 		f"the same form is laid out differently depending on the view it was opened from: "
 		f"{measured}. A field is then in a different place, which is what stops somebody "
 		f"filling the form in without looking at it."
@@ -3058,6 +3103,17 @@ def test_a_form_keeps_its_measure_in_every_view (running: typing.Any) -> None:
 	assert measured["list"]["columns"] > 1, (
 		f"the form is one column wide at 2200px ({measured['list']}), so the comparison above "
 		f"would agree whatever the frame did"
+	)
+
+	assert all(seen["controls"] == 4 for seen in rows.values()), (
+		f"the four controls above the work were not all drawn, so counting the rows they take "
+		f"says nothing: {rows}"
+	)
+
+	assert rows["board"]["lines"] == 1 and rows["list"]["lines"] < rows["list"]["controls"], (
+		f"the controls above the work take a row each instead of sharing one: {rows}. A board "
+		f"has room for all four on one line; the list's narrower frame may wrap them, but not "
+		f"into a row apiece."
 	)
 
 

@@ -862,32 +862,37 @@ export function Board ({
 			     `empty` is the whole page rather than a column: a board with nothing on it has
 			     no order to describe, and a board with one full column and three empty ones
 			     very much does. */ null}
-			<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
-				busy=${busy} empty=${items.length === 0} />
+			${/* **The four controls share one row, as they do on the list** — `SR#2698`. Each
+			     took a row of its own; `Listing` holds the same four the same way. */ null}
+			<div class="controls">
+				<${Ordered} ordering=${ordering} order=${order} onOrder=${onOrder}
+					busy=${busy} empty=${items.length === 0} />
 
-			${/* **The board takes the same control as the list, from the same component** —
-			     `#1284`, and it is `#1783`'s argument one parameter along: a board fetches one
-			     page and partitions it, so narrowing decides what is in *every* column. Two
-			     copies of this markup was the alternative and is this codebase's signature
-			     defect. */ null}
-			${/* **All three answers, not the one that was here when the control had one**
-			     (`#2199`). `answerable` and `unassigned` were added to `App` and not to the
-			     two components between, so a page narrowed by either presented a control
-			     saying it was not narrowed — and the obvious next act replaces a narrowing
-			     the reader could not see they had. */ null}
-			<${Whose} members=${members} whose=${whose} answerable=${answerable}
-				unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
+				${/* **The board takes the same control as the list, from the same component** —
+				     `#1284`, and it is `#1783`'s argument one parameter along: a board fetches one
+				     page and partitions it, so narrowing decides what is in *every* column. Two
+				     copies of this markup was the alternative and is this codebase's signature
+				     defect. */ null}
+				${/* **All three answers, not the one that was here when the control had one**
+				     (`#2199`). `answerable` and `unassigned` were added to `App` and not to the
+				     two components between, so a page narrowed by either presented a control
+				     saying it was not narrowed — and the obvious next act replaces a narrowing
+				     the reader could not see they had. */ null}
+				<${Whose} members=${members} whose=${whose} answerable=${answerable}
+					unassigned=${unassigned} onWhose=${onWhose} busy=${busy} />
 
-			${/* **The board takes the same control as the list, from the same component** —
-			     `SR#2270`, and it is `#1284`'s argument one control along: a board fetches one
-			     page and partitions it, so narrowing decides what is in *every* column. Two
-			     copies of this markup was the alternative and is the signature defect.
+				${/* **The board takes the same control as the list, from the same component** —
+				     `SR#2270`, and it is `#1284`'s argument one control along: a board fetches one
+				     page and partitions it, so narrowing decides what is in *every* column. Two
+				     copies of this markup was the alternative and is the signature defect.
 
-			     **Above the collapse toggle** — `SR#2275`, Simon 2026-09-08. Three dropdowns
-			     and one checkbox, and the checkbox sat in the middle of them. */ null}
-			<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
+				     **Above the collapse toggle** — `SR#2275`, Simon 2026-09-08. Three dropdowns
+				     and one checkbox, and the checkbox sat in the middle of them. */ null}
+				<${Priority} selection=${selection} onPriority=${onPriority} busy=${busy} />
 
-			<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+				<${TopLevelOnly} only=${topLevelOnly} onTopLevel=${onTopLevel} busy=${busy} />
+			</div>
+
 			${onAdd && html`<${Adding} onAdd=${onAdd} busy=${busy} ...${adding || {}} />`}
 
 			${/* **`selection` reaches this one now** — `SR#2070`. `#1020` gave `Narrowed` the
