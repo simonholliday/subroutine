@@ -48,6 +48,12 @@ upgrade involves.
   worked. Nothing it could not already see becomes reachable: the parent, and anything under it
   outside the credential's scope, still answer not found.
 
+- **Re-dating a repeating item in another zone keeps the other half of the series on its day.**
+  A deadline changed *from now on* in a zone other than the one it was written in carried the
+  new zone to the series' other row without moving its stored date to match, so that row
+  showed a day late and a calendar feed drew the occurrence twice. Both now keep their day, and
+  an occurrence re-dated on its own in a new zone stays on its slot.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

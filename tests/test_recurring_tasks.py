@@ -1411,9 +1411,16 @@ def test_saving_an_occurrence_at_its_own_date_leaves_the_series_where_it_was (
 	)
 	session.flush()
 
-	assert _template(session, later).due_at == anchored, (
-		"a save that moved the date by nothing carried the occurrence's own date to the series"
-	)
+	# **The day, read in the zone the series carries, rather than the instant** (`SR#1293`). The
+	# zone the occurrence was re-dated in travels to the series, so its deadline moves to the edge
+	# of the same day in New York, which comparing instants would call a move. What this test is
+	# about is the series landing on the occurrence's own date, a week along.
+	carried = _template(session, later)
+
+	assert carried.timezone == "America/New_York" and carried.due_at is not None
+	assert carried.due_at.astimezone(zoneinfo.ZoneInfo(carried.timezone)).date() == (
+		anchored.astimezone(zoneinfo.ZoneInfo(LONDON)).date()
+	), "a save that moved the date by nothing carried the occurrence's own date to the series"
 
 
 def test_a_reminder_from_now_on_reaches_the_row_the_calendar_draws (
@@ -2149,4 +2156,91 @@ def test_a_rule_added_to_a_task_that_already_has_tags_keeps_them_on_every_occurr
 
 	assert [tag.name for tag in subroutine.domain.tags.on(session, following)] == ["home"], (
 		"the tag survived on the series and not on the occurrence minted from it"
+	)
+
+
+def _renders (task: subroutine.db.models.work.Task) -> datetime.date:
+	"""Return the day a row's deadline falls on in the zone the row itself names."""
+
+	assert task.due_at is not None and task.timezone is not None
+
+	return task.due_at.astimezone(zoneinfo.ZoneInfo(task.timezone)).date()
+
+
+@pytest.mark.parametrize("edited", ["series", "occurrence"])
+def test_a_zone_carried_across_a_series_keeps_both_rows_on_their_day (
+	session: sqlalchemy.orm.Session, edited: str
+) -> None:
+	"""`SR#1293`: re-dating one row of a series in another zone must not move the other row's day.
+
+	The zone was copied onto the other row as a value while its date moved by whole days, so a
+	deadline written in UTC and re-dated *from now on* in London left the other row labelled
+	London and still stored at the UTC edge of its day, which rendered on the day after. And the
+	slot stayed an hour off its date, which the calendar reads as an occurrence moved by hand.
+
+	**Both directions**, because the series and the live occurrence each carry an edit to the
+	other, and the first report came from the series side.
+	"""
+
+	instance = _repeating(
+		session,
+		title="Pay council tax",
+		recurrence="every month on the 1st",
+		due=None,
+		timezone="UTC",
+	)
+	template = _template(session, instance)
+
+	subroutine.domain.tasks.update(
+		session,
+		template if edited == "series" else instance,
+		due="2026-09-01",
+		applies_to=subroutine.domain.tasks.FROM_NOW_ON,
+		now=NOW,
+		timezone=LONDON,
+	)
+	session.flush()
+
+	assert (template.timezone, instance.timezone) == (LONDON, LONDON)
+	assert _renders(template) == datetime.date(2026, 9, 1), template.due_at
+	assert _renders(instance) == datetime.date(2026, 9, 1), (
+		f"the occurrence is labelled {instance.timezone} and stored at {instance.due_at}"
+	)
+	assert instance.occurrence_at == instance.due_at, (
+		f"the slot {instance.occurrence_at} was left off the date {instance.due_at}, so the "
+		f"occurrence reads as moved by hand"
+	)
+
+
+def test_repairing_one_occurrence_in_another_zone_leaves_it_on_its_slot (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1293`'s second cost: the repair a person reaches for must not strand the slot.
+
+	Setting just this one occurrence to its own day in a new zone put its deadline right and left
+	``occurrence_at`` at the old zone's edge, an hour away - and since whole-day dates carry no
+	sub-day move, nothing could put it back. The slot is re-expressed with the date it is on.
+	"""
+
+	instance = _repeating(
+		session,
+		title="Pay council tax",
+		recurrence="every month on the 1st",
+		due=None,
+		timezone="UTC",
+	)
+
+	subroutine.domain.tasks.update(
+		session,
+		instance,
+		due="2026-09-01",
+		applies_to=subroutine.domain.tasks.THIS_ONE,
+		now=NOW,
+		timezone=LONDON,
+	)
+	session.flush()
+
+	assert _renders(instance) == datetime.date(2026, 9, 1), instance.due_at
+	assert instance.occurrence_at == instance.due_at, (
+		f"the slot {instance.occurrence_at} stayed at the old zone's edge"
 	)

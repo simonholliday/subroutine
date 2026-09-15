@@ -2224,6 +2224,7 @@ def _resnapped (
 	was_written_in: str | None,
 	already_resolved: frozenset[str],
 	now: datetime.datetime,
+	slot_placed: bool = False,
 ) -> None:
 	"""Move a row's untouched whole-day dates onto the same local day in its new zone (`#1327`).
 
@@ -2249,6 +2250,13 @@ def _resnapped (
 	edge — the sub-microsecond drift `#1291` left behind on occurrences minted before it — is
 	snapped as it is rewritten, because the day is what is read and the edge is what is
 	written.
+
+	**The slot goes with the date it is a slot on** (`#1293`), re-expressed the same way rather
+	than copied from the date, so an occurrence somebody moved by hand still reads as moved.
+	Left behind, ``occurrence_at`` stayed at the old zone's edge an hour from its date, and the
+	calendar read every relabelled occurrence as rescheduled. ``slot_placed`` is for a caller
+	that has already put the slot on a date written in the new zone, where reading it back in
+	the old zone would move it a day.
 	"""
 
 	relabelled = task.timezone
@@ -2281,6 +2289,18 @@ def _resnapped (
 				now=now,
 			).instant,
 		)
+
+	tracked = grid_field(task)
+
+	if task.occurrence_at is None or slot_placed or not getattr(task, ALL_DAY_FLAG[tracked]):
+		return
+
+	task.occurrence_at = whole_day_for(
+		task.occurrence_at.astimezone(written_in).date(),
+		field=tracked,
+		timezone=relabelled,
+		now=now,
+	).instant
 
 
 def _flags_held_back (
@@ -2382,6 +2402,10 @@ def _carried (
 		else ""
 	)
 
+	# The date columns written below from the source's own value, which is already in the zone
+	# being carried, as opposed to moved by a delta from this row's old value.
+	resolved: set[str] = set()
+
 	for column, value in now_holds.items():
 		if column in NEVER_CARRIED or was.get(column) == value:
 			continue
@@ -2421,6 +2445,7 @@ def _carried (
 			and _changed_shape(column, was=was, now_holds=now_holds)
 		):
 			# **A shape change carries as days and a new edge, never as a delta** (`#1303`).
+			resolved.add(column)
 			setattr(
 				target,
 				column,
@@ -2438,6 +2463,7 @@ def _carried (
 		elif column in MOVED_BY_DELTA:
 			# A date that was cleared, or set from nothing, has no delta to apply — the value
 			# is the only thing there is to say.
+			resolved.add(column)
 			setattr(target, column, value)
 
 		else:
@@ -2449,6 +2475,19 @@ def _carried (
 	# individually rescheduled — and the feed would emit an ``EXDATE`` for a slot nothing had
 	# left. Read after the loop, so the column asked about is the one the row holds *now*.
 	_kept_on_its_grid(target, before=before, deltas=deltas)
+
+	# **A zone carried is a zone this row's dates have to be on** (`#1293`). The loop relabels the
+	# row and moves its dates by whole days, so a series re-dated in London carried *Europe/London*
+	# onto an occurrence still stored at the UTC edge of its day, and the occurrence rendered a day
+	# late. This is the repair the edited row already gets. After the slot is kept rather than
+	# before, because keeping it compares the slot with this row's old date.
+	_resnapped(
+		target,
+		was_written_in=before.get("timezone"),
+		already_resolved=frozenset(resolved),
+		now=instant,
+		slot_placed=grid_field(target) in resolved,
+	)
 
 	session.flush()
 
