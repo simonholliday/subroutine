@@ -62,6 +62,11 @@ upgrade involves.
 
 ### Added
 
+- **An agenda row says who is waiting on it.** A task that somebody else's unfinished work
+  is waiting on carries a line naming that work and whoever has it - *blocks #42 @jo* -
+  wherever it sits on your agenda, in the terminal, the browser and the agent tools. It
+  never appears for work only you or your own agents are waiting on.
+
 - **A captured line reads a span of whole days.** *Holiday in Dawlish from 2nd October to 12th
   October* files a start on the 2nd and an end on the 12th in one call, where it used to file a
   task hidden until the 2nd with *to 12th October* left in its title. `from 2 to 12 October`,

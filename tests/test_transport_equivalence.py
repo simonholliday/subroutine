@@ -5802,6 +5802,53 @@ def test_both_transports_agree_about_who_is_holding_a_row_up (pair: Pair) -> Non
 		), f"{client!r} named a far end on an ordinary listing"
 
 
+def test_both_transports_agree_about_who_a_row_is_holding_up (pair: Pair) -> None:
+	"""`SR#1427`, reached by the local client's render and the HTTP client's parse.
+
+	**A local client of its own, naming the reader**, because the pair's cannot survive a
+	second person: local mode picks the account by there being exactly one, and this needs
+	somebody who is neither the reader nor an agent answerable to them (`SR#1432`). The remote
+	client carries a token, so it was never guessing.
+	"""
+
+	colleague = subroutine.domain.users.create(
+		pair.session, username=f"jo-{uuid.uuid4().hex[:8]}", timezone="Europe/London"
+	)
+	subroutine.domain.workspaces.add_member(
+		pair.session, workspace=pair.workspace, user=colleague, role_key="member"
+	)
+	pair.session.flush()
+
+	local = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, local_user=pair.user.username),
+		session_factory=api_support.factory_for(pair.session),
+	)
+
+	answers = {}
+
+	with local:
+		mine = local.capture(text=f"My bit {uuid.uuid4().hex[:6]}").task
+		theirs = local.capture(text=f"Their bit {uuid.uuid4().hex[:6]}").task
+
+		local.update(ref=theirs.ref, assignee=colleague.username)
+		local.link(ref=mine.ref, link_type="blocks", target=theirs.ref)
+
+		for client in (local, pair.remote):
+			agenda = client.agenda()
+			answers[repr(client)] = {
+				row.ref: [(end.ref, end.assignee) for end in row.blocks_others]
+				for bucket in subroutine.views.AGENDA_BUCKETS
+				for row in getattr(agenda, bucket)
+				if row.blocks_others
+			}
+
+	assert len({json.dumps(one, sort_keys=True) for one in answers.values()}) == 1, (
+		f"the two transports disagree about who a row is holding up: {answers}"
+	)
+	assert next(iter(answers.values())) == {mine.ref: [(theirs.ref, colleague.username)]}, answers
+
+
 def test_both_transports_agree_about_what_readiness_held_back (pair: Pair) -> None:
 	"""`SR#1610`'s count, and the two clients get it by entirely different routes.
 

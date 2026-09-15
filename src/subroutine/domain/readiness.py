@@ -849,6 +849,79 @@ def blockers_among (
 	return {one: tuple(rows) for one, rows in holding.items()}
 
 
+def blocks_others_among (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	now: datetime.datetime,
+	ours: typing.Collection[uuid.UUID],
+) -> dict[uuid.UUID, tuple[subroutine.db.models.work.Task, ...]]:
+	"""Return somebody else's work each of these tasks holds up, keyed by the blocker — `#1427`.
+
+	**:func:`blockers_among` read from the other end**, and Simon's decision of 2026-09-15: an
+	item on your agenda that somebody else's work is waiting on carries a mark naming who,
+	wherever it already sits, rather than a section or a count. The agenda said what the reader
+	waits on and never what anybody waits on them for.
+
+	**Somebody else as `#1432` reads it**, through :func:`somebody_else` over the held item's
+	assignee: so never on an instance with one person, never for work the reader's own agent
+	has, and never for an unassigned item, which has nobody waiting.
+
+	**Narrowed by visibility for :func:`blockers_among`'s reason**: naming a far end says
+	*what*, so only an end the reader may read is named. **And only a row with something to
+	name gets an entry**, which is where the two differ: nothing about a section makes a row
+	hold anybody up, so an empty list would be a claim where silence was meant.
+
+	The liveness rule is :func:`_live_blocks_edge`'s, standing at the source end the way
+	:func:`blocking` stands there, so an item holding up only finished work names nobody. One
+	statement for the page, whatever is on it.
+	"""
+
+	wanted = set(identifiers)
+
+	if not wanted:
+		return {}
+
+	held = subroutine.db.models.work.Task
+	filed_in = subroutine.db.models.project.Project
+	link = subroutine.db.models.work.Link
+	kind = subroutine.db.models.vocabulary.LinkType
+
+	# Deleted, archived and template rows are readable here and then judged by the live-edge
+	# rule, for the reason written on `blockers_among`.
+	statement = (
+		subroutine.domain.scoping.readable_tasks(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+			include_templates=True,
+		)
+		.add_columns(link.source_id)
+		.join(
+			link,
+			sqlalchemy.and_(link.target_type == "task", link.target_id == held.id),
+		)
+		.join(kind, kind.id == link.link_type_id)
+		.where(
+			link.source_type == "task",
+			link.source_id.in_(wanted),
+			somebody_else(held.assignee_id, ours),
+			*_live_blocks_edge(link, kind, held, filed_in, now=now),
+		)
+		.order_by(held.ref)
+	)
+
+	waiting: dict[uuid.UUID, list[subroutine.db.models.work.Task]] = {}
+
+	for row, blocker in session.execute(statement):
+		waiting.setdefault(blocker, []).append(row)
+
+	return {one: tuple(rows) for one, rows in waiting.items()}
+
+
 def _matching (
 	session: sqlalchemy.orm.Session,
 	identifiers: typing.Iterable[uuid.UUID],

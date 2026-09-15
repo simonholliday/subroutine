@@ -10896,7 +10896,7 @@ def _render (
 				)
 			)
 
-			for line in _waiting_on(task):
+			for line in [*_waiting_on(task), *_blocking_others(task)]:
 				console.print(line)
 
 	if remaining > 0:
@@ -11149,10 +11149,38 @@ def _waiting_on (item: Item) -> list[rich.text.Text]:
 	if not isinstance(item, subroutine.views.Task) or not item.blocked_by:
 		return []
 
+	return _named_ends("waiting on", item.blocked_by)
+
+
+def _blocking_others (item: Item) -> list[rich.text.Text]:
+	"""Return a line per piece of somebody else's work this row is holding up — `#1427`.
+
+	**:func:`_waiting_on` read from the other end**, and Simon's decision of 2026-09-15: a mark
+	naming who is waiting on a row, wherever the row sits, rather than a section or a count.
+	*Blocks* because that is the word the item's own page uses for this end of the link, and a
+	line under the row saying anything else would be a second name for one relation.
+
+	**Only the agenda resolves it**, so everywhere else ``blocks_others`` is null and this
+	prints nothing, which is `#856`'s line kept as :func:`_waiting_on` keeps it.
+	"""
+
+	if not isinstance(item, subroutine.views.Task) or not item.blocks_others:
+		return []
+
+	return _named_ends("blocks", item.blocks_others)
+
+
+def _named_ends (verb: str, ends: list[subroutine.views.LinkEnd]) -> list[rich.text.Text]:
+	"""Return one indented line per far end under a row: its ref, and who has it.
+
+	**One rendering for both directions** (`#1427`), so *waiting on* and *blocks* cannot come
+	to be laid out two ways for one kind of line.
+	"""
+
 	lines = []
 
-	for end in item.blocked_by:
-		line = rich.text.Text("      waiting on ", style=DETAIL)
+	for end in ends:
+		line = rich.text.Text(f"      {verb} ", style=DETAIL)
 		line.append(f"#{end.ref}", style=POSITION)
 
 		named = subroutine.views.principal_named(

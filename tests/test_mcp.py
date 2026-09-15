@@ -1117,6 +1117,53 @@ def test_an_agent_is_told_who_is_holding_a_row_up (
 	)
 
 
+def test_an_agent_is_told_who_a_row_is_holding_up (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#1427` on the path an agent reads: one cell on the agenda's row, as `SR#1287`'s is.
+
+	**Its own server, because the shared one cannot hold two people.** Local mode picks the
+	account by there being exactly one, and this needs somebody who is neither the reader nor an
+	agent answerable to them (`SR#1432`) - so the client names the reader, which is what
+	``local_user`` is for.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	colleague = subroutine.domain.users.create(
+		session, username=f"jo-{uuid.uuid4().hex[:8]}", timezone="Europe/London"
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=setup.workspace, user=colleague, role_key="member"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, local_user=setup.user.username),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		mine = _added(server, "My bit")
+		theirs = _added(server, "Their bit")
+
+		_called(server, "subroutine_update", ref=theirs, assignee=colleague.username)
+		_called(server, "subroutine_link", ref=mine, type="blocks", other=theirs)
+
+		on_today, failed = _called(server, "subroutine_list", today=True)
+
+	assert not failed, on_today
+
+	row = next(line for line in on_today.splitlines() if line.startswith(f"#{mine}  "))
+
+	assert f"blocks #{theirs} @{colleague.username}" in row, (
+		f"the agent is not told who is waiting on the row: {row}"
+	)
+
+
 def test_an_ordinary_listing_never_names_what_is_holding_a_row_up (
 	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
 ) -> None:

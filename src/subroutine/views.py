@@ -746,6 +746,20 @@ class Task(pydantic.BaseModel):
 	#: blockers, because `#856` is what happens when a listing carries the far end.
 	blocked_by: list[LinkEnd] | None = None
 
+	#: Somebody else's unfinished work this is holding up, named — `#1427`, Simon's decision of
+	#: 2026-09-15, and :attr:`blocked_by` read from the other end of the same links.
+	#:
+	#: **Only the agenda resolves it**, for :attr:`blocked_by`'s reason: naming a far end on a
+	#: listing is `#856`'s line, and the agenda is the argued exception because a mark cannot
+	#: say who is waiting. **Somebody else** is neither the reader nor an agent answerable to
+	#: them (`#1432`), so it never appears for somebody alone on an instance.
+	#:
+	#: **Null unless there is somebody to name**, on the agenda as everywhere else. An item
+	#: holding up only the reader's own work, or only work the reader may not see, says nothing
+	#: here: unlike :attr:`blocked_by` there is no section that makes it true by construction,
+	#: and a count of what was withheld would disclose more than *that*.
+	blocks_others: list[LinkEnd] | None = None
+
 	#: How often the body has been rewritten, and by whom — `#1768`. **Null means nobody
 	#: asked**, exactly as ``blocked_by`` above: only a single-item read resolves it, because
 	#: counting it per row on a listing is a scan nothing can currently see the cost of
@@ -3379,13 +3393,15 @@ def task (
 	vocabulary: Vocabulary,
 	*,
 	blocked_by: list[LinkEnd] | None = None,
+	blocks_others: list[LinkEnd] | None = None,
 	revisions: Revisions | None = None,
 ) -> Task:
 	"""Render one task.
 
 	``blocked_by`` is passed by the one caller that resolves it and defaults to ``None``
 	everywhere else, which is the honest reading: *nobody asked* rather than *nothing holds
-	this up*. :attr:`Task.blocked_by` carries why only one caller may.
+	this up*. :attr:`Task.blocked_by` carries why only one caller may. ``blocks_others`` is its
+	other end, passed by the same caller for the same reason (`#1427`).
 
 	``revisions`` is the same arrangement one field along (`#1768`): the single-item reads
 	resolve it and every listing leaves it null, because counting it per row is a scan
@@ -3437,6 +3453,7 @@ def task (
 		blocking=row.id in vocabulary.blocking,
 		sub_tasks_done=row.id in vocabulary.finished_underneath,
 		blocked_by=blocked_by,
+		blocks_others=blocks_others,
 		revisions=revisions,
 		importance=row.importance,
 		urgency=row.urgency,
@@ -4330,6 +4347,26 @@ def _holding_up (
 	return [_projected(task(one, vocabulary), entity_type="task") for one in held]
 
 
+def _blocking_others (
+	built: subroutine.domain.agenda.Agenda,
+	row: subroutine.db.models.work.Task,
+	vocabulary: Vocabulary,
+) -> list[LinkEnd] | None:
+	"""Return somebody else's work this agenda row is holding up, or ``None`` — `#1427`.
+
+	:func:`_holding_up` read from the other end, and simpler for the reason on
+	:attr:`Task.blocks_others`: there is only one silence here, so an absent entry and an
+	empty one both say nothing.
+	"""
+
+	held = built.blocks_others.get(row.id)
+
+	if not held:
+		return None
+
+	return [_projected(task(one, vocabulary), entity_type="task") for one in held]
+
+
 def agenda (
 	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
 ) -> Agenda:
@@ -4355,11 +4392,20 @@ def agenda (
 	# through — so their status, project address and assignee have to be in the same
 	# vocabulary or a link line would resolve them a second way, which is what
 	# :func:`_projected` exists to stop.
-	holding = [row for group in built.blockers.values() for row in group]
+	holding = [
+		row
+		for group in (*built.blockers.values(), *built.blocks_others.values())
+		for row in group
+	]
 	vocabulary = Vocabulary.for_tasks(session, everything + holding)
 	rendered: dict[str, typing.Any] = {
 		bucket: [
-			task(row, vocabulary, blocked_by=_holding_up(built, row, vocabulary))
+			task(
+				row,
+				vocabulary,
+				blocked_by=_holding_up(built, row, vocabulary),
+				blocks_others=_blocking_others(built, row, vocabulary),
+			)
 			for row in getattr(built, bucket)
 		]
 		for bucket in AGENDA_BUCKETS

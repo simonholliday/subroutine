@@ -339,6 +339,12 @@ DERIVED: dict[str, str] = {
 		"says *that* something blocks a row, `subroutine show` says *what*, and `SR#856` is "
 		"what crossing that line cost."
 	),
+	"blocks_others": (
+		"Which of somebody else's unfinished tasks this one holds up, read off the same `blocks` "
+		"links from the other end (`SR#1427`) and narrowed to the ones this caller may see. "
+		"Writing it would be writing a link, and there is a verb for that. It is null on every "
+		"surface but the agenda, for `blocked_by`'s reason."
+	),
 	"estimate_human": "estimate_minutes as a person would say it (§6.4). Written by sending `estimate`.",
 	#: `estimate_human`'s exact twin, one field along (`SR#1211`), and the same argument: one
 	#: grammar rendered once, and a value a caller can read and send straight back.

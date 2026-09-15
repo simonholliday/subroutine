@@ -1476,6 +1476,62 @@ def test_a_question_you_parked_on_somebody_else_waits_on_your_agenda (
 	)
 
 
+def test_a_row_names_the_work_of_somebody_else_it_is_holding_up (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#1427`, Simon's decision of 2026-09-15: a mark naming who is waiting, wherever the row sits.
+
+	**Somebody else as `SR#1432` reads it**, so the one row that counts is the live one assigned
+	to another person. Work the reader's own agent has, an unassigned item and somebody else's
+	*finished* item are all held up by the same row and name nobody - the last is `SR#1403`'s
+	shape, a blocker that has resolved itself.
+
+	**And through the view**, because the view is what every surface reads: the row carries
+	the far end with its assignee, and every other row on the page carries null.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+	agent = _agent_of(world, world.user)
+
+	mine = world.task("My bit")
+
+	theirs = world.task("Their bit")
+	theirs.assignee_id = other.id
+	done = world.task("Their finished bit")
+	done.assignee_id = other.id
+	agents = world.task("My agent's bit")
+	agents.assignee_id = agent.id
+	nobodys = world.task("Nobody's bit")
+
+	for held in (theirs, done, agents, nobodys):
+		_blocks(world, mine, held)
+
+	subroutine.domain.tasks.complete(world.session, done, now=NOW, actor=world.principal)
+	world.session.flush()
+
+	built = world.agenda()
+
+	assert {
+		row: [held.title for held in named] for row, named in built.blocks_others.items()
+	} == {mine.id: ["Their bit"]}, (
+		f"only a live item assigned to another person is named: {built.blocks_others}"
+	)
+
+	rendered = subroutine.views.agenda(world.session, built)
+	rows = [
+		row for bucket in subroutine.views.AGENDA_BUCKETS for row in getattr(rendered, bucket)
+	]
+	row = next(one for one in rows if one.ref == mine.ref)
+
+	assert [(end.ref, end.assignee) for end in row.blocks_others or []] == [
+		(theirs.ref, other.username)
+	], f"the row does not name who is waiting on it: {row.blocks_others}"
+	assert all(one.blocks_others is None for one in rows if one.ref != mine.ref), (
+		"a row nobody is waiting on carries something other than null"
+	)
+
+
 def _agenda_of (
 	world: World, user: subroutine.db.models.identity.User
 ) -> subroutine.domain.agenda.Agenda:

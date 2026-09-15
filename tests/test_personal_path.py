@@ -620,6 +620,36 @@ def test_the_agenda_says_who_is_holding_a_row_up (
 	)
 
 
+def test_the_agenda_says_who_a_row_is_holding_up (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1427`, Simon's decision of 2026-09-15: the other end of the line above.
+
+	A row holding up somebody else's work carries a line naming it, wherever the row sits -
+	here under *Next*, which is no section about waiting. **Driven through the real command
+	line** for the reason the test above gives: this is a line under a row, and a view carrying
+	the field says nothing about whether a terminal printed it. **And not on a listing**, which
+	keeps `SR#856`'s rule as the line above does.
+	"""
+
+	run("init")
+	run("user", "create", "jo")
+	run("add", "My bit")
+	run("add", "Their bit")
+	run("update", "2", "--assignee", "jo")
+	run("link", "1", "blocks", "2")
+
+	shown = run("agenda").output
+	blocking = [line for line in shown.splitlines() if "blocks #" in line]
+
+	assert blocking == ["      blocks #2  @jo"], (
+		f"the ref is the item that is waiting and the name is who is waiting on it:\n{shown}"
+	)
+	assert "blocks #" not in run("list").output, (
+		"a listing marks the row a blocker and does not name who is waiting"
+	)
+
+
 def test_a_listing_never_says_what_is_holding_a_row_up (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

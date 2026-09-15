@@ -165,6 +165,9 @@ export function Row ({
 	   everywhere but the agenda's *Waiting on somebody else* section — see `holding` below for
 	   why this is a parameter rather than a field read. */
 	waitingOn = [],
+	/* **Who is waiting on this row, from the other end of the same links** (`SR#1427`). Handed in
+	   by the agenda for `waitingOn`'s reason, and empty everywhere else. */
+	blocksOthers = [],
 	/* **Whether the container already says the status** (`#1019`) — true only on a board, and
 	   only for a column whose category holds one status. A row cannot work this out: a list and
 	   an agenda have no columns, and the answer is about the workspace's vocabulary rather than
@@ -378,10 +381,13 @@ export function Row ({
 		does it — which is `#102`'s argument in a second medium, and the same defect Simon
 		reported one level up.
 	*/
-	const holding = waitingOn.length > 0 && html`
+	/* **One drawing for both directions** (`SR#1427`), so *waiting on* and *blocks* cannot come to
+	   be laid out two ways. *Blocks* because that is the word the item's own page uses for this
+	   end of the link. */
+	const drawEnds = (label, ends) => ends.length > 0 && html`
 		<div class="holding">
-			<span class="quiet">waiting on</span>
-			${waitingOn.map((end) => {
+			<span class="quiet">${label}</span>
+			${ends.map((end) => {
 				const going = { ref: end.ref, kind: "task" };
 				const to = slug ? addressOf(going, slug) : null;
 				const who = named(end.assignee, end.assignee_is_agent, end.assignee_answers_to);
@@ -397,6 +403,8 @@ export function Row ({
 			})}
 		</div>
 	`;
+	const holding = drawEnds("waiting on", waitingOn);
+	const blocksLine = drawEnds("blocks", blocksOthers);
 
 	return html`
 		<li ...${lift} data-colour=${hue}>
@@ -405,6 +413,7 @@ export function Row ({
 				: html`<button class="row inline ${shape}" onClick=${open}>${identity}</button>`}
 			${meta}
 			${holding}
+			${blocksLine}
 		</li>
 	`;
 }
@@ -662,6 +671,7 @@ export function Agenda ({
 								     what is holding a row up. A listing narrows and passes
 								     nothing, which is what keeps a blank row honest. */ null}
 								waitingOn=${item.blocked_by || []}
+								blocksOthers=${item.blocks_others || []}
 								onOpen=${onOpen} onComplete=${onComplete} />
 						`)}
 					</ul>

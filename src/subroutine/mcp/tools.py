@@ -2529,6 +2529,27 @@ def _where_it_landed (
 	return f"filed in {item.project_path or item.project_key}"
 
 
+def _named_ends (verb: str, ends: list[subroutine.views.LinkEnd]) -> str:
+	"""Return far ends as one cell: the verb, then each ref with who has it — `#1287`, `#1427`.
+
+	**One cell rather than one per end, unlike the terminal**, for §13's context economy, and
+	one function for both directions, so *waiting on* and *blocks* cannot come to be written
+	two ways.
+	"""
+
+	return f"{verb} " + ", ".join(
+		f"#{end.ref} {named}".strip()
+		for end in ends
+		for named in [
+			subroutine.views.principal_named(
+				end.assignee,
+				is_agent=end.assignee_is_agent,
+				answers_to=end.assignee_answers_to,
+			)
+		]
+	)
+
+
 def _line (
 	item: subroutine.views.Task | subroutine.views.Document,
 	*,
@@ -2635,17 +2656,13 @@ def _line (
 		# name short, and here §13's context economy says the opposite. The refs are what an
 		# agent acts on — it can read either item — and the name is who its operator chases.
 		if item.blocked_by:
-			cells.append("waiting on " + ", ".join(
-				f"#{end.ref} {named}".strip()
-				for end in item.blocked_by
-				for named in [
-					subroutine.views.principal_named(
-						end.assignee,
-						is_agent=end.assignee_is_agent,
-						answers_to=end.assignee_answers_to,
-					)
-				]
-			))
+			cells.append(_named_ends("waiting on", item.blocked_by))
+
+		# **And who is waiting on it, from the other end of the same links** (`#1427`, Simon
+		# 2026-09-15). Only the agenda resolves it, for the reason above, and only where somebody
+		# else's unfinished work is waiting - so on an instance with one person it never appears.
+		if item.blocks_others:
+			cells.append(_named_ends("blocks", item.blocks_others))
 
 		if item.importance is not None or item.urgency is not None:
 			cells.append(f"!{item.importance or '?'}/{item.urgency or '?'}")

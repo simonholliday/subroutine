@@ -889,6 +889,35 @@ def test_no_other_agenda_row_says_what_is_holding_it_up (tmp_path: pathlib.Path)
 	assert "waiting on" not in shown, shown
 
 
+def test_an_agenda_row_names_who_it_is_holding_up (tmp_path: pathlib.Path) -> None:
+	"""`SR#1427`: the other end of the line `SR#1287` draws, and drawn by the same drawing.
+
+	Simon's decision of 2026-09-15 is a mark naming who is waiting on a row, wherever the row
+	sits - so this row is under *Next*, not a section about waiting. The ref opens the item and
+	the name is who is waiting.
+	"""
+
+	shown = _rendered(tmp_path, {"Agenda": {
+		"buckets": [{
+			"key": "unscheduled",
+			"label": "Next",
+			"items": [{
+				"ref": 2, "kind": "task", "title": "My bit", "workspace": "projects",
+				"status_is_default": True,
+				"blocking": True,
+				"blocks_others": [
+					{"entity_type": "task", "ref": 9, "title": "Their bit", "assignee": "jo"},
+				],
+			}],
+		}],
+		"more": 0,
+	}})["Agenda"]
+
+	assert "blocks" in shown and "#9" in shown and "@jo" in shown, shown
+	assert "/projects/9" in shown, f"the ref opens the item, like every other ref here: {shown}"
+	assert "waiting on" not in shown, f"the row is holding somebody up, not held up: {shown}"
+
+
 def _rendered (
 	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
 ) -> dict[str, str]:

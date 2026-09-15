@@ -328,6 +328,16 @@ class Agenda:
 		uuid.UUID, tuple[subroutine.db.models.work.Task, ...]
 	] = dataclasses.field(default_factory=dict)
 
+	#: Somebody else's unfinished work each row is holding up, keyed by the row — `#1427`, Simon's
+	#: decision of 2026-09-15. The mark that names who is waiting on a row, wherever it sits.
+	#:
+	#: **Only rows with somebody to name are here**, which is the difference from
+	#: :attr:`blockers`: nothing about a section makes a row hold anybody up, so absent means
+	#: there is nothing to say.
+	blocks_others: dict[
+		uuid.UUID, tuple[subroutine.db.models.work.Task, ...]
+	] = dataclasses.field(default_factory=dict)
+
 	#: How many undated tasks there are in total, which is usually more than were returned.
 	#: Carried so a client can say "and 14 more" rather than implying the list is complete.
 	unscheduled_total: int = 0
@@ -1022,6 +1032,17 @@ def build (
 		# when nothing is held up* — is now *none at all when the page is empty*.
 		blockers=_named_blockers(
 			session, principal, rows, workspace_ids=workspace_ids, now=now, asked=asked
+		),
+		# **Who is waiting on each row, named** (`#1427`): the other end of the same links, read
+		# for every row on the page in one statement and kept only where somebody else's
+		# unfinished work is waiting, by the same `ours` *Waiting on somebody else* reads.
+		blocks_others=subroutine.domain.readiness.blocks_others_among(
+			session,
+			principal,
+			{row.id for bucket in BUCKETS for row in rows[bucket]},
+			workspace_ids=workspace_ids,
+			now=now,
+			ours=ours,
 		),
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],

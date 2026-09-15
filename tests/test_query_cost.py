@@ -1066,9 +1066,14 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 #: else to ids: that section takes them back, and `_named_blockers` must not give them an empty
 #: list of blockers, which would say something unseen is holding them up.
 #:
+#: **Thirty-six since `SR#1427`**, one more statement for the page: who each row is holding up,
+#: named on any row that somebody else's unfinished work is waiting on. It is `#1287`'s lookup
+#: read from the other end of the same links, and like that one it is one question for the
+#: whole page and none when the page is empty.
+#:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
-AGENDA_STATEMENTS = 35
+AGENDA_STATEMENTS = 36
 
 
 def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (
