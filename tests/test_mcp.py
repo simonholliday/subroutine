@@ -2031,6 +2031,46 @@ def test_the_whole_tool_surface_stays_small (
 	)
 
 
+
+def test_no_published_tool_text_carries_an_empty_list (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2732`. A schema built from the registry published a sentence with no subject.
+
+	The date filter's description named the fields that take only `.is`, and once none did it
+	read *"any field that can be empty;  takes only that."* in `subroutine_list`, on the surface every
+	session carries. **An empty list dropped into a sentence leaves two spaces where it was**, so
+	this reads every description and title the server publishes for that, rather than the one
+	constant it was found in.
+	"""
+
+	answered = _exchange(bound, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	texts: list[str] = []
+
+	def read (node: typing.Any) -> None:
+		"""Collect every published description and title, however deep."""
+
+		if isinstance(node, dict):
+			for key, value in node.items():
+				if key in ("description", "title") and isinstance(value, str):
+					texts.append(value)
+
+				read(value)
+
+		elif isinstance(node, list):
+			for value in node:
+				read(value)
+
+	read(answered[0]["result"]["tools"])
+
+	# A walk that read nothing passes as happily as a clean surface.
+	assert len(texts) > 50, f"only {len(texts)} texts were read, so this checked almost nothing"
+
+	doubled = [text[max(0, text.index("  ") - 40) : text.index("  ") + 40] for text in texts if "  " in text]
+
+	assert not doubled, f"published tool text with an empty list dropped into it: {doubled}"
+
+
 def _two_workspaces (
 	session: sqlalchemy.orm.Session,
 ) -> tuple[subroutine.clients.local.Client, str, str]:

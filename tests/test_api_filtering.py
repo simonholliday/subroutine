@@ -1857,6 +1857,55 @@ def test_a_listing_can_be_narrowed_to_what_somebody_created (world: World) -> No
 	assert "filed by the caller" in world.titles("/v1/tasks?created_by.is=set")
 
 
+def test_a_listing_can_be_narrowed_to_work_somebody_assigned (world: World) -> None:
+	"""`SR#502` — Simon's decision of 2026-09-15: *a filter for work you assigned, which combines
+	with "finished since"*.
+
+	**Reported on every row and askable by nothing**, which is `created_by`'s gap one column
+	along: `SR#473` records who made each assignment, and until now the only way to learn that
+	handed-over work was finished was to list it again and compare.
+	"""
+
+	colleague = _an_agent_of(world, f"colleague-{uuid.uuid4().hex[:8]}")
+	handed = []
+
+	for title in ("handed over and finished", "handed over and open"):
+		made = world.call(
+			"POST", "/v1/tasks", json={"title": title, "assignee": str(colleague.username)}
+		)
+
+		assert made.status_code == 201, made.text
+		handed.append(made.json())
+
+	kept = world.call("POST", "/v1/tasks", json={"title": "never handed over"})
+
+	assert kept.status_code == 201, kept.text
+
+	# **The fixture really recorded who assigned it**, or every assertion below proves nothing.
+	assert handed[0]["assigned_by_id"] == str(world.user.id), handed[0]
+
+	mine = world.titles("/v1/tasks?assigned_by.eq=me")
+
+	assert "handed over and open" in mine, mine
+	assert "never handed over" not in mine, mine
+
+	# **`me` is the calling account and a username is the same question**, exactly as
+	# `assignee` and `created_by` resolve them, and the written line compiles to the same entry.
+	assert "handed over and open" in world.titles(
+		f"/v1/tasks?assigned_by.eq={world.user.username}"
+	)
+	assert "handed over and open" in world.titles("/v1/tasks?q=assigned_by:me")
+	assert "never handed over" in world.titles("/v1/tasks?assigned_by.is=unset")
+
+	# **The question it was decided for**: what I handed over that has been finished since.
+	finished = world.call("POST", f"/v1/tasks/{handed[0]['ref']}/complete")
+
+	assert finished.status_code == 200, finished.text
+	assert world.titles("/v1/tasks?assigned_by.eq=me&completed_at.gte=today") == [
+		"handed over and finished"
+	]
+
+
 def test_a_document_can_be_narrowed_to_what_somebody_created (world: World) -> None:
 	"""The same question on the other entity — `SR#1577`.
 

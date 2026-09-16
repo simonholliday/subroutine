@@ -132,6 +132,14 @@ FEED_FILTER = _filter_schema(
 	f"gt/gte/lt/lte on {_fields_of(subroutine.domain.filtering.INSTANT, 'event')}."
 )
 
+#: The fields whose one filter is whether they are empty — `#2732`.
+#:
+#: **None, since resolving a name shipped**, and the sentence naming them went on being published
+#: regardless: *"any field that can be empty;  takes only that."*, with no subject, in
+#: `subroutine_list`'s schema. So the clause is written only while there is something for it to name, and a field
+#: of that kind added later is still told to an agent.
+_ONLY_EMPTINESS = _fields_of(subroutine.domain.filtering.CONDITION)
+
 DATE_FILTER = _filter_schema(
 	"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
 	"entries make a range. gt/gte/lt/lte on "
@@ -154,9 +162,9 @@ DATE_FILTER = _filter_schema(
 	# it would have to guess the word before the refusal could teach it, and *unassigned* and
 	# *not a sub-task* are two of the four questions that had no spelling at all —
 	# `parent=none` looked up a task called *none* and answered 404.
-	"Add '.is' with 'set' or 'unset' to any field that can be empty; "
-	f"{_fields_of(subroutine.domain.filtering.CONDITION)} takes only that. "
-	"touched_at is *worked on* — a comment or status change counts, which no other "
+	"Add '.is' with 'set' or 'unset' to any field that can be empty"
+	+ (f"; {_ONLY_EMPTINESS} takes only that. " if _ONLY_EMPTINESS else ". ")
+	+ "touched_at is *worked on* — a comment or status change counts, which no other "
 	"field sees. touched_by takes a username and pairs with it."
 )
 

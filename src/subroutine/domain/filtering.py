@@ -870,6 +870,24 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 			"and wants a bounded axis, which an account list is not."
 		),
 	),
+	# **What did I hand over** — `#502`, Simon's decision of 2026-09-15: *"a filter for work you
+	# assigned, which combines with 'finished since'"*, and nothing more for now. `#473` records
+	# who made every assignment and each row reports it as `assigned_by_id`, while no listing
+	# could ask for the rows carrying it — `created_by`'s gap above, one column along. Beside
+	# `completed_at.gte` it is *what I handed over that has been finished since yesterday*, in one
+	# request, which is the return leg of a hand-off nothing else closed.
+	#
+	# **`is` means something here too**: the column is null wherever nobody assigned the work,
+	# and null again when the assignee is cleared.
+	"assigned_by": Property(
+		column=subroutine.db.models.work.Task.assigned_by_id,
+		kind=REFERENCE,
+		group=NAMES_AN_ACCOUNT,
+		because=(
+			"ordering by an account id means nothing, and *what did I hand over longest ago* "
+			"is not a question the row can answer - it records who assigned it, not when."
+		),
+	),
 	"tag": Property(
 		column=subroutine.db.models.work.Task.id,
 		kind=REFERENCE,

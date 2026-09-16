@@ -62,6 +62,12 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be narrowed to work you handed over.** `assigned_by` names whoever
+  assigned a task, and takes a name or `me` as `assignee` does: `?assigned_by.eq=me`,
+  `--filter assigned_by.eq=me` at a terminal, `assigned_by:me` in a search, or the agent
+  tools' `filter`. Beside `completed_at.gte` it answers what you handed over that has been
+  finished since a given day - `?assigned_by.eq=me&completed_at.gte=yesterday`.
+
 - **Each project's agent can be somebody of its own.**
   [docs/connecting.md](docs/connecting.md#a-different-agent-in-each-project) shows how: an agent
   made for the project, and its credential in that project's `.claude/settings.local.json`,
