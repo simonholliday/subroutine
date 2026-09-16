@@ -1154,8 +1154,10 @@ The result is an agent that is itself half the time and you the other half. That
 plainly acting as you, because it is partial: check the event log and the agent's own name is
 there, on the half that went through its tools.
 
-**`--store` settles it, and it is the only thing that reaches both halves.** Credentials are
-looked for in this order:
+**`--store` settles it for every agent on this machine**, and a project's own settings can
+settle it for one project - [A different agent in each
+project](connecting.md#a-different-agent-in-each-project). Credentials are looked for in this
+order:
 
 1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment - the connection name upper-cased, with
    anything that is not a letter or a digit as an underscore
@@ -1185,10 +1187,12 @@ so there is nothing to be gained by it.
 **It costs nothing until you use it.** With one token stored, every step behaves exactly as it
 did. Remove the agent's token and the mechanism is gone, completely.
 
-**An earlier version of this page told you to set `SUBROUTINE_TOKEN_<CONNECTION>` where you
-launch the agent.** That still works, and on the commonest setup there is nowhere to do it: in
-an editor extension nobody launches the agent, so there is no command to prefix - and a shell
-profile reaches *your* terminal and not the agent's, which is the wrong way round.
+**`SUBROUTINE_TOKEN_<CONNECTION>` set where the agent runs is the other way, and it is per
+project.** An editor extension has no command to prefix, and a shell profile reaches *your*
+terminal rather than the agent's - but Claude Code reads an `env` block from a project's own
+settings and gives it to everything it starts there, which is how one checkout gets an agent of
+its own while the rest of the machine keeps this one. [A different agent in each
+project](connecting.md#a-different-agent-in-each-project) is the whole of it.
 
 **Check it rather than assuming it**, from inside the agent's own shell:
 

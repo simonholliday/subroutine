@@ -265,6 +265,122 @@ separate moments and only the first one reports, so the second is worth checking
 instance* field takes the name of a connection you have already set up, and the section above is
 how you set one up.
 
+**If you work in several projects**, each project's agent can be somebody of its own while
+the rest of the machine keeps this one - [A different agent in each
+project](#a-different-agent-in-each-project) is how.
+
+## A different agent in each project
+
+**You work in several repositories, and you want each one's agent to be somebody of its own** -
+so that work done in `web` is recorded as the web agent's, is kept to that project, and can be
+revoked without touching the rest - while an agent anywhere else on the machine carries on as
+the one you already have.
+
+**It is an exception, not a second setup.** The machine keeps its general agent. A project that
+names a credential of its own overrides it inside that project, and nowhere else.
+
+**What it needs:** Claude Code, and the `subroutine` plugin from [An agent, on the machine
+holding the work](#an-agent-on-the-machine-holding-the-work). It works whether the work is on
+this machine or on a server you reach as a connection. **It does not reach
+`subroutine-remote`**, whose token is a plugin setting - and a plugin's settings apply to every
+project at once, which is why this uses the project's own settings instead.
+
+### 1. Make an agent for each project
+
+One command per project:
+
+```console
+$ subroutine agent create web --profile worker --project web
+$ subroutine agent create api --profile worker --project api
+```
+
+`worker` gives each agent its project and everything filed under it, and nothing else. An agent
+that reads a neighbouring project for context and changes only its own is `--profile
+collaborator --project web --project api --write web`. [Saying what the credential is
+for](hosting.md#saying-what-the-credential-is-for) has all four profiles, and `--title` names the
+credential if `web agent` is not what you want to read later.
+
+**Leave `--store` off.** It records a credential as *this machine's* agent, and a connection has
+one of those - so it would replace your general agent everywhere, where this adds an exception
+in one place.
+
+Each command prints its credential once. Keep it for the next step, and put it nowhere else.
+
+### 2. Put the credential in that project's local settings
+
+In the project's own directory, add an `env` block to `.claude/settings.local.json`, creating
+the file if there is none:
+
+```json
+{
+  "env": {
+    "SUBROUTINE_TOKEN_LOCAL": "sr_…"
+  }
+}
+```
+
+**The name after `SUBROUTINE_TOKEN_` is the connection's**, upper-cased, with anything that is
+not a letter or a digit as an underscore. The instance on this machine is `local`; a server you
+added as `work` makes it `SUBROUTINE_TOKEN_WORK`. `subroutine connections` lists the names.
+
+**Why that file.** Claude Code gives every `env` entry to everything it starts in that project -
+the agent's shell as well as the plugin's server - so one line covers both of the ways an agent
+reaches an instance, and [an agent that can also run a
+shell](hosting.md#an-agent-that-can-also-run-a-shell) is why both matter. It is the half of a
+project's settings meant for this machine alone. **Check that the repository ignores it before
+you save a credential there** - `git check-ignore .claude/settings.local.json` prints the path
+when it does, and nothing when it does not.
+
+**Why that variable, rather than `SUBROUTINE_TOKEN`.** A variable naming the connection is the
+first place a credential is looked for, so it wins over the plugin's own token field and over an
+agent stored on this machine. And it applies to that connection alone, so a second instance you
+reach from the same project keeps its own credential.
+
+### 3. Start a new session there, and check
+
+A session reads its environment when it starts, so one already open in that project keeps the
+identity it began with. Start a new one, or reload the window.
+
+**You know it worked** when the agent's shell, in that project, names the project's agent:
+
+```console
+$ subroutine whoami
+web (agent), via token 'web agent' (ea4adf49…).
+Narrowed to projects web.
+```
+
+and `subroutine_whoami`, asked through the agent's tools, names it too. **Then ask the same in a
+session in any other project**: it should name your general agent. The pair is the check -
+either answer alone can be right for the wrong reason.
+
+**If it does not**, run `subroutine connections` from the agent's shell in that project. It says
+where each connection's credential came from, and the project's variable is named there when it
+arrived:
+
+```console
+$ subroutine connections
+local  sqlite:///…/subroutine.db  SUBROUTINE_TOKEN_LOCAL  in use, default
+```
+
+Anything else in that column means the session never got the variable: it started before the
+file was saved, or the file is not in the directory the session was opened in.
+
+### What it does not do
+
+- **It is a record and a bound, not a wall.** The project's credential makes the right name the
+  default and bounds what that name can touch, and [Giving an agent a
+  token](hosting.md#giving-an-agent-a-token) is where the bound is set. It cannot stop an agent
+  that runs commands from finding a different credential and presenting that instead.
+- **An agent kept to one project cannot write anywhere else**, a comment on another project's
+  item included. Where one agent's work genuinely spans two, give it `--write` for each rather
+  than widening it back to everything.
+- **Only what Claude Code starts in that project reads the file.** A terminal or a scheduled job
+  it did not start, and `subroutine-remote`, go on as before.
+
+**To undo it**, remove the `env` entry and start a new session: that project is back to the
+general agent. `subroutine token revoke <prefix>` stops the credential working anywhere, and
+`subroutine token list` shows the prefix.
+
 ## An agent, with nothing installed
 
 **Somebody else runs Subroutine, they have given you an address and a token, and you want your

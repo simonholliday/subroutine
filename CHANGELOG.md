@@ -62,6 +62,13 @@ upgrade involves.
 
 ### Added
 
+- **Each project's agent can be somebody of its own.**
+  [docs/connecting.md](docs/connecting.md#a-different-agent-in-each-project) shows how: an agent
+  made for the project, and its credential in that project's `.claude/settings.local.json`,
+  where Claude Code gives it to the agent's shell and its tools alike. Every other project on
+  the machine keeps the agent it already had. `docs/hosting.md` and `agent create --help` said
+  `--store` was the only way to reach both halves; both now name this as the other.
+
 - **An agenda row says who is waiting on it.** A task that somebody else's unfinished work
   is waiting on carries a line naming that work and whoever has it - *blocks #42 @jo* -
   wherever it sits on your agenda, in the terminal, the browser and the agent tools. It

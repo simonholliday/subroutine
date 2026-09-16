@@ -2333,10 +2333,11 @@ def agent_create (
 	you: half its work is correctly attributed, so a spot check finds its name and concludes the
 	setup worked.
 
-	'--store' covers both halves and is the only thing that covers the second. It records the
-	credential beside yours rather than in place of it, and 'subroutine' then acts as the agent
-	in a process the agent started and as you everywhere else — including in 'git' hooks, which
-	are the highest-volume writer here and the one no editor setting reaches.
+	'--store' covers both halves for every agent on this machine. It records the credential
+	beside yours rather than in place of it, and 'subroutine' then acts as the agent in a process
+	the agent started and as you everywhere else — including in 'git' hooks, which are the
+	highest-volume writer here. For one project's agent instead, leave '--store' off and give
+	the credential to that project's own settings, as docs/connecting.md shows.
 
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
