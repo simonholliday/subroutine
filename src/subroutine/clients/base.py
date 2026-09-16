@@ -816,6 +816,21 @@ class Client(typing.Protocol):
 		asking about.
 		"""
 
+	def item_journal (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> Listing[subroutine.views.JournalEntry]:
+		"""Return what happened to one item as a journal, newest first — `#2729`.
+
+		**:meth:`history` read the other way** (decision `#1429`): the same rows, with who did
+		each thing, what a change moved between and how a comment opens, and no whole text. A
+		task or a document; a project has a history and no journal.
+		"""
+
 	def changes (
 		self,
 		*,

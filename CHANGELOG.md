@@ -70,6 +70,11 @@ upgrade involves.
 
 ### Added
 
+- **One item's journal.** `GET /v1/tasks/{ref}/journal` and `GET /v1/documents/{ref}/journal`
+  read what happened to that item the way `/v1/journal` reads a period - who did each thing,
+  what a change moved between, and how a comment opens - newest first, a page at a time.
+  `/events` beside them still has every change whole.
+
 - **A journal entry says what kind of item it is about, where that item is filed, and which
   way the change came in.** `/v1/journal` and `subroutine journal --json` carry `item_type`
   (`bug`, `decision`), `item_project_path` (`web/ui`) and `actor_interface` - `browser`,

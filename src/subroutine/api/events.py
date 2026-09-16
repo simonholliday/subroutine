@@ -23,6 +23,13 @@ radius, and it does it by *resolving the subject* — which is the permission ch
 **Which events on it a reader may see is the feed's predicate**, reused through
 ``events.history`` rather than written here: a link hanging off a visible item can name one the
 reader may not see, which resolving the item alone let through.
+
+**And one item's journal is the same rows read the other way** (`#2729`, decision `#1429`):
+``/v1/tasks/{ref}/journal`` beside ``/events``, rendered through ``views.journal_entries`` as
+``/v1/journal`` is, so it names who did each thing and what a change moved between and carries
+no whole text. A sibling rather than a flag, for the reason ``/v1/journal`` is its own route:
+a caller has to be able to discover that there are two readings. A task and a document have
+one; a project does not, because nothing reads a project's journal yet.
 """
 
 import typing
@@ -64,6 +71,9 @@ document_events = fastapi.APIRouter(
 
 SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Event)
 
+#: What an item's journal lets a caller select, which is a journal entry's fields.
+JOURNAL_SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.JournalEntry)
+
 #: What ``?order=`` accepts. One field, because ``seq`` is the only ordering an event log
 #: has that means anything: it is the order things happened in, and it is monotonic.
 SORTABLE = {"seq": subroutine.db.models.activity.Event.seq}
@@ -85,8 +95,15 @@ def _page (
 	limit: int | None,
 	cursor: str | None,
 	shape: typing.Any,
+	render: typing.Callable[
+		[list[subroutine.db.models.activity.Event]], typing.Sequence[typing.Any]
+	],
 ) -> typing.Any:
-	"""Return one page of an item's history."""
+	"""Return one page of an item's history, rendered by ``render``.
+
+	**The rows and the cursor are one thing and the rendering is the caller's** (`#2729`): the
+	history renders events and the item's journal renders journal entries, over the same page.
+	"""
 
 	model = subroutine.db.models.activity.Event
 	statement = subroutine.domain.events.history(
@@ -118,10 +135,9 @@ def _page (
 	rows = list(session.scalars(ordered.limit(size + 1)))
 	has_more = len(rows) > size
 	rows = rows[:size]
-	described = subroutine.domain.events.descriptions(session, rows)
 
 	return subroutine.api.shaping.response(
-		[subroutine.views.event(row, described) for row in rows],
+		render(rows),
 		subroutine.views.Page(
 			limit=size,
 			has_more=has_more,
@@ -136,6 +152,16 @@ def _page (
 		),
 		shape,
 	)
+
+
+def _as_events (
+	session: sqlalchemy.orm.Session, rows: list[subroutine.db.models.activity.Event]
+) -> list[subroutine.views.Event]:
+	"""Render a page of an item's history as the audit log reports it."""
+
+	described = subroutine.domain.events.descriptions(session, rows)
+
+	return [subroutine.views.event(row, described) for row in rows]
 
 
 def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> None:
@@ -199,6 +225,74 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 				entity="event",
 				timezone=subroutine.views.reader_zone(session, actor),
 			),
+			render=lambda rows: _as_events(session, rows),
+		)
+
+
+def _attach_journal (group: fastapi.APIRouter, *, entity_type: str, address: str) -> None:
+	"""Register one item's journal for one kind of subject — `#2729`.
+
+	Beside :func:`_attach` rather than inside it, because a project has a history and no journal.
+	"""
+
+	@group.get(
+		"/{" + address + "}/journal",
+		summary=f"What happened to this {entity_type}, with what was said",
+		response_model=subroutine.views.Collection[subroutine.views.JournalEntry],
+		name=f"read_{entity_type}_journal",
+	)
+	def reading (
+		actor: subroutine.api.security.PrincipalDep,
+		session: subroutine.api.dependencies.SessionDep,
+		settings: subroutine.api.dependencies.SettingsDep,
+		request: starlette.requests.Request,
+		workspace_id: str | None = fastapi.Query(
+			None, description="Which workspace, by id or slug. Needed when you can reach several."
+		),
+		order: str | None = fastapi.Query(
+			None, description="'-seq' (default, newest first) or 'seq' for oldest first."
+		),
+		limit: int | None = fastapi.Query(None, description=subroutine.api.pagination.LIMIT_DESCRIPTION),
+		cursor: str | None = fastapi.Query(None, description="Continue after a page."),
+		format: str | None = subroutine.api.shaping.FORMAT_QUERY,
+		fields: str | None = subroutine.api.shaping.FIELDS_QUERY,
+	) -> typing.Any:
+		"""Return what happened to this item, newest first, with who did it and what they said.
+
+		**The same entries `/v1/journal` gives about this item**, read from this item's history:
+		who did each thing and through which door, what a change moved between, and how a
+		comment on it opens. No entry carries a whole text, and `/events` beside this has every
+		change whole.
+		"""
+
+		subject = subroutine.api.subjects.resolve(
+			session,
+			actor,
+			entity_type=entity_type,
+			address=request.path_params[subroutine.api.subjects.named(address)],
+			workspace_id=workspace_id,
+		)
+
+		return _page(
+			session,
+			settings,
+			actor,
+			workspace_id=subject.workspace_id,
+			entity_type=entity_type,
+			entity_id=subject.id,
+			order=order,
+			limit=limit,
+			cursor=cursor,
+			shape=subroutine.api.shaping.wanted(
+				format=format,
+				fields=fields,
+				available=JOURNAL_SELECTABLE,
+				entity="journal entry",
+				timezone=subroutine.views.reader_zone(session, actor),
+			),
+			render=lambda rows: subroutine.views.journal_entries(
+				session, rows, principal=actor, workspace_ids=[subject.workspace_id]
+			),
 		)
 
 
@@ -208,3 +302,8 @@ for _group, _entity in (
 	(document_events, "document"),
 ):
 	_attach(_group, entity_type=_entity, address=subroutine.api.subjects.ADDRESS[_entity])
+
+for _group, _entity in ((task_events, "task"), (document_events, "document")):
+	_attach_journal(
+		_group, entity_type=_entity, address=subroutine.api.subjects.ADDRESS[_entity]
+	)

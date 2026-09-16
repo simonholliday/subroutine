@@ -9,8 +9,7 @@ deliberately does not carry.
 **Its own route rather than a flag on the feed**, which is Simon's decision of 2026-08-27 and
 his reason is the one that matters: an agent has to be able to *discover* the distinction, and a
 flag on an existing route is something you have to already know exists. They also want different
-defaults — the feed reads forwards from a cursor at fifty rows a page, and these entries carry
-whole comment bodies.
+defaults — the feed reads forwards from a cursor, and this reads back from the newest.
 
 **Nothing here narrows differently.** The scoping, the watermark, both cursor refusals and the
 period filter are all :mod:`subroutine.domain.events`' and :mod:`subroutine.domain.filtering`'s,

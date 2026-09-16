@@ -812,6 +812,29 @@ class Client:
 			wanted=limit,
 		)
 
+	def item_journal (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> subroutine.clients.base.Listing[subroutine.views.JournalEntry]:
+		"""Return what happened to one item as a journal, newest first."""
+
+		asking = _given(workspace_id=workspace, limit=limit)
+
+		# **The path written out in the call**, as :meth:`history` writes it, because
+		# `tests/test_reach.py` reads what each method sends from the call itself.
+		return self._collected(
+			subroutine.views.JournalEntry,
+			self._json("GET", f"/v1/{_plural(entity_type)}/{ref}/journal", params=asking),
+			endpoint="journal",
+			path=f"/v1/{_plural(entity_type)}/{ref}/journal",
+			params=list(asking.items()),
+			wanted=limit,
+		)
+
 	def journal (
 		self,
 		*,

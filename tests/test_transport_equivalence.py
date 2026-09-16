@@ -3722,6 +3722,36 @@ def test_both_journals_leave_out_whole_texts_and_cut_a_comment_the_same_way (
 	assert written.startswith(comment.said) and len(comment.said) < len(written)
 
 
+def test_both_read_one_items_journal_the_same_way (pair: Pair) -> None:
+	"""`SR#2729`: the route and the local client are made of the same two functions.
+
+	**A limit below the item's entries**, so the extra-row answer to *is that all* is compared
+	too, and a document as well as a task.
+	"""
+
+	made = make(pair, "Fix the parser")
+
+	pair.local.update(ref=made.ref, status="in_progress")
+	pair.local.remark(ref=made.ref, body="Reproduced on 3.11 only.")
+
+	written = pair.local.create_document(title="How the parser works", body="Carefully.")
+
+	pair.local.update_document(ref=written.ref, body="More carefully.")
+
+	local, remote = pair.both()
+
+	for ref, kind in ((made.ref, "task"), (written.ref, "document")):
+		whole = local.item_journal(ref=ref, entity_type=kind)
+
+		assert whole and all(entry.item_ref == ref for entry in whole), whole
+		assert whole == remote.item_journal(ref=ref, entity_type=kind)
+
+		cut = local.item_journal(ref=ref, entity_type=kind, limit=1)
+
+		assert cut == remote.item_journal(ref=ref, entity_type=kind, limit=1)
+		assert len(cut) == 1 and cut.has_more, cut
+
+
 def test_both_resume_from_the_same_point (pair: Pair) -> None:
 	"""``since`` is inclusive on both, or a client switching transports loses or repeats a row."""
 

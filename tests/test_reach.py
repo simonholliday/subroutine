@@ -179,6 +179,9 @@ READ_BY: dict[tuple[str, str], str] = {
 	# The other reading of the same store — `SR#1430`, decision `SR#1429`.
 	("GET", "/v1/journal"): "journal",
 	("GET", "/v1/documents/{id_or_ref}/events"): "history",
+	# One item's journal, the same rows read the other way — `SR#2729`.
+	("GET", "/v1/tasks/{id_or_ref}/journal"): "item_journal",
+	("GET", "/v1/documents/{id_or_ref}/journal"): "item_journal",
 	# **These two were swapped, and swapped consistently, so every check here passed** (`#336`).
 	# `identity()` calls `/v1/meta` and says so in writing; `/v1/me` was mapped to it and
 	# `/v1/meta` sat in NOT_REACHED. Nothing was unclassified and nothing was both reached and
@@ -344,6 +347,15 @@ NOT_REACHED: dict[tuple[str, str], Excuse] = {
 
 #: Client methods the CLI does not call, and why.
 NOT_IN_CLI: dict[str, Excuse] = {
+	"item_journal": (
+		"disclosure",
+		"`#2729`. Built for the browser's page of one item's history (`#1428`). At a terminal "
+		"`subroutine show --history` already answers what happened to one item, and "
+		"`subroutine journal` what happened over a period; a third command printing one item's "
+		"record would be a second way to ask what `show` answers, the duplication `#154` closed "
+		"for `help` and `explain`.\n\n**What would remove it**: `show --history` reading this "
+		"rather than the audit log, which changes what that flag prints and is its own decision.",
+	),
 	"statuses": (
 		"protocol",
 		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
@@ -462,6 +474,15 @@ SETTINGS_ARE_A_PAGE = (
 )
 
 NOT_IN_MCP: dict[str, Excuse] = {
+	"item_journal": (
+		"budget",
+		"`#2729`. Built for the browser's page of one item's history (`#1428`). An agent already "
+		"has `subroutine_show` with `history`, and `subroutine_journal` for a period; a sixteenth "
+		"tool, or an argument, for one item's record read the other way costs every agent context "
+		"for a question those two answer between them, and `subroutine_call_api` reaches the "
+		"route.\n\n**What would change it**: `subroutine_show(history=true)` reading this "
+		"rather than the audit log.",
+	),
 	"unreachable_projects": (
 		"budget",
 		"`SR#1453`. *Which private projects can nobody see* is an administrator's question, gated by `instance:admin`, which no role carries and only a superuser holds, and it is asked while somebody leaves - an act an agent is refused outright. `subroutine_call_api` reaches the route, against a surface at **15 of 15 tools** under \u00a721.2.\n\n**What would change it**: an agent that administers people on an installation, which this product refuses by decision.",

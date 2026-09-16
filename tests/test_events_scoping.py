@@ -666,18 +666,22 @@ def test_one_items_history_carries_a_link_only_where_both_ends_can_be_seen (
 
 	application = api_support.build_app(api_support.factory_for(session))
 
-	def over_http (user: typing.Any) -> list[dict[str, typing.Any]]:
-		"""Return the link events in the visible task's history, read over HTTP as ``user``."""
+	def over_http (user: typing.Any, reading: str = "events") -> list[dict[str, typing.Any]]:
+		"""Return the link entries in the visible task's history, read over HTTP as ``user``.
+
+		``reading`` is ``events`` for the history or ``journal`` for the same rows as a journal
+		(`SR#2729`), which is built on the same narrowed statement.
+		"""
 
 		_row, issued = subroutine.domain.authentication.issue_token(
-			session, user=user, title=f"history for {user.username}"
+			session, user=user, title=f"{reading} for {user.username}"
 		)
 		session.flush()
 
 		answered = api_support.call(
 			application,
 			"GET",
-			f"/v1/tasks/{world.visible.ref}/events",
+			f"/v1/tasks/{world.visible.ref}/{reading}",
 			headers={"authorization": f"Bearer {issued.value.get_secret_value()}"},
 			params={"workspace_id": str(world.workspace.id)},
 		)
@@ -711,6 +715,10 @@ def test_one_items_history_carries_a_link_only_where_both_ends_can_be_seen (
 	)
 	assert over_http(world.outsider) == [], (
 		"an item's history over HTTP handed somebody a link to an item they may not see"
+	)
+	assert len(over_http(world.owner, "journal")) == 1, "the owner's item journal lost the link"
+	assert over_http(world.outsider, "journal") == [], (
+		"an item's journal handed somebody a link to an item they may not see"
 	)
 	assert locally(world.outsider) == [], (
 		"an item's history through the local client handed somebody a link to an item they may "

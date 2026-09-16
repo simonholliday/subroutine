@@ -1743,6 +1743,40 @@ class Client:
 				has_more=len(rows) > size,
 			)
 
+	def item_journal (
+		self,
+		*,
+		ref: int,
+		entity_type: str = "task",
+		workspace: str | None = None,
+		limit: int | None = None,
+	) -> subroutine.clients.base.Listing[subroutine.views.JournalEntry]:
+		"""Return what happened to one item as a journal, newest first — `#2729`.
+
+		**:meth:`history`'s rows and :func:`subroutine.views.journal_entries`' rendering**, the
+		two things the route is made of, so the transports cannot answer differently.
+		"""
+
+		size = subroutine.domain.paging.asked_for(limit, self.settings)
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			subject = self._subject(session, actor, chosen.id, entity_type, ref)
+			rows = session.scalars(
+				subroutine.domain.events.history(
+					actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
+				)
+				.order_by(subroutine.db.models.activity.Event.seq.desc())
+				.limit(size + 1)
+			).all()
+
+			return subroutine.clients.base.Listing(
+				subroutine.views.journal_entries(
+					session, rows[:size], principal=actor, workspace_ids=[chosen.id]
+				),
+				has_more=len(rows) > size,
+			)
+
 	def journal (
 		self,
 		*,

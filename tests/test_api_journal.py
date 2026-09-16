@@ -467,6 +467,119 @@ def test_the_journal_says_how_much_of_a_comment_it_carries (
 	assert f"at most {subroutine.domain.journal.OPENING} characters" in described, described
 
 
+def test_an_items_journal_is_what_the_journal_says_about_that_item (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2729`: the same entries `/v1/journal` gives about one item, read from its history.
+
+	**Compared with the workspace's journal rather than described again**, so the two readings
+	cannot come to say different things about the same event. A second task's entries are the
+	ones that must not appear, and a page of two walked to the end is the whole of it.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"})
+	other = world.call("POST", "/v1/tasks", json={"title": "Write the release notes"})
+
+	assert made.status_code == 201 and other.status_code == 201, (made.text, other.text)
+
+	ref = made.json()["ref"]
+	answers = [
+		world.call("PATCH", f"/v1/tasks/{ref}", json={"status": "in_progress"}),
+		world.call("PATCH", f"/v1/tasks/{ref}", json={"description": "TASK-TEXT-WHOLE"}),
+		world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": _long("the end")}),
+		world.call(
+			"POST",
+			f"/v1/tasks/{ref}/links",
+			json={"target_type": "task", "target": other.json()["ref"], "link_type": "blocks"},
+		),
+		world.call("POST", f"/v1/tasks/{other.json()['ref']}/comments", json={"body": SAID}),
+	]
+
+	for answer in answers:
+		assert answer.status_code in (200, 201), answer.text
+
+	session.flush()
+	_settled(session)
+
+	whole = world.call("GET", f"/v1/tasks/{ref}/journal", params={"limit": 200})
+
+	assert whole.status_code == 200, whole.text
+
+	entries = whole.json()["items"]
+
+	# **Newest first, as its history is.** `/v1/journal` returns its newest page in the order
+	# things happened, so the two are compared entry by entry in one order rather than as lists.
+	assert [entry["seq"] for entry in entries] == sorted(
+		(entry["seq"] for entry in entries), reverse=True
+	), "an item's journal is not newest first"
+
+	expected = sorted(
+		(entry for entry in _entries(world, limit=200) if entry["item_ref"] == ref),
+		key=lambda entry: -entry["seq"],
+	)
+
+	assert {entry["entity_type"] for entry in entries} == {"task", "comment", "link"}, entries
+	assert entries == expected, "one item's journal says something different from the journal"
+	assert "TASK-TEXT-WHOLE" not in whole.text and "TASK-TEXT-WHOLE" in world.call(
+		"GET", f"/v1/tasks/{ref}/events"
+	).text, "the item's journal carried a whole text, or its history lost one"
+
+	# **A page at a time, to the end**, which is the one thing this has that `/v1/journal` has not.
+	walked: list[dict[str, typing.Any]] = []
+	cursor = None
+
+	while True:
+		page = world.call(
+			"GET",
+			f"/v1/tasks/{ref}/journal",
+			params={"limit": 2, **({} if cursor is None else {"cursor": cursor})},
+		)
+
+		assert page.status_code == 200, page.text
+
+		walked += page.json()["items"]
+		cursor = page.json()["page"]["next_cursor"]
+
+		if cursor is None:
+			break
+
+	assert walked == entries, "walking an item's journal a page at a time lost or repeated entries"
+
+
+def test_a_documents_journal_is_read_the_same_way (world: test_api_tasks.World) -> None:
+	"""`#2729`: the document sibling, with a body changed and nothing of it carried."""
+
+	made = world.call(
+		"POST", "/v1/documents", json={"title": "The menu", "body": "DOCUMENT-TEXT-BEFORE"}
+	)
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	changed = world.call("PATCH", f"/v1/documents/{ref}", json={"body": "DOCUMENT-TEXT-AFTER"})
+
+	assert changed.status_code == 200, changed.text
+
+	answered = world.call("GET", f"/v1/documents/{ref}/journal")
+
+	assert answered.status_code == 200, answered.text
+
+	entries = answered.json()["items"]
+
+	assert all(entry["item_ref"] == ref for entry in entries), entries
+	assert [entry["action"] for entry in entries][-1] == "created", entries
+
+	(rewritten,) = [
+		change
+		for entry in entries
+		for change in entry["changed"]
+		if entry["action"] == "updated" and change["field"] == "body"
+	]
+
+	assert (rewritten["before"], rewritten["after"]) == (None, None), rewritten
+	assert "DOCUMENT-TEXT" not in answered.text, "a document's journal carried its body"
+
+
 def test_a_change_says_what_it_moved_between_and_not_which_rows (
 	world: test_api_tasks.World, session: sqlalchemy.orm.Session
 ) -> None:
