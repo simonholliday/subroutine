@@ -16,6 +16,14 @@ upgrade involves.
 
 ### Changed
 
+- **The journal no longer carries whole texts.** A comment is its opening - at most 280
+  characters, ending at a word - and `said_truncated` says whether there is more, which the
+  item's comments still have. A change to a description or a document's body says that it
+  changed, with nothing before or after. `/v1/journal`, `subroutine journal` and the agent
+  tools all read this way, and `/v1/changes` and an item's history still carry every text
+  whole. Most of what the journal sent was documents rewritten, so a page of it is a small
+  fraction of the size.
+
 - **An agenda's *Waiting on somebody else* treats your own agents as yours, and holds the
   questions you are waiting on.** Work held up only by something your own agent has was
   listed as waiting on somebody else, though moving it along is yours to do; it now sits

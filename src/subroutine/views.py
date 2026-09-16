@@ -1334,13 +1334,22 @@ class JournalEntry(pydantic.BaseModel):
 	action: str
 	entity_type: str
 
-	#: What was written, where this entry is somebody writing something. **Null for every other
-	#: kind of entry, and null for a comment that has since been deleted**: deletion is soft, so
-	#: the body is still in the table, and showing it would make the journal the one surface
-	#: where a retracted paragraph is still readable.
+	#: How what was written opens, where this entry is somebody writing something — at most
+	#: `journal.OPENING` characters, ended at a word (`#2728`). **Null for every other kind of
+	#: entry, and null for a comment that has since been deleted**: deletion is soft, so the body
+	#: is still in the table, and showing it would make the journal the one surface where a
+	#: retracted paragraph is still readable.
 	said: str | None = None
 
+	#: Whether ``said`` is only the opening. **A field rather than an ellipsis**, so a program
+	#: never parses the text to learn there is more; the item's own comments carry the rest.
+	said_truncated: bool = False
+
 	#: What moved, in words. Empty where nothing did — a claim, a comment, a link.
+	#:
+	#: **A change to a text says only that it changed** (`#2728`): a description or a body has
+	#: no before and no after here, whatever kind of thing it belongs to, and the audit log keeps
+	#: both whole.
 	changed: list[Change] = pydantic.Field(default_factory=list)
 
 	created_at: datetime.datetime
@@ -3711,7 +3720,7 @@ def journal_entry (
 	*,
 	vocabulary: Vocabulary,
 	described: dict[uuid.UUID, subroutine.domain.events.Described] | None = None,
-	bodies: dict[uuid.UUID, str] | None = None,
+	bodies: dict[uuid.UUID, subroutine.domain.journal.Said] | None = None,
 ) -> JournalEntry:
 	"""Render one thing that happened — `#1430`, decision `#1429`.
 
@@ -3747,6 +3756,13 @@ def journal_entry (
 
 			lookup = subroutine.domain.journal.NAMED_BY.get(field)
 
+			# **The phrase alone for a whole text** (`#2728`), before either side is read, so no
+			# rendering of a value can reach one.
+			if field in subroutine.domain.journal.WHOLE_TEXTS:
+				changed.append(Change(field=field, said=field_in_words(field)))
+
+				continue
+
 			changed.append(
 				Change(
 					field=field,
@@ -3777,6 +3793,14 @@ def journal_entry (
 		if change.said in said_twice:
 			change.said = change.field.removesuffix("_id").removesuffix("_at").replace("_", " ")
 
+	# **Only where this entry *is* somebody writing something.** A body keyed on the entity id
+	# would otherwise attach a comment's text to the task event that followed it.
+	written = (
+		None
+		if bodies is None or row.entity_type != "comment" or row.entity_id is None
+		else bodies.get(row.entity_id)
+	)
+
 	return JournalEntry(
 		seq=row.seq,
 		id=row.id,
@@ -3802,13 +3826,8 @@ def journal_entry (
 		actor_interface=row.actor_interface,
 		action=row.action,
 		entity_type=row.entity_type,
-		# **Only where this entry *is* somebody writing something.** A body keyed on the entity
-		# id would otherwise attach a comment's text to the task event that followed it.
-		said=(
-			None
-			if bodies is None or row.entity_type != "comment" or row.entity_id is None
-			else bodies.get(row.entity_id)
-		),
+		said=None if written is None else written.opening,
+		said_truncated=written is not None and written.cut,
 		changed=changed,
 		created_at=row.created_at,
 	)

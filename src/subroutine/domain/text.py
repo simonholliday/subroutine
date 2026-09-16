@@ -305,6 +305,32 @@ def require (value: str | None, *, field: str, label: str | None = None) -> str:
 	)
 
 
+def opening (text: str, limit: int) -> tuple[str, bool]:
+	"""Return the start of ``text``, at most ``limit`` characters and ended at a word, and whether
+	anything was left out.
+
+	**Whether it was cut is returned rather than drawn** — no ellipsis — because the caller is a
+	view, and a program reading a view should not have to parse the text to learn there is more.
+	A surface that draws one draws it from the flag.
+
+	**Line breaks are kept.** This is the opening of something somebody wrote, not a one-line
+	rendering, which is what :func:`truncated` below is for.
+
+	**One word longer than the limit is still cut**, at the limit: a pasted URL or a stack trace
+	has no word to end at, and returning it whole would make the limit a suggestion.
+	"""
+
+	if len(text) <= limit:
+		return text, False
+
+	# **One character past the limit is read**, so a space falling exactly there counts as the
+	# end of a word rather than as a word running on.
+	breaks = [found.start() for found in re.finditer(r"\s", text[: limit + 1])]
+	kept = text[: breaks[-1]].rstrip() if breaks else ""
+
+	return (kept or text[:limit].rstrip()), True
+
+
 def truncated (text: str, limit: int = ONE_LINE_LIMIT) -> str:
 	"""Shorten text for a one-line rendering, marking that something was cut.
 

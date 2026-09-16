@@ -68,13 +68,16 @@ import subroutine.db.session
 import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.scoping
 import subroutine.domain.search
 import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.views
+import test_api_tasks
 
 #: How many tasks to measure against. Chosen as roughly ten times this project's own open
 #: backlog, which is the size at which the `#569` defect was unmistakable rather than merely
@@ -1074,6 +1077,150 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
 AGENDA_STATEMENTS = 36
+
+
+#: How many statements one page of the journal asks, whatever its size — `SR#2728`.
+#:
+#: **Counted because a page asks it every few seconds** — the browser's journal polls — and a
+#: journal is three joins over a page of events, each of which is one question per row if it is
+#: written the obvious way. Restated rather than left whenever it moves, as
+#: :data:`AGENDA_STATEMENTS` is.
+#:
+#: **Fourteen, measured on both backends, at a page of ten and at a page of a hundred**: the page
+#: of events; the items it is about; the comments' openings; which of the projects it names the
+#: reader may see; the statuses and the types; the projects' keys and addresses, two; the
+#: project settings walk, four, which the journal does not read and ``Vocabulary`` runs for any
+#: page naming a project; and the actors, two. A page with nothing new on it — what a poll
+#: usually gets — asks the first and nothing else, and the test says so.
+JOURNAL_STATEMENTS = 14
+
+
+def test_a_journal_page_asks_the_same_few_questions_whatever_its_size (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2728`: a journal page of ten and one of a hundred ask the same number of questions.
+
+	**Its own small fixture rather than** ``seeded``, whose rows are bulk-inserted and so have no
+	events at all. Every task here gets the same five things done to it - filed, changed,
+	written on, linked and claimed - so a page of ten and a page of a hundred hold the same kinds
+	and any difference in the count is per row.
+	"""
+
+	world = test_api_tasks._world(session)
+	previous = None
+
+	for number in range(25):
+		made = world.call("POST", "/v1/tasks", json={"title": f"Measured task {number}"})
+
+		assert made.status_code == 201, made.text
+
+		ref = made.json()["ref"]
+		answers = [
+			world.call(
+				"PATCH",
+				f"/v1/tasks/{ref}",
+				json={
+					"status": "in_progress",
+					"assignee": world.user.username,
+					"description": f"What task {number} is for.",
+				},
+			),
+			world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": "Started on it."}),
+			world.call("POST", f"/v1/tasks/{ref}/claim"),
+		]
+
+		if previous is not None:
+			answers.append(
+				world.call(
+					"POST",
+					f"/v1/tasks/{ref}/links",
+					json={"target_type": "task", "target": previous, "link_type": "blocks"},
+				)
+			)
+
+		for answer in answers:
+			assert answer.status_code in (200, 201), answer.text
+
+		previous = ref
+
+	shift = datetime.timedelta(seconds=2)
+
+	for event in session.scalars(sqlalchemy.select(subroutine.db.models.activity.Event)):
+		event.created_at = event.created_at - shift
+
+	session.flush()
+
+	principal = subroutine.domain.authentication.Principal(user=world.user)
+	workspace_ids = [one.id for one in subroutine.domain.workspaces.readable(session, principal)]
+
+	def counted (work: typing.Callable[[], list[subroutine.views.JournalEntry]]) -> tuple[
+		int, list[subroutine.views.JournalEntry]
+	]:
+		"""Return how many statements ``work`` sent, and what it returned."""
+
+		statements: list[str] = []
+
+		def count (
+			conn: typing.Any,
+			cursor: typing.Any,
+			statement: str,
+			parameters: typing.Any,
+			context: typing.Any,
+			executemany: bool,
+		) -> None:
+			"""Note one statement the journal sent."""
+
+			statements.append(statement)
+
+		bind = session.connection()
+		sqlalchemy.event.listen(bind, "before_cursor_execute", count)
+
+		try:
+			done = work()
+
+		finally:
+			sqlalchemy.event.remove(bind, "before_cursor_execute", count)
+
+		return len(statements), done
+
+	def page (size: int) -> list[subroutine.views.JournalEntry]:
+		"""Read one page of the journal as both transports do."""
+
+		rows, _more = subroutine.domain.events.page(
+			session, principal, workspace_ids=workspace_ids, size=size, newest=True
+		)
+
+		return subroutine.views.journal_entries(
+			session, rows, principal=principal, workspace_ids=workspace_ids
+		)
+
+	few, small = counted(lambda: page(10))
+	many, large = counted(lambda: page(100))
+	quiet, _nothing = counted(
+		lambda: subroutine.views.journal_entries(
+			session, [], principal=principal, workspace_ids=workspace_ids
+		)
+	)
+
+	# **The subject is asserted**, so the count below cannot pass by measuring an empty page.
+	assert len(small) == 10 and len(large) == 100, (len(small), len(large))
+
+	for read in (small, large):
+		kinds = {(entry.entity_type, entry.action) for entry in read}
+
+		assert {("task", "updated"), ("comment", "created"), ("link", "created")} <= kinds, kinds
+
+	assert few == many, (
+		f"a journal page of 10 asked {few} questions and one of 100 asked {many}, so something "
+		f"is asked per entry"
+	)
+	assert many <= JOURNAL_STATEMENTS, (
+		f"one journal page asked {many} questions against an allowance of {JOURNAL_STATEMENTS}"
+	)
+
+	# **What a poll usually gets is a page with nothing new on it**, and rendering one asks
+	# nothing, so a quiet poll costs the page of events alone.
+	assert quiet == 0, f"rendering an empty journal page asked {quiet} questions"
 
 
 def test_nothing_is_excused_from_the_ratio_that_the_ratio_never_measures (

@@ -1899,8 +1899,14 @@ def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
 			for change in entry.changed
 		)
 
+	# **Said in words where it was cut, and where the rest is** (`#2728`): an agent cannot tell
+	# an opening from a whole comment otherwise, and the headline above already names the item.
 	if entry.said:
-		lines.append(entry.said)
+		lines.append(
+			f"{entry.said}… (cut; subroutine_show has the rest)"
+			if entry.said_truncated
+			else entry.said
+		)
 
 	return lines
 

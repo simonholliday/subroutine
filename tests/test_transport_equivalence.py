@@ -3683,6 +3683,45 @@ def test_both_journals_say_what_an_item_is_where_it_is_and_which_way_it_came_in 
 	}
 
 
+def test_both_journals_leave_out_whole_texts_and_cut_a_comment_the_same_way (
+	pair: Pair,
+) -> None:
+	"""`SR#2728` on both transports: a description change by its phrase, a comment by its opening.
+
+	The rules are applied once, in the domain and `views.journal_entries`, so the two agree by
+	construction; this is what says they still do, and that the local one applies them at all.
+	"""
+
+	made = make(pair, "Fix the parser")
+	written = "The parser fails on a nested list. " * 20
+
+	pair.local.update(ref=made.ref, description="DESCRIPTION-TEXT " * 30)
+	pair.local.remark(ref=made.ref, body=written)
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	journal = local.journal()
+
+	assert journal == remote.journal()
+
+	changed = [
+		change
+		for entry in journal
+		if entry.item_ref == made.ref
+		for change in entry.changed
+		if change.field == "description"
+	]
+
+	assert changed, "the description change was not reported at all"
+	assert all(change.before is None and change.after is None for change in changed), changed
+
+	(comment,) = [entry for entry in journal if entry.entity_type == "comment"]
+
+	assert comment.said_truncated and comment.said is not None
+	assert written.startswith(comment.said) and len(comment.said) < len(written)
+
+
 def test_both_resume_from_the_same_point (pair: Pair) -> None:
 	"""``since`` is inclusive on both, or a client switching transports loses or repeats a row."""
 

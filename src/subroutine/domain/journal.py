@@ -27,6 +27,7 @@ import subroutine.db.models.activity
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.scoping
+import subroutine.domain.text
 
 #: The lookups a value can be named by. Strings rather than an enum because they are keys into
 #: :class:`subroutine.views.Vocabulary`, which is where the batch loading already lives.
@@ -61,6 +62,33 @@ NAMED_BY: dict[str, str] = {
 	"parent_task_id": TASK,
 	"recurrence_template_id": TASK,
 }
+
+
+#: The fields whose value is a whole text, on any kind of thing — `#2728`. **A journal entry
+#: never carries one** (Simon, 2026-09-16): a change to any of these says that it changed and
+#: nothing either side, and the audit log keeps both sides whole for anybody who needs them.
+#:
+#: **By field name rather than per entity**, and wider than
+#: :data:`subroutine.domain.events.PROSE_FIELD` on purpose. That one names the field whose
+#: replacement counts as a *revision*, one per kind; this is every field that holds prose at all,
+#: which is also a comment's body when it is edited, a project's description and a workspace's.
+#: Measured on the served instance's latest 5,000 events: the text inside their changes was
+#: 5.2 MB of documents' bodies and 0.7 MB of tasks' descriptions, against 0.2 MB for every
+#: other field together.
+#: ``test_every_prose_field_is_a_whole_text`` holds the one inside the other.
+WHOLE_TEXTS: frozenset[str] = frozenset({"description", "body"})
+
+#: How much of a comment an entry carries — `#2728`, the same day's decision. **Measured, not
+#: chosen**: on the latest 58 comments the median was 904 characters and a first paragraph's
+#: median 223, with three in four under 355, so this keeps most openings whole.
+OPENING = 280
+
+
+class Said(typing.NamedTuple):
+	"""The opening of what a comment said, and whether there was more of it."""
+
+	opening: str
+	cut: bool
 
 
 def identifier (value: typing.Any) -> uuid.UUID | None:
@@ -180,8 +208,8 @@ def readable_only (
 def said (
 	session: sqlalchemy.orm.Session,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
-) -> dict[uuid.UUID, str]:
-	"""Return what each comment on this page actually said, keyed by the comment's own id.
+) -> dict[uuid.UUID, Said]:
+	"""Return how each comment on this page opens, keyed by the comment's own id.
 
 	**The one thing the feed omits and the whole reason this module exists.** A
 	``comment.created`` event names the comment as its entity and says nothing about its
@@ -195,6 +223,9 @@ def said (
 
 	One query for the page, whatever its size, which is `#39`'s rule and the reason
 	:func:`subroutine.domain.events.descriptions` next door is shaped the same way.
+
+	**Only the opening, and cut here rather than by whoever renders it** (`#2728`), so no whole
+	comment leaves this function: :data:`OPENING` characters, ended at a word, and marked.
 	"""
 
 	model = subroutine.db.models.activity.Comment
@@ -213,4 +244,8 @@ def said (
 		)
 	).tuples()
 
-	return {identifier: body for identifier, body in found if body}
+	return {
+		identifier: Said(*subroutine.domain.text.opening(body, OPENING))
+		for identifier, body in found
+		if body
+	}

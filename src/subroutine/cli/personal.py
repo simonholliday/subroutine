@@ -3096,8 +3096,9 @@ def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
 					f"{change.said}: {change.before or 'nothing'} to {change.after or 'nothing'}"
 				)
 
+	# **The mark is drawn from the flag** (`#2728`), never read out of the text.
 	if entry.said:
-		lines.append(entry.said)
+		lines.append(f"{entry.said}…" if entry.said_truncated else entry.said)
 
 	return lines
 

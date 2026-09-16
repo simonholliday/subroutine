@@ -19,9 +19,15 @@ import pytest
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.cli.personal
 import subroutine.db.models.activity
 import subroutine.db.models.identity
+import subroutine.domain.events
+import subroutine.domain.journal
+import subroutine.domain.text
 import subroutine.domain.users
+import subroutine.mcp.tools
+import subroutine.views
 import test_api_tasks
 
 #: Long enough ago that nothing here depends on the hour the suite runs at.
@@ -222,6 +228,243 @@ def test_an_entry_says_what_its_item_is_where_it_is_filed_and_which_way_it_came_
 			f"a journal entry named the credential {title!r}, which is its owner's word for "
 			f"their own setup rather than anything the instance observed"
 		)
+
+
+def _long (marker: str) -> str:
+	"""Return a text well past a comment's opening, ending in ``marker`` so a cut leaves it out."""
+
+	sentence = "The measurement came back and it was not what anybody expected."
+
+	return " ".join([sentence] * 12 + [marker])
+
+
+def test_every_prose_field_is_a_whole_text () -> None:
+	"""`#2728`: the field whose replacement is a revision is prose, so the journal leaves it out.
+
+	**The two constants answer different questions** and the journal's is the wider one, so a
+	kind given a prose field of its own is left out of the journal on the day it is declared.
+	"""
+
+	prose = set(subroutine.domain.events.PROSE_FIELD.values())
+
+	assert prose <= subroutine.domain.journal.WHOLE_TEXTS, (
+		f"{sorted(prose - subroutine.domain.journal.WHOLE_TEXTS)} count as prose for a revision "
+		f"and are not left out of the journal, so a page of it carries them whole"
+	)
+
+
+def test_no_journal_entry_carries_a_whole_text (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2728`, Simon's decision of 2026-09-16: *never* include full texts.
+
+	**Every kind of thing that holds one**, not only the two a revision counts: a task's
+	description, a document's body, a project's description and an edited comment. Each change
+	is still reported, by its phrase, and the audit log still carries every text whole.
+	"""
+
+	texts = {
+		"project": "PROJECT-TEXT-AFTER",
+		"task before": "TASK-TEXT-BEFORE",
+		"task after": "TASK-TEXT-AFTER",
+		"document before": "DOCUMENT-TEXT-BEFORE",
+		"document after": "DOCUMENT-TEXT-AFTER",
+		"comment before": "COMMENT-TEXT-BEFORE",
+		"comment after": "COMMENT-TEXT-AFTER",
+	}
+
+	answers = [
+		world.call("POST", "/v1/projects", json={"key": "web", "title": "The website"}),
+		world.call("PATCH", "/v1/projects/web", json={"description": texts["project"]}),
+	]
+	task = world.call(
+		"POST", "/v1/tasks", json={"title": "Fix the menu", "description": texts["task before"]}
+	)
+	document = world.call(
+		"POST", "/v1/documents", json={"title": "The menu", "body": texts["document before"]}
+	)
+	answers += [task, document]
+	answers.append(
+		world.call(
+			"PATCH", f"/v1/tasks/{task.json()['ref']}", json={"description": texts["task after"]}
+		)
+	)
+	answers.append(
+		world.call(
+			"PATCH",
+			f"/v1/documents/{document.json()['ref']}",
+			json={"body": texts["document after"]},
+		)
+	)
+	wrote = world.call(
+		"POST",
+		f"/v1/tasks/{task.json()['ref']}/comments",
+		json={"body": _long(texts["comment before"])},
+	)
+	answers.append(wrote)
+	answers.append(
+		world.call(
+			"PATCH",
+			f"/v1/comments/{wrote.json()['id']}",
+			json={"body": _long(texts["comment after"])},
+		)
+	)
+
+	for answer in answers:
+		assert answer.status_code in (200, 201), answer.text
+
+	session.flush()
+	_settled(session)
+
+	entries = _entries(world, limit=200)
+	told = json.dumps(entries)
+
+	for name, text in texts.items():
+		assert text not in told, f"the journal carried the {name} text whole"
+
+	# **Still reported, by its phrase**, so this is the text left out and not the change.
+	prose = {
+		(entry["entity_type"], change["field"])
+		for entry in entries
+		for change in entry["changed"]
+		if change["field"] in subroutine.domain.journal.WHOLE_TEXTS
+		and entry["action"] == "updated"
+	}
+
+	assert prose == {
+		("project", "description"),
+		("task", "description"),
+		("document", "body"),
+		("comment", "body"),
+	}, prose
+
+	for entry in entries:
+		for change in entry["changed"]:
+			if change["field"] in subroutine.domain.journal.WHOLE_TEXTS:
+				assert change["before"] is None and change["after"] is None, entry
+
+	# **And nothing became unreachable**: the audit log is where a whole text is read.
+	feed = world.call("GET", "/v1/changes", params={"limit": 200})
+
+	assert feed.status_code == 200, feed.text
+	assert texts["task before"] in feed.text and texts["document after"] in feed.text
+
+
+@pytest.mark.parametrize(
+	("text", "expected"),
+	[
+		# Within the limit, and exactly at it: whole, and not marked.
+		("short", ("short", False)),
+		("a" * 10, ("a" * 10, False)),
+		# A space exactly one past the limit ends a word at the limit.
+		("abcd efghij klm", ("abcd", True)),
+		("abcdefghij klm", ("abcdefghij", True)),
+		# A line break is a place a word ends, and is kept inside the opening.
+		("ab\ncd efghijklm", ("ab\ncd", True)),
+		# One word longer than the limit is still cut, and so is one after leading space.
+		("abcdefghijklmnop", ("abcdefghij", True)),
+		("   abcdefghijklmnop", ("   abcdefg", True)),
+	],
+)
+def test_an_opening_ends_at_a_word_and_says_whether_it_cut (
+	text: str, expected: tuple[str, bool]
+) -> None:
+	"""`#2728`'s rule at a limit of ten, where every edge of it can be written out by hand."""
+
+	assert subroutine.domain.text.opening(text, 10) == expected
+
+
+def test_a_long_comment_is_cut_at_a_word_and_says_so (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2728`: a comment is its opening, ended at a word, with a field saying there is more.
+
+	**Three comments, one per answer**: one past the limit in words, one within it, and one
+	unbroken word past it, which has no word to end at and is cut anyway.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"})
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	limit = subroutine.domain.journal.OPENING
+	bodies = {
+		"words": _long("the end"),
+		"within": SAID,
+		"one word": "x" * (limit + 120),
+	}
+
+	for body in bodies.values():
+		wrote = world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": body})
+
+		assert wrote.status_code == 201, wrote.text
+
+	session.flush()
+	_settled(session)
+
+	said = {
+		entry["said"][:20]: entry
+		for entry in _entries(world, limit=200)
+		if entry["entity_type"] == "comment"
+	}
+	words, within, word = (said[body[:20]] for body in bodies.values())
+
+	assert len(bodies["words"]) > limit
+	assert words["said_truncated"] is True, words
+	assert len(words["said"]) <= limit, words
+	assert bodies["words"].startswith(words["said"]), words
+	assert bodies["words"][len(words["said"])].isspace(), (
+		f"the opening ends inside a word: {words['said'][-20:]!r}"
+	)
+
+	assert (within["said"], within["said_truncated"]) == (SAID, False), within
+
+	assert (word["said"], word["said_truncated"]) == (bodies["one word"][:limit], True), word
+
+
+def test_a_terminal_and_an_agent_are_told_where_a_comment_was_cut () -> None:
+	"""`#2728`: both text surfaces draw the cut from the flag, and nothing from a whole comment.
+
+	**Driven through each renderer**, so an opening that reads as a whole comment on either is a
+	failure here rather than something an agent quotes as all that was said.
+	"""
+
+	def entry (cut: bool) -> subroutine.views.JournalEntry:
+		"""Return a comment's entry, cut or not."""
+
+		return subroutine.views.JournalEntry(
+			seq=1,
+			id=uuid.uuid4(),
+			item_ref=42,
+			item_title="Fix the deploy script",
+			action="created",
+			entity_type="comment",
+			said="Reproduced on 3.11 only.",
+			said_truncated=cut,
+			created_at=LONG_AGO,
+		)
+
+	for render in (
+		subroutine.cli.personal._journal_detail,
+		subroutine.mcp.tools._journal_detail,
+	):
+		assert render(entry(False)) == ["Reproduced on 3.11 only."], render
+		assert render(entry(True))[0].startswith("Reproduced on 3.11 only.…"), render
+
+
+def test_the_journal_says_how_much_of_a_comment_it_carries (
+	world: test_api_tasks.World,
+) -> None:
+	"""The published description names the length, so it is held against the constant."""
+
+	published = world.call("GET", "/v1/openapi.json")
+
+	assert published.status_code == 200, published.text
+
+	described = published.json()["paths"]["/v1/journal"]["get"]["description"]
+
+	assert f"at most {subroutine.domain.journal.OPENING} characters" in described, described
 
 
 def test_a_change_says_what_it_moved_between_and_not_which_rows (

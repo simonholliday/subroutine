@@ -72,9 +72,14 @@ def reading (
 	"""Return what happened, newest first, with who did it and what they said.
 
 	**This is the change feed joined, not a second record of anything.** Every entry is one
-	event; what is added is the comment's body, the actor's name, and the meaning of the values
+	event; what is added is what a comment said, the actor's name, and the meaning of the values
 	inside a change — three things the feed leaves as an id or omits, and three things nobody
 	can reconstruct from it.
+
+	**No entry carries a whole text.** A comment is its opening, at most 280 characters and
+	ended at a word, with `said_truncated` saying whether there is more; the item's comments
+	have the rest. A change to a description or a body says that it changed and not what it
+	said either side, which `/v1/changes` still carries.
 
 	**Ask for a period with `?created_at.gte=`**, in the same grammar every listing takes.
 	Without one you get the most recent entries, which is what somebody arriving with no
@@ -104,8 +109,8 @@ def reading (
 		else subroutine.domain.selection.user(session, actor_filter, caller=actor.user).id
 	)
 
-	# **The instance's page size, not one of this route's own.** An entry here can carry a
-	# whole comment, so a smaller default is tempting — and `domain.paging.size` is the one
+	# **The instance's page size, not one of this route's own.** An entry here carried a
+	# whole comment until `#2728`, so a smaller default was tempting — and `domain.paging.size` is the one
 	# arbiter of a page size by decision, after two clients answered `limit=1000` with 250
 	# rows and 200 against the same database. A second number would also make that function's
 	# own refusal wrong, since its hint names `settings.default_page_size` by value.
