@@ -627,6 +627,14 @@ export function marks (
 	return [...found, ...status, ...states, ...address];
 }
 
+export function clock (value) {
+	/*
+		The time of day an instant fell at, in the reader's own zone and locale — what `moment`
+		draws after *today* or a date, and what a journal draws beside each entry under its day.
+	*/
+	return new Date(value).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 export function moment (value, now = null) {
 	/*
 		An instant the program recorded, at the resolution somebody can read the order by —
@@ -658,13 +666,13 @@ export function moment (value, now = null) {
 	const midnight = (date) =>
 		new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
-	const clock = at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+	const time = clock(value);
 	const apart = Math.round((midnight(today) - midnight(at)) / 86400000);
 
-	if (apart === 0) return `today ${clock}`;
-	if (apart === 1) return `yesterday ${clock}`;
+	if (apart === 0) return `today ${time}`;
+	if (apart === 1) return `yesterday ${time}`;
 
-	return `${day(value)} ${clock}`;
+	return `${day(value)} ${time}`;
 }
 
 export function when (item, now = null) {

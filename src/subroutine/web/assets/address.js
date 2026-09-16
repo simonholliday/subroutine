@@ -1104,6 +1104,24 @@ export function frame (showing, open) {
 */
 export const AREAS = ["people", "settings"];
 
+/*
+	The word that makes an address a journal page — `#2730`, design `#2724`.
+
+	**The last segment rather than the first**: `/<workspace>/journal` for a workspace and
+	`/<workspace>/<ref>/journal` for one item. So it is not one of `AREAS`, which are root words a
+	workspace may not take — `/journal` alone is a workspace of that name. What it collides with
+	is a *project* keyed `journal`, whose address would be the same, and
+	`addressing.RESERVED_PATH_WORDS` refuses that key; a test holds the two copies together.
+*/
+export const JOURNAL = "journal";
+
+/*
+	A ref as an address writes one — `[1-9][0-9]*`, which is `refs._TYPED` and
+	`mentions.REF_PATTERN`, with no leading zero. `parseAddress` and `journalPageOf` both ask it,
+	so one number means one thing wherever an address is read.
+*/
+const REF_SEGMENT = /^[1-9][0-9]*$/;
+
 
 export function showsWork (area) {
 	/*
@@ -1128,14 +1146,21 @@ export function showsWork (area) {
 
 export function areaOf (pathname) {
 	/*
-		Which administrative area an address names, or null for one that names none.
+		Which page drawn in place of the work an address names — an administrative area, or a
+		journal — or null for one that names none.
 
 		Read before `parseAddress` and never instead of it: the two answer different questions
 		and exactly one of them is non-null for any address.
+
+		**A journal answers here too** (`#2730`), because it is drawn the way an area is: no rows,
+		no arrangement, and every way back to the work leaves it. Two segments at least, so
+		`/journal` is still a workspace.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
-	return parts.length > 0 && AREAS.includes(parts[0]) ? parts[0] : null;
+	if (parts.length > 0 && AREAS.includes(parts[0])) return parts[0];
+
+	return parts.length >= 2 && parts[parts.length - 1] === JOURNAL ? JOURNAL : null;
 }
 
 
@@ -1238,6 +1263,59 @@ export function settingsPlace (page) {
 }
 
 
+export function journalPageOf (pathname) {
+	/*
+		Which journal an address names, or null for one that names none — `#2730`.
+
+		| | |
+		| --- | --- |
+		| `/{workspace}/journal` | what happened in that workspace |
+		| `/{workspace}/{ref}/journal` | what happened to one item |
+		| `/{workspace}/{project}/{ref}/journal` | the same, the project being decoration |
+
+		**A project has no journal** (Simon, 2026-09-16: *workspace only*), so
+		`/{workspace}/{project}/journal` is null rather than the workspace's journal. Answering an
+		address with a wider page than it names shows a reader something other than what the link
+		says, which is `#745`'s rule.
+	*/
+	if (areaOf(pathname) !== JOURNAL) return null;
+
+	const parts = String(pathname || "").split("/").filter((part) => part !== "");
+	const workspace = segment(parts[0]);
+
+	if (parts.length === 2) return { workspace, ref: null };
+
+	const before = parts[parts.length - 2];
+
+	return REF_SEGMENT.test(before) ? { workspace, ref: Number(before) } : null;
+}
+
+export function journalAddress (page) {
+	/*
+		The address of one journal page — `journalPageOf` read backwards, so that a link on one
+		page and the parser on the next cannot disagree about how a journal is named.
+
+		**The durable form for an item**, a workspace and a ref: a link to an item's journal is
+		about the item, and everything before a ref is decoration (`#638`).
+	*/
+	if (!page || !page.workspace) return null;
+
+	const workspace = encodeURIComponent(page.workspace);
+
+	return page.ref ? `/${workspace}/${page.ref}/${JOURNAL}` : `/${workspace}/${JOURNAL}`;
+}
+
+export function journalPlace (page) {
+	/*
+		The place a journal is about, shaped as `placesToGo` reads one — `settingsPlace`'s answer
+		for this page, so the masthead names the workspace a journal belongs to rather than
+		*All workspaces*.
+	*/
+	if (!page) return null;
+
+	return { agenda: false, workspace: page.workspace, project: null };
+}
+
 export function parseAddress (pathname) {
 	/*
 		Read an address into the place it names, or null for one that names nowhere.
@@ -1256,6 +1334,10 @@ export function parseAddress (pathname) {
 		person writes one in prose — out of a path, where a `#` is a fragment the server never
 		sees. Everything before the ref is decoration: that is what makes a project renamed
 		since somebody saved the link harmless rather than a dead end.
+
+		**An address ending `journal` is a page, not a place** (`#2730`), and is null here:
+		`/projects/journal` was read as a project keyed `journal` and `/projects/2693/journal` as a
+		project path. `journalPageOf` answers it.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
@@ -1266,7 +1348,7 @@ export function parseAddress (pathname) {
 	   — the title, the switcher, the listing's scope — would act on a place that does not
 	   exist. The server refuses to *create* such a workspace; this is the same rule on the
 	   surface that reads the address. */
-	if (AREAS.includes(parts[0])) return null;
+	if (areaOf(pathname) !== null) return null;
 
 	const last = parts[parts.length - 1];
 	/* `[1-9][0-9]*`, which is `refs._TYPED` and `mentions.REF_PATTERN` — no leading zero.
@@ -1274,7 +1356,7 @@ export function parseAddress (pathname) {
 	   here either. A project key cannot begin with a digit (§5.4), so this segment is a
 	   malformed ref rather than an ambiguous name, and reading it loosely would be the
 	   browser disagreeing with every other surface about what a number means. */
-	const names = /^[1-9][0-9]*$/.test(last) ? Number(last) : null;
+	const names = REF_SEGMENT.test(last) ? Number(last) : null;
 
 	/* The project is the segment before the ref, or the last one when there is no ref. A
 	   workspace on its own has neither. */

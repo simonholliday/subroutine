@@ -19,9 +19,10 @@ import { render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { html } from "./html.js";
 import {
-	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, MAX_REF, ONLY_FINISHED,
-	PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers, areaOf,
-	chips, chosenWorkspace, encodedPath, frame, listingAddress, mentionHref, pageTitle,
+	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, JOURNAL, MAX_REF,
+	ONLY_FINISHED, PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers,
+	areaOf, chips, chosenWorkspace, encodedPath, frame, journalAddress, journalPageOf,
+	journalPlace, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
 	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
 	titlesByPath, viewOf,
@@ -54,6 +55,7 @@ import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, WAITING_STATUS,
 	marks, moment, when,
 } from "./marks.js";
+import { Journal, journalAfter, journalBounds } from "./journal.js";
 import { People, offeredScopes } from "./people.js";
 import {
 	addressedProjects, filableFor, notOffered, offered, people, placesToGo, prioritisedHere,
@@ -67,7 +69,8 @@ import {
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	moveRequest, movingTo, unreadableParent,
-	headRequest, identityRequest, itemRequests, linkAsked, linkChoices, linkRequest,
+	headRequest, identityRequest, itemJournalRequest, itemRequests, journalRequest, linkAsked,
+	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
 	readForm,
@@ -109,6 +112,17 @@ export function App () {
 	const [area, setArea] = useState(
 		() => (typeof window === "undefined" ? null : areaOf(window.location.pathname)),
 	);
+
+	/* **The journal page's answer** — `#2731`, `#1428`: the entries it holds newest first, whether
+	   there are older ones, and for an item which kind it turned out to be and where its route's
+	   cursor had got to. **Keyed by the page's own address**, the settings page's rule, so an
+	   answer about one journal is never drawn under another. Null is *not asked yet*.
+
+	   **A ref beside the state, and `nowJournal` the one writer of both**, because the poll reads
+	   what the page holds from inside an interval, which is where a state value is the one the
+	   interval was created with (`#657`). */
+	const [journal, setJournal] = useState(null);
+	const journalHeld = useRef(null);
 
 	/* **Everyone on this instance and what they may do**, fetched only where it is drawn. Null
 	   is *not asked yet*, which is what the page renders as *Reading…*; an empty roster is a
@@ -720,6 +734,80 @@ export function App () {
 		roster(slug);
 		words(slug);
 	}, [roster, words, workspace]);
+	const nowJournal = useCallback((value) => {
+		journalHeld.current = value;
+		setJournal(value);
+	}, []);
+
+	const readJournal = useCallback(async (page, direction = null) => {
+		/*
+			Read a journal page — its newest entries on arrival, and then what is `newer` on a poll
+			or `older` when asked (`#2731`, `#1428`).
+
+			**Where a read starts and what the page holds after it are `journalBounds` and
+			`journalAfter`'s**, pure and checked directly (`#640`); this makes the request.
+
+			**An item's kind is found by asking**, `fetched`'s rule: a ref names a task or a
+			document, a 404 for the first says it is the second, and only a refusal from the
+			second is a refusal. What is learnt is kept, so a poll asks once.
+
+			**A failed arrival says so; a failed poll or older read changes nothing**, the rule
+			every background read here keeps.
+		*/
+		const address = journalAddress(page);
+		const holding = journalHeld.current && journalHeld.current.address === address
+			? journalHeld.current
+			: null;
+
+		if (direction === null) nowJournal(null);
+
+		if (direction !== null && !holding) return;
+
+		const bounds = journalBounds(holding, direction);
+
+		try {
+			if (page.ref === null) {
+				const answer = await sent(journalRequest(page.workspace, bounds));
+
+				nowJournal(journalAfter(holding, direction, {
+					address,
+					arriving: answer.items || [],
+					more: Boolean(answer.page && answer.page.has_more),
+				}));
+
+				return;
+			}
+
+			const kinds = holding && holding.kind ? [holding.kind] : ["task", "document"];
+
+			for (const kind of kinds) {
+				try {
+					const answer = await sent(
+						itemJournalRequest(kind, page.ref, page.workspace, bounds.cursor),
+					);
+					const cursor = (answer.page && answer.page.next_cursor) || null;
+
+					nowJournal(journalAfter(holding, direction, {
+						address, arriving: answer.items || [], more: cursor !== null, cursor, kind,
+					}));
+
+					return;
+				} catch (failure) {
+					if (failure.status !== 404 || kind === kinds[kinds.length - 1]) throw failure;
+				}
+			}
+		} catch (failure) {
+			if (direction === null) nowJournal({ address, entries: [], failed: failure.message });
+		}
+	}, [nowJournal]);
+
+	const olderJournal = useCallback(() => {
+		/* Further back, a page at a time, when the reader asks — never fetched ahead. */
+		const page = journalPageOf(window.location.pathname);
+
+		if (page) readJournal(page, "older");
+	}, [readJournal]);
+
 	const fetched = useCallback(async (ref, kind, slug) => {
 		/*
 			Read one item, working out what it is when nobody said.
@@ -1067,6 +1155,15 @@ export function App () {
 						? readAgenda(everywhere ? null : workspace, project)
 						: load(workspace, project));
 				}
+
+				/* **A journal page reads what is new in it** (`#2731`), on this poll rather than a
+				   timer of its own, so it keeps the same cadence: faster while somebody works,
+				   slower when idle, and not at all in a hidden tab. */
+				if (area === JOURNAL) {
+					const page = journalPageOf(window.location.pathname);
+
+					if (page) await readJournal(page, "newer");
+				}
 			} catch (failure) {
 				/* A poll that fails changes nothing on screen. The next one may work, and
 				   replacing a readable page with an error because a background request
@@ -1110,8 +1207,8 @@ export function App () {
 		const tick = setInterval(poll, attention);
 
 		return () => clearInterval(tick);
-	}, [area, error, workspace, project, agenda, everywhere, me, load, readAgenda, refresh,
-		attention]);
+	}, [area, error, workspace, project, agenda, everywhere, me, load, readAgenda, readJournal,
+		refresh, attention]);
 
 	const signOut = useCallback(async () => {
 		/* **The answer is asked for and then acted on**, rather than the page being blanked
@@ -1169,8 +1266,12 @@ export function App () {
 			const arrangement = showingOf(window.location.search);
 
 			nowShowing({ view: arrangement.view, selection: arrangement.selection });
+			/* **A journal names its workspace too** (`#2731`), and `parseAddress` answers null for
+			   it as it does for an area — so the page's own reading is what says which workspace
+			   the masthead shows and the poll watches. */
 			const { slug, refused } = chosenWorkspace(
-				asked, identity.workspaces.map((space) => space.slug), workspace,
+				asked || journalPageOf(window.location.pathname),
+				identity.workspaces.map((space) => space.slug), workspace,
 			);
 
 			if (served.current === null) served.current = identity.instance_version || "";
@@ -1337,6 +1438,17 @@ export function App () {
 				setProject(null);
 				nowOpen(null);
 
+				/* **A journal's workspace is the one in play** (`#2731`), for `start`'s reason:
+				   the masthead names it and the poll watches it. */
+				if (stepped === JOURNAL) {
+					const { slug } = chosenWorkspace(
+						journalPageOf(window.location.pathname),
+						(me ? me.workspaces : []).map((space) => space.slug), workspace,
+					);
+
+					setWorkspace(slug);
+				}
+
 				return;
 			}
 
@@ -1445,6 +1557,19 @@ export function App () {
 
 		directoryFor(me);
 	}, [area, me, directoryFor]);
+
+	useEffect(() => {
+		/*
+			**Read when the journal is opened, and not before** — the people page's rule (`#1397`),
+			and `#2731`'s page. It re-reads on every arrival rather than keeping an old answer: what
+			happened is exactly what has changed since the page was last open.
+		*/
+		if (area !== JOURNAL || !me) return;
+
+		const page = journalPageOf(window.location.pathname);
+
+		if (page) readJournal(page);
+	}, [area, me, readJournal]);
 
 
 	const issue = useCallback(async (form) => {
@@ -2851,6 +2976,8 @@ export function App () {
 	*/
 	const settled = area === "settings"
 		? settingsPlace(settingsPageOf(typeof window === "undefined" ? "" : window.location.pathname))
+		: area === JOURNAL
+		? journalPlace(journalPageOf(typeof window === "undefined" ? "" : window.location.pathname))
 		: null;
 
 	/*
@@ -3068,6 +3195,9 @@ export function App () {
 						workspace, project, workspaces: me ? me.workspaces : [], projects: filable,
 					})}
 					showing=${showing} onGo=${goTo}
+					${/* **A workspace's journal, and no project's** (`#2731`, Simon: *workspace
+					     only*). */ null}
+					journal=${project ? null : journalAddress({ workspace, ref: null })}
 					settings=${settingsHere(
 						me, vocabulary && vocabulary.settings, { workspace, project },
 					)} />
@@ -3119,7 +3249,17 @@ export function App () {
 				`directory` is null until the read lands, which `People` renders as *Reading…*;
 				an instance with no accounts is a different answer and arrives as an empty list.
 			*/ null}
-			${area === "settings"
+			${area === JOURNAL
+				? html`<${Journal}
+					${/* **Which journal is read from the address as it is now**, the settings page's
+					     rule: the page is the path, and every way between two journals is a load. */ null}
+					page=${journalPageOf(typeof window === "undefined" ? "" : window.location.pathname)}
+					address=${journalAddress(journalPageOf(
+						typeof window === "undefined" ? "" : window.location.pathname,
+					))}
+					journal=${journal} workspaces=${me ? me.workspaces : []}
+					onOlder=${olderJournal} />`
+				: area === "settings"
 				? html`<${Settings}
 					${/* **Which page is read from the address as it is now**, because nothing else
 					     holds it: an area owns everything under it (`areaOf`), the page is the rest
@@ -3149,6 +3289,7 @@ export function App () {
 					onIssue=${issue} onRevoke=${revoke} busy=${busy} />`
 				: open
 				? html`<${Detail} ...${open} members=${furnished.members}
+					journal=${journalAddress({ workspace: openIn, ref: open.item.ref })}
 					${/* **Opened in the item's own workspace** (`#2629`), for `onStatus`'s reason
 					     below: read-first, links, parts and what refers to it each build their
 					     `href` from the item's workspace and opened from the switcher's, so a
@@ -3430,6 +3571,7 @@ export {
 	BOARD,
 	DEFAULT_VIEW,
 	EVERYTHING,
+	JOURNAL,
 	MAX_REF,
 	ONLY_FINISHED,
 	PATH_SEPARATOR,
@@ -3444,6 +3586,9 @@ export {
 	chosenWorkspace,
 	encodedPath,
 	frame,
+	journalAddress,
+	journalPageOf,
+	journalPlace,
 	listingAddress,
 	mentionHref,
 	pageTitle,
@@ -3643,6 +3788,16 @@ export {
 	rolesByUsername,
 } from "./people.js";
 export {
+	DOORS,
+	Journal,
+	byDay,
+	happened,
+	journalAfter,
+	journalBounds,
+	mergedEntries,
+	movedBetween,
+} from "./journal.js";
+export {
 	DOCUMENT_SAID,
 	NEVER_CLEARED,
 	PARENT_NEEDS_A_NUMBER,
@@ -3675,7 +3830,9 @@ export {
 	headRequest,
 	identityRequest,
 	instanceRequest,
+	itemJournalRequest,
 	itemRequests,
+	journalRequest,
 	linkAsked,
 	linkChoices,
 	linkRequest,

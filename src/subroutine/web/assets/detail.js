@@ -143,6 +143,8 @@ export function Detail ({
 	   `has_more` has to be readable without a guard at every use. */
 	parts = { items: [], has_more: false },
 	onComplete, onAssign, busy, where,
+	/* The address of this item's journal (`#1428`), or null where there is none to offer. */
+	journal = null,
 	backTo, workspace, editing, onEdit, onSave, conflict, vocabulary, projects,
 	onStatus, statuses, onComment, onLink, onUnlink, reading, onReading,
 	/* Which prose box is being previewed, and how to change it — `#776`. */
@@ -202,6 +204,10 @@ export function Detail ({
 			${backTo
 				? html`<a class="back" href=${backTo} onClick=${back}>← All items</a>`
 				: html`<button class="back quiet" onClick=${back}>← All items</button>`}
+			${/* **What happened to it, on a page of its own** (`#1428`): who did each thing,
+			     through which door, and what a change moved between. A plain anchor, the
+			     journal's rule, because it is a page drawn in place of the work. */ null}
+			${journal ? html`<a class="item-journal" href=${journal}>Journal</a>` : null}
 			${/* **Editing replaces the item's own display rather than sitting beside it**
 			     (`#757`). Two copies of a title on one screen, one of them stale, is the shape
 			     this project keeps paying for — and a reader has to be able to see what they

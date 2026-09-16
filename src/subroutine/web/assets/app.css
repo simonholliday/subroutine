@@ -741,7 +741,8 @@ fieldset {
 
 /* **The way to a place's settings, an anchor drawn as the control it is** - `.narrowed a.widen`'s
    treatment, since both are a way somewhere offered beside a statement about the page. */
-.place-settings {
+.place-settings,
+.place-journal {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-3);
@@ -753,8 +754,10 @@ fieldset {
 	text-decoration: none;
 }
 
-.place-settings:hover { color: var(--ink); border-color: var(--ink-soft); }
-.place-settings:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.place-settings:hover,
+.place-journal:hover { color: var(--ink); border-color: var(--ink-soft); }
+.place-settings:focus-visible,
+.place-journal:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /* ---- adding, and what just happened ------------------------------------ */
 
@@ -2005,6 +2008,81 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 
 .back:hover { text-decoration: underline; }
 
+/* **An item's way to its journal** (`#1428`), across the line from the way back to the list it
+   came from: both leave the page, and neither is about what is on it. */
+.item-journal {
+	float: right;
+	color: var(--accent);
+	text-decoration: none;
+}
+
+.item-journal:hover { text-decoration: underline; }
+
+/* ---- the journal ---------------------------------------------------------------------------
+   `#2731` and `#1428`. **A day heading and then a line an entry**, the time in a narrow column
+   of its own so a reader runs an eye down it the way a log is read; everything an entry says
+   about itself sits in the second column, under its headline. */
+
+.journal .about {
+	margin: 0 0 var(--space-5);
+	color: var(--ink-soft);
+}
+
+.journal h3.day {
+	margin: var(--space-8) 0 var(--space-3);
+	font-size: var(--text-body);
+	color: var(--ink-soft);
+}
+
+.journal ol.entries {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.journal li.entry {
+	display: grid;
+	grid-template-columns: 4rem 1fr;
+	gap: var(--space-2) var(--space-5);
+	align-items: baseline;
+	padding: var(--space-3) 0;
+	border-block-end: 1px solid var(--line);
+}
+
+.journal .clock {
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+	font-variant-numeric: tabular-nums;
+}
+
+.journal .headline { margin: 0; }
+
+/* The door is how it arrived, which is context rather than the news - so it is quieter than who
+   and what. */
+.journal .door {
+	color: var(--ink-faint);
+	font-size: var(--text-small);
+}
+
+.journal ul.changes {
+	margin: var(--space-2) 0 0;
+	padding: 0;
+	list-style: none;
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+}
+
+/* **The opening of what somebody wrote, its line breaks kept** - it is their words, cut at a
+   word, and the break between two paragraphs is part of how it reads. */
+.journal .said {
+	margin: var(--space-2) 0 0;
+	white-space: pre-line;
+}
+
+.journal .rest { font-size: var(--text-small); }
+
+.journal .older { margin: var(--space-6) 0 0; }
+
 .facts {
 	display: grid;
 	grid-template-columns: max-content 1fr;
@@ -2550,7 +2628,8 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
    --------------------------------------------------------------------------------------- */
 
 .people,
-.settings {
+.settings,
+.journal {
 	padding: var(--space-5) var(--space-7);
 }
 
@@ -2558,7 +2637,8 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
    under the masthead, which is the page's name. `#1818`'s rule — a structural heading is one
    step above the content it heads, and no more. */
 .people h2.area,
-.settings h2.area {
+.settings h2.area,
+.journal h2.area {
 	margin: 0 0 var(--space-5);
 	font-size: var(--text-section);
 }

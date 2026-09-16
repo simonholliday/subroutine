@@ -70,6 +70,14 @@ upgrade involves.
 
 ### Added
 
+- **The journal in the browser.** A workspace's journal is at `/<workspace>/journal`, linked
+  from the workspace's heading, and one item's at `/<workspace>/<number>/journal`, linked from
+  the item. Each shows the latest hundred entries a day at a time - who did what, the way it
+  came in, what it changed, and how a comment opens - with *Older* for further back. It picks
+  up new entries as they happen, at the pace the rest of the page does. Everybody in a
+  workspace can open its journal and sees only what they could see anyway. A project can no
+  longer be keyed `journal`.
+
 - **One item's journal.** `GET /v1/tasks/{ref}/journal` and `GET /v1/documents/{ref}/journal`
   read what happened to that item the way `/v1/journal` reads a period - who did each thing,
   what a change moved between, and how a comment opens - newest first, a page at a time.

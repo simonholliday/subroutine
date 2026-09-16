@@ -229,7 +229,7 @@ export function You ({
 }
 
 export function Place ({
-	trail = [], settings = null, atSettings = false, showing = null, onGo = null,
+	trail = [], settings = null, journal = null, atSettings = false, showing = null, onGo = null,
 }) {
 	/*
 		Where a page is, named above its content, and the way to that place's settings - `#2599`.
@@ -242,6 +242,11 @@ export function Place ({
 		**The settings link is drawn only where there is one to follow**: `settings` is
 		`settingsHere`'s answer, null for a reader who may change nothing here. **A word beside the
 		gear**, never the gear alone (`#102`, `#906` §5).
+
+		**And the place's journal** (`#2731`), where it has one: a workspace does and a project
+		does not (Simon, 2026-09-16), so the caller passes an address only for a workspace. Beside
+		the settings rather than in the menu under the reader's name, because a journal is about
+		a place, and that menu is about the reader.
 
 		**On the settings page itself the trail ends in *Settings*** and every step is a link, the
 		place's own included, because that is the way back to the work from there.
@@ -272,6 +277,9 @@ export function Place ({
 					<span aria-current="page">Settings</span>
 				` : null}
 			</h2>
+			${journal && !atSettings ? html`
+				<a class="place-journal" href=${journal}>Journal</a>
+			` : null}
 			${settings && !atSettings ? html`
 				<a class="place-settings" href=${settings}><${Icon} name="gear" />Settings</a>
 			` : null}

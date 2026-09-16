@@ -247,6 +247,44 @@ export function touching (events, open, page = null, links = []) {
 		|| (watched.has(one.item_ref) && one.workspace_id === open.workspace_id));
 }
 
+/*
+	How many journal entries one read asks for — `#2731`, Simon's *the latest 100*.
+*/
+export const JOURNAL_PAGE = 100;
+
+export function journalRequest (slug, { from = null, until = null } = {}) {
+	/*
+		A workspace's journal — `#2731`, design `#2724`: the newest entries, or those newer or
+		older than the ones a page already holds.
+
+		**`from` asks for what is newer and `until` for what is older**, each the instant an entry
+		the page holds was stamped with, and each **inclusive**: the entry at the edge comes back
+		and `mergedEntries` drops it by `seq`. A strict bound would lose a second entry recorded in
+		the same instant as the edge, at exactly the boundary between two reads.
+	*/
+	const asked = [`limit=${JOURNAL_PAGE}`];
+
+	if (from) asked.push(`created_at.gte=${encodeURIComponent(from)}`);
+
+	if (until) asked.push(`created_at.lte=${encodeURIComponent(until)}`);
+
+	return { path: scoped(`/journal?${asked.join("&")}`, slug), method: "GET" };
+}
+
+export function itemJournalRequest (kind, ref, slug, cursor = null) {
+	/*
+		One item's journal — `#1428` — newest first, and further back by the route's own cursor,
+		which is how that item's history pages too.
+	*/
+	const collection = kind === "document" ? "documents" : "tasks";
+	const further = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+
+	return {
+		path: scoped(`/${collection}/${ref}/journal?limit=${JOURNAL_PAGE}${further}`, slug),
+		method: "GET",
+	};
+}
+
 export function rosterRequest (slug) {
 	/*
 		Who work can be handed to.

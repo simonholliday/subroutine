@@ -113,6 +113,37 @@ SOME_PROJECTS = [
 ]
 
 
+#: What a journal answers, one of each line its page draws — `#2731`. **Built through the view**
+#: rather than written out, this file's rule for a sample: an update naming what it moved
+#: between and a text change by its phrase alone, a comment cut at its opening, and an entry the
+#: instance made itself on an earlier day. Newest first, as the page holds them.
+JOURNAL_ENTRIES = [
+	subroutine.views.JournalEntry(
+		seq=12, id=uuid.UUID(int=12), item_ref=42, item_title="Fix the deploy script",
+		item_type="bug", item_project_path="web", actor="@claude (agent, @si)",
+		actor_interface="mcp", action="created", entity_type="comment",
+		said="Reproduced on 3.11 only. The fix in the other one", said_truncated=True,
+		created_at=datetime.datetime(2026, 9, 16, 10, 6, tzinfo=datetime.UTC),
+	).model_dump(mode="json"),
+	subroutine.views.JournalEntry(
+		seq=11, id=uuid.UUID(int=11), item_ref=42, item_title="Fix the deploy script",
+		item_type="bug", item_project_path="web", actor="@si", actor_interface="browser",
+		action="updated", entity_type="task",
+		changed=[
+			subroutine.views.Change(
+				field="status_id", said="how it is going", before="Open", after="In progress"
+			),
+			subroutine.views.Change(field="description", said="description"),
+		],
+		created_at=datetime.datetime(2026, 9, 16, 10, 5, tzinfo=datetime.UTC),
+	).model_dump(mode="json"),
+	subroutine.views.JournalEntry(
+		seq=3, id=uuid.UUID(int=3), item_title="Projects", action="created",
+		entity_type="workspace", created_at=datetime.datetime(2026, 9, 1, 9, tzinfo=datetime.UTC),
+	).model_dump(mode="json"),
+]
+
+
 SAMPLES: dict[str, dict[str, typing.Any]] = {
 	# **What `marks` decided, drawn** (`SR#970`) — its own component since a listing row and an
 	# item's links both draw it, and two copies of twenty lines of markup is how the two would
@@ -301,6 +332,8 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		# buttons, so the default sample would go on testing the fallback (`SR#722`).
 		"workspace": "personal",
 		"backTo": "/personal",
+		# **The way to its journal** (`#1428`), so the link and its style are drawn.
+		"journal": "/personal/42/journal",
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
 	"Adding": {"busy": False},
@@ -401,6 +434,19 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"label": "Web UI", "address": "/projects/subroutine/ui"},
 		],
 		"settings": "/settings/project/projects/subroutine/ui",
+		# **And its journal** (`#2731`). `App` offers one only for a workspace; the component
+		# draws whatever it is handed, and a sample that handed nothing would leave the link and
+		# its style drawn by nothing.
+		"journal": "/projects/journal",
+	},
+	# **A workspace's journal, with every kind of line it draws** — `#2731`: two days, a door, a
+	# change and a phrase, a cut comment with the way to the rest, the instance acting, and older
+	# entries still to ask for.
+	"Journal": {
+		"page": {"workspace": "projects", "ref": None},
+		"address": "/projects/journal",
+		"workspaces": [{"slug": "projects", "title": "Projects"}],
+		"journal": {"address": "/projects/journal", "entries": JOURNAL_ENTRIES, "older": True},
 	},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
@@ -660,8 +706,8 @@ def _bare_imports (text: str) -> set[str]:
 #: stops this list going stale the day somebody adds a fourteenth.
 APP_MODULES = (
 	"app.js", "address.js", "answers.js", "chrome.js", "configure.js", "dates.js", "detail.js",
-	"forms.js", "grouping.js", "html.js", "marks.js", "people.js", "places.js", "requests.js",
-	"rows.js", "settings.js",
+	"forms.js", "grouping.js", "html.js", "journal.js", "marks.js", "people.js", "places.js",
+	"requests.js", "rows.js", "settings.js",
 )
 
 #: Ours, in this directory, and not part of the app: each needs a reason to be here.
@@ -7081,6 +7127,11 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "projectLabel" ? app.projectLabel(argument.item, argument.place)
 			: name === "soleStatusIn" ? app.soleStatusIn(
 				argument.vocabulary, argument.kind, argument.category)
+			: name === "areaOf" ? app.areaOf(argument)
+			: name === "journalPageOf" ? app.journalPageOf(argument)
+			: name === "journalAddress" ? app.journalAddress(argument)
+			: name === "journalPlace" ? app.journalPlace(argument)
+			: name === "journalWord" ? app.JOURNAL
 			: name === "areas" ? app.AREAS
 			: name === "showsWork" ? app.showsWork(argument.area)
 			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
@@ -8530,6 +8581,9 @@ class Instance(typing.NamedTuple):
 	#: The browser has always held one per collection — ``listingRequests`` takes a mapping —
 	#: so it is the fixture that was pretending otherwise, and this guard is what said so.
 	document_cursor: str
+	#: A cursor from one task's journal (`SR#1428`), for `document_cursor`'s reason: the item page
+	#: reads further back by it, and a cursor from anywhere else is refused.
+	journal_cursor: str
 	since: int
 	credential: str
 
@@ -8651,6 +8705,11 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	documents = call("GET", f"/v1/documents{scope}&limit=1&order={sunk}")
 	assert documents.status_code == 200, documents.text
 
+	# **And one from a task's journal**, a page of one entry with more behind it (`SR#1428`).
+	journal = call("GET", f"/v1/tasks/{refs[0]['ref']}/journal{scope}&limit=1")
+	assert journal.status_code == 200, journal.text
+	assert journal.json()["page"]["next_cursor"], "the task's journal has one entry and no cursor"
+
 	# **A real seq, read rather than invented.** A literal `1` is below the oldest event the
 	# shared PostgreSQL database still holds — earlier tests roll back and leave a gap in the
 	# sequence — and is correctly refused with `410 cursor_expired`.
@@ -8689,6 +8748,7 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		status=refs[0]["status"],
 		cursor=page.json()["page"]["next_cursor"],
 		document_cursor=documents.json()["page"]["next_cursor"],
+		journal_cursor=journal.json()["page"]["next_cursor"],
 		since=int(newest),
 		credential=credential.json()["id"],
 	)
@@ -8938,6 +8998,16 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		]),
 		("itemRequests", ["task", place.task, place.slug]),
 		("itemRequests", ["document", place.document, place.slug]),
+		# **A workspace's journal, newest and from either edge** (`SR#2731`): an instant, and
+		# inclusive, in the dotted grammar the route reads.
+		("journalRequest", [place.slug]),
+		("journalRequest", [place.slug, {"from": "2026-01-01T00:00:00Z"}]),
+		("journalRequest", [place.slug, {"until": "2026-01-01T00:00:00.123456Z"}]),
+		# **One item's, both kinds, and further back by a cursor its own route issued**
+		# (`SR#1428`) — a cursor names the collection that made it.
+		("itemJournalRequest", ["task", place.task, place.slug]),
+		("itemJournalRequest", ["document", place.document, place.slug]),
+		("itemJournalRequest", ["task", place.task, place.slug, place.journal_cursor]),
 		("completeRequest", [{"ref": place.task}, place.slug]),
 		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
@@ -9379,7 +9449,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 		application=typing.cast(fastapi.FastAPI, None), secret="", slug="w", project="p",
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
 		document=2, spare_document=5, document_status="archived", document_link="dl",
-		username="si", status="open", cursor="c", document_cursor="d", since=1,
+		username="si", status="open", cursor="c", document_cursor="d", journal_cursor="j", since=1,
 		credential="cr",
 	)
 	exercised = {name for name, _arguments in _calls(place)}
@@ -10485,6 +10555,16 @@ def _views (
 				)
 			: name === "unpacked" ? app.unpacked(argument.answers, argument.wanted)
 			: name === "columns" ? app.columns(argument)
+			: name === "mergedEntries" ? app.mergedEntries(argument.held, argument.arriving)
+			/* The day headings are the reader's locale's (`SR#2252`), so what is compared is which
+			   entries share one, never how the day is spelled. */
+			: name === "byDay"
+				? app.byDay(argument).map((group) => group.entries.map((entry) => entry.seq))
+			: name === "movedBetween" ? app.movedBetween(argument)
+			: name === "happened" ? app.happened(argument)
+			: name === "journalBounds" ? app.journalBounds(argument.holding, argument.direction)
+			: name === "journalAfter"
+				? app.journalAfter(argument.holding, argument.direction, argument.read)
 			/* **A name nothing recognises fails as that, rather than as something else**
 			   (`SR#1797`). `columns` used to be the fallback, so any unregistered name — a
 			   typo, or a function somebody forgot to add — *ran* `columns` and reported
@@ -11553,11 +11633,19 @@ def _driven (
 		globalThis.fetch = async (path, options = {{}}) => {{
 			asked.push({{ method: (options.method || "GET"), path }});
 
+			/* **A problem document is answered as the refusal it is** (`SR#1428`), so a test can
+			   pose a 404 — which is how the app learns that a ref names a document rather than a
+			   task, and was a branch nothing here could reach while every answer was a 200. */
+			const body = answered(path);
+			const status = body && typeof body.status === "number" && body.status >= 400
+				? body.status
+				: 200;
+
 			return {{
-				ok: true,
-				status: 200,
+				ok: status < 400,
+				status,
 				headers: {{ get: () => "application/json" }},
-				json: async () => answered(path),
+				json: async () => body,
 			}};
 		}};
 
@@ -17601,6 +17689,325 @@ def test_a_place_heading_leads_to_its_settings_and_the_menu_is_on_every_page (
 	for driven in (writer, reader, home):
 		assert "/settings" in driven["links"], driven["links"]
 		assert "/people" in driven["links"], driven["links"]
+
+
+def test_an_address_ending_in_journal_is_a_page_and_not_a_place (tmp_path: pathlib.Path) -> None:
+	"""`#2730`. **``/projects/journal`` read as a project keyed ``journal``.**
+
+	And ``/projects/2693/journal`` as a project path. The last segment ``journal`` is a page now,
+	answered by ``areaOf`` and ``journalPageOf`` and null to ``parseAddress``, so exactly one of
+	those two readings is non-null for any address. **A project has no journal** (Simon: *workspace
+	only*), so an address naming one names nothing rather than the workspace's; and ``/journal``
+	on its own is still a workspace of that name.
+	"""
+
+	paths = [
+		"/projects/journal", "/projects/42/journal", "/projects/web/ui/42/journal",
+		"/projects/web/journal", "/projects/007/journal", "/journal", "/people/journal",
+		"/caf%C3%A9/journal",
+	]
+	calls = [(name, path) for path in paths for name in ("areaOf", "parseAddress", "journalPageOf")]
+	answered = dict(zip(calls, _addressing(tmp_path, calls), strict=True))
+
+	for path in paths[:5]:
+		assert answered[("areaOf", path)] == "journal", path
+		assert answered[("parseAddress", path)] is None, (path, answered[("parseAddress", path)])
+
+	assert answered[("journalPageOf", "/projects/journal")] == {"workspace": "projects", "ref": None}
+	assert answered[("journalPageOf", "/projects/42/journal")] == {"workspace": "projects", "ref": 42}
+	assert answered[("journalPageOf", "/projects/web/ui/42/journal")] == {
+		"workspace": "projects", "ref": 42,
+	}
+	assert answered[("journalPageOf", "/projects/web/journal")] is None
+	assert answered[("journalPageOf", "/projects/007/journal")] is None
+	assert answered[("areaOf", "/journal")] is None
+	assert answered[("parseAddress", "/journal")]["workspace"] == "journal"
+	assert answered[("areaOf", "/people/journal")] == "people"
+	assert answered[("journalPageOf", "/caf%C3%A9/journal")] == {"workspace": "café", "ref": None}
+
+	# **Read backwards and forwards again**, so a link and the parser cannot disagree.
+	pages = [
+		{"workspace": "projects", "ref": None},
+		{"workspace": "projects", "ref": 42},
+		{"workspace": "café", "ref": None},
+	]
+	written = _addressing(tmp_path, [("journalAddress", page) for page in pages])
+
+	assert written == ["/projects/journal", "/projects/42/journal", "/caf%C3%A9/journal"]
+	assert _addressing(tmp_path, [("journalPageOf", address) for address in written]) == pages
+	assert _addressing(tmp_path, [("journalPlace", pages[1])]) == [
+		{"agenda": False, "workspace": "projects", "project": None},
+	]
+
+
+def test_journal_is_refused_as_a_project_key_because_the_browser_reads_it_as_a_page (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2730`: the browser's word and the server's reservation are one rule written twice.
+
+	A project keyed ``journal`` would have ``/<workspace>/journal`` for its address, and the
+	browser would open the workspace's journal there instead — `#678`'s *exists, is listed, and
+	can never be reached*, one segment along. `tests/test_api_routing.py` drives the refusal
+	itself for every reserved word; this is what keeps the browser's copy inside that set.
+	"""
+
+	(word,) = _addressing(tmp_path, [("journalWord", None)])
+
+	assert word == "journal"
+	assert word in subroutine.addressing.RESERVED_PATH_WORDS, (
+		f"the browser reads /<workspace>/{word} as a page and a project may still be keyed {word}"
+	)
+
+
+def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Path) -> None:
+	"""`#2731`. Two reads that meet at an edge return that entry twice, in either order.
+
+	`/v1/journal` answers its newest page in the order things happened and an item's journal
+	answers newest first (`#2772`), so the page sorts by `seq` rather than trusting either. The
+	lines under an entry and its verb are `subroutine journal`'s.
+	"""
+
+	newest, middle, _oldest = JOURNAL_ENTRIES
+	arriving = [
+		{**newest, "seq": 13, "id": str(uuid.UUID(int=13))},
+		newest,
+		{**newest, "seq": 14, "id": str(uuid.UUID(int=14))},
+	]
+	merged, grouped, moved, verb = _views(tmp_path, [
+		("mergedEntries", {"held": [newest, middle], "arriving": arriving}),
+		("byDay", JOURNAL_ENTRIES),
+		("movedBetween", middle),
+		("happened", newest),
+	])
+
+	assert [entry["seq"] for entry in merged] == [14, 13, 12, 11]
+	assert grouped == [[12, 11], [3]], grouped
+	assert moved == ["how it is going: Open to In progress", "description"], moved
+	assert verb == "created a comment on"
+
+
+def test_a_journal_read_starts_at_the_edge_it_is_reading_past_and_keeps_what_it_should (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2731`, `#1428`: where each read starts, and what the page holds once it lands.
+
+	**These are the decisions a wrong answer hides best** — an older read from the newest edge
+	reads the same page again, and a newer read past a gap draws two runs as one — and they live
+	inside a hook a test cannot click, so they are asked directly (`#640`).
+	"""
+
+	newest, middle, oldest = JOURNAL_ENTRIES
+	holding = {
+		"address": "/projects/journal", "entries": [newest, middle, oldest], "older": True,
+		"cursor": "further", "kind": "task",
+	}
+	later = {**newest, "seq": 30, "id": str(uuid.UUID(int=30))}
+	calls = [
+		("journalBounds", {"holding": None, "direction": None}),
+		("journalBounds", {"holding": holding, "direction": "newer"}),
+		("journalBounds", {"holding": holding, "direction": "older"}),
+		# Newer, meeting what is held: merged, and older and the cursor left as they were.
+		("journalAfter", {"holding": holding, "direction": "newer", "read": {
+			"address": "/projects/journal", "arriving": [newest, later], "more": False}}),
+		# Newer that could not reach it: a gap, so start again from what arrived.
+		("journalAfter", {"holding": holding, "direction": "newer", "read": {
+			"address": "/projects/journal", "arriving": [later], "more": True}}),
+		# Older: merged, and whether there is further back is this read's to say.
+		("journalAfter", {"holding": {**holding, "entries": [newest]}, "direction": "older",
+			"read": {"address": "/projects/journal", "arriving": [newest, middle], "more": False,
+				"cursor": None}}),
+		# Arrival: what arrived and nothing held before it.
+		("journalAfter", {"holding": holding, "direction": None, "read": {
+			"address": "/projects/journal", "arriving": [middle], "more": True, "cursor": "next"}}),
+	]
+	arrived, newer, older, met, gapped, further, fresh = _views(tmp_path, calls)
+
+	assert arrived == {"from": None, "until": None, "cursor": None}, arrived
+	assert newer == {"from": newest["created_at"], "until": None, "cursor": None}, newer
+	assert older == {"from": None, "until": oldest["created_at"], "cursor": "further"}, older
+
+	def seqs (held: dict[str, typing.Any]) -> list[int]:
+		"""Return the entries a page holds, by seq."""
+
+		return [entry["seq"] for entry in held["entries"]]
+
+	assert (seqs(met), met["older"], met["cursor"]) == ([30, 12, 11, 3], True, "further"), met
+	assert (seqs(gapped), gapped["older"]) == ([30], True), gapped
+	assert (seqs(further), further["older"], further["cursor"]) == ([12, 11], False, None), further
+	assert (seqs(fresh), fresh["older"], fresh["cursor"]) == ([11], True, "next"), fresh
+
+
+def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pathlib.Path) -> None:
+	"""`#2731`: who, through which door and never with which credential, and what moved.
+
+	**A cut comment says so and says where the rest is**, which is the item: the entry carries
+	only an opening (`#2728`), and a reader who wants the rest needs a way to it rather than an
+	ellipsis. The item is linked where it is filed (`#2727`).
+	"""
+
+	rendered = _rendered(tmp_path, {"Journal": SAMPLES["Journal"]})["Journal"]
+
+	assert "through agent tools" in rendered and "in the browser" in rendered, rendered
+	assert "Reproduced on 3.11 only. The fix in the other one…" in rendered, rendered
+	assert "The rest is on the item." in rendered, rendered
+	assert 'href="/projects/web/42"' in rendered, rendered
+	assert "how it is going: Open to In progress" in rendered, rendered
+	assert "the instance" in rendered and "Older" in rendered, rendered
+
+	# **Every state it can be in says which**, rather than an empty page for three reasons.
+	states = {
+		"nowhere": {"page": None},
+		"unseen": {"page": {"workspace": "elsewhere", "ref": None},
+			"workspaces": [{"slug": "projects", "title": "Projects"}]},
+		"reading": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
+			"journal": {"address": "/projects/42/journal", "entries": JOURNAL_ENTRIES}},
+		"failed": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
+			"journal": {"address": "/projects/journal", "entries": [], "failed": "It timed out."}},
+		"quiet": {"page": {"workspace": "projects", "ref": 42}, "address": "/projects/42/journal",
+			"journal": {"address": "/projects/42/journal", "entries": [], "older": False}},
+	}
+	said = {name: _rendered(tmp_path, {"Journal": props})["Journal"] for name, props in states.items()}
+
+	assert "There is no journal at this address." in said["nowhere"], said["nowhere"]
+	assert "no workspace called elsewhere" in said["unseen"], said["unseen"]
+	assert "Reading…" in said["reading"] and "Fix the deploy" not in said["reading"], said["reading"]
+	assert "could not be read. It timed out." in said["failed"], said["failed"]
+	assert "Nothing has happened here" in said["quiet"], said["quiet"]
+	assert 'href="/projects/42"' in said["quiet"] and "Older" not in said["quiet"], said["quiet"]
+
+
+def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathlib.Path) -> None:
+	"""`#2731`'s wiring. **Arriving reads the journal, names the tab, and asks for no rows.**
+
+	The page is drawn in place of the work, so the agenda's, a listing's, the roster's and the
+	vocabulary's reads are all ones nothing on it could use (`#2508`'s rule for an area).
+	"""
+
+	journal = {"items": JOURNAL_ENTRIES, "page": {"has_more": True, "next_cursor": None, "total": None}}
+	# **Two workspaces, the other one first**, so the journal's is chosen from its address rather
+	# than landed on as the only one there is.
+	reader = {
+		"user": {"username": "si", "is_service_account": False},
+		"workspaces": [
+			{"slug": slug, "id": slug, "role": "owner", "permissions": ["task:read"]}
+			for slug in ("personal", "projects")
+		],
+		"instance_permissions": [],
+		"credential": None,
+	}
+	driven = _driven(
+		tmp_path, pathname="/projects/journal", answers={"/v1/me": reader, "/v1/journal": journal},
+	)
+	paths = [call["path"] for call in driven["asked"]]
+
+	assert any(
+		path.startswith("/v1/journal?") and "workspace_id=projects" in path for path in paths
+	), paths
+	assert not [
+		path for path in paths
+		if "/v1/agenda" in path or path.startswith(("/v1/tasks", "/v1/documents", "/v1/meta"))
+		or "/members" in path
+	], paths
+	assert driven["title"] == "Journal · Subroutine", driven["title"]
+	assert "Reproduced on 3.11 only." in driven["said"], driven["said"]
+	assert "/projects/web/42" in driven["links"], driven["links"]
+
+
+def test_a_journal_page_reads_what_is_new_when_the_poll_sees_it (tmp_path: pathlib.Path) -> None:
+	"""`#2731`: on the page's own poll, from the newest entry it holds, inclusively.
+
+	**The edge comes back and is not drawn twice**, and the newer entry is drawn without a reload.
+	No work is refetched, because none is on the page.
+	"""
+
+	newest = JOURNAL_ENTRIES[0]
+	later = {
+		**newest, "seq": 20, "id": str(uuid.UUID(int=20)), "said": "Merged and deployed.",
+		"said_truncated": False, "created_at": "2026-09-16T10:30:00Z",
+	}
+	# **Two workspaces, the other one first**: the poll has to watch the journal's, which only
+	# its address names, rather than the first there is.
+	reader = {
+		"user": {"username": "si", "is_service_account": False},
+		"workspaces": [
+			{"slug": slug, "id": slug, "role": "owner", "permissions": ["task:read"]}
+			for slug in ("personal", "projects")
+		],
+		"instance_permissions": [],
+		"credential": None,
+	}
+	driven = _driven(
+		tmp_path, pathname="/projects/journal", ticks=1,
+		answers={
+			"/v1/me": reader,
+			"changes?newest": _feed([_event(7)]),
+			"changes?since": _feed([_event(7), _event(8, ref=42)]),
+			"created_at.gte": {"items": [newest, later], "page": NOTHING["page"]},
+			"/v1/journal": {"items": JOURNAL_ENTRIES, "page": NOTHING["page"]},
+		},
+	)
+	(round,) = driven["rounds"]
+	asked = [call["path"] for call in round if call["path"].startswith("/v1/journal")]
+	edge = urllib.parse.quote(newest["created_at"], safe="")
+	watched = [call["path"] for call in round if call["path"].startswith("/v1/changes")]
+
+	assert watched and all("workspace_id=projects" in path for path in watched), watched
+
+	assert len(asked) == 1 and f"created_at.gte={edge}" in asked[0], asked
+	assert not [
+		call for call in round
+		if "/v1/tasks" in call["path"] or "/v1/documents" in call["path"]
+		or "/v1/agenda" in call["path"]
+	], round
+	assert "Merged and deployed." in driven["said"], driven["said"]
+	assert driven["said"].count("Reproduced on 3.11 only.") == 1, driven["said"]
+
+
+def test_an_items_journal_finds_out_that_the_ref_is_a_document (tmp_path: pathlib.Path) -> None:
+	"""`#1428`, `fetched`'s rule: a ref names a task or a document, and a 404 for one says which.
+
+	Only a refusal from the second is a refusal, so the page draws the document's journal rather
+	than saying it could not be read.
+	"""
+
+	missing = {"type": "about:blank", "title": "Not found", "status": 404, "detail": "No task #42."}
+	written = {
+		**JOURNAL_ENTRIES[1], "item_title": "How the parser works", "item_type": "decision",
+		"entity_type": "document", "changed": [], "action": "created",
+	}
+	driven = _driven(
+		tmp_path, pathname="/projects/42/journal",
+		answers={
+			"/v1/tasks/42/journal": missing,
+			"/v1/documents/42/journal": {"items": [written], "page": NOTHING["page"]},
+		},
+	)
+	paths = [call["path"] for call in driven["asked"]]
+	tried = [path for path in paths if "/42/journal" in path]
+
+	assert [path.split("?")[0] for path in tried] == [
+		"/v1/tasks/42/journal", "/v1/documents/42/journal",
+	], tried
+	assert "How the parser works" in driven["said"], driven["said"]
+	assert "could not be read" not in driven["said"], driven["said"]
+
+
+def test_a_workspace_and_an_item_lead_to_their_journals_and_a_project_does_not (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2731` and `#1428`: the links, from the page each is about.
+
+	**A workspace's heading offers its journal and a project's does not** (Simon: *workspace
+	only*), and an item's page offers that item's.
+	"""
+
+	workspace = _driven(tmp_path, pathname="/projects")
+	project = _driven(tmp_path, pathname="/projects/subroutine/ui")
+	item = _driven(tmp_path, pathname="/projects/42", answers=_open_item(tmp_path))
+
+	assert "/projects/journal" in workspace["links"], workspace["links"]
+	assert "/projects/journal" not in project["links"], project["links"]
+	assert "/projects/42/journal" in item["links"], item["links"]
 
 
 def test_a_workspace_has_a_settings_page_of_its_own (tmp_path: pathlib.Path) -> None:
