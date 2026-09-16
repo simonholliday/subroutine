@@ -38,7 +38,7 @@
 
 	/* **The faintest ink still clears the contrast minimum** (`#902`). Light was `#868e98`,
 	   which is 3.31:1 on `--bg` and 3.09:1 on `--bg-sunken` against WCAG AA's 4.5:1 for small
-	   text — and it renders `.row .ref`, the item number on every row, at 13px. Dark was
+	   text — and it renders `.row .ref`, the item number on every row, at `--text-small`. Dark was
 	   `#7d8791`, which passed on two backgrounds and missed `--bg-raised` by 0.02. */
 	--ink-faint: light-dark(#696f77, #828c97);
 
@@ -81,20 +81,27 @@
 	   which is the whole difference between what colour has here and what type had. There were
 	   45 `font-size` declarations across eight values and **39 of them sat in three values
 	   spanning 2px**, so this is not eight tiers collapsed, it is one cluster of small text
-	   given names. `--text-body` is `body`'s own 15px, unchanged and mostly inherited: only one
+	   given names. `--text-body` was `body`'s own 15px, unchanged and mostly inherited: only one
 	   rule ever declared it, and everything else overrode downward.
 
 	   **Six since every heading has had to be larger than the text under it** (`#2679`, Simon,
 	   2026-09-15). Five left one step between the body and the page's title, and a stored `##`
 	   and `###` - the two levels people write - each need a step above the body and a visible
-	   one between them. So the title and a section heading each moved up, and 17px stayed as
-	   the heading inside a section. */
-	--text-fine: 12px;
-	--text-small: 13px;
-	--text-body: 15px;
-	--text-subsection: 17px;
-	--text-section: 19px;
-	--text-page: 22px;
+	   one between them. So the title and a section heading each moved up, and `--text-subsection`
+	   stayed as the heading inside a section.
+
+	   **Two pixels larger at every step since `#2774`** (Simon, 2026-09-16): the page read
+	   smaller than the sites he reads beside it, and he was zooming this one. Its working size
+	   is `--text-small`, fifty declarations of eighty-one, and that was 13px where a browser's
+	   own default is 16px. Every step moved together, so no heading changed its place against
+	   the text under it, and spacing stayed in pixels. Rendered at 1440px and 390px before it
+	   was chosen: nothing overflowed and nothing was clipped. */
+	--text-fine: 14px;
+	--text-small: 15px;
+	--text-body: 17px;
+	--text-subsection: 19px;
+	--text-section: 21px;
+	--text-page: 24px;
 
 	/* **Relative on purpose.** Code inside a 13px row should be 13px-ish and code inside 15px
 	   prose 15px-ish. It was the one relative unit among forty-five, which read as the tell that
@@ -559,7 +566,7 @@ fieldset {
 	}
 }
 
-/* **The product's name kept its 17px** when section headings moved up a step (`#2679`). It names
+/* **The product's name kept its step** when section headings moved up one (`#2679`). It names
    what the page belongs to rather than heading a part of it. */
 .top h1 {
 	font-size: var(--text-subsection);
@@ -1192,7 +1199,7 @@ textarea.field { resize: vertical; }
 
    Every structural heading in this app was `--text-small` — the board's columns, the agenda's
    buckets and the item page's sections — and every one of them sits above content that
-   inherits `body`'s 15px. So each was **two steps below the thing it headed**, where `#906`'s
+   inherits `body`'s `--text-body`. So each was **two steps below the thing it headed**, where `#906`'s
    own rule is *"a heading takes the step above its content, except where it is deep enough to
    read as a label"*. A page's top-level section is not deep.
 

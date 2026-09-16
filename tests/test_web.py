@@ -1808,9 +1808,9 @@ def test_the_app_is_served_from_files_that_exist () -> None:
 INKS = ("--ink", "--ink-soft", "--ink-faint", "--accent", "--warn")
 GROUNDS = ("--bg", "--bg-sunken", "--bg-raised")
 
-#: WCAG 2.1 AA for text below 18pt. The stylesheet's largest step is 22px, under 18pt's 24px, so
-#: everything here is held to the small-text ratio and there is no large-text exemption to reason
-#: about.
+#: WCAG 2.1 AA for text below 18pt. The stylesheet's largest step is 24px, which is 18pt exactly
+#: and where large text begins, but everything here is held to the small-text ratio regardless.
+#: It is the stricter of the two, so there is no large-text exemption to reason about.
 AA_SMALL_TEXT = 4.5
 
 #: AAA, which is what a reader asking their system for more contrast should get.
@@ -2077,7 +2077,7 @@ def test_every_size_in_the_stylesheet_comes_from_a_named_step () -> None:
 	#: same thing. Saying only "10px is not a step" reads as nonsense in that case, so the
 	#: refusal names the token to use whenever it can. §13's rule: say what to do next.
 	#:
-	#: **Scoped to the scale being checked**, because the two overlap: 13px is `--text-small`
+	#: **Scoped to the scale being checked**, because the two overlap: 15px is `--text-small`
 	#: and is nothing at all in spacing, so an unscoped lookup answers a question about padding
 	#: with a type token. Caught by reading the message a falsification printed.
 	def advice (part: str, allowed: set[str]) -> str:

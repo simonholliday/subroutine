@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Changed
 
+- **Text in the browser is two pixels larger at every size.** Titles and written text are
+  17px, and what sits beside them - dates, numbers, filters and buttons - is 15px, so a page
+  reads at the size of the sites around it without zooming. Headings moved with it and keep
+  their order.
+
 - **`/v1/journal` answers its latest entries newest first**, as its description always said. It
   answered them in the order they happened, so a caller reading the first entry as the latest
   got the oldest of the page. `oldest=true` still reads a period's first entries forwards.
