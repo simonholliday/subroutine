@@ -17855,10 +17855,15 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 	assert "the instance" in rendered and "Older" in rendered, rendered
 
 	# **Every state it can be in says which**, rather than an empty page for three reasons.
+	three = [
+		{"slug": "projects", "title": "Projects"},
+		{"slug": "personal", "title": "Personal"},
+		{"slug": "acme", "title": "Acme"},
+	]
 	states = {
-		"nowhere": {"page": None},
-		"unseen": {"page": {"workspace": "elsewhere", "ref": None},
-			"workspaces": [{"slug": "projects", "title": "Projects"}]},
+		"nowhere": {"page": None, "workspaces": three},
+		"unready": {"page": None},
+		"unseen": {"page": {"workspace": "elsewhere", "ref": None}, "workspaces": three},
 		"reading": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
 			"journal": {"address": "/projects/42/journal", "entries": JOURNAL_ENTRIES}},
 		"failed": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
@@ -17868,8 +17873,18 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 	}
 	said = {name: _rendered(tmp_path, {"Journal": props})["Journal"] for name, props in states.items()}
 
-	assert "There is no journal at this address." in said["nowhere"], said["nowhere"]
-	assert "no workspace called elsewhere" in said["unseen"], said["unseen"]
+	# **The way on is the reader's own journals, linked** (`#2773`), never the pattern of an
+	# address: `/workspace/journal` read as one to type, and ran into the word before it.
+	offered = (
+		'Open the journal for <a href="/projects/journal">Projects, '
+		'<a href="/personal/journal">Personal or <a href="/acme/journal">Acme.'
+	)
+	nowhere = "There is no journal at this address. Each workspace has one, and so does each item in it."
+
+	assert f"{nowhere} {offered}" in said["nowhere"], said["nowhere"]
+	assert "/workspace/" not in said["nowhere"], said["nowhere"]
+	assert nowhere in said["unready"] and "Open the journal" not in said["unready"], said["unready"]
+	assert f"no workspace called elsewhere that you can see. {offered}" in said["unseen"], said["unseen"]
 	assert "Reading…" in said["reading"] and "Fix the deploy" not in said["reading"], said["reading"]
 	assert "could not be read. It timed out." in said["failed"], said["failed"]
 	assert "Nothing has happened here" in said["quiet"], said["quiet"]

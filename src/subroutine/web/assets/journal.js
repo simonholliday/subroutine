@@ -17,7 +17,7 @@
 */
 
 import { html } from "./html.js";
-import { addressOf } from "./address.js";
+import { addressOf, journalAddress } from "./address.js";
 import { day } from "./dates.js";
 import { clock } from "./marks.js";
 
@@ -201,6 +201,23 @@ function Entry ({ entry, workspace }) {
 	`;
 }
 
+function ReadInstead ({ workspaces }) {
+	/*
+		The journals a reader can open from a page that shows none, as links — `#2773`.
+
+		**Their real addresses, never a pattern of one.** This said `/workspace/journal`, which
+		reads as a path to type, and the address it was first seen refusing was that pattern with
+		a workspace put in. Nothing where the reader has no workspace to offer.
+	*/
+	const held = workspaces || [];
+
+	if (held.length === 0) return null;
+
+	return html`Open the journal for${" "}${held.map((one, index) => html`${
+		index === 0 ? "" : index === held.length - 1 ? " or " : ", "
+	}<a href=${journalAddress({ workspace: one.slug, ref: null })}>${one.title}</a>`)}.`;
+}
+
 export function Journal ({
 	page = null, journal = null, workspaces = [], address = null, onOlder = null, busy = false,
 }) {
@@ -218,8 +235,10 @@ export function Journal ({
 		return html`
 			<div class="journal">
 				<h2 class="area">Journal</h2>
-				<p class="empty">There is no journal at this address. A workspace has one, at
-					<code>/workspace/journal</code>, and so does each item in it.</p>
+				<p class="empty">
+					There is no journal at this address. Each workspace has one, and so does each item in it.${
+					" "}<${ReadInstead} workspaces=${workspaces} />
+				</p>
 			</div>
 		`;
 	}
@@ -230,7 +249,10 @@ export function Journal ({
 		return html`
 			<div class="journal">
 				<h2 class="area">Journal</h2>
-				<p class="empty">There is no workspace called ${page.workspace} that you can see.</p>
+				<p class="empty">
+					There is no workspace called ${page.workspace} that you can see.${
+					" "}<${ReadInstead} workspaces=${workspaces} />
+				</p>
 			</div>
 		`;
 	}
