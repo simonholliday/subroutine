@@ -534,11 +534,17 @@ def test_the_agent_guide_is_markdown_generated_from_the_parsers (
 #:
 #: **Raising it again is a §13.3 change, not a test change.** The cap is not arbitrary: this
 #: is the first thing an agent reads, and 15 KB is one cheap read where 60 KB is not.
-GUIDE_BUDGET = 15 * 1024
+#:
+#: **Raised to 16 KB on 2026-09-16 for `#1384`**, on Simon's decision of 2026-09-15 that the
+#: budget cannot stay where it was while the product keeps growing. The guide sat nine bytes
+#: under 15 KB, so teaching an agent whom to hand work back to could not be paid for by
+#: trimming. Sized to what that teaching measured with room for a sentence more - a raise, not a
+#: new ceiling to fill.
+GUIDE_BUDGET = 16 * 1024
 
 
 def test_the_agent_guide_stays_small (world: test_api_tasks.World) -> None:
-	"""docs/design.md §13.3 targets under 15 KB. Response size is a first-order cost for an agent."""
+	"""The guide stays under its budget: response size is a first-order cost for an agent."""
 
 	guide = world.call("GET", "/v1/docs/agent").text
 	size = len(guide.encode("utf-8"))

@@ -625,12 +625,15 @@ def members (
 	answerable = subroutine.domain.accountability.answerable_for_many(
 		session, [account.id for _row, account, _role in rows]
 	)
+	parents = subroutine.domain.accountability.account_parents_for_many(
+		session, [account for _row, account, _role in rows]
+	)
 
 	return subroutine.api.shaping.response(
 		[
 			subroutine.views.member(
 				row, account=account, role=role, within=found, prioritised=focus,
-				answers_to=answerable.get(account.id),
+				answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
 			)
 			for row, account, role in rows
 		],
@@ -671,6 +674,7 @@ def join (
 		within=found,
 		prioritised=_focus(session, actor, found),
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 	)
 
 
@@ -719,6 +723,7 @@ def regrade (
 		within=found,
 		prioritised=_focus(session, actor, found),
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 	)
 
 

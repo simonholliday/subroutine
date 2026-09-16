@@ -414,11 +414,15 @@ def guide_text () -> str:
 		"edit |",
 		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim` | It "
 		"leaves their ready listing while you hold it — a lease, so nothing is stranded if you "
-		"stop first. Writing to it renews the lease, and finishing hands it back |",
-		"| You need an answer from a person and the conversation is about to end | Set the "
-		"status to `needs_input`, assign it to them, and write the question as a comment | "
-		"It is then on their agenda, and the answer is there when you or another agent "
-		"comes back — rather than in a conversation that ended with you |",
+		"stop first. Writing to it renews the lease, and finishing hands it back. Finishing "
+		"never reassigns: whoever assigned it finds it with `assigned_by.eq=me` |",
+		"| You cannot go on without an answer | Set `needs_input` and assign it back to whoever "
+		"assigned it to you (`assigned_by`), otherwise to your account parent (`account_parent` "
+		"in `GET /v1/me`). "
+		"Comment with the question and what you would choose, and release the claim. A "
+		"question handed to you is answered or passed up, never sent back unanswered, and "
+		"whoever answers assigns it back to whoever asked | It is on their agenda, and the "
+		"answer is on the item when work resumes, rather than in a conversation that ended |",
 		"| Nobody can see that you are working | `status_category` `in_progress`, set when "
 		"you begin | A person watching sees the work move, rather than items appearing "
 		"finished with nothing in between |",

@@ -2823,6 +2823,55 @@ def test_an_agent_can_ask_what_has_been_assigned_to_it (
 	assert "For nobody" not in listed, f"the filter narrowed nothing: {listed}"
 
 
+def test_an_agents_show_names_who_handed_the_item_over (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2789`. The agent's half of the terminal's ``assigned by``, read from a real item.
+
+	`#674`'s guard holds this surface to reading the same field as the terminal, and cannot see
+	what either prints; this is what does. And a person's ``subroutine_whoami`` names no account
+	parent, because a person answers for themselves.
+
+	**The second account is made underneath the tools**, because issuing one is deliberately
+	not reachable from them - and a service account, because local mode refuses a second person.
+	"""
+
+	workspace = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.Workspace)
+	).first()
+	person = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User)
+	).first()
+
+	assert workspace is not None and person is not None
+
+	helper = subroutine.domain.users.create(
+		session,
+		username=f"helper-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=workspace, user=helper, role_key="member"
+	)
+	session.flush()
+
+	ref = _added(bound, "Something to pass on")
+	handed, failed = _called(bound, "subroutine_update", ref=ref, assignee=helper.username)
+
+	assert not failed, handed
+
+	shown, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, shown
+	assert f"assigned by @{person.username}" in shown, shown
+
+	whoami, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed, whoami
+	assert "Account parent" not in whoami, whoami
+
+
 def test_a_task_filed_in_the_inbox_can_be_moved_to_its_project_from_here (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -3266,6 +3315,48 @@ def test_asking_who_you_are_says_what_a_narrow_credential_cannot_do (
 
 	# The secret never appears, in any form — the same rule every other surface keeps.
 	assert issued.value.get_secret_value() not in text
+
+
+def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
+	"""`#2789`. The terminal's line, through the tools an agent actually asks with.
+
+	Decision `#2700` §3 sends a question nobody assigned to the account parent, and this is the
+	surface a hand-back is most often made from. The wording is shared with the terminal, so
+	what this proves is that the tool says it at all - which sharing a helper cannot.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"helper-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=setup.user.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=setup.workspace, user=agent, role_key="member"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=agent, title="the helper", workspace_id=setup.workspace.id
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+		token=issued.value.get_secret_value(),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed, text
+	assert f"Account parent: {setup.user.username}." in text, text
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:

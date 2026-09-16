@@ -20,6 +20,7 @@ import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.users
 import subroutine.errors
+import subroutine.views
 
 
 def _person (
@@ -104,6 +105,70 @@ def test_an_agents_own_agent_inherits_rather_than_choosing (
 	assert sub.responsible_user_id == agent.id
 	assert subroutine.domain.accountability.answers_for(session, sub) is person
 	assert subroutine.domain.accountability.chain(session, sub) == [sub, agent, person]
+
+
+def test_an_account_parent_is_the_first_link_and_answers_to_the_last (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2789`. Whom a question goes up to, and who is accountable, differ for a sub-agent.
+
+	Decision `#2700` §3 sends a question nobody assigned to the agent's account parent - the
+	account it was created by - and an agent had no way to ask who that was. For an agent made
+	by a person the parent and the accountable person are one name, which is why this uses a
+	sub-agent: the case where reporting the last link for the first would send the question
+	past the agent that delegated the work.
+	"""
+
+	person = _person(session)
+	agent = subroutine.domain.users.create(
+		session, username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True, is_superuser=True, actor=_acting(person),
+	)
+	sub = subroutine.domain.users.create(
+		session, username=f"sub-{uuid.uuid4().hex[:8]}",
+		is_service_account=True, actor=_acting(agent),
+	)
+
+	assert subroutine.domain.accountability.account_parents_for_many(
+		session, [person, agent, sub]
+	) == {agent.id: person.username, sub.id: agent.username}
+
+	said = {}
+
+	for account in (person, agent, sub):
+		me = subroutine.views.me(session, _acting(account))
+		said[account.username] = (
+			me.user.account_parent,
+			me.user.answers_to,
+			subroutine.views.accountable_in_words(me.user),
+		)
+
+	assert said[sub.username] == (
+		agent.username,
+		person.username,
+		f"Account parent: {agent.username}. Answers to {person.username}.",
+	)
+	assert said[agent.username] == (
+		person.username, person.username, f"Account parent: {person.username}."
+	)
+	assert said[person.username] == (None, person.username, None)
+
+
+def test_a_person_has_no_account_parent_whatever_the_column_holds (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2789`, from :func:`chain`'s rule that the column is read only for an agent.
+
+	A person answers for themselves, so a value left in ``responsible_user_id`` - by a person
+	who used to be an agent, or by a write nothing refused - names nobody a question goes to.
+	"""
+
+	first = _person(session, "first")
+	second = _person(session, "second")
+	second.responsible_user_id = first.id
+	session.flush()
+
+	assert subroutine.domain.accountability.account_parent_name(session, second) is None
 
 
 def test_an_agent_cannot_name_someone_else_as_answerable (

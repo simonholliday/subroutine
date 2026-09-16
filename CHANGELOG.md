@@ -81,6 +81,19 @@ upgrade involves.
 
 ### Added
 
+- **A task names who assigned it, and an agent can ask whom it answers to.** A task reports
+  `assigned_by` beside `assigned_by_id`, and `subroutine show` and the agent tools say *assigned
+  by @jo* wherever somebody other than the assignee made the assignment. `/v1/me` and every
+  account in `/v1/users` and a workspace's members report `account_parent` - the account an
+  agent was created by - and `/v1/me` reports `answers_to` as the directory does. `subroutine
+  whoami` and the agent tools print *Account parent* for an agent.
+
+- **Handing work back is taught wherever an agent reads.** When something cannot go on without
+  an answer, it goes back to whoever assigned it, otherwise to the agent's account parent, and
+  whoever answers gives it back to whoever asked. A question handed to you is never sent back
+  unanswered, and finishing does not reassign. `subroutine explain handing-back` is new, and
+  the agent guide and the plugins' skill say the same.
+
 - **The journal in the browser.** A workspace's journal is at `/<workspace>/journal`, linked
   from the workspace's heading, and one item's at `/<workspace>/<number>/journal`, linked from
   the item. Each shows the latest hundred entries a day at a time - who did what, the way it

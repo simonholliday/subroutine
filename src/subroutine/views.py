@@ -853,6 +853,12 @@ class Task(pydantic.BaseModel):
 	#: refuse that instance outright rather than read the rest of what it said.
 	assigned_by_id: uuid.UUID | None = None
 
+	#: **The assigner by name** (`#2789`), beside its id as ``assignee`` sits beside
+	#: ``assignee_id``. A question goes back to whoever assigned the work (decision `#2700` §3),
+	#: and an agent handed only a UUID needs a second call to learn who that is. Defaulted for
+	#: `#345`'s reason.
+	assigned_by: str | None = None
+
 	#: §6.3's two independent axes, 1-5 where 5 is highest, and the product of them.
 	#: Null means *not assessed* and is distinct from 1. ``priority_score`` is derived and
 	#: read-only — null unless both axes are set — and exists so that an agent sorting by
@@ -1746,6 +1752,12 @@ class User(pydantic.BaseModel):
 	#: **Defaulted for `#345`'s reason**, like the field above it.
 	answers_to: str | None = None
 
+	#: **The first link of that chain, by name** (`#2789`): the account this one was created by,
+	#: and whom an agent hands a question to when nobody assigned the work (decision `#2700`
+	#: §3). ``answers_to`` above is the last link, and for a sub-agent the two differ. Null on a
+	#: person. Defaulted for `#345`'s reason, like the fields above it.
+	account_parent: str | None = None
+
 	#: Null means "not stated", so the workspace's zone and then the instance's show through
 	#: (§12.3). It is not a missing value to be helpfully defaulted.
 	timezone: str | None
@@ -1822,6 +1834,15 @@ class Caller(pydantic.BaseModel):
 
 	is_superuser: bool
 	is_service_account: bool
+
+	#: **Whom an agent hands a question to when nobody assigned the work** (decision `#2700` §3,
+	#: `#2789`): the account it was created by, by name. Null on a person, who answers for
+	#: themselves. Defaulted, like everything added here after this model shipped (`#345`).
+	account_parent: str | None = None
+
+	#: The person at the end of the chain, as :attr:`User.answers_to` reports it about anybody -
+	#: here about oneself, so a sub-agent can see both links. Defaulted for `#345`'s reason.
+	answers_to: str | None = None
 
 
 class Credential(pydantic.BaseModel):
@@ -3241,11 +3262,13 @@ class Vocabulary:
 			# anything. A second batch load would be a second query for one extra column.
 			parent_ids={task.parent_task_id for task in tasks if task.parent_task_id}
 			| {task.recurrence_template_id for task in tasks if task.recurrence_template_id},
-			# **Both the assignee and the lease holder, in one query** (`#726`). They are
-			# usually the same account or absent, so the set is nearly always the size it was.
+			# **The assignee, the lease holder and the assigner, in one query** (`#726`,
+			# `#2789`). They are usually the same account or absent, so the set is nearly
+			# always the size it was.
 			user_ids=(
 				{task.assignee_id for task in tasks if task.assignee_id}
 				| {task.claimed_by_id for task in tasks if task.claimed_by_id}
+				| {task.assigned_by_id for task in tasks if task.assigned_by_id}
 			),
 		)
 
@@ -3472,6 +3495,7 @@ def task (
 		assignee_is_agent=_is_agent(vocabulary, row.assignee_id),
 		assignee_answers_to=_answers_to(vocabulary, row.assignee_id),
 		assigned_by_id=row.assigned_by_id,
+		assigned_by=_username(vocabulary, row.assigned_by_id),
 		claimed_by_id=row.claimed_by_id,
 		claimed_by=_username(vocabulary, row.claimed_by_id),
 		claimed_by_is_agent=_is_agent(vocabulary, row.claimed_by_id),
@@ -4500,7 +4524,10 @@ def instance (row: subroutine.db.models.system.Instance) -> Instance:
 
 
 def user (
-	row: subroutine.db.models.identity.User, *, answers_to: str | None
+	row: subroutine.db.models.identity.User,
+	*,
+	answers_to: str | None,
+	account_parent: str | None,
 ) -> User:
 	"""Render one account, without its email address or its password hash.
 
@@ -4508,7 +4535,7 @@ def user (
 	A caller that had not looked would report *nobody is accountable for this agent* — a
 	plausible, complete, wrong answer, and indistinguishable from the true one. Making it
 	required means every call site decides, and mypy lists them rather than a reader hoping to
-	spot one.
+	spot one. ``account_parent`` is required for the same reason (`#2789`).
 
 	**Resolved by the caller, never here**, for the reason :func:`member` gives about the rows
 	it is handed: a listing walks every chain in one pass through
@@ -4525,6 +4552,7 @@ def user (
 		is_active=row.is_active,
 		responsible_user_id=row.responsible_user_id,
 		answers_to=answers_to,
+		account_parent=account_parent,
 		timezone=row.timezone,
 		created_at=row.created_at,
 		last_login_at=row.last_login_at,
@@ -4567,7 +4595,13 @@ def me (
 		# rather than raise, so this cannot be the call that breaks a diagnostic.
 		instance_version=subroutine.installations.program(),
 		schema_revision=subroutine.db.migrate.revision_on(session.connection()),
-		user=caller(principal.user),
+		user=caller(
+			principal.user,
+			account_parent=subroutine.domain.accountability.account_parent_name(
+				session, principal.user
+			),
+			answers_to=subroutine.domain.accountability.answerable_name(session, principal.user),
+		),
 		credential=credential(session, principal),
 		instance_permissions=sorted(
 			subroutine.domain.authorization.instance_permissions(principal)
@@ -4586,8 +4620,17 @@ def me (
 	)
 
 
-def caller (row: subroutine.db.models.identity.User) -> Caller:
-	"""Render the account somebody is acting as, without anything that authenticates it."""
+def caller (
+	row: subroutine.db.models.identity.User,
+	*,
+	account_parent: str | None,
+	answers_to: str | None,
+) -> Caller:
+	"""Render the account somebody is acting as, without anything that authenticates it.
+
+	Both links of the chain are resolved by the caller, as :func:`user`'s are, and required for
+	its reason: a default would let a call site report an agent nobody answers for.
+	"""
 
 	return Caller(
 		id=row.id,
@@ -4597,6 +4640,8 @@ def caller (row: subroutine.db.models.identity.User) -> Caller:
 		timezone=row.timezone,
 		is_superuser=row.is_superuser,
 		is_service_account=row.is_service_account,
+		account_parent=account_parent,
+		answers_to=answers_to,
 	)
 
 
@@ -5517,6 +5562,7 @@ def member (
 	within: subroutine.db.models.identity.Workspace,
 	prioritised: str | None,
 	answers_to: str | None,
+	account_parent: str | None,
 ) -> Member:
 	"""Render one membership, with the four things it joins already resolved.
 
@@ -5532,7 +5578,7 @@ def member (
 	"""
 
 	return Member(
-		user=user(account, answers_to=answers_to),
+		user=user(account, answers_to=answers_to, account_parent=account_parent),
 		role=role.key,
 		workspace=workspace_ref(within, prioritised=prioritised),
 		created_at=row.created_at,
@@ -5545,6 +5591,7 @@ def project_member (
 	account: subroutine.db.models.identity.User,
 	within: subroutine.db.models.project.Project,
 	answers_to: str | None,
+	account_parent: str | None,
 ) -> ProjectMember:
 	"""Render one shared-in person, with the account and the project already resolved.
 
@@ -5556,7 +5603,7 @@ def project_member (
 	"""
 
 	return ProjectMember(
-		user=user(account, answers_to=answers_to),
+		user=user(account, answers_to=answers_to, account_parent=account_parent),
 		project=within.key,
 		created_at=row.created_at,
 	)
@@ -5836,6 +5883,36 @@ def _answers_to (vocabulary: Vocabulary, user_id: uuid.UUID | None) -> str | Non
 		return None
 
 	return vocabulary.answerable.get(user_id)
+
+
+def handed_over_by (username: str) -> str:
+	"""Say who assigned a task, in the words both ``show`` renderings use — `#2789`.
+
+	One wording for the terminal and the agent tools, because `#674`'s guard holds the two to
+	the same facts and two spellings of one fact is what it cannot see.
+	"""
+
+	return f"assigned by {principal_named(username)}"
+
+
+def accountable_in_words (user: Caller) -> str | None:
+	"""Say whom an agent hands work up to, for both ``whoami`` renderings — `#2789`.
+
+	**The account parent first, because it is whom a question goes to** when nobody assigned
+	the work (decision `#2700` §3). The person at the end follows only where they are somebody
+	else, which is a sub-agent's case. ``None`` for a person, who answers for themselves, and
+	for an agent an older instance reported no parent for.
+	"""
+
+	if not user.is_service_account or user.account_parent is None:
+		return None
+
+	said = f"Account parent: {user.account_parent}."
+
+	if user.answers_to and user.answers_to != user.account_parent:
+		said += f" Answers to {user.answers_to}."
+
+	return said
 
 
 def principal_named (

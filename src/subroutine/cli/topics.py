@@ -438,6 +438,61 @@ and open it themselves. **If the boundary has to hold, it needs a server
 between them and the file** — that is what 'subroutine serve' and a
 token over the network are for.""",
 	),
+	Topic(
+		name="handing-back",
+		summary="What to do with work you cannot finish, and whom it goes back to.",
+		body="""When something you were given cannot go on without an answer, hand it
+back rather than stopping or guessing. That means a question the item,
+the decisions behind it and the code do not answer - anything resting on
+taste, priority, scope or a word somebody will read - or a permission
+you do not have. Hard is not the same as blocked.
+
+It goes back to one person, chosen in this order:
+
+  1. Whoever assigned it to you. 'subroutine show 42' says who, as
+     'assigned by @jo'. Not when that is you, and not when it came to
+     you as a question: that one you answer, or pass up.
+  2. Otherwise your account parent, the account yours was created by.
+     'subroutine whoami' names it. Every agent answers to a person in
+     the end, so a question always reaches one.
+  3. Whoever answers gives it back to whoever asked.
+
+How you hand it over says what you mean:
+
+  Asking       needs_input   I can do this once you answer.
+  Giving back  unchanged     This is not mine to do.
+  Answering    open          Here is what you needed. Carry on.
+  Finishing    done          Nothing moves: it stays with you.
+
+Asking is three commands:
+
+  subroutine update 42 --status needs_input --assignee jo
+  subroutine comment 42 "Which way should the flag read? I'd pick the second."
+  subroutine release 42
+
+The comment is the hand-back. Say what you need, why it is theirs to
+decide, what you would choose, and - when you are passing a question up
+- who below you is waiting on it, because an item names only whoever
+assigned it last.
+
+A question that came to you is never sent back unanswered: handing back
+is an assignment too, so the one who asked is now named as the assigner.
+An item going back and forth - asked, answered, asked again - is not
+that, because its status changes every time.
+
+Finishing does not hand anything back. Left with you, the item still
+names who assigned it, and that is how they find it:
+
+  subroutine list --filter assigned_by.eq=me --filter completed_at.gte=yesterday
+
+If they need to check the work first, give it back open and say it is
+ready to check. Cancelling something you were given is theirs to decide,
+so give it back instead.
+
+One hand-back is no reason to stop: carry on with something else. Two
+in a row are, because they say the work is not clear enough to do, and
+that is for the person to put right.""",
+	),
 )
 
 _BY_NAME = {topic.name: topic for topic in TOPICS}

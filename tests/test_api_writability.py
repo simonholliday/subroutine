@@ -177,6 +177,10 @@ DERIVED: dict[str, str] = {
 	#: settable at creation and is what a caller uses; this is the walk's answer, and a caller
 	#: sending it would be asserting a chain rather than declaring a link in one.
 	"answers_to": "the person accountable for this account, walked from responsible_user_id.",
+	#: **`SR#2789`.** The first link of the same chain by name, where `answers_to` is the last.
+	#: `responsible_user_id` is what a caller sets; this is that id read back as a username.
+	"account_parent": "the account this one was created by, named from responsible_user_id.",
+	"assigned_by": "who assigned the task, named from assigned_by_id; never accepted.",
 
 	"assignee_is_agent": "whether the assignee is an agent; the account says so, not a task.",
 	"assignee_answers_to": "the person accountable for the assignee, walked from the chain.",

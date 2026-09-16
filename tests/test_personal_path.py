@@ -3886,6 +3886,35 @@ def test_the_assignee_column_appears_once_one_item_is_handed_over (
 	assert "@si" in run("list").output, "the column did not appear once a row had one"
 
 
+def test_show_names_who_handed_an_item_over_and_not_somebody_who_took_it_themselves (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2789`. A question goes back to whoever assigned the work (decision `#2700` §3).
+
+	So ``show`` has to say who that was, and it named the assignee alone. **Not said for work
+	somebody assigned to themselves**, which on a personal list is every assigned item: *@si,
+	assigned by @si* is one name twice - and an agent reading no assigner knows the rule's own
+	exception applies, which is to go to its account parent.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	issued = run("token", "create", "--service-account", "claude", "--title", "the agent")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	run("add", "fix the boiler @claude")
+	run("add", "buy milk @si")
+
+	handed = run("show", "1").output
+
+	assert "assigned by @si" in handed, handed
+	assert "assigned by" not in run("show", "2").output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+	run("add", "a note to self @claude")
+
+	assert "assigned by" not in run("show", "3").output
+
+
 def test_the_assignee_column_survives_everything_being_assigned_to_one_person (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

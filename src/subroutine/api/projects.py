@@ -365,6 +365,9 @@ def sharing (
 	answerable = subroutine.domain.accountability.answerable_for_many(
 		session, [account.id for _row, account in rows]
 	)
+	parents = subroutine.domain.accountability.account_parents_for_many(
+		session, [account for _row, account in rows]
+	)
 
 	return subroutine.api.shaping.response(
 		[
@@ -372,7 +375,7 @@ def sharing (
 				row,
 				account=account,
 				within=project,
-				answers_to=answerable.get(account.id),
+				answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
 			)
 			for row, account in rows
 		],
@@ -418,6 +421,7 @@ def admit (
 		account=account,
 		within=project,
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 	)
 
 

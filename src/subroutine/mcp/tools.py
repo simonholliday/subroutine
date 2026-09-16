@@ -1681,6 +1681,11 @@ def _whoami (
 	)
 	lines = [f"{me.user.username} ({kind}), via {how}."]
 
+	# **Whom a question goes up to** (`#2789`), in the terminal's words: decision `#2700` §3
+	# tells an agent to hand work back to its account parent, and this is where it asks.
+	if accountable := subroutine.views.accountable_in_words(me.user):
+		lines.append(accountable)
+
 	if credential is not None and credential.narrows:
 		lines.append(
 			f"Narrowed to {subroutine.views.narrowing(credential, me.workspaces)}."
@@ -2872,6 +2877,12 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 
 		if item.completed_at is not None:
 			facts.append(f"done {_day_of(item.completed_at, item)}")
+
+		# **Who handed it over** (`#2789`), which is whom a question about the work goes back to
+		# (decision `#2700` §3). The terminal's rule and wording: not said when the assignee
+		# assigned it to themselves.
+		if item.assigned_by and item.assigned_by != item.assignee:
+			facts.append(subroutine.views.handed_over_by(item.assigned_by))
 
 		# **Both renderings say it, which `#674`'s guard is what made true** (`#94`). It caught
 		# this within the hour of the terminal gaining it: a repeat is the fact that most

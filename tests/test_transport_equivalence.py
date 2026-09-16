@@ -747,6 +747,22 @@ def test_both_answer_which_agents_answer_to_somebody (pair: Pair) -> None:
 	# that stop, and somebody leaving does not stop themselves twice.
 	assert pair.user.username not in {one.username for one in there}
 
+	# **And each names its account parent, on both** (`#2789`): a listing, one account, and
+	# the workspace roster, which renders the same account view inside a membership.
+	parents = {one.username: one.account_parent for one in there}
+
+	assert {one.username: one.account_parent for one in here} == parents
+	assert parents["claude-here"] == pair.user.username
+	assert local.user(username="claude-here").account_parent == pair.user.username
+	assert remote.user(username="claude-here").account_parent == pair.user.username
+
+	rostered = {member.user.username: member.user.account_parent for member in remote.members(workspace=pair.workspace.slug)}
+
+	assert {member.user.username: member.user.account_parent for member in local.members(workspace=pair.workspace.slug)} == (
+		rostered
+	)
+	assert rostered.get("claude-here") == pair.user.username, rostered
+
 
 def test_both_read_one_account_by_name (pair: Pair) -> None:
 	"""`SR#2386`. The lookup that replaced fetching a directory to find one row."""
@@ -4767,6 +4783,7 @@ def test_both_hand_a_task_over_after_it_was_filed (pair: Pair) -> None:
 
 	assert handed.assignee_id == pair.user.id
 	assert handed.assigned_by_id == pair.user.id, "the assigner is taken, never accepted"
+	assert handed.assigned_by == pair.user.username, "and named, for a hand-back (#2789)"
 
 	# And the other transport reads back what the first one wrote, which is the equivalence
 	# that matters here: two clients disagreeing about who holds a task is worse than neither
@@ -4774,6 +4791,7 @@ def test_both_hand_a_task_over_after_it_was_filed (pair: Pair) -> None:
 	read_back = remote.task(ref=task.ref)
 
 	assert read_back is not None and read_back.assignee_id == pair.user.id
+	assert read_back.assigned_by == pair.user.username
 
 	given_back = remote.update(ref=task.ref, assignee=None)
 
@@ -4781,6 +4799,7 @@ def test_both_hand_a_task_over_after_it_was_filed (pair: Pair) -> None:
 	assert given_back.assigned_by_id is None, (
 		"an assigner with no assignee names nobody, so clearing one clears both"
 	)
+	assert given_back.assigned_by is None
 
 
 def test_both_refuse_to_hand_work_to_somebody_who_is_not_here (pair: Pair) -> None:

@@ -107,6 +107,7 @@ def create (
 	return subroutine.views.user(
 		created,
 		answers_to=subroutine.domain.accountability.answerable_name(session, created),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, created),
 	)
 
 
@@ -197,6 +198,7 @@ def update (
 	return subroutine.views.user(
 		account,
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 	)
 
 
@@ -292,10 +294,13 @@ def listing (
 	answerable = subroutine.domain.accountability.answerable_for_many(
 		session, [row.id for row in found]
 	)
+	parents = subroutine.domain.accountability.account_parents_for_many(
+		session, found
+	)
 
 	return subroutine.api.shaping.response(
 		[
-			subroutine.views.user(row, answers_to=answerable.get(row.id))
+			subroutine.views.user(row, answers_to=answerable.get(row.id), account_parent=parents.get(row.id))
 			for row in found
 		],
 		subroutine.views.Page(
@@ -345,4 +350,5 @@ def one (
 	return subroutine.views.user(
 		account,
 		answers_to=subroutine.domain.accountability.answerable_name(session, account),
+		account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 	)

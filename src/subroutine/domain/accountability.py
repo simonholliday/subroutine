@@ -268,6 +268,53 @@ def answerable_name (
 	return answerable_for_many(session, [user.id]).get(user.id)
 
 
+def account_parents_for_many (
+	session: sqlalchemy.orm.Session,
+	users: typing.Iterable[subroutine.db.models.identity.User],
+) -> dict[uuid.UUID, str]:
+	"""Return, for each agent among ``users``, the username of its account parent (`#2789`).
+
+	**The first link of the chain, where :func:`answerable_for_many` returns the last.** An
+	account parent is the account an agent was created by - :func:`inherited`'s *who handed
+	this down* - and it is whom a question goes to when nobody assigned the work (decision
+	`#2700` §3). For an agent answerable to a person the two are one name; for a sub-agent
+	they are not, and that is the case this exists for.
+
+	A person has none whatever ``responsible_user_id`` holds, because :func:`chain` reads that
+	column only for an agent. One query for a page, and none when nothing on it is an agent.
+	"""
+
+	linked = {
+		user.id: user.responsible_user_id
+		for user in users
+		if user.is_service_account and user.responsible_user_id is not None
+	}
+
+	if not linked:
+		return {}
+
+	model = subroutine.db.models.identity.User
+	names = dict(
+		session.execute(
+			sqlalchemy.select(model.id, model.username).where(model.id.in_(set(linked.values())))
+		).tuples().all()
+	)
+
+	return {account: names[parent] for account, parent in linked.items() if parent in names}
+
+
+def account_parent_name (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> str | None:
+	"""Return the username of one account's account parent, or ``None`` (`#2789`).
+
+	The single-account form of :func:`account_parents_for_many`, and a call to it, for
+	:func:`answerable_name`'s reason.
+	"""
+
+	return account_parents_for_many(session, [user]).get(user.id)
+
+
 def inherited (actor: subroutine.db.models.identity.User) -> uuid.UUID | None:
 	"""Return who a *new* account created by ``actor`` must be answerable to: ``actor`` itself.
 

@@ -2287,6 +2287,7 @@ class Client:
 			return subroutine.views.user(
 				account,
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def users (
@@ -2322,11 +2323,14 @@ class Client:
 			answerable = subroutine.domain.accountability.answerable_for_many(
 				session, [row.id for row in found[:size]]
 			)
+			parents = subroutine.domain.accountability.account_parents_for_many(
+				session, found[:size]
+			)
 
 			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
 			return subroutine.clients.base.Listing(
 				[
-					subroutine.views.user(row, answers_to=answerable.get(row.id))
+					subroutine.views.user(row, answers_to=answerable.get(row.id), account_parent=parents.get(row.id))
 					for row in found[:size]
 				],
 				has_more=len(found) > size,
@@ -2361,6 +2365,7 @@ class Client:
 			return subroutine.views.user(
 				created,
 				answers_to=subroutine.domain.accountability.answerable_name(session, created),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, created),
 			)
 
 	def members (self, *, workspace: str | None = None) -> list[subroutine.views.Member]:
@@ -2382,11 +2387,14 @@ class Client:
 			answerable = subroutine.domain.accountability.answerable_for_many(
 				session, [account.id for _row, account, _role in roster]
 			)
+			parents = subroutine.domain.accountability.account_parents_for_many(
+				session, [account for _row, account, _role in roster]
+			)
 
 			return [
 				subroutine.views.member(
 					row, account=account, role=role, within=chosen, prioritised=focus,
-					answers_to=answerable.get(account.id),
+					answers_to=answerable.get(account.id), account_parent=parents.get(account.id),
 				)
 				for row, account, role in roster
 			]
@@ -2417,6 +2425,7 @@ class Client:
 					session, actor, workspace_ids=[chosen.id]
 				).get(chosen.id),
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def set_member_role (
@@ -2445,6 +2454,7 @@ class Client:
 					session, actor, workspace_ids=[chosen.id]
 				).get(chosen.id),
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def set_active (self, *, username: str, active: bool) -> subroutine.views.User:
@@ -2462,6 +2472,7 @@ class Client:
 			return subroutine.views.user(
 				account,
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def set_timezone (
@@ -2481,6 +2492,7 @@ class Client:
 			return subroutine.views.user(
 				account,
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def transfer_agent (self, *, username: str, to: str) -> subroutine.views.User:
@@ -2501,6 +2513,7 @@ class Client:
 			return subroutine.views.user(
 				agent,
 				answers_to=subroutine.domain.accountability.answerable_name(session, agent),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, agent),
 			)
 
 	def remove_member (self, *, username: str, workspace: str | None = None) -> None:
@@ -2584,6 +2597,7 @@ class Client:
 				account=account,
 				within=found,
 				answers_to=subroutine.domain.accountability.answerable_name(session, account),
+				account_parent=subroutine.domain.accountability.account_parent_name(session, account),
 			)
 
 	def unshare_project (
@@ -2612,10 +2626,13 @@ class Client:
 			answerable = subroutine.domain.accountability.answerable_for_many(
 				session, [account.id for _row, account in rows]
 			)
+			parents = subroutine.domain.accountability.account_parents_for_many(
+				session, [account for _row, account in rows]
+			)
 
 			return [
 				subroutine.views.project_member(
-					row, account=account, within=found, answers_to=answerable.get(account.id)
+					row, account=account, within=found, answers_to=answerable.get(account.id), account_parent=parents.get(account.id)
 				)
 				for row, account in rows
 			]

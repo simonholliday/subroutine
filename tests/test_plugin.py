@@ -23,6 +23,7 @@ import yaml
 import api_support
 import subroutine.api.meta
 import subroutine.cli.main
+import subroutine.cli.topics
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -1188,6 +1189,43 @@ def test_both_channels_say_a_parked_question_needs_a_name_on_it () -> None:
 		"the guide parks a question without saying whose it is, and the guide is what an agent "
 		"with no plugin reads"
 	)
+
+
+def test_every_channel_says_whom_a_question_goes_back_to () -> None:
+	"""`#1384`, decision `#2700` §3: the assigner, else the account parent, and back to the asker.
+
+	`#499`'s rule is that a plugin cache lags, so a practice the skill alone carries reaches a
+	session late or never. The guide reaches an agent with no plugin and ``subroutine explain``
+	cannot lag at all, so each has to name all three steps - and each by the words its reader
+	can act on: the field or the phrase a surface prints, not the decision's number.
+	"""
+
+	topic = subroutine.cli.topics.find("handing-back")
+
+	assert topic is not None, "subroutine explain has no topic on handing work back"
+
+	channels = {
+		"the skill": SKILL.read_text(encoding="utf-8"),
+		"the agent guide": subroutine.api.meta.guide_text(),
+		"subroutine explain handing-back": topic.body,
+	}
+
+	for name, text in channels.items():
+		flat = " ".join(text.split()).lower()
+
+		# **The rule's own words, whole** - every channel names the assigner again where it
+		# teaches finishing, and a check for the field's name or a shorter phrase was satisfied
+		# by that sentence with the hand-back rule itself deleted.
+		assert "whoever assigned it to you" in flat, (
+			f"{name} never sends a question back to the assigner"
+		)
+		assert re.search(r"otherwise (to )?your account parent", flat), (
+			f"{name} never says where a question goes when nobody assigned the work"
+		)
+		assert "whoever asked" in flat, f"{name} never says who an answer goes back to"
+		assert "never sent back unanswered" in flat, (
+			f"{name} leaves a question free to bounce straight back to whoever asked it"
+		)
 
 
 def test_the_guaranteed_channel_names_the_practice_and_not_only_the_endpoint () -> None:

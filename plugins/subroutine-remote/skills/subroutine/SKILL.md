@@ -202,8 +202,9 @@ start of a session:
 subroutine_whoami()
 ```
 
-It names the account, the credential by its title, what that credential is limited to, and the
-versions of everything in play. One machine commonly holds more than one credential — the
+It names the account, the credential by its title, what that credential is limited to, the
+versions of everything in play and, for an agent, its *account parent* — whom a question goes to
+when nobody assigned you the work. One machine commonly holds more than one credential — the
 person's own, and one per agent — so the answer is not obvious and is not something to assume.
 Four answers are worth acting on:
 
@@ -305,7 +306,9 @@ list of tasks does not:
 subroutine_list(ready=true, order="-priority_score")
 ```
 
-`ready` leaves out anything blocked by unfinished work and anything deferred to a later date.
+`ready` leaves out anything blocked by unfinished work, anything deferred to a later date, and a
+question parked on somebody else. One parked on you stays in yours, because answering it is yours
+to do.
 Without it you get a backlog in priority order, which includes things nobody can act on yet.
 
 **Ask what happened, not only what is left.** A date field takes `.gte`, `.gt`, `.lt` and
@@ -367,21 +370,66 @@ putting down without finishing.
 them there. The item stays the record, and the session's list is the working surface for the
 next hour. Not every session has one, and then there is nothing to do.
 
-**When you need an answer from a person, park the question rather than asking in the
-conversation.** A conversation ends and takes the question with it; an item does not.
+**When you cannot go on, hand it back rather than stopping or guessing.** A conversation ends
+and takes a question with it; an item does not. *Cannot go on* means a question the item, the
+decisions that govern it and the code do not answer — which includes anything resting on taste,
+priority, scope, or a word somebody using the product will read — or a permission your
+credential does not carry. Hard is not blocked.
+
+**Who it goes back to, in order:**
+
+1. **Whoever assigned it to you** — `subroutine_show` says *assigned by @jo*. Not when that is
+   you, and not when it came to you as a question: that one you answer, or pass up.
+2. **Otherwise your account parent**, the account yours was created by, which
+   `subroutine_whoami` names. Every agent answers to a person in the end, so a question always
+   reaches one.
+3. **Whoever answers assigns it back to whoever asked.**
 
 ```
-subroutine_update(ref=42, status="needs_input", assignee="morpheus")
+subroutine_update(ref=42, status="needs_input", assignee="jo")
 subroutine_comment(ref=42, body="Which way round should the flag read? Both work; the second
-                                 matches the CLI.")
+                                 matches the CLI, so I would pick it.")
+subroutine_claim(ref=42, release=true)
 ```
 
-**Assign it to the person you are asking, or it reaches nobody.** *Waiting on you* is the top
-of their agenda, and it holds what is assigned to them or what they are holding — so a parked
-item with nobody's name on it sits among the work nobody has taken, which is not a question
-anybody has been asked. Their answer is on the item when you — or a different agent, days
-later — come back to it. Move the status on then, and carry on with something else meanwhile;
-a question you are waiting on is not a reason to stop.
+**The comment is the hand-back.** Say what you need, why it is theirs to decide rather than
+yours, what you would choose, and — when you are passing a question up — who below you is
+waiting on it, because the item names only whoever assigned it last. An assignment with no
+question on it is a notification, and it leaves the person you interrupted to work out why.
+
+**How you hand it over says what you mean:**
+
+| You are | Status | Assign it to |
+| --- | --- | --- |
+| Asking | `needs_input` | the rules above |
+| Giving it back, because it is not yours to do | unchanged | the rules above |
+| Answering | `open` | whoever asked |
+| Finishing | done | nobody new — it stays with you |
+
+**A question that came to you is never sent back unanswered.** Handing back is itself an
+assignment, so whoever asked is now named as your assigner, and returning it to them is the one
+loop these rules rule out. A back-and-forth — asked, answered, asked again — is not that: its
+status changes every time.
+
+**Finishing does not reassign.** Left with you, the item still names who handed it over, and
+that is how they find it:
+
+```
+subroutine_list(filter={"assigned_by.eq": "me", "completed_at.gte": "yesterday"})
+```
+
+If they have to check the work first, give it back open and say it is ready to check.
+Cancelling work somebody gave you is their decision, so give it back instead.
+
+**Assign it, or it reaches nobody.** *Waiting on you* is the top of that person's agenda and
+holds what is assigned to them or what they are holding, so a parked item with nobody's name on
+it sits among the work nobody has taken. Their answer is on the item when you — or a different
+agent, days later — come back to it.
+
+**One hand-back is no reason to stop**: carry on with something else that is ready. **Two in a
+row are**, because they say the work you are being given is not clear enough to do, and that is
+for the person to put right rather than for you to keep trying. `subroutine explain
+handing-back` says all of this at a terminal.
 
 **Parking is a status, on the item you already have, whatever its type — not a new
 `question`.** A `question` is work for whoever picks it up; parking says *this one is yours,

@@ -2277,6 +2277,11 @@ def _whoami_lines (me: subroutine.views.Me, *, agent_because: str | None = None)
 			f"This connection's agent credential, because {agent_because} is set here."
 		)
 
+	# **Whom a question goes up to** (`#2789`, decision `#2700` §3). An agent told to hand work
+	# back to its account parent had no command that named one.
+	if accountable := subroutine.views.accountable_in_words(me.user):
+		lines.append(accountable)
+
 	if credential is not None and credential.narrows:
 		lines.append(
 			f"Narrowed to "
@@ -12473,6 +12478,12 @@ def _facts (located: Located) -> list[str]:
 					answers_to=item.assignee_answers_to,
 				)
 			)
+
+		# **And who handed it over** (`#2789`), because that is whom a question about the work
+		# goes back to (decision `#2700` §3). Not said when somebody assigned it to themselves:
+		# on a personal list that would be every assigned item naming its own owner twice.
+		if item.assigned_by and item.assigned_by != item.assignee:
+			facts.append(subroutine.views.handed_over_by(item.assigned_by))
 
 		# **The fact that is not a choice, and the one that changes what the others mean**
 		# (`#921`). A series and its occurrence carry the same title, so once `#921` made the

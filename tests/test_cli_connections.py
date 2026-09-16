@@ -2121,6 +2121,30 @@ def test_whoami_tells_two_principals_on_one_machine_apart (
 	assert "si (person)" not in agent
 
 
+def test_whoami_names_an_agents_account_parent_and_nothing_for_a_person (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2789`. An agent hands a question nobody assigned to its account parent (`#2700` §3).
+
+	No command named that account, so the rule sent an agent to guess. A person answers for
+	themselves and is told nothing, which keeps a personal instance's ``whoami`` as it was.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	issued = run("token", "create", "--service-account", "claude", "--title", "the agent")
+	secret = next(word for word in issued.output.split() if word.startswith("sr_"))
+
+	assert "Account parent" not in run("whoami").output
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", secret)
+
+	agent = run("whoami").output
+
+	assert "Account parent: si." in agent, agent
+	assert "Answers to" not in agent, "the parent is the person, so saying it twice is noise"
+
+
 def test_whoami_says_what_a_narrowed_credential_is_limited_to (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:
