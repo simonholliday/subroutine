@@ -552,6 +552,44 @@ def test_a_projects_deletion_reaches_the_feed (session: sqlalchemy.orm.Session) 
 	] != []
 
 
+def test_a_tasks_deletion_reaches_the_feed_and_the_journal (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2735`. The case above, for a task, and nothing held it.
+
+	``visible_events`` asks the task statement for deleted rows on purpose, for the reason the
+	case above records. Turning that off left every test of the feed and the journal passing -
+	found while moving those statements for `SR#2726` - and a journal page is about to show
+	deletions to people watching it.
+	"""
+
+	world = test_api_tasks._world(session)
+	made = world.call("POST", "/v1/tasks", json={"title": "Doomed"})
+
+	assert made.status_code == 201, made.text
+
+	gone = world.call("DELETE", f"/v1/tasks/{made.json()['ref']}")
+
+	assert gone.status_code in (200, 204), gone.text
+
+	_settled(session)
+
+	assert [
+		item
+		for item in _feed(world)
+		if item["entity_type"] == "task" and item["action"] == "deleted"
+	] != [], "a task's deletion did not reach the feed"
+
+	journal = world.call("GET", "/v1/journal")
+
+	assert journal.status_code == 200, journal.text
+	assert [
+		entry
+		for entry in journal.json()["items"]
+		if entry["entity_type"] == "task" and entry["action"] == "deleted"
+	] != [], "a task's deletion did not reach the journal"
+
+
 def test_deleting_a_project_does_not_erase_its_contents_past (
 	session: sqlalchemy.orm.Session,
 ) -> None:

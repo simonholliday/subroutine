@@ -127,7 +127,9 @@ def reading (
 	)
 
 	return subroutine.api.shaping.response(
-		subroutine.views.journal_entries(session, rows),
+		subroutine.views.journal_entries(
+			session, rows, principal=actor, workspace_ids=workspace_ids
+		),
 		# **No cursor, exactly as the feed has none.** A journal is asked about a period and is
 		# not resumable; a caller wanting the page before this one narrows the period.
 		subroutine.views.Page(limit=size, has_more=has_more, total=None),

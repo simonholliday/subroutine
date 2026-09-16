@@ -528,6 +528,86 @@ def readable_event_kinds (
 	)
 
 
+def readable_identifiers (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> dict[str, sqlalchemy.Select[typing.Any]]:
+	"""Return, for each kind this principal may read, a select over the ids of the rows it may see.
+
+	**Deleted, archived and template rows are all included**, for the reason
+	:func:`visible_events` gives: a feed reports a deletion, so what matters is who is entitled
+	to know of a row, never whether the row is live.
+
+	**Two readers of one set of statements** (`#2726`). The feed asks them whether an event is
+	about something its reader may see; the journal asks them whether it may *name* what a
+	change moved between - a project's path, a parent's ref. Each had a reason to build these,
+	and a second copy of the flags below is how the two would come to disagree about what a
+	reader may know.
+	"""
+
+	# Read out of the statements every other listing starts from, rather than restated here.
+	# A hand-written copy of these predicates is exactly how `ls` and the agenda came to
+	# disagree about who may see a private project.
+	builders = {
+		"task": lambda: readable_tasks(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_deleted_projects=True,
+			include_archived=True,
+			include_templates=True,
+		).with_only_columns(subroutine.db.models.work.Task.id),
+		"project": lambda: readable_projects(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_archived=True,
+		).with_only_columns(subroutine.db.models.project.Project.id),
+		"document": lambda: readable_documents(
+			principal,
+			workspace_ids=workspace_ids,
+			include_deleted=True,
+			include_deleted_projects=True,
+			include_archived=True,
+		).with_only_columns(subroutine.db.models.work.Document.id),
+	}
+
+	# **Built lazily, and that is load-bearing rather than tidy.** Each builder refuses a
+	# credential outside its own read scope, so calling one for a kind this caller may not read
+	# raises — which is the defect. Only the kinds that survived are asked for.
+	return {kind: builders[kind]() for kind in readable_event_kinds(principal)}
+
+
+def readable_among (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	kind: str,
+	identifiers: typing.Collection[uuid.UUID],
+) -> sqlalchemy.Select[typing.Any] | None:
+	"""Return a select over which of these ids this principal may see, or ``None`` for a kind
+	it may not read at all - `#2726`.
+
+	**Here rather than at the caller**, so a module asking *may this reader see these rows*
+	names no model and cannot narrow by hand, which is what ``tests/test_scoping.py`` holds
+	every module under ``src`` to.
+	"""
+
+	statement = readable_identifiers(principal, workspace_ids=workspace_ids).get(kind)
+
+	if statement is None:
+		return None
+
+	models: dict[str, typing.Any] = {
+		"task": subroutine.db.models.work.Task,
+		"project": subroutine.db.models.project.Project,
+		"document": subroutine.db.models.work.Document,
+	}
+
+	return statement.where(models[kind].id.in_(list(identifiers)))
+
+
 def visible_events (
 	principal: subroutine.domain.authentication.Principal,
 	*,
@@ -610,37 +690,7 @@ def visible_events (
 		# a plausible, complete, wrong answer to *may I read this*.
 		refuse_a_read_out_of_scope(principal, subroutine.permissions.TASK_READ)
 
-	# Read out of the statements every other listing starts from, rather than restated here.
-	# A hand-written copy of these predicates is exactly how `ls` and the agenda came to
-	# disagree about who may see a private project.
-	builders = {
-		"task": lambda: readable_tasks(
-			principal,
-			workspace_ids=workspace_ids,
-			include_deleted=True,
-			include_deleted_projects=True,
-			include_archived=True,
-			include_templates=True,
-		).with_only_columns(subroutine.db.models.work.Task.id),
-		"project": lambda: readable_projects(
-			principal,
-			workspace_ids=workspace_ids,
-			include_deleted=True,
-			include_archived=True,
-		).with_only_columns(subroutine.db.models.project.Project.id),
-		"document": lambda: readable_documents(
-			principal,
-			workspace_ids=workspace_ids,
-			include_deleted=True,
-			include_deleted_projects=True,
-			include_archived=True,
-		).with_only_columns(subroutine.db.models.work.Document.id),
-	}
-
-	# **Built lazily, and that is load-bearing rather than tidy.** Each builder refuses a
-	# credential outside its own read scope, so calling one for a kind this caller may not read
-	# raises — which is the defect. Only the kinds that survived are asked for.
-	identifiers = {kind: builders[kind]() for kind in kinds}
+	identifiers = readable_identifiers(principal, workspace_ids=workspace_ids)
 
 	clauses = [
 		sqlalchemy.and_(model.entity_type == kind, model.entity_id.in_(rows))

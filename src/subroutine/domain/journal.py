@@ -24,6 +24,8 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.domain.authentication
+import subroutine.domain.scoping
 
 #: The lookups a value can be named by. Strings rather than an enum because they are keys into
 #: :class:`subroutine.views.Vocabulary`, which is where the batch loading already lives.
@@ -123,6 +125,42 @@ def wanted (
 					found[lookup].add(found_id)
 
 	return found
+
+
+def readable_only (
+	session: sqlalchemy.orm.Session,
+	needed: dict[str, set[uuid.UUID]],
+	*,
+	principal: subroutine.domain.authentication.Principal,
+	workspace_ids: typing.Sequence[uuid.UUID],
+) -> dict[str, set[uuid.UUID]]:
+	"""Keep only the ids inside a page's changes that its reader may see named — `#2726`.
+
+	**An entry can be visible while something named inside it is not.** Whether a reader gets an
+	entry at all is decided by the item it is about; what moved *inside* the change is another
+	row. A task moved out of a private project into an open one is rightly shown to somebody
+	outside the private project, and its entry said *where it is filed: 'secret' to 'open'* to
+	them - measured on both backends before this existed.
+
+	**A project and a task are the lookups that can name something private.** An account, a
+	status and a type belong to the workspace, and everybody reading it may know them. What is
+	dropped here renders as nothing, exactly as an id nobody can name already does.
+	"""
+
+	kept = dict(needed)
+
+	for lookup in (PROJECT, TASK):
+		if not needed[lookup]:
+			continue
+
+		statement = subroutine.domain.scoping.readable_among(
+			principal, workspace_ids=workspace_ids, kind=lookup, identifiers=needed[lookup]
+		)
+
+		# A kind this credential cannot read at all names nothing of that kind.
+		kept[lookup] = set() if statement is None else set(session.scalars(statement))
+
+	return kept
 
 
 def said (

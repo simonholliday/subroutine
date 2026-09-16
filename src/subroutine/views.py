@@ -3783,6 +3783,9 @@ def journal_entry (
 def journal_entries (
 	session: sqlalchemy.orm.Session,
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
+	*,
+	principal: subroutine.domain.authentication.Principal,
+	workspace_ids: typing.Sequence[uuid.UUID],
 ) -> list[JournalEntry]:
 	"""Render a page of events as a journal, with all three joins loaded once — `#1430`.
 
@@ -3798,11 +3801,20 @@ def journal_entries (
 	**The vocabulary is asked only for what this page names.** A journal of claims and links
 	touches no status and no project, and the batches are empty rather than fetching a
 	workspace's whole vocabulary to render nothing.
+
+	**And only for what this reader may see named** (`#2726`), which is why the reader is
+	required rather than defaulted: a journal that forgot to pass one would name a private
+	project to everybody, correctly, from the only argument it was given.
 	"""
 
 	described = subroutine.domain.events.descriptions(session, rows)
 	bodies = subroutine.domain.journal.said(session, rows)
-	needed = subroutine.domain.journal.wanted(rows)
+	needed = subroutine.domain.journal.readable_only(
+		session,
+		subroutine.domain.journal.wanted(rows),
+		principal=principal,
+		workspace_ids=workspace_ids,
+	)
 
 	vocabulary = Vocabulary(
 		session,

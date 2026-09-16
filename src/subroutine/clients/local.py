@@ -1802,7 +1802,9 @@ class Client:
 			)
 
 			return subroutine.clients.base.Listing(
-				subroutine.views.journal_entries(session, rows),
+				subroutine.views.journal_entries(
+					session, rows, principal=actor, workspace_ids=workspace_ids
+				),
 				has_more=more,
 				# The same function the route answers with, so the two transports cannot say
 				# different things about one credential (`#1085`).

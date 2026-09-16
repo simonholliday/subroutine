@@ -90,6 +90,13 @@ upgrade involves.
 
 ### Fixed
 
+- **The journal no longer names a private project to somebody outside it.** A task moved out
+  of a private project into an open one is rightly in everybody's journal, and its entry said
+  which project it came from - to members who cannot see that project, and to credentials
+  narrowed away from it. What a change moved between is now named only where the reader may
+  see it, and says nothing otherwise, in `subroutine journal`, `/v1/journal` and the agent
+  tools alike.
+
 - **A credential narrowed to a project below one it cannot read reaches that project by the
   address it is listed under.** `GET /v1/projects` gave such a credential `parent/child`, and
   `parent/child` answered that there was no such project, while the key alone and the id both

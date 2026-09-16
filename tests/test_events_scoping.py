@@ -33,6 +33,7 @@ import pytest
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.project
 import subroutine.domain.authentication
 import subroutine.domain.comments
 import subroutine.domain.documents
@@ -42,6 +43,7 @@ import subroutine.domain.projects
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.views
 
 SOURCE = pathlib.Path(subroutine.__file__).parent
 
@@ -617,3 +619,81 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	assert not _reaches(session, world, world.outsider, gone), (
 		"the unlink reached somebody the link itself was hidden from"
 	)
+
+
+def _journal (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+) -> list[subroutine.views.JournalEntry]:
+	"""Read one principal's journal as both transports do: a page of the feed, then the join."""
+
+	workspace_ids = [
+		row.id for row in subroutine.domain.workspaces.readable(session, principal)
+	]
+	rows, _more = subroutine.domain.events.page(
+		session, principal, workspace_ids=workspace_ids, size=200, newest=True
+	)
+
+	return subroutine.views.journal_entries(
+		session, rows, principal=principal, workspace_ids=workspace_ids
+	)
+
+
+def test_a_journal_entry_names_nothing_its_reader_may_not_see (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#2726`. **An event can be visible while something named inside it is not.**
+
+	`visible_events` decides whether a reader gets an entry at all, by the item the event is
+	about. The journal then names what moved *inside* the change, and it looked those names up by
+	id whoever was reading - so a task moved out of a private project into an open one was
+	rightly shown to somebody outside the private project, and its entry told them where it came
+	from. Driven before it was fixed, on both backends: *where it is filed: 'secret' to 'open'*.
+	"""
+
+	opened = session.get(subroutine.db.models.project.Project, world.visible.project_id)
+
+	assert opened is not None
+
+	subroutine.domain.tasks.update(
+		session,
+		world.task,
+		project=opened,
+		actor=subroutine.domain.authentication.Principal(user=world.owner),
+	)
+	session.flush()
+
+	def moved (principal: subroutine.domain.authentication.Principal) -> subroutine.views.Change:
+		"""Return the move as this principal's journal reports it."""
+
+		found = [
+			change
+			for entry in _journal(session, principal)
+			if entry.item_ref == world.task.ref
+			for change in entry.changed
+			if change.field == "project_id"
+		]
+
+		assert found, "this reader was not shown the move at all, so nothing here was tested"
+
+		return found[0]
+
+	# **The owner may see both projects and is told where it came from**, so what follows is a
+	# narrowing and not a journal that has stopped naming projects for anybody.
+	assert moved(subroutine.domain.authentication.Principal(user=world.owner)).before == "secret"
+
+	outsider = moved(subroutine.domain.authentication.Principal(user=world.outsider))
+
+	assert outsider.after == "open", outsider
+	assert outsider.before is None, f"the outsider was told where it came from: {outsider}"
+
+	# **The same boundary drawn by a credential rather than by membership**: the owner's own
+	# token, narrowed to the open project, is shown the move and not where it came from.
+	token, _issued = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="narrowed", project_scope=[str(opened.id)]
+	)
+	session.flush()
+
+	narrowed = moved(subroutine.domain.authentication.Principal(user=world.owner, token=token))
+
+	assert narrowed.before is None, f"a narrowed credential was told where it came from: {narrowed}"
