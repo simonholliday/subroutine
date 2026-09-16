@@ -410,12 +410,13 @@ def selected (
 	forwards, and both are served by an index the schema already carries
 	(``ix_event_workspace_id_entity_type_entity_id_seq`` and ``ix_event_workspace_id_seq``).
 
-	**This narrows by workspace and nothing else, and that is not an oversight.** An event is
-	exactly as visible as the entity it describes, and for a history the caller has *already*
-	resolved that entity through ``readable_tasks``/``_projects``/``_documents`` — resolving
-	it is the permission check, so re-deriving one here would be a second copy of a rule the
-	route has already applied. The feed has no such resolution to lean on and will have to
-	compose those predicates itself; §5.11a says so, and it is why the histories came first.
+	**This narrows by workspace and nothing else**, and who may see an event is ``visible``,
+	which :func:`feed` and :func:`history` both pass. **A history used to pass nothing**, on
+	the argument that resolving its item through ``readable_tasks``/``_projects``/``_documents``
+	was the permission check. That held for a comment, which is exactly as visible as the item
+	it is on, and stopped holding for a link when a link became visible only where both of its
+	ends are (`#302`): the item's history handed its reader a link to one they could not see,
+	with that item's ref in ``changes`` (`#2769`).
 
 	**The last three arguments belong to the feed alone**, and are stated here so that both
 	readers are still built by one function rather than two that agree for a while:
@@ -430,8 +431,8 @@ def selected (
 	  for that row would return a duplicate rather than protect against a lost one. The two
 	  bounds compose, and together they are a range.
 	* ``visible`` is :func:`subroutine.domain.scoping.visible_events`. It is a *parameter* so
-	  that this stays a builder rather than a policy — :func:`feed` is the one place that
-	  decides a feed always narrows, and a history always does not.
+	  that this stays a builder rather than a policy — :func:`feed` and :func:`history` are the
+	  two places that decide, and both always narrow.
 	* ``actor_token_id`` answers "what did *I* do" (`#158`) — **the credential, not the user**.
 	  An agent with its own service-account token wants what it did, not what the person who
 	  issued it did from a laptop.
@@ -576,6 +577,37 @@ def feed (
 	# 500 locally, from the same command. `before` is that way, and every answer still reads
 	# forwards; what is no longer true is that the feed can only be *asked* forwards.
 	return statement.order_by(model.seq.desc() if newest else model.seq.asc())
+
+
+def history (
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	entity_id: uuid.UUID,
+) -> sqlalchemy.Select[tuple[subroutine.db.models.activity.Event]]:
+	"""Return what happened to one item, as this principal may be told it — `#2769`.
+
+	**Narrowed exactly as the feed is**, through :func:`subroutine.domain.scoping.visible_events`,
+	so an item's history and a workspace's feed cannot disagree about an event. The caller has
+	still resolved the item first, which is what makes one the reader may not see absent rather
+	than forbidden; this is what then decides which of the events *on* it they may see, and a
+	link to something private is the one that resolving the item could not.
+
+	**One function both transports call**, as :func:`feed` is: the route and the local client
+	each built this statement themselves, and both left the predicate off.
+
+	**No upper bound.** This is the watermark the feed passes and a history must not: a history
+	is not resumable, so a comment written a moment ago has to be in it.
+	"""
+
+	return selected(
+		workspace_ids=[workspace_id],
+		entity_type=entity_type,
+		entity_id=entity_id,
+		upper_bound=None,
+		visible=subroutine.domain.scoping.visible_events(principal, workspace_ids=[workspace_id]),
+	)
 
 
 def page (

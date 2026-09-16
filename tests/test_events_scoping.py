@@ -32,6 +32,10 @@ import uuid
 import pytest
 import sqlalchemy.orm
 
+import api_support
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.models.activity
 import subroutine.db.models.project
 import subroutine.domain.authentication
@@ -619,6 +623,125 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	assert not _reaches(session, world, world.outsider, gone), (
 		"the unlink reached somebody the link itself was hidden from"
 	)
+
+
+def test_one_items_history_carries_a_link_only_where_both_ends_can_be_seen (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#2769`. **`SR#302` narrowed the feed and not the history, which reads the same rows.**
+
+	A history resolved its item and then returned every event on it, on the argument that
+	resolving the item was the permission check. A link from the visible task to the private one
+	is an event on the visible task, so its history handed the outsider the link, with the private
+	task's ref in ``changes``, while the feed and the journal withheld it. Driven before it was
+	fixed, on both backends, through the route.
+
+	**Both transports, each reading as a named person**, and the owner still sees the link, so
+	this is a narrowing and not a history that has stopped carrying links.
+	"""
+
+	acting = subroutine.domain.authentication.Principal(user=world.owner)
+	near = subroutine.domain.links.resolve(
+		session, acting, workspace_id=world.workspace.id,
+		entity_type="task", identifier=world.visible.id,
+	)
+	far = subroutine.domain.links.resolve(
+		session, acting, workspace_id=world.workspace.id,
+		entity_type="task", identifier=world.task.id,
+	)
+
+	assert near is not None and far is not None
+
+	# **Made from the visible end**, for `test_a_link_across_the_boundary_is_written_with_both_ends`'
+	# reason: from the private end the item-level check alone already hides it.
+	subroutine.domain.links.create(
+		session,
+		workspace_id=world.workspace.id,
+		source=near,
+		target=far,
+		link_type_key="blocks",
+		actor=acting,
+	)
+	session.flush()
+
+	application = api_support.build_app(api_support.factory_for(session))
+
+	def over_http (user: typing.Any) -> list[dict[str, typing.Any]]:
+		"""Return the link events in the visible task's history, read over HTTP as ``user``."""
+
+		_row, issued = subroutine.domain.authentication.issue_token(
+			session, user=user, title=f"history for {user.username}"
+		)
+		session.flush()
+
+		answered = api_support.call(
+			application,
+			"GET",
+			f"/v1/tasks/{world.visible.ref}/events",
+			headers={"authorization": f"Bearer {issued.value.get_secret_value()}"},
+			params={"workspace_id": str(world.workspace.id)},
+		)
+
+		assert answered.status_code == 200, answered.text
+
+		return [item for item in answered.json()["items"] if item["entity_type"] == "link"]
+
+	def locally (user: typing.Any) -> list[subroutine.views.Event]:
+		"""Return the same, read through the local client as ``user``."""
+
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(
+				dev_mode=True,
+				local_user=user.username,
+				database_url=session.get_bind().engine.url.render_as_string(hide_password=False),
+			),
+			session_factory=api_support.factory_for(session),
+		)
+
+		with client:
+			return [
+				event
+				for event in client.history(ref=world.visible.ref, workspace=world.workspace.slug)
+				if event.entity_type == "link"
+			]
+
+	assert len(over_http(world.owner)) == 1 and len(locally(world.owner)) == 1, (
+		"the owner, who may see both ends, was not shown the link, so nothing below is tested"
+	)
+	assert over_http(world.outsider) == [], (
+		"an item's history over HTTP handed somebody a link to an item they may not see"
+	)
+	assert locally(world.outsider) == [], (
+		"an item's history through the local client handed somebody a link to an item they may "
+		"not see"
+	)
+
+
+def test_nothing_outside_the_events_module_builds_an_event_statement_of_its_own () -> None:
+	"""`SR#2769`: the history's route and its local client each built one, and both forgot.
+
+	**`events.feed` and `events.history` are the two readers**, and each passes the predicate. A
+	third caller of `events.selected` would be a third place to remember it, which is how two of
+	them came not to.
+	"""
+
+	own = pathlib.Path(subroutine.domain.events.__file__)
+	source = own.parents[1]
+	texts = {
+		str(path.relative_to(source)): path.read_text()
+		for path in source.rglob("*.py")
+		if path != own
+	}
+	readers = {name for name, text in texts.items() if "events.history(" in text}
+
+	# **The floor**: a scan that read nothing would find no caller and pass, so it has to find
+	# the two readers that are known to be there.
+	assert {"api/events.py", "clients/local.py"} <= readers, sorted(readers)
+
+	callers = sorted(name for name, text in texts.items() if "events.selected(" in text)
+
+	assert not callers, f"{callers} build an event statement without events.feed or events.history"
 
 
 def _journal (

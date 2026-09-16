@@ -105,6 +105,12 @@ upgrade involves.
 
 ### Fixed
 
+- **An item's history no longer names an item its reader may not see.** A link from something
+  you can see to something in a private project you are not in was left out of the change feed
+  and the journal, and was still in the item's own history - `/v1/tasks/{ref}/events`,
+  `subroutine show --history` and the agent tools' `history` - with the private item's number
+  in it. A history now leaves out exactly what the feed does.
+
 - **The journal no longer names a private project to somebody outside it.** A task moved out
   of a private project into an open one is rightly in everybody's journal, and its entry said
   which project it came from - to members who cannot see that project, and to credentials

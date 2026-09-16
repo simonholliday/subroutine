@@ -19,9 +19,10 @@ arrive per entity having been solved once globally.
 
 **Histories before the feed** was the substance of the decision rather than a preference:
 this builds the per-``entity_type`` dispatch one entity at a time, each with a small blast
-radius, and it does it by *resolving the subject* — which is the permission check, so no new
-scoping predicate is written here at all. The feed has no subject to lean on and must
-compose those predicates itself.
+radius, and it does it by *resolving the subject* — which is the permission check for the item.
+**Which events on it a reader may see is the feed's predicate**, reused through
+``events.history`` rather than written here: a link hanging off a visible item can name one the
+reader may not see, which resolving the item alone let through.
 """
 
 import typing
@@ -38,6 +39,7 @@ import subroutine.api.shaping
 import subroutine.api.subjects
 import subroutine.config
 import subroutine.db.models.activity
+import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.paging
 import subroutine.views
@@ -74,6 +76,7 @@ DEFAULT_ORDER = ("-seq",)
 def _page (
 	session: sqlalchemy.orm.Session,
 	settings: subroutine.config.Settings,
+	principal: subroutine.domain.authentication.Principal,
 	*,
 	workspace_id: typing.Any,
 	entity_type: str,
@@ -86,14 +89,8 @@ def _page (
 	"""Return one page of an item's history."""
 
 	model = subroutine.db.models.activity.Event
-	statement = subroutine.domain.events.selected(
-		workspace_ids=[workspace_id],
-		entity_type=entity_type,
-		entity_id=entity_id,
-		# **No upper bound.** This is the watermark the feed will pass and a history must
-		# not, and it is written as an explicit omission rather than left to a default so
-		# that anybody adding one has to delete this comment first.
-		upper_bound=None,
+	statement = subroutine.domain.events.history(
+		principal, workspace_id=workspace_id, entity_type=entity_type, entity_id=entity_id
 	)
 
 	keys = subroutine.api.pagination.parse_order(
@@ -173,9 +170,10 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 	) -> typing.Any:
 		"""Return this item's history, newest first."""
 
-		# Resolving the subject **is** the permission check: it goes through the entity's own
-		# narrowed statement, so one the caller may not see is absent rather than forbidden
-		# (§7.3a) — and everything hanging off it is then safe to return.
+		# Resolving the subject is the permission check **for the item**: it goes through the
+		# entity's own narrowed statement, so one the caller may not see is absent rather than
+		# forbidden (§7.3a). Which events on it they may see is `events.history`'s, since a link
+		# hanging off it can name an item they may not (`#2769`).
 		subject = subroutine.api.subjects.resolve(
 			session,
 			actor,
@@ -187,6 +185,7 @@ def _attach (group: fastapi.APIRouter, *, entity_type: str, address: str) -> Non
 		return _page(
 			session,
 			settings,
+			actor,
 			workspace_id=subject.workspace_id,
 			entity_type=entity_type,
 			entity_id=subject.id,

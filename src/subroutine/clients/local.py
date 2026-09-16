@@ -1722,13 +1722,13 @@ class Client:
 		with self._opened() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 
-			# Resolving the subject **is** the permission check, exactly as it is on the route:
-			# it goes through the entity's own narrowed statement, so one the caller may not
-			# see is absent rather than forbidden, and everything hanging off it is then safe.
+			# Resolving the subject is the permission check for the item, exactly as it is on
+			# the route; which events on it this reader may see is `events.history`'s, the same
+			# function the route calls (`#2769`).
 			subject = self._subject(session, actor, chosen.id, entity_type, ref)
 
-			statement = subroutine.domain.events.selected(
-				workspace_ids=[chosen.id], entity_type=entity_type, entity_id=subject
+			statement = subroutine.domain.events.history(
+				actor, workspace_id=chosen.id, entity_type=entity_type, entity_id=subject
 			)
 			rows = session.scalars(
 				statement.order_by(
