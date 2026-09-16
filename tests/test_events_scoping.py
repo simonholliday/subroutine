@@ -697,3 +697,19 @@ def test_a_journal_entry_names_nothing_its_reader_may_not_see (
 	narrowed = moved(subroutine.domain.authentication.Principal(user=world.owner, token=token))
 
 	assert narrowed.before is None, f"a narrowed credential was told where it came from: {narrowed}"
+
+	# **And where it is now is named to all three** (`SR#2727`). Every project an entry names
+	# passes the same narrowing, the item's own place included, so a narrowing that hid where the
+	# task came from must still say where it is.
+	for reader in (
+		subroutine.domain.authentication.Principal(user=world.owner),
+		subroutine.domain.authentication.Principal(user=world.outsider),
+		subroutine.domain.authentication.Principal(user=world.owner, token=token),
+	):
+		placed = {
+			entry.item_project_path
+			for entry in _journal(session, reader)
+			if entry.item_ref == world.task.ref
+		}
+
+		assert placed == {"open"}, f"{reader} was told {placed}"

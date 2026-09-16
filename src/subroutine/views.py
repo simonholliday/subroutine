@@ -1304,11 +1304,31 @@ class JournalEntry(pydantic.BaseModel):
 	item_ref: int | None = None
 	item_title: str | None = None
 
+	#: What kind of item it is and where it is filed — `#2727`. The type is the workspace's key,
+	#: ``bug`` or ``decision``, as a row reports ``type``; the place is the whole address inside
+	#: the workspace, as a row reports ``project_path``, and a project's own entry names that
+	#: project. **Both are what is true now**, like the title beside them: an entry for a task
+	#: filed last week and moved since names where it is, and the move is its own entry.
+	#:
+	#: **Null where there is nothing to name**, as ``item_ref`` is. The place is null too where
+	#: this reader may not see the project, which cannot happen for an item they may read.
+	item_type: str | None = None
+	item_project_path: str | None = None
+
 	#: Who did it, through `principal_named` — so an agent reads here exactly as it reads on a
 	#: row: `@claude-super (agent, @si)`. **Null where the instance itself acted**, which is a
 	#: real state and not a failure to look: `event.actor_user_id` is nullable precisely so a
 	#: system action can say it had no person behind it.
 	actor: str | None = None
+
+	#: Which door it came in through — ``browser``, ``api``, ``mcp``, ``feed`` or ``local`` —
+	#: exactly as `Event` reports it, and null where nobody said (`#2727`).
+	#:
+	#: **The door and never the credential's title** (Simon, 2026-09-16). A title is typed by
+	#: whoever made the credential and says something about a colleague's own setup; the door
+	#: is what the instance observed about where the request arrived, and it is what a person
+	#: reading along wants — *through the browser*, *by an agent's tools*.
+	actor_interface: str | None = None
 
 	#: What kind of thing happened — `created`, `updated`, `claimed`. The feed's own word.
 	action: str
@@ -3713,6 +3733,11 @@ def journal_entry (
 	if described is not None:
 		about = described.get(row.subject_id or row.entity_id)
 
+	kind = None
+
+	if about is not None and about.type_id is not None:
+		kind = vocabulary.types.get(about.type_id)
+
 	changed = []
 
 	if isinstance(row.changes, dict):
@@ -3757,6 +3782,14 @@ def journal_entry (
 		id=row.id,
 		item_ref=None if about is None else about.ref,
 		item_title=None if about is None else about.title,
+		item_type=None if kind is None else str(kind["key"]),
+		# **Only what the vocabulary was given**, and :func:`journal_entries` gives it only the
+		# projects this reader may see, so an absent path here is that narrowing's answer.
+		item_project_path=(
+			None
+			if about is None or about.project_id is None
+			else vocabulary.project_paths.get(about.project_id)
+		),
 		actor=(
 			None
 			if row.actor_user_id is None
@@ -3766,6 +3799,7 @@ def journal_entry (
 				vocabulary=vocabulary,
 			)
 		),
+		actor_interface=row.actor_interface,
 		action=row.action,
 		entity_type=row.entity_type,
 		# **Only where this entry *is* somebody writing something.** A body keyed on the entity
@@ -3805,13 +3839,16 @@ def journal_entries (
 	**And only for what this reader may see named** (`#2726`), which is why the reader is
 	required rather than defaulted: a journal that forgot to pass one would name a private
 	project to everybody, correctly, from the only argument it was given.
+
+	**An item's type and place come out of the descriptions** (`#2727`), which load the item's
+	row to name it anyway, so they join the vocabulary's batches and add nothing per row.
 	"""
 
 	described = subroutine.domain.events.descriptions(session, rows)
 	bodies = subroutine.domain.journal.said(session, rows)
 	needed = subroutine.domain.journal.readable_only(
 		session,
-		subroutine.domain.journal.wanted(rows),
+		subroutine.domain.journal.wanted(rows, described),
 		principal=principal,
 		workspace_ids=workspace_ids,
 	)

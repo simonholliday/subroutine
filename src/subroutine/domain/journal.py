@@ -25,6 +25,7 @@ import sqlalchemy.orm
 
 import subroutine.db.models.activity
 import subroutine.domain.authentication
+import subroutine.domain.events
 import subroutine.domain.scoping
 
 #: The lookups a value can be named by. Strings rather than an enum because they are keys into
@@ -85,6 +86,7 @@ def identifier (value: typing.Any) -> uuid.UUID | None:
 
 def wanted (
 	rows: typing.Sequence[subroutine.db.models.activity.Event],
+	described: typing.Mapping[uuid.UUID, subroutine.domain.events.Described],
 ) -> dict[str, set[uuid.UUID]]:
 	"""Return which ids each lookup must fetch to render this page, keyed by lookup.
 
@@ -95,11 +97,23 @@ def wanted (
 	**Actors are in here too**, under :data:`USER`. They are the one id on an event that is not
 	inside ``changes``, and forgetting them is how a page resolves every status perfectly and
 	still says a UUID did it.
+
+	**And what each entry's item is and where it is filed** (`#2727`), out of ``described``,
+	which loaded them with the item's ref and title. Under the same lookups as a change's, so
+	the project an item is filed in passes :func:`readable_only` like every other project an
+	entry names, rather than being the one name on the entry that skipped it.
 	"""
 
 	found: dict[str, set[uuid.UUID]] = {
 		USER: set(), STATUS: set(), TYPE: set(), PROJECT: set(), TASK: set()
 	}
+
+	for about in described.values():
+		if about.type_id is not None:
+			found[TYPE].add(about.type_id)
+
+		if about.project_id is not None:
+			found[PROJECT].add(about.project_id)
 
 	for row in rows:
 		if row.actor_user_id is not None:

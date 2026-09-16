@@ -11,6 +11,7 @@ every comment individually — which is not a feature, it is a list of things to
 """
 
 import datetime
+import json
 import typing
 import uuid
 
@@ -19,6 +20,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.identity
 import subroutine.domain.users
 import test_api_tasks
 
@@ -144,6 +146,82 @@ def test_a_journal_entry_names_who_did_it (
 	assert actors <= {f"@{world.user.username}", None}, (
 		f"somebody other than the one account in this fixture is named: {actors}"
 	)
+
+
+def test_an_entry_says_what_its_item_is_where_it_is_filed_and_which_way_it_came_in (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2727`. *A bug filed in web* is the sentence, and an entry carried neither half of it.
+
+	**And the door rather than the credential** (Simon, 2026-09-16). Every call here presents a
+	token with a title, and the title is nowhere in what the journal says, where the door is on
+	every entry the token wrote.
+	"""
+
+	folder = world.call("POST", "/v1/projects", json={"key": "web", "title": "The website"})
+
+	assert folder.status_code == 201, folder.text
+
+	made = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "The header overlaps the menu", "type": "bug", "project": "web"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	wrote = world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": SAID})
+
+	assert wrote.status_code == 201, wrote.text
+
+	decided = world.call(
+		"POST",
+		"/v1/documents",
+		json={"title": "The menu stays on top", "type": "decision", "project": "web"},
+	)
+
+	assert decided.status_code == 201, decided.text
+
+	session.flush()
+	_settled(session)
+
+	entries = _entries(world, limit=200)
+	about = [entry for entry in entries if entry["item_ref"] == ref]
+
+	# **The comment names the item it was written on**, so both entries answer for the bug.
+	assert {entry["entity_type"] for entry in about} == {"task", "comment"}, about
+	assert {entry["item_type"] for entry in about} == {"bug"}, about
+	assert {entry["item_project_path"] for entry in about} == {"web"}, about
+	assert {entry["actor_interface"] for entry in about} == {"api"}, about
+
+	# **A document's type is the workspace's document vocabulary**, loaded by the same batch.
+	(paper,) = [entry for entry in entries if entry["item_ref"] == decided.json()["ref"]]
+
+	assert (paper["item_type"], paper["item_project_path"]) == ("decision", "web"), paper
+
+	(filed,) = [
+		entry
+		for entry in entries
+		if entry["entity_type"] == "project" and entry["item_title"] == "The website"
+	]
+
+	# **A project is where it is filed, and it has no type.**
+	assert filed["item_project_path"] == "web", filed
+	assert filed["item_type"] is None, filed
+	assert filed["actor_interface"] == "api", filed
+
+	titles = session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.ApiToken.title)
+	).all()
+
+	assert titles, "no credential here has a title, so its absence below proves nothing"
+
+	for title in titles:
+		assert title not in json.dumps(entries), (
+			f"a journal entry named the credential {title!r}, which is its owner's word for "
+			f"their own setup rather than anything the instance observed"
+		)
 
 
 def test_a_change_says_what_it_moved_between_and_not_which_rows (

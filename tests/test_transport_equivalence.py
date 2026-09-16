@@ -3645,6 +3645,44 @@ def test_both_name_the_item_a_change_is_about (pair: Pair) -> None:
 	assert local.changes() == remote.changes()
 
 
+def test_both_journals_say_what_an_item_is_where_it_is_and_which_way_it_came_in (
+	pair: Pair,
+) -> None:
+	"""`SR#2727`: the three are rendered once, in `views.journal_entries`, so both sides agree.
+
+	**One write through each door**, so the door is a value that differs between entries rather
+	than one both clients could agree on by never reading it.
+	"""
+
+	here = make(pair, "Fix the parser")
+	there = pair.remote.capture(text="Write the release notes", type="bug").task
+
+	_settle(pair)
+
+	local, remote = pair.both()
+	journal = local.journal()
+
+	assert journal == remote.journal()
+
+	def filed (ref: int) -> subroutine.views.JournalEntry:
+		"""Return the entry recording that this item was filed."""
+
+		(found,) = [
+			entry
+			for entry in journal
+			if entry.item_ref == ref and entry.entity_type == "task" and entry.action == "created"
+		]
+
+		return found
+
+	assert filed(here.ref).actor_interface == subroutine.domain.authentication.LOCAL
+	assert filed(there.ref).actor_interface == subroutine.domain.authentication.API
+	assert (filed(here.ref).item_type, filed(there.ref).item_type) == ("task", "bug")
+	assert {filed(here.ref).item_project_path, filed(there.ref).item_project_path} == {
+		here.project_path
+	}
+
+
 def test_both_resume_from_the_same_point (pair: Pair) -> None:
 	"""``since`` is inclusive on both, or a client switching transports loses or repeats a row."""
 

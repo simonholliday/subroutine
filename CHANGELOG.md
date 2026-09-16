@@ -62,6 +62,13 @@ upgrade involves.
 
 ### Added
 
+- **A journal entry says what kind of item it is about, where that item is filed, and which
+  way the change came in.** `/v1/journal` and `subroutine journal --json` carry `item_type`
+  (`bug`, `decision`), `item_project_path` (`web/ui`) and `actor_interface` - `browser`,
+  `api`, `mcp`, `feed` or `local` - beside the item's number and title. The way in is named
+  and the credential used never is, since a credential's name is whatever its owner chose to
+  call it.
+
 - **A listing can be narrowed to work you handed over.** `assigned_by` names whoever
   assigned a task, and takes a name or `me` as `assignee` does: `?assigned_by.eq=me`,
   `--filter assigned_by.eq=me` at a terminal, `assigned_by:me` in a search, or the agent

@@ -751,6 +751,15 @@ class Described(typing.NamedTuple):
 	ref: int | None
 	title: str
 
+	#: What kind of item it is, as an id into the workspace's types — `#2727`. ``None`` for a
+	#: project, which has no type.
+	type_id: uuid.UUID | None = None
+
+	#: Where it is filed: the project an item is in, or a project's own id. **An id rather than
+	#: a path**, because a path is a walk up the tree and whoever renders it decides which
+	#: projects its reader may be told about.
+	project_id: uuid.UUID | None = None
+
 
 def descriptions (
 	session: sqlalchemy.orm.Session,
@@ -793,19 +802,26 @@ def descriptions (
 	# and then reaching for attributes it cannot promise are there.
 	if wanted["task"]:
 		for one in session.scalars(sqlalchemy.select(task).where(task.id.in_(wanted["task"]))):
-			found[one.id] = Described(ref=one.ref, title=one.title)
+			found[one.id] = Described(
+				ref=one.ref, title=one.title, type_id=one.type_id, project_id=one.project_id
+			)
 
 	if wanted["document"]:
 		for paper in session.scalars(
 			sqlalchemy.select(document).where(document.id.in_(wanted["document"]))
 		):
-			found[paper.id] = Described(ref=paper.ref, title=paper.title)
+			found[paper.id] = Described(
+				ref=paper.ref,
+				title=paper.title,
+				type_id=paper.type_id,
+				project_id=paper.project_id,
+			)
 
 	if wanted["project"]:
 		for folder in session.scalars(
 			sqlalchemy.select(project).where(project.id.in_(wanted["project"]))
 		):
-			found[folder.id] = Described(ref=None, title=folder.title)
+			found[folder.id] = Described(ref=None, title=folder.title, project_id=folder.id)
 
 	return found
 
