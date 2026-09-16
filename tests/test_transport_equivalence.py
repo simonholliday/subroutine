@@ -3722,6 +3722,27 @@ def test_both_journals_leave_out_whole_texts_and_cut_a_comment_the_same_way (
 	assert written.startswith(comment.said) and len(comment.said) < len(written)
 
 
+def test_both_journals_read_the_latest_newest_first_and_a_periods_first_forwards (
+	pair: Pair,
+) -> None:
+	"""`SR#2772` on both transports: `journal.page` decides the order, and both call it."""
+
+	for index in range(4):
+		make(pair, f"Task number {index}")
+
+	_settle(pair)
+
+	local, remote = pair.both()
+
+	for oldest in (False, True):
+		answered = local.journal(limit=2, oldest=oldest)
+		seqs = [entry.seq for entry in answered]
+
+		assert answered == remote.journal(limit=2, oldest=oldest)
+		assert seqs == sorted(seqs, reverse=not oldest), (oldest, seqs)
+		assert answered.has_more, "four tasks and a limit of two, so there is more"
+
+
 def test_both_read_one_items_journal_the_same_way (pair: Pair) -> None:
 	"""`SR#2729`: the route and the local client are made of the same two functions.
 

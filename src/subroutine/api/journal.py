@@ -27,7 +27,7 @@ import subroutine.api.filters
 import subroutine.api.routing
 import subroutine.api.security
 import subroutine.api.shaping
-import subroutine.domain.events
+import subroutine.domain.journal
 import subroutine.domain.paging
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -84,10 +84,11 @@ def reading (
 	Without one you get the most recent entries, which is what somebody arriving with no
 	particular day in mind wants.
 
-	**Newest first**, unlike the change feed. A feed is read forwards because it resumes; a
-	journal is a report about a past stretch of time, and the recent end is the one somebody
-	asking for it usually means. Pass `oldest=true` to read a period in the order it happened,
-	which is what you want when writing it up.
+	**The latest entries, newest first**, unlike the change feed. A feed is read forwards because
+	it resumes; a journal is a report about a past stretch of time, and the recent end is the one
+	somebody asking for it usually means — so the entries before these are the page after.
+	Pass `oldest=true` for a period's first entries in the order they happened, which is what
+	you want when writing it up.
 	"""
 
 	if workspace_id is None:
@@ -114,17 +115,16 @@ def reading (
 	# rows and 200 against the same database. A second number would also make that function's
 	# own refusal wrong, since its hint names `settings.default_page_size` by value.
 	size = subroutine.domain.paging.size(limit, settings)
-	rows, has_more = subroutine.domain.events.page(
+	rows, has_more = subroutine.domain.journal.page(
 		session,
 		actor,
 		workspace_ids=workspace_ids,
 		size=size,
 		mine=actor_filter == subroutine.api.changes.ACTOR_ME,
 		by=by,
-		# **`newest` is the default here and is the feed's exception**, which is the one place
-		# these two routes disagree about the same underlying call. `events.page` still returns
-		# the page reading forwards either way.
-		newest=not oldest,
+		# **The latest newest first, or a period's first oldest first** — `#2772`, and the one
+		# place these two routes disagree about the same rows. `journal.page` decides it.
+		oldest=oldest,
 		narrowing=subroutine.api.filters.across(
 			dated, session=session, actor=actor, workspace_ids=workspace_ids
 		),

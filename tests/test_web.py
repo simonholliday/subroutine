@@ -17762,9 +17762,9 @@ def test_journal_is_refused_as_a_project_key_because_the_browser_reads_it_as_a_p
 def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Path) -> None:
 	"""`#2731`. Two reads that meet at an edge return that entry twice, in either order.
 
-	`/v1/journal` answers its newest page in the order things happened and an item's journal
-	answers newest first (`#2772`), so the page sorts by `seq` rather than trusting either. The
-	lines under an entry and its verb are `subroutine journal`'s.
+	A newer read lands above what the page holds and an older one below it, so the page sorts by
+	`seq` rather than trusting any one answer's order. The lines under an entry and its verb are
+	`subroutine journal`'s.
 	"""
 
 	newest, middle, _oldest = JOURNAL_ENTRIES

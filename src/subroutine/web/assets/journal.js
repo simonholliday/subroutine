@@ -46,9 +46,9 @@ export function mergedEntries (held, arriving) {
 		rather than drawn twice. Inclusive because two entries can share an instant, and a strict
 		bound would lose the second at a page boundary.
 
-		**Sorted rather than trusted.** `/v1/journal` answers its newest page in the order things
-		happened and an item's journal answers newest first (`#2772`), so the page puts the two in
-		one order itself.
+		**Sorted rather than trusted.** Both journals answer newest first (`#2772`), and a newer read
+		lands above what the page holds while an older one lands below it, so the order is the
+		page's to keep rather than any one answer's.
 	*/
 	const found = new Map();
 

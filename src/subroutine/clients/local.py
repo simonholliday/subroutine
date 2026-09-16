@@ -55,6 +55,7 @@ import subroutine.domain.filtering
 import subroutine.domain.grammar
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
+import subroutine.domain.journal
 import subroutine.domain.links
 import subroutine.domain.local
 import subroutine.domain.mentions
@@ -1812,7 +1813,7 @@ class Client:
 
 			workspace_ids = [each.id for each in chosen]
 
-			rows, more = subroutine.domain.events.page(
+			rows, more = subroutine.domain.journal.page(
 				session,
 				actor,
 				workspace_ids=workspace_ids,
@@ -1823,7 +1824,7 @@ class Client:
 					if by is None
 					else subroutine.domain.selection.user(session, by, caller=actor.user).id
 				),
-				newest=not oldest,
+				oldest=oldest,
 				narrowing=subroutine.domain.filtering.asked(
 					dated or (),
 					entity="event",

@@ -16,6 +16,12 @@ upgrade involves.
 
 ### Changed
 
+- **`/v1/journal` answers its latest entries newest first**, as its description always said. It
+  answered them in the order they happened, so a caller reading the first entry as the latest
+  got the oldest of the page. `oldest=true` still reads a period's first entries forwards.
+  `subroutine journal` and the agent tools still print a period in the order it happened;
+  `subroutine journal --json` follows the answer.
+
 - **The journal no longer carries whole texts.** A comment is its opening - at most 280
   characters, ending at a word - and `said_truncated` says whether there is more, which the
   item's comments still have. A change to a description or a document's body says that it

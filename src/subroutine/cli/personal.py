@@ -3626,7 +3626,10 @@ def _say_journal (
 			(len(entry.actor or "the instance") for entry in answer.value), default=0
 		)
 
-		for entry in answer.value:
+		# **In the order things happened, whichever end was read** (`#2772`). The answer is the
+		# latest newest first, which is what a program pages through; a person reading a period
+		# at a terminal reads its days down, and `--json` keeps the answer's own order.
+		for entry in sorted(answer.value, key=lambda entry: entry.seq):
 			when = entry.created_at.astimezone(zone)
 			fell_on = subroutine.domain.schedule.day_in(entry.created_at, named)
 

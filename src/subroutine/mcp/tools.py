@@ -1867,7 +1867,9 @@ def _journal (
 	)
 	lines: list[str] = []
 
-	for entry in entries:
+	# **In the order things happened** (`#2772`): an agent writing a period up reads it the way a
+	# person at a terminal does, whichever end the journal was read from.
+	for entry in sorted(entries, key=lambda entry: entry.seq):
 		lines.append(
 			f"{entry.created_at.astimezone(zone):%d %b %H:%M}  "
 			f"{entry.actor or 'the instance'}  {entry.action}  {_named(entry)}"

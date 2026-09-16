@@ -409,6 +409,22 @@ def bound (
 		)
 
 
+def test_the_journal_tool_writes_a_period_up_in_the_order_it_happened (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2772`: the journal answers newest first, and an agent writing a period up reads it down."""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	for title in ("Call the dentist", "Pay the gas bill", "Book the car in"):
+		_added(bound, title)
+
+	answered, failed = _called(bound, "subroutine_journal")
+
+	assert not failed, answered
+	assert answered.index("Call the dentist") < answered.index("Book the car in"), answered
+
+
 def _added (server: subroutine.mcp.protocol.Server, text: str) -> int:
 	"""Capture a line and return the ref it was given.
 

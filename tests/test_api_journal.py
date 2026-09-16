@@ -507,16 +507,13 @@ def test_an_items_journal_is_what_the_journal_says_about_that_item (
 
 	entries = whole.json()["items"]
 
-	# **Newest first, as its history is.** `/v1/journal` returns its newest page in the order
-	# things happened, so the two are compared entry by entry in one order rather than as lists.
+	# **Newest first, as its history is, and as the journal itself is** since `#2772` — so the
+	# two are compared as lists, order and all.
 	assert [entry["seq"] for entry in entries] == sorted(
 		(entry["seq"] for entry in entries), reverse=True
 	), "an item's journal is not newest first"
 
-	expected = sorted(
-		(entry for entry in _entries(world, limit=200) if entry["item_ref"] == ref),
-		key=lambda entry: -entry["seq"],
-	)
+	expected = [entry for entry in _entries(world, limit=200) if entry["item_ref"] == ref]
 
 	assert {entry["entity_type"] for entry in entries} == {"task", "comment", "link"}, entries
 	assert entries == expected, "one item's journal says something different from the journal"
@@ -544,6 +541,33 @@ def test_an_items_journal_is_what_the_journal_says_about_that_item (
 			break
 
 	assert walked == entries, "walking an item's journal a page at a time lost or repeated entries"
+
+
+def test_the_journal_answers_its_latest_newest_first_and_a_periods_first_forwards (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2772`, Simon's decision of 2026-09-16: **the next page has to continue this one.**
+
+	Read from the newest, the page after is the entries before it; read from the oldest, the
+	entries after. The journal answered its latest page in the order things happened, which left
+	a next page meaning nothing, and said *newest first* while doing it.
+	"""
+
+	for title in ("Call the dentist", "Pay the gas bill", "Book the car in", "Water the plants"):
+		made = world.call("POST", "/v1/tasks", json={"title": title})
+
+		assert made.status_code == 201, made.text
+
+	session.flush()
+	_settled(session)
+
+	everything = [entry["seq"] for entry in _entries(world, limit=200)]
+	latest = [entry["seq"] for entry in _entries(world, limit=2)]
+	first = [entry["seq"] for entry in _entries(world, limit=2, oldest="true")]
+
+	assert everything == sorted(everything, reverse=True), everything
+	assert latest == sorted(everything, reverse=True)[:2], (latest, everything)
+	assert first == sorted(everything)[:2], (first, everything)
 
 
 def test_a_documents_journal_is_read_the_same_way (world: test_api_tasks.World) -> None:

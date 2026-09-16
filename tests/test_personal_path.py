@@ -7021,6 +7021,32 @@ def test_a_journal_that_stopped_says_so_in_both_forms (
 	assert "…and more" not in run("journal", "--limit", "50").output
 
 
+def test_a_journal_prints_a_period_in_the_order_it_happened_and_answers_newest_first (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#2772`. The journal answers newest first; a person reading a period reads its days down.
+
+	**Both forms again**, because they part company here on purpose: `--json` is the answer a
+	script pages through, and the printed journal is a period written up.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	run("init")
+
+	for title in ("Call the dentist", "Pay the gas bill", "Book the car in"):
+		run("add", title)
+
+	human = run("journal").output
+
+	assert human.index("Call the dentist") < human.index("Book the car in"), human
+
+	scripted = [entry["item_title"] for entry in json.loads(run("journal", "--json").stdout)]
+	filed = [title for title in scripted if title in ("Call the dentist", "Book the car in")]
+
+	assert filed[0] == "Book the car in", scripted
+
+
 def test_a_journal_the_instance_cut_short_names_the_period_not_the_limit () -> None:
 	"""`#2492`. Over HTTP a journal is one page with no cursor, so a larger limit reaches nothing.
 

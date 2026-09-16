@@ -91,6 +91,46 @@ class Said(typing.NamedTuple):
 	cut: bool
 
 
+def page (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal,
+	*,
+	workspace_ids: typing.Sequence[uuid.UUID],
+	size: int,
+	mine: bool = False,
+	by: uuid.UUID | None = None,
+	oldest: bool = False,
+	narrowing: typing.Sequence[typing.Any] = (),
+) -> tuple[list[subroutine.db.models.activity.Event], bool]:
+	"""Return one page of the journal and whether more lie beyond it — `#2772`.
+
+	**The latest entries, newest first**, or with ``oldest`` the first of a period, oldest first.
+	Simon's decision of 2026-09-16, and his reason is the next page: read from the newest, the
+	page after this one is the entries before it, and read from the oldest it is the entries
+	after. The last hundred oldest first would leave the next page meaning nothing.
+
+	**Here rather than in each transport**, because the rows are :func:`events.page`'s and that
+	function always answers forwards, which is right for the feed a cursor resumes. Two routes
+	reversing it for themselves is two answers to one question waiting to disagree.
+	"""
+
+	rows, more = subroutine.domain.events.page(
+		session,
+		principal,
+		workspace_ids=workspace_ids,
+		size=size,
+		mine=mine,
+		by=by,
+		newest=not oldest,
+		narrowing=narrowing,
+	)
+
+	if not oldest:
+		rows.reverse()
+
+	return rows, more
+
+
 def identifier (value: typing.Any) -> uuid.UUID | None:
 	"""Return ``value`` as an id if that is what it is, and ``None`` otherwise.
 
