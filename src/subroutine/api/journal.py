@@ -77,8 +77,8 @@ def reading (
 
 	**No entry carries a whole text.** A comment is its opening on one line, at most 140 characters
 	and ended at a word, with `said_truncated` saying whether there is more; the item's comments
-	have the rest. A change to a description or a body says that it changed and not what it
-	said either side, which `/v1/changes` still carries.
+	have the rest. A change to a title, a description or a body says that it changed and not
+	what it said either side, which `/v1/changes` still carries.
 
 	**Ask for a period with `?created_at.gte=`**, in the same grammar every listing takes.
 	Without one you get the most recent entries, which is what somebody arriving with no

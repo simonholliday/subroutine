@@ -76,7 +76,13 @@ NAMED_BY: dict[str, str] = {
 #: 5.2 MB of documents' bodies and 0.7 MB of tasks' descriptions, against 0.2 MB for every
 #: other field together.
 #: ``test_every_prose_field_is_a_whole_text`` holds the one inside the other.
-WHOLE_TEXTS: frozenset[str] = frozenset({"description", "body"})
+#:
+#: **A title is one too, for the journal's reason rather than for its size** (Simon,
+#: 2026-09-17, `#2853`). The item's row already shows the title it has now, so the two either
+#: side of *to* said nothing a reader needed - and they made the longest lines: on this
+#: instance's latest 400 entries, all six title changes were over 140 characters, up to 367,
+#: where every kind of line but a comment was at most 53.
+WHOLE_TEXTS: frozenset[str] = frozenset({"description", "body", "title"})
 
 #: How much of a comment an entry carries — `#2728`. It was 280, measured to keep most first
 #: paragraphs whole, and **Simon halved it on 2026-09-17** (`#2852`) when line breaks became

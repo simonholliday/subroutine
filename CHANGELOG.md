@@ -22,7 +22,7 @@ upgrade involves.
   so on, rather than phrases like *how it is going*. A line reads *deadline: never to Fri 18
   Sep*: a date as a date in the item's own timezone, with its time only when one is set, a
   duration with its unit, *never* or *nobody* for an empty side, a status or a type by the
-  label its row shows, and a status, type, project or title in quotes. Marking something done
+  label its row shows, and a status, type or project in quotes. Marking something done
   is one line, and a repeat names its rule rather
   than a number. In `/v1/journal` each change gains `empty`, `quoted` and `dated`, and a date
   is sent as `2026-09-18` or `2026-09-18T17:00`.
@@ -40,11 +40,11 @@ upgrade involves.
 
 - **The journal no longer carries whole texts.** A comment is its opening, on one line - at
   most 140 characters, ending at a word - and `said_truncated` says whether there is more,
-  which the item's comments still have. A change to a description or a document's body says that it
-  changed, with nothing before or after. `/v1/journal`, `subroutine journal` and the agent
-  tools all read this way, and `/v1/changes` and an item's history still carry every text
-  whole. Most of what the journal sent was documents rewritten, so a page of it is a small
-  fraction of the size.
+  which the item's comments still have. A change to a title, a description or a document's
+  body says that it changed, with nothing before or after - the item's row shows its title
+  now. `/v1/journal`, `subroutine journal` and the agent tools all read this way, and
+  `/v1/changes` and an item's history still carry every text whole. Most of what the journal
+  sent was documents rewritten, so a page of it is a small fraction of the size.
 
 - **An agenda's *Waiting on somebody else* treats your own agents as yours, and holds the
   questions you are waiting on.** Work held up only by something your own agent has was

@@ -1371,9 +1371,9 @@ class JournalEntry(pydantic.BaseModel):
 
 	#: What moved, in words. Empty where nothing did — a claim, a comment, a link.
 	#:
-	#: **A change to a text says only that it changed** (`#2728`): a description or a body has
-	#: no before and no after here, whatever kind of thing it belongs to, and the audit log keeps
-	#: both whole.
+	#: **A change to a text says only that it changed** (`#2728`, `#2853`): a title, a description
+	#: or a body has no before and no after here, whatever kind of thing it belongs to, and the
+	#: audit log keeps both whole.
 	changed: list[Change] = pydantic.Field(default_factory=list)
 
 	created_at: datetime.datetime
@@ -4530,11 +4530,11 @@ _DURATIONS: dict[str, str] = {
 _NEVER = frozenset({*_DATED, "recurrence", "recurrence_rule", "recurrence_template_id"})
 _NOBODY = frozenset({"assignee_id", "assigned_by_id", "claimed_by_id", "owner_id"})
 
-#: The values quoted on the way out: a name somebody chose. **A title can contain " to "** —
-#: *title: Go to the shop to Go to the market* is a riddle — and a status, a type or a project
-#: is written the same way so the rule is one a reader can see. Dates, durations, numbers and
-#: people are never quoted.
-_QUOTED = frozenset({"status_id", "type_id", "project_id", "workspace_id", "title"})
+#: The values quoted on the way out: a name somebody chose - a status, a type, a project or a
+#: workspace - so one containing " to " cannot read as a riddle. Dates, durations, numbers and
+#: people are never quoted, and a title never arrives here with a value: an entry says only that
+#: it changed (:data:`subroutine.domain.journal.WHOLE_TEXTS`).
+_QUOTED = frozenset({"status_id", "type_id", "project_id", "workspace_id"})
 
 
 def field_in_words (name: str) -> str:

@@ -859,7 +859,8 @@ def test_a_change_is_written_as_a_person_reads_it (
 		[("status_id", "status", "Open", "Blocked")],
 		[("assignee_id", "assignee", None, person)],
 		[("snoozed_until", "deferred until", None, "2030-09-17")],
-		[("title", "title", "Water the plants", "Go to the shop to water the plants")],
+		# **That it changed, and neither title** (`#2853`): the row shows the one it has now.
+		[("title", "title", None, None)],
 		[("status_id", "status", "Blocked", "Done")],
 		# By its label, as the row shows it (`#2830`).
 		[("type_id", "type", "Task", "Chore")],
@@ -878,7 +879,7 @@ def test_a_change_is_written_as_a_person_reads_it (
 		'status: "Open" to "Blocked"',
 		f"assignee: nobody to {person}",
 		"deferred until: never to Tue 17 Sep 2030",
-		'title: "Water the plants" to "Go to the shop to water the plants"',
+		"title",
 		'status: "Blocked" to "Done"',
 		'type: "Task" to "Chore"',
 	], terminal
@@ -889,6 +890,72 @@ def test_a_change_is_written_as_a_person_reads_it (
 		"deferred until: never to 2030-09-17",
 		*terminal[9:],
 	], agent
+
+
+def test_a_title_change_says_that_it_changed_and_carries_neither_title (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2853` (Simon, 2026-09-17): *changed title from "…" to "…"* was a journal's longest line.
+
+	The item's row shows the title it has now, so an entry says only that the title changed - a
+	task's, a document's and a project's alike, since the rule is by field name - and the audit
+	log still has both.
+	"""
+
+	titles = {
+		"task": ("TASK-TITLE-BEFORE", "Water the plants"),
+		"document": ("DOCUMENT-TITLE-BEFORE", "How the plants are watered"),
+		"project": ("PROJECT-TITLE-BEFORE", "The garden"),
+	}
+	answers = [
+		world.call("POST", "/v1/tasks", json={"title": titles["task"][0]}),
+		world.call("POST", "/v1/documents", json={"title": titles["document"][0]}),
+		world.call("POST", "/v1/projects", json={"key": "garden", "title": titles["project"][0]}),
+	]
+
+	for answer in answers:
+		assert answer.status_code == 201, answer.text
+
+	task, document, _project = (answer.json() for answer in answers)
+
+	for path, title in (
+		(f"/v1/tasks/{task['ref']}", titles["task"][1]),
+		(f"/v1/documents/{document['ref']}", titles["document"][1]),
+		("/v1/projects/garden", titles["project"][1]),
+	):
+		renamed = world.call("PATCH", path, json={"title": title})
+
+		assert renamed.status_code == 200, renamed.text
+
+	session.flush()
+	_settled(session)
+
+	entries = _entries(world, limit=200)
+	told = json.dumps(entries)
+
+	for kind, (before, _after) in titles.items():
+		assert before not in told, f"the journal carried the {kind}'s old title"
+
+	renames = [
+		(entry["entity_type"], change)
+		for entry in entries
+		if entry["action"] == "updated"
+		for change in entry["changed"]
+		if change["field"] == "title"
+	]
+
+	assert sorted(kind for kind, _change in renames) == ["document", "project", "task"], renames
+	assert all(
+		(change["said"], change["before"], change["after"], change["quoted"])
+		== ("title", None, None, False)
+		for _kind, change in renames
+	), renames
+
+	# **The audit log keeps both**, so this is the words left out of a line and not the change.
+	feed = world.call("GET", "/v1/changes", params={"limit": 200})
+
+	assert feed.status_code == 200, feed.text
+	assert all(before in feed.text for before, _after in titles.values()), "a title was lost"
 
 
 def test_a_repeat_is_its_rule_and_never_the_item_holding_it (
