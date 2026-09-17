@@ -629,6 +629,38 @@ export function withShowing (path, showing) {
 	return parts.length === 0 ? path : `${path}?${parts.join("&")}`;
 }
 
+export function narrowingTo (address, showing) {
+	/*
+		Where pressing a label on a row goes, and how the page is arranged when it gets there —
+		`#2832`, found on a journal and true of every surface that draws one.
+
+		**A label's address can name a narrowing as well as a place.** A project's is a path, and
+		since `#1020` a tag's and a person's are `/{workspace}?tag=…`, because `#649` puts the
+		place on the path and the selection in the query. `narrow` read the whole of it as a
+		path, so the query became part of the workspace's name, `go` wrote a second `?` after
+		it, and a plain click asked for a workspace that does not exist. Opening the same link in
+		a tab always worked, because a load reads the two apart — which is what this does.
+
+		**The narrowing is added to what the reader is looking at**, as a project label's place
+		always was: their arrangement and the rest of their selection follow them, and a key the
+		label names replaces the one showing. **An agenda gives way to the list**, because it
+		cannot honour a narrowing, and `showingOf` settles that and a board's axis exactly as a
+		reload of the address this writes would — so the click and the reload draw one page.
+	*/
+	const text = String(address || "");
+	const at = text.indexOf("?");
+	const path = at < 0 ? text : text.slice(0, at);
+	const narrowing = selectionOf(at < 0 ? "" : text.slice(at)).selection;
+
+	if (Object.keys(narrowing).length === 0) return { path, arranged: showing };
+
+	const selection = { ...((showing && showing.selection) || {}), ...narrowing };
+	const written = withShowing(path, { view: showing && showing.view, selection });
+	const arrived = showingOf(written.slice(path.length));
+
+	return { path, arranged: { view: arrived.view, selection: arrived.selection } };
+}
+
 /*
 	**What a narrowing is, as opposed to an arrangement** — `#1020`. `Narrowed` says these out
 	loud and *Show everything* is what drops them, so both need the same list and neither should

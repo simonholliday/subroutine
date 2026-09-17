@@ -7155,6 +7155,13 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "areas" ? app.AREAS
 			: name === "showsWork" ? app.showsWork(argument.area)
 			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
+			: name === "narrowingTo" ? app.narrowingTo(argument.address, argument.showing)
+			: name === "reloaded" ? (() => {{
+				const written = app.withShowing(argument.path, argument.arranged);
+				const read = app.showingOf(written.slice(argument.path.length));
+
+				return {{ address: written, view: read.view, selection: read.selection, refused: read.refused }};
+			}})()
 			: name === "marks" ? app.marks(
 				argument.item, argument.ordering, argument.place, argument.linkable,
 				{{
@@ -15262,6 +15269,72 @@ def test_a_tag_and_an_assignee_are_links_that_narrow_the_view (tmp_path: pathlib
 		f"a surface that cannot navigate was handed an anchor whose only outcome is a page "
 		f"that has not moved: {quiet}"
 	)
+
+
+def test_pressing_a_label_goes_where_its_link_says_in_the_readers_arrangement (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2832`, found on a journal: a tag's link names a narrowing as well as a place.
+
+	``narrow`` read ``/projects?tag=research`` as a path, so the workspace it asked for was called
+	``projects?tag=research`` and ``go`` wrote a second ``?`` after it. The link the test above
+	checks was right all along; what pressing it made of the link was never driven.
+
+	**Every answer is read back as a reload would read it**, so the click and the reload are held
+	to one page rather than trusted to agree.
+	"""
+
+	agenda = {"view": "agenda", "selection": {}}
+	ordered = {"view": "list", "selection": {"order": "-priority_score"}}
+	board = {"view": "board", "selection": {"group_by": "status_category"}}
+	narrowed = {"view": "list", "selection": {"tag": "ops", "assignee": "si"}}
+
+	cases = [
+		(
+			"a tag, from a journal or an agenda, which cannot honour it", "/projects?tag=research",
+			agenda, {"view": "list", "selection": {"tag": "research"}},
+		),
+		(
+			"a tag, from an ordered list", "/projects?tag=research", ordered,
+			{"view": "list", "selection": {"order": "-priority_score", "tag": "research"}},
+		),
+		(
+			"a tag, from a board", "/projects?tag=research", board,
+			{"view": "board", "selection": {"group_by": "status_category", "tag": "research"}},
+		),
+		(
+			"a tag, over another tag and a person", "/projects?tag=research", narrowed,
+			{"view": "list", "selection": {"tag": "research", "assignee": "si"}},
+		),
+		(
+			"a person, from an agenda", "/acme?assignee=si", agenda,
+			{"view": "list", "selection": {"assignee": "si"}},
+		),
+		("a project, which names only a place", "/projects/websites/site", ordered, ordered),
+	]
+
+	pressed = _addressing(tmp_path, [
+		("narrowingTo", {"address": address, "showing": showing})
+		for _name, address, showing, _expected in cases
+	])
+
+	for (name, address, _showing, expected), went in zip(cases, pressed, strict=True):
+		assert went["path"] == address.split("?")[0], f"{name}: went to {went}"
+		assert went["arranged"] == expected, f"{name}: arrived showing {went['arranged']}"
+
+	again = tmp_path / "reloaded"
+	again.mkdir()
+
+	reloaded = _addressing(again, [
+		("reloaded", {"path": went["path"], "arranged": went["arranged"]}) for went in pressed
+	])
+
+	for (name, *_rest), went, read in zip(cases, pressed, reloaded, strict=True):
+		assert read["address"].count("?") <= 1, f"{name}: pressing wrote {read['address']}"
+		assert read["refused"] == [], f"{name}: loading {read['address']} refuses {read['refused']}"
+		assert {"view": read["view"], "selection": read["selection"]} == went["arranged"], (
+			f"{name}: pressing wrote {read['address']}, and loading that draws a different page"
+		)
 
 
 def test_a_page_narrowed_by_a_tag_says_so_and_offers_the_way_back (

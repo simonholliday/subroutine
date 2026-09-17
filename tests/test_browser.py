@@ -3553,7 +3553,7 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	project.close()
 
 
-def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -> None:
+def test_a_label_on_a_row_is_a_link_that_narrows_the_page (running: typing.Any) -> None:
 	"""`#959`, decision `#957` §4, and the claim is about what is on screen.
 
 	**Only a browser can answer it.** `tests/dom.js` drops every attribute but `href` and has
@@ -3562,9 +3562,13 @@ def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -
 
 	Driven from a page that names a workspace and no project, which is where the label carries
 	the most: the whole path, and clicking it leaves the page showing that project alone.
+
+	**And a tag, pressed on a board** (`#2832`): its link names a narrowing beside its place, and
+	a plain click read the whole link as a path, which only a click - never a loaded address -
+	could show.
 	"""
 
-	opened, _written, _refusing, *_ = running
+	opened, _written, _refusing, _roster, _missing, reads, *_ = running
 	page = opened("/projects?view=list")
 	page.wait_for_selector(".rows li .mark", timeout=10_000)
 
@@ -3608,6 +3612,37 @@ def test_a_project_label_is_a_link_that_narrows_the_page (running: typing.Any) -
 
 	assert address.removeprefix("/projects/") not in after, (
 		f"the page is that project and its rows still name it: {after}"
+	)
+
+	# **A tag's link names a narrowing as well as a place** (`SR#2832`, found on a journal). It is
+	# `/projects?tag=ops`, and a plain click read all of it as a path: the page asked for a
+	# workspace called `projects?tag=ops`, under an address with a second `?` in it. Pressed on a
+	# board, so the reader's arrangement is seen to follow them.
+	tagged = {"items": [dict(row, tags=["ops"]) for row in (CARD, *CROWD)], "page": ROWS["page"]}
+	page = opened("/projects?view=board", rows=tagged)
+	page.wait_for_selector(".board .rows li a.mark", timeout=10_000)
+
+	tag = page.locator(".board .rows li a.mark", has_text="#ops").first
+
+	assert tag.get_attribute("href") == "/projects?tag=ops"
+
+	before = len(reads)
+	tag.click()
+	page.wait_for_selector("text=Showing anything tagged", timeout=10_000)
+
+	landed = urllib.parse.urlparse(page.url)
+	asked = reads[before:]
+
+	assert landed.path == "/projects", f"pressing a tag left the reader at {page.url}"
+	assert urllib.parse.parse_qs(landed.query) == {
+		"view": ["board"], "group_by": ["status_category"], "tag": ["ops"],
+	}, f"pressing a tag on a board wrote {page.url}"
+	assert any(
+		read.startswith("v1/tasks?") and "tag=ops" in read and "workspace_id=projects&" in f"{read}&"
+		for read in asked
+	), f"pressing a tag did not ask for that tag's rows in this workspace: {asked}"
+	assert not any("%3F" in read for read in asked), (
+		f"pressing a tag asked about a place with a question mark in its name: {asked}"
 	)
 
 

@@ -171,6 +171,12 @@ upgrade involves.
 
 ### Fixed
 
+- **Pressing a tag or a person on a row narrows the page.** A plain click wrote an address with
+  two question marks and asked for a workspace named after the whole of it, so every tag and
+  person on a list, a board, an agenda or a journal led to *There is no workspace*. Opening one
+  in a new tab always worked. The page now keeps its arrangement and adds the narrowing, and
+  an agenda or a journal gives way to the list.
+
 - **A served instance writes its own log lines, at the level `--log-level` names.** Its
   warnings were written with nothing to say they were warnings, and its info lines not at
   all, because only uvicorn's own lines were configured. They now read like uvicorn's -

@@ -22,7 +22,7 @@ import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, JOURNAL, MAX_REF,
 	ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest,
 	answers, areaOf, chips, chosenWorkspace, encodedPath, frame, journalAddress, journalPageOf,
-	journalPlace, listingAddress, mentionHref, pageTitle,
+	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
 	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
 	titlesByPath, viewOf,
@@ -2555,7 +2555,10 @@ export function App () {
 			control is an anchor and its `href` is the fact. Deriving the project from it here
 			means the thing the reader can copy and the thing this loads are one string.
 		*/
-		const place = parseAddress(address);
+		/* **The path and the query read apart** (`#2832`): a tag's or a person's label names a
+		   narrowing beside its place, and `narrowingTo` says what the page arrives showing. */
+		const { path, arranged } = narrowingTo(address, showing);
+		const place = parseAddress(path);
 		const wanted = (place && place.project) || null;
 
 		/* **The workspace the address names, which need not be the one the switcher holds** —
@@ -2571,7 +2574,8 @@ export function App () {
 		setArea(null);
 		setProject(wanted);
 		setEverywhere(false);
-		go(address);
+		nowShowing(arranged);
+		go(path, { arranged });
 
 		try {
 			enter(where);
@@ -2583,11 +2587,11 @@ export function App () {
 				clicking a project chip is asking *what is on for that project*, and answering
 				with a backlog changes the question rather than the scope.
 
-				`showing.view` rather than the address, because `go` above writes a bare
-				project address — the arrangement is carried in state here and written by the
-				next control that touches it.
+				`arranged.view` rather than the address's own reading, because it is what the
+				page arrives showing: the reader's arrangement, or the list where a label's
+				narrowing is one an agenda cannot honour (`#2832`).
 			*/
-			if (showing.view === AGENDA_VIEW) {
+			if (arranged.view === AGENDA_VIEW) {
 				await readAgenda(where, wanted);
 
 				return;
@@ -2601,7 +2605,7 @@ export function App () {
 			   their place. */
 			setNote({ text: `The rest did not load. ${failure.message}`, tone: "bad" });
 		}
-	}, [enter, go, load, me, readAgenda, showing, workspace]);
+	}, [enter, go, load, me, nowShowing, readAgenda, showing, workspace]);
 
 
 	const chooseWorkspace = useCallback(async (slug) => {
@@ -3663,6 +3667,7 @@ export {
 	journalPlace,
 	listingAddress,
 	mentionHref,
+	narrowingTo,
 	pageTitle,
 	parseAddress,
 	permits,
