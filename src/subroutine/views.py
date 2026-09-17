@@ -3537,9 +3537,14 @@ def revised_in_words (revisions: Revisions, *, when: str) -> str:
 	**No name where the event records no actor**, rather than a placeholder: *somebody
 	revised this* is what is known, and inventing a word for the missing half would be a
 	claim nothing supports.
+
+	**More than once, the name and the day are the last revision's, and the sentence says so**
+	(`#2709`). *Revised 6 times by @claude-super* read as six revisions by one agent on an item
+	three agents had edited, which is wrong in exactly the case the words matter - more than
+	one party working on one text. Once, there is only one revision for them to belong to.
 	"""
 
-	times = "once" if revisions.count == 1 else f"{revisions.count} times"
+	times = "once" if revisions.count == 1 else f"{revisions.count} times, last"
 	who = "" if revisions.last_by is None else f" by @{revisions.last_by}"
 
 	return f"revised {times}{who} on {when}"

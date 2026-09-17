@@ -171,6 +171,11 @@ upgrade involves.
 
 ### Fixed
 
+- **An item that several people revised no longer credits every revision to the last.** Its
+  header read *revised 6 times by @morpheus* when five of the six were somebody else's.
+  It reads *revised 6 times, last by @morpheus on 17 Sep* at the command line, in the
+  agent tools and on the item page, and *revised once by @si* where there was one.
+
 - **A captured line that says *now* keeps it.** *from now on* in a line was read as a defer to
   the moment it was filed, and *by now* as a deadline already past, and both lost those words
   from the title without saying so. On its own *now* is words; *from now+2h* is still a date.

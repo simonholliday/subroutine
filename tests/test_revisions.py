@@ -14,6 +14,7 @@ asks for it.
 """
 
 import datetime
+import pathlib
 import typing
 
 import pytest
@@ -22,6 +23,7 @@ import sqlalchemy.orm
 import subroutine.domain.events
 import subroutine.views
 import test_api_tasks
+import test_web
 
 
 @pytest.fixture
@@ -174,11 +176,15 @@ def test_a_listing_leaves_it_unresolved_rather_than_answering_never (
 
 
 def test_the_wording_is_one_sentence_every_surface_shares () -> None:
-	"""`views.revised_in_words`, driven at its three shapes.
+	"""`views.revised_in_words`, driven at its four shapes.
 
-	**Singular, plural, and no actor.** The last is not decoration: an event records no actor
-	for a migration or a caller with no credential (§12.1a), and *somebody revised this* is
-	the whole of what is known — so a placeholder name would be a claim nothing supports.
+	**Singular, plural, and no actor, both ways.** No actor is not decoration: an event records
+	no actor for a migration or a caller with no credential (§12.1a), and *somebody revised this*
+	is the whole of what is known — so a placeholder name would be a claim nothing supports.
+
+	**More than once, the name and the day are the last revision's** (`#2709`): *revised 6 times
+	by @claude-super* credited six revisions to the agent that made the sixth, on an item three
+	agents had edited.
 	"""
 
 	when = datetime.datetime(2026, 8, 31, tzinfo=datetime.UTC)
@@ -186,13 +192,50 @@ def test_the_wording_is_one_sentence_every_surface_shares () -> None:
 	once = subroutine.views.Revisions(count=1, last_at=when, last_by="si")
 	twice = subroutine.views.Revisions(count=4, last_at=when, last_by="si")
 	nameless = subroutine.views.Revisions(count=2, last_at=when, last_by=None)
+	nameless_once = subroutine.views.Revisions(count=1, last_at=when, last_by=None)
 
 	assert subroutine.views.revised_in_words(once, when="31 Aug") == (
 		"revised once by @si on 31 Aug"
 	)
 	assert subroutine.views.revised_in_words(twice, when="31 Aug") == (
-		"revised 4 times by @si on 31 Aug"
+		"revised 4 times, last by @si on 31 Aug"
 	)
 	assert subroutine.views.revised_in_words(nameless, when="31 Aug") == (
-		"revised 2 times on 31 Aug"
+		"revised 2 times, last on 31 Aug"
+	)
+	assert subroutine.views.revised_in_words(nameless_once, when="31 Aug") == (
+		"revised once on 31 Aug"
+	)
+
+
+@pytest.mark.parametrize(("count", "last_by"), [(1, "si"), (6, "claude-super"), (2, None), (1, None)])
+def test_the_browser_says_the_same_words (
+	tmp_path: pathlib.Path, count: int, last_by: str | None
+) -> None:
+	"""The item page's *Revised* row is `views.revised_in_words` without its leading word.
+
+	**`chrome.js` has its own copy**, because the browser is not Python, and a copy is how two
+	surfaces come to disagree about what a number means (`#1266`). This drives both at one
+	shape and compares everything before the day, since `day` spells the day in the reader's
+	own locale and the Python side is handed its day by the caller.
+	"""
+
+	last_at = datetime.datetime(2026, 8, 31, 12, tzinfo=datetime.UTC)
+	revisions = subroutine.views.Revisions(count=count, last_at=last_at, last_by=last_by)
+	said = subroutine.views.revised_in_words(revisions, when="DAY")
+
+	assert said.startswith("revised ") and said.endswith(" on DAY"), said
+
+	shown = test_web._rendered(tmp_path, {"Facts": {"item": {
+		"ref": 42, "title": "A decision", "timezone": "Europe/London",
+		"revisions": {"count": count, "last_at": last_at.isoformat(), "last_by": last_by},
+	}}})["Facts"]
+	row = shown.split("<dt>Revised<dd>", 1)
+
+	assert len(row) == 2, f"the item page has no Revised row: {shown}"
+
+	value = row[1].split("<dt>", 1)[0]
+
+	assert value.rsplit(" on ", 1)[0] == said.removeprefix("revised ").removesuffix(" on DAY"), (
+		f"the browser and the other surfaces word a revision differently: {value!r} and {said!r}"
 	)

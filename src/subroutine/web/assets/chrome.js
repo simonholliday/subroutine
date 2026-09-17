@@ -323,8 +323,10 @@ function revisedInWords (revisions) {
 
 	   `once` rather than `1 time`, matching `views.revised_in_words` — and the name is left
 	   out where the event recorded no actor rather than replaced by a placeholder, because
-	   *somebody revised this* is the whole of what is known. */
-	const times = revisions.count === 1 ? "once" : `${revisions.count} times`;
+	   *somebody revised this* is the whole of what is known. More than once, the name and
+	   the day are the last revision's and the words say so (`#2709`), as that function's do;
+	   `tests/test_revisions.py` holds the two to one sentence. */
+	const times = revisions.count === 1 ? "once" : `${revisions.count} times, last`;
 	const who = revisions.last_by ? ` by @${revisions.last_by}` : "";
 
 	return `${times}${who} on ${day(revisions.last_at)}`;
