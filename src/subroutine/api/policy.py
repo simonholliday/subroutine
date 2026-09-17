@@ -9,8 +9,11 @@ policy is what stands between a future defect in it and a reader's session.
 **It is unusually cheap here, and that was measured rather than hoped.** The app loads nothing
 from another host and uses no inline styles, so ``default-src 'self'`` is satisfied as the app
 already stands. What its stylesheet fetches — the mark it paints the wordmark with, and since
-`#2865` the font its headings are set in — is served by this instance from ``/app/``, which is
-``'self'``. The single exception is the import map, which is inline by necessity — nothing
+`#2865` and `#2868` the three families it sets headings, text and code in — is served by this
+instance from ``/app/``, which is ``'self'``. **That is the whole reason the faces are copied
+in rather than linked**: a stylesheet naming a font host would be the first thing here to
+need a policy wider than `'self'`, and it would fail shut on an instance behind a VPN.
+The single exception is the import map, which is inline by necessity — nothing
 rewrites the files on the way to the browser — and is allowed by **hash**, derived from the
 served bytes.
 

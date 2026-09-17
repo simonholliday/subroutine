@@ -20,10 +20,18 @@ upgrade involves.
   left, and an installed app all draw the icon chosen for Subroutine in the branding set the
   other products take theirs from. The mark it replaces was temporary.
 
-- **Headings and the product's name are set in Lexend**, the font the branding names, and
-  everything a reader reads is still their own machine's. The two faces are served by the
-  instance itself - 29 KB, fetched once - so a browser still asks for nothing from anywhere
-  else, which is what makes the app work behind a VPN.
+- **Headings and the product's name are set in Lexend**, the font the branding names.
+
+- **Reading text is set in IBM Plex Sans and code in JetBrains Mono.** Both were picked by
+  measuring rather than by eye, because this app works at small sizes: its commonest text is
+  15px and a code block is 14px. The test was how much of each letter you actually get at
+  that size, and whether the pairs that get misread stay apart - `l` against `I`, `0`
+  against `O` - which matters on rows carrying item numbers, usernames and project keys.
+  Code and the item number on every row share the one face.
+
+  All seven faces are served by the instance itself - 140 KB, fetched once and then cached -
+  so a browser still asks for nothing from anywhere else, which is what makes the app work
+  behind a VPN.
 
 - **Giving up a claim reads as *released the claim*** - in the journal, an item's history and
   the change feed, at a terminal, in the browser and in the agent tools - rather than

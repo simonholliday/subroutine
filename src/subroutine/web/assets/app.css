@@ -7,15 +7,27 @@
 	that says so; blocked is marked *and* labelled. A reader who cannot distinguish the hues
 	loses nothing.
 
-	**System fonts for everything a reader reads, and one family for the headings** (`#2865`).
-	A to-do list somebody reads every day should look like the machine they read it on, so text,
-	controls and code are still the machine's own faces. Headings and the wordmark are Lexend,
-	which is the family Simon's branding names for the products' own names.
+	**Three families, one for each thing type has to do here** (`#2865`, `#2868`). Headings and
+	the wordmark are Lexend, which is what Simon's branding names the products' own names in.
+	Reading text is IBM Plex Sans and code is JetBrains Mono, and those two were **measured**
+	rather than chosen by eye, because the sizes this app works at are small: `--text-small` is
+	fifty of eighty-one declarations and a fenced block is `--text-fine`.
+
+	**x-height at the real pixel size is what the choice turned on**, since at a fixed size it is
+	literally how many pixels the lowercase gets, and lowercase is what a reader reads. A second
+	measurement scored how far apart a confusable pair is drawn. Inter has the tallest x-height
+	of the faces tried and was **refused on the second**: its `l` and `I` are nearly one stroke,
+	which is the wrong trade on rows carrying refs, usernames, project keys and token prefixes.
+	IBM Plex Sans keeps those apart and is the most economical of them, so fewer titles wrap.
+	JetBrains Mono carries 5.8% more x-height than the Plex mono at 14px, which is where it
+	counts - and **the mono is not only for markdown**: `.ref` wears it, so it draws the item
+	number on every row.
 
 	**Served by this instance, never fetched from anywhere** — which is what kept the old rule's
 	reason true rather than trading it away: there is no network to fetch a font from on an
-	instance behind a VPN, so the two faces are vendored in `web/vendor` like everything else
-	here we did not write, and arrive from `/app/` with the rest of the app.
+	instance behind a VPN, so every face is vendored in `web/vendor` like everything else here
+	we did not write, and arrives from `/app/` with the rest of the app. Seven faces, 140 KB,
+	fetched once by a reader and then cached.
 
 	**Both themes live in one declaration per colour**, through `light-dark()`, so there is no
 	second block that has to agree with the first and no token can be defined in one theme and
@@ -27,9 +39,11 @@
 */
 
 /*
-	**The headings' font, in the two weights they use** (`#2865`). Fontsource's Latin subset of
-	Lexend 5.3.0, vendored with its licence and recorded in `web/vendored.py`; 29.3 KB for both,
-	fetched once and then cached.
+	**Every face, in the weights its role actually asks for** (`#2865`, `#2868`). Fontsource's
+	Latin subsets, each vendored with its licence and recorded in `web/vendored.py`. Lexend 400
+	and 600 for the headings; IBM Plex Sans 400, 500 and 600, which is every weight this file
+	declares; JetBrains Mono 400 and 600, the second because `**`code`**` renders `strong > code`
+	and a `th` is 600, so one weight alone would be synthesised into a smear.
 
 	**Relative, so it resolves against this stylesheet** — the app's files are served flat at
 	`/app/<name>`, and a bare name cannot be wrong if the app is ever mounted somewhere else.
@@ -50,6 +64,46 @@
 @font-face {
 	font-family: "Lexend";
 	src: url("lexend-latin-600-normal.woff2") format("woff2");
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "IBM Plex Sans";
+	src: url("ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "IBM Plex Sans";
+	src: url("ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "IBM Plex Sans";
+	src: url("ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("jetbrains-mono-latin-400-normal.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("jetbrains-mono-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
@@ -94,11 +148,18 @@
 	--warn: light-dark(#b42318, #f27a70);
 	--radius: 6px;
 
-	/* **What a heading is set in** (`#2865`), and the one place the family is named. The rest of
-	   the page inherits the system sans from `body`, which is the branding's own division: the
-	   product's names and the page's headings in Lexend, everything a reader reads in whatever
-	   their machine sets text in. */
+	/* **One token per role, and the only place a family is named** (`#2865`, `#2868`). The
+	   three names match what `projects/websites/subsystem-co` calls its own, so the two
+	   products describe type in one vocabulary even where they disagree about the faces -
+	   that site sets text in a serif and code in Roboto Mono, which are right for a page
+	   somebody reads once and wrong for a list somebody works in every day.
+
+	   **Every stack still ends where it used to.** A face that fails to arrive falls back to
+	   the machine's own, which is what `swap` above is for, and it is why these keep naming
+	   the system families rather than resting on the vendored file being there. */
 	--font-heading: "Lexend", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-text: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
 	/* **The palette a workspace or a project may be marked with** (`#1027`, design `#1023`).
 	   Eight names, chosen from `domain/palette.py`, which stores a *name* and never a value —
@@ -268,13 +329,15 @@ body {
 	   value, and almost nothing declares it — every other rule overrides downward, which is why
 	   the page's working size is `--text-small` and this is what survives on a title and on
 	   prose. Two copies of 15px would be two places to change it and one to forget. */
-	font: var(--text-body)/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-		"Helvetica Neue", Arial, sans-serif;
+	font: var(--text-body)/1.55 var(--font-text);
 	-webkit-font-smoothing: antialiased;
 }
 
+/* **Five selectors, and only one of them is a code block** (`#2868`). `.ref` is the item
+   number on every row, which is why the mono was chosen on how far apart it draws a zero
+   and a capital O rather than on how it looks in a fenced example. */
 code, .ref, .priority, .broke .detail, .credential .prefix {
-	font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	font-family: var(--font-code);
 }
 
 /*

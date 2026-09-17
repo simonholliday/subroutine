@@ -3267,23 +3267,37 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 		"the menu closed and its button still says it is open"
 	)
 
-	# **The branding's font, on the page that is already open** (`SR#2865`).
+	# **The branding's three faces, on the page that is already open** (`SR#2865`, `SR#2868`).
+	#
+	# `document.fonts.check` is the half that matters: a family named in a stack is reported by
+	# `getComputedStyle` whether or not the file behind it ever arrived, so the computed value
+	# alone would pass against every face missing.
 	lettering = page.evaluate(
-		"""() => ({
-			wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
-			heading: getComputedStyle(document.querySelector("h2")).fontFamily,
-			body: getComputedStyle(document.body).fontFamily,
-			loaded: document.fonts.check("600 20px Lexend"),
-		})"""
+	"""() => ({
+		wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
+		heading: getComputedStyle(document.querySelector("h2")).fontFamily,
+		body: getComputedStyle(document.body).fontFamily,
+		code: getComputedStyle(document.querySelector(".ref")).fontFamily,
+		lexend: document.fonts.check("600 20px Lexend"),
+		plex: document.fonts.check('500 15px "IBM Plex Sans"'),
+		mono: document.fonts.check('400 14px "JetBrains Mono"'),
+	})"""
 	)
 
 	assert lettering["wordmark"].startswith("Lexend"), lettering
 	assert lettering["heading"].startswith("Lexend"), lettering
-	assert lettering["loaded"], (
-		f"Lexend never arrived, so the wordmark fell back to the system sans: {lettering}"
-	)
+	assert lettering["body"].startswith('"IBM Plex Sans"'), lettering
+	assert lettering["code"].startswith('"JetBrains Mono"'), lettering
+
+	# Each face is asked for separately, because they are separate files and a stack hides
+	# which one is missing.
+	for face in ("lexend", "plex", "mono"):
+		assert lettering[face], (
+			f"{face} never arrived, so the page fell back to a system face: {lettering}"
+		)
+
 	assert "Lexend" not in lettering["body"], (
-		f"the reading text is set in the headings' font too: {lettering}"
+	f"the reading text is set in the headings' font too: {lettering}"
 	)
 
 

@@ -164,4 +164,61 @@ CATALOGUE: tuple[Vendored, ...] = (
 		notice="lexend.LICENSE",
 		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),
+	Vendored(
+		# **The face a reader reads** (`#2868`), in the three weights `app.css` declares: 400 for
+		# text, 500 for a row's title, 600 for a heading inside prose and a table's head. Chosen on
+		# a measurement rather than by eye - it keeps `l` and `I` apart, which the taller-x-height
+		# alternative did not, and a row of refs and usernames is where that is paid for.
+		#
+		# **The notice is the upstream one, not the one the repackager serves.** Fontsource's
+		# published `LICENSE` is a template: byte-identical across these two packages and naming
+		# Google Inc. for both, where the OFL wants the holder. These came from the font projects
+		# themselves, and they carry the copyright line that makes a notice worth shipping at all.
+		filename="ibm-plex-sans-latin-400-normal.woff2",
+		package="@fontsource/ibm-plex-sans",
+		version="5.2.6",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
+		notice="ibm-plex-sans.LICENSE",
+		digest="sha256:3b646991d30055a93a4ecc499713d4347953a74a947ecab435ab72070cbdab0e",
+	),
+	Vendored(
+		filename="ibm-plex-sans-latin-500-normal.woff2",
+		package="@fontsource/ibm-plex-sans",
+		version="5.2.6",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
+		notice="ibm-plex-sans.LICENSE",
+		digest="sha256:0717336fb31fcdcde4b8deb3675bb4a0f7f6d484864afcd6751ac29975962203",
+	),
+	Vendored(
+		filename="ibm-plex-sans-latin-600-normal.woff2",
+		package="@fontsource/ibm-plex-sans",
+		version="5.2.6",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
+		notice="ibm-plex-sans.LICENSE",
+		digest="sha256:8960851d691c054ed38e259bdcf1a6190d157b4203ed5bb32c632a863fb8ec2f",
+	),
+	Vendored(
+		# **The face code is set in, and the item number with it** (`#2868`). 600 is here because
+		# `**`code`**` renders `strong > code` and a `th` is 600: without a real bold face a browser
+		# smears the regular one, and it does it silently.
+		filename="jetbrains-mono-latin-400-normal.woff2",
+		package="@fontsource/jetbrains-mono",
+		version="5.2.5",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
+		notice="jetbrains-mono.LICENSE",
+		digest="sha256:14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb",
+	),
+	Vendored(
+		filename="jetbrains-mono-latin-600-normal.woff2",
+		package="@fontsource/jetbrains-mono",
+		version="5.2.5",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
+		notice="jetbrains-mono.LICENSE",
+		digest="sha256:400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",
+	),
 )
