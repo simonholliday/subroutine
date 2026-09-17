@@ -136,7 +136,7 @@ def test_an_account_parent_is_the_first_link_and_answers_to_the_last (
 	said = {}
 
 	for account in (person, agent, sub):
-		me = subroutine.views.me(session, _acting(account))
+		me = subroutine.views.me(session, _acting(account), releases=None)
 		said[account.username] = (
 			me.user.account_parent,
 			me.user.answers_to,

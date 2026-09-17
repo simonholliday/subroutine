@@ -67,6 +67,7 @@ import subroutine.domain.text
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.installations
+import subroutine.releases
 
 Item = typing.TypeVar("Item")
 
@@ -2013,6 +2014,81 @@ class WorkspaceAccess(WorkspaceRef):
 	projects: list[ProjectAccess] = pydantic.Field(default_factory=list)
 
 
+class PublishedRelease(pydantic.BaseModel):
+	"""One release, as the published record lists it.
+
+	``schema_revision`` rather than the record's own ``schema``, which is the name
+	:class:`Me` already gives the same fact and which a pydantic model cannot take as a field.
+	"""
+
+	version: str
+	schema_revision: str
+	date: str
+
+
+class ReleaseNews(pydantic.BaseModel):
+	"""What this instance has found out about releases, so a client asks nothing itself.
+
+	**Four answers, and three of them used to be one null.** An operator who has not agreed to
+	ask, an instance that has agreed and not yet asked, and a check that could not be made each
+	leave nothing to report - and a shape that flattened them would let *we could not check*
+	read as *you are up to date*, which the terminal's own check already refuses to say. So
+	``checking`` says whether anybody agreed, ``asked_at`` whether a check has run, and
+	``failure`` whether it answered.
+
+	**The whole list rather than a verdict**, because the verdict differs by reader. Only the
+	instance knows whether *it* is behind, but only a client knows which program and plugin it is
+	running, and the record is the order that *how far behind* is counted in - so each surface
+	works out its own standing from one list the instance fetched on everybody's behalf.
+	"""
+
+	#: Whether this instance's operator has agreed to ask, with ``[releases] check``.
+	checking: bool
+
+	#: When the answer below was asked for. Null before the first check has finished.
+	asked_at: datetime.datetime | None = None
+
+	#: Why there is no answer, when the check could not be made. Null when it could.
+	failure: str | None = None
+
+	#: The published releases, newest first. Empty unless a check has answered.
+	releases: list[PublishedRelease] = pydantic.Field(default_factory=list)
+
+	#: Each plugin's current version, by the name of its directory. Empty unless a check has
+	#: answered, and empty from a record published before plugins were recorded in it.
+	plugins: dict[str, str] = pydantic.Field(default_factory=dict)
+
+
+def release_news (watch: subroutine.releases.Watch | None) -> ReleaseNews:
+	"""Render what a watch has heard, or that nobody agreed to ask — `#2223`.
+
+	Reads only what the watch already holds, so publishing it makes no request: the check itself
+	happens once a day in the background of somebody's request, and every client then learns the
+	answer from here.
+	"""
+
+	if watch is None:
+		return ReleaseNews(checking=False)
+
+	heard = watch.latest
+
+	if heard is None:
+		return ReleaseNews(checking=True)
+
+	if heard.record is None:
+		return ReleaseNews(checking=True, asked_at=heard.at, failure=heard.failure)
+
+	return ReleaseNews(
+		checking=True,
+		asked_at=heard.at,
+		releases=[
+			PublishedRelease(version=one.version, schema_revision=one.schema, date=one.date)
+			for one in heard.record.releases
+		],
+		plugins=dict(heard.record.plugins),
+	)
+
+
 class Me(pydantic.BaseModel):
 	"""Who the caller is and exactly what they may do, in one round trip.
 
@@ -2062,6 +2138,18 @@ class Me(pydantic.BaseModel):
 	reader_timezone: str | None = None
 
 	workspaces: list[WorkspaceAccess]
+
+	#: **What this instance has found out about releases** (`#2223`), so ``whoami``, the agent
+	#: tools and the browser learn it with no outbound request of their own - one instance asking
+	#: on everybody's behalf, and only if its operator agreed. **Here rather than on
+	#: ``/v1/meta``**, which the plan named: every surface that reports versions reads this
+	#: response - both ``whoami`` renderings, and the browser's hourly poll, which chose it over
+	#: ``/v1/meta`` as the far smaller of the two.
+	#:
+	#: **Defaulted for `#345`'s reason**, and so null only from an instance older than this
+	#: field. Every instance that has it says whether it is checking, which is how a reader tells
+	#: *not asked* from *asked and nothing is newer*.
+	releases: ReleaseNews | None = None
 
 
 class SignInLink(pydantic.BaseModel):
@@ -4562,6 +4650,8 @@ def user (
 def me (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
+	*,
+	releases: subroutine.releases.Watch | None,
 ) -> Me:
 	"""Assemble the answer to "who am I, and what may I do here?" — item ``#336``.
 
@@ -4573,6 +4663,10 @@ def me (
 	permissions that actually apply there, already intersected with the role, the credential's
 	scopes and its project scope, so nothing here asks the caller to reproduce §7.3's
 	resolution for itself.
+
+	**``releases`` is the served application's watch, and required** (`#2223`): a transport with
+	no server passes ``None`` and says so, rather than a default that would let a call site
+	report *not checking* without having looked.
 	"""
 
 	reachable = list(subroutine.domain.workspaces.readable(session, principal))
@@ -4617,6 +4711,7 @@ def me (
 			)
 			for workspace in reachable
 		],
+		releases=release_news(releases),
 	)
 
 

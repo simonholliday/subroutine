@@ -12,6 +12,7 @@ that has not agreed is driven through ordinary requests.
 
 import datetime
 import pathlib
+import threading
 import typing
 
 import pytest
@@ -253,3 +254,79 @@ def test_a_config_file_turns_it_on_and_a_misspelling_is_reported (
 
 	assert subroutine.config.load_settings().releases.check is False
 	assert dict(subroutine.config.unknown_settings()) == {"releases.chek": "releases.check"}
+
+
+def test_me_says_nobody_agreed_to_ask_rather_than_nothing_newer (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2223`. Not checking is an answer of its own, and it is not *up to date*."""
+
+	world = test_api_tasks._world(session)
+	news = world.call("GET", "/v1/me").json()["releases"]
+
+	assert news == {
+		"checking": False, "asked_at": None, "failure": None, "releases": [], "plugins": {}
+	}
+
+
+def test_me_publishes_what_the_check_found_once_it_has_answered (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2223`. Before the check answers it says so; after, it carries the whole record.
+
+	**The fetch is held open until the test lets it go**, because asking who you are is itself a
+	signed-in request and starts the day's check - so without holding it this would be a race
+	between the check finishing and the document being built.
+	"""
+
+	world = test_api_tasks._world(session)
+	answer = threading.Event()
+	record = subroutine.releases.Published(
+		releases=FOUND.releases, plugins={"subroutine": "9.9.10"}
+	)
+
+	def held () -> subroutine.releases.Published:
+		"""Answer only once the test has read the document built before the answer."""
+
+		answer.wait(timeout=10)
+
+		return record
+
+	watch = subroutine.releases.Watch(fetch=held, clock=Clock())
+	world.application.state.releases = watch
+
+	waiting = world.call("GET", "/v1/me").json()["releases"]
+
+	assert waiting == {
+		"checking": True, "asked_at": None, "failure": None, "releases": [], "plugins": {}
+	}
+
+	answer.set()
+	_settled(watch)
+
+	answered = world.call("GET", "/v1/me").json()["releases"]
+
+	assert answered["checking"] is True
+	assert answered["asked_at"] is not None and answered["failure"] is None
+	assert answered["releases"] == [
+		{"version": "9.9.9", "schema_revision": "c" * 12, "date": "2026-09-16"}
+	]
+	assert answered["plugins"] == {"subroutine": "9.9.10"}
+
+
+def test_me_says_a_check_failed_rather_than_that_nothing_is_newer (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#2223`. The third null: asked, and could not find out, said as that and nothing else."""
+
+	world = test_api_tasks._world(session)
+	watch = _watching(world, Asking(failing=True), Clock())
+
+	world.call("GET", "/v1/tasks")
+	_settled(watch)
+
+	news = world.call("GET", "/v1/me").json()["releases"]
+
+	assert news["checking"] is True and news["asked_at"] is not None
+	assert news["failure"] == "Could not read the list of releases."
+	assert news["releases"] == [] and news["plugins"] == {}

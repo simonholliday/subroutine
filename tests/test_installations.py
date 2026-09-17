@@ -689,7 +689,7 @@ class TestWhatTheInstanceReports:
 	) -> None:
 		"""Not a constant, and not configuration: the version of the process that answered."""
 
-		answered = subroutine.views.me(session, _principal(session))
+		answered = subroutine.views.me(session, _principal(session), releases=None)
 
 		assert answered.instance_version == subroutine.__version__
 
@@ -705,7 +705,7 @@ class TestWhatTheInstanceReports:
 		value rather than a shape.
 		"""
 
-		answered = subroutine.views.me(session, _principal(session))
+		answered = subroutine.views.me(session, _principal(session), releases=None)
 
 		assert answered.schema_revision == subroutine.db.migrate.head_revision()
 
@@ -728,7 +728,7 @@ class TestWhatTheInstanceReports:
 			factory = subroutine.db.session.create_session_factory(engine)
 
 			with factory() as opened:
-				answered = subroutine.views.me(opened, _principal(opened))
+				answered = subroutine.views.me(opened, _principal(opened), releases=None)
 
 			assert answered.schema_revision is None
 

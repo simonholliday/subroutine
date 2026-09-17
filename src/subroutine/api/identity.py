@@ -13,6 +13,7 @@ same divergence ``views.py`` exists to prevent, met once more one endpoint at a 
 """
 
 import fastapi
+import starlette.requests
 
 import subroutine.api.dependencies
 import subroutine.api.routing
@@ -31,9 +32,13 @@ router = fastapi.APIRouter(
 	summary="Who am I, and what may I do?",
 )
 def me (
+	request: starlette.requests.Request,
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.Me:
 	"""Report the caller's identity, credential and effective permissions."""
 
-	return subroutine.views.me(session, actor)
+	# **What the instance has heard about releases, read and never asked for** (`#2223`).
+	return subroutine.views.me(
+		session, actor, releases=getattr(request.app.state, "releases", None)
+	)

@@ -4023,9 +4023,9 @@ def test_a_credential_listing_says_when_its_dates_are_this_machine_s (
 	monkeypatch.setattr(
 		subroutine.views,
 		"me",
-		lambda session, principal: answering(session, principal).model_copy(
-			update={"reader_timezone": None}
-		),
+		lambda session, principal, *, releases: answering(
+			session, principal, releases=releases
+		).model_copy(update={"reader_timezone": None}),
 	)
 	monkeypatch.setattr(subroutine.config, "system_timezone", lambda: "Pacific/Auckland")
 

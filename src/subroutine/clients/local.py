@@ -271,8 +271,10 @@ class Client:
 		goes through, so a scoped agent gets a scoped answer whichever transport it uses.
 		"""
 
+		# **No server, so nothing that asks** (`#2223`): a local instance says it is not
+		# checking, which is true, rather than borrowing an answer from somewhere else.
 		with self._opened() as (session, actor):
-			return subroutine.views.me(session, actor)
+			return subroutine.views.me(session, actor, releases=None)
 
 	def agenda (
 		self,
