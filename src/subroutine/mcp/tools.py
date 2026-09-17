@@ -1899,12 +1899,9 @@ def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
 	lines: list[str] = []
 
 	if entry.action == "updated":
-		lines.extend(
-			change.said
-			if change.before is None and change.after is None
-			else f"{change.said}: {change.before or 'nothing'} to {change.after or 'nothing'}"
-			for change in entry.changed
-		)
+		# **Through the one renderer every surface uses** (decision `#2823`), with a date left as
+		# ISO, which is what this surface sends everywhere else.
+		lines.extend(subroutine.views.change_in_words(change) for change in entry.changed)
 
 	# **Said in words where it was cut, and where the rest is** (`#2728`): an agent cannot tell
 	# an opening from a whole comment otherwise, and the headline above already names the item.

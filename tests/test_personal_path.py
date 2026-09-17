@@ -53,12 +53,12 @@ import subroutine.errors
 import subroutine.fanout
 import subroutine.views
 
-#: docs/design.md §13.5b, verbatim. A person setting up a to-do list has not asked about any of
-#: these, and meeting one means the personal path has started leaking the full model.
+#: docs/design.md §13.5b's words, less the three decision `#2823` lifted: *status*, *workspace*
+#: and *project* (Simon, 2026-09-17: *"'status' and 'workspace' are core terms for the product,
+#: we should use them"*, and project the same day). What is left names the machinery built for
+#: agents, which a person setting up a to-do list has not asked about, and meeting one means the
+#: personal path has started leaking it.
 FORBIDDEN = (
-	"workspace",
-	"status",
-	"project",
 	"criterion",
 	"verification",
 	"session",
@@ -67,8 +67,9 @@ FORBIDDEN = (
 
 #: Words §13.5b does not list and this product still never says to a person.
 #:
-#: **Kept apart from `FORBIDDEN` because that tuple is the specification verbatim**, and a test
-#: that quietly widens a quoted list stops being able to say what the specification requires.
+#: **Kept apart from `FORBIDDEN` because that tuple is the specification's list as decision
+#: `#2823` left it**, and a test that quietly widens a quoted list stops being able to say what
+#: was decided.
 #:
 #: *template* is the one that has bitten (`#1310`). The vocabulary was already decided —
 #: `views.THE_SERIES` is *"the repeat itself"* and `FROM_THE_REPEAT` is *"from repeat"* — and
@@ -2279,9 +2280,8 @@ def test_show_can_print_what_has_happened_to_an_item (
 
 	assert "History" in shown
 	assert "created" in shown
-	# The reader's word rather than the column (`SR#1187`). The changes feed has said it this
-	# way since it was written; the history said ``importance`` until both were given one map.
-	assert "changed how it is ranked" in shown
+	# One map for the feed and the history (`SR#1187`), in the plain names of decision `#2823`.
+	assert "changed importance" in shown
 	assert "commented" in shown, "a comment must reach the history — that is what #52 built"
 
 
@@ -9514,7 +9514,7 @@ def test_the_helpers_that_left_the_closure_can_be_called_directly () -> None:
 	# `workspace` — one of the seven words a person setting up a to-do list must never meet.
 	# Putting that into a reader's words is a pure function of one string, and it was reachable
 	# only through the command that printed it.
-	assert subroutine.cli.personal._in_this_persons_terms("workspace") == "this list"
+	assert subroutine.cli.personal._in_this_persons_terms("workspace") == "this workspace"
 
 	assert subroutine.cli.personal._in_this_persons_terms("nothing_it_knows") == (
 		"nothing_it_knows"
@@ -10580,8 +10580,9 @@ def test_a_change_line_names_no_column_and_no_table (
 	for word in FORBIDDEN:
 		assert word not in transcript.lower(), transcript
 
-	assert "when it comes back" in transcript, "the defer is still reported, in words"
-	assert "your account" in transcript and "this list" in transcript
+	assert "deferred until" in transcript, "the defer is still reported, in words"
+	assert "snoozed" not in transcript, "a column name reached the feed"
+	assert "your account" in transcript and "this workspace" in transcript
 
 
 def test_every_column_an_event_can_name_reads_as_words (

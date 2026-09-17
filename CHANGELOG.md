@@ -16,6 +16,16 @@ upgrade involves.
 
 ### Changed
 
+- **A change reads in plain words on every surface.** `subroutine journal`, `show --history`,
+  `subroutine changes`, the agent tools and the browser's journal name what changed as status,
+  project, workspace, assignee, deadline, starts, deferred until, repeats, time estimate and
+  so on, rather than phrases like *how it is going*. A line reads *deadline: never to Fri 18
+  Sep*: a date as a date in the item's own timezone, with its time only when one is set, a
+  duration with its unit, *never* or *nobody* for an empty side, and a status, type, project
+  or title in quotes. Marking something done is one line, and a repeat names its rule rather
+  than a number. In `/v1/journal` each change gains `empty`, `quoted` and `dated`, and a date
+  is sent as `2026-09-18` or `2026-09-18T17:00`.
+
 - **Text in the browser is two pixels larger at every size.** Titles and written text are
   17px, and what sits beside them - dates, numbers, filters and buttons - is 15px, so a page
   reads at the size of the sites around it without zooming. Headings moved with it and keep

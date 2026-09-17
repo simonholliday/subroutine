@@ -1471,15 +1471,14 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 	plain, failed = _called(bound, "subroutine_show", ref=ref)
 
 	assert not failed, plain
-	assert "changed how it is ranked" not in plain
+	assert "changed importance" not in plain
 
 	shown, failed = _called(bound, "subroutine_show", ref=ref, history=True)
 
 	assert not failed, shown
 	assert "created" in shown
-	# The reader's word, not the column (`SR#1187`) — ``importance`` is a database name and
-	# this surface mentions one nowhere else.
-	assert "changed how it is ranked" in shown
+	# The reader's word, not the column (`SR#1187`), and the plain one since decision `#2823`.
+	assert "changed importance" in shown
 	assert "commented" in shown
 
 
@@ -7799,7 +7798,7 @@ def test_a_change_an_agent_reads_is_named_in_the_readers_words (
 	feed, failed = _called(bound, "subroutine_changes")
 	assert not failed, feed
 
-	assert "how it is going" in feed, f"a status change should read as words:\n{feed}"
+	assert "changed status" in feed, f"a status change should read as words:\n{feed}"
 
 	for column in ("status_id", "assignee_id", "claimed_by_id", "snoozed_is_all_day"):
 		assert column not in feed, f"{column} is a database name and reached an agent"
@@ -7814,8 +7813,8 @@ def test_the_two_surfaces_name_a_changed_field_identically () -> None:
 	agreeing is exactly what hid the original defect.
 	"""
 
-	assert subroutine.views.field_in_words("status_id") == "how it is going"
-	assert subroutine.views.field_in_words("assignee_id") == "who has it"
+	assert subroutine.views.field_in_words("status_id") == "status"
+	assert subroutine.views.field_in_words("assignee_id") == "assignee"
 
 	# A column nobody has mapped still loses its internal suffix rather than reaching a reader.
 	assert subroutine.views.field_in_words("some_new_column_id") == "some new column"

@@ -609,8 +609,8 @@ def test_a_change_says_what_it_moved_between_and_not_which_rows (
 ) -> None:
 	"""45 of 51 id-valued changes in one real day were `status_id` — `#1430`.
 
-	`views.field_in_words` already maps the *column* to a phrase, so the feed can say *si changed
-	how it is going*. **It does not resolve the values**, so what a reader is shown is
+	`views.field_in_words` already maps the *column* to a name, so the feed can say *si changed
+	status*. **It does not resolve the values**, so what a reader is shown is
 	`019fad98-431... -> 019fad98-431...`: two ids that are visibly different and mean nothing,
 	on the single commonest change there is.
 	"""
@@ -627,7 +627,7 @@ def test_a_change_says_what_it_moved_between_and_not_which_rows (
 	assert moves, "nothing changed status, so this asserts nothing"
 
 	for move in moves:
-		assert move["said"] == "how it is going", move
+		assert move["said"] == "status" and move["quoted"], move
 		assert move["before"] and move["after"], (
 			f"a status change named neither side, so a reader cannot tell what happened: {move}"
 		)
@@ -754,3 +754,143 @@ def test_the_journal_says_what_it_covers (
 
 	assert answered.status_code == 200, answered.text
 	assert answered.json()["covers"], "the journal does not say which kinds it is a journal of"
+
+
+def _updated_lines (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session, ref: int
+) -> list[subroutine.views.JournalEntry]:
+	"""Return the updates a journal records for one item, oldest first, as the view reads them."""
+
+	_settled(session)
+
+	return [
+		subroutine.views.JournalEntry.model_validate(entry)
+		for entry in reversed(_entries(world, limit=200))
+		if entry["item_ref"] == ref and entry["action"] == "updated"
+	]
+
+
+def test_a_change_is_written_as_a_person_reads_it (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""Decision `#2823` (Simon, 2026-09-17), read off real changes rather than a copy of the rules.
+
+	**One line per fact, in plain names**: a date as a date in the item's own zone, with its
+	o'clock only where one is stored; a duration with its unit; an empty side as *never* or
+	*nobody*; a chosen name in quotes; and marking something done as its status alone. The same
+	entries through the terminal and the agent tools, which differ only in how a date is written.
+	"""
+
+	created = world.call(
+		"POST", "/v1/tasks", json={"title": "Water the plants", "timezone": "Europe/London"}
+	)
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+	person = f"@{world.user.username}"
+
+	for step in (
+		# **The zone goes with every dated change**: a date sent without one is read in the
+		# account's zone, and the item's zone moves to say so, which is a line of its own.
+		{"due": "2030-09-18", "timezone": "Europe/London"},
+		# 16:00 UTC is 17:00 in London in September, which is the item's zone and so the o'clock.
+		{"due": "2030-09-18T16:00:00Z", "timezone": "Europe/London"},
+		{"estimate": "30m"},
+		{"reminder": "1h"},
+		{"importance": 4, "urgency": 2},
+		{"status": "blocked"},
+		{"assignee": world.user.username},
+		{"snooze": "2030-09-17", "timezone": "Europe/London"},
+		{"title": "Go to the shop to water the plants"},
+		{"status": "done"},
+	):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=step)
+
+		assert answered.status_code == 200, (step, answered.text)
+
+	entries = _updated_lines(world, session, ref)
+
+	assert [
+		[(change.field, change.said, change.before, change.after) for change in entry.changed]
+		for entry in entries
+	] == [
+		[("due_at", "deadline", None, "2030-09-18")],
+		[("due_at", "deadline", "2030-09-18", "2030-09-18T17:00")],
+		[("estimate_minutes", "time estimate", None, "30m")],
+		[("reminder_minutes", "reminder", None, "1h before")],
+		[("importance", "importance", None, "4"), ("urgency", "urgency", None, "2")],
+		[("status_id", "status", "open", "blocked")],
+		[("assignee_id", "assignee", None, person)],
+		[("snoozed_until", "deferred until", None, "2030-09-17")],
+		[("title", "title", "Water the plants", "Go to the shop to water the plants")],
+		[("status_id", "status", "blocked", "done")],
+	]
+
+	terminal = [line for entry in entries for line in subroutine.cli.personal._journal_detail(entry)]
+	agent = [line for entry in entries for line in subroutine.mcp.tools._journal_detail(entry)]
+
+	assert terminal == [
+		"deadline: never to Wed 18 Sep 2030",
+		"deadline: Wed 18 Sep 2030 to Wed 18 Sep 2030 at 17:00",
+		"time estimate: nothing to 30m",
+		"reminder: nothing to 1h before",
+		"importance: nothing to 4",
+		"urgency: nothing to 2",
+		'status: "open" to "blocked"',
+		f"assignee: nobody to {person}",
+		"deferred until: never to Tue 17 Sep 2030",
+		'title: "Water the plants" to "Go to the shop to water the plants"',
+		'status: "blocked" to "done"',
+	], terminal
+	assert agent == [
+		"deadline: never to 2030-09-18",
+		"deadline: 2030-09-18 to 2030-09-18T17:00",
+		*terminal[2:8],
+		"deferred until: never to 2030-09-17",
+		*terminal[9:],
+	], agent
+
+
+def test_a_repeat_is_its_rule_and_never_the_item_holding_it (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""Decision `#2823`: *repeats: never to every Monday*, not *how it repeats: nothing to #4*.
+
+	**Measured before it was built**: making an ordinary task repeat attaches it to a series, a
+	hidden item of its own, and the journal named that item's number — a ref nobody is shown and
+	nothing a reader could open, in place of the rule the change was.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Feed the fish"})
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+	answered = world.call("PATCH", f"/v1/tasks/{ref}", json={"recurrence": "every monday"})
+
+	assert answered.status_code == 200, answered.text
+
+	lines = [change for entry in _updated_lines(world, session, ref) for change in entry.changed]
+
+	assert [change.said for change in lines] == ["repeats"], lines
+
+	(repeat,) = lines
+
+	assert repeat.before is None and repeat.empty == "never", repeat
+	assert repeat.after and "monday" in repeat.after.lower(), repeat
+	assert "#" not in repeat.after, f"a repeat named the item holding it: {repeat}"
+
+
+def test_a_fact_is_named_once_however_many_columns_it_moved () -> None:
+	"""Decision `#2823`'s *one line per fact*, in the feed's half: names, deduplicated and folded."""
+
+	assert subroutine.views.fields_in_words({"status_id", "completed_at"}) == ["status"]
+	assert subroutine.views.fields_in_words({"due_at", "due_is_all_day"}) == ["deadline"]
+	assert subroutine.views.fields_in_words({"assignee_id", "assigned_by_id"}) == ["assignee"]
+	assert subroutine.views.fields_in_words({"snoozed_until", "snoozed_is_all_day"}) == [
+		"deferred until"
+	]
+	# Alone, each still says what moved.
+	assert subroutine.views.fields_in_words({"assigned_by_id"}) == ["assigned by"]
+	assert subroutine.views.fields_in_words({"completed_at"}) == ["completed"]

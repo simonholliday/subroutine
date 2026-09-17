@@ -149,14 +149,41 @@ export function movedBetween (entry) {
 
 		**A change with neither side named is its phrase alone**, which is what a text change
 		always is here (`#2728`) and what an id nothing can name becomes (`#1430`).
+
+		**`views.change_in_words` in the browser's words** (decision `#2823`): an empty side as
+		*never*, *nobody* or *nothing*, a chosen name in quotes, and a date in the reader's own
+		locale. A test drives both over the same changes.
 	*/
 	if (entry.action !== "updated") return [];
 
 	return (entry.changed || []).map((change) => (
 		change.before === null && change.after === null
 			? change.said
-			: `${change.said}: ${change.before ?? "nothing"} to ${change.after ?? "nothing"}`
+			: `${change.said}: ${sideInWords(change, change.before)} to ${sideInWords(change, change.after)}`
 	));
+}
+
+function sideInWords (change, value) {
+	/* One side of a change as it is read: its empty word, a day, quoted, or as it is. An
+	   instance older than the words sends no `empty`, and every empty side was *nothing*. */
+	if (value === null || value === undefined) return change.empty || "nothing";
+
+	if (change.dated) return dayInWords(value);
+
+	return change.quoted ? `"${value}"` : value;
+}
+
+function dayInWords (written) {
+	/* A journal's date arrives as `2026-09-18` or `2026-09-18T17:00`, **already in the item's
+	   own zone**, so the day is written from its text and never converted — `day` returns a
+	   bare date untouched for exactly that reason — and the time is the text after it. */
+	const text = String(written);
+
+	if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return text;
+
+	const shown = day(text.slice(0, 10));
+
+	return text.length > 10 ? `${shown}, ${text.slice(11, 16)}` : shown;
 }
 
 function Entry ({ entry, workspace }) {

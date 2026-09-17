@@ -1286,12 +1286,27 @@ class Change(pydantic.BaseModel):
 	#: What it moved from and to, named where the value is an id and rendered plainly where it
 	#: is not.
 	#:
-	#: **Null means *nothing*, and an unresolvable id is null too.** A UUID in a journal is
-	#: noise a reader has to learn to skip, and the phrase alone — *changed how it repeats* —
-	#: is both shorter and honest. `#1430` records that choice; the guard is that no entry ever
-	#: renders an identifier.
+	#: **Null means *empty*, and an unresolvable id is null too.** A UUID in a journal is
+	#: noise a reader has to learn to skip, and the phrase alone — *changed repeats* — is both
+	#: shorter and honest. `#1430` records that choice; the guard is that no entry ever renders
+	#: an identifier.
 	before: str | None = None
 	after: str | None = None
+
+	#: What an empty side reads as: *never* for a date or a repeat, *nobody* for a person, and
+	#: *nothing* otherwise — decision `#2823`. Defaulted, so an instance that predates it still
+	#: answers with the word every empty side used to be.
+	empty: str = "nothing"
+
+	#: Whether a side is a name somebody chose — a status, a type, a project, a title — and so
+	#: written in quotes, because a title can contain " to " (decision `#2823`).
+	quoted: bool = False
+
+	#: Whether both sides are days, as ``2026-09-18``, or a day and a time, as
+	#: ``2026-09-18T17:00`` — **already in the item's own zone**, so a surface writes the text
+	#: in its own style and never converts it (decision `#1088`: a day is a label). ISO is what
+	#: an agent is sent; the terminal and the browser write it as a person reads a date.
+	dated: bool = False
 
 
 class JournalEntry(pydantic.BaseModel):
@@ -3862,29 +3877,38 @@ def journal_entry (
 	changed = []
 
 	if isinstance(row.changes, dict):
-		for field, moved in row.changes.items():
-			if not isinstance(moved, dict):
+		moved = {field: sides for field, sides in row.changes.items() if isinstance(sides, dict)}
+
+		for field in moved:
+			# **One line per fact** (decision `#2823`): a flag, who assigned it, a claim's times,
+			# a repeat's other columns and the moment something was finished are left out
+			# wherever the fact they belong to moved too.
+			if any(other in moved for other in _FOLDED_INTO.get(field, ())):
 				continue
 
-			lookup = subroutine.domain.journal.NAMED_BY.get(field)
+			shape = {
+				"said": field_in_words(field),
+				"empty": "never" if field in _NEVER else "nobody" if field in _NOBODY else "nothing",
+				"quoted": field in _QUOTED,
+				"dated": field in _DATED,
+			}
 
 			# **The phrase alone for a whole text** (`#2728`), before either side is read, so no
-			# rendering of a value can reach one.
-			if field in subroutine.domain.journal.WHOLE_TEXTS:
-				changed.append(Change(field=field, said=field_in_words(field)))
+			# rendering of a value can reach one — and for a column whose values a person does
+			# not read (:data:`_SAID_ALONE`).
+			if field in subroutine.domain.journal.WHOLE_TEXTS or field in _SAID_ALONE:
+				changed.append(Change(field=field, **shape))
 
 				continue
 
 			changed.append(
 				Change(
 					field=field,
-					said=field_in_words(field),
-					before=_side_of_a_change(
-						moved.get("from"), lookup=lookup, vocabulary=vocabulary
+					before=_moved_in_words(
+						field, moved, "from", vocabulary=vocabulary, about=about
 					),
-					after=_side_of_a_change(
-						moved.get("to"), lookup=lookup, vocabulary=vocabulary
-					),
+					after=_moved_in_words(field, moved, "to", vocabulary=vocabulary, about=about),
+					**shape,
 				)
 			)
 
@@ -4356,63 +4380,145 @@ _HAPPENED: dict[tuple[str, str], str] = {
 }
 
 
-#: What a changed column is called by the person whose task it is (`#1187`).
+#: What a changed column is called by the person reading about it — `#1187`, and since decision
+#: `#2823` its plain name.
 #:
-#: **Moved here from `cli/personal` on 2026-08-24, where it had served one surface since it was
-#: written.** The terminal built it to satisfy §13.5b — a status change would otherwise have
-#: printed one of the seven words that path never uses — so readable column names were a *side
-#: effect* rather than the goal, and nobody reading the agent surface had any reason to think a
-#: solution already existed one module away. An agent was told ``changed status_id``, which names
-#: a column nothing else on that surface mentions, while the terminal said *how it is going*.
+#: **Moved here from `cli/personal` on 2026-08-24**, where it had served one surface since it was
+#: written, so the terminal, the agent tools and the browser all answer from one map.
 #:
-#: Several columns collapse to one phrase deliberately: a date and its all-day flag are one fact
-#: to a reader and always move together, so listing both says the same thing twice.
+#: **Plain names since decision `#2823`** (Simon, 2026-09-17). The terminal built this map to
+#: satisfy §13.5b — a status change would otherwise have printed one of the words that path
+#: never used — and so said *how it is going*, *where it is filed* and *which list it is in*.
+#: *"'status' and 'workspace' are core terms for the product, we should use them"*, and project
+#: the same day, so the phrases written to avoid them went, with the rest of their family.
+#: **A behaviour reads as what it does** (*repeats*, *deferred until*) and a thing by its name.
+#:
+#: Several columns share a name deliberately: a date and its all-day flag are one fact to a
+#: reader and always move together, so listing both says the same thing twice.
+#: :data:`_FOLDED_INTO` is which one a line keeps.
 _A_CHANGE_TO = {
-	"assignee_id": "who has it",
-	"assigned_by_id": "who has it",
-	"claimed_by_id": "who is holding it",
-	"claim_expires_at": "who is holding it",
-	"claimed_at": "who is holding it",
-	"completed_at": "whether it is done",
-	"due_at": "the deadline",
-	"due_is_all_day": "the deadline",
-	"estimate_minutes": "how long it takes",
-	"importance": "how it is ranked",
-	"urgency": "how it is ranked",
-	"parent_task_id": "what it is part of",
-	"project_id": "where it is filed",
-	"recurrence_anchor": "how it repeats",
-	"recurrence_rule": "how it repeats",
-	"recurrence_text": "how it repeats",
+	"assignee_id": "assignee",
+	"assigned_by_id": "assigned by",
+	"claimed_by_id": "holder",
+	"claim_expires_at": "held until",
+	"claimed_at": "held since",
+	"completed_at": "completed",
+	"due_at": "deadline",
+	"due_is_all_day": "deadline",
+	"estimate_minutes": "time estimate",
+	"importance": "importance",
+	"urgency": "urgency",
+	"parent_task_id": "parent",
+	"project_id": "project",
+	"recurrence_anchor": "repeats",
+	"recurrence_rule": "repeats",
+	"recurrence_text": "repeats",
 	# **Joins the family rather than naming the join** (`#1310`). This column moving means the
 	# row was attached to a series or taken out of one, which is a change to how it repeats —
 	# and *template* is a word this product deliberately never says to a person, since
 	# `THE_SERIES` is "the repeat itself" and `FROM_THE_REPEAT` is "from repeat".
-	"recurrence_template_id": "how it repeats",
-	"recurrence_trigger": "how it repeats",
+	"recurrence_template_id": "repeats",
+	"recurrence_trigger": "repeats",
 	# Says whether this row is the repeat itself rather than one turn of it, which is the same
 	# fact about repeating that the four above carry.
-	"is_template": "how it repeats",
-	"reminder_minutes": "when it reminds you",
-	"snoozed_until": "when it comes back",
-	"snoozed_is_all_day": "when it comes back",
+	"is_template": "repeats",
+	"reminder_minutes": "reminder",
+	"snoozed_until": "deferred until",
+	"snoozed_is_all_day": "deferred until",
 	"spent_minutes": "time spent",
-	"starts_at": "when it starts",
-	"starts_is_all_day": "when it starts",
-	"ends_at": "when it is over",
-	"status_id": "how it is going",
-	"type_id": "what kind it is",
-	"owner_id": "whose it is",
+	"starts_at": "starts",
+	"starts_is_all_day": "starts",
+	"ends_at": "ends",
+	"status_id": "status",
+	"type_id": "type",
+	"owner_id": "owner",
 	# A project's starting shape. Read by nothing today — the column is kept for `#1029` — and
 	# it is here because the guard beside this asks every column rather than the ones that have
 	# moved so far.
-	"template": "how it was set up",
-	"timezone": "its timezone",
+	"template": "setup",
+	"timezone": "timezone",
 	# Never moves on an item — §5.4 refuses a cross-workspace move outright — and it is here
 	# because the guard beside this asks every column rather than the ones that have moved so
 	# far. A phrase for something that cannot happen costs a line; a leak costs the rule.
-	"workspace_id": "which list it is in",
+	"workspace_id": "workspace",
 }
+
+
+#: A column a journal line leaves out when another column of the same fact moved in the same
+#: change — decision `#2823`'s *one line per fact*.
+#:
+#: **The flag goes, and what it qualifies stays**: a deadline and whether it is all day are
+#: one fact, and the flag's value is how the date is written rather than a line of its own. So
+#: are an assignee and who assigned it, a claim and its times, a repeat's rule and the columns
+#: beside it, and a status and the moment it was finished — *status: "blocked" to "done"* says
+#: what *completed: never to 17 Sep* would say again.
+#:
+#: Left out only where one of the values moved too. A flag alone still says its fact changed,
+#: by its name and nothing else.
+_FOLDED_INTO: dict[str, tuple[str, ...]] = {
+	"due_is_all_day": ("due_at",),
+	"starts_is_all_day": ("starts_at", "ends_at"),
+	"snoozed_is_all_day": ("snoozed_until",),
+	"assigned_by_id": ("assignee_id",),
+	"claim_expires_at": ("claimed_by_id",),
+	"claimed_at": ("claimed_by_id",),
+	"recurrence_text": ("recurrence_rule", "recurrence_template_id"),
+	"recurrence_anchor": ("recurrence_rule", "recurrence_template_id"),
+	"recurrence_trigger": ("recurrence_rule", "recurrence_template_id"),
+	"is_template": ("recurrence_rule", "recurrence_template_id"),
+	"completed_at": ("status_id",),
+}
+
+#: Columns whose values say nothing a person reads, so a line about one is its name alone.
+#:
+#: **A flag is how a date is written**, not a fact to print as *True to False*, and a repeat's
+#: typed words, anchor and trigger are what its rule already describes — `#925`'s rule that a
+#: repeat is read back from what was stored, never from what somebody typed.
+_SAID_ALONE = frozenset(
+	{
+		"due_is_all_day",
+		"starts_is_all_day",
+		"snoozed_is_all_day",
+		"is_template",
+		"recurrence_text",
+		"recurrence_anchor",
+		"recurrence_trigger",
+	}
+)
+
+#: The dated columns, each with the flag that says whether it is a whole day (`None` for an
+#: instant, which always has its o'clock).
+#:
+#: **One flag for both edges of a span** — `#1235`: ``starts_is_all_day`` describes ``ends_at``
+#: too, because a field that cannot take two values is not a field.
+_DATED: dict[str, str | None] = {
+	"due_at": "due_is_all_day",
+	"starts_at": "starts_is_all_day",
+	"ends_at": "starts_is_all_day",
+	"snoozed_until": "snoozed_is_all_day",
+	"completed_at": None,
+	"claim_expires_at": None,
+	"claimed_at": None,
+}
+
+#: The columns held in minutes, and how a value is written with its unit — `show`'s words.
+_DURATIONS: dict[str, str] = {
+	"estimate_minutes": "{}",
+	"spent_minutes": "{}",
+	"reminder_minutes": "{} before",
+}
+
+#: What an empty side reads as (Simon, 2026-09-17: *where the item is a date/time — "nothing"
+#: could become "never"*). *Never* suits a repeat as well as a date, and *nobody* is the same
+#: idea for a person; every other empty side is *nothing*.
+_NEVER = frozenset({*_DATED, "recurrence_rule", "recurrence_template_id"})
+_NOBODY = frozenset({"assignee_id", "assigned_by_id", "claimed_by_id", "owner_id"})
+
+#: The values quoted on the way out: a name somebody chose. **A title can contain " to "** —
+#: *title: Go to the shop to Go to the market* is a riddle — and a status, a type or a project
+#: is written the same way so the rule is one a reader can see. Dates, durations, numbers and
+#: people are never quoted.
+_QUOTED = frozenset({"status_id", "type_id", "project_id", "workspace_id", "title"})
 
 
 def field_in_words (name: str) -> str:
@@ -4433,6 +4539,174 @@ def field_in_words (name: str) -> str:
 		name = name.removesuffix(suffix)
 
 	return name.replace("_", " ")
+
+
+def fields_in_words (names: typing.Iterable[str]) -> list[str]:
+	"""Return what changed as the names a person reads, one per fact — decision `#2823`.
+
+	The feed's half of the rule :func:`journal_entry` applies to values: a column is left out
+	when a column of the same fact moved with it (:data:`_FOLDED_INTO`), so marking something
+	done reads *changed status* rather than *changed completed, status*.
+	"""
+
+	present = set(names)
+
+	return sorted(
+		{
+			field_in_words(name)
+			for name in present
+			if not any(other in present for other in _FOLDED_INTO.get(name, ()))
+		}
+	)
+
+
+def change_in_words (
+	change: Change, *, day: typing.Callable[[str], str] | None = None
+) -> str:
+	"""Return one change as the line a person reads — decision `#2823`, in one place.
+
+	*deadline: never to 2026-09-18*, *status: "open" to "blocked"*, *assignee: nobody to @si*.
+	A change naming neither side is its name alone, which is what a whole text always is here.
+
+	``day`` writes a dated side in a surface's own style. **Absent, the ISO form stands**, which
+	is what an agent is sent; the terminal passes the way it writes a date. The browser has the
+	same rule in ``journal.js``, and a test drives both over the same changes.
+	"""
+
+	if change.before is None and change.after is None:
+		return change.said
+
+	before = _side_in_words(change, change.before, day)
+	after = _side_in_words(change, change.after, day)
+
+	return f"{change.said}: {before} to {after}"
+
+
+def _side_in_words (
+	change: Change, value: str | None, day: typing.Callable[[str], str] | None
+) -> str:
+	"""Return one side of a change as it is read: its empty word, a day, quoted, or as it is."""
+
+	if value is None:
+		return change.empty
+
+	if change.dated and day is not None:
+		return day(value)
+
+	return f'"{value}"' if change.quoted else value
+
+
+def _moved_in_words (
+	field: str,
+	moved: dict[str, dict[str, typing.Any]],
+	side: str,
+	*,
+	vocabulary: Vocabulary,
+	about: subroutine.domain.events.Described | None,
+) -> str | None:
+	"""Return one side of one change as words, or ``None`` where it is empty — decision `#2823`.
+
+	``moved`` is the whole change, because a date is written by the flag that moved beside it
+	and a repeat's rule by the anchor that did. ``side`` is ``"from"`` or ``"to"``.
+	"""
+
+	value = moved[field].get(side)
+
+	if value is None:
+		return None
+
+	if field in _DATED:
+		return _dated_in_words(field, value, moved, side, about=about)
+
+	if field in _DURATIONS:
+		try:
+			minutes = int(value)
+
+		except (TypeError, ValueError):
+			return str(value)
+
+		return _DURATIONS[field].format(subroutine.domain.durations.humanize(minutes))
+
+	if field == "recurrence_rule":
+		if "recurrence_anchor" in moved:
+			anchor = moved["recurrence_anchor"].get(side)
+
+		else:
+			anchor = None if about is None else about.recurrence_anchor
+
+		return _repeat_in_words(str(value), anchor)
+
+	if field == "recurrence_template_id":
+		# **The series' rule, never the hidden item holding it** — decision `#2823`. The repeat
+		# itself is a row nobody is shown, so its number told a reader nothing, and its rule is
+		# what the change was. Read as the series stands now: a change to the rule records no
+		# entry here of its own (`#2825`).
+		found = subroutine.domain.journal.identifier(value)
+		series = None if found is None else vocabulary.parents.get(found)
+
+		if series is None or series.get("recurrence_rule") is None:
+			return None
+
+		return _repeat_in_words(str(series["recurrence_rule"]), series.get("recurrence_anchor"))
+
+	return _side_of_a_change(
+		value, lookup=subroutine.domain.journal.NAMED_BY.get(field), vocabulary=vocabulary
+	)
+
+
+def _dated_in_words (
+	field: str,
+	value: typing.Any,
+	moved: dict[str, dict[str, typing.Any]],
+	side: str,
+	*,
+	about: subroutine.domain.events.Described | None,
+) -> str:
+	"""Return a dated side as ``2026-09-18`` or ``2026-09-18T17:00``, in the item's own zone.
+
+	**Whole or not is read from the flag, never from the clock** (`#1298`): the flag's own side
+	where it moved in this change, and the item's flag as it stands where it did not. §6.5 puts
+	an all-day deadline at the last microsecond of its day, so *"is it midnight"* would call
+	every one of them timed.
+
+	**In the item's zone**, like every date this product writes (decision `#1088`): converting to
+	a reader's clock would move an o'clock, and a whole day to a different day.
+	"""
+
+	try:
+		instant = datetime.datetime.fromisoformat(str(value))
+
+	except ValueError:
+		return _to_the_minute(value)
+
+	if instant.tzinfo is None:
+		instant = instant.replace(tzinfo=datetime.UTC)
+
+	flag = _DATED[field]
+	whole = False
+
+	if flag is not None and flag in moved:
+		whole = moved[flag].get(side) in (True, "true", "True")
+
+	elif flag is not None and about is not None:
+		whole = bool(getattr(about, flag))
+
+	zone = (None if about is None else about.timezone) or subroutine.domain.schedule.DEFAULT_TIMEZONE
+
+	if whole:
+		return subroutine.domain.schedule.day_in(instant, zone).isoformat()
+
+	return instant.astimezone(subroutine.domain.dates.zone(zone)).strftime("%Y-%m-%dT%H:%M")
+
+
+def _repeat_in_words (rule: str, anchor: str | None) -> str:
+	"""Return a stored repeat as its sentence, or as stored where it cannot be read."""
+
+	try:
+		return subroutine.domain.recurrence.describe(rule, anchor=anchor)
+
+	except (ValueError, subroutine.errors.SubroutineError):
+		return rule
 
 
 def _a_link (event: Event) -> str | None:
@@ -4495,9 +4769,9 @@ def happened (event: Event) -> str:
 	if event.action != "updated" or not event.changes:
 		return event.action
 
-	# **A set, because the map collapses pairs.** A defer moves `snoozed_until` and
+	# **One name per fact** (decision `#2823`). A defer moves `snoozed_until` and
 	# `snoozed_is_all_day` together and they are one fact to a reader.
-	return "changed " + ", ".join(sorted({field_in_words(name) for name in event.changes}))
+	return "changed " + ", ".join(fields_in_words(event.changes))
 
 
 def _holding_up (

@@ -792,6 +792,18 @@ class Described(typing.NamedTuple):
 	#: projects its reader may be told about.
 	project_id: uuid.UUID | None = None
 
+	#: **How a task's dates are written, as it stands** — decision `#2823`. A journal writes a
+	#: date in the item's own zone and as a whole day where it is one, and a change carries
+	#: the flag only when the flag moved too. The rows are loaded here to name the item
+	#: anyway, so these are columns rather than queries. Nothing else carries a date.
+	timezone: str | None = None
+	due_is_all_day: bool = False
+	starts_is_all_day: bool = False
+	snoozed_is_all_day: bool = False
+
+	#: What a repeat counts from, which is half of reading its rule back as a sentence.
+	recurrence_anchor: str | None = None
+
 
 def descriptions (
 	session: sqlalchemy.orm.Session,
@@ -835,7 +847,15 @@ def descriptions (
 	if wanted["task"]:
 		for one in session.scalars(sqlalchemy.select(task).where(task.id.in_(wanted["task"]))):
 			found[one.id] = Described(
-				ref=one.ref, title=one.title, type_id=one.type_id, project_id=one.project_id
+				ref=one.ref,
+				title=one.title,
+				type_id=one.type_id,
+				project_id=one.project_id,
+				timezone=one.timezone,
+				due_is_all_day=one.due_is_all_day,
+				starts_is_all_day=one.starts_is_all_day,
+				snoozed_is_all_day=one.snoozed_is_all_day,
+				recurrence_anchor=one.recurrence_anchor,
 			)
 
 	if wanted["document"]:

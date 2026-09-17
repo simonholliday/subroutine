@@ -1517,7 +1517,7 @@ class Located:
 #: What an event is about, when it is about the model rather than about an item. Only these
 #: two arise: everything else an event names has a title, which is what the line prints. §13.5b
 #: forbids both words on this path, and ``subroutine init`` writes one of each.
-_AN_EVENT_ABOUT = {"workspace": "this list", "workspace_member": "your account"}
+_AN_EVENT_ABOUT = {"workspace": "this workspace", "workspace_member": "your account"}
 
 # --- Helpers that need nothing from the command closure -------------------------------
 #
@@ -3038,7 +3038,7 @@ def _change_line (event: subroutine.views.Event) -> str:
 	if event.entity_type == "comment":
 		verb = f"{verb} a comment on"
 
-	fields = sorted({subroutine.views.field_in_words(name) for name in (event.changes or {})})
+	fields = subroutine.views.fields_in_words(event.changes or {})
 	listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
 	return f"{verb:<12}  {named}{listed}"
@@ -3087,19 +3087,14 @@ def _journal_detail (entry: subroutine.views.JournalEntry) -> list[str]:
 	so rendering those would put twenty lines under *filed it* and bury everything else.
 	"""
 
-	lines = []
+	lines: list[str] = []
 
 	if entry.action == "updated":
-		for change in entry.changed:
-			if change.before is None and change.after is None:
-				# Both sides unnameable — an id nobody has a lookup for. The phrase alone is
-				# the honest answer and is what `#1430` chose over rendering a UUID.
-				lines.append(change.said)
-
-			else:
-				lines.append(
-					f"{change.said}: {change.before or 'nothing'} to {change.after or 'nothing'}"
-				)
+		# **Through the one renderer every surface uses** (decision `#2823`), with a date written
+		# the way this program writes one.
+		lines.extend(
+			subroutine.views.change_in_words(change, day=_iso_in_words) for change in entry.changed
+		)
 
 	# **The mark is drawn from the flag** (`#2728`), never read out of the text.
 	if entry.said:
@@ -12599,6 +12594,23 @@ def _dated (day: datetime.date, *, today: datetime.date | None = None) -> str:
 		return bare
 
 	return f"{bare} {day.year}"
+
+
+def _iso_in_words (written: str) -> str:
+	"""Write a journal's dated side as this program writes a date — decision `#2823`.
+
+	The journal sends ``2026-09-18`` or ``2026-09-18T17:00``, already in the item's own zone,
+	so this only restyles the text: *Fri 18 Sep*, or *Fri 18 Sep at 17:00*. Anything else is
+	written as it came, rather than guessed at.
+	"""
+
+	try:
+		day = datetime.date.fromisoformat(written[:10])
+
+	except ValueError:
+		return written
+
+	return f"{_dated(day)} at {written[11:16]}" if len(written) > 10 else _dated(day)
 
 
 def _is_late (item: Item, *, now: datetime.datetime) -> bool:

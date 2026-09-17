@@ -135,7 +135,7 @@ JOURNAL_ENTRIES = [
 		action="updated", entity_type="task",
 		changed=[
 			subroutine.views.Change(
-				field="status_id", said="how it is going", before="Open", after="In progress"
+				field="status_id", said="status", before="Open", after="In progress", quoted=True
 			),
 			subroutine.views.Change(field="description", said="description"),
 		],
@@ -17799,8 +17799,56 @@ def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Pa
 
 	assert [entry["seq"] for entry in merged] == [14, 13, 12, 11]
 	assert grouped == [[12, 11], [3]], grouped
-	assert moved == ["how it is going: Open to In progress", "description"], moved
+	assert moved == ['status: "Open" to "In progress"', "description"], moved
 	assert verb == "created a comment on"
+
+
+def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Decision `#2823`, in the browser: ``movedBetween`` is ``views.change_in_words``'s twin.
+
+	**Where the two write the same thing they write it the same way** — an empty side as its
+	word, a chosen name in quotes, a text change by its name alone — and a date is the one side
+	they differ on by design: ISO for an agent, the reader's own locale here, with the time
+	after it where one is stored. The day is never asserted as spelled (`#2252`).
+	"""
+
+	changes = [
+		subroutine.views.Change(
+			field="due_at", said="deadline", after="2030-09-18T17:00", empty="never", dated=True
+		),
+		subroutine.views.Change(
+			field="snoozed_until", said="deferred until", before="2030-09-16", empty="never",
+			dated=True,
+		),
+		subroutine.views.Change(field="assignee_id", said="assignee", after="@si", empty="nobody"),
+		subroutine.views.Change(
+			field="title", said="title", before="Go to the shop", after="Go to the market",
+			quoted=True,
+		),
+		subroutine.views.Change(field="description", said="description"),
+	]
+	entry = {**JOURNAL_ENTRIES[1], "changed": [change.model_dump(mode="json") for change in changes]}
+
+	(browser,) = _views(tmp_path, [("movedBetween", entry)])
+	agent = [subroutine.views.change_in_words(change) for change in changes]
+
+	assert agent == [
+		"deadline: never to 2030-09-18T17:00",
+		"deferred until: 2030-09-16 to never",
+		"assignee: nobody to @si",
+		'title: "Go to the shop" to "Go to the market"',
+		"description",
+	], agent
+	assert browser[2:] == agent[2:], browser
+
+	deadline, deferred = browser[:2]
+
+	assert deadline.startswith("deadline: never to ") and deadline.endswith(", 17:00"), deadline
+	assert deferred.startswith("deferred until: ") and deferred.endswith(" to never"), deferred
+	assert "2030-09-18" not in deadline and "2030-09-16" not in deferred, browser
+	assert "2030" in deadline and "2030" in deferred, "a date lost its year"
 
 
 def test_a_journal_read_starts_at_the_edge_it_is_reading_past_and_keeps_what_it_should (
@@ -17868,7 +17916,7 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 	assert "Reproduced on 3.11 only. The fix in the other one…" in rendered, rendered
 	assert "The rest is on the item." in rendered, rendered
 	assert 'href="/projects/web/42"' in rendered, rendered
-	assert "how it is going: Open to In progress" in rendered, rendered
+	assert 'status: "Open" to "In progress"' in rendered, rendered
 	assert "the instance" in rendered and "Older" in rendered, rendered
 
 	# **Every state it can be in says which**, rather than an empty page for three reasons.
