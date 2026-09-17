@@ -4422,6 +4422,8 @@ _A_CHANGE_TO = {
 	"urgency": "urgency",
 	"parent_task_id": "parent",
 	"project_id": "project",
+	# The rule with what qualifies it, as a row repeats by it (`#2825`).
+	"recurrence": "repeats",
 	"recurrence_anchor": "repeats",
 	"recurrence_rule": "repeats",
 	"recurrence_text": "repeats",
@@ -4474,10 +4476,12 @@ _FOLDED_INTO: dict[str, tuple[str, ...]] = {
 	"assigned_by_id": ("assignee_id",),
 	"claim_expires_at": ("claimed_by_id",),
 	"claimed_at": ("claimed_by_id",),
-	"recurrence_text": ("recurrence_rule", "recurrence_template_id"),
-	"recurrence_anchor": ("recurrence_rule", "recurrence_template_id"),
-	"recurrence_trigger": ("recurrence_rule", "recurrence_template_id"),
-	"is_template": ("recurrence_rule", "recurrence_template_id"),
+	"recurrence_text": ("recurrence", "recurrence_rule", "recurrence_template_id"),
+	"recurrence_anchor": ("recurrence", "recurrence_rule", "recurrence_template_id"),
+	"recurrence_trigger": ("recurrence", "recurrence_rule", "recurrence_template_id"),
+	"is_template": ("recurrence", "recurrence_rule", "recurrence_template_id"),
+	# Joining a series and taking its rule are one change to how it repeats (`#2825`).
+	"recurrence_template_id": ("recurrence",),
 	"completed_at": ("status_id",),
 }
 
@@ -4523,7 +4527,7 @@ _DURATIONS: dict[str, str] = {
 #: What an empty side reads as (Simon, 2026-09-17: *where the item is a date/time — "nothing"
 #: could become "never"*). *Never* suits a repeat as well as a date, and *nobody* is the same
 #: idea for a person; every other empty side is *nothing*.
-_NEVER = frozenset({*_DATED, "recurrence_rule", "recurrence_template_id"})
+_NEVER = frozenset({*_DATED, "recurrence", "recurrence_rule", "recurrence_template_id"})
 _NOBODY = frozenset({"assignee_id", "assigned_by_id", "claimed_by_id", "owner_id"})
 
 #: The values quoted on the way out: a name somebody chose. **A title can contain " to "** —
@@ -4639,6 +4643,13 @@ def _moved_in_words (
 
 		return _DURATIONS[field].format(subroutine.domain.durations.humanize(minutes))
 
+	if field == "recurrence":
+		# **As it was recorded** (`#2825`): the rule with the anchor beside it, so the entry reads
+		# the same after the series changes again.
+		rule = value.get("rule") if isinstance(value, dict) else None
+
+		return None if rule is None else _repeat_in_words(str(rule), value.get("anchor"))
+
 	if field == "recurrence_rule":
 		if "recurrence_anchor" in moved:
 			anchor = moved["recurrence_anchor"].get(side)
@@ -4651,8 +4662,9 @@ def _moved_in_words (
 	if field == "recurrence_template_id":
 		# **The series' rule, never the hidden item holding it** — decision `#2823`. The repeat
 		# itself is a row nobody is shown, so its number told a reader nothing, and its rule is
-		# what the change was. Read as the series stands now: a change to the rule records no
-		# entry here of its own (`#2825`).
+		# what the change was. **Read as the series stands now**, which is the best an entry
+		# written before `#2825` can do: every later one records the rule itself, as
+		# `recurrence`, and this line folds into it.
 		found = subroutine.domain.journal.identifier(value)
 		series = None if found is None else vocabulary.parents.get(found)
 

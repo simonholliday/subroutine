@@ -161,6 +161,9 @@ CONTENT_FIELDS: dict[str, frozenset[str]] = {
 			# the plants every fortnight* are different undertakings, not the same one
 			# rescheduled, and a reader who saw the first is looking at something else now.
 			"recurrence_template_id",
+			# The same judgement about the rule itself (`#2825`): every Monday and every Tuesday
+			# are two undertakings, and changing one into the other used to record nothing.
+			"recurrence",
 		}
 	),
 	"document": frozenset(

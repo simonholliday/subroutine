@@ -63,6 +63,11 @@ TASK_EDITS: dict[str, tuple[dict[str, typing.Any], dict[str, typing.Any]]] = {
 	# (`SR#1268`). The setup gives it a day, because a rule with no date to anchor on is
 	# refused — correctly, and by a different message than the one this is about.
 	"recurrence_template_id": ({"starts": "tomorrow"}, {"recurrence": "every week"}),
+	# **A repeat whose rule changes** (`SR#2825`), which recorded nothing: the rule lives on the
+	# series, so the row compared equal to itself and neither the stamp nor the version moved.
+	"recurrence": (
+		{"starts": "tomorrow", "recurrence": "every week"}, {"recurrence": "every day"},
+	),
 	# `project_id`, `completed_at` and `timezone` have their own tests below: one needs a
 	# project to move to, one is derived from the status and arrives by its own verb, and one
 	# moves only as a side effect of re-dating something from another zone.

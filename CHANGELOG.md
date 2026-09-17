@@ -171,6 +171,12 @@ upgrade involves.
 
 ### Fixed
 
+- **Changing how something repeats is in its journal.** Changing the rule of something that
+  already repeated, changing what it is measured from, and stopping it each recorded nothing,
+  and the entry that started the repeat went on reading whatever the rule was now. Each is its
+  own entry - *repeats: every Monday to every Tuesday* - written as it was at the time, and
+  each moves the item's version.
+
 - **Pressing a tag or a person on a row narrows the page.** A plain click wrote an address with
   two question marks and asked for a workspace named after the whole of it, so every tag and
   person on a list, a board, an agenda or a journal led to *There is no workspace*. Opening one

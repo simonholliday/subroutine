@@ -886,6 +886,52 @@ def test_a_repeat_is_its_rule_and_never_the_item_holding_it (
 	assert "#" not in repeat.after, f"a repeat named the item holding it: {repeat}"
 
 
+def test_changing_how_something_repeats_is_an_entry_and_leaves_the_last_one_as_it_was (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2825`: every Monday, every Tuesday from now on, then stopped - three entries, as they were.
+
+	**Measured before it was fixed**: the second change wrote nothing on either item and moved no
+	version, because the rule lives on the hidden series and the item compared equal to itself -
+	and the first entry, which read the series' rule as it stood *now*, came to say Tuesday.
+	Stopping recorded nothing either, for the same reason.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Feed the fish"})
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+	versions = [created.json()["version"]]
+
+	for step in (
+		{"recurrence": "every monday"},
+		{"recurrence": "every tuesday", "applies_to": "from_now_on"},
+		{"recurrence": None},
+	):
+		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=step)
+
+		assert answered.status_code == 200, answered.text
+
+		versions.append(answered.json()["version"])
+
+	assert versions == sorted(set(versions)), (
+		f"a change to how it repeats left the version where it was: {versions}"
+	)
+
+	lines = [
+		subroutine.views.change_in_words(change)
+		for entry in _updated_lines(world, session, ref)
+		for change in entry.changed
+	]
+
+	assert lines == [
+		"repeats: never to every Monday",
+		"repeats: every Monday to every Tuesday",
+		"repeats: every Tuesday to never",
+	], lines
+
+
 def test_a_fact_is_named_once_however_many_columns_it_moved () -> None:
 	"""Decision `#2823`'s *one line per fact*, in the feed's half: names, deduplicated and folded."""
 

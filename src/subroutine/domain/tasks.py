@@ -1641,9 +1641,9 @@ def update (
 		)
 
 	# **Applied before the "nothing changed" return below**, because a repeat lives on the
-	# *series* rather than on this row: `changes_between` compares the task with itself and
-	# sees nothing, so anything after that return is unreachable for a caller who changed
-	# only how something repeats — which is every caller who came to change only that.
+	# *series* rather than on this row, and the snapshot taken after this is what reads it
+	# (`#2825`): applied later, a caller who changed only how something repeats - which is
+	# every caller who came to change only that - would compare equal and stop there.
 	# **Any of the three, not the rule alone** (`#918`). The two qualifiers were readable only
 	# once the rule had been named, so *change how this is measured, keep the rule* reached
 	# nothing at all — and answered as though it had.
@@ -2017,7 +2017,13 @@ ANSWERS = (THIS_ONE, FROM_NOW_ON)
 #: already means (`#94`); the join itself is what tells the two rows apart. A claim is a lease on
 #: rows that do not exist yet, and comments and links are not columns — what happened, happened
 #: to that one.
-NEVER_CARRIED = frozenset({"status_id", "completed_at", "recurrence_template_id"})
+#:
+#: **How a row repeats is read off the series rather than held by the row** (`#2825`), so
+#: there is nothing to carry: the series already holds the answer, and copying it onto the other
+#: row would set a name no column has.
+NEVER_CARRIED = frozenset(
+	{"status_id", "completed_at", "recurrence_template_id", "recurrence"}
+)
 
 #: The columns that move by the same amount rather than to the same value.
 #:
@@ -2774,6 +2780,32 @@ def series_of (
 	return session.get(subroutine.db.models.work.Task, task.recurrence_template_id)
 
 
+def _repeats_by (
+	session: sqlalchemy.orm.Session, task: subroutine.db.models.work.Task
+) -> dict[str, str | None] | None:
+	"""Return how a row repeats as it stands - its series' rule and what qualifies it - or ``None``.
+
+	**One value for one fact** (`#2825`): the rule, the anchor that says what it is measured from
+	and the trigger that says what brings the next one, read together, so an entry about a
+	repeat keeps all three as they were rather than looking the anchor up later.
+
+	**A stopped series repeats nothing**, which is ``views._from_a_live_series``'s rule (`#920`):
+	stopping completes the series and leaves the occurrence pointing at it, so reading straight
+	through would record a stop as no change at all.
+	"""
+
+	series = series_of(session, task)
+
+	if series is None or series.completed_at is not None or series.recurrence_rule is None:
+		return None
+
+	return {
+		"rule": series.recurrence_rule,
+		"anchor": series.recurrence_anchor,
+		"trigger": series.recurrence_trigger,
+	}
+
+
 def stop_repeating (
 	session: sqlalchemy.orm.Session,
 	task: subroutine.db.models.work.Task,
@@ -3203,6 +3235,11 @@ def _snapshot (
 		# becomes a repeat. *This now happens every week* is not a small edit, and it was
 		# invisible in the feed and in the version for the same reason as the reminder above.
 		"recurrence_template_id": task.recurrence_template_id,
+		# **How it repeats, and not only which series it is in** (`#2825`). The rule lives on the
+		# series, so changing it from the occurrence left this row comparing equal to itself: no
+		# event and no version - and the one entry about the repeat read the series' rule as it
+		# stood *now*, so the change rewrote the entry before it as well. Recorded as it was.
+		"recurrence": _repeats_by(session, task),
 		"due_at": task.due_at,
 		"due_is_all_day": task.due_is_all_day,
 		"ends_at": task.ends_at,
