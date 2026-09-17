@@ -116,8 +116,13 @@ _TRIM = 3
 _WEEKDAY_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.WEEKDAYS, key=len, reverse=True)
 )
+#: Every keyword but ``now``, which is a phrase only with an offset (`#2827`) - see :data:`_PHRASE`.
 _KEYWORD_ALTERNATION = "|".join(
-	sorted(subroutine.domain.dates.KEYWORDS, key=len, reverse=True)
+	sorted(
+		(keyword for keyword in subroutine.domain.dates.KEYWORDS if keyword != "now"),
+		key=len,
+		reverse=True,
+	)
 )
 #: Month names, longest first for the same reason the others are — `#1210`. ``september`` has to
 #: be offered before ``sep``, or the alternation takes the short branch and leaves ``tember``
@@ -131,6 +136,12 @@ _MONTH_ALTERNATION = "|".join(
 _PHRASE = (
 	r"(?:"
 	rf"next\s+(?:{_WEEKDAY_ALTERNATION})"
+	#: **``now`` only with an offset** (`#2827`). On its own it names a moment that has passed by
+	#: the time anybody reads the item, so no deadline, start or defer a person writes means it -
+	#: and English is full of it: *from now on*, *by now*. Read as a date, *from now on* deferred a
+	#: line to the moment it was filed, said nothing, and took the words out of the title.
+	#: ``now+2h`` goes on working, and so does ``--due now``, which is a field rather than a sentence.
+	r"|now(?:[+-]\d+[a-zA-Z]+)+"
 	rf"|(?:{_KEYWORD_ALTERNATION})(?:[+-]\d+[a-zA-Z]+)*"
 	r"|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?"
 	#: **A written calendar date, both ways round** (`#1210`) — ``by 1 september``,

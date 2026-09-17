@@ -171,6 +171,10 @@ upgrade involves.
 
 ### Fixed
 
+- **A captured line that says *now* keeps it.** *from now on* in a line was read as a defer to
+  the moment it was filed, and *by now* as a deadline already past, and both lost those words
+  from the title without saying so. On its own *now* is words; *from now+2h* is still a date.
+
 - **Changing how something repeats is in its journal.** Changing the rule of something that
   already repeated, changing what it is measured from, and stopping it each recorded nothing,
   and the entry that started the repeat went on reading whatever the rule was now. Each is its

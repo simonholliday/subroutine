@@ -116,6 +116,8 @@ grammars.relative_dates.
                  — not to 'plan', which takes a day
   an expression  {keywords}                                    (api)
                  with offsets: now+7d, end_of_week-1d, today+1w
+                 — in a captured line 'now' needs an offset, so 'by now'
+                   and 'from now on' are left as words
   an offset      +7d, +2w — the same, counted from today
                  — the command line only: '+' opens a project in a
                    captured line, so '+7d' there is left as words

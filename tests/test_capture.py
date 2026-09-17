@@ -1632,6 +1632,33 @@ def test_a_written_calendar_date_is_read_from_a_captured_line (
 	)
 
 
+def test_now_on_its_own_is_words_and_with_an_offset_is_a_date () -> None:
+	"""`#2827`: *from now on* deferred a line to the moment it was filed, and lost those words.
+
+	A bare *now* names a moment that has passed by the time anybody reads the item, so no
+	deadline, start or defer a person writes means it, and English says it constantly. **With an
+	offset it is a date**, which is why ``by now+3d`` above goes on working.
+	"""
+
+	for line in (
+		"Changing how an item repeats from now on leaves no entry in its journal",
+		"Should have heard back by now",
+		"Call the bank from now",
+		"Book it on now",
+		"Holiday from now to friday",
+	):
+		read = _parse(line)
+
+		assert read.title == line, f"prose lost a word: {line!r} became {read.title!r}"
+		assert (read.due, read.starts_at, read.snooze, read.ends_at) == (None, None, None, None), (
+			f"{line!r} set a date nobody asked for: {read}"
+		)
+
+	later = _parse("Check the logs from now+2h")
+
+	assert (later.title, later.snooze) == ("Check the logs", "now+2h"), later
+
+
 def test_a_month_name_in_ordinary_prose_is_left_alone () -> None:
 	"""The pattern most likely to eat something it should not — `SR#1210`.
 
