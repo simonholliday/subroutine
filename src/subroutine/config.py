@@ -572,13 +572,29 @@ def unknown_settings () -> list[tuple[str, str | None]]:
 
 	known = set(Settings.model_fields) | TABLES
 	found = []
+	written = read_config_file()
 
-	for key in read_config_file():
+	for key in written:
 		if key in known:
 			continue
 
 		nearest = difflib.get_close_matches(key, known, n=1, cutoff=0.7)
 		found.append((key, nearest[0] if nearest else None))
+
+	# **And inside ``[releases]``** (`#2222`), the one setting written as a table. A
+	# misspelled ``check`` fails safe - the instance never asks - but an operator who believes
+	# they turned it on is exactly who this warning exists for.
+	table = written.get("releases")
+
+	if isinstance(table, dict):
+		inner = set(ReleaseChecking.model_fields)
+
+		for key in table:
+			if key in inner:
+				continue
+
+			nearest = difflib.get_close_matches(key, inner, n=1, cutoff=0.7)
+			found.append((f"releases.{key}", f"releases.{nearest[0]}" if nearest else None))
 
 	return found
 
@@ -652,6 +668,19 @@ def _development_key () -> str:
 		_DEVELOPMENT_KEY = secrets.token_urlsafe(32)
 
 	return _DEVELOPMENT_KEY
+
+
+class ReleaseChecking(pydantic.BaseModel):
+	"""``[releases]`` in ``config.toml`` — whether this instance may ask what has been released.
+
+	**Absent means no** (Simon, 2026-09-07, `#2222`). §12.4a's promise is that nothing phones
+	home uninvited, and that bites exactly here: an operator who writes nothing gets an instance
+	that never asks. A table rather than a flat key because it is one subject that will carry
+	more than one line.
+	"""
+
+	#: Ask at most once a day, while somebody signed in is using the instance.
+	check: bool = False
 
 
 class Settings(pydantic_settings.BaseSettings):
@@ -924,6 +953,11 @@ class Settings(pydantic_settings.BaseSettings):
 	# substring is one of the two predicates no index can serve, so that is the trade being
 	# made and not something a better implementation would recover.
 	search_backend: typing.Literal["like", "native"] = "like"
+
+	# **Whether this instance may ask what has been released** (`#2222`), written as a
+	# ``[releases]`` table. Off unless an operator turns it on, because asking tells whoever
+	# serves the published record that an instance exists at this address.
+	releases: ReleaseChecking = pydantic.Field(default_factory=ReleaseChecking)
 
 	@classmethod
 	def settings_customise_sources (

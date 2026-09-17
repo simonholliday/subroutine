@@ -183,6 +183,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
 | `source_url` | this project | Where this instance's source can be had. A promise the product makes, not a licence obligation |
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
+| `releases` | not set | A table. `[releases]` with `check = true` lets this instance ask which versions have been released, at most once a day and only while somebody signed in is using it - never on an idle instance, and never because a calendar app polled a feed. Asking fetches the project's published list of releases, which tells whoever serves that file that an instance exists at this address, so it is off unless you turn it on |
 | `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone - never your routine backups, which go only when `db backup --keep N` asks |
 | `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |

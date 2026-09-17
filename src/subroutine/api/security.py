@@ -444,6 +444,16 @@ def principal (
 
 	_release_the_authentication_write(session)
 
+	# **Where an opted-in instance asks what has been released** (`#2222`): after somebody has
+	# been recognised, and only then. This dependency is on every route that takes a credential
+	# and none of the public ones, so a health check never asks and a calendar feed - whose
+	# route takes no credential dependency - never does either. The check runs on its own
+	# thread, so nothing here waits on it.
+	watch = getattr(request.app.state, "releases", None)
+
+	if watch is not None:
+		watch.ask_if_due()
+
 	return found
 
 

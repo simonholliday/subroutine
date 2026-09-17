@@ -6,11 +6,12 @@ difference between planning ten minutes and discovering them halfway through an 
 version string on its own is something ``pip index`` already prints.
 
 **Nothing here happens unasked.** §12.4a: a self-hosted tool that phones home uninvited is one
-people stop trusting, so this module is reached only by ``subroutine db upgrade --check`` — a
-command somebody typed, which is the invitation. There is deliberately **no setting** yet: a
-switch governing an automatic check that does not exist would be a control that is declared,
-documented and read by nothing, which is this codebase's second signature defect and already
-has three instances (`#247`, `#251`, `#303`). It arrives with the thing that reads it.
+people stop trusting. So this module is reached two ways, and both are somebody's consent: by
+``subroutine db upgrade --check``, a command somebody typed, and by :class:`Watch`, which exists
+only on an instance whose operator wrote ``[releases] check = true`` (`#2222`). The setting
+arrived with the thing that reads it, as this paragraph said it would while there was no
+setting: a switch governing a check that did not exist would have been declared, documented and
+read by nothing, which is this codebase's second signature defect.
 
 **The record is published rather than derived from the package index.** PyPI knows a version
 and nothing about a schema — measured, 2026-08-04: its JSON carries name, version, summary,
@@ -31,6 +32,8 @@ is what `#321` was reported from.
 
 import contextlib
 import dataclasses
+import datetime
+import threading
 import typing
 
 import httpx
@@ -46,6 +49,11 @@ DEFAULT_URL = (
 #: How long to wait. Short on purpose — this is a courtesy on the way to an upgrade, and an
 #: operator standing at a terminal should not be made to wait on somebody else's CDN.
 TIMEOUT_SECONDS = 5.0
+
+#: How often an instance that has agreed to ask does — `#2222`. Measured from the last
+#: *attempt* rather than the last answer, so a host that cannot be reached is asked again
+#: tomorrow rather than on every request until it answers.
+CHECK_EVERY = datetime.timedelta(days=1)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,6 +179,116 @@ class Published:
 	#: for every record published before `#2221`, which is not an error and is why this is
 	#: read leniently where a release row is not.
 	plugins: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+@dataclasses.dataclass(frozen=True)
+class Asked:
+	"""What one check found, or why it found nothing — `#2222`.
+
+	**Exactly one of ``record`` and ``failure`` is set.** A check that could not be made is an
+	answer of its own and never the same as one that found nothing newer: what the instance
+	learnt is published to every surface (`#2223`), and a failure read as *up to date* is the
+	one wrong thing that could say.
+	"""
+
+	at: datetime.datetime
+	record: Published | None = None
+	failure: str | None = None
+
+
+def _now () -> datetime.datetime:
+	"""Return the current moment, with its zone."""
+
+	return datetime.datetime.now(datetime.UTC)
+
+
+class Watch:
+	"""An instance's standing consent to ask what has been released, and what it last heard.
+
+	**Simon's decision of 2026-09-07, with who may start it settled on 2026-09-16** (`#2222`).
+	Built only when ``[releases] check`` is on, so an instance whose operator has not agreed
+	holds nothing that could ask. It asks in the background of an authenticated request from
+	anybody signed in, a person or an agent, and at most once a day.
+
+	**There is no timer, and that is the property rather than a shortcut.** A check starts only
+	while somebody is using the instance, so one nobody is using makes no request at all — the
+	list of what an instance does on its own schedule stays empty. A calendar app polling a
+	feed never starts one: a feed route takes no credential dependency, so it never reaches the
+	place that asks.
+
+	**Per process.** An instance served by more than one worker asks once a day per worker,
+	which is the rate limiter's arrangement and the same trade.
+	"""
+
+	def __init__ (
+		self,
+		*,
+		fetch: typing.Callable[[], Published] | None = None,
+		clock: typing.Callable[[], datetime.datetime] = _now,
+		every: datetime.timedelta = CHECK_EVERY,
+	) -> None:
+		"""Prepare to ask, having asked nothing yet.
+
+		``fetch`` is looked up when a check runs rather than bound here, so a test standing in
+		for the network with :func:`record` replaced reaches every watch, including one it
+		did not build.
+		"""
+
+		self._fetch = fetch
+		self._clock = clock
+		self._every = every
+		self._lock = threading.Lock()
+		self._attempted: datetime.datetime | None = None
+
+		#: What the most recent check found, or ``None`` before one has finished.
+		self.latest: Asked | None = None
+
+		#: The check in flight or last started, so a test can wait for it. A request never does.
+		self.asking: threading.Thread | None = None
+
+	def ask_if_due (self) -> threading.Thread | None:
+		"""Start a check in the background unless one was attempted within a day.
+
+		**Never waited on.** The answer is a courtesy, so an unreachable host must not add a
+		second to the response somebody is waiting for — the check runs on its own thread and
+		the request carries on. The attempt is recorded before the thread starts, under the
+		lock, so two requests arriving together start one check between them.
+		"""
+
+		now = self._clock()
+
+		with self._lock:
+			if self._attempted is not None and now - self._attempted < self._every:
+				return None
+
+			self._attempted = now
+			asking = threading.Thread(
+				target=self._ask, args=(now,), name="subroutine-releases", daemon=True
+			)
+			self.asking = asking
+
+		asking.start()
+
+		return asking
+
+	def _ask (self, at: datetime.datetime) -> None:
+		"""Ask once, and keep the answer or the reason there is none.
+
+		**Only the failure this module promises is caught.** :func:`record` reports every way
+		the record could not be read as one :class:`subroutine.errors.ServiceUnavailable`;
+		anything else is a defect, and it reaches the server's log through the thread's own
+		handler having already counted as the day's attempt — so it is seen once a day rather
+		than hidden or repeated.
+		"""
+
+		try:
+			found = (self._fetch or record)()
+
+		except subroutine.errors.ServiceUnavailable as failure:
+			self.latest = Asked(at=at, failure=failure.detail)
+			return
+
+		self.latest = Asked(at=at, record=found)
 
 
 def record (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) -> Published:

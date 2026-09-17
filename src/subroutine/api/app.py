@@ -48,6 +48,7 @@ import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
+import subroutine.releases
 
 #: Shown at ``/docs`` and in the generated OpenAPI document. The audience is a developer
 #: or an agent deciding whether this endpoint does what they need, so it points at the two
@@ -250,6 +251,13 @@ def create_app (
 	# limit. Read from settings rather than from the `serve` flag, so an application started
 	# by gunicorn or by a test gets the same answer as one started by the CLI.
 	application.state.limits = subroutine.api.limits.Limits(resolved, host=resolved.host)
+
+	# **Built only when the operator agreed to it** (`#2222`), so an instance that has not has
+	# nothing on its state that could ask. Once per application, like the limiter, because a
+	# clock rebuilt per request would ask on every one.
+	application.state.releases = (
+		subroutine.releases.Watch() if resolved.releases.check else None
+	)
 
 	# **Built once, here, because it is derived from the page this instance serves** (`#805`).
 	# The import map is inline by necessity and is allowed by hash, so the policy depends on the
