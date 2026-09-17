@@ -31,7 +31,20 @@
 	--bg: light-dark(#ffffff, #16191d);
 	--bg-sunken: light-dark(#f6f7f9, #101316);
 	--bg-raised: light-dark(#ffffff, #1c2025);
-	--line: light-dark(#e3e6ea, #2a3037);
+	/* **Half a step up from where it was** (Simon, 2026-09-17, `#2859`): *"the divider line
+	   between items in agenda, lists, and journal needs a touch more contrast from the
+	   background - especially in dark mode, but I think we should mirror in light mode also"*.
+	   One token draws all three, since a row is `.rows li` and its `border-top` is this.
+
+	   **Measured against `--bg-raised`, which is what a row sits on.** It was `#e3e6ea` at
+	   1.25:1 and `#2a3037` at 1.23:1 - a line a reader takes on trust rather than sees. It is
+	   1.38:1 and 1.40:1 now, and 1.60:1 against the page behind a row in dark.
+
+	   **Half a step, because the whole one is already taken.** `--line-strong` below is the
+	   next value on this ramp, and moving `--line` onto it would leave two tokens the same
+	   shade - a step named twice is a step gone. A reader who wants more than this asks their
+	   system for it, and `prefers-contrast` below takes both lines to about 3:1. */
+	--line: light-dark(#d8dce2, #323941);
 	--line-strong: light-dark(#cdd3da, #3a424b);
 	--ink: light-dark(#1b1f24, #e6e9ed);
 	--ink-soft: light-dark(#5c6570, #a2acb6);

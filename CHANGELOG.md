@@ -16,6 +16,12 @@ upgrade involves.
 
 ### Changed
 
+- **The line between rows in the browser is a little clearer**, in both themes and most
+  visibly in dark: the divider in a list, an agenda and the journal went from 1.25:1 to
+  1.38:1 against the row behind it in light, and from 1.23:1 to 1.40:1 in dark. Every other
+  hairline - a card's edge, the rules between an item's sections - moves with it, since they
+  are one colour. Asking your system for more contrast still gets much more.
+
 - **`show` on a well-connected item prints the latest 20 things that refer to it**, at the
   command line and in the agent tools, with the heading counting every one - *Referred to by
   (91, showing the latest 20)* - and a way to read the rest: `subroutine show 42 --json`, or
