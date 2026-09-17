@@ -1105,13 +1105,27 @@ export function frame (showing, open) {
 export const AREAS = ["people", "settings"];
 
 /*
+	The segment that comes before a page's word — `#2817`, Simon's decision `#2816`.
+
+	**A page on a place is addressed after it**: `/<workspace>/-/journal` for a workspace's
+	journal and `/<workspace>/<ref>/-/journal` for one item's. Everything before the mark is the
+	place, written as `parseAddress` reads one, and the word after it names the page.
+
+	**A mark rather than a reserved word.** A place's address is made of names people choose — a
+	workspace's short name, a project key at every depth, a ref — and a page's word written where
+	one of those goes shares its address. `journal` was refused as a project key for that reason
+	until the mark, and every page after it would have been one more word refused. `-` can be
+	none of those names: a short name and a key begin with a letter and a ref is digits, and
+	`tests/test_web.py` puts this constant to each of those rules.
+*/
+export const PAGE_MARK = "-";
+
+/*
 	The word that makes an address a journal page — `#2730`, design `#2724`.
 
-	**The last segment rather than the first**: `/<workspace>/journal` for a workspace and
-	`/<workspace>/<ref>/journal` for one item. So it is not one of `AREAS`, which are root words a
-	workspace may not take — `/journal` alone is a workspace of that name. What it collides with
-	is a *project* keyed `journal`, whose address would be the same, and
-	`addressing.RESERVED_PATH_WORDS` refuses that key; a test holds the two copies together.
+	**A word only after `PAGE_MARK`**, so `/projects/journal` is a project keyed `journal` and
+	`/journal` alone a workspace of that name. Nor is it one of `AREAS`, which are root words a
+	workspace may not take.
 */
 export const JOURNAL = "journal";
 
@@ -1153,14 +1167,17 @@ export function areaOf (pathname) {
 		and exactly one of them is non-null for any address.
 
 		**A journal answers here too** (`#2730`), because it is drawn the way an area is: no rows,
-		no arrangement, and every way back to the work leaves it. Two segments at least, so
-		`/journal` is still a workspace.
+		no arrangement, and every way back to the work leaves it. Only after `PAGE_MARK`, with a
+		place before it (`#2816`), so `/journal` is still a workspace and `/projects/journal` a
+		project.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 
 	if (parts.length > 0 && AREAS.includes(parts[0])) return parts[0];
 
-	return parts.length >= 2 && parts[parts.length - 1] === JOURNAL ? JOURNAL : null;
+	const paged = parts.length >= 3 && parts[parts.length - 2] === PAGE_MARK;
+
+	return paged && parts[parts.length - 1] === JOURNAL ? JOURNAL : null;
 }
 
 
@@ -1269,23 +1286,25 @@ export function journalPageOf (pathname) {
 
 		| | |
 		| --- | --- |
-		| `/{workspace}/journal` | what happened in that workspace |
-		| `/{workspace}/{ref}/journal` | what happened to one item |
-		| `/{workspace}/{project}/{ref}/journal` | the same, the project being decoration |
+		| `/{workspace}/-/journal` | what happened in that workspace |
+		| `/{workspace}/{ref}/-/journal` | what happened to one item |
+		| `/{workspace}/{project}/{ref}/-/journal` | the same, the project being decoration |
 
 		**A project has no journal** (Simon, 2026-09-16: *workspace only*), so
-		`/{workspace}/{project}/journal` is null rather than the workspace's journal. Answering an
-		address with a wider page than it names shows a reader something other than what the link
-		says, which is `#745`'s rule.
+		`/{workspace}/{project}/-/journal` is null rather than the workspace's journal. Answering
+		an address with a wider page than it names shows a reader something other than what the
+		link says, which is `#745`'s rule.
 	*/
 	if (areaOf(pathname) !== JOURNAL) return null;
 
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 	const workspace = segment(parts[0]);
+	/* The place is everything before the mark, which `areaOf` has already found. */
+	const place = parts.slice(0, -2);
 
-	if (parts.length === 2) return { workspace, ref: null };
+	if (place.length === 1) return { workspace, ref: null };
 
-	const before = parts[parts.length - 2];
+	const before = place[place.length - 1];
 
 	return REF_SEGMENT.test(before) ? { workspace, ref: Number(before) } : null;
 }
@@ -1301,8 +1320,9 @@ export function journalAddress (page) {
 	if (!page || !page.workspace) return null;
 
 	const workspace = encodeURIComponent(page.workspace);
+	const place = page.ref ? `/${workspace}/${page.ref}` : `/${workspace}`;
 
-	return page.ref ? `/${workspace}/${page.ref}/${JOURNAL}` : `/${workspace}/${JOURNAL}`;
+	return `${place}/${PAGE_MARK}/${JOURNAL}`;
 }
 
 export function journalPlace (page) {
@@ -1335,9 +1355,10 @@ export function parseAddress (pathname) {
 		sees. Everything before the ref is decoration: that is what makes a project renamed
 		since somebody saved the link harmless rather than a dead end.
 
-		**An address ending `journal` is a page, not a place** (`#2730`), and is null here:
-		`/projects/journal` was read as a project keyed `journal` and `/projects/2693/journal` as a
-		project path. `journalPageOf` answers it.
+		**A journal is a page, not a place** (`#2730`), and is null here: `/projects/-/journal` and
+		`/projects/2693/-/journal` are a workspace's journal and an item's, which `journalPageOf`
+		answers. Before the mark (`#2816`) a journal's word ended the address bare, where a project
+		keyed `journal` would have been.
 	*/
 	const parts = String(pathname || "").split("/").filter((part) => part !== "");
 

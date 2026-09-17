@@ -56,8 +56,12 @@ import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
 import subroutine.domain.ordering
+import subroutine.domain.projects
+import subroutine.domain.refs
 import subroutine.domain.settings
 import subroutine.domain.tasks
+import subroutine.domain.workspaces
+import subroutine.errors
 import subroutine.views
 import subroutine.web.vendored
 
@@ -333,7 +337,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"workspace": "personal",
 		"backTo": "/personal",
 		# **The way to its journal** (`#1428`), so the link and its style are drawn.
-		"journal": "/personal/42/journal",
+		"journal": "/personal/42/-/journal",
 	},
 	"Failed": {"error": {"status": 500, "message": "Something went wrong."}},
 	"Adding": {"busy": False},
@@ -437,16 +441,16 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		# **And its journal** (`#2731`). `App` offers one only for a workspace; the component
 		# draws whatever it is handed, and a sample that handed nothing would leave the link and
 		# its style drawn by nothing.
-		"journal": "/projects/journal",
+		"journal": "/projects/-/journal",
 	},
 	# **A workspace's journal, with every kind of line it draws** — `#2731`: two days, a door, a
 	# change and a phrase, a cut comment with the way to the rest, the instance acting, and older
 	# entries still to ask for.
 	"Journal": {
 		"page": {"workspace": "projects", "ref": None},
-		"address": "/projects/journal",
+		"address": "/projects/-/journal",
 		"workspaces": [{"slug": "projects", "title": "Projects"}],
-		"journal": {"address": "/projects/journal", "entries": JOURNAL_ENTRIES, "older": True},
+		"journal": {"address": "/projects/-/journal", "entries": JOURNAL_ENTRIES, "older": True},
 	},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
@@ -7132,6 +7136,7 @@ def _addressing (tmp_path: pathlib.Path, calls: list[tuple[str, typing.Any]]) ->
 			: name === "journalAddress" ? app.journalAddress(argument)
 			: name === "journalPlace" ? app.journalPlace(argument)
 			: name === "journalWord" ? app.JOURNAL
+			: name === "pageMark" ? app.PAGE_MARK
 			: name === "areas" ? app.AREAS
 			: name === "showsWork" ? app.showsWork(argument.area)
 			: name === "cadence" ? app.cadence(argument.hidden, argument.idleFor)
@@ -17691,20 +17696,21 @@ def test_a_place_heading_leads_to_its_settings_and_the_menu_is_on_every_page (
 		assert "/people" in driven["links"], driven["links"]
 
 
-def test_an_address_ending_in_journal_is_a_page_and_not_a_place (tmp_path: pathlib.Path) -> None:
-	"""`#2730`. **``/projects/journal`` read as a project keyed ``journal``.**
+def test_a_journal_is_a_page_after_the_mark_and_never_a_place (tmp_path: pathlib.Path) -> None:
+	"""`#2730`, with the mark from `#2817`. **A journal's address is a page, and a name a place.**
 
-	And ``/projects/2693/journal`` as a project path. The last segment ``journal`` is a page now,
+	``/projects/-/journal`` is a workspace's journal and ``/projects/42/-/journal`` an item's,
 	answered by ``areaOf`` and ``journalPageOf`` and null to ``parseAddress``, so exactly one of
 	those two readings is non-null for any address. **A project has no journal** (Simon: *workspace
-	only*), so an address naming one names nothing rather than the workspace's; and ``/journal``
-	on its own is still a workspace of that name.
+	only*), so an address naming one names nothing rather than the workspace's. **Without the mark
+	the word is a name like any other** (decision `#2816`): ``/projects/journal`` is a project keyed
+	``journal``, and ``/journal`` a workspace of that name.
 	"""
 
 	paths = [
-		"/projects/journal", "/projects/42/journal", "/projects/web/ui/42/journal",
-		"/projects/web/journal", "/projects/007/journal", "/journal", "/people/journal",
-		"/caf%C3%A9/journal",
+		"/projects/-/journal", "/projects/42/-/journal", "/projects/web/ui/42/-/journal",
+		"/projects/web/-/journal", "/projects/007/-/journal", "/journal", "/projects/journal",
+		"/people/-/journal", "/caf%C3%A9/-/journal",
 	]
 	calls = [(name, path) for path in paths for name in ("areaOf", "parseAddress", "journalPageOf")]
 	answered = dict(zip(calls, _addressing(tmp_path, calls), strict=True))
@@ -17713,17 +17719,24 @@ def test_an_address_ending_in_journal_is_a_page_and_not_a_place (tmp_path: pathl
 		assert answered[("areaOf", path)] == "journal", path
 		assert answered[("parseAddress", path)] is None, (path, answered[("parseAddress", path)])
 
-	assert answered[("journalPageOf", "/projects/journal")] == {"workspace": "projects", "ref": None}
-	assert answered[("journalPageOf", "/projects/42/journal")] == {"workspace": "projects", "ref": 42}
-	assert answered[("journalPageOf", "/projects/web/ui/42/journal")] == {
+	assert answered[("journalPageOf", "/projects/-/journal")] == {"workspace": "projects", "ref": None}
+	assert answered[("journalPageOf", "/projects/42/-/journal")] == {
 		"workspace": "projects", "ref": 42,
 	}
-	assert answered[("journalPageOf", "/projects/web/journal")] is None
-	assert answered[("journalPageOf", "/projects/007/journal")] is None
-	assert answered[("areaOf", "/journal")] is None
+	assert answered[("journalPageOf", "/projects/web/ui/42/-/journal")] == {
+		"workspace": "projects", "ref": 42,
+	}
+	assert answered[("journalPageOf", "/projects/web/-/journal")] is None
+	assert answered[("journalPageOf", "/projects/007/-/journal")] is None
+	assert answered[("areaOf", "/people/-/journal")] == "people"
+	assert answered[("journalPageOf", "/caf%C3%A9/-/journal")] == {"workspace": "café", "ref": None}
+
+	for path in ("/journal", "/projects/journal"):
+		assert answered[("areaOf", path)] is None, path
+		assert answered[("journalPageOf", path)] is None, path
+
 	assert answered[("parseAddress", "/journal")]["workspace"] == "journal"
-	assert answered[("areaOf", "/people/journal")] == "people"
-	assert answered[("journalPageOf", "/caf%C3%A9/journal")] == {"workspace": "café", "ref": None}
+	assert answered[("parseAddress", "/projects/journal")]["project"] == "journal"
 
 	# **Read backwards and forwards again**, so a link and the parser cannot disagree.
 	pages = [
@@ -17733,30 +17746,34 @@ def test_an_address_ending_in_journal_is_a_page_and_not_a_place (tmp_path: pathl
 	]
 	written = _addressing(tmp_path, [("journalAddress", page) for page in pages])
 
-	assert written == ["/projects/journal", "/projects/42/journal", "/caf%C3%A9/journal"]
+	assert written == ["/projects/-/journal", "/projects/42/-/journal", "/caf%C3%A9/-/journal"]
 	assert _addressing(tmp_path, [("journalPageOf", address) for address in written]) == pages
 	assert _addressing(tmp_path, [("journalPlace", pages[1])]) == [
 		{"agenda": False, "workspace": "projects", "project": None},
 	]
 
 
-def test_journal_is_refused_as_a_project_key_because_the_browser_reads_it_as_a_page (
-	tmp_path: pathlib.Path,
+def test_the_mark_before_a_page_is_no_name_a_place_can_have (
+	tmp_path: pathlib.Path, session: sqlalchemy.orm.Session,
 ) -> None:
-	"""`#2730`: the browser's word and the server's reservation are one rule written twice.
+	"""`#2817`: why no page's word is reserved, asked of every rule that names a place.
 
-	A project keyed ``journal`` would have ``/<workspace>/journal`` for its address, and the
-	browser would open the workspace's journal there instead — `#678`'s *exists, is listed, and
-	can never be reached*, one segment along. `tests/test_api_routing.py` drives the refusal
-	itself for every reserved word; this is what keeps the browser's copy inside that set.
+	Decision `#2816` puts a page's word after ``PAGE_MARK`` rather than refusing the word as a
+	project key, and that holds only while the mark cannot be a workspace's short name, a project
+	key or a ref — any of which would give a place a page's address, `#678`'s *exists, is listed,
+	and can never be reached*. So the browser's own constant is put to each rule, rather than a
+	copy of it to a copy of the rule.
 	"""
 
-	(word,) = _addressing(tmp_path, [("journalWord", None)])
+	(mark,) = _addressing(tmp_path, [("pageMark", None)])
 
-	assert word == "journal"
-	assert word in subroutine.addressing.RESERVED_PATH_WORDS, (
-		f"the browser reads /<workspace>/{word} as a page and a project may still be keyed {word}"
-	)
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.workspaces.validated_slug(session, mark)
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.projects.check_key(subroutine.domain.projects.normalize_key(mark))
+
+	assert subroutine.domain.refs.parse_ref(mark) is None
 
 
 def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Path) -> None:
@@ -17798,7 +17815,7 @@ def test_a_journal_read_starts_at_the_edge_it_is_reading_past_and_keeps_what_it_
 
 	newest, middle, oldest = JOURNAL_ENTRIES
 	holding = {
-		"address": "/projects/journal", "entries": [newest, middle, oldest], "older": True,
+		"address": "/projects/-/journal", "entries": [newest, middle, oldest], "older": True,
 		"cursor": "further", "kind": "task",
 	}
 	later = {**newest, "seq": 30, "id": str(uuid.UUID(int=30))}
@@ -17808,17 +17825,17 @@ def test_a_journal_read_starts_at_the_edge_it_is_reading_past_and_keeps_what_it_
 		("journalBounds", {"holding": holding, "direction": "older"}),
 		# Newer, meeting what is held: merged, and older and the cursor left as they were.
 		("journalAfter", {"holding": holding, "direction": "newer", "read": {
-			"address": "/projects/journal", "arriving": [newest, later], "more": False}}),
+			"address": "/projects/-/journal", "arriving": [newest, later], "more": False}}),
 		# Newer that could not reach it: a gap, so start again from what arrived.
 		("journalAfter", {"holding": holding, "direction": "newer", "read": {
-			"address": "/projects/journal", "arriving": [later], "more": True}}),
+			"address": "/projects/-/journal", "arriving": [later], "more": True}}),
 		# Older: merged, and whether there is further back is this read's to say.
 		("journalAfter", {"holding": {**holding, "entries": [newest]}, "direction": "older",
-			"read": {"address": "/projects/journal", "arriving": [newest, middle], "more": False,
+			"read": {"address": "/projects/-/journal", "arriving": [newest, middle], "more": False,
 				"cursor": None}}),
 		# Arrival: what arrived and nothing held before it.
 		("journalAfter", {"holding": holding, "direction": None, "read": {
-			"address": "/projects/journal", "arriving": [middle], "more": True, "cursor": "next"}}),
+			"address": "/projects/-/journal", "arriving": [middle], "more": True, "cursor": "next"}}),
 	]
 	arrived, newer, older, met, gapped, further, fresh = _views(tmp_path, calls)
 
@@ -17864,20 +17881,20 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 		"nowhere": {"page": None, "workspaces": three},
 		"unready": {"page": None},
 		"unseen": {"page": {"workspace": "elsewhere", "ref": None}, "workspaces": three},
-		"reading": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
-			"journal": {"address": "/projects/42/journal", "entries": JOURNAL_ENTRIES}},
-		"failed": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/journal",
-			"journal": {"address": "/projects/journal", "entries": [], "failed": "It timed out."}},
-		"quiet": {"page": {"workspace": "projects", "ref": 42}, "address": "/projects/42/journal",
-			"journal": {"address": "/projects/42/journal", "entries": [], "older": False}},
+		"reading": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/-/journal",
+			"journal": {"address": "/projects/42/-/journal", "entries": JOURNAL_ENTRIES}},
+		"failed": {"page": {"workspace": "projects", "ref": None}, "address": "/projects/-/journal",
+			"journal": {"address": "/projects/-/journal", "entries": [], "failed": "It timed out."}},
+		"quiet": {"page": {"workspace": "projects", "ref": 42}, "address": "/projects/42/-/journal",
+			"journal": {"address": "/projects/42/-/journal", "entries": [], "older": False}},
 	}
 	said = {name: _rendered(tmp_path, {"Journal": props})["Journal"] for name, props in states.items()}
 
 	# **The way on is the reader's own journals, linked** (`#2773`), never the pattern of an
 	# address: `/workspace/journal` read as one to type, and ran into the word before it.
 	offered = (
-		'Open the journal for <a href="/projects/journal">Projects, '
-		'<a href="/personal/journal">Personal or <a href="/acme/journal">Acme.'
+		'Open the journal for <a href="/projects/-/journal">Projects, '
+		'<a href="/personal/-/journal">Personal or <a href="/acme/-/journal">Acme.'
 	)
 	nowhere = "There is no journal at this address. Each workspace has one, and so does each item in it."
 
@@ -17911,7 +17928,7 @@ def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathli
 		"credential": None,
 	}
 	driven = _driven(
-		tmp_path, pathname="/projects/journal", answers={"/v1/me": reader, "/v1/journal": journal},
+		tmp_path, pathname="/projects/-/journal", answers={"/v1/me": reader, "/v1/journal": journal},
 	)
 	paths = [call["path"] for call in driven["asked"]]
 
@@ -17952,7 +17969,7 @@ def test_a_journal_page_reads_what_is_new_when_the_poll_sees_it (tmp_path: pathl
 		"credential": None,
 	}
 	driven = _driven(
-		tmp_path, pathname="/projects/journal", ticks=1,
+		tmp_path, pathname="/projects/-/journal", ticks=1,
 		answers={
 			"/v1/me": reader,
 			"changes?newest": _feed([_event(7)]),
@@ -17991,7 +18008,7 @@ def test_an_items_journal_finds_out_that_the_ref_is_a_document (tmp_path: pathli
 		"entity_type": "document", "changed": [], "action": "created",
 	}
 	driven = _driven(
-		tmp_path, pathname="/projects/42/journal",
+		tmp_path, pathname="/projects/42/-/journal",
 		answers={
 			"/v1/tasks/42/journal": missing,
 			"/v1/documents/42/journal": {"items": [written], "page": NOTHING["page"]},
@@ -18020,9 +18037,9 @@ def test_a_workspace_and_an_item_lead_to_their_journals_and_a_project_does_not (
 	project = _driven(tmp_path, pathname="/projects/subroutine/ui")
 	item = _driven(tmp_path, pathname="/projects/42", answers=_open_item(tmp_path))
 
-	assert "/projects/journal" in workspace["links"], workspace["links"]
-	assert "/projects/journal" not in project["links"], project["links"]
-	assert "/projects/42/journal" in item["links"], item["links"]
+	assert "/projects/-/journal" in workspace["links"], workspace["links"]
+	assert "/projects/-/journal" not in project["links"], project["links"]
+	assert "/projects/42/-/journal" in item["links"], item["links"]
 
 
 def test_a_workspace_has_a_settings_page_of_its_own (tmp_path: pathlib.Path) -> None:

@@ -20,8 +20,8 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { html } from "./html.js";
 import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, JOURNAL, MAX_REF,
-	ONLY_FINISHED, PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest, answers,
-	areaOf, chips, chosenWorkspace, encodedPath, frame, journalAddress, journalPageOf,
+	ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest,
+	answers, areaOf, chips, chosenWorkspace, encodedPath, frame, journalAddress, journalPageOf,
 	journalPlace, listingAddress, mentionHref, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
 	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
@@ -3574,6 +3574,7 @@ export {
 	JOURNAL,
 	MAX_REF,
 	ONLY_FINISHED,
+	PAGE_MARK,
 	PATH_SEPARATOR,
 	PRODUCT,
 	SELECTABLE,

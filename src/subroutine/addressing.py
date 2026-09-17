@@ -36,17 +36,16 @@ import typing
 #: **``settings`` joined it with `#2450`**, one route later again: ``parent/settings`` reads
 #: equally as a project keyed ``settings`` inside ``parent`` and as what is in force in
 #: ``parent``. The route wins, and nothing on the served instance was keyed that way.
-#: **``journal`` joined it with `#2730`**, and the address it guards is the browser's rather than
-#: the API's: ``/<workspace>/journal`` is a workspace's journal page, so a project keyed
-#: ``journal`` would exist, be listed, and open that page instead. ``address.js``'s ``JOURNAL``
-#: is the other copy, held to this by a test, and nothing on the served instance was keyed that
-#: way when it joined.
+#: **``journal`` joined it with `#2730` and left with `#2817`**, the one word here that guarded
+#: the browser's addresses rather than the API's. A journal page was ``/<workspace>/journal``,
+#: where a project keyed ``journal`` would have been, and decision `#2816` put every page on a
+#: place after a ``-`` segment instead — ``/<workspace>/-/journal`` — which no key can be. **So a
+#: page in the browser never adds a word here**; a route under ``/v1/projects/`` still does.
 RESERVED_PATH_WORDS = frozenset(
 	{
 		"batch",
 		"comments",
 		"events",
-		"journal",
 		"members",
 		"move",
 		"next",

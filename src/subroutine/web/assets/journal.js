@@ -3,7 +3,7 @@
 
 	**A page drawn in place of the work, as the settings and people pages are**, and for their
 	reason: it shows no rows, arrangement or selection, so it is not a fourth view. It is
-	reached at `/<workspace>/journal` and `/<workspace>/<ref>/journal` (`journalPageOf`).
+	reached at `/<workspace>/-/journal` and `/<workspace>/<ref>/-/journal` (`journalPageOf`).
 
 	**Everything here is a rendering of what `/v1/journal` and an item's journal already say.**
 	Who did each thing, through which door and never with which credential, what a change moved
