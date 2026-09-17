@@ -344,6 +344,59 @@ def own_day_field (category: str) -> str:
 	return "due_at"
 
 
+def refuse_a_deadline_on_an_occasion (
+	kind: subroutine.db.models.vocabulary.ItemType,
+	*,
+	due_at: datetime.datetime | None,
+	named: str,
+) -> None:
+	"""Refuse an event that would have a deadline, saying what to write instead (`#1246`).
+
+	**Decision `#1235` says an event is never due or overdue**, and until this nothing made it
+	true: a type and a deadline were each settable on anything, so an event could be given one
+	and land under *Overdue* and in a calendar as *Due: Anna's birthday*. Simon's answer of
+	2026-09-17 is to refuse it by name, with the remedy - an event happens, so it takes a start.
+
+	**By category, as :func:`own_day_field` is**, so a workspace's own event type is refused
+	the same way.
+
+	``named`` is which field the caller wrote, because the remedy differs: a deadline given to
+	an event is the deadline's fault, and something with a deadline made into an event needs
+	the deadline cleared in the same change. ``due_at`` is the deadline the item would have
+	afterwards.
+	"""
+
+	if kind.category != subroutine.domain.readiness.OCCASION or due_at is None:
+		return
+
+	if named == "due":
+		raise subroutine.errors.ValidationError(
+			"An event cannot have a deadline: it happens on its day, and is never due or overdue.",
+			code="invalid_field_value",
+			hint="Give it a start instead.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="due",
+					code="invalid_field_value",
+					message=f"`due` cannot be set on an item of type {kind.key!r}.",
+				)
+			],
+		)
+
+	raise subroutine.errors.ValidationError(
+		"An event cannot have a deadline, and this has one.",
+		code="invalid_field_value",
+		hint="Clear its deadline in the same change, or give it a start in its place.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="type",
+				code="invalid_field_value",
+				message=f"`type` cannot become {kind.key!r} while `due` is set.",
+			)
+		],
+	)
+
+
 def grid_field_for (due_at: datetime.datetime | None) -> str:
 	"""Say which column a row holding this deadline puts its slot on.
 
@@ -913,6 +966,7 @@ def create (
 		timezone=zone,
 		field="snoozed_until",
 	)
+	refuse_a_deadline_on_an_occasion(item_type, due_at=deadline.instant, named="due")
 
 	ref = subroutine.domain.refs.allocate(session, workspace_id)
 
@@ -1393,6 +1447,19 @@ def update (
 		timezone=zone,
 		field="snoozed_until",
 	)
+
+	# **Asked only of a change that names a type or a deadline** (`#1246`), against what the
+	# task will be. An event given a deadline before this refusal existed can still be
+	# retitled, completed or have its deadline cleared, rather than every edit to it being
+	# refused for something the edit did not touch.
+	if item_type is not subroutine.domain.patch.UNSET or deadline is not subroutine.domain.patch.UNSET:
+		refuse_a_deadline_on_an_occasion(
+			item_type
+			if item_type is not subroutine.domain.patch.UNSET
+			else session.get_one(subroutine.db.models.vocabulary.ItemType, task.type_id),
+			due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
+			named="type" if deadline is subroutine.domain.patch.UNSET else "due",
+		)
 
 	# **The move is validated here and applied below, like every other field**, even though
 	# it writes more than one row. From a caller's side "this is in the wrong project" is a

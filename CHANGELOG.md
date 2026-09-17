@@ -171,6 +171,13 @@ upgrade involves.
 
 ### Fixed
 
+- **An event can no longer be given a deadline.** An event happens on its day and is never due
+  or overdue, and nothing stopped one having a deadline - *Anna's birthday by 14 March* filed
+  as an event, a deadline added to an event, or a task with a deadline made into one - so it
+  could appear under *Overdue* and in a calendar as *Due: Anna's birthday*. Each is refused,
+  saying to give it a start instead, or to clear the deadline in the same change. An event
+  that already has one can still be edited, and its deadline cleared.
+
 - **A captured line's deadline no longer comes before the start written beside it.** Each
   date was the soonest counting today, apart, so *Prepare the slides on 15 September by 30
   September* said on 17 September started in 2027 and was due in 2026, and *on sunday by

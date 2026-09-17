@@ -1557,6 +1557,31 @@ def test_a_day_long_until_on_a_timed_event_is_refused_rather_than_flattening_it 
 	assert after["ends_at"] == before["ends_at"], "a refused command set the end anyway"
 
 
+def test_a_captured_deadline_on_an_event_is_refused_with_the_remedy (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1246`'s first route: *Anna's birthday by 14 March* filed as an event was due that day.
+
+	**Nothing is written**, and the words say what an event takes instead. Written *on*, it is a
+	start and is filed.
+	"""
+
+	run("init")
+
+	refused = run("add", "Anna's birthday by 14 March", "--type", "event", expect=1)
+
+	assert "event cannot have a deadline" in refused.output, refused.output
+	assert "Give it a start instead" in refused.output, refused.output
+	assert json.loads(run("list", "--json").output) == [], "it was filed anyway"
+
+	run("add", "Anna's birthday on 14 March", "--type", "event")
+
+	filed = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert (filed["type"], filed["due_at"]) == ("event", None), filed
+	assert filed["starts_at"] is not None, filed
+
+
 def test_a_timed_event_says_its_o_clock_and_a_whole_day_one_does_not (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

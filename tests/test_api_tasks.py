@@ -21,6 +21,7 @@ import subroutine.api.tasks
 import subroutine.db.fulltext
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -2483,6 +2484,129 @@ def test_ready_excludes_an_event_because_nobody_can_be_offered_one (world: World
 	]
 
 	assert birthday in everything
+
+
+def test_an_event_cannot_be_given_a_deadline_by_any_route (world: World) -> None:
+	"""`SR#1246`: decision `SR#1235` says an event is never due, and nothing made that true.
+
+	A type and a deadline were each settable on anything, so all three routes the item names
+	made an event that is late by definition. **Refused by name, with the remedy** - Simon's
+	answer of 2026-09-17 - and a refusal leaves the item as it was.
+	"""
+
+	# **Created with both.**
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Anna's birthday", "type": "event", "due": "2099-03-14"}
+	)
+
+	assert made.status_code == 422, made.text
+	assert [error["field"] for error in made.json()["errors"]] == ["due"], made.text
+	assert "give it a start" in made.text.lower(), made.text
+
+	listed = world.call("GET", "/v1/tasks?limit=50").json()["items"]
+
+	assert not [item for item in listed if item["title"] == "Anna's birthday"], "it was created anyway"
+
+	# **Something with a deadline made into an event**, which has to say to clear it.
+	deadline = world.call(
+		"POST", "/v1/tasks", json={"title": "The code freeze", "due": "2099-03-14"}
+	).json()
+	retyped = world.call("PATCH", f"/v1/tasks/{deadline['ref']}", json={"type": "event"})
+
+	assert retyped.status_code == 422, retyped.text
+	assert [error["field"] for error in retyped.json()["errors"]] == ["type"], retyped.text
+	assert "clear its deadline" in retyped.text.lower(), retyped.text
+
+	kept = world.call("GET", f"/v1/tasks/{deadline['ref']}").json()
+
+	assert (kept["type"], kept["due_at"]) == ("task", deadline["due_at"]), kept
+
+	# **An event given one afterwards.**
+	event = world.call(
+		"POST", "/v1/tasks", json={"title": "Anna's party", "type": "event", "starts": "2099-03-14"}
+	).json()
+	dated = world.call("PATCH", f"/v1/tasks/{event['ref']}", json={"due": "2099-03-15"})
+
+	assert dated.status_code == 422, dated.text
+	assert [error["field"] for error in dated.json()["errors"]] == ["due"], dated.text
+	assert world.call("GET", f"/v1/tasks/{event['ref']}").json()["due_at"] is None
+
+	# **Both in one change is the remedy the retyping refusal names**, and it works.
+	cleared = world.call(
+		"PATCH", f"/v1/tasks/{deadline['ref']}", json={"type": "event", "due": None, "starts": "2099-03-14"}
+	)
+
+	assert cleared.status_code == 200, cleared.text
+	assert (cleared.json()["type"], cleared.json()["due_at"]) == ("event", None), cleared.text
+
+	# **And an event is still an ordinary thing to edit and to un-make**: retyped back to a
+	# task, it takes a deadline in the same change.
+	retitled = world.call("PATCH", f"/v1/tasks/{event['ref']}", json={"title": "Anna's 40th"})
+	untyped = world.call(
+		"PATCH", f"/v1/tasks/{event['ref']}", json={"type": "task", "due": "2099-03-15"}
+	)
+
+	assert retitled.status_code == 200, retitled.text
+	assert untyped.status_code == 200, untyped.text
+
+
+def test_an_event_given_a_deadline_before_the_refusal_can_still_be_edited (
+	world: World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1246`'s refusal is asked of a change that names a type or a deadline, and of nothing else.
+
+	An instance can already hold an event with a deadline, written before the refusal existed.
+	Refusing every edit to one for a field the edit did not touch would strand it; what it must
+	still allow is a title, and clearing the deadline.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Old birthday", "due": "2099-03-14"}).json()
+	row = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.workspace_id == world.workspace.id,
+			subroutine.db.models.work.Task.ref == made["ref"],
+		)
+	).one()
+	row.type_id = subroutine.domain.tasks.item_type_for(session, world.workspace.id, "event").id
+	session.flush()
+
+	retitled = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"title": "Anna's birthday"})
+
+	assert retitled.status_code == 200, retitled.text
+
+	cleared = world.call("PATCH", f"/v1/tasks/{made['ref']}", json={"due": None})
+
+	assert cleared.status_code == 200, cleared.text
+	assert cleared.json()["due_at"] is None, cleared.text
+
+
+def test_a_workspaces_own_kind_of_event_is_refused_a_deadline_too (
+	world: World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1246`'s refusal reads the type's category, as the rest of decision `SR#1235` does.
+
+	A workspace may keep a type of its own under *occasion* - a holiday - and that is an event by
+	the only definition the program has, so it takes a start and not a deadline.
+	"""
+
+	session.add(
+		subroutine.db.models.vocabulary.ItemType(
+			workspace_id=world.workspace.id,
+			entity_type="task",
+			key="holiday",
+			label="Holiday",
+			category="occasion",
+			position=99,
+		)
+	)
+	session.flush()
+
+	made = world.call(
+		"POST", "/v1/tasks", json={"title": "Dawlish", "type": "holiday", "due": "2099-10-12"}
+	)
+
+	assert made.status_code == 422, made.text
+	assert "item of type 'holiday'" in made.text, made.text
 
 
 def test_an_event_stops_blocking_when_it_is_over_without_anybody_completing_it (
