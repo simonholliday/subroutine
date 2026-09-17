@@ -8,6 +8,7 @@ whoever does want it.
 """
 
 import contextlib
+import copy
 import dataclasses
 import datetime
 import getpass
@@ -799,11 +800,15 @@ def serve (
 
 	_warn_about_an_open_origin_list(settings)
 
+	level = (log_level.strip() or settings.log_level).lower()
+
 	listen(
 		application,
 		host=where,
 		port=listening,
-		log_level=(log_level.strip() or settings.log_level).lower(),
+		log_level=level,
+		# **The application's own lines, at the same level and in the same form** (`#2834`).
+		log_config=_logging(level),
 		timeout_graceful_shutdown=SHUTDOWN_GRACE_SECONDS,
 		# **Off, because this application already does it and does it properly** (`#931`,
 		# `#927` H-5). uvicorn defaults it *on*, with `forwarded_allow_ips` falling back to
@@ -820,6 +825,34 @@ def serve (
 		# stays is the one that can see the configuration.
 		proxy_headers=False,
 	)
+
+
+def _logging (level: str) -> dict[str, typing.Any]:
+	"""Return uvicorn's own logging configuration, with this application's loggers in it - `#2834`.
+
+	**uvicorn configures the loggers it names and no others.** Handed only a level, it left the
+	application's loggers with no handler at all, so Python's last resort wrote a warning as a
+	bare message and an info line not at all, whatever ``--log-level`` said. Measured under
+	uvicorn's configuration on 2026-09-17, and the served instance's journal agreed: ten days
+	of it held no line of the application's own. `#2224`'s note that a release check failed is
+	an info line, so it would never have been written.
+
+	**The same handler and formatter as uvicorn's lines**, so a line from here reads like one of
+	them - ``WARNING:  ...`` - goes where they go, and obeys the level an operator chose for
+	both. A copy, because uvicorn's dictionary is its module's own and is read again by anything
+	that starts a server in the same process.
+	"""
+
+	from uvicorn.config import LOGGING_CONFIG as uvicorns
+
+	configured = copy.deepcopy(uvicorns)
+	configured["loggers"]["subroutine"] = {
+		"handlers": ["default"],
+		"level": level.upper(),
+		"propagate": False,
+	}
+
+	return configured
 
 
 def _warn_about_an_open_origin_list (settings: subroutine.config.Settings) -> None:

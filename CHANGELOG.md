@@ -159,6 +159,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A served instance writes its own log lines, at the level `--log-level` names.** Its
+  warnings were written with nothing to say they were warnings, and its info lines not at
+  all, because only uvicorn's own lines were configured. They now read like uvicorn's -
+  `WARNING:  ...` - and follow the same setting.
+
 - **A row's title no longer wraps a word to a line on a phone.** Below 620px wide, every
   title in the list fell into a column about 56px wide.
 
