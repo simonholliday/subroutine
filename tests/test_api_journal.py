@@ -359,8 +359,10 @@ def test_no_journal_entry_carries_a_whole_text (
 		# A space exactly one past the limit ends a word at the limit.
 		("abcd efghij klm", ("abcd", True)),
 		("abcdefghij klm", ("abcdefghij", True)),
-		# A line break is a place a word ends, and is kept inside the opening.
-		("ab\ncd efghijklm", ("ab\ncd", True)),
+		# A line break is a space, with whatever whitespace surrounds it (`#2852`), and the limit
+		# counts what is left.
+		("ab\ncd efghijklm", ("ab cd", True)),
+		("ab  \r\n\n  cd", ("ab cd", False)),
 		# One word longer than the limit is still cut, and so is one after leading space.
 		("abcdefghijklmnop", ("abcdefghij", True)),
 		("   abcdefghijklmnop", ("   abcdefg", True)),
@@ -421,6 +423,39 @@ def test_a_long_comment_is_cut_at_a_word_and_says_so (
 	assert (within["said"], within["said_truncated"]) == (SAID, False), within
 
 	assert (word["said"], word["said_truncated"]) == (bodies["one word"][:limit], True), word
+
+
+def test_a_comment_reads_on_one_line_in_the_journal (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`#2852` (Simon, 2026-09-17): a heading, a blank line and a list took five lines of a journal.
+
+	**A run of whitespace holding a line break is one space**, and the limit counts what is left,
+	so an opening is one line of words however the comment was laid out.
+	"""
+
+	made = world.call("POST", "/v1/tasks", json={"title": "Fix the deploy script"})
+
+	assert made.status_code == 201, made.text
+
+	ref = made.json()["ref"]
+	body = "**E6 is finished.**\n\nIt sorts the candidates:\r\n\n- **Clean:** pypdf  \n  and mammoth"
+	wrote = world.call("POST", f"/v1/tasks/{ref}/comments", json={"body": body})
+
+	assert wrote.status_code == 201, wrote.text
+
+	session.flush()
+	_settled(session)
+
+	(entry,) = [
+		entry
+		for entry in _entries(world, limit=200)
+		if entry["entity_type"] == "comment" and entry["item_ref"] == ref
+	]
+
+	assert (entry["said"], entry["said_truncated"]) == (
+		"**E6 is finished.** It sorts the candidates: - **Clean:** pypdf and mammoth", False
+	), entry
 
 
 def test_a_terminal_and_an_agent_are_told_where_a_comment_was_cut () -> None:

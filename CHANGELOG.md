@@ -38,9 +38,9 @@ upgrade involves.
   `subroutine journal` and the agent tools still print a period in the order it happened;
   `subroutine journal --json` follows the answer.
 
-- **The journal no longer carries whole texts.** A comment is its opening - at most 280
-  characters, ending at a word - and `said_truncated` says whether there is more, which the
-  item's comments still have. A change to a description or a document's body says that it
+- **The journal no longer carries whole texts.** A comment is its opening, on one line - at
+  most 140 characters, ending at a word - and `said_truncated` says whether there is more,
+  which the item's comments still have. A change to a description or a document's body says that it
   changed, with nothing before or after. `/v1/journal`, `subroutine journal` and the agent
   tools all read this way, and `/v1/changes` and an item's history still carry every text
   whole. Most of what the journal sent was documents rewritten, so a page of it is a small

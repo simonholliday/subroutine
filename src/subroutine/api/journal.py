@@ -75,8 +75,8 @@ def reading (
 	inside a change — three things the feed leaves as an id or omits, and three things nobody
 	can reconstruct from it.
 
-	**No entry carries a whole text.** A comment is its opening, at most 280 characters and
-	ended at a word, with `said_truncated` saying whether there is more; the item's comments
+	**No entry carries a whole text.** A comment is its opening on one line, at most 140 characters
+	and ended at a word, with `said_truncated` saying whether there is more; the item's comments
 	have the rest. A change to a description or a body says that it changed and not what it
 	said either side, which `/v1/changes` still carries.
 

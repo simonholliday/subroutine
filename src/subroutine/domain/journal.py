@@ -78,10 +78,12 @@ NAMED_BY: dict[str, str] = {
 #: ``test_every_prose_field_is_a_whole_text`` holds the one inside the other.
 WHOLE_TEXTS: frozenset[str] = frozenset({"description", "body"})
 
-#: How much of a comment an entry carries — `#2728`, the same day's decision. **Measured, not
-#: chosen**: on the latest 58 comments the median was 904 characters and a first paragraph's
-#: median 223, with three in four under 355, so this keeps most openings whole.
-OPENING = 280
+#: How much of a comment an entry carries — `#2728`. It was 280, measured to keep most first
+#: paragraphs whole, and **Simon halved it on 2026-09-17** (`#2852`) when line breaks became
+#: spaces: on the latest 48 comments in the journal 23 reached 280, about three lines of the
+#: page each, and 140 keeps the first sentence - the heading an agent writes first - in one
+#: and a half.
+OPENING = 140
 
 
 class Said(typing.NamedTuple):
@@ -265,7 +267,8 @@ def said (
 	:func:`subroutine.domain.events.descriptions` next door is shaped the same way.
 
 	**Only the opening, and cut here rather than by whoever renders it** (`#2728`), so no whole
-	comment leaves this function: :data:`OPENING` characters, ended at a word, and marked.
+	comment leaves this function: :data:`OPENING` characters on one line, ended at a word, and
+	marked.
 	"""
 
 	model = subroutine.db.models.activity.Comment

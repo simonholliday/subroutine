@@ -305,20 +305,29 @@ def require (value: str | None, *, field: str, label: str | None = None) -> str:
 	)
 
 
+#: A line break with whatever whitespace surrounds it - the run :func:`opening` makes one space.
+_A_LINE_BREAK = re.compile(r"\s*[\r\n]+\s*")
+
+
 def opening (text: str, limit: int) -> tuple[str, bool]:
-	"""Return the start of ``text``, at most ``limit`` characters and ended at a word, and whether
-	anything was left out.
+	"""Return the start of ``text`` on one line, at most ``limit`` characters and ended at a word,
+	and whether anything was left out.
 
 	**Whether it was cut is returned rather than drawn** — no ellipsis — because the caller is a
 	view, and a program reading a view should not have to parse the text to learn there is more.
 	A surface that draws one draws it from the flag.
 
-	**Line breaks are kept.** This is the opening of something somebody wrote, not a one-line
-	rendering, which is what :func:`truncated` below is for.
+	**A line break is a space, and the limit counts what is left** (Simon, 2026-09-17, `#2852`).
+	They were kept, as part of how somebody's words read, and an agent's heading, a blank line
+	and the first item of a list then took five lines of a journal to say a dozen words. Any run
+	of whitespace holding a line break is one space; nothing else about the words changes, and
+	:func:`truncated` below is still the one that collapses every space for a column.
 
 	**One word longer than the limit is still cut**, at the limit: a pasted URL or a stack trace
 	has no word to end at, and returning it whole would make the limit a suggestion.
 	"""
+
+	text = _A_LINE_BREAK.sub(" ", text)
 
 	if len(text) <= limit:
 		return text, False
