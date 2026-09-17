@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Changed
 
+- **`show` on a well-connected item prints the latest 20 things that refer to it**, at the
+  command line and in the agent tools, with the heading counting every one - *Referred to by
+  (91, showing the latest 20)* - and a way to read the rest: `subroutine show 42 --json`, or
+  the route to call from the agent tools. The links its writing suggests are offered only
+  when there are 10 or fewer; above that the heading counts them and says where they are.
+  Most items are unaffected: half have 5 references or fewer and 1 suggestion or none.
+
 - **A change reads in plain words on every surface.** `subroutine journal`, `show --history`,
   `subroutine changes`, the agent tools and the browser's journal name what changed as status,
   project, workspace, assignee, deadline, starts, deferred until, repeats, time estimate and

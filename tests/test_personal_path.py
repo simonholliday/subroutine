@@ -8188,6 +8188,49 @@ def test_show_says_what_refers_to_an_item (
 	assert "in a comment" in shown, "a mention in a comment reads as one in the item's prose"
 
 
+def test_show_prints_the_latest_references_and_offers_suggestions_only_when_few (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1232`: `show` on a well-connected item was mostly other items' titles.
+
+	**The latest references, with the heading counting all of them and a way to the rest**, and
+	the suggestions offered whole or not at all. The two numbers are made small here so three
+	items can reach them; what they are is measured, and written beside them.
+	"""
+
+	monkeypatch.setattr(subroutine.views, "REFERENCES_SHOWN", 2)
+	monkeypatch.setattr(subroutine.views, "SUGGESTIONS_OFFERED", 1)
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "How dates are written", "--type", "decision", "--body", "Because.")
+	run("doc", "create", "How times are written", "--type", "decision", "--body", "Because.")
+	run("add", "The oldest reference", "--description", "Follows #1.")
+	run("add", "The middle reference", "--description", "Follows #1.")
+	run("add", "The newest reference", "--description", "Follows #1 and #2.")
+
+	decision = run("show", "1").output
+
+	assert "Referred to by (3, showing the latest 2)" in decision, decision
+	assert "The middle reference" in decision and "The newest reference" in decision, decision
+	assert "The oldest reference" not in decision, decision
+	# **Under the references it cut**, and not only under the suggestions, which say it too.
+	assert "Tip: subroutine show 1 --json" in decision.split("Not linked")[0], (
+		f"nothing says where the rest of the references are: {decision}"
+	)
+
+	# **Three suggestions over a limit of one: counted, and none offered.**
+	assert "Not linked, but its writing suggests (3)" in decision, decision
+	assert "Too many to offer one by one." in decision, decision
+	assert "subroutine link" not in decision, f"a link was offered from a list withheld: {decision}"
+
+	# **One suggestion is an offer**, and a section under its limit reads as it always did.
+	work = run("show", "3").output
+
+	assert "Not linked, but its writing suggests (1)" in work, work
+	assert "How dates are written" in work and "subroutine link 1 documents 3" in work, work
+	assert "Too many" not in work and "--json" not in work, work
+
+
 def test_show_says_nothing_about_references_where_there_are_none (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

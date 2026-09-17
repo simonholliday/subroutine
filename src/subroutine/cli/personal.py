@@ -12232,6 +12232,9 @@ def _render_item (
 
 			console.print(line)
 
+	# What to type for this item, for a section below that says where the rest of it is.
+	typed = world.address_of_located(located).replace(subroutine.domain.refs.SIGIL, "")
+
 	if referring:
 		# **What refers to this, and it is not a link** (`#144`). A link is an assertion
 		# somebody made about two items; a mention only records that one piece of writing
@@ -12241,10 +12244,20 @@ def _render_item (
 		#
 		# **Silent when there are none**, like every other section here: §12.2c's rule that a
 		# field nobody set is not printed, applied to a whole heading.
-		console.print("")
-		console.print(rich.text.Text(f"Referred to by ({len(referring)})", style=HEADING))
+		# **The latest of them, and the heading still counts every one** (`#1232`) - the shape
+		# `COMMENTS_SHOWN` gives *What happened*. An item referred to from ninety places printed
+		# ninety lines of other items' titles, and every item here is on that curve: nothing makes
+		# the list shorter.
+		latest = subroutine.views.references_shown(referring)
+		cut = len(latest) < len(referring)
+		rollup = f", showing the latest {len(latest)}" if cut else ""
 
-		for one in referring:
+		console.print("")
+		console.print(
+			rich.text.Text(f"Referred to by ({len(referring)}{rollup})", style=HEADING)
+		)
+
+		for one in latest:
 			line = rich.text.Text()
 			line.append(
 				f"  {subroutine.domain.refs.format_ref(one.ref):>6}  ", style=POSITION
@@ -12255,6 +12268,10 @@ def _render_item (
 			line.append(f"{'in a comment' if one.via else '':<13}", style=DETAIL)
 			line.append(one.title)
 			console.print(line)
+
+		# **A cap is only defensible with a way to read the rest** (`#849`).
+		if cut:
+			_suggest(console, f"subroutine show {typed} --json", "every one")
 
 	if proposed:
 		# **What the writing suggests, and nobody has said so** (`#1137`). Separate from the
@@ -12272,7 +12289,15 @@ def _render_item (
 			)
 		)
 
-		for suggestion in proposed:
+		# **Every one, or none** (`#1232`): an offer too long to read is not an offer, and the
+		# first ten of fifty would be the ten the order happened to put first.
+		offered = subroutine.views.suggestions_offered(proposed)
+
+		if not offered:
+			console.print(rich.text.Text("  Too many to offer one by one.", style=DETAIL))
+			_suggest(console, f"subroutine show {typed} --json", "every one")
+
+		for suggestion in offered:
 			line = rich.text.Text()
 			line.append(
 				f"  {subroutine.domain.refs.format_ref(suggestion.other.ref):>6}  ",
@@ -12285,14 +12310,15 @@ def _render_item (
 		# **The governing end first, and a fixed order was `SR#1609`.** ``confirmed_as`` decides
 		# it once for both surfaces, because a swap written here and again in `mcp` is two
 		# copies of one rule about a link neither renderer can show is backwards.
-		source, target = proposed[0].confirmed_as(located.ref)
+		if offered:
+			source, target = offered[0].confirmed_as(located.ref)
 
-		_suggest(
-			console,
-			f"subroutine link {source} "
-			f"{proposed[0].link_type.replace('_', '-')} {target}",
-			"confirm one",
-		)
+			_suggest(
+				console,
+				f"subroutine link {source} "
+				f"{offered[0].link_type.replace('_', '-')} {target}",
+				"confirm one",
+			)
 
 	if checked:
 		# **What was checked, and it is a record rather than a proof** (`#1121`). Somebody can

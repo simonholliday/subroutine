@@ -4297,6 +4297,34 @@ def proposals (
 	return [proposal(one, vocabulary) for one in found]
 
 
+#: How many of the things referring to an item ``show`` prints, at a terminal and to an agent
+#: (`#1232`). **The latest of them**, as ``show`` keeps the latest comments: the list is a
+#: record read oldest first, and on a well-connected item the newest references are the live
+#: ones. **Measured on 2026-09-17** over 260 items sampled from the served instance: a median
+#: of 5, 16 at the 90th percentile, 50 at the 99th and 91 at worst - so 20 cuts about one item
+#: in fourteen and leaves the ordinary one as it was. The heading still counts every one.
+REFERENCES_SHOWN = 20
+
+#: The most suggested links ``show`` offers (`#1232`). **Above it, none**, and the heading still
+#: counts them: a suggestion is an offer, and a list of fifty is not one anybody reads, while the
+#: first ten of it would be the ten the order happened to put first. The same sample had a
+#: median of 1, none on 104 of the 260, 13 at the 95th percentile and 56 at worst, so this
+#: withholds them on about one item in seventeen.
+SUGGESTIONS_OFFERED = 10
+
+
+def references_shown (referring: typing.Sequence[Backlink]) -> list[Backlink]:
+	"""Return the references ``show`` prints: the latest :data:`REFERENCES_SHOWN`, oldest first."""
+
+	return list(referring[-REFERENCES_SHOWN:])
+
+
+def suggestions_offered (proposed: typing.Sequence[Proposal]) -> list[Proposal]:
+	"""Return the suggested links ``show`` offers: every one, or none above :data:`SUGGESTIONS_OFFERED`."""
+
+	return list(proposed) if len(proposed) <= SUGGESTIONS_OFFERED else []
+
+
 def edges (
 	session: sqlalchemy.orm.Session,
 	found: typing.Sequence[subroutine.domain.links.Edge],

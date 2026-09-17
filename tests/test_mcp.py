@@ -1361,6 +1361,54 @@ def test_the_suggested_link_names_the_governing_end_first (bound: typing.Any) ->
 	assert f"ref={work}" not in shown, f"a task does not document a decision: {shown}"
 
 
+def test_show_gives_the_latest_references_and_offers_suggestions_only_when_few (
+	bound: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#1232`: `subroutine_show` on a well-connected item spent most of its answer on back-matter.
+
+	The count of every reference, the latest of them and the call that reads the rest (`#849`'s
+	rule that a cap needs one); and suggestions offered whole or withheld with that call.
+	"""
+
+	monkeypatch.setattr(subroutine.views, "REFERENCES_SHOWN", 2)
+	monkeypatch.setattr(subroutine.views, "SUGGESTIONS_OFFERED", 1)
+
+	written, failed = _called(
+		bound, "subroutine_document", title="How dates are written", body="Because.", type="decision"
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	decision = int(numbered.group(1))
+	work = []
+
+	for title in ("The oldest reference", "The middle reference", "The newest reference"):
+		captured, failed = _called(bound, "subroutine_add", text=title, description=f"Follows #{decision}.")
+
+		assert not failed, captured
+
+		work.append(int(captured.split()[1].lstrip("#")))
+
+	shown = _called(bound, "subroutine_show", ref=decision)[0]
+
+	assert "Referred to by (3, showing the latest 2)" in shown, shown
+	assert "The newest reference" in shown and "The oldest reference" not in shown, shown
+	assert f'path="/v1/documents/{decision}/backlinks"' in shown, f"no way to the rest: {shown}"
+	assert "Not linked, but its writing suggests (3)" in shown, shown
+	assert f'path="/v1/documents/{decision}/proposed-links"' in shown, shown
+	assert "subroutine_link(" not in shown, f"a link was offered from a list withheld: {shown}"
+
+	one = _called(bound, "subroutine_show", ref=work[0])[0]
+
+	assert "Not linked, but its writing suggests (1)" in one, one
+	assert f"subroutine_link(ref={decision}, type='documents', other={work[0]})" in one, one
+	assert "subroutine_call_api" not in one, one
+
+
 def test_a_project_listing_shows_where_each_project_sits_in_the_tree (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

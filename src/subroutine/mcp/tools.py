@@ -2968,6 +2968,18 @@ def _more (item: subroutine.views.Task | subroutine.views.Document) -> list[str]
 	return facts
 
 
+def _every_one (kind: str, ref: int, workspace: str | None, section: str) -> str:
+	"""Return the call that reads the whole of a section ``subroutine_show`` cut short (`#1232`).
+
+	**A cap is only defensible together with a way to read the rest** (`#849`), and an agent has
+	no ``--json``: the route the section is read from is the whole of it, one call away.
+	"""
+
+	query = "" if workspace is None else f', query={{"workspace_id": "{workspace}"}}'
+
+	return f'subroutine_call_api(method="GET", path="/v1/{kind}s/{ref}/{section}"{query})'
+
+
 #: How many children ``subroutine_show`` lists. The terminal's own ceiling, and here for the
 #: same reason: a depth limit exists and nothing bounds breadth, so an item with four hundred
 #: parts should print a number rather than four hundred lines.
@@ -3250,12 +3262,24 @@ def _shown (
 	referring = client.backlinks(ref=ref, entity_type=kind, workspace=workspace)
 
 	if referring:
+		# **The latest of them, the count of all, and the call for the rest** (`#1232`): an item
+		# referred to from ninety places spent most of this answer on other items' titles.
+		latest = subroutine.views.references_shown(referring)
+		cut = len(latest) < len(referring)
+
 		parts.append("")
-		parts.append(f"Referred to by ({len(referring)})")
+		parts.append(
+			f"Referred to by ({len(referring)}, showing the latest {len(latest)})"
+			if cut
+			else f"Referred to by ({len(referring)})"
+		)
 		parts.extend(
 			f"#{one.ref}  {one.title}" + ("  (in a comment)" if one.via else "")
-			for one in referring
+			for one in latest
 		)
+
+		if cut:
+			parts.append(f"Every one: {_every_one(kind, ref, workspace, 'backlinks')}")
 
 	# **What the writing suggests governs this, and nobody has confirmed** (`#1137`). Offered
 	# rather than answered: a citation is written the same way whether it means *this follows
@@ -3267,21 +3291,34 @@ def _shown (
 	proposed = client.proposed_links(ref=ref, entity_type=kind, workspace=workspace)
 
 	if proposed:
+		# **Every one, or none** (`#1232`): an offer too long to read is not an offer, and the
+		# first ten of fifty would be the ten the order happened to put first.
+		offered = subroutine.views.suggestions_offered(proposed)
+
 		parts.append("")
 		parts.append(f"Not linked, but its writing suggests ({len(proposed)})")
+
+		if not offered:
+			parts.append(
+				f"Too many to offer one by one. Every one: "
+				f"{_every_one(kind, ref, workspace, 'proposed-links')}"
+			)
+
 		parts.extend(
 			f"{one.label}  #{one.other.ref}  {one.other.title}  ({one.because})"
-			for one in proposed
+			for one in offered
 		)
+
 		# **The governing end first, and a fixed order was `SR#1609`.** The label above this
 		# line already reads the direction correctly, so before this the two contradicted each
 		# other inside one answer: *Documents #2* over a call that makes #2 the document.
-		governing, governed = proposed[0].confirmed_as(ref)
+		if offered:
+			governing, governed = offered[0].confirmed_as(ref)
 
-		parts.append(
-			f"Confirm one with subroutine_link(ref={governing}, "
-			f"type='{proposed[0].link_type}', other={governed})"
-		)
+			parts.append(
+				f"Confirm one with subroutine_link(ref={governing}, "
+				f"type='{offered[0].link_type}', other={governed})"
+			)
 
 	if arguments.get("history"):
 		parts.append("")
