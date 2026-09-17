@@ -92,6 +92,18 @@ upgrade involves.
 
 ### Added
 
+- **Subroutine can tell you when something is out of date.** With `check = true` under
+  `[releases]`, an instance asks which versions have been released, at most once a day and only
+  while somebody signed in is using it, and `/v1/me` publishes what it found as `releases`.
+  `subroutine whoami` and the agent tools then say which of the program, the plugin and the
+  instance is behind and what to type - the instance only to somebody who may administer it -
+  or name the newest release, or say that the last check failed. The bare `subroutine` adds one
+  line under the agenda while the program is behind. The browser shows an administrator a note
+  while the instance is behind, and the instance's log gets a warning naming how many releases
+  behind it is and whether upgrading changes the database, and a note when a check fails. A
+  development build says nothing, because it cannot tell whether it contains a release. Nothing
+  asks unless you turn it on.
+
 - **A listing can be asked for items by number.** `ref.in=42,43` on `/v1/tasks` and
   `/v1/documents` answers those items, and `ref.eq` one of them.
 

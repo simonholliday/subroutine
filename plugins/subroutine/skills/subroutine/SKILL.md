@@ -224,7 +224,10 @@ Four answers are worth acting on:
   this by address and have no program of your own — means this skill and the plugin's settings
   describe an earlier version of these tools; *a development build's version cannot be ranked*
   means the comparison was not made at all, so read the numbers yourself rather than waiting to
-  be told.
+  be told. **A line saying a newer version *is out*** means that installation is behind what has
+  been released, and it ends with what to type: pass it on as it stands, since upgrading is the
+  person's. *…is the newest release* means nothing compared is behind, and *the last check for
+  new releases failed* means nobody knows — not that nothing is newer.
 
 **That is why the versions are printed at all.** The plugin, the program and the instance
 upgrade separately, so you may be holding a tool description written for a program that has not

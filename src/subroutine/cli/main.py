@@ -3723,7 +3723,7 @@ def _default (
 
 	# The bare invocation (docs/design.md §12.2a). `today` answers the question somebody opening
 	# this tool is actually asking; a help wall answers one nobody asked.
-	_show_today()
+	behind = _show_today()
 
 	# **And one line saying there is more.** §12.2a's habit is that the user is never left
 	# wondering what exists — every command prints the next one to try — and this, the single
@@ -3734,6 +3734,12 @@ def _default (
 	# already knows what they want, and a daily habit should not carry a beginner's signpost
 	# forever. `invoked_subcommand` is what tells them apart.
 	subroutine.cli.personal.suggest("subroutine --help", "everything it can do")
+
+	# **And, only while this program is behind what has been released, that** (`#2224`, Simon's
+	# answer of 2026-09-17). The same reasoning as the signpost's: bare is the daily habit, so
+	# the line is seen, and nothing a script or an agent reads carries it.
+	for line in behind:
+		_say(f"  {line}")
 
 
 def main () -> None:

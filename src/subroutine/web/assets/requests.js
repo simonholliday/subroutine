@@ -95,6 +95,40 @@ export function releaseMoved (served, reported) {
 	return String(served) !== String(reported);
 }
 
+export function instanceBehind (me) {
+	/*
+		That this instance is behind what has been released, said to somebody who may administer
+		it - `#2224`, and `views.instance_behind`'s sentence word for word.
+		`tests/test_release_notices.py` renders both from one set of cases, so they cannot drift.
+
+		**Administrators only** (Simon, 2026-09-17). The browser has no program or plugin of its
+		own, so the instance is the one installation it can report on - and only somebody holding
+		`instance:admin` can act on that, so saying it to anybody else is noise.
+
+		**The record is the order.** How far behind is a position in `releases`, and whether the
+		database moves is two schema revisions compared, so no version string is ranked here. A
+		version the record does not hold is a development build, which says nothing.
+	*/
+	if (!me || !(me.instance_permissions || []).includes("instance:admin")) return null;
+
+	const news = me.releases;
+
+	if (!news || !news.checking || !Array.isArray(news.releases)) return null;
+
+	const at = news.releases.findIndex((release) => release.version === me.instance_version);
+
+	if (at <= 0) return null;
+
+	const newest = news.releases[0];
+	const behind = at === 1 ? "one release behind" : `${at} releases behind`;
+	const how = news.releases[at].schema_revision === newest.schema_revision
+		? "Upgrading it does not change the database: install the new version and restart it."
+		: "Upgrading it changes the database, so plan a short outage: stop it, install the new "
+			+ "version, run 'subroutine db upgrade', then start it.";
+
+	return `The instance is ${me.instance_version} and ${newest.version} is out, ${behind}. ${how}`;
+}
+
 export function identityRequest () {
 	/* Who is reading, and which workspaces they are allowed to see. */
 	return { path: "/me", method: "GET" };

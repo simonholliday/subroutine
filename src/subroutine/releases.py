@@ -33,6 +33,7 @@ is what `#321` was reported from.
 import contextlib
 import dataclasses
 import datetime
+import logging
 import threading
 import typing
 
@@ -54,6 +55,10 @@ TIMEOUT_SECONDS = 5.0
 #: *attempt* rather than the last answer, so a host that cannot be reached is asked again
 #: tomorrow rather than on every request until it answers.
 CHECK_EVERY = datetime.timedelta(days=1)
+
+#: Where a watch writes what it found (`#2224`). A logger of the application's own, which `serve`
+#: gives the handler and the level uvicorn's lines have (`#2834`).
+_logger = logging.getLogger("subroutine.releases")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -154,6 +159,52 @@ class Standing:
 
 
 @dataclasses.dataclass(frozen=True)
+class Lag:
+	"""How far a published release is behind the newest, and what moving to it involves - `#2224`."""
+
+	#: The newest release.
+	newest: str
+
+	#: How many releases were published after the one running, and never zero: the newest
+	#: release is not behind anything.
+	count: int
+
+	#: Whether the newest release expects a different database schema from the running one,
+	#: which decides whether upgrading needs planned downtime.
+	moves_the_schema: bool
+
+
+def lag (running: str | None, published: typing.Sequence[Release]) -> Lag | None:
+	"""Say how far ``running`` is behind the newest release, or ``None`` when that is not a fact.
+
+	**Three ways to have nothing to say, and each is a decision** (`#2224`): no version to compare,
+	a ``running`` that is the newest release, or one that is not a published release at all - a
+	development build, which cannot say whether it contains a release, and says nothing (Simon,
+	2026-09-17, the rule `#1617` already follows).
+
+	**Both answers are read off the record**, as :attr:`Standing.behind` reads its order: how far
+	behind is a position in the list, and whether the schema moves is the running release's own
+	row compared with the newest's, so no version string is ever compared with another.
+	"""
+
+	if running is None:
+		return None
+
+	ahead = Standing(running=running, schema=None, published=tuple(published)).behind
+
+	if not ahead:
+		return None
+
+	mine = next(release for release in published if release.version == running)
+
+	return Lag(
+		newest=ahead[0].version,
+		count=len(ahead),
+		moves_the_schema=mine.schema != ahead[0].schema,
+	)
+
+
+@dataclasses.dataclass(frozen=True)
 class Published:
 	"""Everything the published record says, which is two different kinds of fact — `#2221`.
 
@@ -218,6 +269,11 @@ class Watch:
 
 	**Per process.** An instance served by more than one worker asks once a day per worker,
 	which is the rate limiter's arrangement and the same trade.
+
+	**It tells the server's log when what it found changes, and not on every check** (`#2224`).
+	A daily line saying the same thing is wallpaper in the one place an administrator reads for
+	warnings. What was last written is held in memory, so a restart writes it once more - which
+	is when somebody is reading the log.
 	"""
 
 	def __init__ (
@@ -226,12 +282,17 @@ class Watch:
 		fetch: typing.Callable[[], Published] | None = None,
 		clock: typing.Callable[[], datetime.datetime] = _now,
 		every: datetime.timedelta = CHECK_EVERY,
+		tell: typing.Callable[[Asked], tuple[int, str] | None] | None = None,
 	) -> None:
 		"""Prepare to ask, having asked nothing yet.
 
 		``fetch`` is looked up when a check runs rather than bound here, so a test standing in
 		for the network with :func:`record` replaced reaches every watch, including one it
 		did not build.
+
+		``tell`` turns an answer into what the log should say about it, as a level and a line,
+		or ``None`` for nothing. It is handed in because the words belong to
+		:mod:`subroutine.views`, which reads this module and so cannot be read by it.
 		"""
 
 		self._fetch = fetch
@@ -239,6 +300,10 @@ class Watch:
 		self._every = every
 		self._lock = threading.Lock()
 		self._attempted: datetime.datetime | None = None
+		self._tell = tell
+
+		#: What was last written to the log, so the same answer is written once.
+		self._told: tuple[int, str] | None = None
 
 		#: What the most recent check found, or ``None`` before one has finished.
 		self.latest: Asked | None = None
@@ -285,10 +350,30 @@ class Watch:
 			found = (self._fetch or record)()
 
 		except subroutine.errors.ServiceUnavailable as failure:
-			self.latest = Asked(at=at, failure=failure.detail)
+			self._heard(Asked(at=at, failure=failure.detail))
 			return
 
-		self.latest = Asked(at=at, record=found)
+		self._heard(Asked(at=at, record=found))
+
+	def _heard (self, asked: Asked) -> None:
+		"""Keep an answer, and write it to the server's log if it says something new."""
+
+		self.latest = asked
+
+		if self._tell is None:
+			return
+
+		said = self._tell(asked)
+
+		if said == self._told:
+			return
+
+		# **Forgotten when the answer goes quiet**, so an instance that is behind again after an
+		# upgrade, or failing again after a check that worked, is written about again.
+		self._told = said
+
+		if said is not None:
+			_logger.log(*said)
 
 
 def record (url: str = DEFAULT_URL, *, client: httpx.Client | None = None) -> Published:

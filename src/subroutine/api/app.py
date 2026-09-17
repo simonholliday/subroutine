@@ -48,7 +48,9 @@ import subroutine.api.workspaces
 import subroutine.config
 import subroutine.db.migrate
 import subroutine.db.session
+import subroutine.installations
 import subroutine.releases
+import subroutine.views
 
 #: Shown at ``/docs`` and in the generated OpenAPI document. The audience is a developer
 #: or an agent deciding whether this endpoint does what they need, so it points at the two
@@ -254,9 +256,11 @@ def create_app (
 
 	# **Built only when the operator agreed to it** (`#2222`), so an instance that has not has
 	# nothing on its state that could ask. Once per application, like the limiter, because a
-	# clock rebuilt per request would ask on every one.
+	# clock rebuilt per request would ask on every one. **What it finds reaches the server's
+	# log** (`#2224`), in the words every other surface uses, about the program this process
+	# is running - which on a server is the instance.
 	application.state.releases = (
-		subroutine.releases.Watch() if resolved.releases.check else None
+		subroutine.releases.Watch(tell=_told_to_the_log) if resolved.releases.check else None
 	)
 
 	# **Built once, here, because it is derived from the page this instance serves** (`#805`).
@@ -390,6 +394,12 @@ def create_app (
 		)
 
 	return application
+
+
+def _told_to_the_log (asked: subroutine.releases.Asked) -> tuple[int, str] | None:
+	"""Say what the server's log records about one release check - `#2224`."""
+
+	return subroutine.views.instance_log_line(asked, running=subroutine.installations.program())
 
 
 @contextlib.asynccontextmanager

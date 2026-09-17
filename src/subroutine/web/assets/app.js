@@ -69,7 +69,8 @@ import {
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	moveRequest, movingTo, unreadableParent,
-	headRequest, identityRequest, itemJournalRequest, itemRequests, journalItemsRequests,
+	headRequest, identityRequest, instanceBehind, itemJournalRequest, itemRequests,
+	journalItemsRequests,
 	journalRequest, linkAsked,
 	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
@@ -161,6 +162,12 @@ export function App () {
 	   rather than a `note`, because a note is what just happened and is replaced by the next
 	   write: a release notice cleared by somebody saving a title is one nobody sees. */
 	const [released, setReleased] = useState(false);
+	/* **That the instance is behind what has been released, for an administrator** (`#2224`).
+	   Its own state for `released`'s reason, and read again by the same hourly poll. What was
+	   waved away is kept, so the poll brings the note back only when it says something new -
+	   another release, or a database that now moves. */
+	const [lagging, setLagging] = useState(null);
+	const dismissedLag = useRef(null);
 	const [busy, setBusy] = useState(false);
 	/*
 		**A counter nobody reads, bumped so the clock-dependent marks are recomputed** (`#950`,
@@ -1151,6 +1158,13 @@ export function App () {
 					if (releaseMoved(served.current, running.instance_version)) {
 						setReleased(true);
 					}
+
+					/* **The same hourly answer says whether the instance is behind** (`#2224`), so an
+					   administrator hears of a release within the hour of the instance hearing, and the
+					   note goes within the hour of the upgrade. */
+					const lag = instanceBehind(running);
+
+					setLagging(lag === dismissedLag.current ? null : lag);
 				} catch (unreachable) {
 					/* The next check asks again. An instance that cannot be reached says
 					   nothing about which version it is running. */
@@ -1315,6 +1329,10 @@ export function App () {
 			if (served.current === null) served.current = identity.instance_version || "";
 
 			setMe(identity);
+
+			const lag = instanceBehind(identity);
+
+			setLagging(lag === dismissedLag.current ? null : lag);
 			setWorkspace(slug);
 
 			/* **Every refused word, named** — `viewOf`'s rule applied to the selection too
@@ -3255,6 +3273,18 @@ export function App () {
 					onDismiss=${() => setReleased(false)} />
 			`}
 
+			${lagging && html`
+				${/* **Beside the work, with what to do in it, and never a modal** (`#785`'s idiom,
+				     which `#2224` inherits). Waved away, it stays away until it says something
+				     new. */ null}
+				<${Note}
+					note=${{ text: lagging, tone: "good" }}
+					onDismiss=${() => {
+						dismissedLag.current = lagging;
+						setLagging(null);
+					}} />
+			`}
+
 			<${Note} note=${note} onUndo=${undo} onDismiss=${() => setNote(null)} />
 
 			${asking && html`
@@ -3893,6 +3923,7 @@ export {
 	readForm,
 	readingRequest,
 	releaseMoved,
+	instanceBehind,
 	repeating,
 	repeats,
 	restoreRequest,

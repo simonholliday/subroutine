@@ -8488,7 +8488,7 @@ def register (
 	console: rich.console.Console,
 	warn: typing.Callable[[str], None],
 	mask: typing.Callable[[str], str],
-) -> tuple[typing.Callable[[], None], Selected]:
+) -> tuple[typing.Callable[[], list[str]], Selected]:
 	"""Add the personal commands to the application.
 
 	Returns the bare-invocation callable and the object holding the options that appear
@@ -9969,10 +9969,10 @@ def register (
 		say("")
 		_suggest(console, "subroutine list", "everything this machine can now reach")
 
-	def show_today () -> None:
-		"""Print today's agenda, as a bare ``subroutine`` invocation does."""
+	def show_today () -> list[str]:
+		"""Print today's agenda, as a bare ``subroutine`` does, and return what goes under it."""
 
-		_show_today(program, workspace=selected.workspace)
+		return _show_today(program, workspace=selected.workspace)
 
 	return show_today, selected
 
@@ -10186,7 +10186,7 @@ def _changed (
 		)
 
 
-def _show_today (program: Program, *, workspace: str | None) -> None:
+def _show_today (program: Program, *, workspace: str | None) -> list[str]:
 	"""Print today's agenda, as a bare ``subroutine`` invocation does (§12.2a).
 
 	**It reaches :func:`_agenda` rather than the Typer command**, and that is a fix rather than
@@ -10198,15 +10198,51 @@ def _show_today (program: Program, *, workspace: str | None) -> None:
 
 	The bare invocation carries no day, no look-ahead override and no flags by construction:
 	somebody who has typed nothing has asked for the default of everything.
+
+	**It returns the line that goes under the agenda when this program is behind** (`#2224`),
+	for the caller to print below the signpost, because the notice is the bare invocation's
+	alone.
 	"""
 
-	_agenda(
+	return _agenda(
 		program,
 		json_output=False,
 		strict=False,
 		workspace=workspace,
 		days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
+		behind=True,
 	)
+
+
+def _program_behind (world: World) -> list[str]:
+	"""Say that this program is behind what has been released, if an instance has heard so.
+
+	**Simon's answer of 2026-09-17**: one line under the bare ``subroutine`` while the program is
+	behind - the daily habit, gone the day it is upgraded, with nothing stored. ``agenda``,
+	``list`` and the rest say nothing, so a script or an agent reading them is untouched.
+
+	**It asks only what could answer.** A development build says nothing, so it asks nothing;
+	and a local database has no server to check on anybody's behalf (`#2223`), so only a
+	connection with an address is asked. The first instance that heard is enough, because the
+	program is one program whichever instance says so. A connection that fails here is not
+	reported, since the agenda above has just said whether each one answered.
+	"""
+
+	running = subroutine.installations.program()
+
+	if subroutine.installations.ordered(running) is None:
+		return []
+
+	served = [client for client in world.clients if client.connection.url is not None]
+	gathered = subroutine.fanout.gather(served, lambda client: client.me(), strict=False)
+
+	for answer in gathered.answers:
+		said = subroutine.views.program_behind(answer.value, program=running)
+
+		if said is not None:
+			return [said]
+
+	return []
 
 
 def _matching (
@@ -10692,7 +10728,8 @@ def _agenda (
 	when: str = "",
 	days: int | None = None,
 	project: str | None = None,
-) -> None:
+	behind: bool = False,
+) -> list[str]:
 	"""Show what somebody is doing today, merged across every connection they can reach.
 
 	**The command is `subroutine agenda` and `subroutine agenda` is a hidden synonym** (`#996`).
@@ -10719,6 +10756,9 @@ def _agenda (
 	**``project`` arrives as Typer wrote it and is emptied here** rather than at the call site.
 	A string option has no ``None``, so "not asked for" is ``""`` — and asking each connection
 	for a project named nothing is a 422 rather than the whole agenda.
+
+	**``behind`` is the bare invocation's** (`#2224`): it returns the program's notice, read
+	while the connections are still open, and every other caller gets nothing back.
 	"""
 
 	with program.opened(strict=strict) as world:
@@ -10741,7 +10781,7 @@ def _agenda (
 		if json_output:
 			program.say(json.dumps(_agenda_json(world, gathered), indent=2))
 
-			return
+			return []
 
 		_render(
 			world,
@@ -10751,6 +10791,8 @@ def _agenda (
 			horizon=asked["horizon_days"],
 			named=day is not None,
 		)
+
+		return _program_behind(world) if behind else []
 
 
 def _render (

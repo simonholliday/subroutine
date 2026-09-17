@@ -183,7 +183,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `secret_key` | written by `init` | Signs pagination cursors, and **only** that. Not mixed into token hashes, so rotating it costs an in-flight page rather than every credential |
 | `source_url` | this project | Where this instance's source can be had. A promise the product makes, not a licence obligation |
 | `backup_directory` | beside the database | Where `db backup` writes. A network volume is the intended destination |
-| `releases` | not set | A table. `[releases]` with `check = true` lets this instance ask which versions have been released, at most once a day and only while somebody signed in is using it - never on an idle instance, and never because a calendar app polled a feed. Asking fetches the project's published list of releases, which tells whoever serves that file that an instance exists at this address, so it is off unless you turn it on |
+| `releases` | not set | A table. `[releases]` with `check = true` lets this instance ask which versions have been released, at most once a day and only while somebody signed in is using it - never on an idle instance, and never because a calendar app polled a feed. Asking fetches the project's published list of releases, which tells whoever serves that file that an instance exists at this address, so it is off unless you turn it on. What it finds is said in this instance's log, to its administrators in the browser, and by `subroutine whoami` - see [Upgrading](#upgrading) |
 | `backup_keep_upgrades` | `3` | How many pre-upgrade rollback points survive. Counts those alone - never your routine backups, which go only when `db backup --keep N` asks |
 | `protected` | `false` | Marks an instance whose data is real, so `db restore`, `upgrade` and `profile destroy` refuse without `--yes` |
 | `default_connection` | `local` | Which instance a write goes to when the command did not say |
@@ -1776,8 +1776,8 @@ whenever suits; nothing on the server is waiting for it.
 It exits non-zero when something needs attention, so it can be the last line of an update
 script. It talks only to the instances you have configured.
 
-**Subroutine never checks for updates on its own.** There is no setting that makes it, and an
-instance can run for years without making an outbound request. Asking is something you do:
+**Subroutine does not check for updates unless you tell it to.** With nothing set, an instance
+can run for years without making an outbound request. Asking is something you do:
 
 ```console
 # sudo -u subroutine env \
@@ -1794,6 +1794,23 @@ is the difference between planning a short outage and meeting one halfway throug
 It reports what is *running*, which is not always what a package manager thinks is installed -
 an editable install carries the version it was made at. And it changes nothing at all, so it is
 safe on a machine you have not decided about yet.
+
+**Or tell the instance to ask for you.** With `check = true` under `[releases]` it asks once a
+day, only while somebody signed in is using it, and says what it found where each person can
+act on it:
+
+- **This instance's log** gets a warning while it is behind, naming how many releases behind
+  it is and whether upgrading changes the database, and a note when a check fails. Each is
+  written when the answer changes rather than every day, and once more after a restart.
+- **The browser** shows the same news to whoever may administer the instance, and to nobody
+  else.
+- **`subroutine whoami`** says which of the program, the plugin and the instance is behind and
+  what to type, names the newest release when none of them is, or says that the last check
+  failed. The bare `subroutine` adds one line under the agenda while the program itself is
+  behind.
+
+A development build says nothing, because its version cannot say whether it already contains
+a release.
 
 The package manager moves the code. Subroutine moves the database. In that order, and it will
 not try to do the first for you - a tool that installs software over itself fights whatever

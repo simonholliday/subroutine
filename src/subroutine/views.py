@@ -28,6 +28,7 @@ asked for, because an exact count is a second full scan for a number most caller
 """
 
 import datetime
+import logging
 import typing
 import uuid
 
@@ -67,6 +68,7 @@ import subroutine.domain.text
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.installations
+import subroutine.permissions
 import subroutine.releases
 
 Item = typing.TypeVar("Item")
@@ -5490,14 +5492,14 @@ HOW_TO_ASK_IF_IT_IS_OLD = (
 
 
 def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list[str]:
-	"""Say which installations answered this call, and how to tell whether it is behind.
+	"""Say which installations answered this call, and whether any is behind what was released.
 
-	**Two questions, and the second is a constant** (`#1635`). Everything below compares the
-	installations that answered *this* call against each other — skew, which is local and
-	needs no request. Whether any of them is behind what has been published is a different
-	question with a different answer, and no surface volunteered it: it lives on
-	:data:`HOW_TO_ASK_IF_IT_IS_OLD` and is appended to every one of the returns below, which
-	is why they are gathered in :func:`_versions` rather than returned from here.
+	**Two questions** (`#1635`). Everything below compares the installations that answered
+	*this* call against each other — skew, which is local and needs no request. Whether any of
+	them is behind what has been published is a different question with a different answer,
+	and :func:`release_lines` gives it: :data:`HOW_TO_ASK_IF_IT_IS_OLD` where the instance does
+	not check, and what it found where it does (`#2224`). Appended to every one of the returns
+	below, which is why they are gathered in :func:`_versions` rather than returned from here.
 
 	Say which installations answered this call, and whether any of them disagree — ``#381``.
 
@@ -5556,7 +5558,7 @@ def versions (me: Me, *, program: str | None, plugin: str | None = None) -> list
 
 	return [
 		*_versions(me, program=program, plugin=plugin),
-		HOW_TO_ASK_IF_IT_IS_OLD,
+		*release_lines(me, program=program, plugin=plugin),
 	]
 
 
@@ -5718,6 +5720,232 @@ def _versions (me: Me, *, program: str | None, plugin: str | None = None) -> lis
 		)
 
 	return lines
+
+#: Which installation a release notice is about (`#2224`). Three, because each is moved by
+#: somebody different: the program and the plugin by whoever sits at that machine, and the
+#: instance by whoever administers it.
+PROGRAM = "program"
+PLUGIN = "plugin"
+INSTANCE = "instance"
+
+#: **Every surface that says an installation is behind, and which installations it names** -
+#: `#2224`, with Simon's answers of 2026-09-17. ``whoami`` is both commands of that name, which
+#: share :func:`versions`; ``subroutine`` is the bare invocation, and only it, so ``agenda``,
+#: ``list`` and the rest print nothing a script or an agent reading them has to step around.
+#:
+#: **The list is what ``tests/test_release_notices.py`` is derived from.** Every entry is driven
+#: through the same cases, so a rule one surface keeps and another does not fails there - the
+#: family `#1403` paid for four times - and a notice rendered from a place this does not name
+#: fails it too.
+NOTICE_SURFACES: dict[str, tuple[str, ...]] = {
+	"whoami": (PROGRAM, PLUGIN, INSTANCE),
+	"subroutine": (PROGRAM,),
+	"browser": (INSTANCE,),
+	"log": (INSTANCE,),
+}
+
+#: The marketplace both plugins are installed from, which is what a refresh names.
+MARKETPLACE = "subroutine"
+
+
+def _releases_behind (count: int) -> str:
+	"""Say how many releases behind, as a reader would."""
+
+	return "one release behind" if count == 1 else f"{count} releases behind"
+
+
+def program_behind_in_words (running: str, lag: subroutine.releases.Lag) -> str:
+	"""Say that the program is behind, and what to type.
+
+	**``uv tool upgrade subroutine``, "or however you installed it"** (Simon, 2026-09-17): the
+	install the README documents, and the program cannot tell how it was installed.
+	"""
+
+	return (
+		f"The program is {running} and {lag.newest} is out, {_releases_behind(lag.count)}. "
+		"Upgrade it with 'uv tool upgrade subroutine', or however you installed it."
+	)
+
+
+def plugin_behind_in_words (name: str, running: str, newest: str) -> str:
+	"""Say that a plugin is behind, and the two commands no editor exposes.
+
+	**No count**, because a plugin is not released: its version is a cache key that moves with
+	any change under ``plugins/`` (`#2221`), so the record holds its present number and nothing
+	to count back through.
+	"""
+
+	return (
+		f"The plugin is {running} and {newest} is out. Refresh it with 'claude plugin "
+		f"marketplace update {MARKETPLACE}', then 'claude plugin update {name}@{MARKETPLACE}'."
+	)
+
+
+def instance_behind_in_words (running: str, lag: subroutine.releases.Lag) -> str:
+	"""Say that the instance is behind, and what upgrading it involves.
+
+	**Whether the database moves is the half that matters** (`#321`): it is the difference
+	between planning an outage and meeting one halfway through an install. The steps are
+	``docs/hosting.md``'s, in its order - stop, install, migrate, start - so nothing new serves an
+	old database. The browser writes this same sentence, in ``instanceBehind``.
+	"""
+
+	if lag.moves_the_schema:
+		how = (
+			"Upgrading it changes the database, so plan a short outage: stop it, install the new "
+			"version, run 'subroutine db upgrade', then start it."
+		)
+
+	else:
+		how = "Upgrading it does not change the database: install the new version and restart it."
+
+	return (
+		f"The instance is {running} and {lag.newest} is out, "
+		f"{_releases_behind(lag.count)}. {how}"
+	)
+
+
+def _published_in (me: Me) -> tuple[subroutine.releases.Release, ...]:
+	"""Return the record the instance heard, newest first, or nothing when it has none to give."""
+
+	news = me.releases
+
+	if news is None or not news.checking:
+		return ()
+
+	return tuple(
+		subroutine.releases.Release(
+			version=one.version, schema=one.schema_revision, date=one.date
+		)
+		for one in news.releases
+	)
+
+
+def _administers (me: Me) -> bool:
+	"""Whether the caller may administer the instance, which is who can upgrade it.
+
+	**The instance is named as behind only to them** (Simon, 2026-09-17, for the browser, and
+	applied to ``whoami`` for the reason `#2224` opens with): telling somebody their server is
+	behind when they cannot upgrade it is worse than noise.
+	"""
+
+	return subroutine.permissions.INSTANCE_ADMIN in me.instance_permissions
+
+
+def program_behind (me: Me, *, program: str | None) -> str | None:
+	"""Say that the program is behind what the instance heard was released, or nothing."""
+
+	if program is None:
+		return None
+
+	found = subroutine.releases.lag(program, _published_in(me))
+
+	return None if found is None else program_behind_in_words(program, found)
+
+
+def plugin_behind (me: Me, *, program: str | None, plugin: str | None) -> str | None:
+	"""Say that the plugin is behind the one published, or nothing.
+
+	**Which plugin is read off what the caller sent** (`#839`): a plugin with no program beside
+	it is ``subroutine-remote``, whose editor posts straight to the instance, and one with a
+	program is ``subroutine``, which runs the program. Both numbers are plain, so they rank; a
+	plugin *ahead* of the published one is a development copy and is not behind anything.
+	"""
+
+	news = me.releases
+
+	if plugin is None or news is None or not news.checking:
+		return None
+
+	name = "subroutine-remote" if program is None else "subroutine"
+	newest = news.plugins.get(name)
+	running = subroutine.installations.ordered(plugin)
+	published = None if newest is None else subroutine.installations.ordered(newest)
+
+	if newest is None or running is None or published is None or running >= published:
+		return None
+
+	return plugin_behind_in_words(name, plugin, newest)
+
+
+def instance_behind (me: Me) -> str | None:
+	"""Say that the instance is behind, to a caller who may administer it, or nothing."""
+
+	if not _administers(me):
+		return None
+
+	found = subroutine.releases.lag(me.instance_version, _published_in(me))
+
+	return (
+		None
+		if found is None or me.instance_version is None
+		else instance_behind_in_words(me.instance_version, found)
+	)
+
+
+def release_lines (me: Me, *, program: str | None, plugin: str | None) -> list[str]:
+	"""Answer ``whoami``'s question of whether anything here is behind - `#2224`.
+
+	**The line that named a command becomes the answer whenever the instance checks** (a default
+	put to Simon on 2026-09-17). An instance that does not check, or predates the field, keeps
+	:data:`HOW_TO_ASK_IF_IT_IS_OLD`, because nothing here knows.
+
+	**Four answers, and `#2223` built three of them to stay apart**: a check that could not be
+	made, one not made yet, and one that found something are each said as that, so *could not
+	check* never reads as *nothing newer*. When nothing is behind the newest release is named -
+	but only where something was compared, since a development build says nothing (Simon,
+	2026-09-17).
+	"""
+
+	news = me.releases
+
+	if news is None or not news.checking:
+		return [HOW_TO_ASK_IF_IT_IS_OLD]
+
+	if news.failure is not None:
+		return [f"This instance's last check for new releases failed. {news.failure}"]
+
+	if news.asked_at is None:
+		return ["This instance checks for new releases once a day, and has not heard back yet."]
+
+	behind = [
+		said
+		for said in (
+			program_behind(me, program=program),
+			plugin_behind(me, program=program, plugin=plugin),
+			instance_behind(me),
+		)
+		if said is not None
+	]
+
+	if behind:
+		return behind
+
+	published = _published_in(me)
+	versions = {release.version for release in published}
+	compared = program in versions or (_administers(me) and me.instance_version in versions)
+
+	return [f"{published[0].version} is the newest release."] if compared else []
+
+
+def instance_log_line (
+	asked: subroutine.releases.Asked, *, running: str
+) -> tuple[int, str] | None:
+	"""Say what the server's log should record about one check, as a level and a line - `#2224`.
+
+	**A warning when the instance is behind, an info line when a check fails, and nothing when
+	it is current** (Simon, 2026-09-17). A development build is not behind anything it can
+	name, so it says nothing, and a failure is a note rather than a warning: nothing is known to
+	be wrong. :class:`subroutine.releases.Watch` writes a line only when it differs from the last.
+	"""
+
+	if asked.record is None:
+		return (logging.INFO, f"Could not check for new releases. {asked.failure}")
+
+	found = subroutine.releases.lag(running, asked.record.releases)
+
+	return None if found is None else (logging.WARNING, instance_behind_in_words(running, found))
+
 
 
 def token (
