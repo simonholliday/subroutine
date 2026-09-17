@@ -12,10 +12,15 @@ that goes blank when unpkg is unreachable is a UI that fails for reasons its ope
 see or fix. It also means the repository contains everything that was served, which is what
 makes "read what you are running" true of the browser half as well as the Python.
 
-Both licences here are permissive and neither one binds the owner the way a copyleft
-dependency would (§2.2a). Both nevertheless **require the notice to travel with the code**, and
-the minified builds carry no header — so the licence text sits beside each file and
+Every licence here is permissive and none binds the owner the way a copyleft dependency
+would (§2.2a). All of them nevertheless **require the notice to travel with the file**, and a
+minified build and a drawing carry no header — so the licence text sits beside each file and
 ``tests/test_web.py`` fails the build if one goes missing.
+
+**Not all of it is code** (`#2864`). The app's mark is a drawing somebody else made, and it is
+vendored for the same reasons: an instance serves it rather than fetching it, the repository
+holds what was served, and the licence gate cannot see an SVG any more than it can see a
+JavaScript file.
 """
 
 import dataclasses
@@ -111,5 +116,21 @@ CATALOGUE: tuple[Vendored, ...] = (
 		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
 		notice="phosphor.LICENSE",
 		digest="sha256:a4b9cb64160e0ed7aa82a88d0b3c1bbda5d3d8cc8768f44c5a2f35d35485250b",
+	),
+	Vendored(
+		# **The app's mark** (`#2864`), and the one file here that is not code. Simon chose it for
+		# Subroutine on 2026-09-17 from the set the other products draw theirs from, and
+		# `scripts/marks.py` draws every icon this app serves from this file - so the shape is
+		# written down once and `assets/favicon.md` says what is made of it.
+		filename="kanban.svg",
+		package="lucide-static",
+		version="1.47.0",
+		licence="ISC",
+		source="https://registry.npmjs.org/lucide-static/-/lucide-static-1.47.0.tgz",
+		# Both notices the package ships: Lucide's own ISC, and the MIT of the Feather icons
+		# some of Lucide's are derived from (`#1940`). This is not one of those, and the licence
+		# travels whole anyway.
+		notice="lucide.LICENSE",
+		digest="sha256:0048f2a541eb657e0557146d3cf070c8e513901a2dc67e2fb9e07d429071a0f3",
 	),
 )

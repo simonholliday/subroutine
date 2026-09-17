@@ -1,67 +1,80 @@
-<!--
-	Everything below the rule is the export's own README, copied verbatim as provenance for
-	the mark (`#1286`). Everything above it is ours.
--->
+# Subroutine's mark, and every file drawn from it
 
-**Where this came from.** Simon designed and exported the set on 2026-08-25; it is not
-third-party, so `web/vendored.py`'s licence machinery does not cover it and does not need to.
-The files are here byte for byte, all of them, on his instruction — including the black,
-inverted and on-white variants nothing currently references.
+**The mark is Lucide's `kanban`**, which Simon chose for Subroutine on 2026-09-17 among the marks
+he picked for each product (`#2861` in the site's project, `#2864` here). It lives in exactly one
+place — `src/subroutine/web/vendor/kanban.svg`, vendored with its ISC licence and recorded in
+`web/vendored.py` like everything else here we did not write.
 
-**One file here is ours rather than his.** `icon-192-on-black.png` was rendered from
-`favicon-on-black.svg` at 192 by the Chromium the test suite already uses, because a home screen
-asks for that size and the export does not hold it (`#1681`). It is faithful to the vector
-source and it is derived — worth replacing with a real export whenever the set is next made.
+**Everything in this directory whose name begins `favicon`, `apple-touch-icon` or `icon-` is drawn
+from that file** by `scripts/marks.py`, with the Chromium the browser tests already use:
 
-**The paths in *In the head* below are the exporter's and are not this instance's.** Assets are
-served at `/app/<name>` — see `api/web.asset` — so the head declares `/app/favicon-on-black.ico`
-and its siblings. A bare `/favicon.ico` reaches the API's 404 problem document here, which is
-why the `<link>` tags are what makes the mark work rather than the well-known names.
+```
+python scripts/marks.py
+```
 
----
+So changing the mark is replacing one file and running one command, and no drawing is written out
+twice. `tests/test_web.py` holds what the result must be — the vendored file's own path data in
+each SVG, and each raster's header declaring the size its name claims — rather than re-rendering
+them, because a test that regenerates its subject passes whatever the renderer does that day.
 
-# Subroutine favicon — export
+## What it replaced
 
-Mark: four points and three edges forming a jagged S, top-right point as the AI sparkle.
-Drawn on a 32-unit grid: 4 r nodes, 3 w edges, 5.8 r sparkle rotated 30 degrees.
-Black and white only — no colour version yet.
+**Simon designed and exported the previous set on 2026-08-25** — a jagged S with the top-right
+point drawn as an AI sparkle — and it served until this one. On adopting the branding he said:
+*"Replace everything. The old mark was temporary, and is now superseded."* Nothing of it survives
+in the tree; the history has it.
 
-## Files
+## The files
 
 | File | Use |
 | --- | --- |
-| `favicon.svg` | black mark, transparent — the primary asset |
-| `favicon-inverted.svg` | white mark, transparent |
-| `favicon-on-white.svg` / `favicon-on-black.svg` | mark on a solid square, 78% scale |
+| `favicon.svg` | the mark in black on transparent — what `app.css` paints the wordmark with |
+| `favicon-inverted.svg` | the same in white |
+| `favicon-on-black.svg` / `favicon-on-white.svg` | the mark at 78% of a solid tile |
 | `favicon.ico` | 16 / 32 / 48 in one file, black on transparent |
-| `favicon-on-black.ico` | 16 / 32 / 48, white on a solid black tile |
-| `favicon-on-white.ico` | 16 / 32 / 48, black on a solid white tile |
+| `favicon-on-black.ico` | 16 / 32 / 48, white on a black tile — the one the page declares |
+| `favicon-on-white.ico` | 16 / 32 / 48, black on a white tile |
 | `favicon-16.png`, `-32`, `-48`, `-64` | black on transparent |
 | `favicon-16-inverted.png`, `-32`, `-48`, `-64` | white on transparent |
-| `favicon-on-black-16.png`, `-32`, `-48`, `-64` | white on a solid black tile |
-| `favicon-on-white-16.png`, `-32`, `-48`, `-64` | black on a solid white tile |
+| `favicon-on-black-16.png`, `-32`, `-48`, `-64` | white on a black tile |
+| `favicon-on-white-16.png`, `-32`, `-48`, `-64` | black on a white tile |
 | `apple-touch-icon.png` | 180, white on black |
 | `apple-touch-icon-light.png` | 180, black on white |
-| `icon-512-on-black.png` / `icon-512-on-white.png` | manifest / store sizes |
+| `icon-192-on-black.png`, `icon-512-on-black.png`, `icon-512-on-white.png` | what the manifest names (`#1681`) |
 
-The tiled rasters carry their own background, so they hold up on any tab bar; the
-transparent ones need the tab colour to be known. Tile marks sit at 86% of the grid at
-16 and 32, 80% at 48 and 64 — less padding than the SVG, or the mark closes up small.
+**Each raster is drawn at its own size** rather than scaled down from one large one, which is what
+keeps a 16px mark legible: a three-bar glyph at 16 has a bar a pixel and a third wide, and
+resampling a 512 loses it.
+
+**A tile carries its own background** and the transparent files do not, so the tiled ones hold up
+on any tab bar while the plain ones need the surface's colour to be known.
+
+**The `.ico` files hold PNGs**, which is a format every browser in the support matrix reads. The
+container is a six-byte header and a sixteen-byte entry per frame; `scripts/marks.py` writes it.
 
 ## In the head
 
+`api/web.ICON_LINKS` is the one place the head block is authored (`#1286`) and `index.html`
+carries the same three lines, so the two cannot drift:
+
 ```html
-<link rel="icon" href="/favicon-on-black.ico" sizes="16x16 32x32 48x48">
-<link rel="icon" href="/favicon-on-black.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="/app/favicon-on-black.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/app/favicon-on-black.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
 ```
 
-## Following the OS theme
+**Assets are served at `/app/<name>`** — see `api/web.asset` — so a bare `/favicon.ico` reaches the
+API's 404 problem document rather than a mark. The `<link>` tags are what make it work, rather than
+the well-known names.
 
-Chrome and Firefox honour a media query inside an SVG favicon; Safari does not. If you want
-that, add two lines to `favicon.svg` by hand — the file is authored black, so the query only
-has to override it:
+## Following the reader's theme
 
-    <style>@media (prefers-color-scheme:dark){#m{fill:#fff;stroke:#fff}}</style>
+**The wordmark takes no theme rule at all.** `app.css` paints `favicon.svg` through `mask` with
+`background: currentColor`, so the mark is whatever colour the heading resolved to — right in all
+three of `#908`'s states, including the two pinned ones that a `prefers-color-scheme` rule gets
+wrong.
 
-placed directly after the opening `<svg>` tag, with `id="m"` on the `<g>`.
+**A tab is the other way round**: a favicon has no page to take a colour from, so the declared
+files have their ink written in. The black-tiled pair is declared because it holds up on a light
+and a dark tab bar alike; the inverted and on-white files are here for a surface that needs the
+other ink.

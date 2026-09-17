@@ -16,6 +16,10 @@ upgrade involves.
 
 ### Changed
 
+- **Subroutine wears its own mark.** The browser's tab, the icon beside the name at the top
+  left, and an installed app all draw the icon chosen for Subroutine in the branding set the
+  other products take theirs from. The mark it replaces was temporary.
+
 - **Giving up a claim reads as *released the claim*** - in the journal, an item's history and
   the change feed, at a terminal, in the browser and in the agent tools - rather than
   *released it*, which reads as a release of code to anybody who writes any. Taking one still

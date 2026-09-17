@@ -306,13 +306,21 @@ def test_a_file_held_only_unencoded_is_sent_unencoded_under_its_own_tag (
 
 	application = api_support.build_app(api_support.factory_for(session))
 
-	for name in ("favicon-on-black.ico", "icon-512-on-black.png", "apple-touch-icon.png"):
+	# **Picked rather than named** (`SR#2864`). This listed three files, and the day the app's
+	# mark changed two of them fell under the threshold - a three-bar glyph compresses to under
+	# a kilobyte - so the test failed on its own premise rather than on the rule. What it needs
+	# is any picture the middleware would want to compress.
+	pictures = [
+		name
+		for name, (body, kind) in sorted(subroutine.api.web.FILES.items())
+		if kind.startswith("image/")
+		and len(body) >= subroutine.api.web.SMALLEST_WORTH_COMPRESSING
+	]
+
+	assert len(pictures) >= 3, f"too few pictures to say anything: {pictures}"
+
+	for name in pictures:
 		body = subroutine.api.web.FILES[name][0]
-
-		assert len(body) >= subroutine.api.web.SMALLEST_WORTH_COMPRESSING, (
-			f"{name} is below the threshold, so nothing would compress it and this proves nothing"
-		)
-
 		answer = api_support.call(
 			application, "GET", f"/app/{name}", headers={"accept-encoding": "gzip"}
 		)

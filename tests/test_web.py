@@ -823,10 +823,13 @@ def _staged (tmp_path: pathlib.Path) -> pathlib.Path:
 
 		return text
 
+	# **The code among them**, since `#2864` put the app's mark in the catalogue too: a drawing
+	# is served, never imported, and staging it here would only ask Node to parse an SVG.
 	for entry in subroutine.web.vendored.CATALOGUE:
-		(staged / entry.filename).write_text(
-			resolved((vendor / entry.filename).read_text(encoding="utf-8")), encoding="utf-8"
-		)
+		if entry.filename.endswith(".js"):
+			(staged / entry.filename).write_text(
+				resolved((vendor / entry.filename).read_text(encoding="utf-8")), encoding="utf-8"
+			)
 
 	# **Every module we wrote, under the name it is served as**, rather than `app.js` alone
 	# renamed to `.mjs`. The app imports `./markdown.js` relatively — which is how a relative
@@ -871,6 +874,71 @@ def _ran (tmp_path: pathlib.Path, body: str) -> typing.Any:
 	assert done.returncode == 0, f"the app threw:\n{done.stderr}"
 
 	return json.loads(done.stdout)
+
+
+#: Every icon the app serves, and the size its name claims. `scripts/marks.py` writes them
+#: all from `web/vendor/kanban.svg`; this is what they have to be afterwards (`SR#2864`).
+_MARKS = {
+	"favicon.svg": None, "favicon-inverted.svg": None,
+	"favicon-on-black.svg": None, "favicon-on-white.svg": None,
+	**{f"favicon-{size}.png": size for size in (16, 32, 48, 64)},
+	**{f"favicon-{size}-inverted.png": size for size in (16, 32, 48, 64)},
+	**{f"favicon-on-black-{size}.png": size for size in (16, 32, 48, 64)},
+	**{f"favicon-on-white-{size}.png": size for size in (16, 32, 48, 64)},
+	"apple-touch-icon.png": 180, "apple-touch-icon-light.png": 180,
+	"icon-192-on-black.png": 192,
+	"icon-512-on-black.png": 512, "icon-512-on-white.png": 512,
+}
+
+
+def test_every_icon_is_the_vendored_mark_at_the_size_its_name_claims () -> None:
+	"""`SR#2864`: one drawing, and twenty-eight files made from it.
+
+	**The shape is checked against the vendored file rather than against a copy of the path
+	data**, so a mark swapped in `web/vendor` and not redrawn fails here - which is the whole
+	risk of a generated set. **The size is read out of each PNG's own header**, as `SR#1681`
+	asks of the two the manifest names: a file whose name says 512 and whose header says 180
+	is exactly the defect that shipped an uninstallable app.
+
+	**This does not re-render anything.** A test that regenerated its subject would pass
+	whatever the renderer did that day, and would need a browser to say anything at all.
+	"""
+
+	drawn = (subroutine.web.vendored.DIRECTORY / "kanban.svg").read_text(encoding="utf-8")
+	shapes = re.findall(r'<path\s+d="([^"]+)"', drawn)
+
+	assert len(shapes) == 3, f"the vendored mark is not the drawing this was written for: {drawn}"
+
+	for name, size in _MARKS.items():
+		body, kind = subroutine.api.web.FILES[name]
+
+		if size is None:
+			said = body.decode("utf-8")
+
+			assert kind == "image/svg+xml", f"{name} is served as {kind!r}"
+			assert all(shape in said for shape in shapes), f"{name} is not the vendored mark"
+
+			continue
+
+		assert kind == "image/png", f"{name} is served as {kind!r}"
+		assert body.startswith(b"\x89PNG\r\n"), f"{name} is not a PNG"
+
+		# Width and height, big-endian, out of the IHDR chunk every PNG opens with.
+		wide, tall = struct.unpack(">II", body[16:24])
+
+		assert (wide, tall) == (size, size), f"{name} is {wide}x{tall}"
+
+	for name in ("favicon.ico", "favicon-on-black.ico", "favicon-on-white.ico"):
+		body, kind = subroutine.api.web.FILES[name]
+
+		assert kind == "image/x-icon", f"{name} is served as {kind!r}"
+		assert body.startswith(b"\x00\x00\x01\x00"), f"{name} is not an icon file"
+
+		# The count, then each entry's declared width: an icon file is a header and a directory.
+		(frames,) = struct.unpack("<H", body[4:6])
+		sizes = [body[6 + 16 * frame] for frame in range(frames)]
+
+		assert sizes == [16, 32, 48], f"{name} holds {sizes}"
 
 
 def test_the_agenda_says_who_is_holding_a_row_up (tmp_path: pathlib.Path) -> None:
@@ -1713,7 +1781,13 @@ def test_every_vendored_file_is_recorded_with_its_licence () -> None:
 		(subroutine.web.vendored.DIRECTORY, subroutine.web.vendored.CATALOGUE),
 		(TEST_VENDOR, TEST_ONLY),
 	):
-		on_disk = {path.name for path in directory.iterdir() if path.suffix == ".js"}
+		# **Everything but the notices** (`#2864`). This read `.js` alone, so the day the app's
+		# mark was vendored beside them a drawing could have arrived uncatalogued - which is the
+		# one thing this test exists to refuse.
+		on_disk = {
+			path.name for path in directory.iterdir()
+			if path.is_file() and not path.name.endswith(".LICENSE")
+		}
 		recorded = {entry.filename for entry in catalogue}
 
 		assert on_disk, f"{directory.name} is empty, so this test is measuring nothing"

@@ -600,11 +600,12 @@ fieldset {
 	`system`, pinned light and pinned dark, and anything keyed on `prefers-color-scheme`
 	alone gets the two pinned states wrong, which is where the obvious approach fails.
 
-	**One asset, and it is Simon's export unmodified.** `favicon.svg` is authored black on
-	transparent and `favicon-inverted.svg` is its white twin; both are in the tree and neither
-	is referenced here, because painting one is what makes the other unnecessary. Inlining the
-	path data in `app.js` was the alternative and is refused: it would put a second copy of the
-	drawing in the repository and stop `favicon.md` being the one place the mark is defined.
+	**One asset, and it is drawn from the vendored mark** (`#2864`). `favicon.svg` is the mark
+	in black on transparent and `favicon-inverted.svg` is its white twin; both are in the tree
+	and neither is referenced here, because painting one is what makes the other unnecessary.
+	Inlining the path data in `app.js` was the alternative and is refused: it would put a second
+	copy of the drawing in the repository, where `web/vendor/kanban.svg` is the one place the
+	shape lives and `scripts/marks.py` is what makes every file from it.
 
 	**Relative, so it resolves against this stylesheet** rather than against a mount point.
 	Assets are served at `/app/<name>` today and this is the first `url()` in the file, so
