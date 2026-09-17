@@ -2250,6 +2250,11 @@ def test_every_page_says_which_item_or_place_it_is_showing (tmp_path: pathlib.Pa
 		("pageTitle", {"place": {"workspace": "projects", "project": "subroutine/ui"},
 			"showing": {"view": "board", "selection": {"include_completed": "true"}},
 			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		# **A journal names what it is the journal of** (`#2831`): the workspace, and the item.
+		("pageTitle", {"area": "journal", "journal": {"workspace": "projects", "ref": None},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
+		("pageTitle", {"area": "journal", "journal": {"workspace": "projects", "ref": 42},
+			"workspaces": TITLED_SPACES, "projects": TITLED_PLACES}),
 	])
 
 	assert shown == [
@@ -2258,6 +2263,8 @@ def test_every_page_says_which_item_or_place_it_is_showing (tmp_path: pathlib.Pa
 		"Projects: Agenda · Subroutine",
 		"Projects / Subroutine: Board · Subroutine",
 		"Projects / Subroutine / Web UI: Board · Subroutine",
+		"Projects: Journal · Subroutine",
+		"Projects / #42: Journal · Subroutine",
 	], shown
 
 
@@ -18133,7 +18140,10 @@ def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathli
 	reader = {
 		"user": {"username": "si", "is_service_account": False},
 		"workspaces": [
-			{"slug": slug, "id": slug, "role": "owner", "permissions": ["task:read"]}
+			{
+				"slug": slug, "id": slug, "title": slug.capitalize(), "role": "owner",
+				"permissions": ["task:read"],
+			}
 			for slug in ("personal", "projects")
 		],
 		"instance_permissions": [],
@@ -18152,7 +18162,8 @@ def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathli
 		if "/v1/agenda" in path or path.startswith("/v1/meta") or "/members" in path
 		or (path.startswith(("/v1/tasks", "/v1/documents")) and "ref.in=" not in path)
 	], paths
-	assert driven["title"] == "Journal · Subroutine", driven["title"]
+	# **The journal's own workspace, by name** (`#2831`), not the first the reader holds.
+	assert driven["title"] == "Projects: Journal · Subroutine", driven["title"]
 	assert "Reproduced on 3.11 only." in driven["said"], driven["said"]
 	assert "/projects/web/42" in driven["links"], driven["links"]
 

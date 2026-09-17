@@ -816,6 +816,7 @@ export function placeTrail ({ workspace = null, project = null, workspaces = [],
 
 export function pageTitle ({
 	item = null, place = null, showing = null, workspaces = [], projects = [], area = null,
+	journal = null,
 }) {
 	/*
 		What the browser tab says — `#1214`, Simon: *"I have multiple tabs open and they all just
@@ -829,6 +830,8 @@ export function pageTitle ({
 		| --- | --- |
 		| an item | `#1111 The release gate finishes inside its own timeout` |
 		| an administrative area | `People`, `Settings` |
+		| a workspace's journal | `Projects: Journal` |
+		| an item's journal | `Projects / #42: Journal` |
 		| the root | `Agenda` |
 		| a workspace | `Projects: Agenda` |
 		| a project | `Projects / Subroutine: Board` |
@@ -858,6 +861,16 @@ export function pageTitle ({
 		fewer.
 	*/
 	const suffix = ` · ${PRODUCT}`;
+
+	/* **A journal names what it is the journal of** (`#2831`, Simon's): every journal's tab said
+	   *Journal*, so two open in two tabs could not be told apart, which is `#1214` again. The
+	   workspace is the scope, read from `placeTrail` as a place's is, and one item's number
+	   joins it for that item's journal — `Projects: Journal`, `Projects / #42: Journal`. */
+	if (area === JOURNAL && journal && journal.workspace) {
+		const about = placeTrail({ workspace: journal.workspace, workspaces }).map((step) => step.label);
+
+		return `${[...about, ...(journal.ref ? [`#${journal.ref}`] : [])].join(" / ")}: Journal${suffix}`;
+	}
 
 	/* **An administrative area is its own page and takes no scope** (`#2447`). `/people` names
 	   no place and no arrangement, so it fell through to an arrangement it was not showing and

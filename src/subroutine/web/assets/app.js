@@ -1290,6 +1290,8 @@ export function App () {
 			workspaces: me ? me.workspaces : [],
 			projects: filable,
 			area,
+			/* Read from the address as it is now, the journal page's own rule (`#2831`). */
+			journal: area === JOURNAL ? journalPageOf(window.location.pathname) : null,
 		});
 	}, [area, everywhere, filable, me, open, project, showing, workspace]);
 
