@@ -171,6 +171,13 @@ upgrade involves.
 
 ### Fixed
 
+- **A captured line's deadline no longer comes before the start written beside it.** Each
+  date was the soonest counting today, apart, so *Prepare the slides on 15 September by 30
+  September* said on 17 September started in 2027 and was due in 2026, and *on sunday by
+  friday* said on a Thursday was due two days before it started. A weekday or a written date
+  as a deadline now counts from the start, as the end of *from ... to ...* already did. A
+  deadline that names its own day - *tomorrow*, `2026-09-30` - is kept as written.
+
 - **An item that several people revised no longer credits every revision to the last.** Its
   header read *revised 6 times by @morpheus* when five of the six were somebody else's.
   It reads *revised 6 times, last by @morpheus on 17 Sep* at the command line, in the

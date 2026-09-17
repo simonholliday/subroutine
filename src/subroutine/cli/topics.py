@@ -110,6 +110,9 @@ grammars.relative_dates.
                  — the soonest such date, counting today, so one written
                    in October means next year's
                  — no year: write 2027-03-14 when the year matters
+                 — as a deadline beside a start in a captured line, a
+                   weekday or a written date counts from the start, so
+                   'on 20 July by 5 August' is due the same year
   today, tomorrow                                              (api)
   a date         2026-08-01                                    (api)
   a time         2026-08-01T17:00:00Z                          (api)

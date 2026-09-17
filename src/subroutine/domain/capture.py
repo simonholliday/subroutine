@@ -746,7 +746,7 @@ def parse (
 		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
 	)
 
-	_collect_dates(
+	deadline = _collect_dates(
 		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
 	)
 
@@ -765,6 +765,10 @@ def parse (
 	at = _collect_times(text, claimed, reserved, unparsed, after=dated)
 
 	_collect_bare_days(text, claimed, reserved, fields, today=today)
+
+	# **After every start is read and before a clock is put on anything**: a start can come from
+	# a span, a date or a bare day, and the comparison is between two days.
+	_counted_from_the_start(fields, deadline, now=now, timezone=timezone)
 
 	used = _apply_time(
 		fields,
@@ -849,8 +853,14 @@ def _collect_dates (
 	today: datetime.date,
 	now: datetime.datetime,
 	timezone: str,
-) -> None:
-	"""Consume ``before Sunday``-style phrases, first one per field winning."""
+) -> str | None:
+	"""Consume ``before Sunday``-style phrases, first one per field winning.
+
+	Returns the words that set the deadline, if one was set, so it can be read again from a
+	start this line names anywhere in it (:func:`_counted_from_the_start`).
+	"""
+
+	deadline: str | None = None
 
 	for match in _DATED.finditer(text):
 		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
@@ -888,6 +898,7 @@ def _collect_dates (
 				continue
 
 			fields["due"], fields["due_is_all_day"] = value, all_day
+			deadline = phrase
 
 		else:
 			if "snooze" in fields:
@@ -896,6 +907,44 @@ def _collect_dates (
 			fields["snooze"], fields["snoozed_is_all_day"] = value, all_day
 
 		claimed.append(match.span())
+
+	return deadline
+
+
+def _counted_from_the_start (
+	fields: dict[str, typing.Any], phrase: str | None, *, now: datetime.datetime, timezone: str
+) -> None:
+	"""Count a deadline from the start written beside it, where from today it would come first.
+
+	**Each written date means the soonest such date counting today**, so a line naming two read
+	them apart (`#1239`): *on 20 July by 5 August*, said on 30 July, started next July and was due
+	this August, eleven months before its own start, and nothing said so. A span's end has been
+	counted from its start since `#2687`, and this is that rule for a deadline, Simon's of
+	2026-09-17. **Where the words sit makes no difference**: *by 5 August on 20 July* is the
+	same line.
+
+	**Only where the deadline would otherwise come first.** For a weekday or a written date that
+	is no restriction - the soonest Friday from the start and from today are one day whenever
+	today's is not the earlier - but it keeps a start already past from pulling a deadline back
+	into the past with it, and *next friday* said from today where it already follows the start.
+
+	**A deadline that is not a search is left as written.** *Tomorrow*, an ISO date and an
+	expression each name one day whatever sits beside them, so reading one again gives the day it
+	gave, and one before its start is what the writer said: overdue work planned for next week is
+	ordinary. So is *friday 31 july* beside a start in October, since 31 July next year is not
+	a Friday - the weekday pins the date, and the phrase no longer reads from there.
+	"""
+
+	start = fields.get("starts_at")
+	due = fields.get("due")
+
+	if phrase is None or start is None or not isinstance(due, datetime.date) or due >= start:
+		return
+
+	value, all_day = _read_phrase(phrase, today=start, now=now, timezone=timezone)
+
+	if isinstance(value, datetime.date):
+		fields["due"], fields["due_is_all_day"] = value, all_day
 
 
 def _collect_sigils (

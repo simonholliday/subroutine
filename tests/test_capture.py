@@ -1742,6 +1742,70 @@ def test_the_end_of_a_span_is_resolved_from_its_start () -> None:
 	), captured
 
 
+@pytest.mark.parametrize(
+	("text", "start", "due"),
+	[
+		# **The case this was filed on** (`SR#1239`): said on 30 July, *20 July* has gone, so the
+		# start is next year's and the deadline has to follow it there.
+		("Prepare the slides on 20 July by 5 August", (2027, 7, 20), (2027, 8, 5)),
+		("Prepare the slides by 5 August on 20 July", (2027, 7, 20), (2027, 8, 5)),
+		# Thursday 30 July: Sunday is the 2nd, and the Friday after it the 7th.
+		("Fix the boiler on sunday by friday", (2026, 8, 2), (2026, 8, 7)),
+		("Fix the boiler by friday on sunday", (2026, 8, 2), (2026, 8, 7)),
+		# A start from a bare day, and one from a span.
+		("Pack the car tomorrow by thursday", (2026, 7, 31), (2026, 8, 6)),
+		("Conference from 20 July to 5 August by 1 August", (2027, 7, 20), (2027, 8, 1)),
+		# Counting the start, as a weekday counts today.
+		("Fix the boiler on friday by friday", (2026, 7, 31), (2026, 7, 31)),
+	],
+)
+def test_a_deadline_beside_a_start_is_counted_from_the_start (
+	text: str, start: tuple[int, int, int], due: tuple[int, int, int]
+) -> None:
+	"""`SR#1239`: *on 15 September by 30 September* was due a year before its own start.
+
+	Each date was the soonest counting today, apart, so a start that had to go to next year left
+	its deadline behind - and a line said on a Thursday started on Sunday and was due the Friday
+	before. **Counted from the start, as a span's end already is**, Simon's rule of 2026-09-17,
+	and whichever way round the words are written.
+	"""
+
+	captured = _parse(text)
+
+	assert (captured.starts_at, captured.due) == (datetime.date(*start), datetime.date(*due)), captured
+	assert captured.due_is_all_day is True, captured
+
+
+@pytest.mark.parametrize(
+	("text", "due"),
+	[
+		# A deadline that names one day whatever sits beside it: before its start is what was said.
+		("Fix the boiler on monday by tomorrow", datetime.date(2026, 7, 31)),
+		("Fix the boiler on 2026-09-01 by 2026-08-30", "2026-08-30"),
+		# A start already past does not pull the deadline back with it.
+		("Fix the boiler on 2026-07-01 by friday", datetime.date(2026, 7, 31)),
+		# 31 July next year is a Saturday, so the weekday pins this year's.
+		("Fix the boiler on 1 october by friday 31 july", datetime.date(2026, 7, 31)),
+		# Already after the start, so nothing is counted again - and *next friday* from Monday
+		# would be a week later than the one said from today.
+		("Fix the boiler on monday by next friday", datetime.date(2026, 8, 7)),
+		("Fix the boiler on 3 august by 20 august", datetime.date(2026, 8, 20)),
+	],
+)
+def test_a_deadline_that_is_not_a_search_is_left_as_written (text: str, due: object) -> None:
+	"""The other half of `SR#1239`'s rule, and without it the fix over-reaches.
+
+	Only a deadline that would come before its start is counted again, and only a weekday or a
+	written date reads differently from there - so overdue work planned for next week, written
+	with a day that is not a search, keeps the day it was given.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == "Fix the boiler", captured
+	assert captured.due == due, captured
+
+
 def test_a_bare_from_is_still_a_defer () -> None:
 	"""The other half of the rule: with nothing after its date, ``from`` hides the item as before."""
 
