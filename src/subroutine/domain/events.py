@@ -37,6 +37,13 @@ class EventAction(enum.StrEnum):
 	Stored as text rather than a database enum, and open by design: a later feature adds
 	its verbs here without a migration. The values are read by clients, so they are as
 	stable as the error codes.
+
+	**Every member is one something records** (`#2723`), which ``tests/test_event_actions.py``
+	holds. ``status_changed`` and ``completed`` were declared here as reserved for slice 2 and
+	were never written - a finish has always been an ``updated`` with the status and
+	``completed_at`` in its ``changes`` - and Simon's call of 2026-09-17 was to delete them
+	rather than start writing them, since that would change what every reader of ``updated``
+	is sent. A verb arrives with the code that records it.
 	"""
 
 	CREATED = "created"
@@ -48,12 +55,6 @@ class EventAction(enum.StrEnum):
 	#: A workspace was stocked with its vocabulary, or an upgrade added to it. Carries the
 	#: seed version and the per-kind counts rather than one event per row.
 	SEEDED = "seeded"
-
-	#: Reserved for the completion work in slice 2. Until something emits them, a status
-	#: change is recorded as an ordinary `updated` with the status in its `changes` —
-	#: which is accurate, just less specific than these will be.
-	STATUS_CHANGED = "status_changed"
-	COMPLETED = "completed"
 
 	#: A lease was taken on a task, renewed, or given back (§14.11, `#350`). Recorded because
 	#: "who was working on this and gave up" is otherwise unanswerable — a claim that expires
