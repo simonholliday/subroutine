@@ -2026,9 +2026,9 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 .item-journal:hover { text-decoration: underline; }
 
 /* ---- the journal ---------------------------------------------------------------------------
-   `#2731` and `#1428`. **A day heading and then a line an entry**, the time in a narrow column
-   of its own so a reader runs an eye down it the way a log is read; everything an entry says
-   about itself sits in the second column, under its headline. */
+   `#2731`, `#1428` and `#2826`. **A day heading, then the list's rows**, each with a line under
+   it for every thing that happened, the time in a narrow column of its own so a reader runs an
+   eye down it the way a log is read. */
 
 .journal .about {
 	margin: 0 0 var(--space-5);
@@ -2041,28 +2041,35 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	color: var(--ink-soft);
 }
 
-.journal ol.entries {
+/* **Inside the row's `li`, in the row's own inset**, so a line takes its item's colour bar and
+   separator. `.rows li` reaches these too, being a descendant rule, and would draw a
+   separator and a hover under every line of one item: both are put back here. */
+.journal ul.happened {
 	margin: 0;
-	padding: 0;
+	padding: 0 var(--space-7) var(--space-5);
 	list-style: none;
+	color: var(--ink-soft);
+	font-size: var(--text-small);
 }
 
-.journal li.entry {
+.journal ul.happened li {
 	display: grid;
 	grid-template-columns: 4rem 1fr;
-	gap: var(--space-2) var(--space-5);
+	gap: var(--space-5);
 	align-items: baseline;
-	padding: var(--space-3) 0;
-	border-block-end: 1px solid var(--line);
+	padding: var(--space-1) 0;
+	border-top: 0;
 }
+
+.journal ul.happened li:hover { background: none; }
+
+.journal .what strong { color: var(--ink); font-weight: 600; }
 
 .journal .clock {
 	color: var(--ink-faint);
 	font-size: var(--text-small);
 	font-variant-numeric: tabular-nums;
 }
-
-.journal .headline { margin: 0; }
 
 /* The door is how it arrived, which is context rather than the news - so it is quieter than who
    and what. */
@@ -2071,18 +2078,10 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	font-size: var(--text-small);
 }
 
-.journal ul.changes {
-	margin: var(--space-2) 0 0;
-	padding: 0;
-	list-style: none;
-	color: var(--ink-soft);
-	font-size: var(--text-small);
-}
-
 /* **The opening of what somebody wrote, its line breaks kept** - it is their words, cut at a
    word, and the break between two paragraphs is part of how it reads. */
 .journal .said {
-	margin: var(--space-2) 0 0;
+	color: var(--ink);
 	white-space: pre-line;
 }
 
@@ -2397,14 +2396,17 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 }
 
 @media (max-width: 620px) {
-	.row { grid-template-columns: 3.5rem 1fr; }
+	/* **One column, since the stamp took a line of its own** (`#2829`). This was `3.5rem 1fr`,
+	   from when a row's number sat in the first column; once the stamp spanned the row, the
+	   title fell into the 3.5rem track on the line below and wrapped a word to a line on
+	   every phone, in the list and the journal alike. */
+	.row { grid-template-columns: 1fr; }
 
 	/* **Under the title rather than beside it.** An 11rem column on a 320px screen leaves
 	   the title about 90px, which wraps into nonsense — the measurement `.board .row` made
-	   for the same reason one screen size up. The cell auto-places onto a new grid line;
-	   naming column 2 puts it at the x every title starts at, so the sweep survives. */
-	.row.with-assignee { grid-template-columns: 3.5rem 1fr; }
-	.row.with-assignee .assignee { grid-column: 2; }
+	   for the same reason one screen size up. One column puts the cell on a line of its own,
+	   at the x every title starts at, so the sweep survives. */
+	.row.with-assignee { grid-template-columns: 1fr; }
 	.facts { grid-template-columns: 1fr; gap: var(--space-1); }
 	.facts dd { margin-bottom: var(--space-4); }
 }

@@ -190,6 +190,9 @@ export function Row ({
 	   shape the comment above calls the only one. Decided by the view, because `ranksAreNews` is a
 	   question about the rows and not about this one. */
 	showRank = false,
+	/* **What a page draws under the row, inside it** — `#2826`: the journal's lines, which take
+	   the row's colour bar by being in its `li`, `#1383`'s finding about a line outside one. */
+	children = null,
 }) {
 	/* `ordering` is the list's, and only the list has one: the agenda's rows are in buckets and
 	   the board's are in columns, so neither is *ordered by* a field a reader could check. */
@@ -409,12 +412,15 @@ export function Row ({
 	return html`
 		<li ...${lift} data-colour=${hue}>
 			${address
-				? html`<a class="row ${shape}" href=${address} onClick=${open}>${identity}</a>`
+				/* **An ordinary link where nothing opens it in place** (`#2826`), rather than a click
+				   prevented and then given nothing to do: the journal's rows load the item's page. */
+				? html`<a class="row ${shape}" href=${address} onClick=${onOpen ? open : null}>${identity}</a>`
 				: html`<button class="row inline ${shape}" onClick=${open}>${identity}</button>`}
 			${meta}
 			${holding}
 			${blocksLine}
-		</li>
+			${children}
+			</li>
 	`;
 }
 

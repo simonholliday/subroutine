@@ -46,6 +46,7 @@ import subroutine.domain.durations
 import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
+import subroutine.domain.refs
 import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -484,6 +485,47 @@ NUMBER = Kind(
 )
 
 
+def _ref_predicate (
+	column: typing.Any,
+	operator: str,
+	value: str,
+	field: str,
+	now: datetime.datetime,
+	timezone: str,
+) -> typing.Any:
+	"""Compare an item's number, or several of them — `#2826`.
+
+	**A set, because a page names several.** The journal draws every item it mentions as the
+	list's row, and asking for them one at a time is an N+1 on a page that polls. ``#42`` reads
+	as 42, because that is how a person writes one (§6.15), and a leading zero is refused here
+	as it is everywhere a number names an item.
+	"""
+
+	numbers = []
+
+	for written in _split(value, operator, field=field, reported=field):
+		number = subroutine.domain.refs.parse_ref(written)
+
+		if number is None:
+			raise _unreadable(field, written, REF)
+
+		numbers.append(number)
+
+	return column.in_(numbers) if operator == IN else column == numbers[0]
+
+
+#: An item's number, or a set of them — `#2826`.
+#:
+#: **``eq`` and ``in`` and nothing else.** A number is an address rather than a quantity, so
+#: *later than #40* says nothing about when anything happened, and every item has one, so
+#: ``is`` would have no unset rows to find.
+REF = Kind(
+	predicate=_ref_predicate,
+	expects="an item's number, like 42 or #42 — or several, like 42,43",
+	operators=frozenset({"eq", IN}),
+)
+
+
 #: A field naming something the instance has to look up — `#1804`, design `#1801` §5.
 #:
 #: **The value is a name a person has**, not an id: a tag, a username, a project key, a ref.
@@ -788,11 +830,10 @@ _ORDERABLE: dict[str, Property] = {
 	),
 	"ref": Property(
 		column=subroutine.db.models.work.Task.ref,
+		# **A set of numbers since `#2826`**: the journal draws each item it mentions as the
+		# list's row, which is the something that asked.
+		kind=REF,
 		orderable=True,
-		because=(
-			"a ref names exactly one item and `show` is how you ask for it; a *set* of refs "
-			"would be `in` on a lookup, and nothing has asked for one."
-		),
 	),
 	"title": Property(
 		column=subroutine.db.models.work.Task.title,
@@ -1185,11 +1226,10 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 	),
 	"ref": Property(
 		column=subroutine.db.models.work.Document.ref,
+		# **A set of numbers since `#2826`**: the journal draws each item it mentions as the
+		# list's row, which is the something that asked.
+		kind=REF,
 		orderable=True,
-		because=(
-			"a ref names exactly one item and `show` is how you ask for it; a *set* of refs "
-			"would be `in` on a lookup, and nothing has asked for one."
-		),
 	),
 }
 
@@ -1966,20 +2006,36 @@ def _values (comparison: Comparison) -> list[str]:
 	drop-what-you-do-not-understand defect `#1626` was filed for.
 	"""
 
-	if comparison.operator != IN:
-		return [comparison.value]
+	return _split(
+		comparison.value,
+		comparison.operator,
+		field=comparison.field,
+		reported=comparison.reported,
+	)
 
-	given = [part.strip() for part in comparison.value.split(IN_SEPARATOR)]
+
+def _split (value: str, operator: str, *, field: str, reported: str) -> list[str]:
+	"""Return the values one comparison names — :func:`_values`, for a kind's own predicate.
+
+	**One rule for every kind that takes :data:`IN`** (`#2826`): a predicate is handed the
+	value rather than the comparison, and refusing an empty part by name belongs to the
+	operator rather than to whichever compiler met it first.
+	"""
+
+	if operator != IN:
+		return [value]
+
+	given = [part.strip() for part in value.split(IN_SEPARATOR)]
 
 	if not all(given):
 		raise subroutine.errors.ValidationError(
-			f"{comparison.value!r} has an empty entry in it.",
+			f"{value!r} has an empty entry in it.",
 			errors=[
 				subroutine.errors.FieldError(
-					field=comparison.field,
+					field=field,
 					code="invalid_field_value",
 					message=(
-						f"{comparison.reported} lists its values separated by "
+						f"{reported} lists its values separated by "
 						f"{IN_SEPARATOR!r} and one of them is empty."
 					),
 					hint="Write them as 'ops,web' — no trailing separator.",

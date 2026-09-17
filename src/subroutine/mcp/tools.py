@@ -150,8 +150,13 @@ DATE_FILTER = _filter_schema(
 	# moving the cap, and it is the one filter that answers *what can I finish now*.
 	f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
 	f"{_fields_of(subroutine.domain.filtering.NUMBER)} are 1-5. "
-	f"{_fields_of(subroutine.domain.filtering.REFERENCE)} take a name, and '.in' takes "
-	"several separated by commas. "
+	# **And `ref` a number, since `#2826`** — how the journal reads its rows, named for `#821`'s
+	# reason: a filter an agent is never told about is one it never sends. Folded into this
+	# sentence rather than given one, and *comma-separated* for *separated by commas*, to stay
+	# inside `TOOL_BYTE_CEILING` without moving it.
+	f"{_fields_of(subroutine.domain.filtering.REFERENCE)} take a name, "
+	f"{_fields_of(subroutine.domain.filtering.REF)} a number, and '.in' takes several, "
+	"comma-separated. "
 	# **`#848`. Its own sentence rather than a name in the list above**, which is the defect
 	# `#1828` records one axis along: this takes a username like a `REFERENCE` does and means
 	# something a `REFERENCE` does not, so listing it there would publish a contract the

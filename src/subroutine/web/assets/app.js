@@ -69,7 +69,8 @@ import {
 	addRequest, allowedIn, assignRequest, authorOf, cadence, collectionsFor, commentRequest,
 	completeRequest, conflictIn, dateFor, documentRequest, edited, filed, freshly, fromItem,
 	moveRequest, movingTo, unreadableParent,
-	headRequest, identityRequest, itemJournalRequest, itemRequests, journalRequest, linkAsked,
+	headRequest, identityRequest, itemJournalRequest, itemRequests, journalItemsRequests,
+	journalRequest, linkAsked,
 	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
@@ -123,6 +124,8 @@ export function App () {
 	   interval was created with (`#657`). */
 	const [journal, setJournal] = useState(null);
 	const journalHeld = useRef(null);
+	/* The rows a journal page draws, by number, for the page at `address` — `#2826`. */
+	const [journalItems, setJournalItems] = useState({ address: null, byRef: {} });
 
 	/* **Everyone on this instance and what they may do**, fetched only where it is drawn. Null
 	   is *not asked yet*, which is what the page renders as *Reading…*; an empty roster is a
@@ -739,6 +742,33 @@ export function App () {
 		setJournal(value);
 	}, []);
 
+	const readJournalItems = useCallback(async (slug, address, refs) => {
+		/*
+			The items a journal page draws as rows — `#2826`.
+
+			**Asked again for every entry that arrives**, because an entry is news that its item
+			changed and the row is the item as it is now. **Kept by the page's address**, so the rows
+			of the last journal are never drawn under this one. A failed read changes nothing: a line
+			under a plain row still says what happened, and the next poll asks again.
+		*/
+		const found = {};
+
+		try {
+			for (const request of journalItemsRequests(slug, refs)) {
+				const answer = await sent(request);
+
+				for (const item of answer.items || []) found[item.ref] = { ...item, kind: request.kind };
+			}
+		} catch (unreachable) {
+			/* The rows fall back to what the journal named. */
+		}
+
+		setJournalItems((held) => ({
+			address,
+			byRef: { ...(held.address === address ? held.byRef : {}), ...found },
+		}));
+	}, []);
+
 	const readJournal = useCallback(async (page, direction = null) => {
 		/*
 			Read a journal page — its newest entries on arrival, and then what is `newer` on a poll
@@ -774,6 +804,9 @@ export function App () {
 					arriving: answer.items || [],
 					more: Boolean(answer.page && answer.page.has_more),
 				}));
+				await readJournalItems(
+					page.workspace, address, (answer.items || []).map((entry) => entry.item_ref),
+				);
 
 				return;
 			}
@@ -790,6 +823,9 @@ export function App () {
 					nowJournal(journalAfter(holding, direction, {
 						address, arriving: answer.items || [], more: cursor !== null, cursor, kind,
 					}));
+					await readJournalItems(
+						page.workspace, address, (answer.items || []).map((entry) => entry.item_ref),
+					);
 
 					return;
 				} catch (failure) {
@@ -799,7 +835,7 @@ export function App () {
 		} catch (failure) {
 			if (direction === null) nowJournal({ address, entries: [], failed: failure.message });
 		}
-	}, [nowJournal]);
+	}, [nowJournal, readJournalItems]);
 
 	const olderJournal = useCallback(() => {
 		/* Further back, a page at a time, when the reader asks — never fetched ahead. */
@@ -3258,7 +3294,10 @@ export function App () {
 						typeof window === "undefined" ? "" : window.location.pathname,
 					))}
 					journal=${journal} workspaces=${me ? me.workspaces : []}
-					onOlder=${olderJournal} />`
+					items=${journalItems.address === journalAddress(journalPageOf(
+						typeof window === "undefined" ? "" : window.location.pathname,
+					)) ? journalItems.byRef : {}}
+					onGo=${narrow} onOlder=${olderJournal} />`
 				: area === "settings"
 				? html`<${Settings}
 					${/* **Which page is read from the address as it is now**, because nothing else
@@ -3792,11 +3831,14 @@ export {
 	DOORS,
 	Journal,
 	byDay,
-	happened,
+	changeInWords,
+	collapsed,
 	journalAfter,
 	journalBounds,
+	journalRows,
+	linesOf,
+	linkOf,
 	mergedEntries,
-	movedBetween,
 } from "./journal.js";
 export {
 	DOCUMENT_SAID,
@@ -3833,6 +3875,7 @@ export {
 	instanceRequest,
 	itemJournalRequest,
 	itemRequests,
+	journalItemsRequests,
 	journalRequest,
 	linkAsked,
 	linkChoices,

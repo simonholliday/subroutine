@@ -2,7 +2,7 @@
 	What happened, in a workspace or to one item — `#2731` and `#1428`, design `#2724`.
 
 	**A page drawn in place of the work, as the settings and people pages are**, and for their
-	reason: it shows no rows, arrangement or selection, so it is not a fourth view. It is
+	reason: it has no arrangement or selection of its own, so it is not a fourth view. It is
 	reached at `/<workspace>/-/journal` and `/<workspace>/<ref>/-/journal` (`journalPageOf`).
 
 	**Everything here is a rendering of what `/v1/journal` and an item's journal already say.**
@@ -10,8 +10,9 @@
 	between, and how a comment opens. No entry carries a whole text (`#2728`), so nothing here
 	renders prose as Markdown: an opening is a sentence cut at a word, and the item has the rest.
 
-	**The wording of each kind of entry is later work** (Simon, 2026-09-16), so an entry says
-	what `subroutine journal` says, in the same words.
+	**Drawn the way the list draws an item** (`#2826`, Simon's): each run of entries about one
+	item is that item's row, with a line under it for each thing that happened, so the
+	project's colour and the item's status are scanned without reading.
 
 	Hook-free, so the render harness can call every component here (`#640`).
 */
@@ -20,6 +21,7 @@ import { html } from "./html.js";
 import { addressOf, journalAddress } from "./address.js";
 import { day } from "./dates.js";
 import { clock } from "./marks.js";
+import { Row } from "./rows.js";
 
 /*
 	**The door a change came in through, in words** — `#2727`. The instance records which door;
@@ -130,37 +132,31 @@ export function byDay (entries) {
 	return days;
 }
 
-export function happened (entry) {
+/*
+	What a comment's entry says happened, in `views._HAPPENED`'s words — the verb alone, because
+	the row above names the item it was written on.
+*/
+const COMMENTED = {
+	created: "commented",
+	updated: "edited a comment",
+	deleted: "deleted a comment",
+};
+
+export function changeInWords (change) {
 	/*
-		What an entry says happened, in `subroutine journal`'s words: the action, and for a
-		comment, that it was written on the item named beside it.
-	*/
-	const verb = String(entry.action || "").replaceAll("_", " ");
-
-	return entry.entity_type === "comment" ? `${verb} a comment on` : verb;
-}
-
-export function movedBetween (entry) {
-	/*
-		The lines an entry adds under its headline — `subroutine journal`'s rule.
-
-		**Only an update's changes.** Creating a task writes a change for every field it was born
-		with, so drawing those would bury the page under what every new item looks like.
-
-		**A change with neither side named is its phrase alone**, which is what a text change
-		always is here (`#2728`) and what an id nothing can name becomes (`#1430`).
+		One change as its line says it — `#2826`, Simon's example: *changed status*, then what it
+		moved between.
 
 		**`views.change_in_words` in the browser's words** (decision `#2823`): an empty side as
 		*never*, *nobody* or *nothing*, a chosen name in quotes, and a date in the reader's own
-		locale. A test drives both over the same changes.
+		locale. **A change with neither side named is its name alone**, which is what a text
+		change always is here (`#2728`) and what an id nothing can name becomes (`#1430`). A test
+		drives this and the server's renderer over the same changes.
 	*/
-	if (entry.action !== "updated") return [];
+	if (change.before === null && change.after === null) return `changed ${change.said}`;
 
-	return (entry.changed || []).map((change) => (
-		change.before === null && change.after === null
-			? change.said
-			: `${change.said}: ${sideInWords(change, change.before)} to ${sideInWords(change, change.after)}`
-	));
+	return `changed ${change.said} from ${sideInWords(change, change.before)} to ${
+		sideInWords(change, change.after)}`;
 }
 
 function sideInWords (change, value) {
@@ -186,44 +182,229 @@ function dayInWords (written) {
 	return text.length > 10 ? `${shown}, ${text.slice(11, 16)}` : shown;
 }
 
-function Entry ({ entry, workspace }) {
+export function linkOf (entry) {
 	/*
-		One thing that happened: when, who and through which door, what, and to which item.
+		What a link entry joined, from this item's side: the other item, the kind of link, and
+		whether it was made or undone — `#2826`.
 
-		**The item is a link, addressed as it is filed** (`#2727`), so it opens where a reader
-		would find it rather than at a bare number.
+		**The other end, whichever end this is.** An entry about a link names the item it was made
+		from, and read through the other item it names that one. **Null for anything it cannot
+		read**, so the line says what happened rather than guessing at a number.
 	*/
-	const filed = entry.item_project_path;
-	const address = entry.item_ref
-		? addressOf({ ref: entry.item_ref, project_key: filed, project_path: filed }, workspace)
+	if (entry.entity_type !== "link") return null;
+
+	const made = entry.action !== "deleted";
+	const side = (field) => {
+		const change = (entry.changed || []).find((one) => one.field === field);
+
+		return change ? (made ? change.after : change.before) : null;
+	};
+	const source = Number(side("source"));
+	const target = Number(side("target"));
+	const other = source === entry.item_ref ? target : source;
+	const type = side("link_type");
+
+	if (!Number.isInteger(other) || other <= 0 || !type) return null;
+
+	return { made, other, type: String(type).replaceAll("_", " ") };
+}
+
+export function linesOf (entry) {
+	/*
+		What one entry adds under its item's row, a line a thing that happened — `#2826`.
+
+		**The row names the item, so a line never does**: *commented*, *changed status from…*,
+		*linked it to #2803*. **A line a change** for an update, because each is its own fact.
+		Creating something is *created it*, whatever columns it was born with: drawing those would
+		bury the page under what every new item looks like.
+	*/
+	const base = {
+		at: entry.created_at,
+		actor: entry.actor || "the instance",
+		door: entry.actor_interface || null,
+	};
+
+	if (entry.entity_type === "comment") {
+		return [{
+			...base,
+			text: COMMENTED[entry.action] || `${verbOf(entry)} a comment`,
+			said: entry.said || null,
+			cut: Boolean(entry.said_truncated),
+		}];
+	}
+
+	const link = linkOf(entry);
+
+	if (link) return [{ ...base, link }];
+
+	if (entry.action === "updated" && (entry.changed || []).length > 0) {
+		return entry.changed.map((change) => ({ ...base, text: changeInWords(change) }));
+	}
+
+	return [{ ...base, text: `${verbOf(entry)} it` }];
+}
+
+function verbOf (entry) {
+	/* An action as a word: `created`, `claimed`, `moved`. */
+	return String(entry.action || "").replaceAll("_", " ");
+}
+
+export function collapsed (lines) {
+	/*
+		A row's lines with adjacent repeats said once — Simon's rule, 2026-09-17.
+
+		**Identical lines** — the same person, through the same door, saying the same thing —
+		**become one, with the newest time and how many times.** **Links of one kind, made or
+		undone together by one person, become one line naming every item**, in the order they
+		were joined: an item linked to nine others drew nine lines that looked the same. **Only
+		adjacent lines**, so a claim, a change and a claim again stay three, because the order is
+		what the history is read by.
+
+		Lines arrive newest first, so the line already kept is the newer and its time stands.
+	*/
+	const kept = [];
+
+	for (const line of lines || []) {
+		const last = kept[kept.length - 1];
+		const alongside = Boolean(last) && last.actor === line.actor && last.door === line.door;
+
+		if (alongside && last.link && line.link
+			&& last.link.made === line.link.made && last.link.type === line.link.type) {
+			if (last.link.others.includes(line.link.other)) {
+				last.count += 1;
+			} else {
+				last.link.others.unshift(line.link.other);
+			}
+
+			continue;
+		}
+
+		if (alongside && !last.link && !line.link
+			&& last.text === line.text && last.said === line.said) {
+			last.count += 1;
+
+			continue;
+		}
+
+		kept.push(line.link
+			? { ...line, count: 1, link: { ...line.link, others: [line.link.other] } }
+			: { ...line, count: 1 });
+	}
+
+	return kept;
+}
+
+export function journalRows (entries) {
+	/*
+		A day's entries as rows, **consecutive entries about one item sharing its row** — `#2826`,
+		Simon's. A row is the item; its lines are what happened to it, newest first.
+
+		**Consecutive, not every entry about the item**, so the page still reads in the order
+		things happened: an item touched this morning and again this afternoon, with something else
+		between, is two rows. **An entry about no item** — a workspace being made — is a row of its
+		own, named by what the journal calls it.
+	*/
+	const rows = [];
+
+	for (const entry of entries || []) {
+		const last = rows[rows.length - 1];
+		const about = entry.item_ref
+			? `#${entry.item_ref}`
+			: `${entry.entity_type}:${entry.item_title || ""}`;
+
+		if (last && last.about === about) {
+			last.lines.push(...linesOf(entry));
+		} else {
+			rows.push({
+				about,
+				seq: entry.seq,
+				ref: entry.item_ref || null,
+				title: entry.item_title || null,
+				project: entry.item_project_path || null,
+				lines: linesOf(entry),
+			});
+		}
+	}
+
+	return rows.map((row) => ({ ...row, lines: collapsed(row.lines) }));
+}
+
+function Line ({ line, workspace, address = null }) {
+	/*
+		One thing that happened, under its item's row: when, who, what — and the door it came
+		through and how many times, quiet at the end, because they are context rather than news.
+	*/
+	const door = line.door ? DOORS[line.door] : null;
+	/* A statement of its own rather than inline in the markup: the words end in *from*, and the
+	   served-module scan reads *from* and a quote after it as an import. */
+	const joined = line.link && line.link.made ? "linked it to" : "unlinked it from";
+	const others = line.link
+		? line.link.others.map((other, index) => html`${index === 0 ? "" : ", "}<a
+			href=${addressOf({ ref: other }, workspace)}>#${other}</a>`)
 		: null;
-	const door = entry.actor_interface ? DOORS[entry.actor_interface] : null;
-	const lines = movedBetween(entry);
 
 	return html`
-		<li class="entry">
-			<span class="clock">${clock(entry.created_at)}</span>
-			<div class="happened">
-				<p class="headline">
-					<strong>${entry.actor || "the instance"}</strong>
-					${door ? html` <span class="door">${door}</span>` : null}
-					${" "}${happened(entry)}${" "}
-					${address
-						? html`<a href=${address}>#${entry.item_ref} ${entry.item_title}</a>`
-						: entry.item_title}
-				</p>
-				${lines.length > 0
-					? html`<ul class="changes">${lines.map((line) => html`<li>${line}</li>`)}</ul>`
-					: null}
-				${entry.said
-					? html`<p class="said">
-							${entry.said}${entry.said_truncated ? "…" : ""}
-							${entry.said_truncated && address
-								? html` <a class="rest" href=${address}>The rest is on the item.</a>`
-								: null}
-						</p>`
-					: null}
-			</div>
+		<li>
+			<span class="clock">${clock(line.at)}</span>
+			<span class="what">
+				<strong>${line.actor}</strong>${" "}${line.link
+					? html`${joined}${" "}${others}${
+						" "}(${line.link.type})`
+					: line.text}${line.said
+					? html`${" "}<span class="said">"${line.said}${line.cut ? "…" : ""}"</span>${
+						line.cut && address ? html`${" "}<a class="rest" href=${address}>more</a>` : null}`
+					: null}${line.count > 1
+					? html`<span class="door"> · ${line.count} times</span>`
+					: null}${door ? html`<span class="door"> · ${door}</span>` : null}
+			</span>
+		</li>
+	`;
+}
+
+function JournalRow ({ row, item = null, workspace, onGo = null }) {
+	/*
+		One item's row with what happened to it underneath — `#2826`.
+
+		**The list's own row where the item could be read**, so the project's colour, the status
+		and the marks are scanned the way the list is, and a line takes the row's colour bar by
+		being inside it. **No Complete button and nothing opened in place**: this is a record, and
+		its links are ordinary links to the item's page.
+
+		**A plain row where it could not** — deleted since, or about something with no row of its
+		own, like a workspace — drawn from what the journal named.
+	*/
+	const filed = row.project;
+	const address = !row.ref
+		? null
+		: item
+		? addressOf(item, workspace)
+		: addressOf({ ref: row.ref, project_key: filed, project_path: filed }, workspace);
+	const lines = html`
+		<ul class="happened">
+			${row.lines.map((line, index) => html`
+				<${Line} key=${index} line=${line} workspace=${workspace} address=${address} />
+			`)}
+		</ul>
+	`;
+
+	if (item) {
+		return html`
+			<${Row} item=${item} workspace=${workspace} place=${{ workspace, project: null }}
+				onGo=${onGo}>${lines}<//>
+		`;
+	}
+
+	const identity = html`
+		${row.ref ? html`<span class="stamp"><span class="ref">#${row.ref}</span></span>` : null}
+		<span class="title">${row.title}</span>
+	`;
+
+	return html`
+		<li>
+			${address
+				? html`<a class="row" href=${address}>${identity}</a>`
+				: html`<span class="row">${identity}</span>`}
+			${lines}
 		</li>
 	`;
 }
@@ -247,6 +428,7 @@ function ReadInstead ({ workspaces }) {
 
 export function Journal ({
 	page = null, journal = null, workspaces = [], address = null, onOlder = null, busy = false,
+	items = {}, onGo = null,
 }) {
 	/*
 		The page: what happened, newest first, a day at a time.
@@ -257,6 +439,9 @@ export function Journal ({
 
 		**Older is asked for, never fetched ahead**: the latest hundred are what somebody opening
 		this is looking for, and each page further back is a request they chose.
+
+		**`items` are the rows, by number**, read beside the journal (`journalItemsRequests`);
+		a number not in it draws a plain row from what the journal named.
 	*/
 	if (!page) {
 		return html`
@@ -308,11 +493,12 @@ export function Journal ({
 				: html`
 					${byDay(entries).map((group) => html`
 						<h3 class="day">${group.day}</h3>
-						<ol class="entries">
-							${group.entries.map((entry) => html`
-								<${Entry} key=${entry.seq} entry=${entry} workspace=${page.workspace} />
+						<ul class="rows">
+							${journalRows(group.entries).map((row) => html`
+								<${JournalRow} key=${row.seq} row=${row} item=${row.ref ? items[row.ref] || null : null}
+									workspace=${page.workspace} onGo=${onGo} />
 							`)}
-						</ol>
+						</ul>
 					`)}
 					${current.older && onOlder
 						? html`<p class="older">

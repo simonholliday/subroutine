@@ -1997,8 +1997,7 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.written > .rendered li > p',
 		':root[data-theme="dark"]',
 		':root[data-theme="light"]',
-		'li[data-colour]',
-	}
+		}
 )
 
 
@@ -3312,6 +3311,28 @@ def test_a_card_gives_its_whole_width_to_the_title (running: typing.Any) -> None
 	assert measured["metaTop"] >= measured["rowBottom"], (
 		f"the properties and the action are level with the title rather than under it, so the "
 		f"title's width is whatever they left: {measured}"
+	)
+
+	# **And on a phone** (`#2829`). Below 620px a row was a 3.5rem column and the rest, from
+	# when a row's number sat in that column; once the stamp spanned the row, the title fell
+	# into the 3.5rem track and wrapped a word to a line — met on the journal at 390px and
+	# measured on the list. A grid item is as wide as its track, so the title's box is the
+	# width it was given, whatever the words in it.
+	narrow = opened("/projects?view=list")
+	narrow.set_viewport_size({"width": 390, "height": 900})
+	narrow.wait_for_selector("ul.rows li .row .title", timeout=10_000)
+
+	widths = narrow.eval_on_selector(
+		"ul.rows li .row",
+		"""row => ({
+			row: Math.round(row.getBoundingClientRect().width),
+			title: Math.round(row.querySelector(".title").getBoundingClientRect().width),
+		})""",
+	)
+
+	assert widths["title"] >= widths["row"] * 0.7, (
+		f"a title is {widths['title']}px inside a {widths['row']}px row on a 390px screen, so it "
+		f"wraps a word to a line: {widths}"
 	)
 
 

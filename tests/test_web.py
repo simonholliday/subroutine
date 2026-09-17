@@ -445,12 +445,20 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	# **A workspace's journal, with every kind of line it draws** — `#2731`: two days, a door, a
 	# change and a phrase, a cut comment with the way to the rest, the instance acting, and older
-	# entries still to ask for.
+	# entries still to ask for. **And the item's own row** (`#2826`), which is how it ships: a
+	# sample without `items` would draw every row the plain way, and that is the fallback.
 	"Journal": {
 		"page": {"workspace": "projects", "ref": None},
 		"address": "/projects/-/journal",
 		"workspaces": [{"slug": "projects", "title": "Projects"}],
 		"journal": {"address": "/projects/-/journal", "entries": JOURNAL_ENTRIES, "older": True},
+		"items": {
+			"42": {
+				"ref": 42, "kind": "task", "title": "Fix the deploy script", "type": "bug",
+				"status": "in_progress", "status_label": "In progress", "status_is_default": False,
+				"project_key": "web", "project_path": "web", "project_colour": "green",
+			},
+		},
 	},
 	"Theme": {"chosen": "dark"},
 	"Icon": {"name": "bug"},
@@ -9013,6 +9021,9 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 		("itemJournalRequest", ["task", place.task, place.slug]),
 		("itemJournalRequest", ["document", place.document, place.slug]),
 		("itemJournalRequest", ["task", place.task, place.slug, place.journal_cursor]),
+		# **The rows a journal draws, by number** (`#2826`): a task and a document in one read,
+		# each collection answering the number it holds.
+		("journalItemsRequests", [place.slug, [place.task, place.document]]),
 		("completeRequest", [{"ref": place.task}, place.slug]),
 		("restoreRequest", [{"ref": place.task, "status": place.status}, place.slug]),
 		("assignRequest", [{"ref": place.task}, place.username, place.slug]),
@@ -10565,8 +10576,8 @@ def _views (
 			   entries share one, never how the day is spelled. */
 			: name === "byDay"
 				? app.byDay(argument).map((group) => group.entries.map((entry) => entry.seq))
-			: name === "movedBetween" ? app.movedBetween(argument)
-			: name === "happened" ? app.happened(argument)
+			: name === "linesOf" ? app.linesOf(argument)
+			: name === "journalRows" ? app.journalRows(argument)
 			: name === "journalBounds" ? app.journalBounds(argument.holding, argument.direction)
 			: name === "journalAfter"
 				? app.journalAfter(argument.holding, argument.direction, argument.read)
@@ -17780,8 +17791,8 @@ def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Pa
 	"""`#2731`. Two reads that meet at an edge return that entry twice, in either order.
 
 	A newer read lands above what the page holds and an older one below it, so the page sorts by
-	`seq` rather than trusting any one answer's order. The lines under an entry and its verb are
-	`subroutine journal`'s.
+	`seq` rather than trusting any one answer's order. What an entry adds under its row is
+	`linesOf`'s (`#2826`).
 	"""
 
 	newest, middle, _oldest = JOURNAL_ENTRIES
@@ -17790,17 +17801,21 @@ def test_a_journal_page_holds_each_entry_once_newest_first (tmp_path: pathlib.Pa
 		newest,
 		{**newest, "seq": 14, "id": str(uuid.UUID(int=14))},
 	]
-	merged, grouped, moved, verb = _views(tmp_path, [
+	merged, grouped, moved, commented = _views(tmp_path, [
 		("mergedEntries", {"held": [newest, middle], "arriving": arriving}),
 		("byDay", JOURNAL_ENTRIES),
-		("movedBetween", middle),
-		("happened", newest),
+		("linesOf", middle),
+		("linesOf", newest),
 	])
 
 	assert [entry["seq"] for entry in merged] == [14, 13, 12, 11]
 	assert grouped == [[12, 11], [3]], grouped
-	assert moved == ['status: "Open" to "In progress"', "description"], moved
-	assert verb == "created a comment on"
+	assert [line["text"] for line in moved] == [
+		'changed status from "Open" to "In progress"', "changed description",
+	], moved
+	assert [(line["text"], line["said"], line["cut"]) for line in commented] == [
+		("commented", "Reproduced on 3.11 only. The fix in the other one", True),
+	], commented
 
 
 def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
@@ -17831,7 +17846,8 @@ def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
 	]
 	entry = {**JOURNAL_ENTRIES[1], "changed": [change.model_dump(mode="json") for change in changes]}
 
-	(browser,) = _views(tmp_path, [("movedBetween", entry)])
+	(lines,) = _views(tmp_path, [("linesOf", entry)])
+	browser = [line["text"] for line in lines]
 	agent = [subroutine.views.change_in_words(change) for change in changes]
 
 	assert agent == [
@@ -17841,14 +17857,160 @@ def test_a_journal_line_is_written_by_the_rules_every_surface_writes_it_by (
 		'title: "Go to the shop" to "Go to the market"',
 		"description",
 	], agent
-	assert browser[2:] == agent[2:], browser
+	# **The browser writes the same sides in a sentence**: *X: A to B* is *changed X from A to B*.
+	assert browser[2:] == [
+		"changed " + (said if not sides else f"{said} from {sides}")
+		for said, _, sides in (line.partition(": ") for line in agent[2:])
+	], browser
 
 	deadline, deferred = browser[:2]
 
-	assert deadline.startswith("deadline: never to ") and deadline.endswith(", 17:00"), deadline
-	assert deferred.startswith("deferred until: ") and deferred.endswith(" to never"), deferred
+	assert deadline.startswith("changed deadline from never to "), deadline
+	assert deadline.endswith(", 17:00"), deadline
+	assert deferred.startswith("changed deferred until from "), deferred
+	assert deferred.endswith(" to never"), deferred
 	assert "2030-09-18" not in deadline and "2030-09-16" not in deferred, browser
 	assert "2030" in deadline and "2030" in deferred, "a date lost its year"
+
+
+def _journal_entry (
+	seq: int,
+	ref: int | None,
+	action: str,
+	entity: str = "task",
+	*,
+	actor: str = "@si",
+	door: str = "browser",
+	changed: list[subroutine.views.Change] | None = None,
+	said: str | None = None,
+	title: str = "Water the plants",
+) -> dict[str, typing.Any]:
+	"""One journal entry as the page receives it, built through the view."""
+
+	return subroutine.views.JournalEntry(
+		seq=seq, id=uuid.UUID(int=seq), item_ref=ref, item_title=title, actor=actor,
+		actor_interface=door, action=action, entity_type=entity, changed=changed or [],
+		said=said, created_at=datetime.datetime(2026, 9, 17, 9, seq, tzinfo=datetime.UTC),
+	).model_dump(mode="json")
+
+
+def test_a_journal_draws_a_row_per_run_and_says_each_thing_once (tmp_path: pathlib.Path) -> None:
+	"""`#2826`, Simon's rules of 2026-09-17, on the entries that prompted them.
+
+	**One row per run of entries about one item**, the lines under it newest first. **Adjacent
+	identical lines are one**, with the newest time and how many times; **links of one kind made
+	together by one person are one line naming every item**, in the order they were made. The
+	real case: a document created and then linked to nine items read as ten identical lines.
+	**Only adjacent lines collapse**, so a claim, a change and a claim again stay three.
+	"""
+
+	agent = "@claude-super (agent, @si)"
+
+	def linked (seq: int, other: int) -> dict[str, typing.Any]:
+		"""A link made from #2828, as its entry carries it."""
+
+		return _journal_entry(seq, 2828, "created", "link", actor=agent, door="api", changed=[
+			subroutine.views.Change(field="link_type", said="link type", after="relates_to"),
+			subroutine.views.Change(field="source", said="source", after="2828"),
+			subroutine.views.Change(field="target", said="target", after=str(other)),
+		])
+
+	status = subroutine.views.Change(
+		field="status_id", said="status", before="open", after="in_progress", quoted=True
+	)
+	entries = [
+		_journal_entry(
+			30, 2803, "created", "comment", actor=agent, door="api", said="Superseded by #2828."
+		),
+		linked(29, 2822),
+		linked(28, 2796),
+		linked(27, 2803),
+		_journal_entry(26, 2828, "created", "document", actor=agent, door="api"),
+		_journal_entry(25, 42, "claimed"),
+		_journal_entry(24, 42, "claimed"),
+		_journal_entry(23, 42, "updated", changed=[status]),
+		_journal_entry(22, 42, "claimed"),
+	]
+
+	(rows,) = _views(tmp_path, [("journalRows", entries)])
+
+	assert [
+		(row["ref"], [
+			(line.get("text"), (line.get("link") or {}).get("others"), line["count"])
+			for line in row["lines"]
+		])
+		for row in rows
+	] == [
+		(2803, [("commented", None, 1)]),
+		(2828, [(None, [2803, 2796, 2822], 1), ("created it", None, 1)]),
+		(42, [
+			("claimed it", None, 2),
+			('changed status from "open" to "in_progress"', None, 1),
+			("claimed it", None, 1),
+		]),
+	], rows
+
+	links, created = rows[1]["lines"]
+	claims = rows[2]["lines"][0]
+
+	assert links["link"]["made"] and links["link"]["type"] == "relates to", links
+	assert links["at"] == entries[1]["created_at"], "a collapsed line kept an older time"
+	assert claims["at"] == entries[5]["created_at"], "a collapsed line kept an older time"
+	assert created["actor"] == agent and created["door"] == "api", created
+
+
+def test_a_journal_row_is_the_lists_row_or_a_plain_one_where_the_item_is_gone (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#2826`. **Where the item could be read, its row is the list's row**, drawn from the item as
+	it is now, so a title changed since reads as it is now. **Where it could not** — deleted
+	since, or never readable — the row is the number and title the journal named, linked where
+	it was filed. Either way the lines are under it.
+	"""
+
+	sample = SAMPLES["Journal"]
+	renamed = {**sample["items"]["42"], "title": "Fix the deploy script, properly"}
+	drawn = _rendered(tmp_path, {"Journal": {**sample, "items": {"42": renamed}}})["Journal"]
+	plain = _rendered(tmp_path, {"Journal": {**sample, "items": {}}})["Journal"]
+
+	assert "Fix the deploy script, properly" in drawn, drawn
+	assert "Fix the deploy script, properly" not in plain and "Fix the deploy script" in plain, plain
+	assert 'href="/projects/web/42"' in plain, plain
+
+	for rendered in (drawn, plain):
+		assert 'changed status from "Open" to "In progress"' in rendered, rendered
+		assert "the instance" in rendered and "created it" in rendered, rendered
+
+
+def test_a_journal_page_asks_for_the_rows_it_draws_by_number (tmp_path: pathlib.Path) -> None:
+	"""`#2826`: **the items a page names, in one read a collection**, with the row's own fields.
+
+	A number does not say whether it is a task or a document, so both are asked, and each answers
+	the numbers it holds. What comes back is drawn: the row's title is the item's, not the entry's.
+	"""
+
+	journal = {"items": JOURNAL_ENTRIES, "page": {"has_more": False, "next_cursor": None, "total": None}}
+	item = {**SAMPLES["Journal"]["items"]["42"], "title": "Fix the deploy script, as it is now"}
+	driven = _driven(
+		tmp_path, pathname="/projects/-/journal",
+		answers={
+			"/v1/journal": journal,
+			"tasks?ref.in": {"items": [item], "page": NOTHING["page"]},
+		},
+	)
+	rows = [
+		call["path"] for call in driven["asked"]
+		if call["path"].startswith(("/v1/tasks", "/v1/documents"))
+	]
+
+	assert sorted(path.split("?")[0] for path in rows) == ["/v1/documents", "/v1/tasks"], rows
+
+	for path in rows:
+		assert "ref.in=42&" in path and "fields=" in path, path
+		assert "workspace_id=projects" in path, path
+
+	assert "include_completed=true" in next(path for path in rows if path.startswith("/v1/tasks"))
+	assert "Fix the deploy script, as it is now" in driven["said"], driven["said"]
 
 
 def test_a_journal_read_starts_at_the_edge_it_is_reading_past_and_keeps_what_it_should (
@@ -17913,10 +18075,11 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 	rendered = _rendered(tmp_path, {"Journal": SAMPLES["Journal"]})["Journal"]
 
 	assert "through agent tools" in rendered and "in the browser" in rendered, rendered
-	assert "Reproduced on 3.11 only. The fix in the other one…" in rendered, rendered
-	assert "The rest is on the item." in rendered, rendered
+	assert '"Reproduced on 3.11 only. The fix in the other one…"' in rendered, rendered
+	assert ">more<" in rendered or " more" in rendered, rendered
+	assert "The rest is on the item." not in rendered, rendered
 	assert 'href="/projects/web/42"' in rendered, rendered
-	assert 'status: "Open" to "In progress"' in rendered, rendered
+	assert 'changed status from "Open" to "In progress"' in rendered, rendered
 	assert "the instance" in rendered and "Older" in rendered, rendered
 
 	# **Every state it can be in says which**, rather than an empty page for three reasons.
@@ -17957,10 +18120,11 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 
 
 def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathlib.Path) -> None:
-	"""`#2731`'s wiring. **Arriving reads the journal, names the tab, and asks for no rows.**
+	"""`#2731`'s wiring. **Arriving reads the journal, names the tab, and asks for no listing.**
 
 	The page is drawn in place of the work, so the agenda's, a listing's, the roster's and the
-	vocabulary's reads are all ones nothing on it could use (`#2508`'s rule for an area).
+	vocabulary's reads are all ones nothing on it could use (`#2508`'s rule for an area). **The
+	rows it draws are asked for by number** (`#2826`), which is not a listing of anything.
 	"""
 
 	journal = {"items": JOURNAL_ENTRIES, "page": {"has_more": True, "next_cursor": None, "total": None}}
@@ -17985,8 +18149,8 @@ def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathli
 	), paths
 	assert not [
 		path for path in paths
-		if "/v1/agenda" in path or path.startswith(("/v1/tasks", "/v1/documents", "/v1/meta"))
-		or "/members" in path
+		if "/v1/agenda" in path or path.startswith("/v1/meta") or "/members" in path
+		or (path.startswith(("/v1/tasks", "/v1/documents")) and "ref.in=" not in path)
 	], paths
 	assert driven["title"] == "Journal · Subroutine", driven["title"]
 	assert "Reproduced on 3.11 only." in driven["said"], driven["said"]
@@ -17997,7 +18161,8 @@ def test_a_journal_page_reads_what_is_new_when_the_poll_sees_it (tmp_path: pathl
 	"""`#2731`: on the page's own poll, from the newest entry it holds, inclusively.
 
 	**The edge comes back and is not drawn twice**, and the newer entry is drawn without a reload.
-	No work is refetched, because none is on the page.
+	No listing is refetched, because none is on the page; **the item a new entry is about is**
+	(`#2826`), because the entry is news that it changed and its row is the item as it is now.
 	"""
 
 	newest = JOURNAL_ENTRIES[0]
@@ -18036,9 +18201,15 @@ def test_a_journal_page_reads_what_is_new_when_the_poll_sees_it (tmp_path: pathl
 	assert len(asked) == 1 and f"created_at.gte={edge}" in asked[0], asked
 	assert not [
 		call for call in round
-		if "/v1/tasks" in call["path"] or "/v1/documents" in call["path"]
-		or "/v1/agenda" in call["path"]
+		if "/v1/agenda" in call["path"]
+		or (
+			("/v1/tasks" in call["path"] or "/v1/documents" in call["path"])
+			and "ref.in=" not in call["path"]
+		)
 	], round
+	assert [
+		call for call in round if call["path"].startswith("/v1/tasks?ref.in=42&")
+	], "the new entry's item was not asked for again"
 	assert "Merged and deployed." in driven["said"], driven["said"]
 	assert driven["said"].count("Reproduced on 3.11 only.") == 1, driven["said"]
 

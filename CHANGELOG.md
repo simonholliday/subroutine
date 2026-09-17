@@ -91,6 +91,9 @@ upgrade involves.
 
 ### Added
 
+- **A listing can be asked for items by number.** `ref.in=42,43` on `/v1/tasks` and
+  `/v1/documents` answers those items, and `ref.eq` one of them.
+
 - **A task names who assigned it, and an agent can ask whom it answers to.** A task reports
   `assigned_by` beside `assigned_by_id`, and `subroutine show` and the agent tools say *assigned
   by @jo* wherever somebody other than the assignee made the assignment. `/v1/me` and every
@@ -106,8 +109,11 @@ upgrade involves.
 
 - **The journal in the browser.** A workspace's journal is at `/<workspace>/-/journal`, linked
   from the workspace's heading, and one item's at `/<workspace>/<number>/-/journal`, linked
-  from the item. Each shows the latest hundred entries a day at a time - who did what, the way
-  it came in, what it changed, and how a comment opens - with *Older* for further back. It
+  from the item. Each shows the latest hundred entries a day at a time, drawn as the list
+  draws its rows - the project's colour, the status and the marks - with a line under each
+  item for every thing that happened to it: when, who, what, how a comment opens, and the way
+  it came in. Lines that say the same thing are said once with how many times, and links made
+  together are one line naming every item. *Older* reaches further back. It
   picks up new entries as they happen, at the pace the rest of the page does. Everybody in a
   workspace can open its journal and sees only what they could see anyway. The `-` keeps a
   page's address apart from any project's.
@@ -151,6 +157,9 @@ upgrade involves.
   defer, and a span does not decide an item's type.
 
 ### Fixed
+
+- **A row's title no longer wraps a word to a line on a phone.** Below 620px wide, every
+  title in the list fell into a column about 56px wide.
 
 - **An item's history no longer names an item its reader may not see.** A link from something
   you can see to something in a private project you are not in was left out of the change feed

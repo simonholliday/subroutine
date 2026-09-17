@@ -729,6 +729,9 @@ _SAMPLES: dict[str, str] = {
 	"INSTANT": "today",
 	"DURATION": "2h",
 	"NUMBER": "3",
+	# **An item's number** (`#2826`). A listing answers an empty page for one it does not hold,
+	# which is the route working.
+	"REF": "1",
 	# **`CONDITION` has no value of its own**, which is what the kind *is*: its only operator is
 	# `is`, and that is answered above before a kind is consulted. It is here so the
 	# completeness check below stays a real one — a kind absent from this map is a kind nobody
@@ -2218,3 +2221,39 @@ def test_a_document_names_the_one_it_is_filed_under (world: World) -> None:
 	# **Null together, and null honestly means top level** — not *this client may not see it*.
 	assert listed[above["ref"]]["parent_ref"] is None
 	assert listed[above["ref"]]["parent_title"] is None
+
+
+def test_a_listing_answers_the_items_it_is_asked_for_by_number (world: World) -> None:
+	"""`#2826`: ``ref.in`` on both collections, which is how a journal page reads its rows.
+
+	**Each collection answers the numbers it holds** — one counter numbers both kinds (§6.2), so a
+	set naming a task and a document is answered in part by each. ``#42`` reads as 42, as it does
+	everywhere a person writes a number, and a value that names no item is refused by name.
+	"""
+
+	tasks = [
+		world.call("POST", "/v1/tasks", json={"title": title}).json()["ref"]
+		for title in ("First", "Second", "Third")
+	]
+	document = world.call("POST", "/v1/documents", json={"title": "Notes"}).json()["ref"]
+	asked = f"{tasks[0]},%23{tasks[2]},{document}"
+
+	found = world.call("GET", f"/v1/tasks?ref.in={asked}")
+
+	assert found.status_code == 200, found.text
+	assert sorted(item["ref"] for item in found.json()["items"]) == [tasks[0], tasks[2]]
+
+	papers = world.call("GET", f"/v1/documents?ref.in={asked}")
+
+	assert papers.status_code == 200, papers.text
+	assert [item["ref"] for item in papers.json()["items"]] == [document]
+
+	one = world.call("GET", f"/v1/tasks?ref.eq={tasks[1]}")
+
+	assert [item["ref"] for item in one.json()["items"]] == [tasks[1]], one.text
+
+	for refused in (f"{tasks[0]},soon", f"{tasks[0]},", "007"):
+		answered = world.call("GET", f"/v1/tasks?ref.in={refused}")
+
+		assert answered.status_code == 422, (refused, answered.text)
+		assert "ref" in answered.text, answered.text

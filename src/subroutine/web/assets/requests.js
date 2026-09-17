@@ -285,6 +285,41 @@ export function itemJournalRequest (kind, ref, slug, cursor = null) {
 	};
 }
 
+/*
+	How many numbers one journal read asks for at once — `#2826`. A journal page is a hundred
+	entries, so a page asks once, and every older page asks once more.
+*/
+export const JOURNAL_ITEMS_AT_ONCE = 100;
+
+export function journalItemsRequests (slug, refs) {
+	/*
+		The rows a journal page draws, asked for by number — `#2826`.
+
+		**Both collections, because a number does not say which one it is in** (§6.2: one counter
+		numbers tasks and documents), and each answers only the numbers it holds. **The row's own
+		fields**, so a row here is the list's row and `test_a_listing_asks_for_every_field_its_rows_render`
+		holds it to what `Row` draws. **Finished work included**, because a journal is mostly
+		about work that moved, and much of it moved to done.
+	*/
+	const numbers = [...new Set((refs || []).filter((ref) => Number.isInteger(ref) && ref > 0))]
+		.sort((one, other) => one - other);
+	const asks = [];
+
+	for (let start = 0; start < numbers.length; start += JOURNAL_ITEMS_AT_ONCE) {
+		const part = numbers.slice(start, start + JOURNAL_ITEMS_AT_ONCE);
+		const named = `ref.in=${part.join(",")}&limit=${part.length}`;
+
+		asks.push(
+			{ kind: "task", method: "GET", path: scoped(
+				`/tasks?${named}&include_completed=true&fields=${TASK_FIELDS}`, slug) },
+			{ kind: "document", method: "GET", path: scoped(
+				`/documents?${named}&fields=${DOCUMENT_FIELDS}`, slug) },
+		);
+	}
+
+	return asks;
+}
+
 export function rosterRequest (slug) {
 	/*
 		Who work can be handed to.
