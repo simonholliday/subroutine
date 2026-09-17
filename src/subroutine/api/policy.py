@@ -7,10 +7,12 @@ a credential wrote** — including on somebody else's item, since a comment goes
 policy is what stands between a future defect in it and a reader's session.
 
 **It is unusually cheap here, and that was measured rather than hoped.** The app loads nothing
-from another host, uses no inline styles and no ``url()`` in its stylesheet, so ``default-src
-'self'`` is satisfied as the app already stands. The single exception is the import map, which
-is inline by necessity — nothing rewrites the files on the way to the browser — and is allowed
-by **hash**, derived from the served bytes.
+from another host and uses no inline styles, so ``default-src 'self'`` is satisfied as the app
+already stands. What its stylesheet fetches — the mark it paints the wordmark with, and since
+`#2865` the font its headings are set in — is served by this instance from ``/app/``, which is
+``'self'``. The single exception is the import map, which is inline by necessity — nothing
+rewrites the files on the way to the browser — and is allowed by **hash**, derived from the
+served bytes.
 
 **A hash rather than a nonce**, deliberately. A nonce has to be minted per response and written
 into the HTML, which would end §2.2's *served as written* promise: `#677` verified on a built

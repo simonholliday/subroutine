@@ -3138,6 +3138,12 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	it twice would be two tests measuring one engine. This file's bound is counted in tests for
 	exactly that reason.
 
+	**And the font it is written in rides on it for the same reason** (`SR#2865`). The masthead
+	is drawn here already, and a stylesheet naming a family proves nothing on its own: a `src`
+	that reaches nothing falls back to the system sans in silence, which is what this page looked
+	like before the branding. What is asked is whether the browser *has* the face it would draw
+	the wordmark with, and whether the reading text stayed where it was.
+
 	**Its two assertions are not removable.** The mark must equal the heading it sits beside,
 	which is the whole of what `currentColor` buys and the thing a hardcoded fill would break in
 	one theme while looking correct in the other. And the mask must resolve to something: a
@@ -3259,6 +3265,25 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	assert not page.evaluate(shown), "Escape did not close the menu"
 	assert opening.get_attribute("aria-expanded") == "false", (
 		"the menu closed and its button still says it is open"
+	)
+
+	# **The branding's font, on the page that is already open** (`SR#2865`).
+	lettering = page.evaluate(
+		"""() => ({
+			wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
+			heading: getComputedStyle(document.querySelector("h2")).fontFamily,
+			body: getComputedStyle(document.body).fontFamily,
+			loaded: document.fonts.check("600 20px Lexend"),
+		})"""
+	)
+
+	assert lettering["wordmark"].startswith("Lexend"), lettering
+	assert lettering["heading"].startswith("Lexend"), lettering
+	assert lettering["loaded"], (
+		f"Lexend never arrived, so the wordmark fell back to the system sans: {lettering}"
+	)
+	assert "Lexend" not in lettering["body"], (
+		f"the reading text is set in the headings' font too: {lettering}"
 	)
 
 

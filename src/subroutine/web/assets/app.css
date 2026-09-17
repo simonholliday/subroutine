@@ -7,9 +7,15 @@
 	that says so; blocked is marked *and* labelled. A reader who cannot distinguish the hues
 	loses nothing.
 
-	System fonts, no webfont. Partly because there is no network to fetch one from on an
-	instance behind a VPN, and partly because a to-do list somebody reads every day should look
-	like the machine they read it on.
+	**System fonts for everything a reader reads, and one family for the headings** (`#2865`).
+	A to-do list somebody reads every day should look like the machine they read it on, so text,
+	controls and code are still the machine's own faces. Headings and the wordmark are Lexend,
+	which is the family Simon's branding names for the products' own names.
+
+	**Served by this instance, never fetched from anywhere** — which is what kept the old rule's
+	reason true rather than trading it away: there is no network to fetch a font from on an
+	instance behind a VPN, so the two faces are vendored in `web/vendor` like everything else
+	here we did not write, and arrive from `/app/` with the rest of the app.
 
 	**Both themes live in one declaration per colour**, through `light-dark()`, so there is no
 	second block that has to agree with the first and no token can be defined in one theme and
@@ -19,6 +25,35 @@
 	**Every size names a step** — five for type, nine for spacing (`#906`). Nothing outside them,
 	and `tests/test_web.py` refuses a literal rather than this paragraph asking nicely.
 */
+
+/*
+	**The headings' font, in the two weights they use** (`#2865`). Fontsource's Latin subset of
+	Lexend 5.3.0, vendored with its licence and recorded in `web/vendored.py`; 29.3 KB for both,
+	fetched once and then cached.
+
+	**Relative, so it resolves against this stylesheet** — the app's files are served flat at
+	`/app/<name>`, and a bare name cannot be wrong if the app is ever mounted somewhere else.
+	The mask below is written the same way for the same reason.
+
+	**`swap`, so a heading is readable before the font arrives.** The fallback is the system
+	sans the rest of the page is set in, so what changes when it lands is the shape of the
+	letters and not the layout of the page.
+*/
+@font-face {
+	font-family: "Lexend";
+	src: url("lexend-latin-400-normal.woff2") format("woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Lexend";
+	src: url("lexend-latin-600-normal.woff2") format("woff2");
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
 
 :root {
 	/* **Both themes in one declaration each** (`#908`). `light-dark()` reads `color-scheme`,
@@ -58,6 +93,12 @@
 	--accent: light-dark(#2563eb, #7aa2f7);
 	--warn: light-dark(#b42318, #f27a70);
 	--radius: 6px;
+
+	/* **What a heading is set in** (`#2865`), and the one place the family is named. The rest of
+	   the page inherits the system sans from `body`, which is the branding's own division: the
+	   product's names and the page's headings in Lexend, everything a reader reads in whatever
+	   their machine sets text in. */
+	--font-heading: "Lexend", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
 	/* **The palette a workspace or a project may be marked with** (`#1027`, design `#1023`).
 	   Eight names, chosen from `domain/palette.py`, which stores a *name* and never a value —
@@ -578,6 +619,11 @@ fieldset {
 		grid-row: 2;
 	}
 }
+
+/* **Every heading, and the wordmark with them** (`#2865`). One rule rather than a family on
+   each: a heading added later is in the branding's font without anybody remembering, which is
+   what a token is for. Nothing else moves - a row's title, a chip and a button are text. */
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 
 /* **The product's name kept its step** when section headings moved up one (`#2679`). It names
    what the page belongs to rather than heading a part of it. */

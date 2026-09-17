@@ -61,6 +61,8 @@ TYPES = {
 	".js": "text/javascript; charset=utf-8",
 	".png": "image/png",
 	".svg": "image/svg+xml",
+	# The headings' font (`#2865`), served by the instance rather than fetched from anywhere.
+	".woff2": "font/woff2",
 }
 
 #: What every page this instance serves puts in its head to declare the mark (`#1286`).

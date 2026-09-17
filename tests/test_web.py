@@ -1768,6 +1768,38 @@ def test_the_render_harness_would_notice_a_broken_template (
 		_rendered(broken, {"Facts": {"item": None}})
 
 
+def test_every_face_the_stylesheet_declares_is_a_file_this_instance_serves () -> None:
+	"""`SR#2865`. A font is the one asset whose absence a page does not report.
+
+	A missing module blanks the app and a missing mark leaves a gap, but a `src` naming nothing
+	falls back to the next family in the stack and the page simply looks like it did before - on
+	an instance behind a VPN, which is the reader this rule exists for, and never on the machine
+	the change was made on if a stale copy is cached there.
+
+	**Both directions**: a face naming a file that is not served fails, and a font in the vendor
+	directory that nothing declares fails too, since it would be 15 KB nobody ever fetches.
+	"""
+
+	stylesheet = (ASSETS / "app.css").read_text(encoding="utf-8")
+	declared = set(re.findall(r'src:\s*url\("([^"]+)"\)', stylesheet))
+	vendored = {
+		path.name for path in subroutine.web.vendored.DIRECTORY.iterdir()
+		if path.suffix == ".woff2"
+	}
+
+	assert declared, "the stylesheet declares no faces at all, so this checks nothing"
+	assert declared == vendored, (
+		f"declared but not vendored {sorted(declared - vendored)}, "
+		f"vendored but not declared {sorted(vendored - declared)}"
+	)
+
+	for name in sorted(declared):
+		body, kind = subroutine.api.web.FILES[name]
+
+		assert kind == "font/woff2", f"{name} is served as {kind!r}"
+		assert body.startswith(b"wOF2"), f"{name} is not a woff2 file"
+
+
 def test_every_vendored_file_is_recorded_with_its_licence () -> None:
 	"""A copied file the licence gate cannot see is one nothing checks at all.
 

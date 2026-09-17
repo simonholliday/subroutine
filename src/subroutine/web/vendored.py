@@ -17,10 +17,10 @@ would (§2.2a). All of them nevertheless **require the notice to travel with the
 minified build and a drawing carry no header — so the licence text sits beside each file and
 ``tests/test_web.py`` fails the build if one goes missing.
 
-**Not all of it is code** (`#2864`). The app's mark is a drawing somebody else made, and it is
-vendored for the same reasons: an instance serves it rather than fetching it, the repository
-holds what was served, and the licence gate cannot see an SVG any more than it can see a
-JavaScript file.
+**Not all of it is code** (`#2864`, `#2865`). The app's mark is a drawing somebody else made
+and its headings are set in somebody else's font, and both are vendored for the same reasons:
+an instance serves them rather than fetching them, the repository holds what was served, and
+the licence gate can see an SVG and a woff2 no better than it can see a JavaScript file.
 """
 
 import dataclasses
@@ -32,7 +32,15 @@ DIRECTORY = pathlib.Path(__file__).resolve().parent / "vendor"
 #: Licences a vendored file may carry. Permissive only, and named rather than pattern-matched:
 #: "does this string look permissive" is the kind of check that says yes to something nobody
 #: read. Adding one is a decision, and §2.2a is the reasoning it has to satisfy.
-ALLOWED = frozenset({"MIT", "Apache-2.0", "ISC", "BSD-3-Clause"})
+#:
+#: **`OFL-1.1` joined it on 2026-09-17** (`#2865`), for the font the headings are set in. §2.2a's
+#: question is whether a dependency binds the owner where our own licence does not, and the SIL
+#: Open Font Licence answers no: it governs the font files, never the program that renders with
+#: them, and what it asks of somebody redistributing them is that the notice travels and that
+#: they are not sold on their own - which is this file's whole arrangement already. Its one
+#: other rule is a Reserved Font Name, so a *modified* copy may not keep the name; the files
+#: here are unmodified.
+ALLOWED = frozenset({"MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "OFL-1.1"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -132,5 +140,28 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# travels whole anyway.
 		notice="lucide.LICENSE",
 		digest="sha256:0048f2a541eb657e0557146d3cf070c8e513901a2dc67e2fb9e07d429071a0f3",
+	),
+	Vendored(
+		# **The face headings are set in** (`#2865`), and the weight the wordmark uses is the one
+		# below. Both are the Latin subset Fontsource ships, which is what the branding was chosen
+		# in; between them they are 29.3 KB, fetched once by a reader and then cached.
+		filename="lexend-latin-400-normal.woff2",
+		package="@fontsource/lexend",
+		version="5.3.0",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/lexend/-/lexend-5.3.0.tgz",
+		notice="lexend.LICENSE",
+		digest="sha256:0601e0a909219a542cdd581e3f8f1ff8fb208978cbc9bca1c90df02fd8062bb1",
+	),
+	Vendored(
+		filename="lexend-latin-600-normal.woff2",
+		package="@fontsource/lexend",
+		version="5.3.0",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/lexend/-/lexend-5.3.0.tgz",
+		# One notice covers both faces, as `preact.LICENSE` covers two files: named on each rather
+		# than left blank, since a shared notice and a missing one look the same from here.
+		notice="lexend.LICENSE",
+		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),
 )
