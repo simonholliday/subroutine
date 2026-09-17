@@ -1882,7 +1882,8 @@ def _journal (
 	for entry in sorted(entries, key=lambda entry: entry.seq):
 		lines.append(
 			f"{entry.created_at.astimezone(zone):%d %b %H:%M}  "
-			f"{entry.actor or 'the instance'}  {entry.action}  {_named(entry)}"
+			f"{entry.actor or 'the instance'}  "
+			f"{subroutine.views.action_in_words(entry.action)}  {_named(entry)}"
 		)
 
 		# **Indented under the line rather than appended to it**, so a body of several hundred

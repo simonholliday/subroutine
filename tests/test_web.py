@@ -17974,6 +17974,26 @@ def _journal_entry (
 	).model_dump(mode="json")
 
 
+def test_a_release_in_the_journal_names_the_claim (tmp_path: pathlib.Path) -> None:
+	"""`SR#2862`, Simon: *released it* reads as a release of code to anybody who writes any.
+
+	Every other verb is still itself and *it*, which is what the claim beside it shows - and
+	`views.action_in_words` says the same words at a terminal and in the agent tools.
+	"""
+
+	entries = [
+		_journal_entry(4, 42, "released"),
+		_journal_entry(3, 42, "claimed"),
+		_journal_entry(2, 42, "created"),
+	]
+
+	(rows,) = _views(tmp_path, [("journalRows", entries)])
+
+	assert [line["text"] for row in rows for line in row["lines"]] == [
+		"released the claim", "claimed it", "created it",
+	], rows
+
+
 def test_a_journal_draws_a_row_per_run_and_says_each_thing_once (tmp_path: pathlib.Path) -> None:
 	"""`#2826`, Simon's rules of 2026-09-17, on the entries that prompted them.
 

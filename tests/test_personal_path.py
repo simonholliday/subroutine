@@ -8231,6 +8231,43 @@ def test_show_prints_the_latest_references_and_offers_suggestions_only_when_few 
 	assert "Too many" not in work and "--json" not in work, work
 
 
+def test_giving_up_a_claim_says_so_wherever_a_terminal_names_it (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2862`, Simon: *released it* reads as a release of code to anybody who writes any.
+
+	The line names the claim instead, and keeps `release`, which is what the command is called.
+	*claimed* is unchanged, since nothing else in this product claims anything. **Three surfaces
+	here and each builds its own line** - an item's history, the journal and the change feed -
+	and the change feed's verb column widens to fit rather than leaving one row out of step.
+	"""
+
+	# The journal holds an entry back until it has settled, as every journal test here does.
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Fix the boiler")
+	run("claim", "1")
+	run("release", "1")
+
+	for where, said in (
+		("history", run("show", "1", "--history").output.split("History", 1)[-1]),
+		("journal", run("journal").output),
+		("changes", run("changes").output),
+	):
+		assert "released the claim" in said, f"the {where} still releases something: {said}"
+		assert "claimed" in said, f"the {where} lost the claim it was given up from: {said}"
+
+	# **The item's name still starts where the other rows' do.** A verb longer than the column
+	# would push one row's item out of line, which is what the width is computed for.
+	feed = [line for line in run("changes").output.splitlines() if "Fix the boiler" in line]
+
+	assert len(feed) == 3, feed
+	assert len({line.index("#1 Fix the boiler") for line in feed}) == 1, (
+		f"the item name starts in a different column on each row: {feed}"
+	)
+
+
 def test_show_says_nothing_about_references_where_there_are_none (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

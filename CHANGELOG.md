@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Changed
 
+- **Giving up a claim reads as *released the claim*** - in the journal, an item's history and
+  the change feed, at a terminal, in the browser and in the agent tools - rather than
+  *released it*, which reads as a release of code to anybody who writes any. Taking one still
+  reads as *claimed it*, and the two commands are still `claim` and `release`.
+
 - **The line between rows in the browser is a little clearer**, in both themes and most
   visibly in dark: the divider in a list, an agenda and the journal went from 1.25:1 to
   1.38:1 against the row behind it in light, and from 1.23:1 to 1.40:1 in dark. Every other

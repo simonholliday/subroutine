@@ -4797,6 +4797,33 @@ def _a_link (event: Event) -> str | None:
 	return f"{verb} #{source} {relation} #{target}"
 
 
+#: The actions that cannot stand on their own as a verb, and what they read as instead.
+#:
+#: **`released` is the whole of it** (Simon, 2026-09-17, `#2862`): *released it* reads as a
+#: release of code to anybody who writes any, where this is a lease being given up. Naming the
+#: claim settles it and keeps `release`, which is what the command is called - so a record an
+#: agent reads still says what to type. *claimed* is left alone: nothing else here claims
+#: anything.
+_AN_ACTION = {
+	"released": "released the claim",
+}
+
+
+def action_in_words (action: str) -> str:
+	"""Return one action as the verb a person reads, for a line that names the item beside it.
+
+	**Every surface that prints a bare action goes through this** (`#2862`): the journal and the
+	change feed at a terminal, the same two in the agent tools, and :func:`happened` below for an
+	item's own history. `journal.js` keeps the one phrase in the browser's own words, as it keeps
+	:data:`_HAPPENED`'s.
+
+	An action this does not name reads as itself, with an underscore as a space - which is every
+	one but the exception above, and what all four surfaces did for all of them before.
+	"""
+
+	return _AN_ACTION.get(action, action.replace("_", " "))
+
+
 def happened (event: Event) -> str:
 	"""Return one event as a phrase somebody can read, in one place for every surface.
 
@@ -4824,7 +4851,7 @@ def happened (event: Event) -> str:
 		return f"{event.action} a {event.entity_type}"
 
 	if event.action != "updated" or not event.changes:
-		return event.action
+		return action_in_words(event.action)
 
 	# **One name per fact** (decision `#2823`). A defer moves `snoozed_until` and
 	# `snoozed_is_all_day` together and they are one fact to a reader.

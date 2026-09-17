@@ -142,6 +142,15 @@ const COMMENTED = {
 	deleted: "deleted a comment",
 };
 
+/*
+	The one action whose line is not its verb and *it* - `#2862`, Simon: *released it* reads as a
+	release of code, where this is a lease being given up. `views._AN_ACTION` carries the same
+	phrase for the terminal and the agent tools, and *claimed it* is left as it was.
+*/
+const HELD = {
+	released: "released the claim",
+};
+
 export function changeInWords (change) {
 	/*
 		One change as its line says it — `#2826`, Simon's example: *changed status*, then what it
@@ -241,7 +250,7 @@ export function linesOf (entry) {
 		return entry.changed.map((change) => ({ ...base, text: changeInWords(change) }));
 	}
 
-	return [{ ...base, text: `${verbOf(entry)} it` }];
+	return [{ ...base, text: HELD[entry.action] || `${verbOf(entry)} it` }];
 }
 
 function verbOf (entry) {

@@ -409,6 +409,32 @@ def bound (
 		)
 
 
+def test_the_journal_tool_says_a_claim_was_given_up (
+	bound: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2862` in the agent tools, which build their own journal line.
+
+	An agent reading a record of what happened is the reader most likely to take *released it*
+	for a release of code, and the least able to ask.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	captured, failed = _called(bound, "subroutine_add", text="Fix the boiler")
+
+	assert not failed, captured
+
+	ref = int(captured.split()[1].lstrip("#"))
+
+	assert not _called(bound, "subroutine_claim", ref=ref)[1]
+	assert not _called(bound, "subroutine_claim", ref=ref, release=True)[1]
+
+	written = _called(bound, "subroutine_journal")[0]
+
+	assert "released the claim" in written, written
+	assert "claimed" in written, written
+
+
 def test_the_journal_tool_writes_a_period_up_in_the_order_it_happened (
 	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:

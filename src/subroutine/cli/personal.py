@@ -3015,7 +3015,24 @@ def _a_readable_day (written: str) -> str:
 	return written
 
 
-def _change_line (event: subroutine.views.Event) -> str:
+def _event_verb (event: subroutine.views.Event | subroutine.views.JournalEntry) -> str:
+	"""Return the verb one line opens with, for an event or a journal entry.
+
+	**`views.action_in_words` and the comment suffix in one place** (`#2862`). The journal and
+	the change feed each build this line, and the caller below needs the same words to know how
+	wide the column is - three copies of *what did somebody do* is how two of them come to
+	disagree.
+
+	A comment is the one action whose entity is not what it is about, and *commented on* reads
+	as what happened where *created* would name the comment row nobody can see.
+	"""
+
+	verb = subroutine.views.action_in_words(event.action)
+
+	return f"{verb} a comment on" if event.entity_type == "comment" else verb
+
+
+def _change_line (event: subroutine.views.Event, *, verb_wide: int = 0) -> str:
 	"""Render one event as a line somebody can read.
 
 	Names the item rather than its id — ``item_ref``/``item_title`` are on the view for
@@ -3031,17 +3048,15 @@ def _change_line (event: subroutine.views.Event) -> str:
 		if event.item_ref is not None and event.item_title is not None
 		else event.item_title or _in_this_persons_terms(event.entity_type)
 	)
-	verb = event.action.replace("_", " ")
-
-	# A comment is the one action whose entity is not what it is about, and "commented on"
-	# reads as what happened where "created" would name the comment row nobody can see.
-	if event.entity_type == "comment":
-		verb = f"{verb} a comment on"
-
+	verb = _event_verb(event)
 	fields = subroutine.views.fields_in_words(event.changes or {})
 	listed = f"  ({', '.join(fields)})" if fields and event.action == "updated" else ""
 
-	return f"{verb:<12}  {named}{listed}"
+	# **Padded to the widest verb on the page**, which is what the actor column in
+	# :func:`_journal_line` does and for the same reason (`#1424`): a verb of its own length
+	# starts the item name at a different column on every row. Twelve where nobody said, which
+	# is what this was before a verb could be longer than one word (`#2862`).
+	return f"{verb:<{max(verb_wide, 12)}}  {named}{listed}"
 
 
 def _journal_line (entry: subroutine.views.JournalEntry, *, who_wide: int = 0) -> str:
@@ -3057,10 +3072,7 @@ def _journal_line (entry: subroutine.views.JournalEntry, *, who_wide: int = 0) -
 		if entry.item_ref is not None and entry.item_title is not None
 		else entry.item_title or _in_this_persons_terms(entry.entity_type)
 	)
-	verb = entry.action.replace("_", " ")
-
-	if entry.entity_type == "comment":
-		verb = f"{verb} a comment on"
+	verb = _event_verb(entry)
 
 	# **Not "nobody"**, which reads as an omission. `actor_user_id` is null exactly when the
 	# instance acted with no principal behind it — bootstrapping a workspace is the one such
@@ -3706,6 +3718,7 @@ def _say_changes (
 		named = world.account_zone(answer.connection.name, None)
 		zone = subroutine.domain.dates.zone(named)
 		day = None
+		verb_wide = max((len(_event_verb(event)) for event in answer.value), default=0)
 
 		for event in answer.value:
 			when = event.created_at.astimezone(zone)
@@ -3716,7 +3729,7 @@ def _say_changes (
 
 				console.print(rich.text.Text(f"  {when:%a %d %b}", style=HEADING))
 
-			console.print(f"    {when:%H:%M}  {_change_line(event)}")
+			console.print(f"    {when:%H:%M}  {_change_line(event, verb_wide=verb_wide)}")
 
 		last = answer.value[-1].seq
 
