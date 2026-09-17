@@ -488,9 +488,9 @@ export function Journal ({
 			<h2 class="area">Journal</h2>
 			<p class="about">
 				${page.ref === null
-					? html`Everything done in <a href=${home}>${space ? space.title : page.workspace}</a>${
-						" "}that you can see, newest first.`
-					: html`Everything done to <a href=${`${home}/${page.ref}`}>#${page.ref}${first
+					? html`What has happened in the <a href=${home}>${space ? space.title : page.workspace}</a>${
+						" "}workspace, newest first.`
+					: html`What has happened to <a href=${`${home}/${page.ref}`}>#${page.ref}${first
 						? ` ${first.item_title}` : ""}</a>, newest first.`}
 			</p>
 			${!current

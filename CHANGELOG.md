@@ -33,6 +33,12 @@ upgrade involves.
   so a browser still asks for nothing from anywhere else, which is what makes the app work
   behind a VPN.
 
+- **A journal says what has happened**, where it used to say what was *done* - a word this
+  product spends on finished work, so the line read as a list of completed tasks rather
+  than of everything that went on. It no longer explains that you are seeing what your
+  account may see either; where that genuinely matters, which is a workspace you cannot
+  read and a journal with nothing in it, it is still said.
+
 - **Giving up a claim reads as *released the claim*** - in the journal, an item's history and
   the change feed, at a terminal, in the browser and in the agent tools - rather than
   *released it*, which reads as a release of code to anybody who writes any. Taking one still

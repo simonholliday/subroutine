@@ -18325,6 +18325,58 @@ def test_a_journal_page_names_the_door_and_where_a_comment_was_cut (tmp_path: pa
 	assert 'href="/projects/42"' in said["quiet"] and "Older" not in said["quiet"], said["quiet"]
 
 
+def test_a_journal_says_what_happened_and_explains_no_permissions (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#2869`, Simon's, on the line under the heading.
+
+	**Never *done*.** It is this product's word for a finished task - a status, a command and a
+	column - so a description promising *everything done in Projects* reads as a list of what
+	was completed rather than of what happened. *Happened* is the word the page already uses
+	in its own empty state, and the word `cli/personal.py` defines a journal by: **a feed is
+	what moved and a journal is what happened**.
+
+	**And it explains no permissions.** *that you can see* is load-bearing in a refusal, where
+	dropping it would assert a workspace does not exist, and in the empty state, where it
+	separates *nothing happened* from *you cannot see it*. A description denies nothing, so
+	there it is noise - and it is the only place in the product that explains the rule at all.
+
+	**Both directions**, so this fails if the phrase leaves the two places that need it as
+	well as if it comes back to the one that does not.
+	"""
+
+	filled = _rendered(tmp_path, {"Journal": SAMPLES["Journal"]})["Journal"]
+
+	assert "What has happened in the" in filled and "workspace, newest first." in filled, filled
+	assert "done" not in filled.lower().split("newest first")[0], filled
+
+	# The page is full, so its description is the only prose that could carry the phrase.
+	assert "that you can see" not in filled, filled
+
+	item = _rendered(tmp_path, {"Journal": {
+		**SAMPLES["Journal"],
+		"page": {"workspace": "projects", "ref": 42},
+		"address": "/projects/42/-/journal",
+		"journal": {"address": "/projects/42/-/journal", "entries": JOURNAL_ENTRIES},
+	}})["Journal"]
+
+	assert "What has happened to" in item and "Everything done" not in item, item
+
+	# **The two places the phrase earns its keep.** A refusal that named no reason would say
+	# a workspace does not exist, and an empty journal is genuinely two different facts.
+	kept = {
+		"unseen": {"page": {"workspace": "elsewhere", "ref": None},
+			"workspaces": [{"slug": "projects", "title": "Projects"}]},
+		"quiet": {"page": {"workspace": "projects", "ref": 42},
+			"address": "/projects/42/-/journal",
+			"journal": {"address": "/projects/42/-/journal", "entries": [], "older": False}},
+	}
+	said = {name: _rendered(tmp_path, {"Journal": props})["Journal"] for name, props in kept.items()}
+
+	assert "no workspace called elsewhere that you can see" in said["unseen"], said["unseen"]
+	assert "Nothing has happened here that you can see" in said["quiet"], said["quiet"]
+
+
 def test_a_journal_page_reads_the_journal_and_none_of_the_work (tmp_path: pathlib.Path) -> None:
 	"""`#2731`'s wiring. **Arriving reads the journal, names the tab, and asks for no listing.**
 
