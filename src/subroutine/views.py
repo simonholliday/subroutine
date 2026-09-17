@@ -3794,11 +3794,13 @@ def _side_of_a_change (
 			answers_to=_answers_to(vocabulary, found),
 		)
 
+	# **By the label a row shows** (`#2830`, Simon's): *"In progress" to "Done"*, where the
+	# key read *"in_progress" to "done"* under a row saying *In progress*.
 	if lookup == subroutine.domain.journal.STATUS:
-		return _key_of(vocabulary.statuses, found)
+		return _label_of(vocabulary.statuses, found)
 
 	if lookup == subroutine.domain.journal.TYPE:
-		return _key_of(vocabulary.types, found)
+		return _label_of(vocabulary.types, found)
 
 	if lookup == subroutine.domain.journal.PROJECT:
 		# **The path rather than the key**, because a key stopped naming one project with
@@ -3840,6 +3842,14 @@ def _key_of (loaded: dict[uuid.UUID, dict[str, typing.Any]], which: uuid.UUID) -
 	key = loaded.get(which, {}).get("key")
 
 	return None if key is None else str(key)
+
+
+def _label_of (loaded: dict[uuid.UUID, dict[str, typing.Any]], which: uuid.UUID) -> str | None:
+	"""Return a vocabulary row's label, its key where it has none, or ``None`` when it is absent."""
+
+	label = loaded.get(which, {}).get("label")
+
+	return str(label) if label else _key_of(loaded, which)
 
 
 def journal_entry (

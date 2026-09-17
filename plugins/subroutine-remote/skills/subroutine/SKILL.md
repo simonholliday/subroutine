@@ -189,7 +189,7 @@ carrying no text at all.
 
 `subroutine_journal` says what **happened**. Same events, with the comment bodies joined on, the
 actors named — an agent shows as `@name (agent, @person)`, exactly as it does on a row — and a
-change rendered as *status: "open" to "done"*. Ask it for a period rather than a cursor.
+change rendered as *status: "Open" to "Done"*. Ask it for a period rather than a cursor.
 
 **So: `changes` to pick up where you left off, `journal` to tell somebody what a day contained.**
 Reaching for `changes` when you were asked to summarise a week means reporting that fourteen

@@ -21,8 +21,9 @@ upgrade involves.
   project, workspace, assignee, deadline, starts, deferred until, repeats, time estimate and
   so on, rather than phrases like *how it is going*. A line reads *deadline: never to Fri 18
   Sep*: a date as a date in the item's own timezone, with its time only when one is set, a
-  duration with its unit, *never* or *nobody* for an empty side, and a status, type, project
-  or title in quotes. Marking something done is one line, and a repeat names its rule rather
+  duration with its unit, *never* or *nobody* for an empty side, a status or a type by the
+  label its row shows, and a status, type, project or title in quotes. Marking something done
+  is one line, and a repeat names its rule rather
   than a number. In `/v1/journal` each change gains `empty`, `quoted` and `dated`, and a date
   is sent as `2026-09-18` or `2026-09-18T17:00`.
 

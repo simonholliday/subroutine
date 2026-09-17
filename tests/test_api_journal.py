@@ -802,9 +802,10 @@ def test_a_change_is_written_as_a_person_reads_it (
 		{"status": "blocked"},
 		{"assignee": world.user.username},
 		{"snooze": "2030-09-17", "timezone": "Europe/London"},
-		{"title": "Go to the shop to water the plants"},
-		{"status": "done"},
-	):
+	{"title": "Go to the shop to water the plants"},
+	{"status": "done"},
+	{"type": "chore"},
+):
 		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=step)
 
 		assert answered.status_code == 200, (step, answered.text)
@@ -820,11 +821,13 @@ def test_a_change_is_written_as_a_person_reads_it (
 		[("estimate_minutes", "time estimate", None, "30m")],
 		[("reminder_minutes", "reminder", None, "1h before")],
 		[("importance", "importance", None, "4"), ("urgency", "urgency", None, "2")],
-		[("status_id", "status", "open", "blocked")],
+		[("status_id", "status", "Open", "Blocked")],
 		[("assignee_id", "assignee", None, person)],
 		[("snoozed_until", "deferred until", None, "2030-09-17")],
 		[("title", "title", "Water the plants", "Go to the shop to water the plants")],
-		[("status_id", "status", "blocked", "done")],
+		[("status_id", "status", "Blocked", "Done")],
+		# By its label, as the row shows it (`#2830`).
+		[("type_id", "type", "Task", "Chore")],
 	]
 
 	terminal = [line for entry in entries for line in subroutine.cli.personal._journal_detail(entry)]
@@ -837,11 +840,12 @@ def test_a_change_is_written_as_a_person_reads_it (
 		"reminder: nothing to 1h before",
 		"importance: nothing to 4",
 		"urgency: nothing to 2",
-		'status: "open" to "blocked"',
+		'status: "Open" to "Blocked"',
 		f"assignee: nobody to {person}",
 		"deferred until: never to Tue 17 Sep 2030",
 		'title: "Water the plants" to "Go to the shop to water the plants"',
-		'status: "blocked" to "done"',
+		'status: "Blocked" to "Done"',
+		'type: "Task" to "Chore"',
 	], terminal
 	assert agent == [
 		"deadline: never to 2030-09-18",
