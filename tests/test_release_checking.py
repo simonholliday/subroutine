@@ -215,6 +215,16 @@ def test_a_failed_check_keeps_what_the_check_before_it_found () -> None:
 	assert [release.version for release in news.releases] == ["9.9.9"], news
 
 
+def test_an_instance_with_no_version_of_its_own_is_behind_nothing () -> None:
+	"""`SR#2897`: ``lag`` for a running version that is not there, which an older instance is.
+
+	An instance from before it published its version sends none, and one line in ``lag`` answers
+	for it - executed by no test until this.
+	"""
+
+	assert subroutine.releases.lag(None, FOUND.releases) is None
+
+
 def test_nobody_signed_in_starts_a_check (session: sqlalchemy.orm.Session) -> None:
 	"""A health check, a refused credential and a calendar app polling a feed never ask.
 

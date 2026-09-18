@@ -106,6 +106,14 @@ CASES = (
 		behind=frozenset({subroutine.views.INSTANCE}),
 	),
 	Case("development builds", program=DEVELOPMENT, plugin="0.8.23", instance=DEVELOPMENT),
+	# **The plugin's own two say-nothing rules** (`SR#2897`): every case above set a plugin the
+	# record can rank, including the one named for development builds, so dropping both guards
+	# in `plugin_behind` left the file green.
+	Case(
+		"a development build of the plugin", program="0.8.20", plugin=DEVELOPMENT,
+		instance="0.8.20",
+	),
+	Case("a plugin ahead of the record", program="0.8.20", plugin="0.8.99", instance="0.8.20"),
 	Case("everything current", program="0.8.20", plugin="0.8.23", instance="0.8.20"),
 	Case(
 		"a check that could not be made", program="0.8.18", plugin="0.8.22", instance="0.8.18",

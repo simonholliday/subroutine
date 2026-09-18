@@ -1837,6 +1837,10 @@ def test_a_bare_from_is_still_a_defer () -> None:
 		"Holiday in Dawlish from 20 February to 29 February",
 		"Holiday in Dawlish from 15 January to 29 February",
 		"Holiday in Dawlish 20\u201329 February",
+		# **The first day not real, in each form** (`SR#2897`): every case above refused on its
+		# order or its end, so neither refusal of a start nothing can read was reached.
+		"Holiday in Dawlish from 31 to 31 November",
+		"Holiday in Dawlish from 31 November to 2 December",
 	],
 )
 def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None:
@@ -1859,6 +1863,21 @@ def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None
 
 	assert "a span needs its first day before its last" in said, said
 	assert "a time is read" not in said, f"a span was explained as a time: {said}"
+
+
+def test_a_span_inside_a_repeat_this_cannot_read_leaves_the_repeat_whole () -> None:
+	"""`SR#2897`: the span grammar steps round a repeat's words, and no line had asked it to.
+
+	*every June 1-5* is a repeat this grammar cannot read, so its words are reserved, and a span
+	matches *June 1-5* inside them. **Without the check the span took them**: *every* was left as
+	the title, a start and an end were set for next June, and *every June* was reported - a
+	yearly thing stored as one holiday. With it, the line is kept whole and sets nothing.
+	"""
+
+	captured = _parse("every June 1-5")
+
+	assert captured.title == "every June 1-5", captured
+	assert (captured.starts_at, captured.ends_at) == (None, None), captured
 
 
 def test_days_joined_by_a_word_are_prose_without_an_opening_word () -> None:

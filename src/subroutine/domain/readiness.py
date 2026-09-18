@@ -555,6 +555,14 @@ def somebody_else (
 	question put to nobody is waiting on nobody.
 	"""
 
+	# **And an empty ``ours`` is said, not left to the dialect** (`#2897`, the cold review of
+	# 2026-09-18's L-5). ``NOT IN ()`` compiles to ``(x NOT IN (NULL) OR 1 = 1)`` - measured on
+	# PostgreSQL - which matches every row, an unassigned one included, against the rule above.
+	# Unreachable today, since the agenda always seeds ``ours`` with the reader; this keeps a
+	# second caller from inheriting it.
+	if not ours:
+		return typing.cast(sqlalchemy.ColumnElement[bool], column.is_not(None))
+
 	predicate: sqlalchemy.ColumnElement[bool] = column.not_in(list(ours))
 
 	return predicate

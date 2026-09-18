@@ -28,7 +28,10 @@ import subroutine.connections
 import subroutine.db.models.identity
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.links
+import subroutine.domain.tags
 import subroutine.domain.users
+import subroutine.domain.vocabulary
 import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
@@ -87,6 +90,49 @@ def test_somebody_can_be_marked_as_having_left_over_http (
 	assert answer.username == leaver.username
 	assert not answer.is_active
 	assert person.is_active, "the request must act on the account it named"
+
+
+def test_a_tag_and_a_link_type_are_removed_over_http (session: sqlalchemy.orm.Session) -> None:
+	"""`SR#2897`: two client methods whose paths `SR#2623` rewrote had never been called.
+
+	``delete_tag`` and ``delete_link_type`` each build their path through ``_segment``, and
+	nothing called either: ``tests/test_reach.py`` names them for their routes, which says a
+	method of that name exists and not what it sends. **Called here, over HTTP against the real
+	application**, which is the claim about what they do: each reaches its route and removes
+	what it names. Both routes take an id, which ``_segment`` leaves as it is.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="Theirs"
+	)
+	(tag,) = subroutine.domain.tags.ensure(
+		session, workspace_id=setup.workspace.id, names=[f"gone-{uuid.uuid4().hex[:6]}"]
+	)
+	kind = subroutine.domain.vocabulary.create_link_type(
+		session,
+		workspace_id=setup.workspace.id,
+		key=f"precedes{uuid.uuid4().hex[:6]}",
+		title="Precedes",
+		inverse_title="Follows",
+		category=subroutine.domain.links.ORDERING,
+		actor=subroutine.domain.authentication.Principal(user=setup.user),
+	)
+	session.flush()
+
+	# Read before the rows go: an expired object whose row is gone raises on any attribute.
+	named = {"the tag": (type(tag), tag.id), "the link type": (type(kind), kind.id)}
+
+	with _over_http(session, issued.value.get_secret_value()) as client:
+		client.delete_tag(which=str(tag.id))
+		client.delete_link_type(which=str(kind.id))
+
+	session.expire_all()
+
+	for what, (model, identifier) in named.items():
+		assert session.get(model, identifier) is None, f"{what} named is still there"
 
 
 def test_a_username_holding_a_character_an_address_reads_names_that_account_over_http (

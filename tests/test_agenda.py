@@ -1208,6 +1208,36 @@ def _blocks (world: World, blocker: typing.Any, blocked: typing.Any) -> None:
 	world.session.flush()
 
 
+def test_with_nobody_counted_as_ours_an_unassigned_row_is_still_nobodys (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2897`: ``somebody_else`` with an empty ``ours`` matched every row, unassigned ones too.
+
+	``NOT IN ()`` compiles to a predicate that is always true, against the docstring's *"A null
+	account is not somebody else."* No caller passes an empty set today; this is the rule held
+	for the one that will, on both backends.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	held = subroutine.domain.tasks.create(
+		session, project=setup.inbox, title="Somebody's", assignee_id=setup.user.id
+	)
+	loose = subroutine.domain.tasks.create(session, project=setup.inbox, title="Nobody's")
+	session.flush()
+
+	task = subroutine.db.models.work.Task
+	matched = set(session.scalars(
+		sqlalchemy.select(task.id).where(
+			task.id.in_([held.id, loose.id]),
+			subroutine.domain.readiness.somebody_else(task.assignee_id, []),
+		)
+	))
+
+	assert matched == {held.id}, matched
+
+
 def _somebody_else (world: World) -> subroutine.db.models.identity.User:
 	"""Add a second account to this workspace, so a blocker can belong to somebody."""
 

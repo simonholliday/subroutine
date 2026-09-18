@@ -12,6 +12,7 @@ every comment individually — which is not a feature, it is a list of things to
 
 import datetime
 import json
+import types
 import typing
 import uuid
 
@@ -348,6 +349,59 @@ def test_no_journal_entry_carries_a_whole_text (
 
 	assert feed.status_code == 200, feed.text
 	assert texts["task before"] in feed.text and texts["document after"] in feed.text
+
+
+def test_a_date_that_moved_without_its_flag_is_read_by_the_flag_the_item_has () -> None:
+	"""`SR#2897`: `SR#1298`'s second half - the item's flag as it stands where it did not move.
+
+	Every dated step in the journal's tests moved the all-day flag alongside the date, so the
+	half that reads the item's own flag was never asked, and inverting it left them green. §6.5
+	stores an all-day deadline at the last microsecond of its day, so getting it wrong writes a
+	whole day as *23:59*.
+	"""
+
+	whole = subroutine.domain.events.Described(
+		ref=1, title="Wanted", timezone="Europe/London", due_is_all_day=True
+	)
+	timed = whole._replace(due_is_all_day=False)
+	moved = {"due_at": {"from": None, "to": "2030-09-18T22:59:59.999999+00:00"}}
+	value = moved["due_at"]["to"]
+
+	assert subroutine.views._dated_in_words("due_at", value, moved, "to", about=whole) == "2030-09-18"
+	assert subroutine.views._dated_in_words(
+		"due_at", value, moved, "to", about=timed
+	) == "2030-09-18T23:59"
+
+
+def test_a_repeat_recorded_before_it_was_recorded_whole_still_reads_as_one () -> None:
+	"""`SR#2897`: an entry written before `SR#2825` names a repeat by its rule or its series.
+
+	**Those are exactly what an upgraded instance holds** about its own history, and no test
+	built one, so making either branch answer anything at all left the file green. Each is
+	asked for the words the rule reads as, against a series stood in for by the one thing the
+	branch reads of it.
+	"""
+
+	rule = "FREQ=WEEKLY;BYDAY=MO"
+	series = uuid.uuid4()
+	vocabulary = typing.cast(
+		subroutine.views.Vocabulary,
+		types.SimpleNamespace(
+			parents={series: {"recurrence_rule": rule, "recurrence_anchor": None}}
+		),
+	)
+	expected = subroutine.views._repeat_in_words(rule, None)
+
+	def said (field: str, value: str) -> str | None:
+		"""Return one older-shaped change's new side, as words."""
+
+		return subroutine.views._moved_in_words(
+			field, {field: {"from": None, "to": value}}, "to", vocabulary=vocabulary, about=None
+		)
+
+	assert "Monday" in expected, f"the rule did not read as words at all: {expected}"
+	assert said("recurrence_rule", rule) == expected
+	assert said("recurrence_template_id", str(series)) == expected
 
 
 @pytest.mark.parametrize(
