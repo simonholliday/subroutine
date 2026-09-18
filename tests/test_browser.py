@@ -3285,6 +3285,7 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			bodyWeight: getComputedStyle(document.body).fontWeight,
 			code: getComputedStyle(document.querySelector(".ref")).fontFamily,
 			title: getComputedStyle(document.querySelector(".row .title")).fontFamily,
+			titleWeight: getComputedStyle(document.querySelector(".row .title")).fontWeight,
 			lexend: document.fonts.check("600 20px Lexend"),
 			inter: document.fonts.check("500 15px Inter"),
 			mono: document.fonts.check('400 14px "JetBrains Mono"'),
@@ -3311,21 +3312,29 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			f"{face} never arrived, so the page fell back to a system face: {lettering}"
 		)
 
-	# **Each weight, separately from its family** (`SR#2871`, `SR#2873`). A row's title is 500
-	# and the reading text is 300; either would be answered for in silence by a neighbouring
-	# file, and `document.fonts.check` resolves through font matching so it cannot see that.
-	for family, weight in (("Lexend", "500"), ("Inter", "300")):
+	# **Each weight, separately from its family, read off the element that asks for it**
+	# (`SR#2871`, `SR#2873`, `SR#2879`). A row's title and the reading text each ask for a
+	# weight, and either would be answered for in silence by a neighbouring file;
+	# `document.fonts.check` resolves through font matching, so it cannot see that. Reading the
+	# weight from the page rather than writing it here means a weight with no file behind it
+	# fails whatever it is changed to - 450 without a variable face, say.
+	asked = (("Lexend", lettering["titleWeight"]), ("Inter", lettering["bodyWeight"]))
+
+	for family, weight in asked:
 		assert weight in lettering["weights"].get(family, []), (
 			f"{family} {weight} never arrived, so a neighbouring weight is drawn instead: "
 			f"{lettering['weights']}"
 		)
 
-	# **And the weight the reading text is actually set at** (`SR#2873`). The line above says
-	# the file arrived; this says the page asked for it. Either alone passes while the other
-	# is wrong - a face nothing uses is never fetched, and a weight nothing vendors is
-	# substituted without a word.
+	# **And the weights they are actually set at** (`SR#2873`, `SR#2879`). The loop above says
+	# a file arrived for what was asked; these say the page asked for what was decided. Either
+	# alone passes while the other is wrong - a face nothing uses is never fetched, and a weight
+	# nothing vendors is substituted without a word.
 	assert lettering["bodyWeight"] == "300", (
 		f"the reading text is set at {lettering['bodyWeight']} rather than 300: {lettering}"
+	)
+	assert lettering["titleWeight"] == "400", (
+		f"a row's title is set at {lettering['titleWeight']} rather than 400: {lettering}"
 	)
 
 	assert "Lexend" not in lettering["body"], (

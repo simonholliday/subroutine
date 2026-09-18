@@ -154,9 +154,9 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:0601e0a909219a542cdd581e3f8f1ff8fb208978cbc9bca1c90df02fd8062bb1",
 	),
 	Vendored(
-		# **The weight a row's title asks for** (`#2871`). Without it `font-weight: 500` draws
-		# the 400 file - measured, not assumed - so every title in a list, an agenda, a board
-		# and the journal would have lost the weight that separates it from the meta beneath.
+		# **Kept for a weight something can ask for** (`#2871`, `#2879`). Vendored for the row
+		# title, which is 400 now; `strong` is 500, and a writer's bold inside a heading asks for
+		# Lexend 500 - which without this file would be drawn at 400 without a word.
 		filename="lexend-latin-500-normal.woff2",
 		package="@fontsource/lexend",
 		version="5.3.0",

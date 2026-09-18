@@ -25,7 +25,8 @@ upgrade involves.
 - **An item's title is set in Lexend wherever you see it** - in a list, an agenda, a board
   and the journal, not only on the item's own page. It was the heading font in one place
   and the reading font in the others, so the same words changed shape when you clicked
-  them.
+  them. In a list it is set a step lighter than on the item's own page, so a column of
+  titles reads as a list rather than as a stack of headings.
 
 - **Reading text is set in Inter and code in JetBrains Mono**, beside Lexend for headings.
   The text is set a little lighter than a sans usually is, and bold with it, so a paragraph
