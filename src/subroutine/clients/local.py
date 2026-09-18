@@ -3106,6 +3106,7 @@ class Client:
 				timezone=zone,
 				limit=subroutine.domain.recurrence.AHEAD,
 			),
+			timezone=zone,
 		)
 
 

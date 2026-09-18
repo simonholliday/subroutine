@@ -86,4 +86,5 @@ def parse (
 		occurrences=subroutine.domain.recurrence.occurrences(
 			read.rule, start=start, timezone=zone, limit=subroutine.domain.recurrence.AHEAD
 		),
+		timezone=zone,
 	)

@@ -352,6 +352,10 @@ export function Reading ({ reading }) {
 		**`role="status"` rather than `alert`.** This updates while somebody is typing, and an
 		assertive live region would interrupt a screen reader on every keystroke — which is how
 		a helpful thing becomes the reason somebody turns the page off.
+
+		**Each day is read in the zone the answer was computed in** (`#2903`). An occurrence is
+		an instant, and read in UTC *every monday* typed in Los Angeles in the evening previewed
+		three Tuesdays. An instance older than that field sends none, and gets UTC as before.
 	*/
 	if (!reading) return null;
 
@@ -367,7 +371,7 @@ export function Reading ({ reading }) {
 			${reading.occurrences && reading.occurrences.length > 0 && html`
 				<span class="next">Next: ${reading.occurrences
 					.slice(0, 3)
-					.map((one) => calendarDay(one))
+					.map((one) => calendarDay(one, reading.timezone))
 					.join(", ")}</span>
 			`}
 		</p>

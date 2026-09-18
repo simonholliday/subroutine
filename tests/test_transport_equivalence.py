@@ -25,6 +25,7 @@ import sys
 import time
 import typing
 import uuid
+import zoneinfo
 
 import httpx
 import pytest
@@ -119,6 +120,38 @@ def make (pair: Pair, text: str) -> subroutine.views.Task:
 	"""Add a task through the local client, for the other one to read back."""
 
 	return pair.local.capture(text=text).task
+
+
+def test_both_say_which_zone_a_repeat_was_read_in (pair: Pair) -> None:
+	"""`SR#2903`: a reading's occurrences are instants, and it says where they were computed.
+
+	**The zone asked for, and the one found when none was** - the workspace's here, with the
+	account naming none. On both transports, because the local client builds its own reading
+	rather than asking the route; and each occurrence is a Monday where the answer says it was
+	computed, which is the point of saying so.
+	"""
+
+	pair.user.timezone = None
+	pair.workspace.timezone = "Pacific/Auckland"
+	pair.session.flush()
+
+	thursday_evening_in_los_angeles = datetime.datetime(2026, 9, 18, 3, 30, tzinfo=datetime.UTC)
+
+	for client in pair.both():
+		asked = client.read_repeat(
+			text="every monday",
+			start=thursday_evening_in_los_angeles,
+			timezone="America/Los_Angeles",
+		)
+		found = client.read_repeat(text="every monday")
+
+		assert asked.timezone == "America/Los_Angeles", (client, asked)
+		assert found.timezone == "Pacific/Auckland", (client, found)
+		assert asked.occurrences, (client, asked)
+		assert {
+			one.astimezone(zoneinfo.ZoneInfo(asked.timezone)).strftime("%A")
+			for one in asked.occurrences
+		} == {"Monday"}, (client, asked.occurrences)
 
 
 def test_both_report_the_same_instance_and_workspaces (pair: Pair) -> None:

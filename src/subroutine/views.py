@@ -520,6 +520,13 @@ class Reading(pydantic.BaseModel):
 	#: The next few occurrences, in UTC, computed where the caller is.
 	occurrences: list[datetime.datetime]
 
+	#: **Where that is** - the zone the request named, or the one the caller's account, workspace
+	#: or instance supplied when it named none (`#2903`). An occurrence is an instant, and which
+	#: day it falls on depends on where it is read: the browser read each in UTC, and *every
+	#: monday* typed in Los Angeles in the evening previewed three Tuesdays. **Null only from an
+	#: instance older than this field**, so a client ahead of its server still reads the answer.
+	timezone: str | None = None
+
 
 class Occurrences(pydantic.BaseModel):
 	"""When a repeating task comes round, over a stretch of time.

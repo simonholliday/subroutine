@@ -1165,18 +1165,63 @@ def test_every_day_names_the_zone_it_is_read_in () -> None:
 	zone is required of every call now**: the item's own for a stored day, ``here()`` for an
 	instant, ``null`` for a value that is already a written day. Leaving it out is the mistake,
 	so it is the thing refused.
+
+	**And of ``calendarDay`` since `SR#2903`**, which has the same default and did the same: a
+	repeat's *Next:* line read each coming occurrence in UTC. Each floored by its own count.
 	"""
 
-	calls = _calls_to("day", _our_source())
+	for name, floor in (("day", 10), ("calendarDay", 3)):
+		calls = _calls_to(name, _our_source())
 
-	assert len(calls) >= 10, f"found only {len(calls)} calls to day, so this is checking nothing"
+		assert len(calls) >= floor, (
+			f"found only {len(calls)} calls to {name}, so this is checking nothing"
+		)
 
-	unsaid = sorted(arguments for arguments in calls if _arguments(arguments) < 2)
+		unsaid = sorted(arguments for arguments in calls if _arguments(arguments) < 2)
 
-	assert not unsaid, (
-		f"{unsaid} call day without saying which zone to read it in, and a missing zone is "
-		f"UTC - pass the item's timezone, here() for an instant, or null for a written day"
-	)
+		assert not unsaid, (
+			f"{unsaid} call {name} without saying which zone to read it in, and a missing zone "
+			f"is UTC - pass the item's timezone, here() for an instant, or null for a written day"
+		)
+
+
+@pytest.mark.parametrize(
+	("zone", "occurrences", "days", "in_utc"),
+	[
+		# West of UTC in the evening, as measured: *every monday* at 20:30 in Los Angeles is
+		# 03:30 on Tuesday in UTC.
+		(
+			"America/Los_Angeles",
+			["2026-09-22T03:30:00Z", "2026-09-29T03:30:00Z", "2026-10-06T03:30:00Z"],
+			["2026-09-21", "2026-09-28", "2026-10-05"],
+			["2026-09-22", "2026-09-29", "2026-10-06"],
+		),
+		# East of it just after midnight, where UTC says the day before - across Sydney's move
+		# to summer time on 4 October, so the third is an hour earlier in UTC.
+		(
+			"Australia/Sydney",
+			["2026-09-20T14:30:00Z", "2026-09-27T14:30:00Z", "2026-10-04T13:30:00Z"],
+			["2026-09-21", "2026-09-28", "2026-10-05"],
+			["2026-09-20", "2026-09-27", "2026-10-04"],
+		),
+	],
+)
+def test_a_repeats_next_days_are_read_where_they_were_computed (
+	tmp_path: pathlib.Path, zone: str, occurrences: list[str], days: list[str], in_utc: list[str]
+) -> None:
+	"""`SR#2903`: the *Next:* line under a repeat named each coming day as UTC saw it.
+
+	The server computes a repeat's occurrences in a zone and answers with instants, so the day
+	each falls on depends on where it is read. Read in UTC, *every monday* typed in Los Angeles
+	in the evening previewed three Tuesdays. The answer names its zone now, and each day is read
+	there - asserted both ways, so a line naming the UTC days fails.
+	"""
+
+	reading = {"description": "every Monday", "occurrences": occurrences, "timezone": zone}
+	shown = _rendered(tmp_path, {"Reading": {"reading": reading}})["Reading"]
+
+	assert all(day in shown for day in days), shown
+	assert not any(day in shown for day in in_utc), shown
 
 
 def test_an_action_is_said_in_the_same_words_by_the_journal_everywhere () -> None:

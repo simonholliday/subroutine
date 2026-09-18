@@ -329,6 +329,13 @@ upgrade involves.
   list for a fortnight with nothing on screen having said so. A row now says *deferred until*
   while the defer still hides the item, as the terminal's rows do.
 
+- **A repeat's preview names the days it will fall on, wherever you are.** The *Next:* line
+  under a repeat being typed read each coming date in UTC, so *every monday* typed in Los
+  Angeles in the evening previewed three Tuesdays, and just after midnight in Sydney three
+  Sundays. The rule stored was right; only the preview was wrong. `POST /v1/recurrence/parse`
+  now says which timezone its dates were computed in, as `timezone`, and the browser reads
+  each day there.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.
