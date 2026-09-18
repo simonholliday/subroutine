@@ -398,6 +398,18 @@ code, .ref, .priority, .broke .detail, .credential .prefix {
 	font-family: var(--font-code);
 }
 
+/* **Bold code is drawn bold** (`#2878`). The mono declares no weight of its own and inherits
+   the prose's, so once `strong` came down to 500 (`#2873`) bold code asked for 500 - a weight
+   JetBrains Mono does not ship - and was drawn in the regular face, the same as plain code.
+   600 is the face the mono does ship, and it keeps code one step heavier than the prose
+   around it both ways: regular beside light text, semibold beside medium bold.
+
+   **Only this, deliberately.** Pinning the mono to 400 as well, which was the remedy first
+   written down for this, would have flattened code in a table head and in a heading: those
+   are 600 and 700 by their own rules and are drawn semibold by inheriting them. Measured
+   across every context the mono appears in before choosing. */
+strong code { font-weight: 600; }
+
 /*
 	**A base look for every element the browser would otherwise decide for us** — `#747`, and
 	`#740` is what its absence cost the one time it happened.

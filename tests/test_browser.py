@@ -1878,8 +1878,8 @@ def test_the_stale_half_of_the_excuse_list () -> None:
 RICH: dict[str, str] = {
 	"text": (
 		"# One\n## Two\n### Three\n#### Four\n##### Five\n###### Six\n\n"
-		"A description with a **word** in it, a mention of #42, `code`, ~~struck~~ text "
-		"and [a link](/projects/sr).\n\n"
+		"A description with a **word** in it, a mention of #42, `code`, **`bold code`**, "
+		"~~struck~~ text and [a link](/projects/sr).\n\n"
 		"> A quotation.\n\n"
 		"- one\n- two\n\n"
 		"1. first\n2. second\n\n"
@@ -2345,6 +2345,44 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 
 	assert not unlike, (
 		f"the preview draws these unlike the text it previews, as (saved, previewed): {unlike}"
+	)
+
+	# **Bold code is drawn bold** (`SR#2878`). The mono declares no weight and inherits the
+	# prose's: `SR#2873` set `strong` to 500, JetBrains Mono ships only 400 and 600, and so
+	# `**`code`**` was drawn in the regular face - the same as plain code, with nothing to say
+	# so. Asked on the prose page, which `RICH` gives a bold code span.
+	#
+	# **Against the faces the stylesheet declares, not the ones that loaded.** These sample
+	# pages are served without the font files, so every face here reports `error`; whether the
+	# files arrive is the served page's question, asked in the theme test above, and whether each
+	# declared face is vendored is `test_web`'s. What only this page can ask is whether bold code
+	# asks for a weight a face exists for - which 500 did not, and nothing said so.
+	#
+	# **Shown again rather than reusing `saved`**: `showing` drives one tab, so by here the
+	# preview above has moved it to the item page and `saved` names what it used to show.
+	bold = showing("Prose").evaluate(
+		"""() => {
+			const found = document.querySelector(".prose strong code");
+			return {
+				asks: found ? getComputedStyle(found).fontWeight : null,
+				declared: [...document.fonts]
+					.filter((face) => face.family.replace(/"/g, "") === "JetBrains Mono")
+					.map((face) => face.weight),
+			};
+		}"""
+	)
+
+	assert bold["asks"], "the prose sample draws no bold code, so nothing below is asked"
+	assert bold["asks"] in bold["declared"], (
+		f"bold code asks for {bold['asks']} and JetBrains Mono declares only {bold['declared']}, "
+		f"so a neighbouring face draws it"
+	)
+
+	# Plain code is drawn in the lightest mono face there is, so bold code has to ask for a face
+	# that is not that one or the two cannot be told apart.
+	assert bold["asks"] != min(bold["declared"], key=int), (
+		f"bold code asks for the lightest mono face there is, which plain code is drawn in too: "
+		f"{bold}"
 	)
 
 
