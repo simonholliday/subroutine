@@ -1704,6 +1704,11 @@ def test_a_month_name_in_ordinary_prose_is_left_alone () -> None:
 		("Holiday in Dawlish from 2026-10-02 to 2026-10-12", (2026, 10, 2), (2026, 10, 12)),
 		# A weekday needs its opening word, and has it. Thursday 30 July: Monday is the 3rd.
 		("Holiday in Dawlish from Monday to Wednesday", (2026, 8, 3), (2026, 8, 5)),
+		# **Spans that cross a year are meant, and `SR#2884`'s refusal must leave them alone**:
+		# one over the new year, a long one, and a year the writer chose.
+		("Holiday in Dawlish from 28 December to 3 January", (2026, 12, 28), (2027, 1, 3)),
+		("Holiday in Dawlish from 1 September to 30 June", (2026, 9, 1), (2027, 6, 30)),
+		("Holiday in Dawlish from 2026-10-12 to 2027-10-02", (2026, 10, 12), (2027, 10, 2)),
 	],
 )
 def test_a_span_of_whole_days_is_a_start_and_an_end (
@@ -1821,6 +1826,17 @@ def test_a_bare_from_is_still_a_defer () -> None:
 		"Holiday in Dawlish 12\u20132 October",
 		"Holiday in Dawlish from 2026-10-12 to 2026-10-02",
 		"Holiday in Dawlish from 30 to 31 September",
+		# **The month on both sides** (`SR#2883`), which is the only way to reach the reader
+		# that refused rather than reporting - so every case above avoided it.
+		"Holiday in Dawlish from 1 April to 31 April",
+		# **A backwards span of two written dates** (`SR#2884`): counted from the start, the end
+		# was found eleven months on and stored without a word.
+		"Holiday in Dawlish from 12 October to 2 October",
+		# **A day that does not come round within a year**: a 29 February, found in the next
+		# leap year, from a start in its own month and from one before it.
+		"Holiday in Dawlish from 20 February to 29 February",
+		"Holiday in Dawlish from 15 January to 29 February",
+		"Holiday in Dawlish 20\u201329 February",
 	],
 )
 def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None:
@@ -1828,6 +1844,9 @@ def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None
 
 	**And nothing else may take it**, which is the half that matters: left to the date rules,
 	``from 2026-10-12`` would become exactly the defer this reading exists to stop.
+
+	**And it is told what is wrong with it** (`SR#2886`). Every case here was being explained as
+	a time - *"a time is read after 'at'"* - about a line with no clock in it.
 	"""
 
 	captured = _parse(text)
@@ -1835,6 +1854,11 @@ def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None
 	assert captured.title == text, captured
 	assert (captured.starts_at, captured.ends_at, captured.snooze) == (None, None, None), captured
 	assert captured.unparsed, f"an unreadable span was not reported: {captured}"
+
+	said = subroutine.domain.capture.explain(captured.unparsed) or ""
+
+	assert "a span needs its first day before its last" in said, said
+	assert "a time is read" not in said, f"a span was explained as a time: {said}"
 
 
 def test_days_joined_by_a_word_are_prose_without_an_opening_word () -> None:

@@ -216,6 +216,10 @@ _DATES_AND_A_DASH = re.compile(
 	re.IGNORECASE,
 )
 
+#: Every shape a span of days is written in, for :func:`_collect_spans` to read and for
+#: :func:`explain` to recognise what it gave back.
+_SPANS = (_WORDED_SPAN, _DAYS_OF_A_MONTH, _DATES_AND_A_DASH)
+
 
 #: A date preposition and the phrase after it — ``by friday``, ``due 2026-08-19``.
 #:
@@ -506,9 +510,9 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	if not unparsed:
 		return None
 
-	# **Three things end up here and there were two buckets** (`#929`). A `+` nobody could
-	# parse, a repeat phrased in a way the grammar does not know, **and a time that was read
-	# and deliberately given back** — which was being reported as a failed repeat, so
+	# **Three things ended up here and there were two buckets** (`#929`), and there are more of
+	# both now, below. A `+` nobody could parse, a repeat phrased in a way the grammar does not
+	# know, **and a time that was read and deliberately given back** — which was being reported as a failed repeat, so
 	# `explain capture`'s own worked example, `Email Bob re: 3pm`, answered *"not a repeat this
 	# understands"* about a string nobody offered as one.
 	#
@@ -528,12 +532,19 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# **Told apart by asking `dates.day_named`, which is the function that refused it**, rather
 	# than by a second description of what a contradiction looks like. It is the same move the
 	# `mid` bucket makes with `_repeat_in`, and for the same reason.
+	# **A span it would not read, told apart by asking the patterns that found it** (`#2886`).
+	# A span has two causes to be left as written - it runs backwards, or it names a day there
+	# is not - and was falling through to *timed*, so a writer who typed *12-2 October* was
+	# told how to write a time. The patterns are :func:`_collect_spans`'s own, so this is one
+	# description of what a span looks like rather than two.
+	spans = [one for one in over if any(pattern.fullmatch(one) for pattern in _SPANS)]
 	contradicted = [
 		one for one in over
-		if subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
+		if one not in spans
+		and subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
 		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
 	]
-	timed = [one for one in over if one not in contradicted]
+	timed = [one for one in over if one not in contradicted and one not in spans]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
 	# decided** (`#1401`). A phrase this grammar cannot read and one it read out of the middle
@@ -568,6 +579,12 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		clauses.append(
 			f"Left as written: {', '.join(repeats)} — not a repeat this understands. "
 			f"{subroutine.domain.recurrence.PHRASE_HINT}"
+		)
+
+	if spans:
+		clauses.append(
+			f"Left as written: {', '.join(spans)} — a span needs its first day before its "
+			f"last, and both of them days there are, so neither was set."
 		)
 
 	if contradicted:
@@ -1239,8 +1256,7 @@ def _collect_spans (
 	"""
 
 	found = sorted(
-		(match for pattern in (_WORDED_SPAN, _DAYS_OF_A_MONTH, _DATES_AND_A_DASH)
-		 for match in pattern.finditer(text)),
+		(match for pattern in _SPANS for match in pattern.finditer(text)),
 		key=lambda match: match.start(),
 	)
 
@@ -1287,6 +1303,11 @@ def _span_days (
 	**A side it cannot read makes the whole span unreadable**, rather than handing that side to
 	the date rules: both sides matched a date's shape, so the writer wrote a span, and reading
 	half of it would set a field the line did not say.
+
+	**Whether the end's year was written or counted is asked of the end itself**, by reading
+	it again from well before the start: a written year answers the same, a counted one does
+	not. :func:`_a_real_span` needs to know, because only a counted year can have been
+	rolled forward to hide a backwards span.
 	"""
 
 	if groups.get("first") is not None or groups.get("first_after") is not None:
@@ -1304,32 +1325,101 @@ def _span_days (
 
 		end = subroutine.domain.dates.written_date(f"{last} {month}", today=start)
 
-		return None if end is None else (start, end)
+		# Neither side of this form can carry a year, so the end's is always counted.
+		if end is None or not _a_real_span(start, end, counted=True):
+			return None
+
+		return start, end
 
 	start = _span_day(groups.get("start") or "", today=today, now=now, timezone=timezone)
 
 	if start is None:
 		return None
 
-	end = _span_day(groups.get("end") or "", today=start, now=now, timezone=timezone)
+	phrase = groups.get("end") or ""
+	end = _span_day(phrase, today=start, now=now, timezone=timezone)
 
-	if end is None or end < start:
+	if end is None:
 		return None
 
-	return start, end
+	earlier = start - datetime.timedelta(days=_FAR_ENOUGH_BACK)
+	counted = _span_day(phrase, today=earlier, now=now, timezone=timezone) != end
+
+	return (start, end) if _a_real_span(start, end, counted=counted) else None
+
+
+#: **Far enough back that any counted date answers differently from the start**, which is
+#: what :func:`_span_days` asks: the soonest such day counting from here is always an earlier
+#: one than the soonest counting from the start. **Nine years rather than one, because of a
+#: 29 February**: counted from a year back it can still find the same leap day the start did,
+#: which read a counted year as a written one - measured, on the first run of this - and two
+#: leap days can be eight years apart across a century that is not a leap year.
+_FAR_ENOUGH_BACK = 366 * 9
+
+
+def _a_real_span (start: datetime.date, end: datetime.date, *, counted: bool) -> bool:
+	"""Say whether ``start`` to ``end`` is a span somebody meant, rather than a slip - `#2884`.
+
+	**Resolving the end from the start is right, and it hides two mistakes.** It is right
+	because *from 20 July to 5 August*, said on 30 July, starts next July and has to end the
+	August after (`#1239`). But the same counting makes a backwards span impossible to see:
+	*from 12 October to 2 October* finds the 2 October after the 12th, **eleven months on**,
+	so ``end < start`` can never be true of it. And a day that does not come round within a
+	year of the start - a 29 February - is found in the next leap year instead.
+
+	**So a counted end is refused where it could only be a slip**: in the start's own month a
+	year later, which is a span running backwards within one month, or past the start's own
+	anniversary, which is a day the months between them have not got. A year-end
+	*28 December to 3 January* passes, and so does a long *1 September to 30 June*.
+
+	**A written year is taken as written**, since *2026-10-12 to 2027-10-02* is a year the
+	writer chose and nothing here can know better. The review's own first remedy - read the
+	end from today as well, and refuse it before the start - was measured against `#1239`'s
+	case and would have refused it, which is why the rule is about the counted year instead.
+	"""
+
+	if end < start:
+		return False
+
+	if not counted:
+		return True
+
+	if end.year > start.year and end.month == start.month:
+		return False
+
+	return end < _anniversary(start)
+
+
+def _anniversary (day: datetime.date) -> datetime.date:
+	"""Return the same day a year later, with a 29 February kept to the last day of February."""
+
+	try:
+		return day.replace(year=day.year + 1)
+	except ValueError:
+		return day.replace(year=day.year + 1, day=28)
 
 
 def _span_day (
 	phrase: str, *, today: datetime.date, now: datetime.datetime, timezone: str
 ) -> datetime.date | None:
-	"""Return the calendar day one side of a span names, counting from ``today``."""
+	"""Return the calendar day one side of a span names, counting from ``today``, or ``None``.
+
+	**``None`` for a day that does not exist, never a refusal** (`#2883`). Every reader in this
+	module answers ``None`` for *leave the words in the title*, and :func:`_collect_spans`
+	promises exactly that for *a day its month has not got*. ``interpret_day`` refuses such a
+	day instead, so *from 1 April to 31 April* refused the whole capture - the product's first
+	way in, closed by a typo - where the numeric form beside it was reported.
+	"""
 
 	value, _all_day = _read_phrase(phrase, today=today, now=now, timezone=timezone)
 
 	if value is None or isinstance(value, datetime.date):
 		return value
 
-	return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now)
+	try:
+		return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now)
+	except subroutine.errors.ValidationError:
+		return None
 
 
 def _collect_bare_days (
