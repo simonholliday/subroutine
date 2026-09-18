@@ -154,13 +154,25 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:0601e0a909219a542cdd581e3f8f1ff8fb208978cbc9bca1c90df02fd8062bb1",
 	),
 	Vendored(
+		# **The weight a row's title asks for** (`#2871`). Without it `font-weight: 500` draws
+		# the 400 file - measured, not assumed - so every title in a list, an agenda, a board
+		# and the journal would have lost the weight that separates it from the meta beneath.
+		filename="lexend-latin-500-normal.woff2",
+		package="@fontsource/lexend",
+		version="5.3.0",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/lexend/-/lexend-5.3.0.tgz",
+		notice="lexend.LICENSE",
+		digest="sha256:27cf5288dd5129fb2f93d230e4e9df7684222d732767284b142801c274ce95b0",
+	),
+	Vendored(
 		filename="lexend-latin-600-normal.woff2",
 		package="@fontsource/lexend",
 		version="5.3.0",
 		licence="OFL-1.1",
 		source="https://registry.npmjs.org/@fontsource/lexend/-/lexend-5.3.0.tgz",
-		# One notice covers both faces, as `preact.LICENSE` covers two files: named on each rather
-		# than left blank, since a shared notice and a missing one look the same from here.
+		# One notice covers all three faces, as `preact.LICENSE` covers two files: named on each
+		# rather than left blank, since a shared notice and a missing one look the same from here.
 		notice="lexend.LICENSE",
 		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),

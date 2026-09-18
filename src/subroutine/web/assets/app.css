@@ -39,11 +39,17 @@
 */
 
 /*
-	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`). Fontsource's
-	Latin subsets, each vendored with its licence and recorded in `web/vendored.py`. Lexend 400
-	and 600 for the headings; Roboto Serif 400, 500 and 600, which is every weight this file
+	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`, `#2871`).
+	Fontsource's Latin subsets, each vendored with its licence and recorded in `web/vendored.py`.
+	Lexend 400, 500 and 600; Roboto Serif 400, 500 and 600, which is every weight this file
 	declares; Roboto Mono 400 and 600, the second because `**`code`**` renders `strong > code`
 	and a `th` is 600, so one weight alone would be synthesised into a smear.
+
+	**Lexend 500 is here because a row's title asks for it** (`#2871`). Measured through CDP,
+	which names the face that drew the glyphs: with only 400 and 600 vendored, `font-weight: 500`
+	draws the *400* file. So adding the family to `.row .title` without this face would have
+	quietly dropped every title a weight, which is the failure a font change is most prone to
+	and the one nothing reports.
 
 	**Relative, so it resolves against this stylesheet** — the app's files are served flat at
 	`/app/<name>`, and a bare name cannot be wrong if the app is ever mounted somewhere else.
@@ -58,6 +64,14 @@
 	font-family: "Lexend";
 	src: url("lexend-latin-400-normal.woff2") format("woff2");
 	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Lexend";
+	src: url("lexend-latin-500-normal.woff2") format("woff2");
+	font-weight: 500;
 	font-style: normal;
 	font-display: swap;
 }
@@ -1814,7 +1828,16 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 	text-transform: uppercase;
 	color: var(--ink-soft);
 }
-.row .title { font-weight: 500; }
+/* **An item's title is a heading wherever it is drawn** (`#2871`, Simon: *"I'd like item
+   title to always be in Lexend"*). On its own page the title is an `<h2>` and was already
+   caught by the heading rule; everywhere else it is a `<span>` and inherited the reading
+   face, so the same words changed shape when you clicked them. That difference was a
+   consequence of the element each surface happened to use rather than a decision.
+
+   **One rule reaches all four**: `Agenda` and `Board` both draw `rows.js`'s `Row`, and the
+   journal draws it too - and wraps its own fallback for a deleted item in `class="row"`
+   as well. The 500 face above is vendored for this line specifically. */
+.row .title { font-family: var(--font-heading); font-weight: 500; }
 
 /*
 	**Who has the work, aligned into a column** (`#1424`, design `#1422`).

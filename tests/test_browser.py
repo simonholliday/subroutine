@@ -3267,27 +3267,40 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 		"the menu closed and its button still says it is open"
 	)
 
-	# **The branding's three faces, on the page that is already open** (`SR#2865`, `SR#2868`).
+	# **The branding's faces, on the page that is already open** (`SR#2865`, `SR#2868`,
+	# `SR#2871`).
 	#
-	# `document.fonts.check` is the half that matters: a family named in a stack is reported by
-	# `getComputedStyle` whether or not the file behind it ever arrived, so the computed value
-	# alone would pass against every face missing.
+	# `document.fonts.check` is the half that matters for a family: one named in a stack is
+	# reported by `getComputedStyle` whether or not the file behind it ever arrived, so the
+	# computed value alone would pass against every face missing.
+	#
+	# **It is not the half that matters for a weight**, though, and `#2871` turns on one:
+	# `check` resolves through font matching, so it answers true for 500 while only the 400
+	# file exists. The weights actually loaded for the family are read off `document.fonts`.
 	lettering = page.evaluate(
-	"""() => ({
-		wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
-		heading: getComputedStyle(document.querySelector("h2")).fontFamily,
-		body: getComputedStyle(document.body).fontFamily,
-		code: getComputedStyle(document.querySelector(".ref")).fontFamily,
-		lexend: document.fonts.check("600 20px Lexend"),
+		"""() => ({
+			wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
+			heading: getComputedStyle(document.querySelector("h2")).fontFamily,
+			body: getComputedStyle(document.body).fontFamily,
+			code: getComputedStyle(document.querySelector(".ref")).fontFamily,
+			title: getComputedStyle(document.querySelector(".row .title")).fontFamily,
+			lexend: document.fonts.check("600 20px Lexend"),
 			serif: document.fonts.check('500 15px "Roboto Serif"'),
 			mono: document.fonts.check('400 14px "Roboto Mono"'),
-	})"""
+			weights: [...document.fonts]
+				.filter((face) => face.family === "Lexend")
+				.map((face) => face.weight).sort(),
+		})"""
 	)
 
 	assert lettering["wordmark"].startswith("Lexend"), lettering
 	assert lettering["heading"].startswith("Lexend"), lettering
 	assert lettering["body"].startswith('"Roboto Serif"'), lettering
 	assert lettering["code"].startswith('"Roboto Mono"'), lettering
+
+	# **A title is a heading wherever it is drawn** (`SR#2871`). This one is in a list row,
+	# and the same span is what an agenda, a board and the journal draw.
+	assert lettering["title"].startswith("Lexend"), lettering
 
 	# Each face is asked for separately, because they are separate files and a stack hides
 	# which one is missing.
@@ -3296,8 +3309,14 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			f"{face} never arrived, so the page fell back to a system face: {lettering}"
 		)
 
+	# **The weight, separately from the family.** A row's title is 500 and Lexend's 400 file
+	# would answer for it silently.
+	assert "500" in lettering["weights"], (
+		f"Lexend 500 never arrived, so a row title is drawn at 400: {lettering}"
+	)
+
 	assert "Lexend" not in lettering["body"], (
-	f"the reading text is set in the headings' font too: {lettering}"
+		f"the reading text is set in the headings' font too: {lettering}"
 	)
 
 

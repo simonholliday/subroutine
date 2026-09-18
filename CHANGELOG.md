@@ -22,6 +22,11 @@ upgrade involves.
 
 - **Headings and the product's name are set in Lexend**, the font the branding names.
 
+- **An item's title is set in Lexend wherever you see it** - in a list, an agenda, a board
+  and the journal, not only on the item's own page. It was the heading font in one place
+  and the reading font in the others, so the same words changed shape when you clicked
+  them.
+
 - **Reading text is set in Roboto Serif and code in Roboto Mono**, which with Lexend for
   headings makes the app and the Subsystem site one type system rather than two that share
   a heading. Code and the item number on every row share the one face, so the pairs that
