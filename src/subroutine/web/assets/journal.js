@@ -149,6 +149,9 @@ const COMMENTED = {
 	The one action whose line is not its verb and *it* - `#2862`, Simon: *released it* reads as a
 	release of code, where this is a lease being given up. `views._AN_ACTION` carries the same
 	phrase for the terminal and the agent tools, and *claimed it* is left as it was.
+
+	**The two are compared in both directions** by `tests/test_web.py` (`#2896`): add an action
+	to one and the other has to say it the same way.
 */
 const HELD = {
 	released: "released the claim",

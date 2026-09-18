@@ -4811,6 +4811,10 @@ def _a_link (event: Event) -> str | None:
 #: claim settles it and keeps `release`, which is what the command is called - so a record an
 #: agent reads still says what to type. *claimed* is left alone: nothing else here claims
 #: anything.
+#:
+#: **The browser holds the same words in `journal.js`'s `HELD`**, and `tests/test_web.py`
+#: compares the two in both directions (`#2896`), so one cannot gain an action the other says
+#: differently.
 _AN_ACTION = {
 	"released": "released the claim",
 }

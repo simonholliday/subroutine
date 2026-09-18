@@ -1179,6 +1179,30 @@ def test_every_day_names_the_zone_it_is_read_in () -> None:
 	)
 
 
+def test_an_action_is_said_in_the_same_words_by_the_journal_everywhere () -> None:
+	"""`SR#2896`: the words for an action that is not its own verb live in two maps.
+
+	``views._AN_ACTION`` says them for the terminal and the agent tools, and ``journal.js``'s
+	``HELD`` for the browser, and nothing compared them: adding ``"deleted": "threw it away"`` to
+	the Python map alone left every journal test green, with two surfaces saying one action
+	differently (the cold review of 2026-09-18's L-2). **Both directions**, so an entry on either
+	side alone fails, and the browser's map is read out of its source as ``TASK_FIELDS`` is.
+	"""
+
+	source = (ASSETS / "journal.js").read_text(encoding="utf-8")
+	block = re.search(r"const HELD = \{(.*?)\};", source, re.DOTALL)
+
+	assert block is not None, "journal.js has no HELD map, so nothing is compared"
+
+	held = dict(re.findall(r'(\w+): "([^"]*)"', block.group(1)))
+
+	assert held, "HELD holds no action, so nothing is compared"
+	assert held == subroutine.views._AN_ACTION, (
+		f"the browser says {held} and the terminal and the agent tools say "
+		f"{subroutine.views._AN_ACTION}"
+	)
+
+
 def _rendered (
 	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
 ) -> dict[str, str]:
