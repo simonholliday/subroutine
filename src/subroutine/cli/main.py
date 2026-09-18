@@ -1362,8 +1362,10 @@ def upgrade (
 	which is the part worth knowing in advance: it is the difference between planning a short
 	outage and meeting one halfway through an install. It touches nothing.
 
-	Nothing else here ever reaches the network. Subroutine does not check for updates on its
-	own, and there is no setting that makes it — asking is a thing you do, not a thing it does.
+	Nothing else here ever reaches the network. Subroutine does not check for updates unless
+	you tell it to: this command's '--check', or 'check = true' under '\\[releases]' in a served
+	instance's configuration, which then asks once a day while somebody signed in is using it.
+	With neither, it makes no outbound request at all.
 	"""
 
 	if check:
@@ -3235,9 +3237,11 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 def _report_the_newest_release () -> None:
 	"""Say what is running, what has been released, and whether the gap moves the schema.
 
-	**The only outbound request this program makes**, and only when somebody typed
-	``--check``. §12.4a's rule is that a self-hosted tool must never phone home uninvited; a
-	command is the invitation, and an instance that never runs this never talks to anybody.
+	**One of the two outbound requests this program can make**, and only when somebody typed
+	``--check``. The other is a served instance's daily check, which ``[releases] check`` turns
+	on and nothing turns on by default (`#2887`: this said *the only one* after that setting
+	existed). §12.4a's rule is that a self-hosted tool must never phone home uninvited; a
+	command or a setting is the invitation, and an instance with neither never talks to anybody.
 
 	The version reported is what is *running* rather than what a package index thinks is
 	installed — `#321` was found on an instance reporting ``0.1.5.dev7`` while running

@@ -25,6 +25,7 @@ import sqlalchemy
 import typer.testing
 
 import subroutine.cli.main
+import subroutine.config
 import subroutine.db.migrate
 import subroutine.installations
 
@@ -340,6 +341,26 @@ def test_the_old_upgrade_spelling_says_where_it_went (
 	assert "subroutine db upgrade" in result.output, "it has to name where the command went"
 	assert "db migrate" in result.output, "and what took its old name, since that one is blunt"
 	assert "update" not in result.output, "the suggestion this exists to prevent"
+
+
+def test_the_help_names_the_setting_that_makes_this_program_ask_the_network (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2887`: ``db upgrade --help`` said no setting makes this program check for updates.
+
+	``[releases] check`` does, and this is the paragraph a privacy-conscious operator reads, in the
+	one command that touches the network. **Asserted as rendered**, because the first draft of the
+	fix named the setting and Rich printed ``''`` in its place, reading ``[releases]`` as markup.
+	**The section's name is taken from the settings themselves**, so renaming it fails here rather
+	than leaving the help pointing at nothing.
+	"""
+
+	assert "releases" in subroutine.config.Settings.model_fields
+
+	said = " ".join(run("db", "upgrade", "--help").output.split())
+
+	assert "'[releases]'" in said, said
+	assert "no setting that makes it" not in said, said
 
 
 def test_the_signpost_stays_out_of_the_help (
