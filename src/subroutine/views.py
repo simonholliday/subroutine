@@ -6042,7 +6042,6 @@ def instance_log_line (
 	return None if found is None else (logging.WARNING, instance_behind_in_words(running, found))
 
 
-
 def token (
 	row: subroutine.db.models.identity.ApiToken,
 	*,

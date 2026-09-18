@@ -21,6 +21,7 @@ import typing
 
 import pytest
 import sqlalchemy
+import sqlalchemy.orm
 import typer.testing
 
 import subroutine.cli.main
@@ -29,7 +30,9 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.db.models.activity
 import subroutine.db.models.identity
+import subroutine.db.session
 import subroutine.domain.authentication
+import subroutine.domain.projects
 import subroutine.domain.users
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -856,15 +859,6 @@ def test_deactivating_the_last_member_of_a_private_project_names_it_and_the_way_
 	theirs and cannot lose them.
 	"""
 
-	import sqlalchemy
-	import sqlalchemy.orm
-
-	import subroutine.config
-	import subroutine.db.models.identity
-	import subroutine.db.session
-	import subroutine.domain.projects
-	import subroutine.domain.users
-
 	run("init", "--workspace", "Acme")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")
 
@@ -931,15 +925,6 @@ def test_the_way_back_into_a_workspace_the_operator_is_not_in_starts_by_joining_
 	The advice named only the share, which then answered that there was no such workspace, so a
 	row outside the operator's workspaces says so and the advice names the join first.
 	"""
-
-	import sqlalchemy
-	import sqlalchemy.orm
-
-	import subroutine.config
-	import subroutine.db.session
-	import subroutine.domain.projects
-	import subroutine.domain.users
-	import subroutine.domain.workspaces
 
 	run("init", "--workspace", "Acme")
 	run("user", "create", "thomas", "--name", "Thomas Anderson")

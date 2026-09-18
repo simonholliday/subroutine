@@ -6432,6 +6432,8 @@ def test_an_answer_that_is_not_a_json_rpc_message_becomes_one (
 	"""
 
 	class _Answered:
+		"""A response whose body is a problem document rather than a JSON-RPC message."""
+
 		status_code = 500
 		text = json.dumps({
 			"status": 500,

@@ -911,10 +911,10 @@ def test_a_change_is_written_as_a_person_reads_it (
 		{"status": "blocked"},
 		{"assignee": world.user.username},
 		{"snooze": "2030-09-17", "timezone": "Europe/London"},
-	{"title": "Go to the shop to water the plants"},
-	{"status": "done"},
-	{"type": "chore"},
-):
+		{"title": "Go to the shop to water the plants"},
+		{"status": "done"},
+		{"type": "chore"},
+	):
 		answered = world.call("PATCH", f"/v1/tasks/{ref}", json=step)
 
 		assert answered.status_code == 200, (step, answered.text)

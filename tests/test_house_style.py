@@ -16,6 +16,7 @@ conventions rather than ours, which ``CONTRIBUTING.md`` records.
 """
 
 import ast
+import importlib.util
 import pathlib
 import re
 import typing
@@ -137,6 +138,114 @@ def test_nothing_is_indented_with_spaces () -> None:
 				offenders.append(f"{path.relative_to(ROOT)}:{number} {line.strip()[:60]}")
 
 	assert not offenders, "indented with spaces:\n" + "\n".join(offenders)
+
+
+def _undocumented (path: pathlib.Path) -> list[str]:
+	"""Return the module and every class in one file that has no docstring - `SR#2898`."""
+
+	tree = ast.parse(path.read_text(encoding="utf-8"))
+	missing = [] if ast.get_docstring(tree) is not None else ["the module"]
+
+	return missing + [
+		f"{node.lineno} class {node.name}"
+		for node in ast.walk(tree)
+		if isinstance(node, ast.ClassDef) and ast.get_docstring(node) is None
+	]
+
+
+def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
+	"""Return how many ``from`` imports one file has, and those that bring in a value.
+
+	**The house rule is ``import x``, and one form of ``from`` is its documented exception**:
+	``from subroutine.api import app as api``, a *module*, imported inside a function so that
+	a plain ``import subroutine.x`` does not bind ``subroutine`` as a local name. Whether the
+	name is a module is asked of the import system rather than guessed from its spelling.
+	"""
+
+	seen, values = 0, []
+
+	for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+		if not isinstance(node, ast.ImportFrom):
+			continue
+
+		for alias in node.names:
+			seen += 1
+			target = f"{node.module}.{alias.name}"
+
+			try:
+				module = node.module is not None and not node.level and (
+					importlib.util.find_spec(target) is not None
+				)
+			except (ImportError, ValueError):
+				module = False
+
+			if not module:
+				values.append(f"{node.lineno} from {node.module} import {alias.name}")
+
+	return seen, values
+
+
+def test_every_class_and_module_has_a_docstring () -> None:
+	"""`SR#2898`: the house style's *mandatory* covered functions only.
+
+	``_functions`` yields function definitions, so a class or a module could go without one and
+	nothing said so - which is where the cold review of 2026-09-18 found every docstring the
+	tree was missing: a module in ``web`` and a class in a test.
+	"""
+
+	missing = [
+		f"{path.relative_to(ROOT)}: {what}"
+		for path in _files()
+		for what in _undocumented(path)
+	]
+
+	assert not missing, "no docstring:\n" + "\n".join(missing)
+
+
+def test_a_from_import_brings_in_a_module () -> None:
+	"""`SR#2898`: ``import x`` only, with its one documented exception, and no rule held it.
+
+	Two ``from`` imports of a *value* were in the tree - both uvicorn, in ``cli/main.py`` - beside
+	thirteen of a module, which is the exception. **Floored by how many were examined**, so a
+	scan that reads no import passes nothing.
+	"""
+
+	examined = 0
+	found: list[str] = []
+
+	for path in _files():
+		seen, values = _values_imported(path)
+		examined += seen
+		found.extend(f"{path.relative_to(ROOT)}:{value}" for value in values)
+
+	assert examined >= 10, f"only {examined} from-imports were examined, so this checks little"
+	assert not found, "a from-import of something that is not a module:\n" + "\n".join(found)
+
+
+@pytest.mark.parametrize(
+	("planted", "undocumented", "values"),
+	[
+		('"""A module."""\n\nclass Helper:\n\tpass\n', ["3 class Helper"], []),
+		('def helper ():\n\t"""Do a thing."""\n', ["the module"], []),
+		('"""A module."""\n\nfrom uvicorn import run\n', [], ["3 from uvicorn import run"]),
+		# The documented exception, which must pass: a module, from its package.
+		('"""A module."""\n\nfrom subroutine.api import app\n', [], []),
+	],
+)
+def test_each_new_rule_catches_its_own_defect_and_passes_the_exception (
+	tmp_path: pathlib.Path, planted: str, undocumented: list[str], values: list[str]
+) -> None:
+	"""The two scanners above, handed files built to break them - and one that must not.
+
+	The same shape as the test below, and for the same reason (`SR#405`): these are the real
+	scanners reading a real file, so this is what says the tree's clean result means something.
+	"""
+
+	path = tmp_path / "planted.py"
+	path.write_text(planted, encoding="utf-8")
+
+	assert _undocumented(path) == undocumented
+	assert _values_imported(path)[1] == values
 
 
 @pytest.mark.parametrize(

@@ -746,8 +746,9 @@ def serve (
 	# start, on every `subroutine add` — for one command most people never run. The `as`
 	# aliases are the house style's documented exception for a nested import, because a plain
 	# `import subroutine.api.app` here would bind `subroutine` as a *local* name and shadow
-	# every other use of it in this function.
-	from uvicorn import run as listen
+	# every other use of it in this function. **uvicorn needs no exception** (`#2898`): a
+	# local `uvicorn` shadows nothing, so it is imported the ordinary way.
+	import uvicorn
 
 	from subroutine.api import app as api
 	from subroutine.api import logs as access
@@ -802,7 +803,7 @@ def serve (
 
 	level = (log_level.strip() or settings.log_level).lower()
 
-	listen(
+	uvicorn.run(
 		application,
 		host=where,
 		port=listening,
@@ -843,9 +844,9 @@ def _logging (level: str) -> dict[str, typing.Any]:
 	that starts a server in the same process.
 	"""
 
-	from uvicorn.config import LOGGING_CONFIG as uvicorns
+	import uvicorn.config
 
-	configured = copy.deepcopy(uvicorns)
+	configured = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
 	configured["loggers"]["subroutine"] = {
 		"handlers": ["default"],
 		"level": level.upper(),
