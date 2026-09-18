@@ -366,6 +366,11 @@ def test_no_journal_entry_carries_a_whole_text (
 		# One word longer than the limit is still cut, and so is one after leading space.
 		("abcdefghijklmnop", ("abcdefghij", True)),
 		("   abcdefghijklmnop", ("   abcdefg", True)),
+		# **A word that would cost most of the budget is cut too** (`SR#2892`): ending at the
+		# space would keep two characters of ten.
+		("ab cdefghijklmnop", ("ab cdefghi", True)),
+		# And a boundary that keeps a third or more is still where it ends.
+		("abcd efghijklmnop", ("abcd", True)),
 	],
 )
 def test_an_opening_ends_at_a_word_and_says_whether_it_cut (
@@ -374,6 +379,21 @@ def test_an_opening_ends_at_a_word_and_says_whether_it_cut (
 	"""`#2728`'s rule at a limit of ten, where every edge of it can be written out by hand."""
 
 	assert subroutine.domain.text.opening(text, 10) == expected
+
+
+def test_an_opening_keeps_its_budget_when_a_long_word_follows () -> None:
+	"""`SR#2892`, measured by the cold review of 2026-09-18 at the journal's own limit.
+
+	A link beginning just after the first sentence left *Fixed the thing. See* - 20 characters of
+	140 - and threw the rest of the budget away.
+	"""
+
+	said = "Fixed the thing. See https://example.com/" + "a" * 160 + " for details"
+	kept, cut = subroutine.domain.text.opening(said, subroutine.domain.journal.OPENING)
+
+	assert cut, kept
+	assert kept.startswith("Fixed the thing. See https://example.com/"), kept
+	assert len(kept) == subroutine.domain.journal.OPENING, (len(kept), kept)
 
 
 def test_a_long_comment_is_cut_at_a_word_and_says_so (

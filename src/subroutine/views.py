@@ -1359,10 +1359,11 @@ class JournalEntry(pydantic.BaseModel):
 	entity_type: str
 
 	#: How what was written opens, where this entry is somebody writing something — on one line,
-	#: at most `journal.OPENING` characters and ended at a word (`#2728`, `#2852`). **Null for
-	#: every other kind of entry, and null for a comment that has since been deleted**: deletion
-	#: is soft, so the body is still in the table, and showing it would make the journal the one
-	#: surface where a retracted paragraph is still readable.
+	#: at most `journal.OPENING` characters, and ended at a word unless that would keep fewer than
+	#: a third of them (`#2728`, `#2852`, `#2892`). **Null for every other kind of entry, and null
+	#: for a comment that has since been deleted**: deletion is soft, so the body is still in the
+	#: table, and showing it would make the journal the one surface where a retracted paragraph
+	#: is still readable.
 	said: str | None = None
 
 	#: Whether ``said`` is only the opening. **A field rather than an ellipsis**, so a program

@@ -273,8 +273,8 @@ def said (
 	:func:`subroutine.domain.events.descriptions` next door is shaped the same way.
 
 	**Only the opening, and cut here rather than by whoever renders it** (`#2728`), so no whole
-	comment leaves this function: :data:`OPENING` characters on one line, ended at a word, and
-	marked.
+	comment leaves this function: :data:`OPENING` characters on one line, ended at a word unless
+	that would keep fewer than a third of them, and marked.
 	"""
 
 	model = subroutine.db.models.activity.Comment

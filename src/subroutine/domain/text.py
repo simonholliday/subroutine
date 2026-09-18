@@ -325,6 +325,12 @@ def opening (text: str, limit: int) -> tuple[str, bool]:
 
 	**One word longer than the limit is still cut**, at the limit: a pasted URL or a stack trace
 	has no word to end at, and returning it whole would make the limit a suggestion.
+
+	**And so is a word that would cost most of the budget** (`#2892`). Ending at the last space
+	before the limit kept *Fixed the thing. See* - 20 characters of 140 - when a link began just
+	after it, and threw the rest away. A word boundary is kept unless it leaves less than a third
+	of the limit; below that, a cut inside the long word shows more of what was said than a tidy
+	ending does.
 	"""
 
 	text = _A_LINE_BREAK.sub(" ", text)
@@ -337,7 +343,10 @@ def opening (text: str, limit: int) -> tuple[str, bool]:
 	breaks = [found.start() for found in re.finditer(r"\s", text[: limit + 1])]
 	kept = text[: breaks[-1]].rstrip() if breaks else ""
 
-	return (kept or text[:limit].rstrip()), True
+	if len(kept) < limit / 3:
+		kept = text[:limit].rstrip()
+
+	return kept, True
 
 
 def truncated (text: str, limit: int = ONE_LINE_LIMIT) -> str:
