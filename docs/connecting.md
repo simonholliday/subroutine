@@ -346,6 +346,7 @@ identity it began with. Start a new one, or reload the window.
 ```console
 $ subroutine whoami
 web (agent), via token 'web agent' (ea4adf49…).
+Account parent: si.
 Narrowed to projects web.
 ```
 

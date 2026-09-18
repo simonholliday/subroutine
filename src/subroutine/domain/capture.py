@@ -768,8 +768,9 @@ def parse (
 	)
 
 	# Where the date phrases landed, so a time can be recognised as belonging to one. Taken as
-	# a slice rather than returned, because `_collect_dates` appends to `claimed` and that is
-	# the only place the spans exist — a second list would be a second copy to keep in step.
+	# a slice rather than returned, because `_collect_spans` and then `_collect_dates` append to
+	# `claimed` and that is the only place the spans exist — a second list would be a second copy
+	# to keep in step.
 	dated = list(claimed[before:])
 
 	_collect_sigils(text, claimed, reserved, fields, tags)

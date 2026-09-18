@@ -806,7 +806,8 @@ NOT_A_COLUMN = (
 #: once in the ordering list and not the filtering one, which is how ``importance`` and
 #: ``urgency`` came to be sortable and unaskable — Simon's own ``urgent>3`` example, and the
 #: finding that decided the registry's shape. `#1804` made both filterable and the name stayed.
-#: The other three still cannot be filtered on, and each entry says why.
+#: Of the other three, ``ref`` became askable by number (`SR#2826`), and ``priority_score``
+#: and ``title`` still cannot be filtered on - each entry says why.
 _ORDERABLE: dict[str, Property] = {
 	# **Both filterable since `#1804`**, which is what the registry was built to make possible:
 	# they were sortable and unaskable, so a reader could sort the whole backlog by urgency and
@@ -860,13 +861,15 @@ STATUS_CATEGORY = "status_category"
 #: The task properties whose value names something the instance resolves — an account, a tag,
 #: a vocabulary key, a project or an item — `#1804` and `#1829`.
 #:
-#: **Every one takes ``eq``, ``in`` and ``is``, and none can be ordered by**: the row holds an
-#: id, an ordering by an id means nothing, and each entry says what to sort by instead.
+#: **Every one takes ``eq`` and ``in``, and none can be ordered by**: the row holds an id, an
+#: ordering by an id means nothing, and each entry says what to sort by instead. **``is`` only
+#: where the column can be unset** - :func:`_allowed` refuses it on a ``NOT NULL`` one, which
+#: five of the ten are, since every row there has one.
 #:
 #: **Named ``_CONDITION_ONLY`` until `#2360`.** When `#1804` wrote it, ``parent`` and
 #: ``assignee`` took only ``is``, because resolving a name to an id was not built yet, and
 #: offering ``eq`` before it was would have accepted a UUID and refused the username the flat
-#: spelling took. Resolving shipped, the group grew to nine and the name stayed — and a design
+#: spelling took. Resolving shipped, the group grew to ten and the name stayed — and a design
 #: document read the container's name as a fact about its members and concluded that
 #: ``assignee.in`` did not exist (`#2110` §6.3).
 #:

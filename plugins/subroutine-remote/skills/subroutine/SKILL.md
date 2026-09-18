@@ -187,7 +187,8 @@ to poll — but it reports only that a comment was created, never what it said, 
 status change as two identifiers. Measured on a real day here: 130 of 450 events were comments
 carrying no text at all.
 
-`subroutine_journal` says what **happened**. Same events, with the comment bodies joined on, the
+`subroutine_journal` says what **happened**. Same events, with how each comment opens joined on
+(at most 140 characters of it, and `said_truncated` true when there was more), the
 actors named — an agent shows as `@name (agent, @person)`, exactly as it does on a row — and a
 change rendered as *status: "Open" to "Done"*. Ask it for a period rather than a cursor.
 

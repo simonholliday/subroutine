@@ -1300,8 +1300,9 @@ class Change(pydantic.BaseModel):
 	#: answers with the word every empty side used to be.
 	empty: str = "nothing"
 
-	#: Whether a side is a name somebody chose — a status, a type, a project, a title — and so
-	#: written in quotes, because a title can contain " to " (decision `#2823`).
+	#: Whether a side is a name somebody chose — a status, a type, a project or a workspace — and
+	#: so written in quotes, because such a name can contain " to " (decision `#2823`). A title
+	#: is not among them: a change to one arrives with no value, and says only that it changed.
 	quoted: bool = False
 
 	#: Whether both sides are days, as ``2026-09-18``, or a day and a time, as
@@ -4504,7 +4505,7 @@ _A_CHANGE_TO = {
 #: **The flag goes, and what it qualifies stays**: a deadline and whether it is all day are
 #: one fact, and the flag's value is how the date is written rather than a line of its own. So
 #: are an assignee and who assigned it, a claim and its times, a repeat's rule and the columns
-#: beside it, and a status and the moment it was finished — *status: "blocked" to "done"* says
+#: beside it, and a status and the moment it was finished — *status: "Blocked" to "Done"* says
 #: what *completed: never to 17 Sep* would say again.
 #:
 #: Left out only where one of the values moved too. A flag alone still says its fact changed,
@@ -4621,7 +4622,7 @@ def change_in_words (
 ) -> str:
 	"""Return one change as the line a person reads — decision `#2823`, in one place.
 
-	*deadline: never to 2026-09-18*, *status: "open" to "blocked"*, *assignee: nobody to @si*.
+	*deadline: never to 2026-09-18*, *status: "Open" to "Blocked"*, *assignee: nobody to @si*.
 	A change naming neither side is its name alone, which is what a whole text always is here.
 
 	``day`` writes a dated side in a surface's own style. **Absent, the ISO form stands**, which

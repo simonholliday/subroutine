@@ -18,7 +18,8 @@ minified build and a drawing carry no header — so the licence text sits beside
 ``tests/test_web.py`` fails the build if one goes missing.
 
 **Not all of it is code** (`#2864`, `#2865`). The app's mark is a drawing somebody else made
-and its headings are set in somebody else's font, and both are vendored for the same reasons:
+and its type is set in somebody else's fonts - Lexend, Inter and JetBrains Mono, nine faces -
+and all of it is vendored for the same reasons:
 an instance serves them rather than fetching them, the repository holds what was served, and
 the licence gate can see an SVG and a woff2 no better than it can see a JavaScript file.
 """
@@ -33,7 +34,7 @@ DIRECTORY = pathlib.Path(__file__).resolve().parent / "vendor"
 #: "does this string look permissive" is the kind of check that says yes to something nobody
 #: read. Adding one is a decision, and §2.2a is the reasoning it has to satisfy.
 #:
-#: **`OFL-1.1` joined it on 2026-09-17** (`#2865`), for the font the headings are set in. §2.2a's
+#: **`OFL-1.1` joined it on 2026-09-17** (`#2865`), for the fonts the app's type is set in. §2.2a's
 #: question is whether a dependency binds the owner where our own licence does not, and the SIL
 #: Open Font Licence answers no: it governs the font files, never the program that renders with
 #: them, and what it asks of somebody redistributing them is that the notice travels and that
@@ -142,9 +143,10 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:0048f2a541eb657e0557146d3cf070c8e513901a2dc67e2fb9e07d429071a0f3",
 	),
 	Vendored(
-		# **The face headings are set in** (`#2865`), and the weight the wordmark uses is the one
-		# below. Both are the Latin subset Fontsource ships, which is what the branding was chosen
-		# in; between them they are 29.3 KB, fetched once by a reader and then cached.
+		# **The face headings are set in** (`#2865`), in three weights: this one, the 500 below it
+		# (`#2871`), and the 600 the wordmark uses. Each is the Latin subset Fontsource ships,
+		# which is what the branding was chosen in; together they are 44.2 KB, fetched once by a
+		# reader and then cached.
 		filename="lexend-latin-400-normal.woff2",
 		package="@fontsource/lexend",
 		version="5.3.0",

@@ -11157,7 +11157,7 @@ def _because (
 	this on its own, which is why it is stated first.
 
 	**The comment carries the act as well as the reason**, so it reads as a sentence about
-	what happened rather than as a fragment nobody can place — "Hidden until Mon 3 Aug —
+	what happened rather than as a fragment nobody can place — "Deferred until Mon 3 Aug —
 	waiting on the provider's reply". The event beside it records the field that moved; this
 	records the part no field holds.
 
@@ -12895,9 +12895,9 @@ def _when_rendered (task: subroutine.views.Task) -> str:
 	**The terminal renders no times anywhere else, and that is deliberate rather than an
 	omission** — a to-do list is a day-scale thing and `#576` is where an event's span is
 	decided. This is the one exception, and it earns it: without it the confirmation for
-	``defer 42 2026-08-18T06:00`` is *"Hidden until Tue 18 Aug"*, which is what the command
-	said while storing midnight, so a working fix and the defect would print the same
-	sentence and nobody could tell which they had.
+	``defer 42 2026-08-18T06:00`` is *"Deferred until Tue 18 Aug"*, which is what the command
+	said while storing midnight - as *Hidden until*, its wording then - so a working fix and
+	the defect would print the same sentence and nobody could tell which they had.
 
 	**Read from the stored flag rather than from what was typed.** `#925`'s finding: a
 	read-back computed from the input confirms only that the input was received, which is the

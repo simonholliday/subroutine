@@ -11,7 +11,11 @@ next needs to skip all of them without caring which applies:
 * it is **claimed by somebody else** — another worker has a live lease on it (§14.11, `#350`);
 * it is **parked on a question for somebody else** — ``needs_input``, which only the person
   it is waiting on may pick up (`#1192`);
-* it is **in a project that is not running** — on hold, finished or abandoned (`#983`).
+* it is **in a project that is not running** — on hold, finished or abandoned (`#983`);
+* it is **a container** — a parent whose children are the work, which nobody starts as such
+  (`#1353`);
+* it is **an occasion** — an event happens on its day rather than being done (decision
+  `#1235` §4).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
 two are a graph and a clock — folding either into the number would make the number mean two
