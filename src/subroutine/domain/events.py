@@ -848,8 +848,21 @@ def descriptions (
 	# Written out per model rather than looped over a tuple of them: the three do not share a
 	# base that declares `ref` and `title`, and a loop only type-checks by widening to `Base`
 	# and then reaching for attributes it cannot promise are there.
+	#
+	# **Columns rather than rows, for the two kinds that carry a text** (`#2764`, and the cold
+	# review of 2026-09-18's M-9). A whole task is its description and a whole document is its
+	# body - one body on the served instance was 134 KB when `#2764` was filed - and nothing
+	# here shows either. Selecting the entity read every one of them for each page of the feed,
+	# a journal or an item's history that named it, and threw it away. Same statements as
+	# before, one per kind; narrower answers.
 	if wanted["task"]:
-		for one in session.scalars(sqlalchemy.select(task).where(task.id.in_(wanted["task"]))):
+		for one in session.execute(
+			sqlalchemy.select(
+				task.id, task.ref, task.title, task.type_id, task.project_id, task.timezone,
+				task.due_is_all_day, task.starts_is_all_day, task.snoozed_is_all_day,
+				task.recurrence_anchor,
+			).where(task.id.in_(wanted["task"]))
+		):
 			found[one.id] = Described(
 				ref=one.ref,
 				title=one.title,
@@ -863,8 +876,10 @@ def descriptions (
 			)
 
 	if wanted["document"]:
-		for paper in session.scalars(
-			sqlalchemy.select(document).where(document.id.in_(wanted["document"]))
+		for paper in session.execute(
+			sqlalchemy.select(
+				document.id, document.ref, document.title, document.type_id, document.project_id,
+			).where(document.id.in_(wanted["document"]))
 		):
 			found[paper.id] = Described(
 				ref=paper.ref,

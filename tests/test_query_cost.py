@@ -48,6 +48,7 @@ plan as one put there by the service.
 import datetime
 import functools
 import math
+import re
 import time
 import typing
 import uuid
@@ -1093,6 +1094,63 @@ AGENDA_STATEMENTS = 36
 #: page naming a project; and the actors, two. A page with nothing new on it — what a poll
 #: usually gets — asks the first and nothing else, and the test says so.
 JOURNAL_STATEMENTS = 14
+
+
+def test_the_journal_names_an_item_without_reading_its_text (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2764`: naming what a page of events is about loaded each item's whole text.
+
+	A task's description and a document's body were read for every item a journal page names,
+	and thrown away - nothing in an entry shows either. **Asked of the SQL rather than of the
+	answer**, because the answer was always right: only the question was too wide. Both kinds
+	are filed with a long text so that there is something to have read.
+	"""
+
+	world = test_api_tasks._world(session)
+	filed = [
+		world.call("POST", "/v1/tasks", json={"title": "Named", "description": "why " * 500}),
+		world.call("POST", "/v1/documents", json={"title": "Paper", "body": "text " * 500}),
+	]
+
+	assert all(answer.status_code == 201 for answer in filed), [one.text for one in filed]
+
+	event = subroutine.db.models.activity.Event
+	rows = list(session.scalars(
+		sqlalchemy.select(event).where(event.entity_type.in_(("task", "document")))
+	))
+	statements: list[str] = []
+
+	def noted (
+		conn: typing.Any,
+		cursor: typing.Any,
+		statement: str,
+		parameters: typing.Any,
+		context: typing.Any,
+		executemany: bool,
+	) -> None:
+		"""Note one statement the naming sent."""
+
+		statements.append(statement)
+
+	bind = session.connection()
+	sqlalchemy.event.listen(bind, "before_cursor_execute", noted)
+
+	try:
+		named = subroutine.domain.events.descriptions(session, rows)
+	finally:
+		sqlalchemy.event.remove(bind, "before_cursor_execute", noted)
+
+	# **The subject is asserted**, so the question below cannot pass by asking nothing.
+	assert {one.title for one in named.values()} >= {"Named", "Paper"}, named
+	assert statements, "nothing was asked, so this is checking nothing"
+
+	read = [
+		statement for statement in statements
+		if re.search(r"\btask\.description\b|\bdocument\.body\b", statement.split("FROM")[0])
+	]
+
+	assert not read, "naming an item read its text:\n" + "\n".join(read)
 
 
 def test_a_journal_page_asks_the_same_few_questions_whatever_its_size (
