@@ -308,6 +308,12 @@ class Watch:
 		#: What the most recent check found, or ``None`` before one has finished.
 		self.latest: Asked | None = None
 
+		#: **The most recent answer that held a record**, kept beside :attr:`latest` - `#2891`.
+		#: A check that fails is an answer of its own, but it is not news that the record
+		#: changed: letting it replace the last one heard erased a day of *the instance is
+		#: behind* on the strength of a DNS failure, and nothing retried for 24 hours.
+		self.kept: Asked | None = None
+
 		#: The check in flight or last started, so a test can wait for it. A request never does.
 		self.asking: threading.Thread | None = None
 
@@ -359,6 +365,9 @@ class Watch:
 		"""Keep an answer, and write it to the server's log if it says something new."""
 
 		self.latest = asked
+
+		if asked.record is not None:
+			self.kept = asked
 
 		if self._tell is None:
 			return

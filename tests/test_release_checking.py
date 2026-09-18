@@ -26,6 +26,7 @@ import subroutine.domain.authentication
 import subroutine.domain.calendars
 import subroutine.errors
 import subroutine.releases
+import subroutine.views
 import test_api_tasks
 
 #: A record to answer with, standing in for the published one.
@@ -184,6 +185,34 @@ def test_a_check_that_fails_leaves_the_request_alone_and_waits_a_day (
 	_settled(watch)
 
 	assert asking.times == 1
+
+
+def test_a_failed_check_keeps_what_the_check_before_it_found () -> None:
+	"""`SR#2891`: a failure replaced the last record heard, and a day's news went with it.
+
+	**Driven through a real watch rather than by setting its fields**, which is how every
+	notice case is built - and why removing the line that keeps the record left all of them
+	green. A check that answers, then one a day later that fails: the failure is published, and
+	so is what the first one found.
+	"""
+
+	asking, clock = Asking(), Clock()
+	watch = subroutine.releases.Watch(fetch=asking, clock=clock)
+
+	watch.ask_if_due()
+	_settled(watch)
+
+	asking.failing = True
+	clock.now = START + subroutine.releases.CHECK_EVERY + datetime.timedelta(minutes=1)
+
+	watch.ask_if_due()
+	_settled(watch)
+
+	news = subroutine.views.release_news(watch)
+
+	assert asking.times == 2, "the second check was never made, so nothing here was asked"
+	assert news.failure == "Could not read the list of releases.", news
+	assert [release.version for release in news.releases] == ["9.9.9"], news
 
 
 def test_nobody_signed_in_starts_a_check (session: sqlalchemy.orm.Session) -> None:

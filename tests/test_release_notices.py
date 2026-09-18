@@ -85,6 +85,8 @@ class Case (typing.NamedTuple):
 
 	#: Which installations are behind, as a fact about the versions - before anybody's reach.
 	behind: frozenset[str] = frozenset()
+	#: The last answer that held a record, when the latest did not (`SR#2891`).
+	kept: subroutine.releases.Asked | None = None
 
 
 EVERYTHING = frozenset(MARKS)
@@ -112,6 +114,21 @@ CASES = (
 	Case(
 		"a check not made yet", program="0.8.18", plugin="0.8.22", instance="0.8.18", asked=None,
 	),
+	# **A failed check after one that found the instance behind** (`SR#2891`): the failure used
+	# to erase it, so for a day the browser said nothing and `whoami` said only that it failed.
+	Case(
+		"a failed check after one that found the instance behind",
+		program="0.8.20", plugin="0.8.23", instance="0.8.18", asked=FAILED, kept=ANSWERED,
+		behind=frozenset({subroutine.views.INSTANCE}),
+	),
+	# **The instance behind, and nothing else, read by somebody who cannot administer it**
+	# (`SR#2891`): its notice is withheld by decision, and the all-clear used to be printed in
+	# its place.
+	Case(
+		"the instance behind, read by somebody who cannot administer it",
+		program="0.8.20", plugin="0.8.23", instance="0.8.18", administers=False,
+		behind=frozenset({subroutine.views.INSTANCE}),
+	),
 	Case(
 		"an instance that does not check", program="0.8.18", plugin="0.8.22", instance="0.8.18",
 		checking=False, asked=None,
@@ -127,6 +144,7 @@ def _watch (case: Case) -> subroutine.releases.Watch | None:
 
 	watch = subroutine.releases.Watch(fetch=lambda: PUBLISHED)
 	watch.latest = case.asked
+	watch.kept = case.kept
 
 	return watch
 
@@ -256,8 +274,12 @@ def test_every_surface_names_what_is_behind_and_only_to_whoever_can_act_on_it (
 	"""Every surface on the list, through every case, against what the list says it names.
 
 	**The instance is named to an administrator only** on every surface a person reads, and the
-	log is an administrator's by where it is. Nothing is named when a check failed, was not made,
-	or is not made at all, and a development build names nothing (Simon, 2026-09-17).
+	log is an administrator's by where it is. Nothing is named when a check was not made or is
+	not made at all, and a development build names nothing (Simon, 2026-09-17).
+
+	**A failed check erases nothing an earlier one found** (`SR#2891`), except in the log, which
+	is written about what each check found rather than about what is known - so there a failure
+	reads as a failure alone.
 	"""
 
 	named: set[str] = set()
@@ -274,6 +296,9 @@ def test_every_surface_names_what_is_behind_and_only_to_whoever_can_act_on_it (
 
 			if surface != "log" and not case.administers:
 				expected.discard(subroutine.views.INSTANCE)
+
+			if surface == "log" and case.asked is not None and case.asked.record is None:
+				expected = set()
 
 			assert _named(said) == expected, (surface, case.name, said)
 
@@ -316,6 +341,23 @@ def test_the_scan_finds_a_notice_rendered_somewhere_new (tmp_path: pathlib.Path)
 	assert _sites(tmp_path) == {
 		("cli/listing.py", "program_behind"), ("web/board.js", "instanceBehind")
 	}
+
+
+def test_the_notice_to_plan_an_outage_is_drawn_as_the_log_writes_it () -> None:
+	"""`SR#2891`: the log writes *plan a short outage* at WARNING, and the browser drew it green.
+
+	``tone: "good"`` coloured it a success and ``chrome.js`` announced it as a status, for the one
+	notice that asks an operator to act. **Tied to the log's level rather than asserted alone**,
+	so the two surfaces saying one sentence cannot disagree about how serious it is.
+	"""
+
+	level, _said = subroutine.views.instance_log_line(ANSWERED, running="0.8.18") or (None, "")
+	app = (pathlib.Path(subroutine.views.__file__).parent / "web/assets/app.js").read_text()
+	tone = re.search(r'note=\$\{\{ text: lagging, tone: "(\w+)" \}\}', app)
+
+	assert level == logging.WARNING, level
+	assert tone is not None, "the browser's instance notice was not found, so nothing is compared"
+	assert tone.group(1) == "bad", f"the log warns about this and the browser draws it {tone.group(1)}"
 
 
 def test_the_browser_writes_the_instance_notice_as_the_views_do (tmp_path: pathlib.Path) -> None:
@@ -369,6 +411,18 @@ def test_whoami_answers_what_the_check_found_and_says_so_when_it_could_not () ->
 		"This instance's last check for new releases failed. Could not read the list of releases."
 	]
 	assert said(by_name["everything current"]) == ["0.8.20 is the newest release."]
+
+	# **A failure beside what an earlier check found, and never an all-clear** (`SR#2891`). The
+	# instance's line is the one the same versions get from a check that worked, so it is taken
+	# from there rather than spelled twice.
+	assert said(by_name["a failed check after one that found the instance behind"]) == [
+		"This instance's last check for new releases failed. Could not read the list of releases.",
+		*said(by_name["the instance two releases behind across a migration"]),
+	]
+
+	# **Withheld, and not replaced with a reassurance** (`SR#2891`). The instance's notice is kept
+	# from a reader who cannot act on it; *0.8.20 is the newest release* told them all was well.
+	assert said(by_name["the instance behind, read by somebody who cannot administer it"]) == []
 	assert said(by_name["development builds"]) == []
 	assert said(by_name["all three behind, read by an administrator"]) == [
 		"The program is 0.8.18 and 0.8.20 is out, 2 releases behind. Upgrade it with 'uv tool "

@@ -2065,10 +2065,12 @@ class ReleaseNews(pydantic.BaseModel):
 	#: When the answer below was asked for. Null before the first check has finished.
 	asked_at: datetime.datetime | None = None
 
-	#: Why there is no answer, when the check could not be made. Null when it could.
+	#: Why the latest check could not be made, when it could not. Null when it could.
 	failure: str | None = None
 
-	#: The published releases, newest first. Empty unless a check has answered.
+	#: The published releases, newest first, as the most recent check that answered found
+	#: them. Empty until one has - **and kept through a check that fails** (`#2891`), because a
+	#: failure says nothing about what was published, only that this instance could not ask.
 	releases: list[PublishedRelease] = pydantic.Field(default_factory=list)
 
 	#: Each plugin's current version, by the name of its directory. Empty unless a check has
@@ -2092,17 +2094,21 @@ def release_news (watch: subroutine.releases.Watch | None) -> ReleaseNews:
 	if heard is None:
 		return ReleaseNews(checking=True)
 
-	if heard.record is None:
-		return ReleaseNews(checking=True, asked_at=heard.at, failure=heard.failure)
+	# **What was published is the last record heard, even when the latest check failed**
+	# (`#2891`). A failure used to replace it, so for a day the browser's notice vanished and
+	# `whoami` said only that a check had failed - about an instance an earlier check had found
+	# behind.
+	record = heard.record or (watch.kept.record if watch.kept is not None else None)
 
 	return ReleaseNews(
 		checking=True,
 		asked_at=heard.at,
+		failure=heard.failure,
 		releases=[
 			PublishedRelease(version=one.version, schema_revision=one.schema, date=one.date)
-			for one in heard.record.releases
+			for one in (record.releases if record is not None else ())
 		],
-		plugins=dict(heard.record.plugins),
+		plugins=dict(record.plugins) if record is not None else {},
 	)
 
 
@@ -5974,9 +5980,6 @@ def release_lines (me: Me, *, program: str | None, plugin: str | None) -> list[s
 	if news is None or not news.checking:
 		return [HOW_TO_ASK_IF_IT_IS_OLD]
 
-	if news.failure is not None:
-		return [f"This instance's last check for new releases failed. {news.failure}"]
-
 	if news.asked_at is None:
 		return ["This instance checks for new releases once a day, and has not heard back yet."]
 
@@ -5990,6 +5993,13 @@ def release_lines (me: Me, *, program: str | None, plugin: str | None) -> list[s
 		if said is not None
 	]
 
+	# **A failure is said beside what is still known, not instead of it** (`#2891`). The record
+	# an earlier check heard is still the record, so what it found behind still is; what the
+	# failure changes is that nothing newer can be ruled out, which is why it never ends in the
+	# all-clear below.
+	if news.failure is not None:
+		return [f"This instance's last check for new releases failed. {news.failure}", *behind]
+
 	if behind:
 		return behind
 
@@ -5997,7 +6007,15 @@ def release_lines (me: Me, *, program: str | None, plugin: str | None) -> list[s
 	versions = {release.version for release in published}
 	compared = program in versions or (_administers(me) and me.instance_version in versions)
 
-	return [f"{published[0].version} is the newest release."] if compared else []
+	# **No all-clear where a notice was withheld** (`#2891`). The instance's line is kept from
+	# a reader who cannot administer it, by decision; naming the newest release in its place
+	# told that reader everything was current about an instance two releases behind.
+	withheld = (
+		not _administers(me)
+		and subroutine.releases.lag(me.instance_version, published) is not None
+	)
+
+	return [f"{published[0].version} is the newest release."] if compared and not withheld else []
 
 
 def instance_log_line (

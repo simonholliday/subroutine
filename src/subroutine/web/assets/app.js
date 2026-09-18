@@ -3281,8 +3281,11 @@ export function App () {
 				${/* **Beside the work, with what to do in it, and never a modal** (`#785`'s idiom,
 				     which `#2224` inherits). Waved away, it stays away until it says something
 				     new. */ null}
+				${/* **Drawn as needing action** (`#2891`): the log writes this same sentence at
+				     WARNING, and `good` both coloured it a success and announced it as a status,
+				     for the one notice here that asks an operator to plan an outage. */ null}
 				<${Note}
-					note=${{ text: lagging, tone: "good" }}
+					note=${{ text: lagging, tone: "bad" }}
 					onDismiss=${() => {
 						dismissedLag.current = lagging;
 						setLagging(null);

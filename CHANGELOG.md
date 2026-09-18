@@ -143,9 +143,10 @@ upgrade involves.
   while somebody signed in is using it, and `/v1/me` publishes what it found as `releases`.
   `subroutine whoami` and the agent tools then say which of the program, the plugin and the
   instance is behind and what to type - the instance only to somebody who may administer it -
-  or name the newest release, or say that the last check failed. The bare `subroutine` adds one
-  line under the agenda while the program is behind. The browser shows an administrator a note
-  while the instance is behind, and the instance's log gets a warning naming how many releases
+  or name the newest release. A check that fails says so without forgetting what an earlier
+  one found, and nobody who cannot see the instance's notice is told instead that everything is
+  current. The bare `subroutine` adds one line under the agenda while the program is behind.
+  The browser shows an administrator a warning while the instance is behind, and the instance's log gets a warning naming how many releases
   behind it is and whether upgrading changes the database, and a note when a check fails. A
   development build says nothing, because it cannot tell whether it contains a release. Nothing
   asks unless you turn it on.
