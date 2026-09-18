@@ -177,9 +177,23 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),
 	Vendored(
-		# **The face a reader reads** (`#2870`), in the three weights `app.css` declares: 400 for
-		# text, 500 for a row's title, 600 for a heading inside prose and a table's head. It is the
-		# site's own reading face, and these files are byte-identical to the copies in
+		# **The weight the page actually reads at** (`#2873`). The body was 400 and looked heavy
+		# - not from a thick stroke, which is thinner here than in the sans it replaced, but from
+		# an x-height 11% larger at the same size. At 300 a line carries 13% less ink and a
+		# heading stands clear of it again.
+		filename="roboto-serif-latin-300-normal.woff2",
+		package="@fontsource/roboto-serif",
+		version="5.2.6",
+		licence="OFL-1.1",
+		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
+		notice="roboto-serif.LICENSE",
+		digest="sha256:f0b6876cb44771cd1641a03cf11b12de3ff86cd2325680c044a971c5b27852b8",
+	),
+	Vendored(
+		# **The face a reader reads** (`#2870`), and the weight nothing much declares any more
+		# (`#2873`): the explicit 400s all sit inside contexts that declare 600, where they are a
+		# reduction rather than a value. It is kept so a future `font-weight: 400` cannot render
+		# 300 or 500 in silence. The files are byte-identical to the copies in
 		# `projects/websites/subsystem-co` - the same Fontsource subsets, so the two products set
 		# text in literally the same bytes rather than in the same name.
 		#

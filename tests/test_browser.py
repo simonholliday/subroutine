@@ -3282,14 +3282,16 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			wordmark: getComputedStyle(document.querySelector(".top h1")).fontFamily,
 			heading: getComputedStyle(document.querySelector("h2")).fontFamily,
 			body: getComputedStyle(document.body).fontFamily,
+			bodyWeight: getComputedStyle(document.body).fontWeight,
 			code: getComputedStyle(document.querySelector(".ref")).fontFamily,
 			title: getComputedStyle(document.querySelector(".row .title")).fontFamily,
 			lexend: document.fonts.check("600 20px Lexend"),
 			serif: document.fonts.check('500 15px "Roboto Serif"'),
 			mono: document.fonts.check('400 14px "Roboto Mono"'),
-			weights: [...document.fonts]
-				.filter((face) => face.family === "Lexend")
-				.map((face) => face.weight).sort(),
+			weights: [...document.fonts].reduce((held, face) => {
+				(held[face.family] = held[face.family] || []).push(face.weight);
+				return held;
+			}, {}),
 		})"""
 	)
 
@@ -3309,10 +3311,21 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			f"{face} never arrived, so the page fell back to a system face: {lettering}"
 		)
 
-	# **The weight, separately from the family.** A row's title is 500 and Lexend's 400 file
-	# would answer for it silently.
-	assert "500" in lettering["weights"], (
-		f"Lexend 500 never arrived, so a row title is drawn at 400: {lettering}"
+	# **Each weight, separately from its family** (`SR#2871`, `SR#2873`). A row's title is 500
+	# and the reading text is 300; either would be answered for in silence by a neighbouring
+	# file, and `document.fonts.check` resolves through font matching so it cannot see that.
+	for family, weight in (("Lexend", "500"), ("Roboto Serif", "300")):
+		assert weight in lettering["weights"].get(family, []), (
+			f"{family} {weight} never arrived, so a neighbouring weight is drawn instead: "
+			f"{lettering['weights']}"
+		)
+
+	# **And the weight the reading text is actually set at** (`SR#2873`). The line above says
+	# the file arrived; this says the page asked for it. Either alone passes while the other
+	# is wrong - a face nothing uses is never fetched, and a weight nothing vendors is
+	# substituted without a word.
+	assert lettering["bodyWeight"] == "300", (
+		f"the reading text is set at {lettering['bodyWeight']} rather than 300: {lettering}"
 	)
 
 	assert "Lexend" not in lettering["body"], (

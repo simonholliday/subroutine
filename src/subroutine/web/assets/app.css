@@ -39,11 +39,17 @@
 */
 
 /*
-	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`, `#2871`).
-	Fontsource's Latin subsets, each vendored with its licence and recorded in `web/vendored.py`.
-	Lexend 400, 500 and 600; Roboto Serif 400, 500 and 600, which is every weight this file
-	declares; Roboto Mono 400 and 600, the second because `**`code`**` renders `strong > code`
-	and a `th` is 600, so one weight alone would be synthesised into a smear.
+	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`, `#2871`,
+	`#2873`). Fontsource's Latin subsets, each vendored with its licence and recorded in
+	`web/vendored.py`. Lexend 400, 500 and 600; Roboto Serif 300, 400, 500 and 600; Roboto Mono
+	400 and 600, the second because `**`code`**` renders `strong > code` and a `th` is 600, so
+	one weight alone would be synthesised into a smear.
+
+	**Roboto Serif 400 stays although almost nothing declares it now** (`#2873`). The body reads
+	at 300 and the explicit 400s all sit inside contexts that declare 600, where they are a
+	reduction rather than a value. Dropping the file would make a future `font-weight: 400`
+	render 300 or 500 with nothing to say so - which is the trap `#2871` was written about, and
+	25 KB is a cheap price for not laying it again.
 
 	**Lexend 500 is here because a row's title asks for it** (`#2871`). Measured through CDP,
 	which names the face that drew the glyphs: with only 400 and 600 vendored, `font-weight: 500`
@@ -80,6 +86,14 @@
 	font-family: "Lexend";
 	src: url("lexend-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Roboto Serif";
+	src: url("roboto-serif-latin-300-normal.woff2") format("woff2");
+	font-weight: 300;
 	font-style: normal;
 	font-display: swap;
 }
@@ -343,14 +357,42 @@ body {
 	/* **The base is the token, not a number that happens to match it.** `--text-body` is this
 	   value, and almost nothing declares it — every other rule overrides downward, which is why
 	   the page's working size is `--text-small` and this is what survives on a title and on
-	   prose. Two copies of 15px would be two places to change it and one to forget. */
-	font: var(--text-body)/1.55 var(--font-text);
+	   prose. Two copies of 15px would be two places to change it and one to forget.
+
+	   **300, and the weight is in the shorthand deliberately** (`#2873`, Simon: *"the body text
+	   looks a little heavy"*). `font:` resets weight to `normal`, so a separate declaration
+	   after it would be a second place to look and one to forget - the same argument the
+	   paragraph above makes about the size.
+
+	   **Measured, because the cause was not the obvious one.** Roboto Serif's stem is *thinner*
+	   than the sans it replaced (1.49px against 1.53px at 17px); what made the page heavy is an
+	   x-height 11% larger at the same nominal size, so the text grew into the headings. At 300
+	   a line carries 13% less ink and an `h3` stands at 1.94x its contrast, past the 1.84x it
+	   had before the serif arrived. The size is untouched: 16px would restore the step exactly
+	   and would sit 1px from `--text-small`, rebuilding the cluster `#906` exists to prevent. */
+	font: 300 var(--text-body)/1.55 var(--font-text);
 	-webkit-font-smoothing: antialiased;
 }
 
 /* **Five selectors, and only one of them is a code block** (`#2868`). `.ref` is the item
    number on every row, which is why the mono was chosen on how far apart it draws a zero
    and a capital O rather than on how it looks in a fenced example. */
+/* **Bold comes down with the body** (`#2873`). `strong` declares nothing, so it takes the
+   browser's `bold` and resolves to the vendored 600 - which against a 300 body reads at
+   2.00x its stem where it read at 1.65x against 400, louder than it has ever been. 500
+   puts it back to 1.63x, which is the relationship the page had before the body lightened.
+
+   **Three rules keep their 600 on purpose**: `.you .reveal strong`, `.journal .what strong`
+   and `.narrowed strong` each set `color: var(--ink)` against faint surroundings, so their
+   weight is picking one word out of dimmed micro-copy rather than emphasising a run of
+   prose. Different job, and not the one being tuned.
+
+   **`b` is not here, and `tests/test_browser.py` is why.** It was, and the selector reached
+   nothing: `markdown.js` renders emphasis as `strong` and escapes everything a writer types,
+   so no `b` can exist on a page this app draws. A rule matching nothing changes nothing and
+   never errors, which is how a row separator once went missing for eleven days. */
+strong { font-weight: 500; }
+
 code, .ref, .priority, .broke .detail, .credential .prefix {
 	font-family: var(--font-code);
 }

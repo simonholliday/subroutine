@@ -22,6 +22,12 @@ upgrade involves.
 
 - **Headings and the product's name are set in Lexend**, the font the branding names.
 
+- **Reading text is a little lighter, and bold with it.** The serif that arrived with the
+  new type set has larger letters than the face before it at the same size, which made a
+  page of text read heavy and left less daylight between a paragraph and a heading above
+  it. The text is lighter now and bold has come down to match, so emphasis reads as
+  emphasis rather than as a second heading. Sizes are unchanged.
+
 - **An item's title is set in Lexend wherever you see it** - in a list, an agenda, a board
   and the journal, not only on the item's own page. It was the heading font in one place
   and the reading font in the others, so the same words changed shape when you clicked
