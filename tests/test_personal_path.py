@@ -5367,6 +5367,32 @@ def test_add_says_what_it_read_out_of_the_line (
 		assert sigil in printed, f"{sigil} was read and not mentioned:\n{printed}"
 
 
+def test_add_confirms_where_a_span_ends (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2888`. *from 2 October to 12 October* was confirmed as *(starts Fri 2 Oct)*.
+
+	"to 12 October" left the title and the one line the writer reads to check what was
+	understood never said where it went - and so `SR#2884`, a span stored eleven months long,
+	confirmed exactly like a right one. **Each day's rendering is derived from a single-date
+	run**, as the test below does, so nothing here depends on the year it is run in.
+	"""
+
+	run("init")
+
+	first = re.search(r"\(starts ([^,)]+)\)", run("add", "Pack on 2027-10-02").output)
+	last = re.search(r"\(starts ([^,)]+)\)", run("add", "Pack on 2027-10-12").output)
+	spanned = run("add", "Holiday from 2027-10-02 to 2027-10-12").output
+	listed = run("list").output
+
+	assert first is not None and last is not None, "a single planned day was not reported"
+
+	span = f"{first.group(1)} to {last.group(1)}"
+
+	assert span in spanned, f"the confirmation did not say where the span ends:\n{spanned}"
+	assert span in listed, f"the list row did not say where the span ends:\n{listed}"
+
+
 def test_add_confirms_a_planned_day_beside_a_deadline (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

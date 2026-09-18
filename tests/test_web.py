@@ -1044,6 +1044,34 @@ def test_an_agenda_row_names_who_it_is_holding_up (tmp_path: pathlib.Path) -> No
 	assert "waiting on" not in shown, f"the row is holding somebody up, not held up: {shown}"
 
 
+def test_a_row_says_where_a_span_ends (tmp_path: pathlib.Path) -> None:
+	"""`SR#2888`: a row named a span's first day and never its last.
+
+	``ends_at`` was on the wire and nothing in the browser read it. **Each day's rendering is
+	derived from a row planned for that day alone**, because `day` renders in the reader's own
+	locale and this machine and CI's differ (`SR#2252`) - so no day is spelled here.
+	"""
+
+	item = {"ref": 7, "kind": "task", "title": "Holiday", "timezone": "Europe/London",
+		"starts_is_all_day": True}
+
+	def shown (**dates: str) -> str:
+		"""Return the planned day a row shows for these dates, as the row writes it."""
+
+		html = _rendered(tmp_path, {"Row": {"item": {**item, **dates}, "workspace": "projects"}})
+		found = re.search(r"\u2192 ([^<]+)<", html["Row"])
+
+		assert found is not None, f"the row showed no planned day: {html['Row']}"
+
+		return found.group(1).strip()
+
+	first = shown(starts_at="2027-10-02")
+	last = shown(starts_at="2027-10-12")
+	span = shown(starts_at="2027-10-02", ends_at="2027-10-12")
+
+	assert span == f"{first} to {last}", (first, last, span)
+
+
 def _rendered (
 	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
 ) -> dict[str, str]:

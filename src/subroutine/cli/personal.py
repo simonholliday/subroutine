@@ -12790,11 +12790,21 @@ def _when (item: Item) -> str:
 			# **The o'clock when the row carries one** (`#1298`). A doctor's appointment and a
 			# birthday were the same line until this, on the one line somebody reads to check
 			# what was understood.
+			#
+			# **And where a span ends** (`#2888`). *from 2 October to 12 October* was confirmed
+			# as *(starts Fri 2 Oct)*: "to 12 October" left the title and this line never said
+			# where it went, which is the rule the comment above states, broken on the line it
+			# is about. It also hid `#2884`, a span stored eleven months long. Written as `show`
+			# and the MCP row write it, with the start's flag for both ends, since an end has
+			# none of its own (decision `#1235` §2).
 			None
 			if task.starts_at is None
 			else (
 				"starts "
 				f"{_render_moment(task.starts_at, task.timezone, all_day=task.starts_is_all_day)}"
+				if task.ends_at is None
+				else f"{_render_moment(task.starts_at, task.timezone, all_day=task.starts_is_all_day)}"
+				f" to {_render_moment(task.ends_at, task.timezone, all_day=task.starts_is_all_day)}"
 			),
 			None
 			if task.due_at is None

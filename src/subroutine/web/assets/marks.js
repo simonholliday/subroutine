@@ -708,8 +708,16 @@ export function when (item, now = null) {
 
 	if (item.due_at && !overdue(item))
 		return `due ${day(item.due_at, item.timezone, item.due_is_all_day)}`;
-	if (item.starts_at)
-		return `→ ${day(item.starts_at, item.timezone, item.starts_is_all_day)}`;
+	if (item.starts_at) {
+		const from = day(item.starts_at, item.timezone, item.starts_is_all_day);
+
+		/* **And where a span ends** (`#2888`), which no row said at all: `ends_at` was on the
+		   wire and nothing here read it. The end takes the start's flag, having none of its
+		   own (decision `#1235` §2), as the terminal and the agent tools write it. */
+		return item.ends_at
+			? `→ ${from} to ${day(item.ends_at, item.timezone, item.starts_is_all_day)}`
+			: `→ ${from}`;
+	}
 
 	return null;
 }

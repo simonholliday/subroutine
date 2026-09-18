@@ -183,6 +183,8 @@ export const TASK_FIELDS = [
 	   fact about the workspace's vocabulary rather than about this item. */
 	"type_is_default",
 	"ref", "title", "due_at", "due_is_all_day", "starts_at", "starts_is_all_day",
+	/* Where a span ends (`#2888`), which `when` writes after the start. */
+	"ends_at",
 	"blocked", "sub_tasks_done", "project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest
