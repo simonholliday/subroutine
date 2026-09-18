@@ -13,7 +13,7 @@ import {
 	PRODUCT, addressOf, encodedPath, parseAddress, shortVersion, withShowing,
 } from "./address.js";
 import { unrenderable } from "./answers.js";
-import { day, rankOf } from "./dates.js";
+import { day, here, rankOf } from "./dates.js";
 import { followed } from "./grouping.js";
 import { Icon } from "./marks.js";
 import { written } from "./requests.js";
@@ -329,7 +329,7 @@ function revisedInWords (revisions) {
 	const times = revisions.count === 1 ? "once" : `${revisions.count} times, last`;
 	const who = revisions.last_by ? ` by @${revisions.last_by}` : "";
 
-	return `${times}${who} on ${day(revisions.last_at)}`;
+	return `${times}${who} on ${day(revisions.last_at, here())}`;
 }
 
 
@@ -471,7 +471,7 @@ export function Facts ({
 	   means the writer said a day, and printing `00:00` there would invent precision nobody
 	   supplied — `#746` refuses that in as many words. They already show a time when there is
 	   one, which `#864` built. */
-	add("Updated", day(item.updated_at, null, false));
+	add("Updated", day(item.updated_at, here(), false));
 
 	/* **That the body has been replaced, which nothing said until `#1768`.** `Updated` above
 	   moves for any change at all — a status, an assignee, a rank — so it could never answer

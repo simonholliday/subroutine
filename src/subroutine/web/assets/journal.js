@@ -19,7 +19,7 @@
 
 import { html } from "./html.js";
 import { addressOf, journalAddress } from "./address.js";
-import { day } from "./dates.js";
+import { day, here } from "./dates.js";
 import { clock } from "./marks.js";
 import { Row } from "./rows.js";
 
@@ -114,12 +114,15 @@ export function byDay (entries) {
 		given.
 
 		**The reader's zone, because these are instants the program recorded**, not days somebody
-		wrote: `day` with no zone is *when was this, where I am*, which is the question.
+		wrote - *when was this, where I am*, which is the question. **Said, with `here()`**
+		(`#2885`): this comment used to claim that leaving the zone out meant the reader's, and
+		it meant UTC, so a reader west of UTC saw the last hours of each day under the next
+		day's heading, beside the local clock the entry printed.
 	*/
 	const days = [];
 
 	for (const entry of entries || []) {
-		const heading = day(entry.created_at);
+		const heading = day(entry.created_at, here());
 		const last = days[days.length - 1];
 
 		if (last && last.day === heading) {
@@ -186,7 +189,8 @@ function dayInWords (written) {
 
 	if (!/^\d{4}-\d{2}-\d{2}/.test(text)) return text;
 
-	const shown = day(text.slice(0, 10));
+	/* A written day already, which no zone moves. */
+	const shown = day(text.slice(0, 10), null);
 
 	return text.length > 10 ? `${shown}, ${text.slice(11, 16)}` : shown;
 }

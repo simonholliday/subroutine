@@ -53,14 +53,30 @@ export function calendarDay (value, zone = null) {
 	return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function here () {
+	/*
+		The reader's own timezone, for a value that is an instant rather than a day somebody
+		wrote - `#2885`.
+
+		**Asked at the moment of use rather than kept**, because it is the browser's answer and a
+		browser can change it: a laptop crossing a border, or a test setting `TZ` before it asks.
+	*/
+	return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 export function day (value, zone = null, allDay = true) {
 	/*
 		A date in the reader's own locale, because this is the one surface where the machine
 		knows what that is.
 
 		**`zone` is the timezone that stored the value**, and passing it is what makes the day
-		right — see `calendarDay`. Omitting it is correct for a genuine instant like
-		`updated_at`, where the question really is *when was this, where I am*.
+		right — see `calendarDay`. **A genuine instant passes `here()`** (`#2885`), because the
+		question of an `updated_at` really is *when was this, where I am*. This used to say that
+		omitting the zone answered that question, and it never did: `calendarDay` reads a
+		missing zone as UTC, so the journal headed an entry at 02:30 UTC *18 Sept* above the
+		*19:30* it happened at for a reader in Los Angeles. **So every call names its zone** -
+		`tests/test_web.py` refuses one that does not - and `null` is kept for a value that is
+		already a written day, which no zone moves.
 
 		**`allDay` is the item's own answer and `false` is what adds the time** — `#864`. This
 		said "time is dropped: everything shown here is a day-scale fact", which stopped being

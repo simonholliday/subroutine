@@ -10,7 +10,7 @@
 import * as phosphor from "./phosphor.js";
 import { html } from "./html.js";
 import { encodedPath, projectLabel, withShowing } from "./address.js";
-import { day, deferred, holding, named, orderingValue, overdue, rankOf } from "./dates.js";
+import { day, deferred, here, holding, named, orderingValue, overdue, rankOf } from "./dates.js";
 import { repeats } from "./requests.js";
 
 /*
@@ -672,7 +672,9 @@ export function moment (value, now = null) {
 	if (apart === 0) return `today ${time}`;
 	if (apart === 1) return `yesterday ${time}`;
 
-	return `${day(value)} ${time}`;
+	/* In the reader's zone, like the clock beside it and the *today* above (`#2885`). The day
+	   alone used to be read in UTC, so *done* could name one day and the time of another. */
+	return `${day(value, here())} ${time}`;
 }
 
 export function when (item, now = null) {

@@ -1072,6 +1072,113 @@ def test_a_row_says_where_a_span_ends (tmp_path: pathlib.Path) -> None:
 	assert span == f"{first} to {last}", (first, last, span)
 
 
+def test_the_journal_heads_each_day_where_its_reader_is (tmp_path: pathlib.Path) -> None:
+	"""`SR#2885`: a journal's day headings were UTC days above the local clock of each entry.
+
+	For a reader west of UTC, the last hours of every local day sat under the next day's
+	heading; east of it, the first hours sat under the day before. **Asked either side of UTC
+	and at it**, by setting ``TZ`` before the app is imported, and against ``day`` of the local
+	calendar date rather than a spelled day, because this machine and CI render dates in
+	different locales (`SR#2252`). The done stamp's older-date branch is asked too: it put a UTC
+	day beside a local clock the same way.
+	"""
+
+	module = _staged(tmp_path)
+	october = 1790856000000  # 2026-10-01T12:00Z, far enough on that the stamp prints a date
+
+	for zone, instant, local in (
+		("America/Los_Angeles", "2026-09-18T02:30:00Z", "2026-09-17"),
+		("Pacific/Auckland", "2026-09-18T13:00:00Z", "2026-09-19"),
+		("Europe/London", "2026-09-18T02:30:00Z", "2026-09-18"),
+	):
+		seen = _ran(tmp_path, f"""
+			process.env.TZ = {json.dumps(zone)};
+			const app = await import("{module.as_uri()}");
+			process.stdout.write(JSON.stringify({{
+				heading: app.byDay([{{ created_at: {json.dumps(instant)} }}])[0].day,
+				done: app.moment({json.dumps(instant)}, {october}),
+				expected: app.day({json.dumps(local)}, null),
+			}}));
+		""")
+
+		assert seen["heading"] == seen["expected"], (zone, seen)
+		assert seen["done"].startswith(seen["expected"]), (zone, seen)
+
+
+def _calls_to (name: str, source: str) -> list[str]:
+	"""Return the argument text of every call to ``name`` in ``source``, comments aside."""
+
+	source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+	found = []
+
+	for match in re.finditer(rf"(?<![\w$.]){re.escape(name)}\(", source):
+		depth, at, quote = 1, match.end(), ""
+
+		while depth:
+			character = source[at]
+
+			if quote:
+				if character == "\\":
+					at += 1
+				elif character == quote:
+					quote = ""
+			elif character in "'\"`":
+				quote = character
+			elif character in "([{":
+				depth += 1
+			elif character in ")]}":
+				depth -= 1
+
+			at += 1
+
+		found.append(source[match.end():at - 1])
+
+	return found
+
+
+def _arguments (text: str) -> int:
+	"""Count the top-level arguments in a call's argument text."""
+
+	depth, quote, commas = 0, "", 0
+
+	for character in text:
+		if quote:
+			quote = "" if character == quote else quote
+		elif character in "'\"`":
+			quote = character
+		elif character in "([{":
+			depth += 1
+		elif character in ")]}":
+			depth -= 1
+		elif character == "," and depth == 0:
+			commas += 1
+
+	return commas + 1 if text.strip() else 0
+
+
+def test_every_day_names_the_zone_it_is_read_in () -> None:
+	"""`SR#2885`: a call to ``day`` without a zone read an instant in UTC, silently.
+
+	``day``'s own comment said leaving the zone out meant *where I am*, and five call sites
+	believed it - the journal's headings, the done stamp, an item's revisions and its last
+	update, and a credential's last use - so each named a UTC day beside a local clock. **The
+	zone is required of every call now**: the item's own for a stored day, ``here()`` for an
+	instant, ``null`` for a value that is already a written day. Leaving it out is the mistake,
+	so it is the thing refused.
+	"""
+
+	calls = _calls_to("day", _our_source())
+
+	assert len(calls) >= 10, f"found only {len(calls)} calls to day, so this is checking nothing"
+
+	unsaid = sorted(arguments for arguments in calls if _arguments(arguments) < 2)
+
+	assert not unsaid, (
+		f"{unsaid} call day without saying which zone to read it in, and a missing zone is "
+		f"UTC - pass the item's timezone, here() for an instant, or null for a written day"
+	)
+
+
 def _rendered (
 	tmp_path: pathlib.Path, components: typing.Mapping[str, typing.Any]
 ) -> dict[str, str]:

@@ -15,7 +15,7 @@
 
 import { html } from "./html.js";
 import { Icon, MARK_ICONS } from "./marks.js";
-import { day, named } from "./dates.js";
+import { day, here, named } from "./dates.js";
 
 /*
 	**What a person is told when they hold no role anywhere.**
@@ -358,7 +358,7 @@ export function Stopping ({ credential, onConfirm, onCancel, busy = false }) {
 			</p>
 			<p class="lastused">
 				${credential.last_used_at
-					? html`It was last used on ${day(credential.last_used_at)}.`
+					? html`It was last used on ${day(credential.last_used_at, here())}.`
 					: "It has never been used."}
 			</p>
 			<div class="acts">
