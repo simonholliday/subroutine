@@ -3286,8 +3286,8 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 			code: getComputedStyle(document.querySelector(".ref")).fontFamily,
 			title: getComputedStyle(document.querySelector(".row .title")).fontFamily,
 			lexend: document.fonts.check("600 20px Lexend"),
-			serif: document.fonts.check('500 15px "Roboto Serif"'),
-			mono: document.fonts.check('400 14px "Roboto Mono"'),
+			inter: document.fonts.check("500 15px Inter"),
+			mono: document.fonts.check('400 14px "JetBrains Mono"'),
 			weights: [...document.fonts].reduce((held, face) => {
 				(held[face.family] = held[face.family] || []).push(face.weight);
 				return held;
@@ -3297,8 +3297,8 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 
 	assert lettering["wordmark"].startswith("Lexend"), lettering
 	assert lettering["heading"].startswith("Lexend"), lettering
-	assert lettering["body"].startswith('"Roboto Serif"'), lettering
-	assert lettering["code"].startswith('"Roboto Mono"'), lettering
+	assert lettering["body"].startswith("Inter"), lettering
+	assert lettering["code"].startswith('"JetBrains Mono"'), lettering
 
 	# **A title is a heading wherever it is drawn** (`SR#2871`). This one is in a list row,
 	# and the same span is what an agenda, a board and the journal draw.
@@ -3306,7 +3306,7 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 
 	# Each face is asked for separately, because they are separate files and a stack hides
 	# which one is missing.
-	for face in ("lexend", "serif", "mono"):
+	for face in ("lexend", "inter", "mono"):
 		assert lettering[face], (
 			f"{face} never arrived, so the page fell back to a system face: {lettering}"
 		)
@@ -3314,7 +3314,7 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 	# **Each weight, separately from its family** (`SR#2871`, `SR#2873`). A row's title is 500
 	# and the reading text is 300; either would be answered for in silence by a neighbouring
 	# file, and `document.fonts.check` resolves through font matching so it cannot see that.
-	for family, weight in (("Lexend", "500"), ("Roboto Serif", "300")):
+	for family, weight in (("Lexend", "500"), ("Inter", "300")):
 		assert weight in lettering["weights"].get(family, []), (
 			f"{family} {weight} never arrived, so a neighbouring weight is drawn instead: "
 			f"{lettering['weights']}"

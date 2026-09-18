@@ -22,26 +22,20 @@ upgrade involves.
 
 - **Headings and the product's name are set in Lexend**, the font the branding names.
 
-- **Reading text is a little lighter, and bold with it.** The serif that arrived with the
-  new type set has larger letters than the face before it at the same size, which made a
-  page of text read heavy and left less daylight between a paragraph and a heading above
-  it. The text is lighter now and bold has come down to match, so emphasis reads as
-  emphasis rather than as a second heading. Sizes are unchanged.
-
 - **An item's title is set in Lexend wherever you see it** - in a list, an agenda, a board
   and the journal, not only on the item's own page. It was the heading font in one place
   and the reading font in the others, so the same words changed shape when you clicked
   them.
 
-- **Reading text is set in Roboto Serif and code in Roboto Mono**, which with Lexend for
-  headings makes the app and the Subsystem site one type system rather than two that share
-  a heading. Code and the item number on every row share the one face, so the pairs that
-  get misread - `l` against `I`, `0` against `O` - were weighed at the size they are
-  actually read at rather than in a specimen.
+- **Reading text is set in Inter and code in JetBrains Mono**, beside Lexend for headings.
+  The text is set a little lighter than a sans usually is, and bold with it, so a paragraph
+  reads evenly and a heading above it stands clear rather than competing with it. Code, the
+  item number on every row and a token's prefix share the one monospaced face, where `l`,
+  `I` and `1` are drawn distinctly.
 
-  All seven faces are served by the instance itself - 134 KB, fetched once and then cached -
-  so a browser still asks for nothing from anywhere else, which is what makes the app work
-  behind a VPN.
+  All nine faces are served by the instance itself - about 180 KB, fetched once and then
+  cached - so a browser still asks for nothing from anywhere else, which is what makes the app
+  work behind a VPN.
 
 - **A journal says what has happened**, where it used to say what was *done* - a word this
   product spends on finished work, so the line read as a list of completed tasks rather

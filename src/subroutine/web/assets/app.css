@@ -7,21 +7,21 @@
 	that says so; blocked is marked *and* labelled. A reader who cannot distinguish the hues
 	loses nothing.
 
-	**Three families, and they are the product family's** (`#2865`, `#2868`, `#2870`). Lexend for
-	headings and the wordmark, Roboto Serif for reading text, Roboto Mono for code - which is
-	exactly what `projects/websites/subsystem-co` sets, so the app and the site are one type
-	system rather than sharing a heading face and disagreeing beneath it. The three shared
-	weights are **byte-identical** to the site's copies, being the same Fontsource subsets.
+	**Three families, one per role** (`#2865`, `#2877`). Lexend for headings, the wordmark and an
+	item's title wherever it is drawn; Inter for reading text; JetBrains Mono for code. The
+	heading face is the one `projects/websites/subsystem-co` uses, and **below it the two part
+	company on purpose**: the site sets text in Roboto Serif, and so did this app for a day
+	(`#2870`), until Simon had seen three pairings against real content and chose this one.
 
 	**Measured at the sizes this app actually works at**, which are small - `--text-small` is
-	fifty of eighty-one declarations and a fenced block is `--text-fine`. x-height at the real
-	pixel size is the number that matters, since at a fixed size it is literally how many pixels
-	the lowercase gets. Roboto Serif carries more of it than the sans it replaced (8.10px against
-	7.80px at 15px) and draws `0` against `O` and `rn` against `m` further apart than anything
-	else tried; **its cost is width**, 13% wider for the same row title, so more of them wrap.
+	fifty of eighty-one declarations and a fenced block is `--text-fine`. Inter has a tall
+	x-height, and at its usual 400 it carries as much ink as the serif that read heavy, which is
+	why the body is set at 300 (on `body`, below). Its known cost is `l` against `I`, drawn as
+	nearly one stroke - and **the places that cost would bite are not set in Inter**, because the
+	item number, the priority and a token's prefix all wear the mono.
 
 	**The mono is not only for markdown**: `.ref` wears it, so it draws the item number on every
-	row, which is why it is judged on `0` against `O` rather than on how a fenced block looks.
+	row.
 
 	**Served by this instance, never fetched from anywhere** — which is what kept the old rule's
 	reason true rather than trading it away: there is no network to fetch a font from on an
@@ -39,17 +39,17 @@
 */
 
 /*
-	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`, `#2871`,
-	`#2873`). Fontsource's Latin subsets, each vendored with its licence and recorded in
-	`web/vendored.py`. Lexend 400, 500 and 600; Roboto Serif 300, 400, 500 and 600; Roboto Mono
-	400 and 600, the second because `**`code`**` renders `strong > code` and a `th` is 600, so
-	one weight alone would be synthesised into a smear.
+	**Every face, in the weights its role actually asks for** (`#2865`, `#2871`, `#2873`,
+	`#2877`). Fontsource's Latin subsets, each vendored with its licence and recorded in
+	`web/vendored.py`. Lexend 400, 500 and 600; Inter 300, 400, 500 and 600; JetBrains Mono 400
+	and 600, the second because `**`code`**` renders `strong > code` and a `th` is 600, so one
+	weight alone would be synthesised into a smear.
 
-	**Roboto Serif 400 stays although almost nothing declares it now** (`#2873`). The body reads
-	at 300 and the explicit 400s all sit inside contexts that declare 600, where they are a
-	reduction rather than a value. Dropping the file would make a future `font-weight: 400`
-	render 300 or 500 with nothing to say so - which is the trap `#2871` was written about, and
-	25 KB is a cheap price for not laying it again.
+	**Inter 400 stays although almost nothing declares it** (`#2873`). The body reads at 300 and
+	the explicit 400s all sit inside contexts that declare 600, where they are a reduction rather
+	than a value. Dropping the file would make a future `font-weight: 400` render 300 or 500 with
+	nothing to say so - which is the trap `#2871` was written about, and 23 KB is a cheap price
+	for not laying it again.
 
 	**Lexend 500 is here because a row's title asks for it** (`#2871`). Measured through CDP,
 	which names the face that drew the glyphs: with only 400 and 600 vendored, `font-weight: 500`
@@ -62,9 +62,8 @@
 	The mask below is written the same way for the same reason.
 
 	**`swap`, so the page is readable before a face arrives.** Each stack falls back to the
-	machine's own, so what changes when one lands is the shape of the letters. **The serif is
-	the one to watch there**: its fallback is a system serif of a different width, so a reader
-	on a slow connection sees the text reflow rather than merely change shape.
+	machine's own sans or mono, so what changes when one lands is mostly the shape of the letters
+	rather than the layout of the page.
 */
 @font-face {
 	font-family: "Lexend";
@@ -91,48 +90,48 @@
 }
 
 @font-face {
-	font-family: "Roboto Serif";
-	src: url("roboto-serif-latin-300-normal.woff2") format("woff2");
+	font-family: "Inter";
+	src: url("inter-latin-300-normal.woff2") format("woff2");
 	font-weight: 300;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "Roboto Serif";
-	src: url("roboto-serif-latin-400-normal.woff2") format("woff2");
+	font-family: "Inter";
+	src: url("inter-latin-400-normal.woff2") format("woff2");
 	font-weight: 400;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "Roboto Serif";
-	src: url("roboto-serif-latin-500-normal.woff2") format("woff2");
+	font-family: "Inter";
+	src: url("inter-latin-500-normal.woff2") format("woff2");
 	font-weight: 500;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "Roboto Serif";
-	src: url("roboto-serif-latin-600-normal.woff2") format("woff2");
+	font-family: "Inter";
+	src: url("inter-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "Roboto Mono";
-	src: url("roboto-mono-latin-400-normal.woff2") format("woff2");
+	font-family: "JetBrains Mono";
+	src: url("jetbrains-mono-latin-400-normal.woff2") format("woff2");
 	font-weight: 400;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "Roboto Mono";
-	src: url("roboto-mono-latin-600-normal.woff2") format("woff2");
+	font-family: "JetBrains Mono";
+	src: url("jetbrains-mono-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
@@ -177,18 +176,17 @@
 	--warn: light-dark(#b42318, #f27a70);
 	--radius: 6px;
 
-	/* **One token per role, and the only place a family is named** (`#2865`, `#2868`). The
+	/* **One token per role, and the only place a family is named** (`#2865`, `#2877`). The
 	   three names match what `projects/websites/subsystem-co` calls its own, so the two
-	   products describe type in one vocabulary even where they disagree about the faces -
-	   that site sets text in a serif and code in Roboto Mono, which are right for a page
-	   somebody reads once and wrong for a list somebody works in every day.
+	   products describe type in one vocabulary even where they disagree about the faces - as
+	   they do below the headings, by Simon's choice, which the top of this file records.
 
 	   **Every stack still ends where it used to.** A face that fails to arrive falls back to
 	   the machine's own, which is what `swap` above is for, and it is why these keep naming
 	   the system families rather than resting on the vendored file being there. */
 	--font-heading: "Lexend", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	--font-text: "Roboto Serif", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
-	--font-code: "Roboto Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	--font-text: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
 	/* **The palette a workspace or a project may be marked with** (`#1027`, design `#1023`).
 	   Eight names, chosen from `domain/palette.py`, which stores a *name* and never a value —
@@ -364,23 +362,21 @@ body {
 	   after it would be a second place to look and one to forget - the same argument the
 	   paragraph above makes about the size.
 
-	   **Measured, because the cause was not the obvious one.** Roboto Serif's stem is *thinner*
-	   than the sans it replaced (1.49px against 1.53px at 17px); what made the page heavy is an
-	   x-height 11% larger at the same nominal size, so the text grew into the headings. At 300
-	   a line carries 13% less ink and an `h3` stands at 1.94x its contrast, past the 1.84x it
-	   had before the serif arrived. The size is untouched: 16px would restore the step exactly
-	   and would sit 1px from `--text-small`, rebuilding the cluster `#906` exists to prevent. */
+	   **The weight outlived the face it was tuned for, and that was measured rather than
+	   assumed** (`#2873`, `#2877`). 300 was set when Roboto Serif at 400 read heavy and crowded
+	   the headings. Inter at 400 carries as much ink as that serif did - 3.24 against 3.16 per
+	   pixel of line at 17px, on an identical 1.49px stem - and would stand an `h3` at 1.64x its
+	   ink, below the 1.68x that prompted the change. At 300 the heading stands at 2.10x. The
+	   size is untouched: 16px would sit 1px from `--text-small`, rebuilding the cluster `#906`
+	   exists to prevent. */
 	font: 300 var(--text-body)/1.55 var(--font-text);
 	-webkit-font-smoothing: antialiased;
 }
 
-/* **Five selectors, and only one of them is a code block** (`#2868`). `.ref` is the item
-   number on every row, which is why the mono was chosen on how far apart it draws a zero
-   and a capital O rather than on how it looks in a fenced example. */
-/* **Bold comes down with the body** (`#2873`). `strong` declares nothing, so it takes the
-   browser's `bold` and resolves to the vendored 600 - which against a 300 body reads at
-   2.00x its stem where it read at 1.65x against 400, louder than it has ever been. 500
-   puts it back to 1.63x, which is the relationship the page had before the body lightened.
+/* **Bold comes down with the body** (`#2873`, `#2877`). `strong` declares nothing, so it
+   takes the browser's `bold` and resolves to the vendored 600 - which against a 300 body is
+   1.97x its stem (2.17px over 1.10px, Inter at 17px). 500 puts it at 1.66x, which is about
+   the relationship bold had to the body before the text was lightened.
 
    **Three rules keep their 600 on purpose**: `.you .reveal strong`, `.journal .what strong`
    and `.narrowed strong` each set `color: var(--ink)` against faint surroundings, so their
@@ -393,6 +389,10 @@ body {
    never errors, which is how a row separator once went missing for eleven days. */
 strong { font-weight: 500; }
 
+/* **Five selectors, and only one of them is a code block** (`#2868`, `#2877`). `.ref` is the
+   item number on every row and `.credential .prefix` is the part of a token somebody reads
+   back, so the mono is where `l`, `I` and `1` have to stay apart - which is also why Inter's
+   weakness there does not reach them. */
 code, .ref, .priority, .broke .detail, .credential .prefix {
 	font-family: var(--font-code);
 }

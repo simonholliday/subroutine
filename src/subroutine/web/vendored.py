@@ -177,74 +177,68 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),
 	Vendored(
-		# **The weight the page actually reads at** (`#2873`). The body was 400 and looked heavy
-		# - not from a thick stroke, which is thinner here than in the sans it replaced, but from
-		# an x-height 11% larger at the same size. At 300 a line carries 13% less ink and a
-		# heading stands clear of it again.
-		filename="roboto-serif-latin-300-normal.woff2",
-		package="@fontsource/roboto-serif",
-		version="5.2.6",
+		# **The face a reader reads, at the weight the page reads it** (`#2877`, `#2873`). Inter at
+		# its usual 400 carries as much ink as the serif that read heavy, so the body is set at 300
+		# here as it was there. **The notice is `rsms/inter`'s own `LICENSE.txt`**, not the
+		# repackager's: Fontsource's published `LICENSE` is a template naming Google Inc. whatever
+		# the font (`#2868`).
+		filename="inter-latin-300-normal.woff2",
+		package="@fontsource/inter",
+		version="5.3.0",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
-		notice="roboto-serif.LICENSE",
-		digest="sha256:f0b6876cb44771cd1641a03cf11b12de3ff86cd2325680c044a971c5b27852b8",
+		source="https://registry.npmjs.org/@fontsource/inter/-/inter-5.3.0.tgz",
+		notice="inter.LICENSE",
+		digest="sha256:be0276550393a72b94d673505567dceba801511d5e1ca5a87793190dc5d5a6ca",
 	),
 	Vendored(
-		# **The face a reader reads** (`#2870`), and the weight nothing much declares any more
-		# (`#2873`): the explicit 400s all sit inside contexts that declare 600, where they are a
-		# reduction rather than a value. It is kept so a future `font-weight: 400` cannot render
-		# 300 or 500 in silence. The files are byte-identical to the copies in
-		# `projects/websites/subsystem-co` - the same Fontsource subsets, so the two products set
-		# text in literally the same bytes rather than in the same name.
-		#
-		# **The notice is upstream's, not the repackager's.** Fontsource's published `LICENSE` is a
-		# template naming Google Inc. whatever the font (`#2868`), so these come from the font
-		# projects and carry the copyright line an OFL notice exists to carry.
-		filename="roboto-serif-latin-400-normal.woff2",
-		package="@fontsource/roboto-serif",
-		version="5.2.6",
+		# Kept although almost nothing declares it (`#2873`): the explicit 400s sit inside contexts
+		# declaring 600, and a missing weight is substituted in silence (`#2871`).
+		filename="inter-latin-400-normal.woff2",
+		package="@fontsource/inter",
+		version="5.3.0",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
-		notice="roboto-serif.LICENSE",
-		digest="sha256:cec32879f952cdc0569e5b8428c25622f229b60e2a075c41fb4243bfd268a5aa",
+		source="https://registry.npmjs.org/@fontsource/inter/-/inter-5.3.0.tgz",
+		notice="inter.LICENSE",
+		digest="sha256:8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc",
 	),
 	Vendored(
-		filename="roboto-serif-latin-500-normal.woff2",
-		package="@fontsource/roboto-serif",
-		version="5.2.6",
+		filename="inter-latin-500-normal.woff2",
+		package="@fontsource/inter",
+		version="5.3.0",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
-		notice="roboto-serif.LICENSE",
-		digest="sha256:656e5247a1fa973f9c6588f7c9be7547a004617115e24ccfba826a013b87269b",
+		source="https://registry.npmjs.org/@fontsource/inter/-/inter-5.3.0.tgz",
+		notice="inter.LICENSE",
+		digest="sha256:f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f",
 	),
 	Vendored(
-		filename="roboto-serif-latin-600-normal.woff2",
-		package="@fontsource/roboto-serif",
-		version="5.2.6",
+		filename="inter-latin-600-normal.woff2",
+		package="@fontsource/inter",
+		version="5.3.0",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
-		notice="roboto-serif.LICENSE",
-		digest="sha256:1c4084e929cf22047de0c1d4d7da5e93c0a2947565b739de67f9d559ca62c604",
+		source="https://registry.npmjs.org/@fontsource/inter/-/inter-5.3.0.tgz",
+		notice="inter.LICENSE",
+		digest="sha256:f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a",
 	),
 	Vendored(
-		# **The face code is set in, and the item number with it** (`#2870`). 600 is here because
-		# `**`code`**` renders `strong > code` and a `th` is 600: without a real bold face a browser
-		# smears the regular one, and it does it silently.
-		filename="roboto-mono-latin-400-normal.woff2",
-		package="@fontsource/roboto-mono",
-		version="5.2.6",
+		# **The face code and the item number are set in** (`#2877`), back exactly as `#2868`
+		# reviewed it - the same package, version and digests, recovered from that commit rather
+		# than fetched again. 600 is here because `**`code`**` renders `strong > code` and a `th` is
+		# 600: without a real bold face a browser smears the regular one, and says nothing.
+		filename="jetbrains-mono-latin-400-normal.woff2",
+		package="@fontsource/jetbrains-mono",
+		version="5.2.5",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-mono/-/roboto-mono-5.2.6.tgz",
-		notice="roboto-mono.LICENSE",
-		digest="sha256:e03013e0baa5690a803c188da2214d920c3245b25ad78421ecc8ae86cd842ae9",
+		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
+		notice="jetbrains-mono.LICENSE",
+		digest="sha256:14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb",
 	),
 	Vendored(
-		filename="roboto-mono-latin-600-normal.woff2",
-		package="@fontsource/roboto-mono",
-		version="5.2.6",
+		filename="jetbrains-mono-latin-600-normal.woff2",
+		package="@fontsource/jetbrains-mono",
+		version="5.2.5",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/roboto-mono/-/roboto-mono-5.2.6.tgz",
-		notice="roboto-mono.LICENSE",
-		digest="sha256:0ee2e6f8f9dcd2af7bc0c6b519c283954242824258b652cdb6017bc578e2c493",
+		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
+		notice="jetbrains-mono.LICENSE",
+		digest="sha256:400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",
 	),
 )
