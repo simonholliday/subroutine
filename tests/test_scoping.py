@@ -23,6 +23,7 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.comments
 import subroutine.domain.documents
+import subroutine.domain.journal
 import subroutine.domain.projects
 import subroutine.domain.scoping
 import subroutine.domain.selection
@@ -1145,6 +1146,55 @@ def test_a_read_narrowed_credential_cannot_read_past_its_scope (
 	permitted = subroutine.domain.authentication.Principal(user=world.owner, token=reading)
 
 	assert _titles(session, permitted, world.workspace)
+
+
+def test_a_kind_a_credential_cannot_read_names_nothing_of_that_kind (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#2890`: `SR#2726`'s arm for a credential that cannot read a kind at all ran in no test.
+
+	An entry can be visible while something named *inside* it is not. `readable_among` answers
+	``None`` for a kind the credential may not read, and `readable_only` turns that into an empty
+	set. **Inverting it** - naming everything asked about, which is the exact leak `SR#2726`
+	prevents - **left every scoping and journal test green**, because every reader they built
+	could read both kinds (the cold review of 2026-09-18's M-6).
+
+	So it is asked directly: a credential that reads projects and not tasks is asked to name one
+	of each. **The control is an unnarrowed reader naming both**, so an empty answer below is the
+	narrowing and not an empty world; and `readable_among` is asked too, so the arm this exists
+	for is the one that ran.
+	"""
+
+	task = subroutine.domain.tasks.create(session, project=world.public, title="Named in a change")
+	projects_only, _secret = subroutine.domain.authentication.issue_token(
+		session, user=world.owner, title="projects only", scopes=["project:read"]
+	)
+	session.flush()
+
+	journal = subroutine.domain.journal
+	narrowed = subroutine.domain.authentication.Principal(user=world.owner, token=projects_only)
+	whole = subroutine.domain.authentication.Principal(user=world.owner)
+
+	def named (principal: subroutine.domain.authentication.Principal) -> dict[str, set[uuid.UUID]]:
+		"""Return what this reader may see named of one task and one project."""
+
+		return journal.readable_only(
+			session,
+			{journal.PROJECT: {world.public.id}, journal.TASK: {task.id}},
+			principal=principal,
+			workspace_ids=[world.workspace.id],
+		)
+
+	assert subroutine.domain.scoping.readable_among(
+		narrowed, workspace_ids=[world.workspace.id], kind=journal.TASK, identifiers={task.id}
+	) is None, "the credential can read tasks after all, so the arm below is not the one asked"
+
+	assert named(whole) == {journal.PROJECT: {world.public.id}, journal.TASK: {task.id}}
+
+	seen = named(narrowed)
+
+	assert seen[journal.PROJECT] == {world.public.id}, seen
+	assert seen[journal.TASK] == set(), f"a credential that cannot read tasks was told one's name: {seen}"
 
 
 def test_the_change_feed_narrows_to_the_kinds_a_credential_may_read (
