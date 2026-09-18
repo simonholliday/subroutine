@@ -165,60 +165,60 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:c3c291158a48c5172383ec8febb21ca64075b7c9d8413553683b254a247efdda",
 	),
 	Vendored(
-		# **The face a reader reads** (`#2868`), in the three weights `app.css` declares: 400 for
-		# text, 500 for a row's title, 600 for a heading inside prose and a table's head. Chosen on
-		# a measurement rather than by eye - it keeps `l` and `I` apart, which the taller-x-height
-		# alternative did not, and a row of refs and usernames is where that is paid for.
+		# **The face a reader reads** (`#2870`), in the three weights `app.css` declares: 400 for
+		# text, 500 for a row's title, 600 for a heading inside prose and a table's head. It is the
+		# site's own reading face, and these files are byte-identical to the copies in
+		# `projects/websites/subsystem-co` - the same Fontsource subsets, so the two products set
+		# text in literally the same bytes rather than in the same name.
 		#
-		# **The notice is the upstream one, not the one the repackager serves.** Fontsource's
-		# published `LICENSE` is a template: byte-identical across these two packages and naming
-		# Google Inc. for both, where the OFL wants the holder. These came from the font projects
-		# themselves, and they carry the copyright line that makes a notice worth shipping at all.
-		filename="ibm-plex-sans-latin-400-normal.woff2",
-		package="@fontsource/ibm-plex-sans",
+		# **The notice is upstream's, not the repackager's.** Fontsource's published `LICENSE` is a
+		# template naming Google Inc. whatever the font (`#2868`), so these come from the font
+		# projects and carry the copyright line an OFL notice exists to carry.
+		filename="roboto-serif-latin-400-normal.woff2",
+		package="@fontsource/roboto-serif",
 		version="5.2.6",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
-		notice="ibm-plex-sans.LICENSE",
-		digest="sha256:3b646991d30055a93a4ecc499713d4347953a74a947ecab435ab72070cbdab0e",
+		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
+		notice="roboto-serif.LICENSE",
+		digest="sha256:cec32879f952cdc0569e5b8428c25622f229b60e2a075c41fb4243bfd268a5aa",
 	),
 	Vendored(
-		filename="ibm-plex-sans-latin-500-normal.woff2",
-		package="@fontsource/ibm-plex-sans",
+		filename="roboto-serif-latin-500-normal.woff2",
+		package="@fontsource/roboto-serif",
 		version="5.2.6",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
-		notice="ibm-plex-sans.LICENSE",
-		digest="sha256:0717336fb31fcdcde4b8deb3675bb4a0f7f6d484864afcd6751ac29975962203",
+		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
+		notice="roboto-serif.LICENSE",
+		digest="sha256:656e5247a1fa973f9c6588f7c9be7547a004617115e24ccfba826a013b87269b",
 	),
 	Vendored(
-		filename="ibm-plex-sans-latin-600-normal.woff2",
-		package="@fontsource/ibm-plex-sans",
+		filename="roboto-serif-latin-600-normal.woff2",
+		package="@fontsource/roboto-serif",
 		version="5.2.6",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/ibm-plex-sans/-/ibm-plex-sans-5.2.6.tgz",
-		notice="ibm-plex-sans.LICENSE",
-		digest="sha256:8960851d691c054ed38e259bdcf1a6190d157b4203ed5bb32c632a863fb8ec2f",
+		source="https://registry.npmjs.org/@fontsource/roboto-serif/-/roboto-serif-5.2.6.tgz",
+		notice="roboto-serif.LICENSE",
+		digest="sha256:1c4084e929cf22047de0c1d4d7da5e93c0a2947565b739de67f9d559ca62c604",
 	),
 	Vendored(
-		# **The face code is set in, and the item number with it** (`#2868`). 600 is here because
+		# **The face code is set in, and the item number with it** (`#2870`). 600 is here because
 		# `**`code`**` renders `strong > code` and a `th` is 600: without a real bold face a browser
 		# smears the regular one, and it does it silently.
-		filename="jetbrains-mono-latin-400-normal.woff2",
-		package="@fontsource/jetbrains-mono",
-		version="5.2.5",
+		filename="roboto-mono-latin-400-normal.woff2",
+		package="@fontsource/roboto-mono",
+		version="5.2.6",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
-		notice="jetbrains-mono.LICENSE",
-		digest="sha256:14425ba9c695763c1547f48a206b7aa60350a33ae23de09f0407877f3fcd89eb",
+		source="https://registry.npmjs.org/@fontsource/roboto-mono/-/roboto-mono-5.2.6.tgz",
+		notice="roboto-mono.LICENSE",
+		digest="sha256:e03013e0baa5690a803c188da2214d920c3245b25ad78421ecc8ae86cd842ae9",
 	),
 	Vendored(
-		filename="jetbrains-mono-latin-600-normal.woff2",
-		package="@fontsource/jetbrains-mono",
-		version="5.2.5",
+		filename="roboto-mono-latin-600-normal.woff2",
+		package="@fontsource/roboto-mono",
+		version="5.2.6",
 		licence="OFL-1.1",
-		source="https://registry.npmjs.org/@fontsource/jetbrains-mono/-/jetbrains-mono-5.2.5.tgz",
-		notice="jetbrains-mono.LICENSE",
-		digest="sha256:400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",
+		source="https://registry.npmjs.org/@fontsource/roboto-mono/-/roboto-mono-5.2.6.tgz",
+		notice="roboto-mono.LICENSE",
+		digest="sha256:0ee2e6f8f9dcd2af7bc0c6b519c283954242824258b652cdb6017bc578e2c493",
 	),
 )

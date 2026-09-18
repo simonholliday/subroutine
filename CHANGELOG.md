@@ -22,14 +22,13 @@ upgrade involves.
 
 - **Headings and the product's name are set in Lexend**, the font the branding names.
 
-- **Reading text is set in IBM Plex Sans and code in JetBrains Mono.** Both were picked by
-  measuring rather than by eye, because this app works at small sizes: its commonest text is
-  15px and a code block is 14px. The test was how much of each letter you actually get at
-  that size, and whether the pairs that get misread stay apart - `l` against `I`, `0`
-  against `O` - which matters on rows carrying item numbers, usernames and project keys.
-  Code and the item number on every row share the one face.
+- **Reading text is set in Roboto Serif and code in Roboto Mono**, which with Lexend for
+  headings makes the app and the Subsystem site one type system rather than two that share
+  a heading. Code and the item number on every row share the one face, so the pairs that
+  get misread - `l` against `I`, `0` against `O` - were weighed at the size they are
+  actually read at rather than in a specimen.
 
-  All seven faces are served by the instance itself - 140 KB, fetched once and then cached -
+  All seven faces are served by the instance itself - 134 KB, fetched once and then cached -
   so a browser still asks for nothing from anywhere else, which is what makes the app work
   behind a VPN.
 

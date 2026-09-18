@@ -7,21 +7,21 @@
 	that says so; blocked is marked *and* labelled. A reader who cannot distinguish the hues
 	loses nothing.
 
-	**Three families, one for each thing type has to do here** (`#2865`, `#2868`). Headings and
-	the wordmark are Lexend, which is what Simon's branding names the products' own names in.
-	Reading text is IBM Plex Sans and code is JetBrains Mono, and those two were **measured**
-	rather than chosen by eye, because the sizes this app works at are small: `--text-small` is
-	fifty of eighty-one declarations and a fenced block is `--text-fine`.
+	**Three families, and they are the product family's** (`#2865`, `#2868`, `#2870`). Lexend for
+	headings and the wordmark, Roboto Serif for reading text, Roboto Mono for code - which is
+	exactly what `projects/websites/subsystem-co` sets, so the app and the site are one type
+	system rather than sharing a heading face and disagreeing beneath it. The three shared
+	weights are **byte-identical** to the site's copies, being the same Fontsource subsets.
 
-	**x-height at the real pixel size is what the choice turned on**, since at a fixed size it is
-	literally how many pixels the lowercase gets, and lowercase is what a reader reads. A second
-	measurement scored how far apart a confusable pair is drawn. Inter has the tallest x-height
-	of the faces tried and was **refused on the second**: its `l` and `I` are nearly one stroke,
-	which is the wrong trade on rows carrying refs, usernames, project keys and token prefixes.
-	IBM Plex Sans keeps those apart and is the most economical of them, so fewer titles wrap.
-	JetBrains Mono carries 5.8% more x-height than the Plex mono at 14px, which is where it
-	counts - and **the mono is not only for markdown**: `.ref` wears it, so it draws the item
-	number on every row.
+	**Measured at the sizes this app actually works at**, which are small - `--text-small` is
+	fifty of eighty-one declarations and a fenced block is `--text-fine`. x-height at the real
+	pixel size is the number that matters, since at a fixed size it is literally how many pixels
+	the lowercase gets. Roboto Serif carries more of it than the sans it replaced (8.10px against
+	7.80px at 15px) and draws `0` against `O` and `rn` against `m` further apart than anything
+	else tried; **its cost is width**, 13% wider for the same row title, so more of them wrap.
+
+	**The mono is not only for markdown**: `.ref` wears it, so it draws the item number on every
+	row, which is why it is judged on `0` against `O` rather than on how a fenced block looks.
 
 	**Served by this instance, never fetched from anywhere** — which is what kept the old rule's
 	reason true rather than trading it away: there is no network to fetch a font from on an
@@ -39,19 +39,20 @@
 */
 
 /*
-	**Every face, in the weights its role actually asks for** (`#2865`, `#2868`). Fontsource's
+	**Every face, in the weights its role actually asks for** (`#2865`, `#2870`). Fontsource's
 	Latin subsets, each vendored with its licence and recorded in `web/vendored.py`. Lexend 400
-	and 600 for the headings; IBM Plex Sans 400, 500 and 600, which is every weight this file
-	declares; JetBrains Mono 400 and 600, the second because `**`code`**` renders `strong > code`
+	and 600 for the headings; Roboto Serif 400, 500 and 600, which is every weight this file
+	declares; Roboto Mono 400 and 600, the second because `**`code`**` renders `strong > code`
 	and a `th` is 600, so one weight alone would be synthesised into a smear.
 
 	**Relative, so it resolves against this stylesheet** — the app's files are served flat at
 	`/app/<name>`, and a bare name cannot be wrong if the app is ever mounted somewhere else.
 	The mask below is written the same way for the same reason.
 
-	**`swap`, so a heading is readable before the font arrives.** The fallback is the system
-	sans the rest of the page is set in, so what changes when it lands is the shape of the
-	letters and not the layout of the page.
+	**`swap`, so the page is readable before a face arrives.** Each stack falls back to the
+	machine's own, so what changes when one lands is the shape of the letters. **The serif is
+	the one to watch there**: its fallback is a system serif of a different width, so a reader
+	on a slow connection sees the text reflow rather than merely change shape.
 */
 @font-face {
 	font-family: "Lexend";
@@ -70,40 +71,40 @@
 }
 
 @font-face {
-	font-family: "IBM Plex Sans";
-	src: url("ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+	font-family: "Roboto Serif";
+	src: url("roboto-serif-latin-400-normal.woff2") format("woff2");
 	font-weight: 400;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "IBM Plex Sans";
-	src: url("ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+	font-family: "Roboto Serif";
+	src: url("roboto-serif-latin-500-normal.woff2") format("woff2");
 	font-weight: 500;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "IBM Plex Sans";
-	src: url("ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+	font-family: "Roboto Serif";
+	src: url("roboto-serif-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "JetBrains Mono";
-	src: url("jetbrains-mono-latin-400-normal.woff2") format("woff2");
+	font-family: "Roboto Mono";
+	src: url("roboto-mono-latin-400-normal.woff2") format("woff2");
 	font-weight: 400;
 	font-style: normal;
 	font-display: swap;
 }
 
 @font-face {
-	font-family: "JetBrains Mono";
-	src: url("jetbrains-mono-latin-600-normal.woff2") format("woff2");
+	font-family: "Roboto Mono";
+	src: url("roboto-mono-latin-600-normal.woff2") format("woff2");
 	font-weight: 600;
 	font-style: normal;
 	font-display: swap;
@@ -158,8 +159,8 @@
 	   the machine's own, which is what `swap` above is for, and it is why these keep naming
 	   the system families rather than resting on the vendored file being there. */
 	--font-heading: "Lexend", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	--font-text: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-	--font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	--font-text: "Roboto Serif", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+	--font-code: "Roboto Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
 	/* **The palette a workspace or a project may be marked with** (`#1027`, design `#1023`).
 	   Eight names, chosen from `domain/palette.py`, which stores a *name* and never a value —

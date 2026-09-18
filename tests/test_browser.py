@@ -3279,19 +3279,19 @@ def test_a_pinned_theme_beats_the_machines (running: typing.Any) -> None:
 		body: getComputedStyle(document.body).fontFamily,
 		code: getComputedStyle(document.querySelector(".ref")).fontFamily,
 		lexend: document.fonts.check("600 20px Lexend"),
-		plex: document.fonts.check('500 15px "IBM Plex Sans"'),
-		mono: document.fonts.check('400 14px "JetBrains Mono"'),
+			serif: document.fonts.check('500 15px "Roboto Serif"'),
+			mono: document.fonts.check('400 14px "Roboto Mono"'),
 	})"""
 	)
 
 	assert lettering["wordmark"].startswith("Lexend"), lettering
 	assert lettering["heading"].startswith("Lexend"), lettering
-	assert lettering["body"].startswith('"IBM Plex Sans"'), lettering
-	assert lettering["code"].startswith('"JetBrains Mono"'), lettering
+	assert lettering["body"].startswith('"Roboto Serif"'), lettering
+	assert lettering["code"].startswith('"Roboto Mono"'), lettering
 
 	# Each face is asked for separately, because they are separate files and a stack hides
 	# which one is missing.
-	for face in ("lexend", "plex", "mono"):
+	for face in ("lexend", "serif", "mono"):
 		assert lettering[face], (
 			f"{face} never arrived, so the page fell back to a system face: {lettering}"
 		)
