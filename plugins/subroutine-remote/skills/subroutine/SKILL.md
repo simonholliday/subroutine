@@ -216,8 +216,9 @@ Four answers are worth acting on:
   no work" rather than "you cannot see it".
 - **More than one workspace** means a number can name a different item in each, so a call that
   does not say which is refused, naming them. Pass `workspace` on every call from the first one,
-  or ask the person to set the plugin's `workspace` setting, which every tool then takes as its
-  default.
+  or ask the person to set a default, which every tool then takes: the `workspace` setting on
+  the `subroutine` plugin, or `?workspace=` on the address of the `subroutine-remote` one, which
+  has no such setting.
 - **A line after the versions** names something worth acting on, and they are different
   problems: *the program and the instance disagree* means one of them has a field the other does
   not; *the plugin is older than the program* — or *older than the instance*, where you reached
