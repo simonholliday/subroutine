@@ -12,11 +12,16 @@ import typing
 import pytest
 import sqlalchemy.orm
 
+import api_support
 import subroutine.api.app
 import subroutine.api.routing
 import subroutine.api.schema
 import subroutine.api.security
+import subroutine.clients.local
+import subroutine.config
+import subroutine.connections
 import subroutine.db.migrate
+import subroutine.errors
 import test_api_tasks
 
 
@@ -38,6 +43,39 @@ def _disagree (world: test_api_tasks.World) -> None:
 
 	world.application.state.schema_head = "not-a-revision-anybody-has"
 	world.application.state.schema_agrees = False
+
+
+def test_a_local_client_that_refused_a_schema_goes_on_refusing_it (
+	world: test_api_tasks.World,
+	session: sqlalchemy.orm.Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#2647`: the local client marked its check done before it compared.
+
+	So the first session on a client that met a database this build does not match was refused,
+	and every later session returned at the mark and ran against it - the ``no such column`` the
+	check exists to replace. Asked twice through one client, as a merged read that goes on after
+	one connection fails would ask it. The expected head is patched rather than the database's
+	row, for :func:`_disagree`'s reason.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.db.migrate, "head_revision", lambda: "not-a-revision-anybody-has"
+	)
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		with pytest.raises(subroutine.errors.SchemaMismatch):
+			client.me()
+
+		# **And again, which is the defect**: the mark said checked and nothing was compared.
+		with pytest.raises(subroutine.errors.SchemaMismatch):
+			client.me()
 
 
 def test_a_read_still_works_when_the_schema_is_behind (world: test_api_tasks.World) -> None:

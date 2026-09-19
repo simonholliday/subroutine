@@ -3708,13 +3708,17 @@ class Client:
 		if self._schema_checked:
 			return
 
-		self._schema_checked = True
-
 		current = subroutine.db.migrate.revision_on(session.connection())
 		expected = subroutine.db.migrate.head_revision()
 		mismatch = subroutine.db.migrate.mismatch_reason(current, expected)
 
+		# **Marked checked only once it has passed** (`#2647`). The flag was set before the
+		# comparison, so a client refused once returned here on every later session and ran
+		# against the database it had just refused - and a merged read goes on after one
+		# connection fails, since `fanout._attempt` reports a refusal rather than stopping.
 		if mismatch is None:
+			self._schema_checked = True
+
 			return
 
 		detail, hint = mismatch
