@@ -325,7 +325,8 @@ def _printed (error: subroutine.errors.SubroutineError, *, connection: str | Non
 	a connection next, without anybody remembering.
 
 	``connection`` says where a refusal came from, for a read that asked several and prints
-	what one of them turned down beside what the others answered (`#2954`).
+	what one of them turned down beside what the others answered (`#2954`). There the
+	refusal keeps its fields and leaves its own hint out, for the reason given where it does.
 	"""
 
 	hint = error.hint
@@ -353,6 +354,13 @@ def _printed (error: subroutine.errors.SubroutineError, *, connection: str | Non
 		fields.append(
 			field if spelling == field.field else dataclasses.replace(field, field=spelling)
 		)
+
+	# **Beside what other connections answered, the refusal's own hint is left out**
+	# (`#2954`). `Program.opened` records why: beside a partial result a hint per connection
+	# is noise - a dead server among three is one line, not a remedy under every listing. The
+	# fields stay, because they are the question's own answer: the values a field accepts.
+	if connection is not None:
+		hint = None
 
 	detail = error.detail if connection is None else f"{connection}: {error.detail}"
 
@@ -412,7 +420,8 @@ def _refused (error: subroutine.errors.SubroutineError, connection: str) -> None
 
 	Through :func:`_printed`, so the refusal says what it says everywhere else - the field it
 	is about and the values that exist - rather than its first line alone, which is what a
-	merged read printed until `#2954`. `#79` was the same defect on the single path.
+	merged read printed until `#2954`. `#79` was the same defect on the single path. Its own
+	hint is left out, as it always was here; :func:`_printed` says why.
 	"""
 
 	_printed(error, connection=connection)

@@ -4111,7 +4111,9 @@ def test_a_connection_that_did_not_answer_is_named_rather_than_passed_over (
 	assert "Added work to" in result.output, "the caveat is a note, not a refusal"
 
 
-def _refusal_as_printed (error: subroutine.errors.SubroutineError) -> str:
+def _refusal_as_printed (
+	error: subroutine.errors.SubroutineError, connection: str | None = None
+) -> str:
 	"""Return what the terminal writes for a refusal that came back over the wire.
 
 	Driven through :func:`subroutine.cli.main._printed` rather than reconstructed, because the
@@ -4130,7 +4132,7 @@ def _refusal_as_printed (error: subroutine.errors.SubroutineError) -> str:
 	subroutine.cli.main._err = console
 
 	try:
-		subroutine.cli.main._printed(error)
+		subroutine.cli.main._printed(error, connection=connection)
 
 	finally:
 		subroutine.cli.main._err = was
@@ -4178,6 +4180,45 @@ def test_a_refusal_reaches_the_terminal_in_the_terminal_s_own_words (named: str)
 	assert "query." not in printed, (
 		f"a location a terminal reader has no way to act on reached them:\n{printed}"
 	)
+
+
+def test_a_refusal_beside_other_connections_keeps_its_fields_and_leaves_its_hint_out () -> None:
+	"""`SR#2954`: what one connection refused, in a read the others answered.
+
+	The field lines stay, because they carry the question's own answer - the values a field
+	accepts, which ``list --status`` printed nothing of until this. The refusal's own hint goes,
+	because beside a partial result a hint per connection is noise, as ``Program.opened``
+	records: a dead server among three is one line, not a remedy under every listing.
+	"""
+
+	printed = _refusal_as_printed(
+		subroutine.errors.ValidationError(
+			"There is no task status called 'x' here.",
+			hint="Check that the instance is running.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="status",
+					code="not_found",
+					message="No task status with key 'x' exists in this workspace.",
+					hint="Statuses here: done, open.",
+				)
+			],
+		),
+		connection="work",
+	)
+
+	assert printed.startswith("work: There is no task status called 'x' here."), printed
+	assert "Statuses here: done, open." in printed, printed
+	assert "Check that the instance is running." not in printed, printed
+
+	# And a refusal printed on its own keeps its hint, which is the other half of the rule.
+	alone = _refusal_as_printed(
+		subroutine.errors.ServiceUnavailable(
+			"work could not be reached.", hint="Check that the instance is running."
+		)
+	)
+
+	assert "Check that the instance is running." in alone, alone
 
 
 def test_a_field_the_terminal_has_no_word_for_keeps_the_one_it_was_given () -> None:
