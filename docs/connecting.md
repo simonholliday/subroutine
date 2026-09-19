@@ -511,7 +511,7 @@ its own piece of work rather than a variation on the section above.
 work differently, they are not interchangeable, and only one of them has been driven end to end
 by us:
 
-| | what it is | where it is known to work |
+| | What it is | Where it is known to work |
 | --- | --- | --- |
 | [An agent, with nothing installed](#an-agent-with-nothing-installed) | an HTTP server, reached with a token you paste | **Claude Code - tested.** Not the desktop apps: a connector there wants an authorisation flow rather than a pasted token, which is the whole of what is unbuilt above. |
 | [An agent, on the machine holding the work](#an-agent-on-the-machine-holding-the-work) | a program started on your own machine | **Claude Code - tested.** A desktop app that can start a local program, **untested by us** - if you try it, we would like to know. |

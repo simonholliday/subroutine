@@ -597,6 +597,30 @@ def test_every_mounted_route_commits_before_it_answers () -> None:
 	)
 
 
+def test_every_route_the_api_publishes_has_a_summary_somebody_wrote () -> None:
+	"""A route with no ``summary`` is published under its function's name, title-cased (`#2809`).
+
+	FastAPI makes one up rather than leaving it out, so ``create_backup`` reached the OpenAPI
+	document as *Create Backup*: a heading in every reference built from it, and one of the only
+	two title-cased headings in the application, because nobody had written either. Measured
+	when this was added, 118 of the 120 routes declared a summary, and those two were the rest.
+	"""
+
+	unnamed = [
+		f"{sorted(verbs)} {path}"
+		for path, verbs, route in subroutine.api.routing.mounted(subroutine.api.app.ROUTERS)
+		if isinstance(route, fastapi.routing.APIRoute)
+		and route.include_in_schema
+		and not route.summary
+	]
+
+	assert not unnamed, (
+		"These routes declare no summary, so the published schema heads each with its "
+		f"function's name in title case: {', '.join(unnamed)}. Give each a summary in sentence "
+		"case, as its neighbours have."
+	)
+
+
 def test_a_write_is_committed_before_its_response_is_sent (
 	tmp_path: pathlib.Path,
 ) -> None:

@@ -81,7 +81,7 @@ def _rendered (backup: subroutine.db.backup.Backup) -> Backup:
 	)
 
 
-@router.post("/backups", response_model=Backup, status_code=201)
+@router.post("/backups", response_model=Backup, status_code=201, summary="Take a backup")
 def create_backup (
 	actor: subroutine.api.security.PrincipalDep,
 	settings: subroutine.api.dependencies.SettingsDep,
@@ -136,7 +136,7 @@ def _engine_behind (session: sqlalchemy.orm.Session) -> sqlalchemy.engine.Engine
 	return bind
 
 
-@router.get("/backups", response_model=Backups)
+@router.get("/backups", response_model=Backups, summary="List the backups this instance holds")
 def list_backups (
 	actor: subroutine.api.security.PrincipalDep,
 	settings: subroutine.api.dependencies.SettingsDep,
