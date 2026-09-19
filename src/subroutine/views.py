@@ -1855,8 +1855,8 @@ class Caller(pydantic.BaseModel):
 	#: Null when the account has none. Reported only about oneself.
 	email: str | None
 
-	#: Null means "not stated", so the workspace's zone and then the instance's show through
-	#: (§12.3).
+	#: Null means "not stated", so an agent's account parent's zone shows through, and then
+	#: the workspace's and the instance's (§12.3, `#2974`).
 	timezone: str | None
 
 	is_superuser: bool
@@ -5560,6 +5560,49 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 		f"'subroutine user timezone <zone>' sets it for {me.user.username}, which is the "
 		f"account this credential is for — and no other.",
 	]
+
+
+def read_in (me: Me) -> list[str]:
+	"""Say which zone this account's days are read in, with no machine to compare - `#2983`.
+
+	:func:`zones` answers another question, whether the machine agrees, and says nothing where
+	no machine can be seen: every relayed agent, since `#539` runs those tools inside the
+	instance. So an agent calling ``subroutine_whoami`` before its first write, as the skill
+	tells it to, was never told the one fact that decided `#2972`'s hour. This is that fact
+	on its own.
+
+	**Whose it is, when it is not the account's own** (`#2974`): an agent that has set none
+	reads days in its account parent's, and naming the parent says where it would change.
+	**Per workspace when they differ**, which only an account whose whole chain has set none
+	can see, since each workspace's own zone then decides inside it.
+
+	Silent when the instance publishes no resolved zone (`#345`): *did not say* is not an
+	answer to state.
+	"""
+
+	named = {
+		workspace.slug: workspace.reader_timezone
+		for workspace in me.workspaces
+		if workspace.reader_timezone is not None
+	}
+	distinct = sorted(set(named.values()))
+
+	if len(distinct) > 1:
+		each = ", ".join(f"{zone} in {slug}" for slug, zone in named.items())
+
+		return [f"Days for {me.user.username} are read in each workspace's own zone: {each}."]
+
+	zone = distinct[0] if distinct else me.reader_timezone
+
+	if zone is None:
+		return []
+
+	said = f"Days for {me.user.username} are read in {zone}"
+
+	if me.user.timezone is None and me.user.account_parent is not None:
+		said += f", its account parent {me.user.account_parent}'s: it has set none of its own"
+
+	return [f"{said}."]
 
 
 #: How somebody finds out whether what they are running is behind what has been *published*

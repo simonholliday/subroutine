@@ -1786,16 +1786,20 @@ def _whoami (
 	# would compare an account against a machine nobody is sitting at and label it the
 	# caller's — which is the direction that reassures, and therefore the worst one to get
 	# wrong.
-	lines.extend(
-		subroutine.views.zones(
-			me,
-			machine=(
-				None
-				if beside_the_caller is None
-				else subroutine.config.system_timezone()
-			),
-		)
+	compared = subroutine.views.zones(
+		me,
+		machine=(
+			None
+			if beside_the_caller is None
+			else subroutine.config.system_timezone()
+		),
 	)
+
+	# **And the zone itself when nothing was compared** (`#2983`). The comparison is silent
+	# wherever no machine can be seen, which is every relayed connection, and wherever the two
+	# agree - so an agent was never told where its days are read. It names the zone whenever it
+	# does speak, so this is one line or the other and never both.
+	lines.extend(compared or subroutine.views.read_in(me))
 
 	return "\n".join(lines)
 

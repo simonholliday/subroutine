@@ -3878,6 +3878,79 @@ def test_an_agent_that_has_said_no_zone_writes_a_time_where_its_account_parent_i
 	)
 
 
+def test_an_agent_asking_who_it_is_is_told_where_its_days_are_read (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2983`: the tool the skill says to call before a first write names the zone.
+
+	The comparison with the machine is silent here by design, since these tools run beside no
+	machine of the caller's, so it said nothing at all. For an agent that has set none, the zone
+	is its account parent's (`SR#2974`), and the line says so by name.
+	"""
+
+	installed = subroutine.domain.bootstrap.initialise(
+		session,
+		username=f"si-{uuid.uuid4().hex[:8]}",
+		instance_name="Test",
+		timezone="America/New_York",
+	)
+	installed.user.timezone = "Europe/London"
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=installed.user.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=installed.workspace, user=agent, role_key="member"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, local_user=agent.username),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		text, failed = _called(server, "subroutine_whoami")
+
+	assert not failed, text
+	assert (
+		f"Days for {agent.username} are read in Europe/London, its account parent "
+		f"{installed.user.username}'s: it has set none of its own."
+	) in text, text
+
+
+def test_beside_the_caller_the_zone_is_said_once_whether_or_not_the_machine_agrees (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2983`: the comparison names the zone when it speaks, so the plain line does not.
+
+	One line or the other, never both: a machine that differs gets the comparison and its
+	remedy, and a machine that agrees gets the zone on its own, where it used to get nothing.
+	"""
+
+	monkeypatch.setenv(
+		subroutine.installations.PLUGIN_ROOT,
+		str(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"),
+	)
+
+	for machine, compared in (("Pacific/Auckland", True), ("UTC", False)):
+		monkeypatch.setattr(subroutine.config, "system_timezone", lambda zone=machine: zone)
+		text, failed = _called(bound, "subroutine_whoami")
+
+		assert not failed, text
+
+		said = [line for line in text.splitlines() if line.startswith("Days for ")]
+
+		assert len(said) == 1, f"{machine}: the zone was said {len(said)} times:\n{text}"
+		assert ("this machine is set to" in said[0]) is compared, said[0]
+
+
 @pytest.mark.parametrize(
 	("timezone", "at", "expected"),
 	[

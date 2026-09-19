@@ -911,3 +911,62 @@ class TestWhichZonesAreNamed:
 		"""*Did not say* rather than *they match*, which a line either way would claim."""
 
 		assert subroutine.views.zones(_me(zones=[None]), machine="Asia/Tokyo") == []
+
+
+def _agent (me: subroutine.views.Me, *, parent: str) -> subroutine.views.Me:
+	"""Return ``me`` as an agent that has set no zone of its own and answers to ``parent``."""
+
+	return me.model_copy(
+		update={
+			"user": me.user.model_copy(
+				update={"username": "bot", "is_service_account": True, "account_parent": parent}
+			)
+		}
+	)
+
+
+class TestTheZoneAnAgentIsTold:
+	"""``views.read_in``, the zone on its own for a surface that can see no machine (`SR#2983`).
+
+	:func:`subroutine.views.zones` stays silent there by design, so these are the cases this
+	has to get right without it: one zone, one inherited, several, and none published.
+	"""
+
+	def test_one_zone_is_named (self) -> None:
+		"""The ordinary answer, and it is a statement rather than a comparison."""
+
+		assert subroutine.views.read_in(_me(zones=["Europe/London", "Europe/London"])) == [
+			"Days for si are read in Europe/London."
+		]
+
+	def test_an_agent_that_has_set_none_is_told_whose_it_is (self) -> None:
+		"""`SR#2974`'s step, named where it applies, so an agent knows where it would change."""
+
+		said = subroutine.views.read_in(_agent(_me(zones=["Europe/London"]), parent="si"))
+
+		assert said == [
+			"Days for bot are read in Europe/London, its account parent si's: it has set none "
+			"of its own."
+		]
+
+	def test_workspaces_that_differ_are_each_named_with_their_zone (self) -> None:
+		"""Only an account whose chain has set none sees this, and each zone holds in its own."""
+
+		said = subroutine.views.read_in(_me(zones=["Asia/Tokyo", "America/New_York"]))
+
+		assert said == [
+			"Days for si are read in each workspace's own zone: Asia/Tokyo in w0, "
+			"America/New_York in w1."
+		]
+
+	def test_with_no_workspace_the_accounts_own_answer_is_named (self) -> None:
+		"""``/v1/me``'s own ``reader_timezone``, for a credential that reaches no workspace."""
+
+		me = _me().model_copy(update={"reader_timezone": "Pacific/Auckland"})
+
+		assert subroutine.views.read_in(me) == ["Days for si are read in Pacific/Auckland."]
+
+	def test_an_instance_that_publishes_no_zone_says_nothing (self) -> None:
+		"""An instance a release behind (`SR#345`), where *did not say* is not an answer."""
+
+		assert subroutine.views.read_in(_me(zones=[None])) == []

@@ -27,6 +27,10 @@ upgrade involves.
 
 ### Fixed
 
+- **`subroutine_whoami` says which timezone an agent's days are read in**, and names its
+  account parent when that is where the zone comes from. It named one only when it
+  differed from the machine's, and the agent tools see no machine wherever they run on the
+  server, so an agent was never told.
 - **A new workspace follows the instance's timezone** unless you give it one. Every way of
   making a workspace stored UTC instead - `init` stored the machine's - so changing the
   instance's zone never reached one, although `subroutine workspace create --help` said it
