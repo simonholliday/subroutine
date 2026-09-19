@@ -616,13 +616,13 @@ def init (
 	_warn_an_environment_database_is_not_recorded(settings)
 
 
-#: Host names that mean "this machine only" without being addresses. ``ipaddress`` cannot
-#: parse a name, and refusing to serve on ``localhost`` because it is not spelled ``127.0.0.1``
-#: would be a check failing on the one case it exists to allow.
 @app.command()
 def mcp (
 	connection: str = typer.Option(
-		"", "--connection", help="Which instance to work in. Defaults to the current one."
+		"",
+		"--connection",
+		help="Which instance to work in. Defaults to the one 'subroutine connections' marks "
+		"default, not the one in use.",
 	),
 	workspace: str = typer.Option(
 		"", "--workspace", help="Which workspace its calls land in. Unset means say each time."

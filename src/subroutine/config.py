@@ -183,7 +183,9 @@ def profile_names () -> list[str]:
 
 #: Names that mean this machine and are not IP addresses, so ``ipaddress`` cannot answer for
 #: them. ``localhost.localdomain`` and ``ip6-localhost`` are what some distributions put in
-#: ``/etc/hosts``, and somebody who typed one meant loopback.
+#: ``/etc/hosts``, and somebody who typed one meant loopback. Refusing to serve on ``localhost``
+#: because it is not spelled ``127.0.0.1`` would be a check failing on the one case it exists to
+#: allow.
 LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
 
 

@@ -12,6 +12,15 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **`subroutine mcp --help` says which connection it uses.** `--connection` defaults to the
+  one `subroutine connections` marks default, not the one in use, and the help said the
+  opposite - so somebody who ran `subroutine use work` expecting their agent to follow got
+  their own database.
+
 ## 0.8.27 — 2026-09-19
 
 ### Changed
