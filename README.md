@@ -51,7 +51,7 @@ terminal:
 
 ```console
 $ subroutine login link
-  A sign-in link for morpheus, good for the next 30 minutes.
+  A sign-in link for laurence, good for the next 30 minutes.
 
   http://127.0.0.1:8471/signin?link=sr_lnk_…
 ```
@@ -522,7 +522,7 @@ belong to a workspace, so `member` in one is not `member` in another, and the la
 to administer a workspace cannot be removed from it.
 
 ```console
-$ subroutine user create thomas --name "Thomas Anderson"
+$ subroutine user create keanu --name "Keanu Reeves"
 $ subroutine user create tim --browser --terminal
 ```
 

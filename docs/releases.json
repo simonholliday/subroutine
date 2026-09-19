@@ -1,7 +1,7 @@
 {
   "plugins": {
-    "subroutine": "0.8.25",
-    "subroutine-remote": "0.8.25"
+    "subroutine": "0.8.26",
+    "subroutine-remote": "0.8.26"
   },
   "releases": [
     {

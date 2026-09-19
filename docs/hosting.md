@@ -818,15 +818,15 @@ breath.
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine user create thomas --name "Thomas Anderson" --email thomas@example.com
-  Created thomas
-  thomas is now member in acme
-  Local commands will go on acting as morpheus.
+    /opt/subroutine/bin/subroutine user create keanu --name "Keanu Reeves" --email keanu@example.com
+  Created keanu
+  keanu is now member in acme
+  Local commands will go on acting as laurence.
 
   They cannot get in yet. Either of these hands it over, and both is fine:
 
-    subroutine login link --username thomas      a sign-in link for the browser
-    subroutine token create --username thomas    a credential for the terminal
+    subroutine login link --username keanu      a sign-in link for the browser
+    subroutine token create --username keanu    a credential for the terminal
 
   Both are what --browser and --terminal would have done here.
 
@@ -835,8 +835,8 @@ breath.
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine user list --workspace acme
-  morpheus  owner
-  thomas    member  Thomas Anderson
+  laurence  owner
+  keanu     member  Keanu Reeves
 ```
 
 **The role is `member` unless you say otherwise**, and `--workspace` can be left out when there
@@ -850,10 +850,10 @@ a second command somebody has to remember.
 
 `subroutine user add` is still how somebody already here joins a **second** workspace.
 
-**There is no password**, so what Thomas needs next depends on what they are going to use - and
+**There is no password**, so what Keanu needs next depends on what he is going to use - and
 `--browser` and `--terminal` produce it without a second command at all.
 
-**If they are going to open the web interface, hand them a sign-in link.** It signs in as
+**If he is going to open the web interface, hand him a sign-in link.** It signs in as
 whoever it names, once, and stops working after half an hour - so it is handed over the way
 anything private is, and a second one costs nothing if the first goes stale.
 
@@ -862,10 +862,10 @@ anything private is, and a second one costs nothing if the first goes stale.
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine login link --username thomas
+    /opt/subroutine/bin/subroutine login link --username keanu
 ```
 
-**If they are going to use the command line, or point an agent at this instance, issue a
+**If he is going to use the command line, or point an agent at this instance, issue a
 token.** It is readable exactly once:
 
 ```console
@@ -873,7 +873,7 @@ token.** It is readable exactly once:
     XDG_CONFIG_HOME=/var/lib/subroutine/config \
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
-    /opt/subroutine/bin/subroutine token create --username thomas --title "Thomas's laptop"
+    /opt/subroutine/bin/subroutine token create --username keanu --title "Keanu's laptop"
 ```
 
 Neither is a lesser version of the other and somebody may want both - the link opens a browser
@@ -923,8 +923,8 @@ there.
 are two decisions:
 
 ```console
-$ subroutine user role thomas admin
-thomas is now admin in acme
+$ subroutine user role keanu admin
+keanu is now admin in acme
 ```
 
 It moves an existing member and turns down somebody who is not one yet, pointing at `user add` -
@@ -1002,7 +1002,7 @@ who did what if the screen is ever used to write, and turning it off does not lo
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
   Nothing here will use it yet — '--store' is what records it on this machine.
-  Until then its shell acts as morpheus, and nothing above bounds what it does there.
+  Until then its shell acts as laurence, and nothing above bounds what it does there.
 ```
 
 The secret is the one thing masked on this page. Everything else is what the command printed.
@@ -1012,7 +1012,7 @@ agent runs on:
 
 ```console
   Written to /var/lib/subroutine/config/subroutine/credentials.toml as the agent on connection 'local'.
-  'subroutine' here acts as claude wherever CLAUDECODE is set, and as morpheus
+  'subroutine' here acts as claude wherever CLAUDECODE is set, and as laurence
   otherwise.
 ```
 
@@ -1239,7 +1239,7 @@ a token is shown once and stored nowhere, so there is nothing to go back and loo
 ```console
 $ subroutine connections add work --url http://127.0.0.1:8471
 Token for work:
-Reached workshop as morpheus, in acme.
+Reached workshop as laurence, in acme.
 Added work to …/config.toml
 Its token is in …/credentials.toml, readable only by you.
 ```
@@ -1646,7 +1646,7 @@ there is nothing in that listing to leak, and the prefix is what revoking takes:
     XDG_DATA_HOME=/var/lib/subroutine/data \
     XDG_STATE_HOME=/var/lib/subroutine/state \
     /opt/subroutine/bin/subroutine token list
-  a1b2c3d4  morpheus  My laptop        no expiry
+  a1b2c3d4  laurence  My laptop        no expiry
             everything its owner can do · last used 2026-07-31
   e5f6a7b8  claude    claude's token   until 2026-08-30
             task:read, task:write · in acme only · never used
@@ -1732,7 +1732,7 @@ answers, and when a backup was last taken.
   signing key   set
   cors_origins  empty, so only this instance's own pages may call it
   rate_limit    on, because this instance is published
-  local         0.8.8.dev74+gec0b98131, schema c3a7f21b9d40, as morpheus (person)
+  local         0.8.8.dev74+gec0b98131, schema c3a7f21b9d40, as laurence (person)
   backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.
@@ -1740,7 +1740,7 @@ answers, and when a backup was last taken.
 
 That is a real run on a published instance, pasted whole. **Two tokens in it are not what the
 command printed**: the backup directory, which on the machine this came from names a host, and
-the account name, which was a real login - a public page carries neither, and `morpheus` is the
+the account name, which was a real login - a public page carries neither, and `laurence` is the
 operator throughout these pages. Everything else - the versions, the schema revision, the
 counts, the alignment - is as it came out.
 

@@ -407,7 +407,7 @@ And somebody who wants none of this can use the web interface, which
 needs nothing installed and no token. Whoever runs the instance hands
 them a sign-in link:
 
-  subroutine login link --username thomas
+  subroutine login link --username keanu
 
 It signs in as whoever it names, once, and stops working after half an
 hour. A token is not a substitute for it and will not sign anybody in

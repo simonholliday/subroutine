@@ -7929,11 +7929,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user create thomas --name "Thomas Anderson"
+		  subroutine user create keanu --name "Keanu Reeves"
 
-		  subroutine user create thomas --terminal
+		  subroutine user create keanu --terminal
 
-		  subroutine user create thomas --browser --terminal --workspace acme
+		  subroutine user create keanu --browser --terminal --workspace acme
 
 		  subroutine user create sam --superuser
 
@@ -8096,7 +8096,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 			if not rows:
 				program.say("Nobody here yet.")
-				_suggest(program.console, "subroutine user create thomas")
+				_suggest(program.console, "subroutine user create keanu")
 
 				return
 
@@ -8127,9 +8127,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user add thomas --role member
+		  subroutine user add keanu --role member
 
-		  subroutine user add thomas --role admin --workspace acme
+		  subroutine user add keanu --role admin --workspace acme
 
 		The role is named rather than assumed. What somebody may do is the decision being
 		taken here, and a default would be this command taking it quietly on your behalf.
@@ -8171,9 +8171,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user role thomas admin
+		  subroutine user role keanu admin
 
-		  subroutine user role thomas viewer --workspace acme
+		  subroutine user role keanu viewer --workspace acme
 
 		The role is positional rather than an option, unlike 'user add': there it is one
 		decision among several, and here it is the whole of what this command is for.
@@ -8204,7 +8204,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user deactivate thomas
+		  subroutine user deactivate keanu
 
 		Their account stays and so does everything they wrote, still attributed to them. What
 		stops is their credentials and every agent answerable to them — because somebody gave
@@ -8224,7 +8224,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user reactivate thomas
+		  subroutine user reactivate keanu
 
 		The same operation as 'deactivate' in reverse, deliberately: two commands with their own
 		rules would be two places for those rules to disagree.
@@ -8296,7 +8296,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		Examples:
 
-		  subroutine user remove thomas
+		  subroutine user remove keanu
 
 		This removes their membership, not their account: what they wrote stays, and stays
 		attributed to them. The last person able to administer a workspace cannot be removed

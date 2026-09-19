@@ -1,8 +1,8 @@
 """Credentials over HTTP — docs/design.md §7.4, item ``#208``.
 
 **The gap this closes is the one `#196` was, one surface along.** ``POST /v1/users`` has been
-able to add Thomas since `#174`, and ``POST /v1/workspaces/{…}/members`` can say where they
-work — and then nothing over HTTP could give them a way in. An administrator running the deployment
+able to add Keanu since `#174`, and ``POST /v1/workspaces/{…}/members`` can say where he
+works — and then nothing over HTTP could give him a way in. An administrator running the deployment
 ``docs/hosting.md`` describes, who has no shell on the server, could create an account that
 could never be used.
 

@@ -244,8 +244,8 @@ upgrade involves.
   deadline that names its own day - *tomorrow*, `2026-09-30` - is kept as written.
 
 - **An item that several people revised no longer credits every revision to the last.** Its
-  header read *revised 6 times by @morpheus* when five of the six were somebody else's.
-  It reads *revised 6 times, last by @morpheus on 17 Sep* at the command line, in the
+  header read *revised 6 times by @laurence* when five of the six were somebody else's.
+  It reads *revised 6 times, last by @laurence on 17 Sep* at the command line, in the
   agent tools and on the item page, and *revised once by @si* where there was one.
 
 - **A captured line that says *now* keeps it.** *from now on* in a line was read as a defer to
@@ -1232,7 +1232,7 @@ upgrade involves.
   item itself said nothing, so a fifth draft read exactly like a first.
 
   ```
-    #42  active · revised 2 times by @morpheus on Tue 1 Sep
+    #42  active · revised 2 times by @laurence on Tue 1 Sep
   ```
 
   That mattered more than it sounds, because it decided which way people wrote. Correcting a
@@ -2592,8 +2592,8 @@ upgrade involves.
   mistake: an address is absolute within one workspace, so the remedy is going there rather
   than editing the address.
 
-- **Adding a person is one command.** `subroutine user create thomas` now makes the account,
-  puts them in a workspace and gives them a role, where before it made an account that could
+- **Adding a person is one command.** `subroutine user create keanu` now makes the account,
+  puts him in a workspace and gives him a role, where before it made an account that could
   see nothing until a second command was remembered. The role is `member` unless you say
   otherwise; the workspace can be left out while there is only one and is asked for once there
   are several.
@@ -7028,10 +7028,10 @@ because that is what happened; there is no 0.6.2 to install and no release page 
   where every record resolves and nobody answers for anything.
 
 - **Somebody can be marked as having left, and the agents answerable to them stop.**
-  `subroutine user deactivate thomas`, and `reactivate` to bring them back.
+  `subroutine user deactivate keanu`, and `reactivate` to bring him back.
 
-  Their account stays and so does everything they wrote, still attributed to them. What stops is
-  their credentials and every agent that answers to them — because somebody gave those agents
+  His account stays and so does everything he wrote, still attributed to him. What stops is
+  his credentials and every agent that answers to him — because somebody gave those agents
   permission to work, and that permission was this person's to give.
 
   **It names what it will stop before doing it**, including agents created by other agents,

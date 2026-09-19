@@ -91,7 +91,7 @@ export function Principal ({ person, held, count = null, chosen = false, onChoos
 		may do.
 
 		**`named` rather than a wording of its own** (`#1420`). The label is
-		`@claude-super (agent, @morpheus)` — one cell that already says the three things this
+		`@claude-super (agent, @laurence)` — one cell that already says the three things this
 		page exists to say, and it is the same cell the assignee control and every row render,
 		so a reader meets one vocabulary. The accountable person is resolved on the server and
 		arrives as `answers_to`; **the browser holds no copy of the chain rule** (`#925`).

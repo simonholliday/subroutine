@@ -333,7 +333,7 @@ or a status change counts where `updated_at` would say nothing happened:
 
 ```
 subroutine_list(filter={"touched_at.gte": "yesterday"})
-subroutine_list(filter={"touched_at.gte": "start_of_week", "touched_by.eq": "morpheus"})
+subroutine_list(filter={"touched_at.gte": "start_of_week", "touched_by.eq": "laurence"})
 ```
 
 **Take the task before you touch anything, and say when you start.** Two calls around the

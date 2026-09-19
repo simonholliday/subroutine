@@ -2015,7 +2015,7 @@ def token_create (
 
 	  subroutine token create --title "My laptop"
 
-	  subroutine token create --username thomas --title "Thomas's laptop"
+	  subroutine token create --username keanu --title "Keanu's laptop"
 
 	  subroutine token create --service-account claude --scope task:read --scope task:write
 
@@ -2567,7 +2567,7 @@ def login_link (
 
 	  subroutine login link
 
-	  subroutine login link --username thomas
+	  subroutine login link --username keanu
 
 	Hand it over however you would hand over anything private — it signs in as whoever it
 	names, once, and stops working after half an hour.
@@ -2609,7 +2609,7 @@ def login_revoke (
 
 	Examples:
 
-	  subroutine login revoke thomas
+	  subroutine login revoke keanu
 
 	Immediate, and it takes any unused sign-in links with it. This is what a lost laptop
 	needs; it does not touch their API tokens, which 'subroutine token revoke' stops.
