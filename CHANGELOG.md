@@ -20,6 +20,11 @@ upgrade involves.
   one `subroutine connections` marks default, not the one in use, and the help said the
   opposite - so somebody who ran `subroutine use work` expecting their agent to follow got
   their own database.
+- **The local plugin's Agent token setting recommends `subroutine agent create <name>
+  --store`**, as its skill and `agent create --help` do. It still said to set
+  `SUBROUTINE_TOKEN_<CONNECTION>` where your editor starts, which the skill tells an agent
+  never to offer. Its Workspace setting now asks what your credential reaches, rather than
+  how many workspaces the instance holds.
 
 ## 0.8.27 — 2026-09-19
 
