@@ -448,8 +448,9 @@ puts it depends on the editor and the machine - on Windows it is a file under yo
 directory. Treat it as you would any password there; if it is exposed, ask for a new one rather
 than moving this one somewhere safer.
 
-**If the instance holds more than one workspace, the address has to say which one.** Put it on
-the end:
+**If your token reaches more than one workspace, the address has to say which one.** A token
+pinned to one workspace needs nothing here, however many the instance holds - whoever issues it
+chooses, with `subroutine token create --workspace`. Otherwise put it on the end:
 
 ```
 https://subroutine.example.com/mcp?workspace=acme
@@ -543,6 +544,12 @@ subroutine calendar create "My work"
 That prints one address ending `.ics`. Paste it into whatever you keep your diary in, under
 whatever it calls *subscribe to a calendar* or *add by URL*. From then on it updates on its own,
 every quarter of an hour or so, and you never touch it again.
+
+**Make it with a credential nothing narrows.** A feed reads with its owner's own sight rather
+than with the narrowing on the credential that made it, so one narrowed to a project, to some
+permissions or to one workspace is refused - *"A bounded credential cannot mint a calendar
+feed"* - and one that expires can only make a feed that stops no later than it does. Narrow the
+feed itself instead, as below.
 
 **Nothing comes back.** Moving an event in your calendar changes nothing here, and deleting one
 there does not complete anything. That is the trade for it working in every calendar

@@ -1398,17 +1398,20 @@ scope and the workspace pin apply here exactly as they do to `/v1` and to the co
 an agent given a read-only token over MCP is read-only over MCP. Rate limiting applies too, per
 token.
 
-**Put `?workspace=` in the address you hand over if this instance has more than one:**
+**Put `?workspace=` in the address you hand over if the token reaches more than one
+workspace:**
 
 ```
 https://subroutine.example.com/mcp?workspace=projects
 ```
 
-**This is yours to get right rather than theirs.** Without it, an agent on a multi-workspace
-instance has every read refused as ambiguous - the refusal names the workspaces it could have
-meant, but the person receiving it has no way to know which one you intended, and on the plugin
-path the remedy is a settings field they would have to be told about. You know the answer; put
-it in the address.
+**This is yours to get right rather than theirs.** Without it, an agent whose token reaches
+several workspaces has every read refused as ambiguous - the refusal names the workspaces it
+could have meant, but the person receiving it has no way to know which one you intended, and on
+the plugin path the remedy is a settings field they would have to be told about. You know the
+answer; put it in the address - or pin the token to one workspace when you issue it, with
+`subroutine token create --workspace`, and the address needs nothing however many workspaces
+the instance holds.
 
 It is a default rather than a limit - a call may still name another workspace, and a token
 pinned to one is what actually narrows access.
