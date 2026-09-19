@@ -2439,6 +2439,8 @@ li[data-colour] { box-shadow: inset var(--space-2) 0 0 0 var(--row-hue); }
 .written > .rendered h3, .written > .rendered h4, .written > .rendered h5, .written > .rendered h6 {
 	margin: var(--space-section) 0 var(--space-4);
 	line-height: 1.3;
+	/* Chosen, not inherited: the browser's bold is 700, and no vendored Lexend has it (`#2874`). */
+	font-weight: 600;
 	text-transform: none;
 	letter-spacing: normal;
 	color: var(--ink);

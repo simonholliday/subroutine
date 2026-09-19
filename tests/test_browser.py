@@ -2385,6 +2385,36 @@ def test_every_selector_in_the_stylesheet_reaches_something (
 		f"{bold}"
 	)
 
+	# **A written heading asks for a weight its face has** (`SR#2874`). The prose headings
+	# declared no weight and took the browser's bold, 700, which the vendored Lexend does not
+	# ship, so font matching drew them in its 600: the right face, arrived at rather than chosen.
+	# Vendoring a 700 for any other reason would have made every heading in every description
+	# heavier, with nothing to say so.
+	headings = showing("Prose").evaluate(
+		"""(levels) => ({
+			found: levels.map((level) => {
+				const found = document.querySelector(`.prose ${level}`);
+				const style = found && getComputedStyle(found);
+				return found ? {
+					weight: style.fontWeight,
+					family: style.fontFamily.split(",")[0].replace(/"/g, "").trim(),
+				} : null;
+			}),
+			declared: [...document.fonts]
+				.filter((face) => face.family.replace(/"/g, "") === "Lexend")
+				.map((face) => face.weight),
+		})""",
+		list(levels),
+	)
+
+	assert all(headings["found"]), f"the prose sample lacks a heading level: {headings}"
+	assert {one["family"] for one in headings["found"]} == {"Lexend"}, headings
+	asks = [one["weight"] for one in headings["found"]]
+	assert set(asks) <= set(headings["declared"]), (
+		f"a written heading asks for {asks} and Lexend declares only {headings['declared']}, "
+		f"so a neighbouring face draws it"
+	)
+
 
 def test_this_file_stays_the_size_of_its_argument () -> None:
 	"""`#748`'s scope, held by a bound rather than by an intention.
