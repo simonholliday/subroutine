@@ -72,6 +72,14 @@ OCCASION = "occasion"
 #: **A key rather than a category.** `#96` refused a fifth status category, so nothing says
 #: *waiting on a person* but the seeded key; a workspace that renames it has renamed the thing
 #: both rules are about.
+#:
+#: **So a rename is not carried here, where it is carried into ``hidden_statuses``**
+#: (:func:`subroutine.domain.vocabulary._rename_in_settings`). That setting is a workspace's own
+#: record naming a key, and rewriting it keeps the record true. This is one constant for every
+#: workspace, and the only thing a rename could be carried into is a per-workspace setting
+#: naming *the waiting status* - which is the fifth category `#96` refused, under another name.
+#: A renamed key therefore empties *Waiting on you*, and what waits in it is offered as ready
+#: like any open work, rather than either rule reading the new key.
 WAITING_STATUS = "needs_input"
 
 

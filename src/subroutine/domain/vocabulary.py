@@ -823,6 +823,10 @@ def _rename_in_settings (
 	``hidden_statuses`` stores **keys**, on a workspace and on any project (`#1029`). A rename
 	that left them behind would not fail — it would quietly stop hiding, which is the worst of
 	the three outcomes because nothing reports it and the list still looks configured.
+
+	**The one key a rename is not carried into is ``readiness.WAITING_STATUS``**, which is a
+	constant for every workspace rather than a setting any workspace holds. Why that is right
+	rather than an omission is written beside it.
 	"""
 
 	_rewrite_hidden(session, workspace_id, change=lambda keys: [
