@@ -220,6 +220,29 @@ _DATES_AND_A_DASH = re.compile(
 #: :func:`explain` to recognise what it gave back.
 _SPANS = (_WORDED_SPAN, _DAYS_OF_A_MONTH, _DATES_AND_A_DASH)
 
+#: A time of day as it is written beside a day in a span: ``09:00``, ``9am``, ``9:30 pm``.
+_CLOCK = r"(?:\d{1,2}(?::\d{2})?\s*[ap]m|\d{1,2}:\d{2})"
+
+#: Whether a phrase holds a time of day at all, an ISO day's ``T09:00`` included.
+_A_CLOCK = re.compile(rf"(?<![\d:]){_CLOCK}(?!\d)", re.IGNORECASE)
+
+#: A span with **times of day** - `#2894`, and Simon's decision of 2026-09-19 to hold one back
+#: and say so. Two days joined as :data:`_WORDED_SPAN` joins them, with a time beside either; or
+#: a day and a time *from* which the line runs to a time. **Only these**, and each is a line the
+#: date rules read as a defer, because ``from`` is one: *Workshop from 2 October 09:00 to 12
+#: October 17:00* was hidden until the 2nd with the rest of the line in its title, and nothing
+#: said. A day and a range of times after ``on`` - *Standup on Monday at 9am - 10am* - is not
+#: here: it plans the day, which is read, and holding it back would lose a field.
+_CLOCKED_SPAN = re.compile(
+	rf"{_STARTS_A_WORD}(?:"
+	rf"(?:{'|'.join(SPAN_OPENING_WORDS)})\s+{_PHRASE}(?:\s+(?:at\s+)?{_CLOCK})?"
+	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}{_PHRASE}(?:\s+(?:at\s+)?{_CLOCK})?"
+	rf"|from\s+{_PHRASE}\s+(?:at\s+)?{_CLOCK}"
+	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?{_CLOCK}"
+	r")(?![\w'])",
+	re.IGNORECASE,
+)
+
 
 #: A date preposition and the phrase after it — ``by friday``, ``due 2026-08-19``.
 #:
@@ -537,14 +560,22 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# is not - and was falling through to *timed*, so a writer who typed *12-2 October* was
 	# told how to write a time. The patterns are :func:`_collect_spans`'s own, so this is one
 	# description of what a span looks like rather than two.
-	spans = [one for one in over if any(pattern.fullmatch(one) for pattern in _SPANS)]
+	# **And a span with times of day, told apart the same way** (`#2894`): held back whole, and
+	# the reason is that its times are not read yet - not that its days are out of order.
+	clocked = [one for one in over if _CLOCKED_SPAN.fullmatch(one) and _A_CLOCK.search(one)]
+	spans = [
+		one for one in over
+		if one not in clocked and any(pattern.fullmatch(one) for pattern in _SPANS)
+	]
 	contradicted = [
 		one for one in over
-		if one not in spans
+		if one not in spans and one not in clocked
 		and subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
 		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
 	]
-	timed = [one for one in over if one not in contradicted and one not in spans]
+	timed = [
+		one for one in over if one not in contradicted and one not in spans and one not in clocked
+	]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
 	# decided** (`#1401`). A phrase this grammar cannot read and one it read out of the middle
@@ -585,6 +616,12 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		clauses.append(
 			f"Left as written: {', '.join(spans)} — a span needs its first day before its "
 			f"last, and both of them days there are, so neither was set."
+		)
+
+	if clocked:
+		clauses.append(
+			f"Left as written: {', '.join(clocked)} — a span with times of day is not read "
+			f"yet, so nothing was set. Leave the times out for a span of whole days."
 		)
 
 	if contradicted:
@@ -1252,18 +1289,30 @@ def _collect_spans (
 	held back from the date rules too, or ``from`` would quietly become the defer the writer
 	was trying not to set.
 
-	**Whole days only.** A clock on either side is an appointment with an end, which is
-	`#675`'s, so such a line is left to the rules it met before.
+	**Whole days only, and a span with times of day is held back and said** (`#2894`). A clock on
+	either side is an appointment with an end, which is `#675`'s; left to the rules it met before,
+	it became a defer that hid the item. It is kept in the title and reported instead.
 	"""
 
+	# **Found by its own pattern, and ahead of a span of days starting at the same place**,
+	# because the days' patterns read the ISO form of one as days and would drop its times.
+	clocked = [match for match in _CLOCKED_SPAN.finditer(text) if _A_CLOCK.search(match.group(0))]
 	found = sorted(
-		(match for pattern in _SPANS for match in pattern.finditer(text)),
-		key=lambda match: match.start(),
+		(*clocked, *(match for pattern in _SPANS for match in pattern.finditer(text))),
+		key=lambda match: (match.start(), match not in clocked),
 	)
 
 	for match in found:
 		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
 			continue
+
+		# Kept whole and reported, as a span this cannot read is below - `#2894`. Its end has
+		# nowhere to go until `#1320`, and the date rules would have made its start a defer.
+		if match in clocked:
+			reserved.append(match.span())
+			unparsed.append(match.group(0).strip())
+
+			return
 
 		groups = match.groupdict()
 
@@ -1273,9 +1322,6 @@ def _collect_spans (
 
 			if worded is not None and groups.get("opening") is None:
 				continue
-
-		if ":" in match.group(0):
-			continue
 
 		days = _span_days(groups, today=today, now=now, timezone=timezone)
 

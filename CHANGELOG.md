@@ -217,8 +217,9 @@ upgrade involves.
   a span never finishes before it begins. The line that confirms it names both days, and so
   does the row it lands on. A span that runs backwards, or names a day that does not exist,
   is left in the title and says which, rather than being stored or refusing the whole line.
-  A bare `from` with nothing after its date is still a defer, and a span does not decide an
-  item's type.
+  So is a span with times of day - *from 2 October 09:00 to 12 October 17:00* - which used to
+  become a defer that hid the item until its start: only whole days are read. A bare `from`
+  with nothing after its date is still a defer, and a span does not decide an item's type.
 
 ### Fixed
 

@@ -1880,6 +1880,73 @@ def test_a_span_inside_a_repeat_this_cannot_read_leaves_the_repeat_whole () -> N
 	assert (captured.starts_at, captured.ends_at) == (None, None), captured
 
 
+@pytest.mark.parametrize(
+	("text", "span"),
+	[
+		# The item's own line: a defer to the 2nd, half the line in the title, nothing said.
+		(
+			"Workshop from 2026-10-02T09:00 to 2026-10-12T17:00",
+			"from 2026-10-02T09:00 to 2026-10-12T17:00",
+		),
+		# And the forms that never reached the span grammar at all, each a defer the same way.
+		(
+			"Workshop from 2026-10-02 09:00 to 2026-10-12 17:00",
+			"from 2026-10-02 09:00 to 2026-10-12 17:00",
+		),
+		(
+			"Workshop from 2 October 09:00 to 12 October 17:00",
+			"from 2 October 09:00 to 12 October 17:00",
+		),
+		(
+			"Workshop from 2 October at 9am to 12 October at 5pm",
+			"from 2 October at 9am to 12 October at 5pm",
+		),
+		("Offsite from Monday 9am until Friday 5pm", "from Monday 9am until Friday 5pm"),
+		("Workshop from 2 October 09:00 to 17:00", "from 2 October 09:00 to 17:00"),
+	],
+)
+def test_a_span_with_times_of_day_is_kept_whole_and_said (text: str, span: str) -> None:
+	"""`SR#2894`, Simon 2026-09-19: a span with times of day is not read yet, and it is said.
+
+	Left to the date rules it became a defer - ``from`` is one - which hid the item until the
+	start, with the rest of the line in its title and nothing reported. **Kept whole and
+	reported instead**, as a span this cannot read already is, and explained as what it is:
+	neither a problem with a time nor days out of order.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == text, captured
+	assert (captured.starts_at, captured.ends_at, captured.snooze) == (None, None, None), captured
+	assert captured.unparsed == (span,), captured
+
+	said = subroutine.domain.capture.explain(captured.unparsed) or ""
+
+	assert "a span with times of day is not read yet" in said, said
+	assert "a time is read" not in said and "first day before its last" not in said, said
+
+
+def test_a_line_that_is_not_a_span_with_times_of_day_reads_as_it_did () -> None:
+	"""`SR#2894`'s edges: what the held-back reading must not take.
+
+	A day and a range of times after ``on`` plans the day; a ``from`` with one time and no end is
+	a defer at that time; a span of whole days is a span; and a day with a time is a start. Each
+	is how the line read before, and holding any of them back would lose a field it reads.
+	"""
+
+	standup = _parse("Standup on Monday at 9am - 10am")
+	call = _parse("Call from 2 October at 3pm")
+	holiday = _parse("Holiday from 2 to 12 October")
+	meeting = _parse("Meeting on 2 October at 3pm")
+
+	assert standup.starts_at is not None and standup.snooze is None, standup
+	assert call.snooze is not None and call.title == "Call", call
+	assert (holiday.starts_at, holiday.ends_at) == (
+		datetime.date(2026, 10, 2), datetime.date(2026, 10, 12)
+	), holiday
+	assert meeting.starts_at is not None and meeting.title == "Meeting", meeting
+
+
 def test_days_joined_by_a_word_are_prose_without_an_opening_word () -> None:
 	"""Only a dash joins two days on its own, and a weekday needs ``from`` or ``on`` in front.
 
