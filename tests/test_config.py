@@ -9,7 +9,9 @@ import annotated_types
 import pydantic
 import pytest
 import sqlalchemy
+import typer
 
+import subroutine.cli.main
 import subroutine.config
 import subroutine.domain.hierarchy
 
@@ -651,14 +653,15 @@ def test_a_development_instance_signs_with_a_key_nobody_else_has () -> None:
 	within a process, and never written down"*, which was wrong in both halves: it was
 	deterministic across every process everywhere, and it was written down three lines below.
 
-	**And nothing refused the combination.** ``_refuse_without_a_signing_key`` returns early on
+	**And nothing refused the combination.** ``_refuse_without_a_signing_key`` returned early on
 	``dev_mode`` and ``_refuse_public_bind`` is satisfied by ``public_url``, so a published
 	instance could serve while signing with a value anybody could read.
 
 	**Made true rather than reworded.** The sentence describes what a reader would want to be
-	the case, so the code now does it: an instance that starts today still starts, nothing is
-	refused, and the key is unguessable. What it costs is cursors not surviving a restart, on a
-	machine whose own configuration says ``dev_mode``.
+	the case, so the code now does it: the key is unguessable. What it costs is cursors not
+	surviving a restart, on a machine whose own configuration says ``dev_mode`` - and since
+	`SR#2902` an instance with a ``public_url`` is refused at start instead, because its readers
+	are who a restart would strand. The test below this one holds that.
 
 	**Per process rather than per :class:`Settings`**, which is the half that would break
 	quietly: this is called on every request and a process may build more than one ``Settings``,
@@ -680,3 +683,52 @@ def test_a_development_instance_signs_with_a_key_nobody_else_has () -> None:
 
 	with pytest.raises(RuntimeError):
 		subroutine.config.Settings(secret_key=None, dev_mode=False).require_secret_key()
+
+
+@pytest.mark.parametrize(
+	("dev_mode", "secret_key", "public_url", "refused"),
+	[
+		# On a machine being developed on, dev_mode still starts without a key.
+		(True, None, None, False),
+		# With a public address it does not: that instance has readers a restart would strand.
+		(True, None, "https://tasks.example.com", True),
+		# A key settles it either way, and dev_mode then changes nothing.
+		(True, "a-real-key", "https://tasks.example.com", False),
+		(False, "a-real-key", "https://tasks.example.com", False),
+		# And no key outside development is refused, as it was.
+		(False, None, None, True),
+	],
+)
+def test_a_public_instance_does_not_start_on_a_key_made_up_per_process (
+	capsys: pytest.CaptureFixture[str],
+	dev_mode: bool,
+	secret_key: str | None,
+	public_url: str | None,
+	refused: bool,
+) -> None:
+	"""`SR#2902`, Simon 2026-09-19: ``dev_mode`` served a public instance on a made-up key.
+
+	Nothing could be forged - the key is random per process - but every reader's place in a
+	listing was lost at each restart, and only ``diagnosis`` said why. **Refused at start when
+	there is a ``public_url``**, which is the operator saying the instance has readers, and the
+	refusal names what to set.
+	"""
+
+	settings = subroutine.config.Settings(
+		dev_mode=dev_mode, secret_key=secret_key, public_url=public_url
+	)
+
+	if not refused:
+		subroutine.cli.main._refuse_without_a_signing_key(settings)
+
+		return
+
+	with pytest.raises(typer.Exit):
+		subroutine.cli.main._refuse_without_a_signing_key(settings)
+
+	said = capsys.readouterr().err
+
+	assert "secret_key" in said, said
+
+	if dev_mode:
+		assert "public_url" in said and "dev_mode can stay" in said, said

@@ -199,7 +199,7 @@ disagree, so a setting that exists and is not here cannot ship.
 | `trusted_proxies` | `[]` | Addresses whose `X-Forwarded-For` is believed. Empty ignores the header entirely, which is the safe default behind no proxy |
 | `cors_origins` | `[]` | Other origins a browser may call this API from - **and act as a signed-in reader from**. Empty is right for almost everyone, including you: the web UI is served by this instance, so it needs no entry here. See [below](#cors_origins-decides-more-than-it-used-to) before adding one |
 | `log_level` | `INFO` | How much `serve` logs |
-| `dev_mode` | `false` | Development only. Substitutes a fixed, well-known signing key when `secret_key` is unset, so a throwaway instance starts without one. Never set it on anything real |
+| `dev_mode` | `false` | Development only. Makes a signing key up each time the instance starts when `secret_key` is unset, so a throwaway instance starts without one - and its cursors do not survive a restart. Refused at start beside a `public_url`. Never set it on anything real |
 | `default_page_size` | `50` | Rows a listing returns when the caller does not say |
 | `max_page_size` | `200` | The largest **single response**. A client asking for more is answered across as many responses as it takes, and is told when a page it was handed is not everything - so this bounds a body rather than a call |
 | `max_hierarchy_depth` | `10` | How deep a project or subtask tree may nest. Bounds path length and the cost of a move |

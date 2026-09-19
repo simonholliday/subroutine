@@ -137,6 +137,12 @@ upgrade involves.
   `defer` command, the agent tools' `defer` and `--deferred` already use. A start is described as
   *when it starts* rather than as the day you will do it, which read oddly for an event.
 
+- **A public instance no longer starts in development mode without a secret key.** `dev_mode`
+  makes a signing key up each time the instance starts, so on one with a `public_url` anybody
+  paging through a listing was refused after every restart. `serve` now refuses that
+  combination and says to set `secret_key`; with a key set, `dev_mode` changes nothing. **If an
+  instance of yours runs this way, give it a key before upgrading**, or it will not start.
+
 ### Added
 
 - **Subroutine can tell you when something is out of date.** With `check = true` under

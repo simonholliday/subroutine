@@ -973,10 +973,29 @@ def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None
 	program declines to start wrong rather than fail later. **Not a key generated per process**:
 	:meth:`~subroutine.config.Settings.require_secret_key` argues that out, and it is right — it
 	would break every cursor on every restart, silently, which is worse than refusing.
+
+	**``dev_mode`` excuses the missing key only where it means what it says** (Simon,
+	2026-09-19, `#2902`). It makes a key up per process, which costs a machine being developed on
+	nothing and costs every reader of a served instance their place in a listing at each
+	restart - and a ``public_url`` is the operator saying this instance has readers. So that
+	combination is refused here too, naming the setting to add; with a key, ``dev_mode`` changes
+	nothing, and nothing is refused.
 	"""
 
-	if settings.secret_key or settings.dev_mode:
+	if settings.secret_key:
 		return
+
+	if settings.dev_mode and not (settings.public_url or "").strip():
+		return
+
+	if settings.dev_mode:
+		_stop(
+			"This instance has a public_url and no secret_key, and dev_mode makes one up each "
+			"time it starts — so anybody paging through a listing would be refused after every "
+			"restart.",
+			f"Put a secret_key in {subroutine.config.config_file_path()} or set "
+			"SUBROUTINE_SECRET_KEY. dev_mode can stay: it changes nothing once there is a key.",
+		)
 
 	_stop(
 		"There is no secret_key here, and it signs the cursor that carries a listing from "
