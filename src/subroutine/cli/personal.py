@@ -6669,6 +6669,20 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 
 				return
 
+			# **An agent follows its account parent, since `#2974`**, so the workspace is not what
+			# shows through and this says whose zone does. The account by name rather than *you*,
+			# for `#1297`'s reason: at a terminal holding an agent's credential, *you* is read by
+			# the person as being about them. No tip either, because following the parent is the
+			# state Simon decided an agent should be in, not a gap left for somebody to fill.
+			if account.account_parent is not None:
+				program.say(f"{username} has not said which timezone it is in.")
+				program.say(
+					f"  Its days are counted in {account.account_parent}'s zone until it does, "
+					f"since {account.account_parent} is its account parent."
+				)
+
+				return
+
 			program.say("You have not said which timezone you are in.")
 			program.say("  Your days are counted in this workspace's zone until you do.")
 
@@ -6685,6 +6699,14 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 		)
 
 		if changed.timezone is None:
+			if changed.account_parent is not None:
+				program.say(
+					f"Cleared. {username}'s days are counted in {changed.account_parent}'s zone "
+					"again."
+				)
+
+				return
+
 			program.say("Cleared. Your days are counted in this workspace's zone again.")
 
 			return
@@ -8251,7 +8273,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			"", help="Your zone, e.g. 'Europe/London'. Say nothing to see it."
 		),
 		clear: bool = typer.Option(
-			False, "--clear", help="Follow the workspace's zone again."
+			False,
+			"--clear",
+			help="Follow the workspace's zone again, or an agent's account parent's.",
 		),
 	) -> None:
 		"""Say which timezone you are in, so your days are counted where you are.
@@ -8263,7 +8287,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user timezone
 
 		Your own account and nobody else's — you know which zone you are in better than
-		anybody else does, so there is no permission that lets somebody set it for you.
+		anybody else does, so there is no permission that lets somebody set it for you. An
+		agent that has said none reads days in its account parent's zone, so whoever made one
+		has nothing to set for it.
 
 		It decides which day a deadline counts as on every surface. It does not change how a
 		date is written down: a day belongs to the item that has it, so 'due Fri 14 Aug' says

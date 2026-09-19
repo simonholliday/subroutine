@@ -250,7 +250,7 @@ def issue (
 		expires_at=expires_on(
 			expires,
 			timezone=subroutine.domain.schedule.zone_for(
-				user=actor.user, instance=subroutine.domain.instances.get(session)
+				session, user=actor.user, instance=subroutine.domain.instances.get(session)
 			),
 		),
 		created_by=actor.user.id,

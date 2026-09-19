@@ -255,7 +255,7 @@ class Client:
 						# The same answer the HTTP transport publishes, from the same
 						# function — `#1083`, decision `#1088`.
 						reader_timezone=subroutine.domain.schedule.zone_for(
-							user=actor.user, workspace=workspace, instance=instance
+							session, user=actor.user, workspace=workspace, instance=instance
 						),
 					)
 					for workspace in reachable
@@ -307,6 +307,7 @@ class Client:
 				)
 
 			zone = subroutine.domain.schedule.zone_for(
+				session,
 				user=actor.user,
 				instance=subroutine.domain.instances.get(session),
 				explicit=timezone,
@@ -2983,6 +2984,7 @@ class Client:
 		with self._writing() as (session, actor):
 			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
 			zone = timezone or subroutine.domain.schedule.zone_for(
+				session,
 				user=actor.user,
 				workspace=chosen,
 				instance=subroutine.domain.instances.get(session),
@@ -3086,6 +3088,7 @@ class Client:
 
 		with self._opened() as (session, actor):
 			zone = timezone or subroutine.domain.schedule.zone_for(
+				session,
 				user=actor.user,
 				workspace=subroutine.domain.selection.workspace(
 					session, actor, requested=None
@@ -3137,6 +3140,7 @@ class Client:
 				)
 
 			zone = subroutine.domain.schedule.zone_for(
+				session,
 				user=actor.user,
 				workspace=subroutine.domain.selection.workspace(
 					session, actor, requested=workspace

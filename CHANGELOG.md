@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Changed
 
+- **An agent that has not said which timezone it is in reads days in its account
+  parent's**, rather than in the workspace's. Nobody could set a zone for an agent they
+  made, since an account's zone is its own to say, so a time an agent wrote for somebody -
+  *by Friday 16:30* - could be stored an hour or more from the one they both meant. An agent
+  that works somewhere else can still say so with `subroutine user timezone`.
 - **`subroutine_whoami` says how an agent gets a name of its own**, where the agent tools
   are working on a person's credential: what they write is recorded as that person's, and
   `subroutine agent create` makes the account.

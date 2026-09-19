@@ -323,13 +323,15 @@ def test_a_task_records_the_zone_its_dates_were_written_in (
 	assert task.timezone == LONDON
 
 
-def test_the_timezone_falls_back_from_the_user_to_the_workspace_to_utc () -> None:
+def test_the_timezone_falls_back_from_the_user_to_the_workspace_to_utc (
+	session: sqlalchemy.orm.Session,
+) -> None:
 	"""docs/design.md §6.5's chain, asserted directly rather than through a task."""
 
 	zone_for = subroutine.domain.schedule.zone_for
 
-	assert zone_for(explicit="Asia/Tokyo") == "Asia/Tokyo"
-	assert zone_for() == "UTC"
+	assert zone_for(session, explicit="Asia/Tokyo") == "Asia/Tokyo"
+	assert zone_for(session) == "UTC"
 
 
 def test_a_completed_task_is_never_overdue (session: sqlalchemy.orm.Session) -> None:
@@ -454,19 +456,90 @@ def test_the_timezone_chain_runs_user_workspace_instance (
 	user = subroutine.db.models.identity.User(username="u", username_normalized="u")
 
 	# Nothing stated anywhere below the instance.
-	assert zone_for(user=user, workspace=workspace, instance=instance) == "America/New_York"
+	assert zone_for(session, user=user, workspace=workspace, instance=instance) == "America/New_York"
 
 	workspace.timezone = "Europe/Berlin"
 
-	assert zone_for(user=user, workspace=workspace, instance=instance) == "Europe/Berlin"
+	assert zone_for(session, user=user, workspace=workspace, instance=instance) == "Europe/Berlin"
 
 	user.timezone = LONDON
 
-	assert zone_for(user=user, workspace=workspace, instance=instance) == LONDON
-	assert zone_for(user=user, workspace=workspace, instance=instance, explicit="UTC") == "UTC"
+	assert zone_for(session, user=user, workspace=workspace, instance=instance) == LONDON
+	assert zone_for(session, user=user, workspace=workspace, instance=instance, explicit="UTC") == "UTC"
 
 	# And UTC only when there is nothing at all — which `init` makes unreachable.
-	assert zone_for() == "UTC"
+	assert zone_for(session) == "UTC"
+
+
+def test_an_agent_that_has_said_nothing_reads_days_where_its_account_parent_does (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2974`, Simon's decision of 2026-09-19: the account parent is a step of the chain.
+
+	Between the account and the workspace, because an agent has no location - it works for
+	somebody - and the workspace step is where `SR#2972`'s *16:30* was read, an hour from the
+	one both of them meant. The workspace holds `Etc/UTC` and the instance is somewhere else
+	again, so neither wrong answer can pass for the right one.
+
+	**Walked rather than copied**, so the parent moves after the agent exists and the agent
+	moves with it, which a zone copied at creation would not.
+	"""
+
+	zone_for = subroutine.domain.schedule.zone_for
+
+	instance = subroutine.db.models.system.Instance(name="I", timezone="America/New_York")
+	workspace = subroutine.db.models.identity.Workspace(slug="w", title="W", timezone="Etc/UTC")
+	person = subroutine.domain.users.create(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", timezone="Australia/Sydney"
+	)
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	sub_agent = subroutine.domain.users.create(
+		session,
+		username=f"sub-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=agent.id,
+	)
+	session.flush()
+
+	def read (user: subroutine.db.models.identity.User) -> str:
+		"""Resolve the whole chain for one account."""
+
+		return zone_for(session, user=user, workspace=workspace, instance=instance)
+
+	assert read(agent) == "Australia/Sydney"
+
+	# The parent moves, and nothing was copied, so the agent moves with them. A sub-agent's
+	# parent is an agent that has said nothing either, so its walk goes on up to the person.
+	person.timezone = LONDON
+
+	assert read(agent) == LONDON
+	assert read(sub_agent) == LONDON
+
+	# The nearest account that has said wins, so an agent that works elsewhere can still say.
+	agent.timezone = "Asia/Tokyo"
+
+	assert read(agent) == "Asia/Tokyo"
+	assert read(sub_agent) == "Asia/Tokyo"
+	assert zone_for(session, user=agent, workspace=workspace, explicit="UTC") == "UTC"
+
+	# A parent that has said nothing either leaves the chain where it was before: the workspace.
+	agent.timezone = None
+	person.timezone = None
+
+	assert read(agent) == "Etc/UTC"
+
+	# **A person answers for themselves**, so a person is never walked, whatever the column holds.
+	person.timezone = LONDON
+	other = subroutine.domain.users.create(session, username=f"jo-{uuid.uuid4().hex[:8]}")
+	other.responsible_user_id = person.id
+	session.flush()
+
+	assert read(other) == "Etc/UTC"
 
 
 def test_init_records_the_machines_timezone_on_the_instance (
@@ -537,7 +610,7 @@ def test_a_workspace_with_no_timezone_follows_the_instance (
 	session.flush()
 
 	assert subroutine.domain.schedule.zone_for(
-		workspace=installed.workspace, instance=installed.instance
+		session, workspace=installed.workspace, instance=installed.instance
 	) == "Australia/Sydney"
 
 

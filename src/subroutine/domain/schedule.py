@@ -25,9 +25,10 @@ makes a task due Friday overdue for the whole of Friday. Deadlines therefore sto
 A naive implementation passes every test anybody thinks to write, and then a user asks why
 their morning is full of things that are not late.
 
-Nothing here touches the database. It takes values in and produces columns, so that the
-same rules apply to the CLI, to quick capture and to the API without any of them owning
-them.
+Nothing here touches the database but one step of :func:`zone_for`'s chain, an agent's
+account parent (`#2974`), which is the one fact that chain needs and no caller holds.
+Everything else takes values in and produces columns, so that the same rules apply to the
+CLI, to quick capture and to the API without any of them owning them.
 """
 
 import dataclasses
@@ -37,8 +38,11 @@ import re
 import typing
 import zoneinfo
 
+import sqlalchemy.orm
+
 import subroutine.db.models.identity
 import subroutine.db.models.system
+import subroutine.domain.accountability
 import subroutine.domain.dates
 import subroutine.errors
 
@@ -153,18 +157,65 @@ class Moment:
 	is_all_day: bool
 
 
+def account_zone (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User | None
+) -> str | None:
+	"""Return the zone an account has said it is in, or its account parent's - `#2974`.
+
+	**An agent has no location: it works for somebody**, and that somebody is already recorded
+	as its account parent. So an agent that has said nothing reads days where the account that
+	made it does - Simon's decision of 2026-09-19. Until then the chain fell past the agent to
+	the workspace, and an agent of his wrote *16:30* for him in a zone neither of them had
+	chosen, an hour from the one they both meant (`#2972`). He could not have set it for the
+	agent: an account's zone is its own to say, and no permission lets anybody say it for
+	another.
+
+	**Walked at every read and never copied at creation.** A copy would go stale the day the
+	parent moved, for every agent they had made and silently - the reason the workspace column
+	has no default. The walk is :func:`subroutine.domain.accountability.chain`'s, so a
+	sub-agent whose parent has said nothing either follows the account above that, and the
+	person at the end stops it, having answered for themselves whether or not they have said.
+
+	``None`` means nobody on the chain has said, and §6.5 goes on to the workspace. **A chain
+	that cannot be walked is *nobody has said* rather than a refusal**: authentication refuses
+	such an agent before it can ask anything, and a date is not the place to report it.
+	"""
+
+	if user is None:
+		return None
+
+	# **The common path costs no query**: an account that has said, and a person, whose chain is
+	# themselves. Only an agent that has said nothing is walked, one lookup per link.
+	if user.timezone or not user.is_service_account:
+		return user.timezone or None
+
+	try:
+		walked = subroutine.domain.accountability.chain(session, user)
+
+	except subroutine.errors.ValidationError:
+		return None
+
+	return next((account.timezone for account in walked if account.timezone), None)
+
+
 def zone_for (
+	session: sqlalchemy.orm.Session,
 	*,
 	user: subroutine.db.models.identity.User | None = None,
 	workspace: subroutine.db.models.identity.Workspace | None = None,
 	instance: subroutine.db.models.system.Instance | None = None,
 	explicit: str | None = None,
 ) -> str:
-	"""Return the timezone dates should be read in: explicit → user → workspace → instance.
+	"""Return the zone dates are read in: explicit → user → account parent → workspace → instance.
 
 	docs/design.md §6.5's chain, in the one place that owns it. Before this existed every caller
 	picked a timezone by hand, which is the sort of thing that agrees everywhere until it
 	does not.
+
+	**The account parent is `#2974`'s step, and §6.5 does not have it**: an agent that has said
+	nothing reads days where its account parent does, as :func:`account_zone` resolves it. It is
+	the one step that needs the database, and the session is required rather than optional so
+	that no caller can resolve an agent's zone without it.
 
 	**Null means "not stated" at every level**, which is why the workspace column is
 	nullable rather than defaulting to UTC: a default would have shadowed the instance for
@@ -177,8 +228,7 @@ def zone_for (
 	"""
 
 	candidates = (
-		explicit,
-		None if user is None else user.timezone,
+		explicit or account_zone(session, user),
 		None if workspace is None else workspace.timezone,
 		None if instance is None else instance.timezone,
 	)

@@ -71,6 +71,7 @@ def parse (
 	"""
 
 	zone = body.timezone or subroutine.domain.schedule.zone_for(
+		session,
 		user=actor.user,
 		workspace=subroutine.domain.selection.workspace(session, actor, requested=None),
 		instance=subroutine.domain.instances.get(session),

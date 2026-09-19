@@ -1054,7 +1054,10 @@ def occurrences (
 		)
 
 	zone = subroutine.domain.schedule.zone_for(
-		user=actor.user, workspace=workspace, instance=subroutine.domain.instances.get(session)
+		session,
+		user=actor.user,
+		workspace=workspace,
+		instance=subroutine.domain.instances.get(session),
 	)
 	# **One more than asked for**, which is how `has_more` is answered without a second pass —
 	# the same trick every listing here uses, and the reason it matters more: a rule with no

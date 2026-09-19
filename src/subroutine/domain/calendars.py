@@ -272,6 +272,7 @@ def issue (
 		expires_at=subroutine.domain.tokens.expires_on(
 			expires,
 			timezone=subroutine.domain.schedule.zone_for(
+				session,
 				user=actor.user,
 				workspace=found,
 				instance=subroutine.domain.instances.get(session),

@@ -84,6 +84,7 @@ def read (
 	now = subroutine.db.types.utcnow()
 	narrowing = _within(session, actor, workspace_id, project)
 	zone = subroutine.domain.schedule.zone_for(
+		session,
 		user=actor.user,
 		instance=subroutine.domain.instances.get(session),
 		explicit=timezone,

@@ -26,6 +26,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
+import subroutine.domain.instances
 import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.readiness
@@ -113,6 +114,59 @@ def test_a_task_with_no_project_goes_to_the_inbox (world: World) -> None:
 
 	assert response.status_code == 201
 	assert response.json()["project_key"] == subroutine.domain.bootstrap.INBOX_KEY
+
+
+def test_an_agent_that_has_said_no_zone_is_read_in_its_account_parents (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2974` over HTTP: a time an agent writes, and the zone every published answer names.
+
+	`SR#2972` as it stood: an agent of somebody in London, a workspace holding ``Etc/UTC`` that
+	nobody chose, and here an instance somewhere else again, so that neither wrong answer can
+	pass for the right one. The agent wrote *16:30*, both of them meant London's, and it was
+	stored as 16:30 UTC.
+
+	**A capture over HTTP resolves its zone in ``tasks._timezone``**, which wrote the chain out
+	by hand and read the account's own column, so it is driven here as well as the chain itself.
+	``/v1/me`` and ``/v1/meta`` are what every client reads the answer from, the agent tools
+	included, so all three places they publish it are asserted.
+	"""
+
+	world = _world(session)
+	instance = subroutine.domain.instances.get(session)
+
+	assert instance is not None
+
+	instance.timezone = "America/New_York"
+	world.user.timezone = "Europe/London"
+	world.workspace.timezone = "Etc/UTC"
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=world.user.id,
+	)
+	subroutine.domain.workspaces.add_member(session, world.workspace, agent, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(session, user=agent, title="agent")
+	session.flush()
+
+	as_agent = world._replace(user=agent, secret=issued.value.get_secret_value())
+	made = as_agent.call(
+		"POST", "/v1/tasks", json={"text": "Check the soak test by 2027-08-05 16:30"}
+	)
+
+	assert made.status_code == 201, made.text
+	assert made.json()["timezone"] == "Europe/London", made.json()
+	assert made.json()["due_at"] == "2027-08-05T15:30:00Z", (
+		f"16:30 in London in August is 15:30 UTC, and this was read somewhere else: {made.json()}"
+	)
+
+	me = as_agent.call("GET", "/v1/me").json()
+	meta = as_agent.call("GET", "/v1/meta").json()
+
+	assert me["reader_timezone"] == "Europe/London", me["reader_timezone"]
+	assert [entry["reader_timezone"] for entry in me["workspaces"]] == ["Europe/London"]
+	assert [entry["reader_timezone"] for entry in meta["workspaces"]] == ["Europe/London"]
 
 
 def test_a_row_says_which_workspace_it_is_in_in_a_word (world: World) -> None:

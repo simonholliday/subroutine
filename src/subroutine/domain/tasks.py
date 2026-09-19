@@ -3355,8 +3355,16 @@ def _timezone (
 
 		return explicit
 
-	if actor is not None and actor.user.timezone:
-		return actor.user.timezone
+	# **The account step is `schedule.account_zone`, the one `zone_for` takes** (`#2974`), so an
+	# agent that has said nothing is stored in its account parent's zone whichever of the two a
+	# write reached. It read `actor.user.timezone` until then: the chain's order is written out
+	# here for the queries it saves, and a step changed in one copy would have stayed old here.
+	stated = (
+		None if actor is None else subroutine.domain.schedule.account_zone(session, actor.user)
+	)
+
+	if stated:
+		return stated
 
 	workspace = session.get(subroutine.db.models.identity.Workspace, workspace_id)
 
@@ -3364,7 +3372,7 @@ def _timezone (
 		return workspace.timezone
 
 	return subroutine.domain.schedule.zone_for(
-		instance=subroutine.domain.instances.get(session)
+		session, instance=subroutine.domain.instances.get(session)
 	)
 
 

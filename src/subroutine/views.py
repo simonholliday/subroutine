@@ -6446,8 +6446,8 @@ def reader_zone (
 	**The workspace step is optional because some questions are not about a workspace.** A
 	credential's expiry and an instance's own history belong to the installation, so resolving
 	them through a workspace would answer with whichever one happened to be in hand. Left out,
-	the chain is user → instance, which is §6.5 with a step that does not apply omitted rather
-	than guessed at.
+	the chain is user → account parent → instance, which is §6.5 with a step that does not
+	apply omitted rather than guessed at.
 
 	Here rather than in ``domain/schedule`` because it takes a principal, and here rather than
 	written out at each caller because it had two before this existed and a third was about to
@@ -6455,6 +6455,7 @@ def reader_zone (
 	"""
 
 	return subroutine.domain.schedule.zone_for(
+		session,
 		user=principal.user,
 		workspace=workspace,
 		instance=subroutine.domain.instances.get(session),

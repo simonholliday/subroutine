@@ -1475,6 +1475,7 @@ def timezone_for (
 	"""
 
 	return subroutine.domain.schedule.zone_for(
+		session,
 		user=actor.user,
 		workspace=workspace,
 		instance=subroutine.domain.instances.get(session),

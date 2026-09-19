@@ -280,7 +280,7 @@ def document (
 				# §6.5 resolved for this caller, here — so a client never has to hold a copy
 				# of the chain to know what `friday` means (`#1083`, decision `#1088`).
 				reader_timezone=subroutine.domain.schedule.zone_for(
-					user=actor.user, workspace=workspace, instance=instance
+					session, user=actor.user, workspace=workspace, instance=instance
 				),
 			)
 			for workspace in reachable

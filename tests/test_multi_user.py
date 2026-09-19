@@ -448,6 +448,34 @@ def test_a_person_can_say_which_timezone_they_are_in_and_read_it_back (
 	assert "Tip:" in unset, "and told how to say it, which is the case the tip was written for"
 
 
+def test_an_agent_that_has_said_no_timezone_is_told_whose_it_follows (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2974`: an agent that has said none is counted in its account parent's zone.
+
+	So *"counted in this workspace's zone"* stopped being true for an agent, and the account
+	is named rather than called *you*, for `SR#1297`'s reason: at a terminal holding an agent's
+	credential, *you* is read by the person as being about them. Both branches that said the
+	workspace are driven, the reading and the clearing.
+	"""
+
+	run("init", "--username", "laurence", "--workspace", "Acme")
+	run("user", "create", "bot", "--agent")
+	monkeypatch.setenv("SUBROUTINE_LOCAL_USER", "bot")
+
+	unset = run("user", "timezone").output
+
+	assert "bot has not said which timezone it is in" in unset, unset
+	assert "counted in laurence's zone" in unset, unset
+	assert "workspace" not in unset, unset
+	assert "Tip:" not in unset, "following its parent is the state decided for it, not a gap"
+
+	run("user", "timezone", "Asia/Tokyo")
+	cleared = run("user", "timezone", "--clear").output
+
+	assert "bot's days are counted in laurence's zone again" in cleared, cleared
+
+
 def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

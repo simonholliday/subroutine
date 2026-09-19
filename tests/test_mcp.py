@@ -3818,6 +3818,66 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone (
 	)
 
 
+def test_an_agent_that_has_said_no_zone_writes_a_time_where_its_account_parent_is (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#2974` on the path `SR#2972` took: ``subroutine_add``, by an agent that said no zone.
+
+	Its person is in London, the workspace holds ``Etc/UTC`` that nobody chose, and the instance
+	is somewhere else again, so neither wrong answer can pass for the right one. The line said
+	*16:30* and both of them meant London's; it was stored as 16:30 UTC, and the confirmation
+	named no zone, so it read as right to both.
+
+	**These tools capture through the local client, which resolves the zone with
+	``schedule.zone_for``** and passes it on, so this is the other half of the HTTP test beside
+	``tasks._timezone``. The agent is named by ``local_user``, the way a machine's configuration
+	names one, and it answers to the account ``init`` made.
+	"""
+
+	installed = subroutine.domain.bootstrap.initialise(
+		session,
+		username=f"si-{uuid.uuid4().hex[:8]}",
+		instance_name="Test",
+		timezone="America/New_York",
+	)
+	installed.user.timezone = "Europe/London"
+	installed.workspace.timezone = "Etc/UTC"
+	agent = subroutine.domain.users.create(
+		session,
+		username=f"agent-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=installed.user.id,
+	)
+	subroutine.domain.workspaces.add_member(
+		session, workspace=installed.workspace, user=agent, role_key="member"
+	)
+	session.flush()
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="local"),
+		subroutine.config.Settings(dev_mode=True, local_user=agent.username),
+		session_factory=api_support.factory_for(session),
+	)
+
+	with client:
+		server = subroutine.mcp.protocol.Server(
+			subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+		)
+		ref = _added(server, "Check the soak test by 2027-08-05 16:30")
+
+	row = session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.workspace_id == installed.workspace.id,
+			subroutine.db.models.work.Task.ref == ref,
+		)
+	).one()
+
+	assert row.timezone == "Europe/London", row.timezone
+	assert row.due_at == datetime.datetime(2027, 8, 5, 15, 30, tzinfo=datetime.UTC), (
+		f"16:30 in London in August is 15:30 UTC, and this was read somewhere else: {row.due_at}"
+	)
+
+
 @pytest.mark.parametrize(
 	("timezone", "at", "expected"),
 	[
