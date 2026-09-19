@@ -1087,13 +1087,18 @@ AGENDA_STATEMENTS = 36
 #: written the obvious way. Restated rather than left whenever it moves, as
 #: :data:`AGENDA_STATEMENTS` is.
 #:
-#: **Fourteen, measured on both backends, at a page of ten and at a page of a hundred**: the page
+#: **Eleven, measured on both backends, at a page of ten and at a page of a hundred**: the page
 #: of events; the items it is about; the comments' openings; which of the projects it names the
-#: reader may see; the statuses and the types; the projects' keys and addresses, two; the
-#: project settings walk, four, which the journal does not read and ``Vocabulary`` runs for any
-#: page naming a project; and the actors, two. A page with nothing new on it — what a poll
-#: usually gets — asks the first and nothing else, and the test says so.
-JOURNAL_STATEMENTS = 14
+#: reader may see; the statuses and the types; the projects' keys and addresses, three - the
+#: keys, the paths, and the keys of every project on those paths; and the actors, two. A page
+#: with nothing new on it — what a poll usually gets — asks the first and nothing else, and the
+#: test says so.
+#:
+#: **It was fourteen until `SR#2765`**: ``Vocabulary`` ran the project settings walk, three
+#: statements here, for any page naming a project, and the journal draws no colour and hides no
+#: status. This said the walk was four and the addresses two; listing the statements a page
+#: sends is what showed otherwise.
+JOURNAL_STATEMENTS = 11
 
 
 def test_the_journal_names_an_item_without_reading_its_text (

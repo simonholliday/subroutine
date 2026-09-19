@@ -3186,6 +3186,10 @@ class Vocabulary:
 		#: ``workspace_id``, which is a UUID and unreadable; a listing that spans more than
 		#: one workspace has to say *which* in a word a person recognises.
 		workspace_ids: typing.Iterable[uuid.UUID] = (),
+		#: Whether to resolve each project's colour and hidden statuses — `#2765`. On unless a
+		#: page says it reads neither: the walk costs statements on any page naming a project,
+		#: and the journal names projects on every page and draws no colour.
+		project_settings: bool = True,
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -3243,13 +3247,18 @@ class Vocabulary:
 		# comment saying the walk was *"shared with the colour rather than repeated"*. It was
 		# not, and the sentence is what stopped anybody counting. `hidden_statuses` is read
 		# only by a page of projects; it is loaded here because now the walk really is shared.
-		in_force = subroutine.domain.settings.several_for_projects(
-			session,
-			[subroutine.domain.settings.COLOUR, subroutine.domain.settings.HIDDEN_STATUSES],
-			set(project_ids),
-		)
-		self.project_colours = in_force[subroutine.domain.settings.COLOUR.key]
-		self.hidden_statuses = in_force[subroutine.domain.settings.HIDDEN_STATUSES.key]
+		if project_settings:
+			in_force = subroutine.domain.settings.several_for_projects(
+				session,
+				[subroutine.domain.settings.COLOUR, subroutine.domain.settings.HIDDEN_STATUSES],
+				set(project_ids),
+			)
+			self.project_colours = in_force[subroutine.domain.settings.COLOUR.key]
+			self.hidden_statuses = in_force[subroutine.domain.settings.HIDDEN_STATUSES.key]
+
+		else:
+			self.project_colours = {}
+			self.hidden_statuses = {}
 		# **Both kinds into one map, because one tag vocabulary serves both** (`#819`). An id is
 		# a UUID, so a task's and a document's cannot collide and a renderer asks the same
 		# question of either. Two queries rather than one because the join tables are two —
@@ -4050,6 +4059,9 @@ def journal_entries (
 		# `task_ids` is for readiness — it decides what is blocked — and would fetch the rows
 		# and answer a different question about them.
 		parent_ids=needed[subroutine.domain.journal.TASK],
+		# **Names, and never a colour or a hidden status** (`#2765`): an entry names its item's
+		# project and draws nothing from its settings, so the walk is left out.
+		project_settings=False,
 	)
 
 	return [
