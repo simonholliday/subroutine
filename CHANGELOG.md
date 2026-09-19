@@ -348,6 +348,10 @@ upgrade involves.
   *spare#anything* deleted *spare*. Every name a command sends is now sent whole, and the
   instance says there is no such workspace, as one on your own machine always did.
 
+- **`subroutine update --due friday` works, as its own help says.** A weekday or a written date
+  given to `--due` was refused - *'friday' is not a date this understands* - although `update
+  --help` gives `--due friday` as its example. It is read as `plan` and `defer` read one.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

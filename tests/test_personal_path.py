@@ -11039,6 +11039,96 @@ def test_work_dated_in_another_zone_is_said_rather_than_left_to_puzzle_over (
 	)
 
 
+@pytest.mark.parametrize("written", ["friday", "14 march"])
+def test_a_deadline_can_be_given_as_a_weekday_or_a_written_date (
+	run: typing.Callable[..., typer.testing.Result], written: str,
+) -> None:
+	"""`SR#2856`: ``update --due friday`` was refused, and it is the command's own example.
+
+	``update --help`` offers ``--due friday``, and ``explain dates`` says a weekday and a written
+	date work at the command line wherever a date is asked for - but the words went to the
+	instance as written, and its grammar refuses a weekday by design. **Resolved at the
+	terminal now, as** ``plan`` **and** ``defer`` **resolve them**, into the day they name in the
+	account's zone.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something to finish")
+	run("update", "1", "--due", written)
+
+	zone = subroutine.config.system_timezone()
+	today = subroutine.domain.schedule.local_date(subroutine.db.types.utcnow(), zone)
+	expected = subroutine.domain.dates.day_named(written, today=today)
+	stored = json.loads(run("show", "1", "--json").output)["item"]
+	due = datetime.datetime.fromisoformat(stored["due_at"]).astimezone(
+		subroutine.domain.dates.zone(zone, "due")
+	)
+
+	assert expected is not None, f"the probe's own words name no day: {written!r}"
+	assert stored["due_is_all_day"] is True, stored
+	assert due.date() == expected, (due, expected)
+
+
+def test_a_deadline_nothing_reads_is_still_refused (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""One edge of `SR#2856`: only a day a person names is resolved, and nothing is invented.
+
+	A word neither grammar reads still goes to the instance as written, which refuses it by
+	name, and the item keeps no deadline.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something to finish")
+
+	refused = run("update", "1", "--due", "someday", expect=1)
+
+	assert "someday" in refused.output, refused.output
+	assert json.loads(run("show", "1", "--json").output)["item"]["due_at"] is None
+
+
+@pytest.mark.parametrize("word", sorted(subroutine.domain.dates.WHOLE_DAY_KEYWORDS))
+def test_a_deadline_the_instance_reads_still_goes_to_it_as_written (
+	run: typing.Callable[..., typer.testing.Result], word: str,
+) -> None:
+	"""The other edge of `SR#2856`: a word the instance reads still goes to it as written.
+
+	``today`` names another day in the deadline's own zone than in the account's for part of
+	every day, so resolving it at the terminal, as a weekday is resolved, would move the
+	deadline - silently, and only at some hours. **The deadline's zone is picked for naming
+	another day than the account's at the moment the test runs**, which one of two zones
+	twenty-five hours apart always does, so the test cannot pass by the hour it runs at.
+	Parameterised on the whole-day words, so one added later is held the day it is added.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Something to finish")
+
+	now = subroutine.db.types.utcnow()
+
+	def day_in (zone: str) -> datetime.date:
+		"""Return the day ``word`` names in ``zone``, as the instance reads it."""
+
+		return subroutine.domain.schedule.local_date(
+			subroutine.domain.dates.resolve(word, now=now, timezone=zone), zone
+		)
+
+	account = day_in(subroutine.config.system_timezone())
+	elsewhere = next(
+		zone for zone in ("Pacific/Kiritimati", "Pacific/Pago_Pago") if day_in(zone) != account
+	)
+
+	run("update", "1", "--due", word, "--timezone", elsewhere)
+
+	stored = json.loads(run("show", "1", "--json").output)["item"]
+	due = datetime.datetime.fromisoformat(stored["due_at"]).astimezone(
+		subroutine.domain.dates.zone(elsewhere, "due")
+	)
+
+	assert stored["due_is_all_day"] is True, stored
+	assert due.date() == day_in(elsewhere), (due, day_in(elsewhere), account)
+
+
 def test_work_dated_in_the_readers_own_zone_says_nothing (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

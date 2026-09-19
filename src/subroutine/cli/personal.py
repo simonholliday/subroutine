@@ -2991,6 +2991,29 @@ def _moment (world: World, written: str, *, at: "Located") -> datetime.datetime 
 	return resolved
 
 
+def _a_deadline (world: World, written: str, *, at: "Located") -> str:
+	"""Return a deadline as the instance reads one, resolving the days only a person writes.
+
+	**A weekday or a written date becomes its date here, and nothing else changes** (`#2856`).
+	The instance's grammar refuses ``friday`` by design - it serves programs, which have a
+	calendar - while ``update --help`` gives ``--due friday`` as its example, and ``plan`` and
+	``defer`` resolve the same words at the terminal, in the account's zone, as this does.
+	**Asked of** ``dates.day_named``, which is what :func:`_moment`'s reader asks first, so the
+	words are exactly theirs. Anything else goes as it was written: the instance goes on reading
+	``today``, an expression or an ISO time in the deadline's own zone, as before, and on
+	refusing what nothing reads.
+	"""
+
+	named = subroutine.domain.dates.day_named(
+		written,
+		today=subroutine.domain.schedule.local_date(
+			subroutine.db.types.utcnow(), world.account_zone(at.connection, at.workspace)
+		),
+	)
+
+	return written if named is None else named.isoformat()
+
+
 def _a_readable_day (written: str) -> str:
 	"""Return a written day unchanged, refusing here what every connection would refuse — `#1083`.
 
@@ -10154,6 +10177,10 @@ def _changed (
 			verb="update",
 		)
 		client = _require_connection(program, world, located.connection)
+
+		# A day only a person writes becomes its date here, where the item's place is known.
+		if changes.get("due"):
+			changes = {**changes, "due": _a_deadline(world, changes["due"], at=located)}
 
 		# **Asked before the write and never after it**, which is what makes the answer a
 		# decision rather than a confirmation. A change that names only a status or only how
