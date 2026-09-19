@@ -170,6 +170,12 @@ collation - are invisible on SQLite by construction.
 check asserts that `--autogenerate` produces an empty diff against the models, and a
 second check compares CHECK constraints, which autogenerate does not look at.
 
+**A served instance does work only when somebody asks it to.** No timer, no background
+loop, no job on a schedule: an instance nobody is using uses no CPU, which is what lets
+somebody run several on one small machine. `tests/test_idle.py` refuses a new way of
+starting work in the background until it is named there with its reason, so adding one
+is a decision with a sentence behind it rather than a change nobody questioned.
+
 **User-facing text is read by people setting up a to-do list**, not only by Python
 developers. CLI output, error messages and docstrings describe outcomes in the user's
 terms, and errors say what to do next.
