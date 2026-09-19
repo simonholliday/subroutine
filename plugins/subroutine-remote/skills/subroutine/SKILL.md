@@ -426,10 +426,10 @@ subroutine_list(filter={"assigned_by.eq": "me", "completed_at.gte": "yesterday"}
 If they have to check the work first, give it back open and say it is ready to check.
 Cancelling work somebody gave you is their decision, so give it back instead.
 
-**Assign it, or it reaches nobody.** *Waiting on you* is the top of that person's agenda and
-holds what is assigned to them or what they are holding, so a parked item with nobody's name on
-it sits among the work nobody has taken. Their answer is on the item when you — or a different
-agent, days later — come back to it.
+**Assign it, or it reaches nobody.** *Waiting on you*, on that person's agenda, holds what is
+assigned to them or what they are holding, so a parked item with nobody's name on it sits among
+the work nobody has taken. Their answer is on the item when you — or a different agent, days
+later — come back to it.
 
 **One hand-back is no reason to stop**: carry on with something else that is ready. **Two in a
 row are**, because they say the work you are being given is not clear enough to do, and that is

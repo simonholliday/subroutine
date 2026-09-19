@@ -352,6 +352,10 @@ upgrade involves.
   given to `--due` was refused - *'friday' is not a date this understands* - although `update
   --help` gives `--due friday` as its example. It is read as `plan` and `defer` read one.
 
+- **The agent skill and the agent tools give the agenda's order as it is drawn.** The skill told
+  an agent that *Waiting on you* is the top of a person's agenda, and the list tool described the
+  agenda as overdue first. Today leads, then Overdue, In progress and Waiting on you.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

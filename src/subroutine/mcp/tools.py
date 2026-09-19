@@ -928,7 +928,7 @@ def _tools (
 					"today": {
 						"type": "boolean",
 						"description": (
-							"The agenda: overdue, today, in progress, upcoming, next."
+							"The agenda: today, overdue, in progress, waiting, next."
 						),
 					},
 					"filter": DATE_FILTER,
