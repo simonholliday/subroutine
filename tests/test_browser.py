@@ -3545,6 +3545,11 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	refusing[0] = None
 	page.press(".adding input[name=text]", "Enter")
 	page.wait_for_selector(".note.good", timeout=10_000)
+	# **The box clears after the note, not with it** (`SR#2909`). `add` says *Added* and then
+	# reloads the listing before telling the form the write landed, so reading the box the
+	# moment the note appeared raced the reload - and a CI runner lost, on `8020137`. Wait for
+	# the thing asserted on, as this file's rule says, and then assert it.
+	_until(page, lambda: page.input_value(".adding input[name=text]") == "")
 
 	assert page.input_value(".adding input[name=text]") == "", (
 		"a write that landed has to clear the box, or the next capture starts with this one"
