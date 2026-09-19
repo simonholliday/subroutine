@@ -27,6 +27,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A time written beside a date stays on that date.** In a captured line with a start and a
+  deadline, a time always went onto the deadline, whichever date it was written beside:
+  *Dentist on monday at 2pm by friday* made an all-day start on Monday and a deadline at
+  2pm, and the confirmation printed both, so it read as right. A time now goes on the date
+  it follows, or the one it comes before, and one beside no date is read as it was.
 - **`subroutine_whoami` says which timezone an agent's days are read in**, and names its
   account parent when that is where the zone comes from. It named one only when it
   differed from the machine's, and the agent tools see no machine wherever they run on the

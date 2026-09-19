@@ -1587,6 +1587,103 @@ def test_a_time_with_no_day_at_all_still_means_today () -> None:
 	assert captured.title == "Dentist"
 
 
+#: `SR#2855`: a time goes on the date it was written beside. Said on Thursday 30 July, so
+#: `monday` is the 3rd of August, `friday` the 31st of July and `tomorrow` the 31st, and a
+#: deadline beside a start counts from it (`SR#1239`): `by friday` beside Monday is the 7th.
+#:
+#: Each row is the line, the field the time is on and its value, and the other field, which
+#: keeps its whole day.
+BESIDE_A_TIME = (
+	# The report's own lines. Where the deadline is written makes no difference.
+	(
+		"Dentist on monday at 2pm by friday",
+		"starts_at", datetime.datetime(2026, 8, 3, 14, 0), "due", datetime.date(2026, 8, 7),
+	),
+	(
+		"Dentist by friday on monday at 2pm",
+		"starts_at", datetime.datetime(2026, 8, 3, 14, 0), "due", datetime.date(2026, 8, 7),
+	),
+	(
+		"Call them from monday at 9am by friday",
+		"snooze", datetime.datetime(2026, 8, 3, 9, 0), "due", datetime.date(2026, 7, 31),
+	),
+	# Before its day rather than after it, which is the same fact.
+	(
+		"Dentist at 2pm on monday by friday",
+		"starts_at", datetime.datetime(2026, 8, 3, 14, 0), "due", datetime.date(2026, 8, 7),
+	),
+	# A bare day is read after the time is, and the time is still its.
+	(
+		"Dentist tomorrow at 2pm by friday",
+		"starts_at", datetime.datetime(2026, 7, 31, 14, 0), "due", datetime.date(2026, 7, 31),
+	),
+	# A tag between a day and its time does not part them.
+	(
+		"Dentist on monday +health at 2pm by friday",
+		"starts_at", datetime.datetime(2026, 8, 3, 14, 0), "due", datetime.date(2026, 8, 7),
+	),
+	# And a deadline keeps the time written beside it, as it always did.
+	(
+		"Dentist on monday by friday at 2pm",
+		"due", datetime.datetime(2026, 8, 7, 14, 0), "starts_at", datetime.date(2026, 8, 3),
+	),
+)
+
+
+@pytest.mark.parametrize(
+	("text", "timed", "at", "other", "day"), BESIDE_A_TIME, ids=[one[0] for one in BESIDE_A_TIME]
+)
+def test_a_time_goes_on_the_date_it_was_written_beside (
+	text: str, timed: str, at: datetime.datetime, other: str, day: datetime.date
+) -> None:
+	"""`SR#2855`. A time went on the deadline, whichever date it was written beside.
+
+	*Dentist on monday at 2pm by friday* made an all-day start on Monday and a deadline at 2pm,
+	and the echo printed both dates, so it read as a successful parse. `_apply_time` tried the
+	deadline, then the defer, then the start; nothing recorded which date the time sat by.
+	"""
+
+	captured = _parse(text)
+
+	assert getattr(captured, timed) == at, f"{text!r}: {timed} is {getattr(captured, timed)!r}"
+	assert getattr(captured, ALL_DAY_FLAGS[timed]) is False
+	assert getattr(captured, other) == day, f"{text!r}: {other} is {getattr(captured, other)!r}"
+	assert getattr(captured, ALL_DAY_FLAGS[other]) is True, f"{text!r}: {other} took the clock"
+	assert captured.title in ("Dentist", "Call them"), captured.title
+	assert captured.unparsed == ()
+
+
+def test_a_time_beside_no_date_is_read_as_it_was () -> None:
+	"""The other half of `SR#2855`: words either side of a time leave it beside nothing.
+
+	Then the old order decides, deadline first, so the rule narrows where a time goes and
+	moves nothing that was not written beside a date.
+	"""
+
+	captured = _parse("Call Bob at 3pm about the invoice by friday")
+
+	assert captured.due == datetime.datetime(2026, 7, 31, 15, 0)
+	assert captured.starts_at is None
+	assert captured.title == "Call Bob about the invoice"
+
+
+def test_a_time_beside_a_date_that_cannot_take_one_does_not_move_to_another () -> None:
+	"""`SR#2855`'s shape through a second door: the time jumped to whichever date could take it.
+
+	The deadline already names its own clock, so the time written beside it has nowhere to go
+	- and the old order carried it past to the start on Monday. It goes back into the title and
+	is said, which is what happens to the same line without a start (`SR#1239`).
+	"""
+
+	captured = _parse("Pay it by 2026-09-02T17:00 at 18:00 on monday")
+
+	assert captured.due == "2026-09-02T17:00"
+	assert captured.starts_at == datetime.date(2026, 8, 3), "the start took a clock"
+	assert captured.starts_is_all_day is True
+	assert "at 18:00" in captured.title
+	assert "at 18:00" in captured.unparsed
+
+
 def test_a_one_to_one_is_not_one_minute_past_one () -> None:
 	"""The case a looser pattern gets wrong, and it is how people write a recurring meeting.
 

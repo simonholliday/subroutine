@@ -794,21 +794,19 @@ def parse (
 		claimed.append((start, start + len(words)))
 		repeated.append((start, start + len(words)))
 
-	before = len(claimed)
+	# **Where each date landed, and which field it set** (`#2855`), so a time can be recognised
+	# as belonging to one date and then be put on that date's field. Each rule writes it on the
+	# line where it claims the span, the one moment both facts are in hand. This was a slice of
+	# `claimed`, which knew where the dates were and not what any of them had set.
+	placed: dict[tuple[int, int], str] = {}
 
 	_collect_spans(
-		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
+		text, claimed, reserved, fields, unparsed, placed, today=today, now=now, timezone=timezone
 	)
 
 	deadline = _collect_dates(
-		text, claimed, reserved, fields, unparsed, today=today, now=now, timezone=timezone
+		text, claimed, reserved, fields, unparsed, placed, today=today, now=now, timezone=timezone
 	)
-
-	# Where the date phrases landed, so a time can be recognised as belonging to one. Taken as
-	# a slice rather than returned, because `_collect_spans` and then `_collect_dates` append to
-	# `claimed` and that is the only place the spans exist — a second list would be a second copy
-	# to keep in step.
-	dated = list(claimed[before:])
 
 	_collect_sigils(text, claimed, reserved, fields, tags)
 
@@ -817,9 +815,9 @@ def parse (
 	# `Solar eclipse today at 18:30` into `Solar eclipse today` for its purposes — and the
 	# end-anchor that makes `today` mean something, which is deliberate and well argued, needs
 	# no change at all. Reading the time was the missing half; the anchor was never the defect.
-	at = _collect_times(text, claimed, reserved, unparsed, after=dated)
+	at = _collect_times(text, claimed, reserved, unparsed, after=list(placed))
 
-	_collect_bare_days(text, claimed, reserved, fields, today=today)
+	_collect_bare_days(text, claimed, reserved, fields, placed, today=today)
 
 	# **After every start is read and before a clock is put on anything**: a start can come from
 	# a span, a date or a bare day, and the comparison is between two days.
@@ -828,6 +826,7 @@ def parse (
 	used = _apply_time(
 		fields,
 		None if at is None else at[0],
+		beside=None if at is None else _beside(text, at[1], placed, claimed),
 		today=today,
 		unread_day=bool(_UNREAD_DAY.search(_blanked(text, claimed))),
 		now=now,
@@ -904,6 +903,7 @@ def _collect_dates (
 	reserved: list[tuple[int, int]],
 	fields: dict[str, typing.Any],
 	unparsed: list[str],
+	placed: dict[tuple[int, int], str],
 	*,
 	today: datetime.date,
 	now: datetime.datetime,
@@ -912,7 +912,8 @@ def _collect_dates (
 	"""Consume ``before Sunday``-style phrases, first one per field winning.
 
 	Returns the words that set the deadline, if one was set, so it can be read again from a
-	start this line names anywhere in it (:func:`_counted_from_the_start`).
+	start this line names anywhere in it (:func:`_counted_from_the_start`). Records in
+	``placed`` which field each phrase it claimed set, for a time written beside it (`#2855`).
 	"""
 
 	deadline: str | None = None
@@ -947,6 +948,7 @@ def _collect_dates (
 			# would leave that function combining a time with something already resolved.
 			fields["starts_at"] = _as_date(value, now=now, timezone=timezone)
 			fields["starts_is_all_day"] = True
+			placed[match.span()] = "starts_at"
 
 		elif word in DEADLINE_WORDS:
 			if "due" in fields:
@@ -954,12 +956,14 @@ def _collect_dates (
 
 			fields["due"], fields["due_is_all_day"] = value, all_day
 			deadline = phrase
+			placed[match.span()] = "due"
 
 		else:
 			if "snooze" in fields:
 				continue
 
 			fields["snooze"], fields["snoozed_is_all_day"] = value, all_day
+			placed[match.span()] = "snooze"
 
 		claimed.append(match.span())
 
@@ -1169,10 +1173,53 @@ def _named_day (value: typing.Any, *, now: datetime.datetime, timezone: str) -> 
 	return named
 
 
+def _beside (
+	text: str,
+	span: tuple[int, int],
+	placed: typing.Mapping[tuple[int, int], str],
+	claimed: typing.Sequence[tuple[int, int]],
+) -> str | None:
+	"""Return the field of the date a time was written beside, or ``None`` - `#2855`.
+
+	**The date it follows, and otherwise the one it comes before.** *On monday at 2pm* and *at
+	2pm on monday* are one fact written in two orders. In *on monday at 2pm by friday* the time
+	sits between two dates and belongs to the one it follows, because that is how a time is
+	written onto a day, and ``by friday 17:00`` has always been read that way.
+
+	**Beside means nothing between them once everything claimed is blanked**, as a bare day is
+	found last (:func:`_collect_bare_days`): a tag between a date and its time does not part
+	them, and a word does. The nearest date wins on each side, since a date between two others
+	is blanked too.
+
+	``None`` is a time beside no date, and :func:`_apply_time` keeps its own order for that.
+	"""
+
+	start, end = span
+	blank = _blanked(text, claimed)
+
+	followed = [
+		(date_end, field)
+		for (_date_start, date_end), field in placed.items()
+		if date_end <= start and not blank[date_end:start].strip()
+	]
+
+	if followed:
+		return max(followed)[1]
+
+	preceded = [
+		(date_start, field)
+		for (date_start, _date_end), field in placed.items()
+		if date_start >= end and not blank[end:date_start].strip()
+	]
+
+	return min(preceded)[1] if preceded else None
+
+
 def _apply_time (
 	fields: dict[str, typing.Any],
 	at: datetime.time | None,
 	*,
+	beside: str | None,
 	today: datetime.date,
 	unread_day: bool,
 	now: datetime.datetime,
@@ -1182,6 +1229,14 @@ def _apply_time (
 
 	**A preposition wins, because the writer said which field they meant.** ``due today at
 	17:00`` is a deadline with a time; ``from friday 09:00`` is a defer with one.
+
+	**And the date the time was written beside decides between two** (`#2855`). This tried the
+	deadline, then the defer, then the start, and put the clock on the first holding a day, so
+	*Dentist on monday at 2pm by friday* moved the appointment's time onto the deadline and the
+	start lost it, silently, since both dates were still printed. ``beside`` is
+	:func:`_beside`'s answer. Where that date cannot take a clock, being a span of days or an
+	instant already written, the time goes back into the title rather than onto another date.
+	The order below is kept for a time beside no date: *Call Bob at 3pm about it by friday*.
 
 	**A bare day plus a time is simply a start with a time on it** (`#854`). It used to be a
 	*defer*: ``starts_at`` was a date that could not hold a clock, so the day was popped off
@@ -1235,6 +1290,9 @@ def _apply_time (
 		("snooze", "snoozed_is_all_day"),
 		("starts_at", "starts_is_all_day"),
 	):
+		if beside is not None and field != beside:
+			continue
+
 		value = fields.get(field)
 
 		if value is not None:
@@ -1275,6 +1333,7 @@ def _collect_spans (
 	reserved: list[tuple[int, int]],
 	fields: dict[str, typing.Any],
 	unparsed: list[str],
+	placed: dict[tuple[int, int], str],
 	*,
 	today: datetime.date,
 	now: datetime.datetime,
@@ -1340,6 +1399,7 @@ def _collect_spans (
 		fields["starts_at"], fields["ends_at"] = days
 		fields["starts_is_all_day"] = True
 		claimed.append(match.span())
+		placed[match.span()] = "starts_at"
 
 		return
 
@@ -1480,6 +1540,7 @@ def _collect_bare_days (
 	claimed: list[tuple[int, int]],
 	reserved: list[tuple[int, int]],
 	fields: dict[str, typing.Any],
+	placed: dict[tuple[int, int], str],
 	*,
 	today: datetime.date,
 ) -> None:
@@ -1509,6 +1570,9 @@ def _collect_bare_days (
 		fields["starts_at"] = today + datetime.timedelta(days=offset)
 		fields["starts_is_all_day"] = True
 		claimed.append(match.span())
+		# **The word rather than the match** (`#2855`): the match runs on to the end of the line
+		# through everything blanked, so it would sit on top of a time written after the day.
+		placed[match.span("phrase")] = "starts_at"
 
 		return
 
