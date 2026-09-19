@@ -993,6 +993,12 @@ def _counted_from_the_start (
 	start = fields.get("starts_at")
 	due = fields.get("due")
 
+	# **Two dates are compared, whatever `Capture.starts_at` may hold by the end of `parse`**
+	# (the cold review of 2026-09-18, `#2882`, asked for this here, since it rests on three
+	# other functions). A start is always a plain date: `_collect_dates` passes each through
+	# `_as_date`, and `_collect_spans` and `_collect_bare_days` write one. A deadline is a date
+	# or, written as an ISO time, its string, which the `isinstance` guard leaves alone; a
+	# written time is not on it yet, because `parse` applies times only after this runs.
 	if phrase is None or start is None or not isinstance(due, datetime.date) or due >= start:
 		return
 

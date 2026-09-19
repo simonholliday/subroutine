@@ -195,6 +195,9 @@ def lag (running: str | None, published: typing.Sequence[Release]) -> Lag | None
 	if not ahead:
 		return None
 
+	# **No default needed, and the reason is in another class** (`#2882`): `behind` is empty
+	# unless `Standing.is_a_release`, which asks this same question of the same record, so the
+	# release looked for here is always found.
 	mine = next(release for release in published if release.version == running)
 
 	return Lag(
