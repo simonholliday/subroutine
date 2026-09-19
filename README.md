@@ -98,8 +98,9 @@ is Claude Code's rather than ours.
   the check for new releases.
 - **A real API first.** The CLI, the browser and your agent are all clients of it, and it is
   published - OpenAPI at `/v1/openapi.json` - for your own scripts too.
-- **FSL-1.1-ALv2.** Run it, modify it, fork it, sell what you build with it - just don't resell
-  Subroutine itself as a service. Every release turns Apache-2.0 after two years.
+- **FSL-1.1-ALv2.** Free to run, modify and fork for your own work, at any size - but never to
+  compete with it: no commercial product or service, built from it, that substitutes for it or
+  does substantially the same job. Every release turns Apache-2.0 two years after it ships.
 
 ---
 
@@ -636,16 +637,23 @@ says what *is* welcome: bug reports, and being told why you stopped using it.
 
 ## Licence
 
-[FSL-1.1-ALv2](https://github.com/simonholliday/subroutine/blob/main/LICENSE) - the Functional Source License.
+[FSL-1.1-ALv2](https://github.com/simonholliday/subroutine/blob/main/LICENSE) - the Functional Source License,
+with Apache-2.0 as its future licence.
 
-**Run it, modify it, fork it, for any purpose including making money.** A person, a team, a
-five-hundred-person company self-hosting it for its own work, a consultancy charging to set it
-up for a client: all free, for ever, with nothing to buy and nobody to ask.
+**Use it for your own work, free, at any size.** A person, a team, a five-hundred-person company
+self-hosting it for its own work, a consultancy charging to set it up for a client who runs it:
+all free, for ever, with nothing to buy and nobody to ask. You may modify it and fork it for the
+same purposes, and use it in non-commercial teaching and research.
 
-**The one thing you may not do is sell other people access to it as a service.** That is the
-whole restriction, and it is why this is source-available rather than an OSI open-source
-licence - the Open Source Definition does not allow a licence to rule out a field of use, even
-one.
+**You may not use it to compete with it.** The licence calls that a *Competing Use*: making
+Subroutine, or anything modified or derived from it, available to others in a commercial product
+or service that substitutes for it, that substitutes for a product or service we offer with it,
+or that offers the same or substantially similar functionality. That reaches well beyond
+reselling it as a service. Built from this code, a hosted tracker, a packaged product or a
+rebranded fork sold to others that does what Subroutine does is not licensed - however it is
+delivered, and whatever it is called. This is also why Subroutine is source-available rather
+than under an OSI open-source licence: the Open Source Definition does not allow a licence to
+rule out a field of use.
 
 **Every release becomes Apache-2.0 two years after it ships**, automatically, with no decision
 by anybody. That is the promise underneath the restriction: if this project goes somewhere you
@@ -654,4 +662,5 @@ do not want to follow, you can take it and go.
 Versions up to and including 0.5.0 were published under AGPL-3.0-or-later and remain so.
 
 **A commercial licence is available by agreement.** If you want to offer Subroutine as a
-service, write to simon.holliday@protonmail.com and say what you have in mind.
+service, or to build on it anything that might compete with it, write to
+simon.holliday@protonmail.com before you start, and say what you have in mind.

@@ -233,13 +233,15 @@ before the first commit.
 **FSL-1.1-ALv2** — the Functional Source License, with Apache-2.0 as its future licence.
 Decision `#665`, taken with Simon on 2026-08-08, replacing AGPL-3.0-or-later.
 
-**The rule, and it is the whole of it:** anyone may run Subroutine, modify it and fork it,
-for any purpose including making money — except selling other people access to it as a
-service. Free for ever, with nothing to buy and nobody to ask: a person, a team, a
-five-hundred-person company self-hosting it for its own work, a consultancy charging to
-install it for a client. The licence's *Permitted Purpose* names "internal operations" and
-"professional services" explicitly. **Every release converts to Apache-2.0 two years after
-it is published**, automatically and with no decision by anybody.
+**The rule:** anyone may run Subroutine, modify it and fork it, for any purpose except
+competing with it — making it, or anything built from it, available to others in a commercial
+product or service that substitutes for it or offers substantially similar functionality,
+which reaches well beyond selling access to it as a service. Free for ever, with nothing to
+buy and nobody to ask: a person, a team, a five-hundred-person company self-hosting it for its
+own work, a consultancy charging to install it for a client. The licence's *Permitted Purpose*
+names "internal use and access" and "professional services" explicitly. **Every release
+converts to Apache-2.0 two years after it is published**, automatically and with no decision
+by anybody.
 
 **This section used to say AGPL-3.0-or-later, and the reasoning it gave was wrong.** It
 justified the choice as protection against "a cloud provider taking the work, hosting a

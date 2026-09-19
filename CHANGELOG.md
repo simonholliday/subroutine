@@ -6587,15 +6587,17 @@ because that is what happened; there is no 0.6.2 to install and no release page 
 - **The licence has changed, to [FSL-1.1-ALv2](LICENSE) — the Functional Source License.**
 
   **Almost certainly nothing changes for you.** Run it, modify it, fork it, for any purpose
-  including making money. A person, a team, a five-hundred-person company self-hosting it for
+  except competing with it. A person, a team, a five-hundred-person company self-hosting it for
   its own work, a consultancy charging to set it up for a client: all free, for ever, with
   nothing to buy and nobody to ask. There is no obligation to publish anything, and nothing is
   triggered by having users — which is a *reduction* on the AGPL, whose network clause meant a
   modified instance owed its source to the people using it.
 
-  **The one thing you may not do is sell other people access to it as a service.** If that is
-  what you have in mind, write to simon.holliday@protonmail.com — a commercial licence is
-  available by agreement.
+  **The one thing you may not do is compete with it**: make it, or anything built from it,
+  available to others in a commercial product or service that substitutes for it or offers
+  substantially similar functionality — which reaches well beyond selling access to it as a
+  service. If that is what you have in mind, write to simon.holliday@protonmail.com — a
+  commercial licence is available by agreement.
 
   **Every release becomes Apache-2.0 two years after it ships**, automatically. That is the
   promise underneath the restriction: if this project goes somewhere you would rather not

@@ -2023,9 +2023,14 @@ Subroutine is [FSL-1.1-ALv2](../LICENSE). **Running it, modifying it and serving
 people are all free and unconditional** - internally, commercially, at any size, for ever. There
 is no obligation to publish anything, and nothing here is triggered by having users.
 
-The one thing the licence withholds is **selling other people access to it as a service**. If
-that is what you are setting up, write to simon.holliday@protonmail.com first - a commercial
-licence is available by agreement, and it is cheaper than finding out afterwards.
+What the licence withholds is **any use that competes with Subroutine**: making it, or anything
+built from it, available to others in a commercial product or service that substitutes for it,
+or for a product or service offered with it, or that offers the same or substantially similar
+functionality. Hosting it for your own organisation is free; selling other people access to
+it, or to something built from it, is not, and neither is selling a product built from it that
+does what it does. If that is what you are setting up, write to simon.holliday@protonmail.com
+first - a commercial licence is available by agreement, and it is cheaper than finding out
+afterwards.
 
 Each release becomes Apache-2.0 two years after it ships, automatically.
 
