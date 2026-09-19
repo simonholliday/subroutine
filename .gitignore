@@ -13,6 +13,11 @@ dist/
 venv/
 env/
 
+# uv's lock file, which `uv lock` and `uv sync` write (`SR#2899`, Simon 2026-09-19). Not
+# committed: the package publishes with ranges, and CI installs from them with pip the way a
+# user does, so a lock would pin development and nothing CI or a user runs.
+uv.lock
+
 # Tooling caches
 .pytest_cache/
 .mypy_cache/
