@@ -104,12 +104,14 @@ def initialise (
 		is_superuser=True,
 	)
 
+	# **No zone for the workspace, so it follows the instance's** (`#2982`), which is what the
+	# comment on the instance above has always said. It was handed the machine's as well: a
+	# copy of the instance's that stopped following it the day the installation moved.
 	workspace = subroutine.domain.workspaces.create(
 		session,
 		slug=workspace_slug or _derived_slug(workspace_title, username),
 		title=workspace_title,
 		owner=user,
-		timezone=timezone,
 	)
 
 	# **Made by `workspaces.create`, not here** (`#301`). It used to be this call, which meant

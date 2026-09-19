@@ -5838,6 +5838,23 @@ def test_both_change_the_fields_beside_an_address_the_same_way (pair: Pair) -> N
 	assert local.update_workspace(slug, timezone=None).timezone is None
 
 
+def test_a_workspace_made_without_a_zone_follows_the_instance_on_both_transports (
+	pair: Pair,
+) -> None:
+	"""`SR#2982`: made without a zone, a workspace stores none, so the instance's shows through.
+
+	Both routes stored ``UTC``. The endpoint wrote ``body.timezone or "UTC"`` beneath a request
+	model whose comment says a default there shadows the instance, and the local client wrote
+	``timezone or "UTC"`` beneath a command whose help says *unset follows the instance*. So no
+	workspace made after the column became nullable ever followed one.
+	"""
+
+	local, remote = pair.both()
+
+	assert local.create_workspace(slug="unzoned-here", title="Here").timezone is None
+	assert remote.create_workspace(slug="unzoned-there", title="There").timezone is None
+
+
 def test_a_task_can_be_filed_underneath_another_one_on_both_transports (pair: Pair) -> None:
 	"""`#510`: `POST /v1/tasks` took a parent and no client could pass one.
 

@@ -58,7 +58,7 @@ def create (
 	title: str,
 	owner: subroutine.db.models.identity.User,
 	description: str | None = None,
-	timezone: str = "UTC",
+	timezone: str | None = None,
 	settings: dict[str, typing.Any] | None = None,
 	actor: subroutine.domain.authentication.Principal | None = None,
 ) -> subroutine.db.models.identity.Workspace:
@@ -97,7 +97,12 @@ def create (
 	# Same check as `update`, and it was missing here: `create` took whatever string it was
 	# handed, so `{"timezone": "Mars/Olympus"}` was stored and only surfaced later, as a
 	# refusal that named the caller's request rather than the workspace holding the bad value.
-	subroutine.domain.dates.zone(timezone)
+	#
+	# **None is stored as it came, meaning *not stated*** (`#2982`), so the workspace follows
+	# the instance's zone and moves when it does. This defaulted to UTC, as did both routes
+	# that call it, so no workspace made after the column became nullable ever followed one.
+	if timezone is not None:
+		subroutine.domain.dates.zone(timezone)
 
 	# **Checked here as `update` checks it, and it was not** (`#1127`). This took whatever map
 	# it was handed, so a key `PATCH /v1/workspaces/{slug}` refuses by name was accepted

@@ -27,6 +27,11 @@ upgrade involves.
 
 ### Fixed
 
+- **A new workspace follows the instance's timezone** unless you give it one. Every way of
+  making a workspace stored UTC instead - `init` stored the machine's - so changing the
+  instance's zone never reached one, although `subroutine workspace create --help` said it
+  would. Workspaces you already have keep the zone they hold: `subroutine workspace update
+  <name> --timezone ''` makes one follow the instance.
 - **`subroutine mcp --help` says which connection it uses.** `--connection` defaults to the
   one `subroutine connections` marks default, not the one in use, and the help said the
   opposite - so somebody who ran `subroutine use work` expecting their agent to follow got

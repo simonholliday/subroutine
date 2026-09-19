@@ -574,8 +574,9 @@ def test_a_task_falls_back_to_the_instance_when_nothing_else_says (
 		timezone="America/New_York",
 	)
 
-	# Neither the workspace nor the actor states one.
-	installed.workspace.timezone = None
+	# Neither the workspace nor the actor states one. `init` leaves the workspace unstated
+	# since `SR#2982`, so only the account, which it seeds from the machine, is cleared here.
+	assert installed.workspace.timezone is None
 	installed.user.timezone = None
 	session.flush()
 
@@ -606,12 +607,21 @@ def test_a_workspace_with_no_timezone_follows_the_instance (
 		instance_name="Test instance",
 		timezone="Australia/Sydney",
 	)
-	installed.workspace.timezone = None
-	session.flush()
+	# **Unstated by `init` itself, not by this test** (`SR#2982`). This set it to None by hand,
+	# because `init` handed the workspace the machine's zone - so it tested the fallback, and
+	# never whether anything creates a workspace that uses it.
+	assert installed.workspace.timezone is None
 
 	assert subroutine.domain.schedule.zone_for(
 		session, workspace=installed.workspace, instance=installed.instance
 	) == "Australia/Sydney"
+
+	# And moving the installation moves it, which a copy taken at `init` would not.
+	installed.instance.timezone = "Pacific/Auckland"
+
+	assert subroutine.domain.schedule.zone_for(
+		session, workspace=installed.workspace, instance=installed.instance
+	) == "Pacific/Auckland"
 
 
 def test_a_word_that_names_a_day_is_stored_as_that_whole_day () -> None:

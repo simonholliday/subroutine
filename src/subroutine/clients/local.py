@@ -2756,7 +2756,7 @@ class Client:
 				# administer it — a workspace with no owner is not a state worth reaching.
 				owner=actor.user,
 				description=description,
-				timezone=timezone or "UTC",
+				timezone=timezone,
 				actor=actor,
 			)
 

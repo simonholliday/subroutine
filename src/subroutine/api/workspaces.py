@@ -274,7 +274,9 @@ def create (
 		# it — a workspace with no owner is not a state worth being able to reach.
 		owner=actor.user,
 		description=body.description,
-		timezone=body.timezone or "UTC",
+		# As given, and null when not, for the reason `Create.timezone` gives. This read
+		# `or "UTC"`, under that comment, until `#2982`.
+		timezone=body.timezone,
 		settings=body.settings,
 		actor=actor,
 	)

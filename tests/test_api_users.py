@@ -476,7 +476,9 @@ def test_the_agenda_is_counted_from_the_zone_a_person_gave (
 		sqlalchemy.select(subroutine.db.models.identity.Workspace)
 	).all()
 
-	assert [one.timezone for one in spaces] == ["UTC"], (
+	# **Unstated, as `init` leaves it since `SR#2982`**, so the zone before came from the account
+	# too. This read UTC while `init` copied the machine's zone onto the workspace.
+	assert [one.timezone for one in spaces] == [None], (
 		"only the account moved, so the agenda followed the account"
 	)
 

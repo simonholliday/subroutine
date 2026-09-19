@@ -272,7 +272,8 @@ def test_a_bad_timezone_is_refused_when_written_not_when_read (
 		world.call("PATCH", "/v1/workspaces/acme", json={"timezone": "Mars/Olympus"}).status_code
 		== 422
 	)
-	assert world.call("GET", "/v1/workspaces/acme").json()["timezone"] == "UTC"
+	# Never given one, so it follows the instance (`SR#2982`), and the refusal left it so.
+	assert world.call("GET", "/v1/workspaces/acme").json()["timezone"] is None
 
 
 def test_a_narrowed_token_cannot_create_a_workspace (
@@ -424,7 +425,8 @@ def test_the_service_refuses_an_unknown_actor_free_caller (
 		owner=_a_user(session),
 	)
 
-	assert founder.timezone == "UTC"
+	# Not stated, so the instance's shows through (`SR#2982`). This read UTC until then.
+	assert founder.timezone is None
 
 	with pytest.raises(subroutine.errors.ValidationError):
 		subroutine.domain.workspaces.create(
