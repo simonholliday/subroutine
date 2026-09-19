@@ -2688,6 +2688,162 @@ def test_the_read_only_scan_can_see_a_write_that_forgot () -> None:
 	assert writes == guards == {"wipe"}, "and it sees the guard when there is one"
 
 
+#: What may stand in a path the HTTP client builds, besides a parameter declared ``int``.
+QUOTING = frozenset({"_segment", "_address", "_workspace", "_plural"})
+
+
+def _unquoted_in_paths (source: str) -> tuple[int, list[str]]:
+	"""Return how many ``/v1/`` paths this source builds, and each value put into one unquoted.
+
+	**Allowed is a quoting helper, or a parameter its method declares** ``int`` - a ref, which
+	cannot hold a character a path would read. Anything else is a string somebody may have typed
+	(`SR#2893`). Takes the source as an argument, so the proof below reaches the real scanner.
+	"""
+
+	examined = 0
+	unquoted: list[str] = []
+	declared: list[set[str]] = []
+
+	class Paths(ast.NodeVisitor):
+		"""Walk functions keeping their ``int`` parameters, and check each path inside them."""
+
+		def visit_FunctionDef (self, node: ast.FunctionDef) -> None:
+			"""Note which of this function's parameters are ints, for the paths inside it."""
+
+			arguments = node.args.posonlyargs + node.args.args + node.args.kwonlyargs
+			declared.append({
+				one.arg for one in arguments
+				if isinstance(one.annotation, ast.Name) and one.annotation.id == "int"
+			})
+			self.generic_visit(node)
+			declared.pop()
+
+		def visit_JoinedStr (self, node: ast.JoinedStr) -> None:
+			"""Check every value placed into a path this f-string builds."""
+
+			nonlocal examined
+			first = node.values[0] if node.values else None
+
+			if isinstance(first, ast.Constant) and str(first.value).startswith("/v1/"):
+				examined += 1
+
+				for part in node.values:
+					if isinstance(part, ast.FormattedValue) and not _quoted(
+						part.value, declared[-1] if declared else set()
+					):
+						unquoted.append(f"{node.lineno}: {ast.unparse(part.value)}")
+
+			self.generic_visit(node)
+
+	Paths().visit(ast.parse(source))
+
+	return examined, unquoted
+
+
+def _quoted (value: ast.expr, ints: set[str]) -> bool:
+	"""Report whether a value placed into a path is quoted, or cannot need quoting."""
+
+	if isinstance(value, ast.Call):
+		called = value.func
+		name = called.id if isinstance(called, ast.Name) else getattr(called, "attr", None)
+
+		return name in QUOTING
+
+	return isinstance(value, ast.Name) and value.id in ints
+
+
+def test_every_name_the_http_client_puts_into_a_path_is_quoted () -> None:
+	"""`SR#2893`: a name typed with a ``#`` acted on the part before it, over HTTP only.
+
+	``#2623`` quoted usernames, tags and labels and said slugs, keys and ids needed nothing,
+	which is true of a stored one and false of an argument. The cold review of 2026-09-18 found
+	a workspace and a project going out as typed, and a sweep for the same shape found a token's
+	prefix, a calendar's, a link's id, a comment's and a document's name. **Every path is held to
+	it now**, floored by how many were examined.
+	"""
+
+	examined, unquoted = _unquoted_in_paths((CLIENTS / "http.py").read_text(encoding="utf-8"))
+
+	assert examined >= 50, f"only {examined} paths were examined, so this checks little"
+	assert not unquoted, "put into a path unquoted:\n" + "\n".join(unquoted)
+
+
+@pytest.mark.parametrize(
+	("planted", "unquoted"),
+	[
+		(
+			'def delete (self, *, workspace: str) -> None:\n'
+			'\tself._json("DELETE", f"/v1/workspaces/{workspace}")\n',
+			["2: workspace"],
+		),
+		(
+			'def read (self, *, ref: str) -> None:\n\tself._json("GET", f"/v1/tasks/{ref}")\n',
+			["2: ref"],
+		),
+		# A call that is not a quoting helper is a name left bare all the same.
+		(
+			'def delete (self, *, workspace: str) -> None:\n'
+			'\tself._json("DELETE", f"/v1/workspaces/{workspace.strip()}")\n',
+			["2: workspace.strip()"],
+		),
+		# And what must pass: a helper, and a ref declared an int.
+		(
+			'def delete (self, *, workspace: str) -> None:\n'
+			'\tself._json("DELETE", f"/v1/workspaces/{_segment(workspace)}")\n',
+			[],
+		),
+		(
+			'def read (self, *, ref: int) -> None:\n\tself._json("GET", f"/v1/tasks/{ref}")\n',
+			[],
+		),
+	],
+)
+def test_the_path_scan_catches_a_name_left_bare (planted: str, unquoted: list[str]) -> None:
+	"""The scanner above, fed paths built to break it and paths that must not."""
+
+	examined, found = _unquoted_in_paths(planted)
+
+	assert examined == 1, planted
+	assert found == unquoted, planted
+
+
+def test_neither_transport_acts_on_the_part_of_an_address_before_a_hash (pair: Pair) -> None:
+	"""`SR#2893`: over HTTP a ``#`` in an address began a fragment, and the rest was dropped.
+
+	So ``delete_workspace('projectsx#anything')`` deleted ``projectsx`` on a served instance,
+	where the local client said there was no such workspace - the cold review of 2026-09-18
+	drove it. No stored name can hold a ``#``, so this is an argument somebody typed, and **both
+	transports now answer it alike**: nothing is called that, and the workspace and the project
+	named by the part before the ``#`` are both still there.
+	"""
+
+	spare = pair.local.create_workspace(slug="spare", title="Somewhere else")
+	pair.local.create_project(key="web", title="Web", workspace=pair.workspace.slug)
+	answers = []
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.SubroutineError) as deleting:
+			client.delete_workspace(f"{spare.slug}#anything")
+
+		with pytest.raises(subroutine.errors.SubroutineError) as renaming:
+			client.rename_workspace(f"{spare.slug}#anything", slug="elsewhere")
+
+		with pytest.raises(subroutine.errors.SubroutineError) as rekeying:
+			client.rename_project("web#anything", key="elsewhere", workspace=pair.workspace.slug)
+
+		# Through `_workspace`, which the scan trusts by name, so its quoting is asked here.
+		with pytest.raises(subroutine.errors.SubroutineError) as listing:
+			client.members(workspace=f"{spare.slug}#anything")
+
+		answers.append([
+			(one.value.code, one.value.detail) for one in (deleting, renaming, rekeying, listing)
+		])
+
+	assert answers[0] == answers[1], f"the two transports refuse differently: {answers}"
+	assert "spare" in {row.slug for row in pair.remote.identity().workspaces}
+	assert "web" in {row.key for row in pair.remote.projects(workspace=pair.workspace.slug)}
+
+
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
 	"""The invariant the whole `views.py` move exists for, held by a test rather than by prose.
 

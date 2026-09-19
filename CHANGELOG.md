@@ -336,6 +336,11 @@ upgrade involves.
   now says which timezone its dates were computed in, as `timezone`, and the browser reads
   each day there.
 
+- **A `#` in the name of a workspace or project no longer acts on the part before it.** Through
+  a served instance the name went out as it was typed, and a `#` cut it short, so deleting
+  *spare#anything* deleted *spare*. Every name a command sends is now sent whole, and the
+  instance says there is no such workspace, as one on your own machine always did.
+
 ## 0.8.18 — 2026-09-14
 
 > **This release changes the database schema**, to `c3a7f21b9d40`.

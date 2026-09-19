@@ -128,7 +128,7 @@ class Client:
 	def reference (self, name: str) -> str:
 		"""Return one of the instance's reference documents, as text."""
 
-		return self._text("GET", f"/v1/docs/{name}")
+		return self._text("GET", f"/v1/docs/{_segment(name)}")
 
 	def call_api (
 		self,
@@ -742,7 +742,7 @@ class Client:
 
 		self._json(
 			"DELETE",
-			f"/v1/{_plural(entity_type)}/{ref}/links/{link_id}",
+			f"/v1/{_plural(entity_type)}/{ref}/links/{_segment(link_id)}",
 			params=_given(workspace_id=workspace),
 		)
 
@@ -776,7 +776,7 @@ class Client:
 				hint=f"Run 'subroutine show {ref}' to see what is recorded against it.",
 			)
 
-		self._json("DELETE", f"/v1/comments/{comment_id}")
+		self._json("DELETE", f"/v1/comments/{_segment(comment_id)}")
 
 	def comments (
 		self, *, ref: int, entity_type: str = "task", workspace: str | None = None
@@ -1054,7 +1054,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		return self._parsed(
-			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{id_or_prefix}")
+			subroutine.views.Token, self._json("DELETE", f"/v1/tokens/{_segment(id_or_prefix)}")
 		)
 
 	def calendars (
@@ -1112,7 +1112,7 @@ class Client:
 
 		return self._parsed(
 			subroutine.views.IssuedCalendar,
-			self._json("POST", f"/v1/calendars/{id_or_prefix}/reset"),
+			self._json("POST", f"/v1/calendars/{_segment(id_or_prefix)}/reset"),
 		)
 
 	def revoke_calendar (self, *, id_or_prefix: str) -> subroutine.views.Calendar:
@@ -1122,7 +1122,7 @@ class Client:
 
 		return self._parsed(
 			subroutine.views.Calendar,
-			self._json("DELETE", f"/v1/calendars/{id_or_prefix}"),
+			self._json("DELETE", f"/v1/calendars/{_segment(id_or_prefix)}"),
 		)
 
 	def user (self, *, username: str) -> subroutine.views.User:
@@ -1312,7 +1312,7 @@ class Client:
 
 		body = self._json(
 			"POST",
-			f"/v1/projects/{project}/members",
+			f"/v1/projects/{_address(project)}/members",
 			json={"username": username},
 			params=_given(workspace_id=workspace),
 		)
@@ -1328,7 +1328,7 @@ class Client:
 
 		self._json(
 			"DELETE",
-			f"/v1/projects/{project}/members/{_segment(username)}",
+			f"/v1/projects/{_address(project)}/members/{_segment(username)}",
 			params=_given(workspace_id=workspace),
 		)
 
@@ -1339,7 +1339,7 @@ class Client:
 
 		body = self._json(
 			"GET",
-			f"/v1/projects/{project}/members",
+			f"/v1/projects/{_address(project)}/members",
 			params=_given(workspace_id=workspace),
 		)
 
@@ -1366,7 +1366,7 @@ class Client:
 			subroutine.views.SettingsInForce,
 			self._json(
 				"GET",
-				f"/v1/projects/{project}/settings",
+				f"/v1/projects/{_address(project)}/settings",
 				params=_given(workspace_id=workspace),
 			),
 		)
@@ -1380,7 +1380,7 @@ class Client:
 
 		body = self._json(
 			"PATCH",
-			f"/v1/projects/{project}",
+			f"/v1/projects/{_address(project)}",
 			json={"key": key},
 			params=_given(workspace_id=workspace),
 		)
@@ -1417,7 +1417,7 @@ class Client:
 		}
 		body = self._json(
 			"PATCH",
-			f"/v1/projects/{project}",
+			f"/v1/projects/{_address(project)}",
 			params=_given(workspace_id=workspace),
 			json=_asked(given, expected_version),
 		)
@@ -1451,7 +1451,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		body = self._json("PATCH", f"/v1/workspaces/{workspace}", json={"slug": slug})
+		body = self._json("PATCH", f"/v1/workspaces/{_segment(workspace)}", json={"slug": slug})
 
 		return subroutine.views.Workspace.model_validate(body)
 
@@ -1480,7 +1480,7 @@ class Client:
 		}
 		body = self._json(
 			"PATCH",
-			f"/v1/workspaces/{workspace}",
+			f"/v1/workspaces/{_segment(workspace)}",
 			params=_given(workspace_id=workspace_id),
 			json=_asked(given, expected_version),
 		)
@@ -1492,7 +1492,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		body = self._json("DELETE", f"/v1/workspaces/{workspace}")
+		body = self._json("DELETE", f"/v1/workspaces/{_segment(workspace)}")
 
 		return subroutine.views.Workspace.model_validate(body)
 
@@ -1501,7 +1501,7 @@ class Client:
 
 		self._refuse_if_read_only()
 
-		body = self._json("POST", f"/v1/workspaces/{workspace}/restore")
+		body = self._json("POST", f"/v1/workspaces/{_segment(workspace)}/restore")
 
 		return subroutine.views.Workspace.model_validate(body)
 
@@ -1514,7 +1514,7 @@ class Client:
 
 		body = self._json(
 			"POST",
-			f"/v1/projects/{project}/move",
+			f"/v1/projects/{_address(project)}/move",
 			# **Sent whatever it is, including null.** `_given` drops a None, which is right
 			# for a filter and wrong for a field whose null is an instruction — the endpoint
 			# refuses a body that names no parent at all, precisely so that "move to root"
@@ -2278,7 +2278,7 @@ class Client:
 		return named if isinstance(named, str) else None
 
 	def _workspace (self, given: str | None) -> str:
-		"""Return the workspace to address, refusing to guess when none was named.
+		"""Return the workspace as one path segment, refusing to guess when none was named.
 
 		**The one place the two transports genuinely cannot behave the same way.** Everywhere
 		else a workspace is a *parameter* the server resolves through
@@ -2293,7 +2293,9 @@ class Client:
 		"""
 
 		if given and given.strip():
-			return given.strip()
+			# **Quoted, because it is whatever a caller typed** (`#2893`): a `#` in it began a
+			# fragment, so the rest was dropped and the request acted on the part before it.
+			return _segment(given.strip())
 
 		raise subroutine.errors.ValidationError(
 			"Which workspace? Membership belongs to one, so it has to be named.",
@@ -2545,11 +2547,29 @@ def _segment (name: str) -> str:
 	another, and every agent answering to it. A tag's name and a status's or link type's label are
 	the same kind of text. ``safe=""`` quotes ``/`` too, since a name is one segment however it is
 	spelled - the server decodes the path before routing, so a name holding one is refused rather
-	than read as two segments. Refs, ids, keys and slugs are held to characters a path already
-	takes, so they are left as they are.
+	than read as two segments.
+
+	**And so is a slug, a key or an id somebody typed** (`#2893`). A *stored* one is held to
+	characters a path already takes, but an argument is whatever a caller wrote:
+	``delete_workspace('projectsx#anything')`` deleted ``projectsx`` over HTTP, where the local
+	client said there was no such workspace. A ref is the one value left bare, because every
+	method here takes it as an ``int``, and ``tests/test_transport_equivalence.py`` holds every
+	path to that.
 	"""
 
 	return urllib.parse.quote(name, safe="")
+
+
+def _address (project: str) -> str:
+	"""Return a project's address as path segments, each one quoted - `#2893`.
+
+	**Split on ``/`` first**, because between keys it means *inside*: ``parent/child`` is two
+	segments the server's route reads as one address. Within a key a ``#`` or a ``?`` means
+	nothing, and quoted it reaches the server as part of the key, which then finds no project -
+	the local client's answer - rather than a shorter address that finds one.
+	"""
+
+	return "/".join(_segment(part) for part in project.split("/"))
 
 
 def _given (**values: typing.Any) -> dict[str, typing.Any]:
