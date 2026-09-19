@@ -4507,6 +4507,29 @@ def _status_in (
 	)
 
 
+def _said_it_is_finished (
+	program: Program,
+	world: World,
+	located: Located,
+	task: subroutine.views.Task,
+) -> bool:
+	"""Say a task is already done and return ``True``, or return ``False`` - `#2976`.
+
+	**An answer rather than a refusal**, because nothing else would go wrong: picking up
+	something already ticked off is nearly always the wrong number. ``start``, ``stop`` and
+	``claim`` answer it alike, and a claim here used to be taken, on work finishing had just
+	given the claim back from. The instance refuses it too, for every other surface.
+	"""
+
+	if task.completed_at is None:
+		return False
+
+	program.say(_acted(world, located, "Already done"))
+	_suggest(program.console, "subroutine list", "everything still open")
+
+	return True
+
+
 def _moved_to (program: Program, which: str, category: str, *, verb: str, said: str) -> None:
 	"""Move a task into a category of the workflow, in the shape `done` uses.
 
@@ -4525,12 +4548,7 @@ def _moved_to (program: Program, which: str, category: str, *, verb: str, said: 
 			verb=verb,
 		)
 
-		if task.completed_at is not None:
-			# Nothing else would go wrong, and this is the honest answer: picking up
-			# something already ticked off is nearly always the wrong number.
-			program.say(_acted(world, located, "Already done"))
-			_suggest(program.console, "subroutine list", "everything still open")
-
+		if _said_it_is_finished(program, world, located, task):
 			return
 
 		client = _require_connection(program, world, located.connection)
@@ -6284,6 +6302,10 @@ def _claimed (program: Program, *, which: str, minutes: int) -> None:
 			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
 			verb="claim",
 		)
+
+		if _said_it_is_finished(program, world, located, task):
+			return
+
 		client = _require_connection(program, world, located.connection)
 
 		try:

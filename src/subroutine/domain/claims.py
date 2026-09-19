@@ -119,6 +119,16 @@ def claim (
 	# is a fact about the workspace, and a caller who may not touch the task should not learn it.
 	_permitted(session, actor, task)
 
+	# **A finished task is not held** (`#2976`), for :func:`released_if_finished`'s reason: a
+	# lease over work nobody can start protects nothing, and a name on the row saying somebody
+	# is holding it is false. Finishing gives a claim back, and this took one straight back out:
+	# `claim` on a done item succeeded while `start` on it answered *Already done*.
+	if task.completed_at is not None:
+		raise subroutine.errors.Conflict(
+			f"#{task.ref} is finished, so there is nothing to hold.",
+			hint="If there is more to do, give it an open status again, and then claim it.",
+		)
+
 	subroutine.domain.versions.require(task, expected_version, noun="task")
 
 	model = subroutine.db.models.work.Task

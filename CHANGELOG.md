@@ -27,6 +27,10 @@ upgrade involves.
 
 ### Fixed
 
+- **Claiming a finished item is refused.** It took a lease that finishing had just given
+  back, so the item said somebody was holding work nobody could start. `subroutine claim`
+  now answers *Already done*, as `subroutine start` does, and the agent tools and the API
+  say it is finished and how to open it again.
 - **A time written beside a date stays on that date.** In a captured line with a start and a
   deadline, a time always went onto the deadline, whichever date it was written beside:
   *Dentist on monday at 2pm by friday* made an all-day start on Monday and a deadline at

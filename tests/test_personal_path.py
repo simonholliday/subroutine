@@ -6641,6 +6641,22 @@ def test_starting_something_already_finished_says_so (
 	assert "Already done" in run("start", "1").output
 
 
+def test_claiming_something_already_finished_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#2976`: `claim` answers a finished item as `start` does, and takes nothing."""
+
+	run("init")
+	run("add", "Buy milk")
+	run("done", "1")
+
+	answered = run("claim", "1").output
+
+	assert "Already done" in answered, answered
+	assert "Claimed" not in answered, answered
+	assert json.loads(run("show", "1", "--json").output)["item"]["claimed_by_id"] is None
+
+
 def test_a_refusal_from_start_still_refuses (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

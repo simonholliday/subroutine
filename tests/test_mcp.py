@@ -7737,6 +7737,27 @@ def test_finishing_something_still_held_hands_the_claim_back_with_it (
 	assert "not claimed" not in answered, "it was claimed, and this says the opposite"
 
 
+def test_claiming_something_finished_is_refused_by_name (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2976` on the surface where claims are most often taken.
+
+	Finishing hands the claim back (the test above), so a claim afterwards would put a holder's
+	name back on work nobody can start. The answer says which item and what would let it be
+	claimed, since an agent cannot see the terminal's *Already done*.
+	"""
+
+	ref = _added(bound, "Something already finished")
+
+	assert not _called(bound, "subroutine_done", ref=ref)[1]
+
+	answered, failed = _called(bound, "subroutine_claim", ref=ref)
+
+	assert failed, answered
+	assert f"#{ref} is finished" in answered, answered
+	assert "open status" in answered, answered
+
+
 def test_a_listing_says_which_items_are_expensive_to_read (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

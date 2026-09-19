@@ -390,6 +390,30 @@ def test_finishing_something_somebody_else_holds_gives_their_lease_back (
 	assert world.call("GET", f"/v1/tasks/{held['ref']}").json()["claimed_by_id"] is None
 
 
+def test_a_finished_item_cannot_be_claimed (world: test_api_tasks.World) -> None:
+	"""`SR#2976`: finishing gives the lease back, and a claim took it straight back out.
+
+	**Refused where the claim is taken**, so the terminal, the agent tools and the API answer
+	alike. Done and cancelled both, for `test_cancelling_gives_the_lease_back_too`'s reason:
+	each makes ``completed_at`` non-null, and each is as unstartable as the other.
+	"""
+
+	done = _task(world, "Already shipped")
+	world.call("POST", f"/v1/tasks/{done['ref']}/complete")
+	cancelled = _task(world, "Not going ahead")
+	world.call("PATCH", f"/v1/tasks/{cancelled['ref']}", json={"status": "cancelled"})
+
+	for finished in (done, cancelled):
+		refused = world.call("POST", f"/v1/tasks/{finished['ref']}/claim")
+
+		assert refused.status_code == 409, refused.text
+		assert f"#{finished['ref']} is finished" in refused.text, refused.text
+
+		after = world.call("GET", f"/v1/tasks/{finished['ref']}").json()
+
+		assert after["claimed_by_id"] is None, "the refusal took the lease anyway"
+
+
 def test_finishing_twice_records_one_release (world: test_api_tasks.World) -> None:
 	"""Idempotent, because `release` returns early when nobody holds it.
 
