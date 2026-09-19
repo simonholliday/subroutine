@@ -646,7 +646,8 @@ class Program:
 	per-function parameter list would be nine ways to be inconsistent. What a reader gets from
 	the name is the answer to *where does this sentence go* — :attr:`say` for a line,
 	:attr:`console` for something with style in it, :attr:`stop` and :attr:`fail` for the two
-	kinds of ending — and that question was previously answered by scrolling.
+	kinds of ending, :attr:`refused` for what one connection turned down in a read the others
+	answered — and that question was previously answered by scrolling.
 
 	**`selected` is mutable and deliberately so**, which is why this is frozen and it is not:
 	Typer resolves the callback's options before the command's, and the object is how the two
@@ -659,6 +660,7 @@ class Program:
 	settings: typing.Callable[[], subroutine.config.Settings]
 	console: rich.console.Console
 	warn: typing.Callable[[str], None]
+	refused: typing.Callable[[subroutine.errors.SubroutineError, str], None]
 	mask: typing.Callable[[str], str]
 	selected: Selected
 
@@ -5335,10 +5337,16 @@ def _report (program: Program, world: World, failures: typing.Sequence[subroutin
 	To standard error, and the command still exits 0: an agenda that refuses to print
 	because one of three servers is down is worse than an agenda with a line saying which
 	one. ``--strict`` is how a script says it would rather stop.
+
+	**Said the way a refusal is said everywhere else** (`#2954`), through
+	:attr:`Program.refused`: the connection, then the refusal with its fields and what each
+	accepts. This printed the first line alone, so ``list --status waiting`` said there was no
+	such status and never which there are, where ``update`` named them - `#79`'s defect, one
+	path along.
 	"""
 
 	for failure in (*world.unreachable, *failures):
-		program.warn(failure.describe())
+		program.refused(failure.error, failure.connection.label)
 
 
 def _only_this_connection (program: Program, world: World, name: str) -> World:
@@ -8523,6 +8531,7 @@ def register (
 	settings: typing.Callable[[], subroutine.config.Settings],
 	console: rich.console.Console,
 	warn: typing.Callable[[str], None],
+	refused: typing.Callable[[subroutine.errors.SubroutineError, str], None],
 	mask: typing.Callable[[str], str],
 ) -> tuple[typing.Callable[[], list[str]], Selected]:
 	"""Add the personal commands to the application.
@@ -8542,6 +8551,7 @@ def register (
 		settings=settings,
 		console=console,
 		warn=warn,
+		refused=refused,
 		mask=mask,
 		selected=selected,
 	)

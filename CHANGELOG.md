@@ -31,6 +31,9 @@ upgrade involves.
   `SUBROUTINE_TOKEN_<CONNECTION>` where your editor starts, which the skill tells an agent
   never to offer. Its Workspace setting now asks what your credential reaches, rather than
   how many workspaces the instance holds.
+- **A listing that refuses a status or a type names the ones there are**, as `subroutine
+  update` does. A read that spans your connections printed a refusal's first line alone, so
+  `subroutine list --status waiting` said there was no such status and never which there are.
 
 ## 0.8.27 — 2026-09-19
 

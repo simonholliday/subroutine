@@ -9674,6 +9674,7 @@ def test_a_helper_speaks_through_the_program_it_was_handed () -> None:
 		settings=subroutine.config.Settings,
 		console=rich.console.Console(),
 		warn=said.append,
+		refused=lambda error, connection: said.append(f"{connection}: {error.detail}"),
 		mask=lambda text: text,
 		selected=subroutine.cli.personal.Selected(),
 	)
@@ -9755,6 +9756,30 @@ def test_a_date_a_document_has_not_got_returns_no_documents_rather_than_all_of_t
 	shared = run("list", "--filter", "created_at.gte=today").output
 
 	assert "How the thing works" in shared
+
+
+def test_a_listing_that_refuses_a_status_or_a_type_names_the_ones_there_are (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#2954`. A read that spans connections printed a refusal's first line and nothing else.
+
+	``update --status`` has named the statuses there are since `#79`, and ``list --status`` said
+	there was no such status and never which there are: a merged read reported each connection
+	it could not read by the headline alone, and the values that exist are in the field lines
+	underneath. Both vocabularies a listing names are asked, since they are refused separately.
+	"""
+
+	run("init")
+
+	status = run("list", "--status", "not-a-status").output
+
+	assert "There is no task status called 'not-a-status' here." in status, status
+	assert "Statuses here: " in status and "needs_input" in status, status
+
+	kind = run("list", "--type", "not-a-type").output
+
+	assert "There is no task type called 'not-a-type' here." in kind, kind
+	assert "Types here: " in kind and "bug" in kind, kind
 
 
 def test_a_filter_with_no_equals_is_refused_before_anything_is_asked (
@@ -10991,6 +11016,7 @@ def test_connections_counting_different_days_are_said_rather_than_resolved () ->
 		settings=subroutine.config.Settings,
 		console=rich.console.Console(),
 		warn=said.append,
+		refused=lambda error, connection: pytest.fail(f"nothing here is refused: {error}"),
 		mask=lambda text: text,
 		selected=subroutine.cli.personal.Selected(),
 	)
@@ -11166,6 +11192,7 @@ def test_connections_agreeing_about_the_day_say_nothing () -> None:
 		settings=subroutine.config.Settings,
 		console=rich.console.Console(),
 		warn=said.append,
+		refused=lambda error, connection: pytest.fail(f"nothing here is refused: {error}"),
 		mask=lambda text: text,
 		selected=subroutine.cli.personal.Selected(),
 	)

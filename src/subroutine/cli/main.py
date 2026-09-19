@@ -311,7 +311,7 @@ TERMINAL_REMEDIES = {
 }
 
 
-def _printed (error: subroutine.errors.SubroutineError) -> None:
+def _printed (error: subroutine.errors.SubroutineError, *, connection: str | None = None) -> None:
 	"""Write a refusal to standard error, without deciding how the process ends.
 
 	Split out from `_fail` so that `main` can report a refusal that escaped a command
@@ -323,6 +323,9 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 	through arrives here — the personal path's ``fail`` is this function's caller too — so a
 	translation put here covers ``token create``, ``agent create`` and whatever routes through
 	a connection next, without anybody remembering.
+
+	``connection`` says where a refusal came from, for a read that asked several and prints
+	what one of them turned down beside what the others answered (`#2954`).
 	"""
 
 	hint = error.hint
@@ -351,7 +354,9 @@ def _printed (error: subroutine.errors.SubroutineError) -> None:
 			field if spelling == field.field else dataclasses.replace(field, field=spelling)
 		)
 
-	_err.print(subroutine.cli.output.plain(error.detail), markup=False, highlight=False)
+	detail = error.detail if connection is None else f"{connection}: {error.detail}"
+
+	_err.print(subroutine.cli.output.plain(detail), markup=False, highlight=False)
 
 	if hint is not None:
 		_err.print(subroutine.cli.output.plain(hint), markup=False, highlight=False)
@@ -400,6 +405,17 @@ def _warn (message: str) -> None:
 	"""
 
 	_err.print(message, markup=False, highlight=False)
+
+
+def _refused (error: subroutine.errors.SubroutineError, connection: str) -> None:
+	"""Report what one connection refused in a read that spans several, and carry on.
+
+	Through :func:`_printed`, so the refusal says what it says everywhere else - the field it
+	is about and the values that exist - rather than its first line alone, which is what a
+	merged read printed until `#2954`. `#79` was the same defect on the single path.
+	"""
+
+	_printed(error, connection=connection)
 
 
 def safe_url (url: str) -> str:
@@ -525,6 +541,7 @@ _show_today, _selected = subroutine.cli.personal.register(
 	settings=_settings,
 	console=_out,
 	warn=_warn,
+	refused=_refused,
 	mask=safe_url,
 )
 
