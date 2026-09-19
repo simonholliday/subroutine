@@ -129,6 +129,35 @@ def test_adding_a_colleague_does_not_cost_you_your_own_list (
 	run("add", "Another thing")
 
 
+def test_a_directory_too_big_to_read_whole_still_keeps_the_operators_list (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#2646`: past one whole read of the directory, the account was made and then refused.
+
+	Measured with that read shrunk to two, on one person and two agents: `user create` made the
+	account, left the operator unpinned because the read had stopped, and the next call - joining
+	it to the workspace - found two people and refused. **The operator answers it instead**:
+	local mode with no credential resolved them as the only person there is.
+
+	The agents are made by ``agent create``, which pins nobody, so the operator is still unpinned
+	when the directory outgrows the read; ``user create --agent`` would pin them first.
+	"""
+
+	run("init", "--workspace", "Acme")
+	run("agent", "create", "first")
+	run("agent", "create", "second")
+	monkeypatch.setattr(subroutine.cli.personal, "WHOLE_DIRECTORY", 2)
+
+	created = run("user", "create", "thomas").output
+
+	assert "is now member in acme" in created, created
+	assert "go on acting as" in created, created
+
+	run("add", "Buy milk")
+
+	assert "Buy milk" in run("list").output
+
+
 def test_a_role_is_named_rather_than_assumed (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

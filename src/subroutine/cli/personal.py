@@ -2097,7 +2097,10 @@ def _subtree (
 
 
 def _keep_the_operators_own_list (
-	world: World, before: subroutine.clients.base.Listing[subroutine.views.User]
+	world: World,
+	before: subroutine.clients.base.Listing[subroutine.views.User],
+	*,
+	operator: subroutine.views.Me | None = None,
 ) -> str | None:
 	"""Pin local commands to the existing account, and return who that was.
 
@@ -2123,23 +2126,41 @@ def _keep_the_operators_own_list (
 	resolves an operator and finds the ambiguity this function had just written the cure for.
 	"""
 
+	if world.settings.local_user:
+		return None
+
 	# **A listing that stopped cannot answer "was there exactly one"** (`SR#2384`), so the caller
 	# reads the whole directory (`SR#2624`). It read one page, and this said a directory too big
 	# for one had long since settled whose list to show - false on an installation of one person
 	# and more agents than a page holds, where the page ran out before the people did and a second
-	# account then refused `subroutine list`. This stays for a directory larger than that read.
+	# account then refused `subroutine list`.
+	#
+	# **Past that read, the operator answers it, and needs no read at all** (`SR#2646`). With no
+	# credential and no `local_user`, local mode resolves whoever runs a command as the only
+	# person there is (§12.1a), so the account this command runs as is the one to keep. This
+	# returned nothing here, and the account was created and then the next call refused.
 	if before.has_more:
-		return None
+		if (
+			operator is None
+			or operator.credential is not None
+			or operator.user.is_service_account
+		):
+			return None
 
-	people = [account for account in before if not account.is_service_account]
+		kept = operator.user.username
 
-	if len(people) != 1 or world.settings.local_user:
-		return None
+	else:
+		people = [account for account in before if not account.is_service_account]
 
-	subroutine.config.store_setting("local_user", people[0].username)
-	world.settings.local_user = people[0].username
+		if len(people) != 1:
+			return None
 
-	return people[0].username
+		kept = people[0].username
+
+	subroutine.config.store_setting("local_user", kept)
+	world.settings.local_user = kept
+
+	return kept
 
 
 def _workspace_id_of (world: World, slug: str | None) -> str | None:
@@ -8039,6 +8060,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 				if where.client.connection.is_local
 				else subroutine.clients.base.Listing([])
 			)
+			# **And who is asking, where that read could not count** (`#2646`). Asked before the
+			# account exists, because afterwards local mode finds two people and cannot say.
+			operator = where.client.me() if before.has_more else None
 
 			created = where.client.create_user(
 				username=username,
@@ -8053,7 +8077,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# so the account created one line above has just made that ambiguous — and every
 			# call after it resolves an operator. Until this command did a second thing, the
 			# repair could sit at the end and nothing noticed.
-			settled = _keep_the_operators_own_list(world, before)
+			settled = _keep_the_operators_own_list(world, before, operator=operator)
 
 			joined = (
 				None
