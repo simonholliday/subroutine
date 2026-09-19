@@ -30,6 +30,12 @@ def size (limit: int | None, settings: subroutine.config.Settings) -> int:
 	refusal naming the field and the range; anything above ``max_page_size`` is *capped* rather
 	than refused, which is what the API has always done — a caller asking for more than the
 	instance will serve is asking a reasonable question and gets as much as there is.
+
+	**Capped by decision, and a refusal would break this program's own client** (Simon,
+	2026-09-19, `#2901`, after cold reviews asked it more than once). ``clients/http.py`` sends
+	its caller's whole number as ``limit`` and follows the cursor for the rest, so refusing
+	above the maximum would fail every listing it is asked for more than a page of - and every
+	released client, against an upgraded server. ``has_more`` and the cursor say there is more.
 	"""
 
 	if limit is None:
