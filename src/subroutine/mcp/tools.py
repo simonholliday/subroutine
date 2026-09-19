@@ -1691,6 +1691,19 @@ def _whoami (
 	if accountable := subroutine.views.accountable_in_words(me.user):
 		lines.append(accountable)
 
+	# **An agent on a person's credential is where a new installation starts** (`#1620`), and
+	# this is where it shows: everything written through these tools is recorded as the
+	# person's, where the case for handing work over rests on an agent being somebody of its
+	# own. Making the account prints a credential, so it is named rather than done, and named
+	# to whoever may run it.
+	if kind == "person":
+		may = subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
+		lines.append(
+			f"What you write here is recorded as {me.user.username}'s. For a name of your own, "
+			f"{me.user.username if may else 'an administrator here'} can run 'subroutine agent "
+			"create <name>', which makes the account and says how to hand it over."
+		)
+
 	if credential is not None and credential.narrows:
 		lines.append(
 			f"Narrowed to {subroutine.views.narrowing(credential, me.workspaces)}."

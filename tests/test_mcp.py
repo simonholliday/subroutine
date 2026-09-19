@@ -3390,6 +3390,24 @@ def test_asking_who_you_are_says_what_a_narrow_credential_cannot_do (
 	assert issued.value.get_secret_value() not in text
 
 
+def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`#1620`. A new installation's agent works on the person's credential, and this says so.
+
+	Everything it writes is then recorded as the person's, where the case for handing work over
+	rests on an agent being somebody of its own. ``whoami`` is the moment somebody is already
+	asking who they are, so it names the command - which is the person's to run, because it
+	prints a credential.
+	"""
+
+	whoami, failed = _called(bound, "subroutine_whoami")
+
+	assert not failed, whoami
+	assert "(person)" in whoami, whoami
+	assert "subroutine agent create <name>" in whoami, whoami
+
+
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
 	"""`#2789`. The terminal's line, through the tools an agent actually asks with.
 
@@ -3430,6 +3448,7 @@ def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Sess
 
 	assert not failed, text
 	assert f"Account parent: {setup.user.username}." in text, text
+	assert "agent create" not in text, "an agent is not told how to become one"
 
 
 def test_a_task_can_be_re_ranked (bound: subroutine.mcp.protocol.Server) -> None:

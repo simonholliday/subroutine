@@ -14,6 +14,12 @@ upgrade involves.
 
 ## Unreleased
 
+### Changed
+
+- **`subroutine_whoami` says how an agent gets a name of its own**, where the agent tools
+  are working on a person's credential: what they write is recorded as that person's, and
+  `subroutine agent create` makes the account.
+
 ### Fixed
 
 - **`subroutine mcp --help` says which connection it uses.** `--connection` defaults to the
