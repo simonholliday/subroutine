@@ -2,16 +2,24 @@
 
 **Agent-native task management for complex projects, where the decisions live beside the work.**
 
-A coding agent's to-do list dies with its context window. This one does not, and it holds more
-than tasks: your agents read what governs a piece of work before starting it - so they stop
-re-deciding what you already settled - record what they checked, and park a question when they
-need you. It runs on your machine, it gives the people you work with a browser instead of a
-terminal, and it keeps your own life in the same install without making you file it like work.
+A self-hosted tracker for developers who work with coding agents, and for the people they
+work with.
+
+- **Your agents stop re-deciding what you already settled.** Link a decision to the work it
+  governs - cite its number and Subroutine offers the link - and any agent that opens that work
+  finds it under *Read first*.
+- **They ask instead of guessing.** A question only you can answer waits on your agenda, and
+  your answer stays on the item for whichever agent picks the work up next.
+- **You can check what they did.** Give each agent an account of its own - one command - and
+  every change it makes carries its name, with a journal that says what happened in plain words.
+
+Nothing to sign up for, and no AI inside. MCP and a CLI for your agents, a terminal or a browser
+for you, and a browser for everyone else. Your own to-do list fits in the same install without
+being filed like work.
 
 ## TL;DR
 
-**Four steps, and the fourth one is a browser.** Everything below runs on your own machine -
-no account, no cloud, nothing phoning home.
+**Four steps, and the fourth one is a browser.** Everything below runs on your own machine.
 
 **1. Install it.** This is also what puts `subroutine` on your `PATH`, which is what lets an
 editor or an agent start it.
@@ -24,8 +32,9 @@ $ subroutine init
 
 No [uv](https://docs.astral.sh/uv/getting-started/installation/)? Its installer is one line and
 needs no Python - or use `pipx install subroutine`, which does the same job. If the install says
-`subroutine` is not on your `PATH`, `uv tool update-shell` fixes it and you will need a fresh
-terminal. There is nothing else to configure: SQLite is the default and `init` makes it.
+`subroutine` is not on your `PATH`, `uv tool update-shell` fixes it (`pipx ensurepath` after
+pipx), and you will need a fresh terminal. There is nothing else to configure: SQLite is the
+default and `init` makes it.
 
 **2. Give your coding agent the tools.**
 
@@ -42,9 +51,9 @@ machine, same database.
 
 **It writes as you, until you give it an account of its own.** On a fresh install there is one
 account and the agent uses it, which is right for one person on one laptop and is worth knowing
-rather than assuming otherwise. `subroutine agent create` is the one command that changes it: an
-account, a role and a credential narrower than yours, after which every change it makes carries
-its name and not yours.
+rather than assuming otherwise. `subroutine agent create`, with `--store`, is the one command
+that changes it: an account, a role and a credential narrower than yours, stored on this machine
+as the agent's, after which every change it makes carries its name and not yours.
 
 **3. Get yourself a way in.** Signing in is a link rather than a password, and it is printed at a
 terminal:
@@ -54,15 +63,20 @@ $ subroutine login link
   A sign-in link for laurence, good for the next 30 minutes.
 
   http://127.0.0.1:8471/signin?link=sr_lnk_…
+
+  That is the only time it is shown, and it works once.
+  …
 ```
 
-Copy it. It works once.
+Copy it.
 
 **4. Serve it, and open the link.**
 
 ```console
 $ subroutine serve
   Serving on http://127.0.0.1:8471
+    /v1   the HTTP API — the guide written for an agent is at /v1/docs/agent
+    /mcp  MCP over HTTP — an agent needs the address above and a token, and nothing installed
 ```
 
 Leave that running and paste the link into a browser. **That is your agenda** - what is due, what
@@ -70,17 +84,20 @@ is waiting on you, what you can actually start - with a list and a drag-and-drop
 holding the same items your agent has been filing. Read one in full and you get what it is
 blocked by, which decisions govern it, and everything anybody has recorded against it.
 
-From then on you only need `subroutine serve` to see it again. Every command also answers to
-`subr` - `subr agenda` is `subroutine agenda`, for something you type all day.
+From then on you only need `subroutine serve` to see it again, and a fresh link only after a
+fortnight away. Every command also answers to `subr` - `subr agenda` is `subroutine agenda`,
+for something you type all day.
 
-**The plugin fetches Subroutine itself through uv**, so step 2 works even if you skipped step 1 -
-and uses the copy from step 1 when you have one. Git is needed for the marketplace command, which
-clones a repository: the one prerequisite here that is Claude Code's rather than ours.
+**The plugin fetches Subroutine itself through uv**, and uses the copy from step 1 when you have
+one. It still needs the instance `subroutine init` makes, and says so if there is none. Git is
+needed for the marketplace command, which clones a repository: the one prerequisite here that
+is Claude Code's rather than ours.
 
-- **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it. No account, no cloud,
-  no telemetry, nothing phoning home.
-- **A real API first.** The CLI, the browser and your agent are all clients of it. Anything one
-  can do, another can.
+- **Self-hosted.** SQLite by default, PostgreSQL when you outgrow it - `subroutine db copy`
+  takes your data across. No cloud, no telemetry, and nothing phoning home unless you turn on
+  the check for new releases.
+- **A real API first.** The CLI, the browser and your agent are all clients of it, and it is
+  published - OpenAPI at `/v1/openapi.json` - for your own scripts too.
 - **FSL-1.1-ALv2.** Run it, modify it, fork it, sell what you build with it - just don't resell
   Subroutine itself as a service. Every release turns Apache-2.0 after two years.
 
@@ -92,9 +109,9 @@ A list of tasks is the easy part. What an agent is short of is everything *aroun
 and that is the half that is indexed, linked and permanent here.
 
 - **It reads what governs the work before starting it.** *Read first* on an item names the
-  decisions, specifications and designs that bind this particular piece of work - from links
-  somebody made, never from what happens to sit nearby. A superseded decision is not a rule, so
-  it is left out.
+  decisions, specifications, designs and dead ends that bind this particular piece of work -
+  from links somebody made, never from what happens to sit nearby. A superseded decision is not
+  a rule, so it is left out.
 - **And it is offered the links its own writing suggests.** If a description cites a decision,
   the item says so and gives the one command that confirms it. Nothing is created until
   somebody agrees, because *this contradicts it* and *this follows it* read the same in prose.
@@ -105,26 +122,31 @@ and that is the half that is indexed, linked and permanent here.
   of the tree - read from git - so the record goes out of date exactly when the code moves,
   rather than on a timer that says *fresh* about a suite you ran before five files changed.
 - **An agent can park a question and find the answer next session.** Setting a task to
-  *needs input* and assigning it to you puts it at the top of your agenda under **Waiting on
-  you**, above overdue work. Your answer is on the item when whoever picks it up comes back -
-  usually a version of the same agent with none of the conversation.
+  *needs input* and assigning it to you puts it on your agenda under **Waiting on you**, and no
+  other agent asking for work is offered it meanwhile. Your answer is on the item when whoever
+  picks it up comes back - usually a version of the same agent with none of the conversation.
+- **Work it cannot finish goes back to whoever gave it.** A question goes to whoever assigned
+  the task, or else to whoever the agent answers to, and the answer comes back the same way.
+  Your agenda also holds what you are waiting on from somebody else, and a row that somebody
+  else is waiting on says who.
 - **`--ready`, not "everything".** What can be started *now*, with nothing unfinished in the
   way. A backlog it can act on rather than one it has to re-read and re-reason about.
 - **Every item has a number, and that number is permanent.** `#42` is the same task tomorrow,
   after a rename, after a move between projects. Cite it in a commit message and it still
   resolves in a year - and tasks and documents share one sequence, so a decision has a number
   you can put in a comment too.
-- **A claim is a lease, not a lock.** It renews itself while the agent is writing, is handed
-  back when the work is finished, and expires if the agent dies - so several agents on one
-  instance do not collide, and nothing is stranded when one stops mid-task.
+- **A claim is a lease, not a lock.** It renews itself whenever the agent writes to the task, is
+  handed back when the work is finished, and expires if the agent dies - so several agents on
+  one instance do not collide, and nothing is stranded when one stops mid-task.
 - **Its credential is narrower than yours.** Read-only, one project, one workspace, expiring -
-  and it can never issue itself a wider one. Sub-agents answer to it, it answers to you, and
-  deactivating you stops every one of them.
+  and it can never issue itself a wider one. It answers to you, and deactivating you stops it
+  along with every other agent whose chain leads back to you.
 - **The same rules over stdio and over HTTPS.** An agent on your laptop and an agent on a server
   are the same principal under the same permissions; the transport is not a second security
   model to keep in step.
 - **Every change is attributed, permanently**, so *what did it actually do* is a question with
-  an answer rather than a diff you have to reconstruct.
+  an answer rather than a diff you have to reconstruct - and the journal gives that answer in
+  plain words, for a whole workspace or a single item.
 - **It can ask what changed while it was away**, since the last sequence number it saw - which
   is the one thing a context window cannot tell it.
 - **Search reaches everything anybody wrote** - titles, descriptions, document bodies and
@@ -143,8 +165,9 @@ and that is the half that is indexed, linked and permanent here.
 - **Your team's words are yours to change.** Whether a relation holds work up, merely comes
   first, binds whoever picks the work up or is only related, is a fixed property every rule
   reads - so renaming one changes the wording and nothing else. Statuses and tags the same.
-- **Hand work to a person or to an agent**, ask what has been handed to you, and ask what is
-  being held and for how long - which is the question when an agent has gone quiet.
+- **Hand work to a person or to an agent**, ask what has been handed to you and what you have
+  handed over, and ask what is being held and for how long - which is the question when an
+  agent has gone quiet.
 - **One list across every machine.** Your laptop and the team's server in one
   `subroutine agenda`, each row printing an address you can type back.
 - **Your own life in the same install, and not filed like work.** No project, no workflow, no
@@ -216,7 +239,7 @@ default; it refuses a wider bind without TLS in front of it. One command sets an
 an account, a role and a credential narrower than yours:
 
 ```console
-$ subroutine agent create claude --profile worker --project web
+$ subroutine agent create claude --profile worker --project web --store
 ```
 
 `subroutine help` lists the commands and `subroutine explain dates` covers the ideas behind
@@ -230,8 +253,8 @@ If you have been handed an address and a token and want to get to work, that is 
 
 ## What is built, and what is planned
 
-Everything in the first column works today and is covered by tests. The second is specified and
-not built - named here because a tool that overstates itself wastes your afternoon.
+Every row marked **Built** works today and is covered by tests. Every row marked Planned is
+specified and not built - named here because a tool that overstates itself wastes your afternoon.
 
 ### The work itself
 
@@ -253,7 +276,7 @@ not built - named here because a tool that overstates itself wastes your afterno
 | *Read first* - which written conclusions govern this particular item | **Built** |
 | Proposed links, read out of what the item itself says | **Built** |
 | A record of what was checked, against the state of the code it ran on | **Built** |
-| Tags, custom statuses, per-workspace vocabulary you can edit | **Built** |
+| Tags, custom statuses and per-workspace vocabulary, editable through the API | **Built** |
 | Search across titles, descriptions, document bodies and comments | **Built** |
 | Search served by an index, with ranking - PostgreSQL, opt-in | **Built** |
 | Capture grammar - `Fix the deploy script by friday !4/2 ~2h #ops +web` | **Built** |
@@ -271,14 +294,17 @@ not built - named here because a tool that overstates itself wastes your afterno
 | --- | --- |
 | Delegation - assign work to a person or an agent, and ask what is assigned to you | **Built** |
 | Sub-agents, with an accountability chain that ends at a person | **Built** |
-| Claims - a lease that renews as work happens and is given back when it is done | **Built** |
-| A question parked for a person, at the top of their agenda until they answer | **Built** |
+| Claims - a lease that renews as the task is written to, and is given back when it is done | **Built** |
+| A question parked for a person, on their agenda until they answer | **Built** |
+| Handing work back - a question goes to whoever assigned the work, and the answer comes back | **Built** |
+| An agenda that says what you are waiting on, and who is waiting on you | **Built** |
 | `subroutine agent create` - an account, a role and a credential in one act | **Built** |
 | Service accounts, and credentials narrower than your own | **Built** |
 | Per-workspace roles; credentials scoped to a single project | **Built** |
 | Deactivate a person and their agents stop with them | **Built** |
 | Every change attributed to a principal, permanently | **Built** |
 | What one account has been doing, through whatever credential | **Built** |
+| A journal of what happened, in plain words - a workspace's or one item's, in the browser too | **Built** |
 | Email sign-in - today the link is printed at a terminal | Planned |
 | Notifications and webhooks | Planned |
 
@@ -296,6 +322,7 @@ not built - named here because a tool that overstates itself wastes your afterno
 | `subroutine setup claude` - a hook that gives back what an agent is still holding | **Built** |
 | Multiple connections merged into one agenda | **Built** |
 | The agenda as the browser's front page | **Built** |
+| Settings for you, a workspace, a project and the installation, in the browser | **Built** |
 | Calendar feeds - subscribe Google, Apple or Outlook to your work, your events and your reminders | **Built** |
 | A board in the browser, with drag-and-drop between columns | **Built** |
 | A calendar view | Planned |
@@ -311,6 +338,8 @@ not built - named here because a tool that overstates itself wastes your afterno
 | Separate profiles on one machine | **Built** |
 | Deleting a workspace, and bringing it back with every number intact | **Built** |
 | `subroutine doctor` - whether this machine's installation is coherent | **Built** |
+| Being told when the program, the plugin or the instance is out of date - opt-in | **Built** |
+| Copying an instance between SQLite and PostgreSQL | **Built** |
 | Single-command deployment from a compose file | Planned |
 
 ---
@@ -338,7 +367,7 @@ $ subroutine done 1
 ```
 
 **Each of these ends by naming the next one**, so there is nothing to memorise and no manual
-to go and find. The tips are always marked `Tip:`, and dimmed as well in a terminal - because
+to go and find. The tips are marked `Tip:`, and dimmed as well in a terminal - because
 a hint that only a colour distinguishes from an answer is not distinguished at all.
 
 Once there is more on the list than fits on a screen, `subroutine list` ranks it and
@@ -354,10 +383,10 @@ Anything you have deferred until a later date is held back from the list, and th
 how much it is holding back. `--deferred` includes it, at the bottom - visible, and not mixed
 in with the work you could start now.
 
-No server, no token, no configuration. When you want an agent involved, or a second person,
-the same install grows an HTTP API: `subroutine serve`, and `subroutine agent create` for the
-credential. A secret is shown once and stored as a hash, so a stolen database is not a set of
-working credentials. Point an agent at the address and the first thing it should read is
+No server, no token, no configuration. When you want a second person, or an agent on another
+machine, the same install grows an HTTP API: `subroutine serve`, and `subroutine agent create`
+for the credential. A secret is shown once and stored as a hash, so a stolen database is not a
+set of working credentials. Point an agent at the address and the first thing it should read is
 `GET /v1/docs/agent`, which is written for that reader rather than for you.
 
 ## In a browser
@@ -365,32 +394,36 @@ working credentials. Point an agent at the address and the first thing it should
 The same instance serves a web interface at its own address - the four steps at the top of this
 page end there, and `subroutine serve` is all it takes to get back to it afterwards.
 
-It opens on your agenda - anything waiting on you first, then what is overdue, then today. From
-there, a list of tasks and documents together, or a board where dragging a card between columns
-changes its status. Click anything and you get it in full: what it is joined to, what governs
-it, what has been checked against it, and everything anybody has recorded against it.
+It opens on your agenda - today, then what is overdue, what is in progress, and what is waiting
+on you or on somebody else. From there, a list of tasks and documents together, or a board where
+dragging a card between columns changes its status. Click anything and you get it in full: what
+it is joined to, what refers to it, what governs it, what has been checked against it, and
+everything anybody has recorded against it.
 
 You can add something with one box that takes the same shorthand the CLI does, edit it, comment
 on it, link it to what is holding it up, say how often it comes round, write a document and
 revise it, search, complete it, and hand a task to somebody from a list of the people in that
-workspace.
+workspace. Each workspace and each item has a journal of what happened; the People page shows
+who works there, people and agents alike, and whom each agent answers to; and the settings for
+you, a workspace, a project and the installation are pages rather than a file to edit.
 
 - **It installs on a phone or tablet.** The same address becomes an app with its own icon and
   its own window, and an instance that says where it is reachable puts that address on the
   label - which is what tells two of them apart on one home screen. Where the control is
   differs by browser and
   [docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md#on-a-phone-or-tablet) says where to look. It needs
-  the network like the page does; nothing is stored on the device.
+  the network like the page does; none of your work is stored on the device.
 - **Every item has an address you can send somebody**, and the project in the middle is there
   for the reader rather than for the machine - rename it and old links still work.
 - **Descriptions and comments render as the Markdown they are written in.** Anything that looks
   like HTML is shown as the text it is, so a description written by somebody else - or by an
   agent repeating something it read - cannot become part of the page.
-- **Nothing asks you to confirm first.** A question before every action is a tax on being right;
-  completing something tells you what it did and offers to undo it.
+- **Nothing you do to your work asks you to confirm first.** A question before every action is a
+  tax on being right; completing something tells you what it did and offers to undo it.
 - **Signing in is a link.** No password to store, no reset flow, nothing worth stealing in a
-  breach. `subroutine login revoke <name>` ends everything that person holds and any link
-  they have not used, which is what a lost laptop needs.
+  breach. `subroutine login revoke <name>` signs that person out of every browser and cancels any
+  link they have not used, which is what a lost laptop needs; `subroutine token revoke` stops a
+  credential.
 
 It talks to the same public API everything else does, so anything it can show you a script can
 too - and there is no build step: the JavaScript served is the JavaScript in the repository.
@@ -399,10 +432,10 @@ too - and there is no build step: the JavaScript served is the JavaScript in the
 
 Python 3.11 or newer, and `uv` or `pipx` pulls the rest.
 
-**As a tool, because that is what it is** - an application, not a library. It is also the only
-thing that works on a current Linux: Debian, Ubuntu and Fedora refuse a bare `pip install`
-outside a virtualenv and tell you to use pipx instead. `pipx install subroutine` does the same
-job as the `uv` line at the top of this page; **neither installed?** `sudo apt install pipx`,
+**As a tool, because that is what it is** - an application, not a library. It is also what
+works on Debian and Ubuntu, which refuse a bare `pip install` outside a virtualenv and tell you
+to use pipx instead. `pipx install subroutine` does the same job as the `uv` line at the top of
+this page; **neither installed?** `sudo apt install pipx`,
 `brew install pipx` on a Mac, or [uv's installer](https://docs.astral.sh/uv/getting-started/installation/), which is
 one line and needs no Python.
 
@@ -449,9 +482,10 @@ here:
   instance, a second workspace and an agent's own credential, none of which a first install has.
   The count is your editor noting that three settings have no value, not Subroutine asking for
   anything.
-- **claude.ai in a browser cannot run either plugin.** There is nothing on that side to start a
-  program on. The install succeeds, the settings page opens, its fields are all there, and the
-  only evidence of a problem is an absence.
+- **claude.ai in a browser cannot use either plugin.** There is nothing on that side to start
+  the local one, and the remote one would need a connector that signs in with OAuth, which
+  Subroutine does not offer yet. The install succeeds, the settings page opens, its fields are
+  all there, and the only evidence of a problem is an absence.
 - **Installing a plugin and starting its server are separate moments, and only the first one
   reports.** If the tools do not appear, `claude mcp list` says why in one line.
 - **Working on a checkout?** Point Claude Code at your copy directly - the plugin's own is
@@ -463,17 +497,18 @@ whoever runs the instance, and [docs/hosting.md](https://github.com/simonhollida
 **Other MCP clients** configure a local stdio server with a command and arguments. Cursor,
 Windsurf, Zed, VS Code's Copilot agent mode, Gemini CLI, Codex CLI, Cline, Continue, OpenCode
 and JetBrains AI Assistant all support this; give them the absolute path to `subroutine` and
-`mcp` as the argument. They get the tools only - the plugin format and the skill are Claude
-Code's. Aider has no MCP client of its own; use the CLI through `/run` instead.
+`mcp` as the argument. They get the tools, and the instructions and resources the server
+publishes; the plugin format and the skill are Claude Code's. Aider has no MCP client of its
+own; use the CLI through `/run` instead.
 
 ### What the plugin adds beyond the tools
 
 **A deliberately small set of tools, not one per endpoint.** A tool's schema is context the
 agent carries for its whole session whether it calls it or not, so the surface is a budget, and
 a test fails when it grows past one somebody has to raise on purpose. They cover the everyday
-work: capture, list, search, read, update, comment, finish, document, link, projects, what has
-changed since you last looked, claiming a task so two agents do not collide, and asking which
-principal you are. **And one that reaches everything else the credential allows** -
+work: capture, list, search, read, update, comment, finish, document, link, projects, the
+journal, what has changed since you last looked, claiming a task so two agents do not collide,
+and asking which principal you are. **And one that reaches everything else the credential allows** -
 `subroutine_call_api` calls the HTTP API directly, so the small surface is an opinion about
 what to reach for first rather than a limit on what can be done.
 
@@ -492,16 +527,17 @@ is smaller than a schema describing it:
 subroutine_add(text="Fix the deploy script by friday !4/2 ~2h #ops")
 ```
 
-The server talks to whichever *connection* is current, so pointing an agent at a colleague's
-instance is a matter of `subroutine use`, not of reconfiguring the agent. And if you keep your
-own list here and your team's on a company server, both are just connections - one agenda shows
-the dentist and the stand-up together, each row printing an address you can type back:
+The server talks to your default *connection*, or to the one the plugin's `connection` setting
+names, so pointing an agent at a colleague's instance is a setting rather than a
+reconfiguration. And if you keep your own list here and your team's on a company server, both
+are just connections - one agenda shows the dentist and the stand-up together, each row
+printing an address you can type back:
 
 ```console
 $ subroutine agenda
   Today
-              #1  Pay the gas bill  (for Sat 1 Aug)
-    work/acme/#1  Fix the deploy script  (for Sat 1 Aug)
+              #1  Pay the gas bill  (starts Sat 1 Aug)
+    work/acme/#1  Fix the deploy script  (starts Sat 1 Aug)
 ```
 
 ## Running it for a team
@@ -526,10 +562,11 @@ $ subroutine user create keanu --name "Keanu Reeves"
 $ subroutine user create tim --browser --terminal
 ```
 
-There is no password. `--browser` prints a sign-in link and `--terminal` prints a credential
-with the line that connects to this instance; they are not alternatives, because somebody who
-uses the web interface and has a colleague setting their machine up needs both. Name neither
-and the account is still real - the two commands that hand it over are printed.
+There is no password. `--browser` prints a sign-in link and `--terminal` prints a credential,
+with the line that connects to this instance once `public_url` says where it is; they are not
+alternatives, because somebody who uses the web interface and has a colleague setting their
+machine up needs both. Name neither and the account is still real - the two commands that hand
+it over are printed.
 
 **Their agents are one command**, and it is the one to reach for rather than assembling an
 account, a role and a token by hand:
@@ -539,11 +576,13 @@ $ subroutine agent create sam --profile collaborator --project web --write web
 ```
 
 `--profile` says what the agent is *for* and expands into the rest - `worker` owns one project,
-`collaborator` reads several and writes one, `observer` only reads. It prints an environment
-line, and **that line is half the work**: an agent that can run a shell reaches the instance
-both through the tools its editor wired up and by running `subroutine` itself, and those
-resolve credentials separately. Setting the variable where the agent starts covers both, so its
-work is not attributed half to it and half to you.
+`collaborator` reads several and writes one, `observer` only reads, and `colleague` reads and
+writes one whole workspace, as a person there would. **Add `--store` on the machine the agent
+runs on, and that is the other half of the work**: an agent that can run a shell reaches the
+instance both through the tools its editor wired up and by running `subroutine` itself, and in
+Claude Code a stored agent credential covers both, so its work is not attributed half to it and
+half to you. A different agent in each project is in
+[docs/connecting.md](https://github.com/simonholliday/subroutine/blob/main/docs/connecting.md#a-different-agent-in-each-project).
 
 `source_url` in `GET /v1/meta` says where the source of *this* instance can be had. **Nothing
 in the licence requires that of you** - it is a promise the product makes to whoever is using
@@ -552,9 +591,13 @@ it, and it is a setting, so somebody running a fork can point at theirs.
 ## Search
 
 `q` looks in titles, descriptions, document bodies and the comments on an item. Every word you
-give it has to appear, in any order and in any of those places. A query that is **just a
-number** finds the item with that ref as well as everything mentioning it, whether or not it is
-finished - so `subroutine search 862` is how you find what has been said about `#862`.
+give it has to appear, in any order - in the item's own text, or together in one of its
+comments. A query that is **just a number** finds the item with that ref as well as everything
+mentioning it, whether or not it is finished - so `subroutine search 862` is how you find what
+has been said about `#862`.
+
+**The same line narrows by field.** `type:bug urgency>3 deploy` finds the bugs above urgency 3
+that mention *deploy*, and `subroutine explain searching` has the rest.
 
 By default a search is a substring scan - honest at personal scale, and measured at 20,000
 tasks a search matching nothing took **119 ms**, growing with the backlog. On PostgreSQL,
@@ -567,11 +610,9 @@ starts finding *seeded* and *seeding*, and `curs` still finds *cursor* - but **`
 finding *cursor***, because matching the middle of a word is the one thing an index cannot do,
 and a very common word stops narrowing rather than being required. Keep the default if you rely
 on either. On SQLite it is simply not available, and asking for it there is not an error: you
-get the scanning implementation and are told so rather than left to assume.
+get the scanning implementation, and `GET /v1/meta` says which one answered.
 
-**Ask `GET /v1/meta` what this instance can do** rather than inferring it. Merging tasks and
-documents into one list, paging through it, and ordering deferred work last are covered in
-`GET /v1/docs/agent`.
+**Ask `GET /v1/meta` what this instance can do** rather than inferring it.
 
 ## Documentation
 
