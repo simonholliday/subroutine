@@ -81,8 +81,9 @@ def _dates_body () -> str:
                It takes a time, so 'monday at 14:00' is an appointment.
   until        When it is over, for something that lasts more than a
                moment — a holiday, a conference, a code freeze. Set it
-               with 'plan 7 "14 august" --until "28 august"'. A calendar
-               you have subscribed shows the whole run of days.
+               with 'plan 7 "14 august" --until "28 august"', or write
+               it: 'Dentist on monday 2pm-3pm'. A calendar you have
+               subscribed shows the whole run of days.
   deferred until
                The task does not appear at all before this. It is the
                only one of the four that hides anything.
@@ -170,6 +171,8 @@ def _capture_body () -> str:
 		# **`#2687`**: a span is told from a defer by the word after its first date.
 		("from <date> to <date>", "a span of days; also 'until', '2-12 October'"),
 		("at <time>", "a time of day, after a date or alone"),
+		# **`#675`**: the same signal reads two times, and two times are an appointment.
+		("<time> to <time>", "an appointment's ends: '2pm-3pm', 'at 9am til 5pm'"),
 		# Added when the page was found still saying repeats were unread, four days after
 		# they shipped (`#929`). The grammar reads them, so the table that lists the grammar
 		# has to say so.

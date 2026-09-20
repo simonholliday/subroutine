@@ -895,6 +895,9 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				# stays in the title. That makes it the row an agent most needs and the one it
 				# could least infer from the others.
 				"at <time>, or <date> <time>",
+				# **An appointment's two ends** (`#675`), signalled exactly as one time is, so a
+				# caller who knows the row above can predict this one rather than try it.
+				"<time> to <time>, or <time>-<time>, for what it runs between",
 			],
 			examples=[
 				"Renew the domain by friday !4",

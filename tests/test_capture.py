@@ -1653,6 +1653,164 @@ def test_a_time_goes_on_the_date_it_was_written_beside (
 	assert captured.unparsed == ()
 
 
+#: Lines naming two times, and the appointment each of them files - `SR#675`. Every one was
+#: measured against the grammar before it read any: each set the start, left the end in the
+#: title and said so, which is the honest half-reading this finishes.
+A_RANGE = (
+	# The line this item was filed from, on 2026-08-08.
+	(
+		"Dentist appointment at 2pm til 3pm on monday",
+		"Dentist appointment",
+		datetime.datetime(2026, 8, 3, 14, 0),
+		datetime.datetime(2026, 8, 3, 15, 0),
+	),
+	# Straight after the day rather than after `at`, which is how a single time is signalled too.
+	(
+		"Standup on monday 2pm-3pm",
+		"Standup",
+		datetime.datetime(2026, 8, 3, 14, 0),
+		datetime.datetime(2026, 8, 3, 15, 0),
+	),
+	(
+		"Standup on monday at 9am - 10am",
+		"Standup",
+		datetime.datetime(2026, 8, 3, 9, 0),
+		datetime.datetime(2026, 8, 3, 10, 0),
+	),
+	# An ISO day, and the 24-hour clock at both ends.
+	(
+		"Meeting on 2026-10-02 at 14:00-15:00",
+		"Meeting",
+		datetime.datetime(2026, 10, 2, 14, 0),
+		datetime.datetime(2026, 10, 2, 15, 0),
+	),
+	# Opened with `from`, which is a defer everywhere else in this grammar.
+	(
+		"Workshop from monday 9am to 5pm",
+		"Workshop",
+		datetime.datetime(2026, 8, 3, 9, 0),
+		datetime.datetime(2026, 8, 3, 17, 0),
+	),
+	# Past midnight: an end earlier than its start is the next morning (Simon, 2026-09-20).
+	(
+		"Party on friday at 9pm til 1am",
+		"Party",
+		datetime.datetime(2026, 7, 31, 21, 0),
+		datetime.datetime(2026, 8, 1, 1, 0),
+	),
+	# No day at all is today's, exactly as one time with no day is.
+	(
+		"Dentist at 2pm to 3pm",
+		"Dentist",
+		datetime.datetime(2026, 7, 30, 14, 0),
+		datetime.datetime(2026, 7, 30, 15, 0),
+	),
+	# **The line `SR#2894` held back and this reads**, kept where it can be seen to have
+	# moved: one written day, two times, and the year counted forward as any date is.
+	(
+		"Workshop from 2 October 09:00 to 17:00",
+		"Workshop",
+		datetime.datetime(2026, 10, 2, 9, 0),
+		datetime.datetime(2026, 10, 2, 17, 0),
+	),
+)
+
+
+@pytest.mark.parametrize(
+	("text", "title", "starts", "ends"), A_RANGE, ids=[one[0] for one in A_RANGE]
+)
+def test_a_range_of_times_is_read_as_an_appointment (
+	text: str, title: str, starts: datetime.datetime, ends: datetime.datetime
+) -> None:
+	"""`SR#675`: an appointment has two ends, and a line that writes both now says both.
+
+	What decides whether a range is read is what decides whether one time is - `at`, or a date
+	this grammar has already read - so nothing here is a new way of signalling a time. The one
+	shape read somewhere else is `from monday 9am to 5pm`, because `from` is a defer and the
+	words have to be claimed before the date rules see them.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == title
+	assert captured.starts_at == starts
+	assert captured.ends_at == ends
+	assert captured.starts_is_all_day is False
+	assert captured.unparsed == ()
+
+
+def test_a_range_in_prose_is_left_alone_as_one_time_is () -> None:
+	"""The rule keeping `Email Bob re: 3pm` a title keeps `Dentist 2pm-3pm` one - `SR#675`."""
+
+	captured = _parse("Dentist 2pm-3pm")
+
+	assert captured.title == "Dentist 2pm-3pm"
+	assert captured.starts_at is None
+	assert captured.ends_at is None
+
+
+def test_a_range_beside_a_deadline_is_reported_rather_than_read () -> None:
+	"""A deadline is one moment, so a range written beside one has nothing to go on - `SR#675`.
+
+	Read halfway it would make a deadline at two out of a line that also said three; read onto
+	a start it would invent a field the writer did not name. Nothing is set, the words stay in
+	the title, and the reply says what two times are for.
+	"""
+
+	captured = _parse("Call the dentist by monday 2pm-3pm")
+
+	assert captured.title == "Call the dentist 2pm-3pm"
+	assert captured.due == datetime.date(2026, 8, 3)
+	assert captured.due_is_all_day
+	assert captured.starts_at is None
+	assert captured.ends_at is None
+
+	told = subroutine.domain.capture.explain(captured.unparsed) or ""
+
+	assert "2pm-3pm" in told, told
+	assert "two ends" in told, told
+
+
+def test_an_end_the_same_as_its_start_is_not_a_range () -> None:
+	"""`SR#675`: so the line falls back to the one time this grammar always read.
+
+	Counted the other way it would be a whole day, and read as written a zero-length
+	appointment - neither of which is what somebody who wrote it twice meant.
+	"""
+
+	captured = _parse("Dentist at 2pm to 2pm")
+
+	assert captured.starts_at == datetime.datetime(2026, 7, 30, 14, 0)
+	assert captured.ends_at is None
+	assert captured.unparsed == ("2pm",)
+
+
+def test_a_one_day_span_it_cannot_read_keeps_from_out_of_the_defer () -> None:
+	"""`SR#675`: why a one-day span is read in the span rules rather than the time rules.
+
+	`from` is a defer, so a phrase of this shape that cannot be read has to be held back whole.
+	Left to the date rules it hides the item until Monday with the rest of the line in its
+	title, which is exactly `SR#2894`.
+	"""
+
+	captured = _parse("Workshop from monday 2pm to 2pm")
+
+	assert captured.title == "Workshop from monday 2pm to 2pm"
+	assert captured.snooze is None
+	assert captured.starts_at is None
+	assert captured.ends_at is None
+
+
+def test_til_joins_two_days_as_it_joins_two_times () -> None:
+	"""One list of joining words, so the word that writes an appointment writes a span."""
+
+	captured = _parse("Holiday from 2 October til 12 October")
+
+	assert captured.starts_at == datetime.date(2026, 10, 2)
+	assert captured.ends_at == datetime.date(2026, 10, 12)
+	assert captured.title == "Holiday"
+
+
 def test_a_time_beside_no_date_is_read_as_it_was () -> None:
 	"""The other half of `SR#2855`: words either side of a time leave it beside nothing.
 
@@ -1999,16 +2157,22 @@ def test_a_span_inside_a_repeat_this_cannot_read_leaves_the_repeat_whole () -> N
 			"from 2 October at 9am to 12 October at 5pm",
 		),
 		("Offsite from Monday 9am until Friday 5pm", "from Monday 9am until Friday 5pm"),
-		("Workshop from 2 October 09:00 to 17:00", "from 2 October 09:00 to 17:00"),
+		# **`SR#675` took one line out of this table**: *from 2 October 09:00 to 17:00* names
+		# one day and two times, which is an appointment and is read. `A_RANGE` pins it.
 	],
 )
 def test_a_span_with_times_of_day_is_kept_whole_and_said (text: str, span: str) -> None:
-	"""`SR#2894`, Simon 2026-09-19: a span with times of day is not read yet, and it is said.
+	"""`SR#2894`, Simon 2026-09-19: a span of two timed days is not read yet, and it is said.
 
 	Left to the date rules it became a defer - ``from`` is one - which hid the item until the
 	start, with the rest of the line in its title and nothing reported. **Kept whole and
 	reported instead**, as a span this cannot read already is, and explained as what it is:
 	neither a problem with a time nor days out of order.
+
+	**`SR#675` narrowed what is held back and the sentence with it.** One day carrying two
+	times is an appointment now, so *a span with times of day is not read yet* had become
+	false of half of what it was said about. Two timed days is what is left, and saying so is
+	what keeps a reader from concluding that no time is ever read.
 	"""
 
 	captured = _parse(text)
@@ -2019,7 +2183,7 @@ def test_a_span_with_times_of_day_is_kept_whole_and_said (text: str, span: str) 
 
 	said = subroutine.domain.capture.explain(captured.unparsed) or ""
 
-	assert "a span with times of day is not read yet" in said, said
+	assert "a time on each of two days is not read yet" in said, said
 	assert "a time is read" not in said and "first day before its last" not in said, said
 
 

@@ -56,7 +56,11 @@ BARE_PLANNED_WORDS = ("today", "tomorrow")
 #: ``from X until Y`` are spans and a bare ``from X`` stays a defer: one rule a reader can
 #: predict from the line. ``on`` opens one the same way, and a dash between two written dates
 #: needs no word at all.
-SPAN_WORDS = ("to", "until")
+#:
+#: **The same words join two times of day** (`#675`), which is what ``til`` and ``till``
+#: are doing here: *at 2pm til 3pm* is the line that item was filed from, and a word that
+#: joins two clocks and not two days would be a seam a reader meets by accident.
+SPAN_WORDS = ("to", "until", "til", "till")
 
 #: The words a worded span may open with: the defer's and the planned day's own.
 SPAN_OPENING_WORDS = ("from", "on")
@@ -223,23 +227,59 @@ _SPANS = (_WORDED_SPAN, _DAYS_OF_A_MONTH, _DATES_AND_A_DASH)
 #: A time of day as it is written beside a day in a span: ``09:00``, ``9am``, ``9:30 pm``.
 _CLOCK = r"(?:\d{1,2}(?::\d{2})?\s*[ap]m|\d{1,2}:\d{2})"
 
+#: The same clock in its parts, for :func:`_clock_at` to read one out of a span pattern
+#: that matched it whole. ``at`` is allowed in front because every caller has a match that
+#: may carry it, and stripping it in each of them is the copy this avoids.
+_ONE_CLOCK = re.compile(
+	r"^(?:at\s+)?(?:(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>[ap]m)"
+	r"|(?P<hour24>\d{1,2}):(?P<minute24>\d{2}))$",
+	re.IGNORECASE,
+)
+
 #: Whether a phrase holds a time of day at all, an ISO day's ``T09:00`` included.
 _A_CLOCK = re.compile(rf"(?<![\d:]){_CLOCK}(?!\d)", re.IGNORECASE)
 
-#: A span with **times of day** - `#2894`, and Simon's decision of 2026-09-19 to hold one back
-#: and say so. Two days joined as :data:`_WORDED_SPAN` joins them, with a time beside either; or
-#: a day and a time *from* which the line runs to a time. **Only these**, and each is a line the
-#: date rules read as a defer, because ``from`` is one: *Workshop from 2 October 09:00 to 12
-#: October 17:00* was hidden until the 2nd with the rest of the line in its title, and nothing
-#: said. A day and a range of times after ``on`` - *Standup on Monday at 9am - 10am* - is not
-#: here: it plans the day, which is read, and holding it back would lose a field.
+#: A span whose **two days each carry a time** - `#2894`, and Simon's decision of 2026-09-19
+#: to hold one back and say so. Two days joined as :data:`_WORDED_SPAN` joins them, with a
+#: time beside either. Each is a line the date rules read as a defer, because ``from`` is
+#: one: *Workshop from 2 October 09:00 to 12 October 17:00* was hidden until the 2nd with
+#: the rest of the line in its title, and nothing said.
+#:
+#: **One day and two times is read now and is not here** (`#675`): *from Monday 9am to 5pm*
+#: is :data:`_CLOCKED_DAY`, and *Standup on Monday at 9am - 10am* is a date the rules read
+#: with a range beside it. What is left here is the span this grammar still cannot write -
+#: two days, timed at both ends - and it says so in those words.
 _CLOCKED_SPAN = re.compile(
-	rf"{_STARTS_A_WORD}(?:"
+	rf"{_STARTS_A_WORD}"
 	rf"(?:{'|'.join(SPAN_OPENING_WORDS)})\s+{_PHRASE}(?:\s+(?:at\s+)?{_CLOCK})?"
 	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}{_PHRASE}(?:\s+(?:at\s+)?{_CLOCK})?"
-	rf"|from\s+{_PHRASE}\s+(?:at\s+)?{_CLOCK}"
-	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?{_CLOCK}"
-	r")(?![\w'])",
+	rf"(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: A day and the two times an appointment on it runs between, opened with ``from``:
+#: *Workshop from Monday 9am to 5pm* (`#675`). **Read here rather than by the time rules**
+#: because ``from`` is a defer, so the words have to be claimed whole before the date rules
+#: see them - which is the same reason a span of whole days is read here.
+#:
+#: ``on`` is absent deliberately: *Standup on Monday 2pm-3pm* is a date this grammar
+#: already reads with a range written beside it, and claiming it here would take the
+#: reading away from the rule that does it properly.
+_CLOCKED_DAY = re.compile(
+	rf"{_STARTS_A_WORD}from\s+(?P<day>{_PHRASE})\s+(?:at\s+)?(?P<first>{_CLOCK})"
+	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?(?P<last>{_CLOCK})"
+	rf"(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: Two times of day and the word joining them: ``2pm-3pm``, ``at 9am til 5pm``, ``14:00 to
+#: 15:00`` (`#675`). Signalled exactly as a single time is - after ``at``, or straight after
+#: a date already read - so a range in prose stays prose, which is what keeps *Email Bob re:
+#: 3pm* untouched whether or not somebody writes a second time after it.
+_TIME_RANGE = re.compile(
+	rf"{_STARTS_A_WORD}(?P<at>at\s+)?(?P<first>{_CLOCK})"
+	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?(?P<last>{_CLOCK})"
+	rf"(?!\d)(?!\w)",
 	re.IGNORECASE,
 )
 
@@ -296,11 +336,11 @@ _BARE_DAY = re.compile(
 #: on neither, because a bare weekday is not read — so the time is reported rather than guessed,
 #: and whether *that* should change is `#797`'s open question about weekdays.
 #:
-#: **A range is deliberately not matched.** ``14:00-15:00`` is an appointment with an end, and
-#: an end has nowhere to go (`#798` records that ``estimate`` is a duration rather than a
-#: finish). Matching the first half would silently keep the start and drop the finish, so the
-#: lookahead refuses the whole thing and it is reported instead — which is `#778`'s rule, that
-#: the grammar says when it saw something it could not use.
+#: **A range is deliberately not matched here.** ``14:00-15:00`` is an appointment with an
+#: end, and :data:`_TIME_RANGE` reads one whole (`#675`) before this pattern is asked. The
+#: lookahead is what stops this one taking half of a range the other declined - a bare
+#: ``2pm-3pm`` in prose, or a range beside a deadline - which would keep the start and drop
+#: the finish in silence, where `#778`'s rule is that the grammar says what it could not use.
 _TIME = re.compile(
 	rf"{_STARTS_A_WORD}(?P<at>at\s+)?(?:"
 	r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>[ap]m)"
@@ -461,9 +501,10 @@ class Capture:
 	starts_at: datetime.datetime | datetime.date | str | None = None
 	starts_is_all_day: bool | None = None
 
-	#: The last day of a span, from ``from 2 to 12 October`` (`#2687`). Whole days only, so
-	#: ``starts_is_all_day`` describes both ends, as decision `#1235` §2 has one flag do.
-	ends_at: datetime.date | None = None
+	#: The last day of a span, from ``from 2 to 12 October`` (`#2687`), or the instant an
+	#: appointment ends, from ``at 2pm til 3pm`` (`#675`). One flag describes both ends, as
+	#: decision `#1235` §2 has it do: whole days at both, or a time at both, never one of each.
+	ends_at: datetime.datetime | datetime.date | None = None
 	snooze: datetime.date | str | None = None
 	snoozed_is_all_day: bool | None = None
 
@@ -562,19 +603,35 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 	# description of what a span looks like rather than two.
 	# **And a span with times of day, told apart the same way** (`#2894`): held back whole, and
 	# the reason is that its times are not read yet - not that its days are out of order.
+	# **Two of those now, because one of them is read** (`#675`): a phrase naming one day and
+	# two times is an appointment this grammar writes, so the only way back here is a day or a
+	# pair of times it could not read - a different sentence from *two timed days are not read*.
 	clocked = [one for one in over if _CLOCKED_SPAN.fullmatch(one) and _A_CLOCK.search(one)]
+	hours = [one for one in over if one not in clocked and _CLOCKED_DAY.fullmatch(one)]
 	spans = [
 		one for one in over
-		if one not in clocked and any(pattern.fullmatch(one) for pattern in _SPANS)
+		if one not in clocked and one not in hours
+		and any(pattern.fullmatch(one) for pattern in _SPANS)
 	]
 	contradicted = [
 		one for one in over
-		if one not in spans and one not in clocked
+		if one not in spans and one not in clocked and one not in hours
 		and subroutine.domain.dates.day_named(one, today=datetime.date.min) is None
 		and one.partition(" ")[0].rstrip(",").lower() in subroutine.domain.dates.WEEKDAYS
 	]
+	# **And a range, which is a third thing to be told** (`#675`). A range reaches here only
+	# when nothing could hold it - beside a deadline, beside a span already read, or beside a
+	# day this grammar does not read - and the time sentence would advise `at`, which is no
+	# help for any of the three and wrong for the first two.
+	ranges = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and _TIME_RANGE.fullmatch(one)
+	]
 	timed = [
-		one for one in over if one not in contradicted and one not in spans and one not in clocked
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges
 	]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
@@ -620,8 +677,23 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 
 	if clocked:
 		clauses.append(
-			f"Left as written: {', '.join(clocked)} — a span with times of day is not read "
-			f"yet, so nothing was set. Leave the times out for a span of whole days."
+			f"Left as written: {', '.join(clocked)} — a span with a time on each of two days "
+			f"is not read yet, so nothing was set. Times on one day are read, as in 'from "
+			f"monday 9am to 5pm', and a span of whole days is read without them."
+		)
+
+	if hours:
+		clauses.append(
+			f"Left as written: {', '.join(hours)} — an appointment on one day needs a day this "
+			f"understands and two different times, as in 'from monday 9am to 5pm', so nothing "
+			f"here was set."
+		)
+
+	if ranges:
+		clauses.append(
+			f"Left as written: {', '.join(ranges)} — two times are an appointment's two ends, "
+			f"so they go on a start and need a day this understands. A deadline and a deferral "
+			f"are each one moment, and take one time rather than two."
 		)
 
 	if contradicted:
@@ -815,7 +887,7 @@ def parse (
 	# `Solar eclipse today at 18:30` into `Solar eclipse today` for its purposes — and the
 	# end-anchor that makes `today` mean something, which is deliberate and well argued, needs
 	# no change at all. Reading the time was the missing half; the anchor was never the defect.
-	at = _collect_times(text, claimed, reserved, unparsed, after=list(placed))
+	clock = _collect_times(text, claimed, reserved, unparsed, after=list(placed))
 
 	_collect_bare_days(text, claimed, reserved, fields, placed, today=today)
 
@@ -825,8 +897,9 @@ def parse (
 
 	used = _apply_time(
 		fields,
-		None if at is None else at[0],
-		beside=None if at is None else _beside(text, at[1], placed, claimed),
+		None if clock is None else clock.at,
+		until=None if clock is None else clock.until,
+		beside=None if clock is None else _beside(text, clock.span, placed, claimed),
 		today=today,
 		unread_day=bool(_UNREAD_DAY.search(_blanked(text, claimed))),
 		now=now,
@@ -839,9 +912,9 @@ def parse (
 	# it is either kept or given back. Written after driving `Dentist appointment Monday 14:00`
 	# and finding the title had lost `14:00` while no field had gained it, which is precisely
 	# the outcome this module exists to make impossible.
-	if at is not None and not used:
-		claimed.remove(at[1])
-		unparsed.append(text[at[1][0]:at[1][1]])
+	if clock is not None and not used:
+		claimed.remove(clock.span)
+		unparsed.append(text[clock.span[0]:clock.span[1]])
 
 	# **A repeat is read only where nothing unclaimed follows it** (`#1401`), which is §6.13's
 	# existing rule for a bare ``today`` applied to the grammar that shipped after it — see
@@ -1081,6 +1154,64 @@ def _collect_sigils (
 		claimed.append(match.span())
 
 
+class _Clock(typing.NamedTuple):
+	"""A time of day a line named, the end of it where a range was written, and where it sits."""
+
+	#: When it starts.
+	at: datetime.time
+
+	#: When it ends, from ``at 2pm til 3pm`` (`#675`), or ``None`` where one time was written.
+	until: datetime.time | None
+
+	#: Where the words are, so the claim can be given back if nothing can hold them.
+	span: tuple[int, int]
+
+
+def _clock_at (written: str) -> datetime.time | None:
+	"""Return the time of day a written clock names, or ``None`` where it names none.
+
+	One reading for every rule that has to turn ``9am``, ``09:00`` or ``9:30 pm`` into a time:
+	:func:`_collect_times` had it inline and :func:`_collect_spans` would have been a second
+	copy, which is this codebase's signature defect written small.
+
+	**``12am`` is midnight and ``12pm`` is noon**, which is the one place a modulus is needed
+	rather than an addition - ``12 + 12`` is 24 and there is no such hour.
+	"""
+
+	matched = _ONE_CLOCK.match(written.strip())
+
+	if matched is None:
+		return None
+
+	hour = int(matched.group("hour") or matched.group("hour24"))
+	minute = int(matched.group("minute") or matched.group("minute24") or 0)
+	meridiem = (matched.group("meridiem") or "").lower()
+
+	if meridiem:
+		hour = hour % 12 + (12 if meridiem == "pm" else 0)
+
+	if not (0 <= hour <= 23 and 0 <= minute <= 59):
+		return None
+
+	return datetime.time(hour=hour, minute=minute)
+
+
+def _signalled (
+	text: str, match: re.Match[str], *, after: typing.Sequence[tuple[int, int]]
+) -> bool:
+	"""Say whether a time was written where this grammar reads one (`#797`).
+
+	**Signalled, or attached to a date already read.** Without one of the two this is a bare
+	number in prose - *Email Bob re: 3pm* - and reading it is exactly the guessing the closed
+	date vocabulary exists to refuse. One answer for a single time and for a range (`#675`),
+	because a range written in prose is prose as much as one time is.
+	"""
+
+	return match.group("at") is not None or any(
+		text[end:match.start()].strip() == "" for _start, end in after
+	)
+
+
 def _collect_times (
 	text: str,
 	claimed: list[tuple[int, int]],
@@ -1088,48 +1219,57 @@ def _collect_times (
 	unparsed: list[str],
 	*,
 	after: list[tuple[int, int]],
-) -> tuple[datetime.time, tuple[int, int]] | None:
-	"""Consume a time of day, and report anything time-shaped that could not be read.
+) -> _Clock | None:
+	"""Consume a time of day or a range of two, and report anything time-shaped left over.
 
-	**The first readable one wins**, matching every other field here: a line naming two times
-	is naming a range, and a range has no home (`#798`).
+	**A range is read first and whole** (`#675`), because every one of its halves is a time
+	this would otherwise read on its own: *at 2pm til 3pm* would become a 2pm start with the
+	end dropped into the title, which is the silent half-reading §6.13 rule 1 forbids.
 
-	Returns the time rather than writing a field, because where it belongs depends on what the
-	*rest* of the line said and the bare day has not been read yet. :func:`_apply_time` decides.
+	**The first readable one wins**, matching every other field here: a second range, or a
+	third time, is reported rather than read.
+
+	Returns the times rather than writing a field, because where they belong depends on what
+	the *rest* of the line said and the bare day has not been read yet. :func:`_apply_time`
+	decides, and refuses where nothing can hold a range.
 	"""
 
-	found: tuple[datetime.time, tuple[int, int]] | None = None
+	found: _Clock | None = None
+
+	for match in _TIME_RANGE.finditer(text):
+		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
+			continue
+
+		if found is not None or not _signalled(text, match, after=after):
+			continue
+
+		at = _clock_at(match.group("first"))
+		until = _clock_at(match.group("last"))
+
+		# **An end equal to its start is not a range**, so the line falls back to what it did
+		# before this rule existed: the start is read and the second time is reported. Reading
+		# it as a span would mean a zero-length appointment or - worse, counting it backwards -
+		# a whole day, neither of which is what somebody who wrote *2pm to 2pm* meant.
+		if at is None or until is None or at == until:
+			continue
+
+		found = _Clock(at=at, until=until, span=match.span())
+
+		claimed.append(match.span())
 
 	for match in _TIME.finditer(text):
 		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
 			continue
 
-		if found is not None:
+		if found is not None or not _signalled(text, match, after=after):
 			continue
 
-		# **Signalled, or attached to a date already read.** Without one of the two this is a
-		# bare number in prose — `Email Bob re: 3pm` — and reading it is exactly the guessing
-		# the closed date vocabulary exists to refuse.
-		signalled = match.group("at") is not None or any(
-			text[end:match.start()].strip() == "" for _start, end in after
-		)
+		at = _clock_at(match.group(0))
 
-		if not signalled:
+		if at is None:
 			continue
 
-		hour = int(match.group("hour") or match.group("hour24"))
-		minute = int(match.group("minute") or match.group("minute24") or 0)
-		meridiem = (match.group("meridiem") or "").lower()
-
-		if meridiem:
-			# 12am is midnight and 12pm is noon, which is the one place a modulus is needed
-			# rather than an addition — `12 + 12` is 24 and there is no such hour.
-			hour = hour % 12 + (12 if meridiem == "pm" else 0)
-
-		if not (0 <= hour <= 23 and 0 <= minute <= 59):
-			continue
-
-		found = (datetime.time(hour=hour, minute=minute), match.span())
+		found = _Clock(at=at, until=None, span=match.span())
 
 		claimed.append(match.span())
 
@@ -1215,10 +1355,38 @@ def _beside (
 	return min(preceded)[1] if preceded else None
 
 
+def _written_on (
+	fields: dict[str, typing.Any],
+	field: str,
+	flag: str,
+	day: datetime.date,
+	*,
+	at: datetime.time,
+	until: datetime.time | None,
+) -> bool:
+	"""Write a time, and the end of a range where one was written, onto a day - `#675`.
+
+	**An end earlier than its start is the next morning** (Simon, 2026-09-20). On one named
+	day *at 9pm til 1am* can mean nothing else, and an evening that runs past midnight is the
+	ordinary case rather than the exotic one. An end *equal* to its start names no span at
+	all, and :func:`_collect_times` declines that before it reaches here.
+	"""
+
+	fields[field] = datetime.datetime.combine(day, at)
+	fields[flag] = False
+
+	if until is not None:
+		ending = datetime.datetime.combine(day, until)
+		fields["ends_at"] = ending if until > at else ending + datetime.timedelta(days=1)
+
+	return True
+
+
 def _apply_time (
 	fields: dict[str, typing.Any],
 	at: datetime.time | None,
 	*,
+	until: datetime.time | None = None,
 	beside: str | None,
 	today: datetime.date,
 	unread_day: bool,
@@ -1283,6 +1451,13 @@ def _apply_time (
 	if at is None:
 		return False
 
+	# **A range belongs to a start and to nothing else** (`#675`). A deadline and a defer are
+	# each one instant - *by friday 17:00* is the moment it is late, not an hour of lateness -
+	# so a line putting a range on one is not read at all rather than read halfway. The words
+	# go back into the title and are said, which is what ``False`` means to the caller.
+	if until is not None and beside is not None and beside != "starts_at":
+		return False
+
 	named_a_day = False
 
 	for field, flag in (
@@ -1293,38 +1468,33 @@ def _apply_time (
 		if beside is not None and field != beside:
 			continue
 
+		if until is not None and field != "starts_at":
+			continue
+
 		value = fields.get(field)
 
 		if value is not None:
 			named_a_day = True
 
-		# **A span of whole days takes no clock** (`#2687`). One flag describes both of its ends
-		# (decision `#1235` §2), so a time on the start alone would make it say two things - and
-		# an appointment's end time is `#675`'s. The time goes back into the title and is said.
+		# **A span already read takes no clock** (`#2687`). A span of whole days has one flag
+		# describing both of its ends (decision `#1235` §2), so a time on the start alone would
+		# make it say two things; a span already timed at both ends has been given its times.
+		# Either way the time goes back into the title and is said.
 		if field == "starts_at" and "ends_at" in fields:
 			continue
 
 		if isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
-			fields[field] = datetime.datetime.combine(value, at)
-			fields[flag] = False
-
-			return True
+			return _written_on(fields, field, flag, value, at=at, until=until)
 
 		day = _named_day(value, now=now, timezone=timezone)
 
 		if day is not None:
-			fields[field] = datetime.datetime.combine(day, at)
-			fields[flag] = False
-
-			return True
+			return _written_on(fields, field, flag, day, at=at, until=until)
 
 	if unread_day or named_a_day:
 		return False
 
-	fields["starts_at"] = datetime.datetime.combine(today, at)
-	fields["starts_is_all_day"] = False
-
-	return True
+	return _written_on(fields, "starts_at", "starts_is_all_day", today, at=at, until=until)
 
 
 def _collect_spans (
@@ -1354,25 +1524,50 @@ def _collect_spans (
 	held back from the date rules too, or ``from`` would quietly become the defer the writer
 	was trying not to set.
 
-	**Whole days only, and a span with times of day is held back and said** (`#2894`). A clock on
-	either side is an appointment with an end, which is `#675`'s; left to the rules it met before,
-	it became a defer that hid the item. It is kept in the title and reported instead.
+	**One day and two times is an appointment, and is read** (`#675`): *Workshop from Monday
+	9am to 5pm* is a start and an end on that day. It is read here, rather than by the time
+	rules that read *Standup on Monday 2pm-3pm*, because ``from`` is a defer and the words
+	have to be claimed before the date rules see them.
+
+	**A span whose two days each carry a time is still held back and said** (`#2894`). Its
+	ends are two different days, which is the span this grammar cannot write yet, and left to
+	the rules it met before it became a defer that hid the item.
 	"""
 
-	# **Found by its own pattern, and ahead of a span of days starting at the same place**,
+	# **Found by their own patterns, and ahead of a span of days starting at the same place**,
 	# because the days' patterns read the ISO form of one as days and would drop its times.
+	timed = list(_CLOCKED_DAY.finditer(text))
 	clocked = [match for match in _CLOCKED_SPAN.finditer(text) if _A_CLOCK.search(match.group(0))]
 	found = sorted(
-		(*clocked, *(match for pattern in _SPANS for match in pattern.finditer(text))),
-		key=lambda match: (match.start(), match not in clocked),
+		(*timed, *clocked, *(match for pattern in _SPANS for match in pattern.finditer(text))),
+		key=lambda match: (match.start(), match not in timed, match not in clocked),
 	)
 
 	for match in found:
 		if _overlaps(match.span(), claimed) or _overlaps(match.span(), reserved):
 			continue
 
-		# Kept whole and reported, as a span this cannot read is below - `#2894`. Its end has
-		# nowhere to go until `#1320`, and the date rules would have made its start a defer.
+		if match in timed:
+			hours = _clocked_day(match.groupdict(), today=today, now=now, timezone=timezone)
+
+			# Kept whole and reported where it cannot be read, for the reason below: a day this
+			# grammar does not read, or two times that name no span, must not leave ``from``
+			# behind to become the defer the writer was not asking for.
+			if hours is None:
+				reserved.append(match.span())
+				unparsed.append(match.group(0).strip())
+
+				return
+
+			fields["starts_at"], fields["ends_at"] = hours
+			fields["starts_is_all_day"] = False
+			claimed.append(match.span())
+			placed[match.span()] = "starts_at"
+
+			return
+
+		# Kept whole and reported, as a span this cannot read is below - `#2894`. Its two days
+		# cannot both carry a time yet, and the date rules would have made its start a defer.
 		if match in clocked:
 			reserved.append(match.span())
 			unparsed.append(match.group(0).strip())
@@ -1402,6 +1597,36 @@ def _collect_spans (
 		placed[match.span()] = "starts_at"
 
 		return
+
+
+def _clocked_day (
+	groups: dict[str, str | None],
+	*,
+	today: datetime.date,
+	now: datetime.datetime,
+	timezone: str,
+) -> tuple[datetime.datetime, datetime.datetime] | None:
+	"""Return the two instants *from Monday 9am to 5pm* names, or ``None`` - `#675`.
+
+	**A side it cannot read makes the whole phrase unreadable**, as a span of days does and
+	for the same reason: the writer wrote one thing, and reading half of it would set a field
+	the line did not say while leaving ``from`` to hide the item.
+
+	The end takes the start's day, and the next one where it is earlier, which is
+	:func:`_written_on`'s rule read from the other end of the grammar.
+	"""
+
+	day = _span_day(groups.get("day") or "", today=today, now=now, timezone=timezone)
+	at = _clock_at(groups.get("first") or "")
+	until = _clock_at(groups.get("last") or "")
+
+	if day is None or at is None or until is None or at == until:
+		return None
+
+	starting = datetime.datetime.combine(day, at)
+	ending = datetime.datetime.combine(day, until)
+
+	return starting, ending if until > at else ending + datetime.timedelta(days=1)
 
 
 def _span_days (

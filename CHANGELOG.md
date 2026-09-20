@@ -14,6 +14,16 @@ upgrade involves.
 
 ## Unreleased
 
+### Added
+
+- **A captured line reads an appointment's two ends.** *Dentist on Monday at 2pm til 3pm*
+  files a start at two and an end at three, where the end used to stay in the title. Write
+  them as `2pm-3pm`, `at 9am to 5pm`, `from Monday 9am til 5pm` or on the 24-hour clock, on
+  a day the line names or on today, and an end earlier than its start is the next morning -
+  so *Party on Friday at 9pm til 1am* ends on Saturday. Two times in prose are still left
+  alone, so *Email Bob re: 3pm* is untouched; a span whose two days each carry a time is
+  still held back and says so.
+
 ### Changed
 
 - **An agent that has not said which timezone it is in reads days in its account
