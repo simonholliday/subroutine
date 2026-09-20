@@ -19,6 +19,7 @@ import pathlib
 import re
 import shutil
 import time
+import types
 import typing
 import unittest.mock
 import uuid
@@ -1632,7 +1633,7 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: description leaves out ``type``, ``description``, ``assignee``, ``until``, ``repeat`` and now
 #: ``project`` — an enumeration nobody kept up — and it was left alone rather than lengthened,
 #: because the schema lists them all and the agent that wanted this one found it by argument.
-TOOL_BYTE_CEILING = 14_710
+TOOL_BYTE_CEILING = 14_810
 
 
 def test_the_whole_tool_surface_stays_small (
@@ -2032,6 +2033,32 @@ def test_the_whole_tool_surface_stays_small (
 	carries; the count measures what a reader can hold. Raising either is meant to be an act.
 
 	The spending record follows.
+
+	* **`SR#2984`, to 14,810** — ``due`` on ``subroutine_update``, Simon's decision of
+	  2026-09-20.
+
+	  **Bought for an accountability error rather than a convenience**, which is §21.2's test
+	  asking what an agent gets wrong without it. `SR#2972`'s agent found its deadline stored an
+	  hour out, had no argument for one, and corrected it by running ``subroutine update --due``
+	  at a terminal holding Simon's credential — so the correction is recorded as his.
+	  ``subroutine_call_api`` reaches ``PATCH /v1/tasks`` in the agent's own name and it did not
+	  reach for it; the person's terminal was nearer to hand.
+
+	  **Measured at 101 bytes**: 93 for the property and 8 for the tool's own description, which
+	  now names a deadline among what it changes. The surface was **14,708 against a ceiling of
+	  14,710** before it, so two bytes of slack is what a ratchet reads like when it is working.
+
+	  **A ``timezone`` argument was weighed and left off**, here and on ``subroutine_add``.
+	  `SR#2974` made an agent that has set no zone read days in its account parent's, so the
+	  case this came from needs none — and an argument inviting an agent to reason about zones,
+	  where the chain now answers, is a wrong answer waiting to be silent.
+
+	  **The fat read found none this time**, which is the first of these raises that could not
+	  pay for itself. Every tool and property description was read longest-first: the largest is
+	  ``subroutine_list``'s ``filter`` at 795 bytes, whose worked example is the only teaching
+	  this surface carries about filtering, and ``subroutine_update``'s own two largest are
+	  ``applies_to`` at 142 and ``expected_version`` at 134 — a question decision `SR#1249`
+	  requires and the guard §8.9 exists for.
 
 	* **`#94`, to 11,000** — ``repeat`` on ``subroutine_update``, and ``repeats`` named in
 	  ``subroutine_add``'s list of what the line carries.
@@ -3591,6 +3618,47 @@ def test_an_agent_planning_a_timed_event_keeps_the_clock_it_captured (
 	assert after.starts_is_all_day is False, "a timed event was re-snapped to a whole day"
 
 
+def test_an_agent_can_set_a_deadline_without_leaving_its_tools (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#2984`, Simon 2026-09-20: `subroutine_update` takes a deadline.
+
+	**Filed from an accountability error rather than an inconvenience.** `SR#2972`'s agent found
+	its deadline stored an hour out, had no argument for one, and corrected it by running
+	`subroutine update --due` at a terminal holding Simon's credential - so the correction is
+	recorded as his. `subroutine_call_api` could have done it in the agent's own name, and the
+	person's terminal was nearer to hand.
+
+	**Read as a moment rather than a day**, which is what `plan` and `until` take: a deadline
+	names the instant something is late, so *16:30* is half past four and not midnight.
+	"""
+
+	text, _failed = _called(bound, "subroutine_add", text="Renew the domain")
+	found = re.search(r"#(\d+)", text)
+
+	assert found is not None, text
+
+	ref = int(found.group(1))
+	answered, failed = _called(bound, "subroutine_update", ref=ref, due="2027-03-05T16:30")
+
+	assert not failed, f"the deadline was refused:\n{answered}"
+
+	after, failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert not failed, after
+	assert "2027-03-05T16:30" in after, f"the o'clock the agent wrote is not there:\n{after}"
+
+	# **And it clears**, which is the half a caller cannot reach any other way: an empty string
+	# is how every other day argument here says *take it off*.
+	cleared, failed = _called(bound, "subroutine_update", ref=ref, due="")
+
+	assert not failed, cleared
+
+	after, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert "2027-03-05" not in after, f"the deadline is still there after clearing it:\n{after}"
+
+
 def test_an_agent_is_told_a_day_argument_will_not_take_a_time (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -3625,6 +3693,37 @@ def test_an_agent_is_told_a_day_argument_will_not_take_a_time (
 	assert not failed, _taken
 
 
+def test_a_timed_moment_names_the_zone_it_is_in () -> None:
+	"""`SR#2985`, Simon 2026-09-20: the value was always right and never said what it was right in.
+
+	`SR#2972`'s agent read `due 2026-09-20T16:30` as half past four where it was working, and
+	found out only by fetching the item again as JSON. It then corrected a deadline that had
+	been right all along, from a terminal holding somebody else's credential.
+
+	**Asserted on the renderer rather than on a row**, so both cases can be named exactly: a
+	moment in the reader's own zone, and the same instant somewhere it is a different day.
+	Through a tool response neither could be, because which zone the suite's instance publishes
+	depends on the machine it runs on - `SR#2252`'s trap, one surface along.
+
+	**A whole day takes none**: there is no o'clock to be wrong about, and a day is a label that
+	never converts (decision `SR#1088`).
+	"""
+
+	instant = datetime.datetime(2026, 12, 1, 11, 0, tzinfo=datetime.UTC)
+	london = typing.cast(typing.Any, types.SimpleNamespace(timezone="Europe/London"))
+	auckland = typing.cast(typing.Any, types.SimpleNamespace(timezone="Pacific/Auckland"))
+
+	assert subroutine.mcp.tools._moment_of(instant, london, all_day=False) == (
+		"2026-12-01T11:00 Europe/London"
+	)
+	# The same instant, thirteen hours on and a day later, and it says so rather than leaving
+	# the reader to notice that the date moved.
+	assert subroutine.mcp.tools._moment_of(instant, auckland, all_day=False) == (
+		"2026-12-02T00:00 Pacific/Auckland"
+	)
+	assert subroutine.mcp.tools._moment_of(instant, london, all_day=True) == "2026-12-01"
+
+
 def test_an_agents_row_says_the_o_clock_when_the_row_carries_one (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
@@ -3649,6 +3748,12 @@ def test_an_agents_row_says_the_o_clock_when_the_row_carries_one (
 
 	assert not failed, timed
 	assert "2026-12-01T11:00" in timed, f"the agent's row dropped the o'clock:\n{timed}"
+	# **And a zone follows it** (`SR#2985`), asserted as *something is named* rather than as a
+	# zone by name: which one this instance publishes depends on the machine the suite runs
+	# on, which is `#2252`'s trap. The renderer's own test names both zones exactly.
+	assert re.search(r"2026-12-01T11:00 [A-Za-z]", timed), (
+		f"the o'clock does not say which zone it is in:\n{timed}"
+	)
 
 	whole, failed = _called(bound, "subroutine_add", text="Anna's birthday on 2026-12-01")
 

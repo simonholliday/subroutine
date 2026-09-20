@@ -16,6 +16,11 @@ upgrade involves.
 
 ### Added
 
+- **An agent can set a deadline.** `subroutine_update` takes `due` - a date, a date and
+  time, or `''` to clear it - so an agent correcting one stays in its own name. Before this
+  there was no argument for a deadline on the curated tools, and an agent that met a wrong one
+  reached for a terminal instead, where the correction was recorded as whoever's credential
+  that terminal holds.
 - **A captured line reads an appointment's two ends.** *Dentist on Monday at 2pm til 3pm*
   files a start at two and an end at three, where the end used to stay in the title. Write
   them as `2pm-3pm`, `at 9am to 5pm`, `from Monday 9am til 5pm` or on the 24-hour clock, on
@@ -31,6 +36,10 @@ upgrade involves.
   made, since an account's zone is its own to say, so a time an agent wrote for somebody -
   *by Friday 16:30* - could be stored an hour or more from the one they both meant. An agent
   that works somewhere else can still say so with `subroutine user timezone`.
+- **A time the agent tools print says which timezone it is in**, as
+  `2026-12-01T11:00 Europe/London`. The value was always right and never said what it was
+  right in, so an agent in another zone read it as its own and corrected a deadline that was
+  not wrong. A whole day is unchanged: there is no o'clock to be wrong about.
 - **`subroutine_whoami` says how an agent gets a name of its own**, where the agent tools
   are working on a person's credential: what they write is recorded as that person's, and
   `subroutine agent create` makes the account.

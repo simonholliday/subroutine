@@ -1126,8 +1126,8 @@ def _tools (
 			name="subroutine_update",
 			title="Change a task",
 			description=(
-				"Change a task: priority, estimate, status, title, or when it starts, ends "
-				"or is deferred until. Set both priority axes — one alone sorts below "
+				"Change a task: priority, estimate, status, title, or when it is due, starts, "
+				"ends or is deferred until. Set both priority axes — one alone sorts below "
 				"everything ranked. Omitted fields are unchanged."
 			),
 			schema={
@@ -1167,6 +1167,14 @@ def _tools (
 					"project": {
 						"type": "string",
 						"description": "File it under this project, by key.",
+					},
+					# **A deadline, because an agent that cannot correct one borrows a person's
+					# terminal to do it** (`#2984`, Simon 2026-09-20). `#2972`'s agent did exactly
+					# that and its correction was recorded as Simon's. Read as a moment rather than
+					# a day, so *by 16:30* is a deadline at half past four and not one at midnight.
+					"due": {
+						"type": "string",
+						"description": "When it is due. A date, a date and time, or ''.",
 					},
 					"plan": {"type": "string", "description": "When it starts. A date or ''."},
 					"until": {
@@ -2510,6 +2518,20 @@ def _moment_of (
 	first microsecond of its day, so *"is it midnight"* would call a genuine midnight
 	appointment a whole day and would be wrong about every all-day deadline, which is stored
 	at the last microsecond instead.
+
+	**And it names its zone** - ``2026-12-01T11:00 Europe/London`` - on every timed moment,
+	which is Simon's decision of 2026-09-20 (`#2985`). The value was always right and never
+	said which zone it was right in, so a reader took it for its own: `#2972`'s agent read
+	``due 2026-09-20T16:30`` as half past four where it was working, found out by fetching
+	the item again as JSON, and corrected a deadline that was never wrong.
+
+	**Always, rather than only where it differs from the reader's own zone.** A rule that
+	speaks only sometimes is one the reader has to know exists, and a bare time then means
+	*your zone* to whoever knows and nothing in particular to whoever does not. Naming the
+	zone every time is `#1088` §8's shape: state it, and leave the judgement.
+
+	A whole day takes none. There is no o'clock to be wrong about, and §6.5's storage means
+	the instant behind it is not a time anybody wrote.
 	"""
 
 	day = _day_of(instant, item)
@@ -2517,13 +2539,10 @@ def _moment_of (
 	if all_day:
 		return day
 
-	local = instant.astimezone(
-		subroutine.domain.dates.zone(
-			getattr(item, "timezone", None) or subroutine.domain.schedule.DEFAULT_TIMEZONE
-		)
-	)
+	named = getattr(item, "timezone", None) or subroutine.domain.schedule.DEFAULT_TIMEZONE
+	local = instant.astimezone(subroutine.domain.dates.zone(named))
 
-	return f"{day}T{local:%H:%M}"
+	return f"{day}T{local:%H:%M} {named}"
 
 
 def _where_it_landed (
@@ -4515,7 +4534,7 @@ def _updated (
 	days: dict[str, datetime.datetime | datetime.date | None] = {}
 	zone = ""
 
-	if any(field in arguments for field in ("plan", "until", "defer")):
+	if any(field in arguments for field in ("plan", "until", "defer", "due")):
 		zone = _account_zone(client, workspace)
 
 		days = {
@@ -4526,10 +4545,19 @@ def _updated (
 			if field in arguments
 		}
 
+	# **A deadline travels with the ordinary fields, not through ``schedule``** (`#2984`).
+	# ``PATCH /v1/tasks`` is where a deadline is written and :meth:`schedule` has no argument
+	# for one, so this is the road ``update --due`` takes at a terminal rather than a second
+	# one built here. Sent as a string because that is what the client's ``due`` takes, and
+	# ``isoformat`` is what makes a day a day and a moment a moment to the instance reading it.
+	if "due" in arguments:
+		deadline = _moment(arguments["due"], field="due", timezone=zone)
+		changes["due"] = None if deadline is None else deadline.isoformat()
+
 	if not changes and not days:
 		raise ValueError(
 			"Nothing to change. Pass importance, urgency, estimate, status, type, title, "
-			"description, assignee, project, repeat, plan, until or defer."
+			"description, assignee, project, repeat, due, plan, until or defer."
 		)
 
 	# **Two calls, because they are two endpoints** — `PATCH /v1/tasks` and the scheduling
