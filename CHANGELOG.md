@@ -58,6 +58,18 @@ upgrade involves.
   update` does. A read that spans your connections printed a refusal's first line alone, so
   `subroutine list --status waiting` said there was no such status and never which there are.
 
+### Security
+
+- **An instance served over HTTPS calls its session cookie `__Host-subroutine_session`**, and
+  a browser refuses to store a cookie of that name from anywhere that sets a `Domain`. Where
+  instances share a domain - `acme.example.com` and `beta.example.com` - a page on one could
+  otherwise write a session cookie for `example.com`, which the browser then sent to every
+  other instance, under the same name and impossible to tell from the reader's own. It takes
+  a script running on one of those pages first, so this narrows what such a script could
+  reach rather than closing a hole. **You stay signed in**: both names are read, and the
+  next request your browser makes hands your session back under the new one. An instance on
+  loopback or plain HTTP keeps the old name, because the prefix only works with `Secure`.
+
 ## 0.8.27 — 2026-09-19
 
 ### Changed

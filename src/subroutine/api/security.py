@@ -238,6 +238,63 @@ def refuse_an_unanswered_origin (
 #: unprefixed ``session`` is the commonest cookie name there is.
 SESSION_COOKIE = "subroutine_session"
 
+#: The same cookie under the name a browser polices, written where this instance is served
+#: over HTTPS (`#1700`). **The ``__Host-`` prefix is a promise the browser keeps**: it
+#: stores no cookie of that name carrying a ``Domain``, so a page on a neighbouring
+#: subdomain of a shared registrable domain cannot write a session that arrives here.
+#: Cookies do not obey the same-origin policy, and two cookies of one name cannot be told
+#: apart - RFC 6265 says a server may not rely on their order - so without this, script
+#: execution on one tenant puts a reader of another inside the attacker's account.
+HOST_SESSION_COOKIE = f"__Host-{SESSION_COOKIE}"
+
+
+def served_over_https (settings: subroutine.config.Settings) -> bool:
+	"""Say whether this instance is reached over HTTPS, which ``public_url`` answers.
+
+	**Not the request**, for the reason :func:`set_session_cookie` writes out: TLS terminates
+	at a proxy, so the application sees plain HTTP on a connection that reached it over
+	HTTPS. One function rather than a copy in each caller, because the cookie's name and its
+	``Secure`` flag must answer this the same way every time - a ``__Host-`` cookie without
+	``Secure`` is one the browser throws away, which reads from the outside exactly like
+	signing in not working.
+	"""
+
+	return (settings.public_url or "").strip().lower().startswith("https://")
+
+
+def session_cookie_name (settings: subroutine.config.Settings) -> str:
+	"""Return what this instance calls its session cookie.
+
+	**Which of the two names is written follows ``Secure``** (`#1700`): an instance served
+	over HTTPS writes the prefixed one, whose rules the browser then enforces on our behalf.
+	A development instance on loopback keeps the plain one, because it cannot mark ``Secure``
+	and still sign anybody in.
+	"""
+
+	return HOST_SESSION_COOKIE if served_over_https(settings) else SESSION_COOKIE
+
+
+def presented_session_cookie (request: starlette.requests.Request) -> str | None:
+	"""Return the session a browser presented, under either of the cookie's names.
+
+	**Both are read and one is written**, which is what carries a browser across the change
+	(`#1700`): somebody signed in before it holds the plain name, and the renewal that
+	:func:`_keep_the_browser_signed_in` writes on their next authenticated response hands the
+	same session back under the prefixed one. Reading only the new name would sign every open
+	browser out at the moment an operator upgraded, with nothing saying why.
+
+	The prefixed name wins where a browser holds both, which it does between that renewal and
+	the old cookie's own expiry.
+	"""
+
+	for name in (HOST_SESSION_COOKIE, SESSION_COOKIE):
+		presented = request.cookies.get(name)
+
+		if presented is not None:
+			return presented
+
+	return None
+
 
 def from_session_cookie (
 	session: sqlalchemy.orm.Session,
@@ -266,7 +323,7 @@ def from_session_cookie (
 	deliberately not touched. Getting that scoping wrong is what would break every agent.
 	"""
 
-	presented = request.cookies.get(SESSION_COOKIE)
+	presented = presented_session_cookie(request)
 
 	if presented is None:
 		return None
@@ -485,7 +542,7 @@ def _keep_the_browser_signed_in (
 	if opened is None:
 		return
 
-	presented = request.cookies.get(SESSION_COOKIE)
+	presented = presented_session_cookie(request)
 
 	# **A session principal without the cookie that made it is not reachable today** — the only
 	# resolver that builds one reads it from here — and it is guarded rather than asserted,
@@ -615,40 +672,53 @@ def set_session_cookie (
 	  from what the socket says would leave the cookie unmarked on every proxied instance —
 	  every real deployment — and marking it unconditionally would make a loopback development
 	  instance unable to sign in at all, with nothing to say why.
+
+	**And the name follows that flag** (`#1700`): served over HTTPS this cookie is called
+	``__Host-subroutine_session``, and a browser then refuses to store a cookie of that name
+	from anywhere setting a ``Domain`` - which is what stops a neighbouring subdomain writing
+	a session that arrives here. The prefix's other two conditions, ``Path=/`` and no
+	``Domain``, were already met and are asserted rather than assumed.
 	"""
 
-	public = (settings.public_url or "").strip()
-
 	response.set_cookie(
-		SESSION_COOKIE,
+		session_cookie_name(settings),
 		secret,
 		expires=expires_at,
 		path="/",
 		httponly=True,
 		samesite="lax",
-		secure=public.lower().startswith("https://"),
+		secure=served_over_https(settings),
 	)
 
 
 def clear_session_cookie (
 	response: starlette.responses.Response, *, settings: subroutine.config.Settings
 ) -> None:
-	"""Remove the browser session cookie.
+	"""Remove the browser session cookie, under both of its names.
 
 	The attributes have to match the ones it was set with or the browser deletes nothing and
 	keeps sending a cookie the instance has already revoked — which looks, from the outside,
 	exactly like signing out not working.
+
+	**Both names, because a revoked session is refused rather than ignored** (`#1700`): a
+	browser left holding the plain cookie would present it on every request and be told its
+	session has ended, where what happened is that it signed out. Where this instance writes
+	the plain name the two are one, and this writes one header.
 	"""
 
-	public = (settings.public_url or "").strip()
+	names = [session_cookie_name(settings)]
 
-	response.delete_cookie(
-		SESSION_COOKIE,
-		path="/",
-		httponly=True,
-		samesite="lax",
-		secure=public.lower().startswith("https://"),
-	)
+	if SESSION_COOKIE not in names:
+		names.append(SESSION_COOKIE)
+
+	for name in names:
+		response.delete_cookie(
+			name,
+			path="/",
+			httponly=True,
+			samesite="lax",
+			secure=served_over_https(settings),
+		)
 
 
 def _how_to_authenticate (request: starlette.requests.Request) -> str:

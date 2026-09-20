@@ -266,6 +266,118 @@ def test_the_cookie_is_marked_secure_where_the_instance_is_served_over_https (
 	assert "secure" in answer.headers["set-cookie"].lower()
 
 
+#: What a browser is handed in each state `public_url` can be in: the name the cookie is
+#: written under, and whether it is marked `Secure`. **The two answer one condition**
+#: (`SR#1700`), which is why they are asserted as a pair - a `__Host-` cookie that is not
+#: `Secure` is one the browser throws away, and that reads exactly like sign-in not working.
+COOKIE_NAMES = (
+	(None, subroutine.api.security.SESSION_COOKIE, False),
+	("http://work.example.test", subroutine.api.security.SESSION_COOKIE, False),
+	("https://work.example.com", subroutine.api.security.HOST_SESSION_COOKIE, True),
+)
+
+
+@pytest.mark.parametrize(("public_url", "name", "secure"), COOKIE_NAMES)
+def test_the_cookies_name_follows_the_same_condition_as_its_secure_flag (
+	session: sqlalchemy.orm.Session, public_url: str | None, name: str, secure: bool
+) -> None:
+	"""`SR#1700`: driven from `public_url` in each state, rather than asserted of a constant.
+
+	The prefix is worth having because the **browser** enforces it: it stores no cookie of
+	that name carrying a `Domain`, so a page on a sibling subdomain of a shared registrable
+	domain cannot write a session that arrives here. Its other two conditions are checked in
+	the same place - `Path=/` and no `Domain` - because a cookie failing any of them is
+	discarded in silence, on an instance where signing in worked the day before.
+	"""
+
+	user = subroutine.domain.users.create(
+		session, username=f"caller-{uuid.uuid4().hex[:8]}", display_name="The Caller"
+	)
+	subroutine.domain.workspaces.create(
+		session, slug=f"ws-{uuid.uuid4().hex[:8]}", title="Work", owner=user
+	)
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url=public_url
+	)
+
+	answer = api_support.call(
+		application, "GET", f"/signin?link={_link(session, user)}", follow_redirects=False
+	)
+	written = answer.headers["set-cookie"]
+
+	assert written.startswith(f"{name}="), written
+	assert ("secure" in written.lower()) is secure, written
+	assert ("secure" in written.lower()) is written.startswith("__Host-"), (
+		"the name and the flag disagree, and a __Host- cookie without Secure is discarded"
+	)
+	assert "path=/" in written.lower(), written
+	assert "domain=" not in written.lower(), written
+
+
+def test_a_browser_holding_the_old_name_stays_signed_in_and_is_handed_the_new_one (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`SR#1700`: an upgrade reading only the new name would sign every open browser out.
+
+	Both names are read and one is written, so a request arriving with the old cookie is
+	answered, and `#1671`'s renewal - written on every authenticated response - hands the same
+	session straight back under the new name. Nobody signs in again and nothing is said.
+	"""
+
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url="https://work.example.com"
+	)
+	_opened, held = subroutine.domain.sessions.redeem(session, _link(session, setup.user))
+
+	answer = api_support.call(
+		application, "GET", "/v1/me", cookies={subroutine.api.security.SESSION_COOKIE: held}
+	)
+
+	assert answer.status_code == 200, answer.text
+	assert answer.json()["credential"]["kind"] == "web_session"
+
+	written = answer.headers["set-cookie"]
+
+	assert written.startswith(f"{subroutine.api.security.HOST_SESSION_COOKIE}="), written
+	# **The same session handed back under the other name**, rather than a new one: what the
+	# browser sent is what it is given, so nothing else it has open is disturbed.
+	assert held in written, written
+
+
+def test_signing_out_clears_the_cookie_under_both_names (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`SR#1700`: a revoked session is refused by name, so one left behind is not harmless.
+
+	`subroutine.domain.sessions.authenticate` raises for a session that has been signed out,
+	so a browser still holding the plain cookie would be told its session had ended on every
+	request it made - where what happened is that it signed out, successfully.
+	"""
+
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url="https://work.example.com"
+	)
+	_opened, held = subroutine.domain.sessions.redeem(session, _link(session, setup.user))
+
+	answer = api_support.call(
+		application,
+		"DELETE",
+		"/v1/session",
+		cookies={subroutine.api.security.SESSION_COOKIE: held},
+	)
+
+	assert answer.status_code == 204, answer.text
+
+	written = answer.headers.get_list("set-cookie")
+	cleared = sorted(one.split("=", 1)[0] for one in written)
+
+	assert cleared == sorted([
+		subroutine.api.security.HOST_SESSION_COOKIE,
+		subroutine.api.security.SESSION_COOKIE,
+	]), written
+	assert all("max-age=0" in one.lower() for one in written), written
+
+
 def test_a_bearer_token_beats_a_cookie_in_the_same_browser (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
