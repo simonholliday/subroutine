@@ -1603,9 +1603,12 @@ BESIDE_A_TIME = (
 		"Dentist by friday on monday at 2pm",
 		"starts_at", datetime.datetime(2026, 8, 3, 14, 0), "due", datetime.date(2026, 8, 7),
 	),
+	# **The deadline here moved with `SR#2854`** and the time did not, which is what this row
+	# is about: Friday the 31st fell before the Monday the line is hidden until, so it is now
+	# counted from that Monday. The 9am is still the defer's.
 	(
 		"Call them from monday at 9am by friday",
-		"snooze", datetime.datetime(2026, 8, 3, 9, 0), "due", datetime.date(2026, 7, 31),
+		"snooze", datetime.datetime(2026, 8, 3, 9, 0), "due", datetime.date(2026, 8, 7),
 	),
 	# Before its day rather than after it, which is the same fact.
 	(
@@ -2064,6 +2067,86 @@ def test_a_deadline_that_is_not_a_search_is_left_as_written (text: str, due: obj
 
 	assert captured.title == "Fix the boiler", captured
 	assert captured.due == due, captured
+
+
+#: A deadline counted from the **defer** beside it (`SR#2854`), where read from today it
+#: would fall before the item could be seen at all. This file's clock is Thursday 30 July 2026.
+A_DEADLINE_AFTER_A_DEFER = (
+	# The item's own shape: *15 july* has gone, so the defer is next year's - and the deadline
+	# went with the year it was read in, a fortnight away, on an item hidden for twelve months.
+	(
+		"Chase the invoice from 15 july by 30 july",
+		datetime.date(2027, 7, 15),
+		datetime.date(2027, 7, 30),
+	),
+	# Weekdays, which is the commoner way to meet it: due the Friday after it appears rather
+	# than the Friday before, which is a deadline that passes before anybody can see the item.
+	(
+		"Chase the invoice from sunday by friday",
+		datetime.date(2026, 8, 2),
+		datetime.date(2026, 8, 7),
+	),
+	# Whichever way round the words are written, as `SR#1239` has it for a start.
+	(
+		"Chase the invoice by friday from sunday",
+		datetime.date(2026, 8, 2),
+		datetime.date(2026, 8, 7),
+	),
+)
+
+
+@pytest.mark.parametrize(
+	("text", "snooze", "due"),
+	A_DEADLINE_AFTER_A_DEFER,
+	ids=[one[0] for one in A_DEADLINE_AFTER_A_DEFER],
+)
+def test_a_deadline_beside_a_defer_is_counted_from_the_defer (
+	text: str, snooze: datetime.date, due: datetime.date
+) -> None:
+	"""`SR#2854`, Simon 2026-09-20: `SR#1239`'s rule reaches the other word that says when.
+
+	`from` says an item begins to be *visible* then, and the two dates were read apart exactly
+	as a start and a deadline were: *from 15 September by 30 September*, said on the 17th, filed
+	something hidden for a year that went overdue in a fortnight, with nothing said.
+
+	**A deadline that passes while an item is deferred is still ordinary** - that is why this
+	was not folded into `SR#1239` - so only one that would fall *before* the defer is read
+	again, which is the same condition a start carries.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == "Chase the invoice", captured
+	assert (captured.snooze, captured.due) == (snooze, due), captured
+	assert captured.due_is_all_day is True, captured
+
+
+def test_a_deadline_beside_a_defer_that_is_not_a_search_is_left_as_written () -> None:
+	"""The half that keeps `SR#2854` from over-reaching, as `SR#1239` has its own.
+
+	*Tomorrow* names one day whatever sits beside it, so a deadline before the day an item
+	appears is what the writer said - work you have put off looking at, and already late.
+	"""
+
+	captured = _parse("Chase the invoice from monday by tomorrow")
+
+	assert captured.snooze == datetime.date(2026, 8, 3), captured
+	assert captured.due == datetime.date(2026, 7, 31), captured
+
+
+def test_a_start_decides_it_where_a_line_names_a_defer_too () -> None:
+	"""`SR#2854`: a deadline belongs to the work rather than to the hiding.
+
+	Both words are in the line, so which one the deadline is counted from has to be decided
+	rather than left to whichever the parser happens to read first.
+	"""
+
+	captured = _parse("Chase the invoice on monday from friday by sunday")
+
+	assert captured.starts_at == datetime.date(2026, 8, 3), captured
+	assert captured.snooze == datetime.date(2026, 7, 31), captured
+	# Counted from Monday the 3rd, so the Sunday after it rather than the 2nd.
+	assert captured.due == datetime.date(2026, 8, 9), captured
 
 
 def test_a_bare_from_is_still_a_defer () -> None:

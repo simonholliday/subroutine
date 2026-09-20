@@ -50,6 +50,13 @@ upgrade involves.
   back, so the item said somebody was holding work nobody could start. `subroutine claim`
   now answers *Already done*, as `subroutine start` does, and the agent tools and the API
   say it is finished and how to open it again.
+- **A deadline written beside a defer is counted from it.** *Chase the invoice from 15
+  September by 30 September*, written on the 17th, filed something hidden until next
+  September that went overdue a fortnight later, and said nothing; *from sunday by friday*
+  was due before it could be seen at all. Each date was read from today on its own. A
+  deadline that would fall before the day an item appears is now read again from that day, as
+  one beside a start already was - and a deadline you wrote as a fixed date is left exactly
+  where you put it, because overdue work you have deferred is ordinary.
 - **A time written beside a date stays on that date.** In a captured line with a start and a
   deadline, a time always went onto the deadline, whichever date it was written beside:
   *Dentist on monday at 2pm by friday* made an all-day start on Monday and a deadline at

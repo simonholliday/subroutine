@@ -893,7 +893,7 @@ def parse (
 
 	# **After every start is read and before a clock is put on anything**: a start can come from
 	# a span, a date or a bare day, and the comparison is between two days.
-	_counted_from_the_start(fields, deadline, now=now, timezone=timezone)
+	_counted_from_when_it_begins(fields, deadline, now=now, timezone=timezone)
 
 	used = _apply_time(
 		fields,
@@ -985,7 +985,7 @@ def _collect_dates (
 	"""Consume ``before Sunday``-style phrases, first one per field winning.
 
 	Returns the words that set the deadline, if one was set, so it can be read again from a
-	start this line names anywhere in it (:func:`_counted_from_the_start`). Records in
+	start this line names anywhere in it (:func:`_counted_from_when_it_begins`). Records in
 	``placed`` which field each phrase it claimed set, for a time written beside it (`#2855`).
 	"""
 
@@ -1043,10 +1043,10 @@ def _collect_dates (
 	return deadline
 
 
-def _counted_from_the_start (
+def _counted_from_when_it_begins (
 	fields: dict[str, typing.Any], phrase: str | None, *, now: datetime.datetime, timezone: str
 ) -> None:
-	"""Count a deadline from the start written beside it, where from today it would come first.
+	"""Count a deadline from the day the line begins on, where from today it would come first.
 
 	**Each written date means the soonest such date counting today**, so a line naming two read
 	them apart (`#1239`): *on 20 July by 5 August*, said on 30 July, started next July and was due
@@ -1065,9 +1065,26 @@ def _counted_from_the_start (
 	gave, and one before its start is what the writer said: overdue work planned for next week is
 	ordinary. So is *friday 31 july* beside a start in October, since 31 July next year is not
 	a Friday - the weekday pins the date, and the phrase no longer reads from there.
+
+	**A defer is the day it begins on where there is no start** (`#2854`, Simon 2026-09-20).
+	``from`` is the other word that says when an item begins - it begins to be *visible* - and
+	the same two dates read apart the same way: *from 15 September by 30 September*, said on
+	the 17th, was hidden for a year while going overdue in a fortnight, and *from sunday by
+	friday* was due before it could be seen. Neither is anything a writer means.
+
+	**A start wins where a line names both**, because a deadline belongs to the work rather
+	than to the hiding: *on monday from friday by sunday* is work that starts on Monday, and
+	what the deadline follows is the start.
 	"""
 
-	start = fields.get("starts_at")
+	# **The start, or the defer where there is none.** A start is always a plain date here;
+	# a defer may still be the string of a written ISO time, which the ``isinstance`` below
+	# leaves alone exactly as it leaves one on the deadline.
+	begins = fields.get("starts_at")
+
+	if begins is None:
+		begins = fields.get("snooze")
+
 	due = fields.get("due")
 
 	# **Two dates are compared, whatever `Capture.starts_at` may hold by the end of `parse`**
@@ -1076,10 +1093,15 @@ def _counted_from_the_start (
 	# `_as_date`, and `_collect_spans` and `_collect_bare_days` write one. A deadline is a date
 	# or, written as an ISO time, its string, which the `isinstance` guard leaves alone; a
 	# written time is not on it yet, because `parse` applies times only after this runs.
-	if phrase is None or start is None or not isinstance(due, datetime.date) or due >= start:
+	if (
+		phrase is None
+		or not isinstance(begins, datetime.date)
+		or not isinstance(due, datetime.date)
+		or due >= begins
+	):
 		return
 
-	value, all_day = _read_phrase(phrase, today=start, now=now, timezone=timezone)
+	value, all_day = _read_phrase(phrase, today=begins, now=now, timezone=timezone)
 
 	if isinstance(value, datetime.date):
 		fields["due"], fields["due_is_all_day"] = value, all_day
