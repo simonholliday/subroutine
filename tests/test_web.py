@@ -5807,6 +5807,44 @@ def test_the_item_page_says_what_to_read_before_starting (tmp_path: pathlib.Path
 	assert with_links.index("Read first") < with_links.index("Links")
 
 
+def test_an_inherited_rule_says_which_ancestor_it_came_from (tmp_path: pathlib.Path) -> None:
+	"""`SR#1354` in the browser, which §5.4 asks for in the same commit as the rest.
+
+	It is a differentiator **because** it serves both participants, so a version only the
+	terminal can see is half a feature - the same argument the section itself was built on.
+
+	**The ancestor is a link, not a word.** The reader's next move on meeting an inherited
+	rule is to go and see who decided it, and a number they have to retype is a number they
+	do not follow.
+	"""
+
+	shared = {"item": {"ref": 42, "title": "Read a time range", "status": "open",
+		"kind": "task"}, "links": [], "comments": [], "workspace": "projects",
+		"members": [], "vocabulary": {"link_types": []}}
+	governing = [
+		{"link_type": "documents", "inherited_from": {
+			"entity_type": "task", "ref": 7, "title": "Ship the parser",
+			"is_complete": False}, "document": {
+			"entity_type": "document", "ref": 4, "title": "What the parser accepts",
+			"type": "spec", "status": "active", "is_complete": False}},
+	]
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "governing": governing}})["Detail"]
+
+	assert "What the parser accepts" in shown
+	assert "from" in shown, f"the rule arrived with nowhere to go and check it: {shown}"
+	assert "#7" in shown, "the ancestor's number is what a reader opens"
+	assert 'href="/projects/7"' in shown, (
+		f"the number is drawn as a word, so the reader has to retype it: {shown}"
+	)
+
+	# **Silent where the item states its own rule**, so a page that inherits nothing draws
+	# what it always drew. Asserted on the number, because the word *from* is ordinary prose.
+	own = [{"link_type": one["link_type"], "document": one["document"]} for one in governing]
+
+	assert "#7" not in _rendered(tmp_path, {"Detail": {**shared, "governing": own}})["Detail"]
+
+
 def test_what_an_item_is_joined_to_is_read_before_its_description (
 	tmp_path: pathlib.Path,
 ) -> None:

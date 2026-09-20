@@ -3190,8 +3190,11 @@ def _shown (
 	if binding:
 		parts.append("")
 		parts.append(f"Read first ({len(binding)})")
+		# **And which ancestor a rule was inherited from** (`#1354`), for the same reason the
+		# terminal says it: an agent handed a rule with nowhere to check it can only comply.
 		parts.extend(
 			f"#{one.document.ref}  {one.document.type or ''}  {one.document.title}"
+			+ (f"  from #{one.inherited_from.ref}" if one.inherited_from else "")
 			for one in binding
 		)
 

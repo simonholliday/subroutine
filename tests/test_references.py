@@ -441,7 +441,8 @@ ILLUSTRATIVE: dict[int, str] = {
 	"bill' — and the example for numbering starting again in a new workspace",
 	2: "'start with #2', explaining where a workspace's ref sequence resumes",
 	3: "the skill's warning that a reader holding 'finding 3' and #3 cannot tell them apart",
-	7: "'move 42 --under 7', the worked example of making one item part of another",
+	7: "'move 42 --under 7' and the changelog's 'part of #7', the two worked examples of "
+	"making one item part of another",
 	38: "the skill's worked comment, and the sentence saying what a #38 in a body becomes — a reference, which `#1184` corrected from 'a link'",
 	42: "the ref used to explain what a ref is, on every page that explains one",
 	46: "'what closed #46', CONTRIBUTING's example of the question the commit hook answers",

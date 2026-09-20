@@ -303,13 +303,32 @@ export function Detail ({
 						const to = workspace ? addressOf(going, workspace) : null;
 						const follow = (event) =>
 							followed(event, () => onOpen && onOpen(going));
+						/* The ancestor a rule was inherited from, opened the same way. Its kind
+						   is the item's own: a task's ancestors are tasks and a document's are
+						   documents, which is what `entity_type` on the end already says. */
+						const above = binds.inherited_from
+							? {
+								ref: binds.inherited_from.ref,
+								kind: binds.inherited_from.entity_type,
+							}
+							: null;
+						const came = above && workspace ? addressOf(above, workspace) : null;
+						const inherited = (event) =>
+							followed(event, () => onOpen && above && onOpen(above));
 
-						/* **The type is the label and nothing else is drawn.** Every row here
-						   is a document, in force, of a governing type — so a status chip
-						   would say `active` on every line, which is §12.2a's column that says
-						   the same thing on every row and therefore says nothing. What differs
-						   between these rows is which *kind* of obligation each is, and that
-						   is the word `subroutine://conventions` groups by. */
+						/* **The type is the label, and the only other thing drawn is where a
+						   rule came from.** Every row here is a document, in force, of a
+						   governing type — so a status chip would say `active` on every line,
+						   which is §12.2a's column that says the same thing on every row and
+						   therefore says nothing. What differs between these rows is which
+						   *kind* of obligation each is, and that is the word
+						   `subroutine://conventions` groups by.
+
+						   **`inherited_from` is the exception and `#1354` is why**: a rule
+						   taken from an ancestor is a different sentence from one written
+						   here, and it is drawn as a link because the reader's next move is to
+						   go and see who decided it. It is absent on a row the item states
+						   itself, so a page inheriting nothing draws exactly what it did. */
 						return html`
 							<li key=${binds.document.ref}>
 								<span class="label">${binds.document.type_label || binds.document.type}</span>${" "}
@@ -318,6 +337,13 @@ export function Detail ({
 										#${binds.document.ref} ${binds.document.title}</a>`
 									: html`<button class="inline" onClick=${follow}>
 										#${binds.document.ref} ${binds.document.title}</button>`}
+								${binds.inherited_from && html`${" "}
+									<span class="label">from${" "}
+										${came
+											? html`<a href=${came} onClick=${inherited}>
+												#${binds.inherited_from.ref}</a>`
+											: html`<button class="inline" onClick=${inherited}>
+												#${binds.inherited_from.ref}</button>`}</span>`}
 							</li>`;
 					})}
 				</ul>`}

@@ -12300,6 +12300,20 @@ def _render_item (
 				f"{binds.document.type_label or binds.document.type or '':<9}  ", style=DETAIL
 			)
 			row.append(binds.document.title)
+
+			# **Which ancestor said so** (`#1354`). The ref rather than the title, because the
+			# reader is standing on an item whose own `part of` line names the parent, and
+			# because a ref is what they type to go and read it.
+			#
+			# **Nothing at all where this item's own link said it**, which is §12.2c's rule that
+			# a field nobody set is not printed: on a list that inherits nothing the section is
+			# exactly what it was.
+			if binds.inherited_from is not None:
+				row.append(
+					f"  from {subroutine.domain.refs.format_ref(binds.inherited_from.ref)}",
+					style=DETAIL,
+				)
+
 			console.print(row)
 
 	if links:

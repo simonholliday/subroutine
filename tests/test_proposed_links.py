@@ -557,6 +557,40 @@ def test_deriving_from_a_specification_is_the_other_way_to_say_it (
 	assert [one["link_type"] for one in found] == ["derives_from"]
 
 
+def test_a_rule_a_leaf_states_itself_is_not_reported_twice_from_an_ancestor (
+	world: test_api_tasks.World,
+) -> None:
+	"""The de-duplication met from the other side, and `SR#1354`'s one dangerous case.
+
+	A leaf that repeats its milestone's specification on its own account is saying the same
+	thing the milestone says, and a reading list naming it twice - once as its own, once
+	inherited - would read as two obligations. **The item's own statement wins**, because it
+	is the nearer one and because it is the one somebody wrote while looking at this item.
+	"""
+
+	spec = _document(world, title="What the parser accepts")
+	milestone = _task(world, title="Ship the parser")
+	leaf = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Read a time range", "parent_task_id": milestone["id"]},
+	).json()
+
+	for item in (milestone, leaf):
+		world.call(
+			"POST",
+			f"/v1/documents/{spec['ref']}/links",
+			json={"target": item["ref"], "target_type": "task", "link_type": "documents"},
+		)
+
+	found = _governing(world, leaf["ref"])
+
+	assert len(found) == 1, f"one rule, said twice: {found}"
+	assert found[0]["inherited_from"] is None, (
+		f"the item's own statement lost to the one it inherits: {found}"
+	)
+
+
 @pytest.mark.parametrize("relation", ["relates_to", "blocks", "duplicates"])
 def test_being_merely_related_to_a_decision_is_not_being_governed_by_it (
 	world: test_api_tasks.World, relation: str
@@ -582,6 +616,127 @@ def test_being_merely_related_to_a_decision_is_not_being_governed_by_it (
 
 	assert made.status_code == 201, made.text
 	assert _governing(world, work["ref"]) == []
+
+
+def test_a_leaf_inherits_what_governs_the_item_it_is_filed_under (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1354`, Simon 2026-09-20: what governs an ancestor governs the work beneath it.
+
+	**Two instruments found this gap and neither knew about the other** - `SR#1118` §5.4 by
+	design, calling it the largest unfiled piece, and a first-contact review by driving the
+	product. `show` on a milestone named the specification; `show` on the leaf somebody
+	actually picks up named nothing, so the reader who needed it most was the one the typed
+	graph said nothing to.
+
+	**Inheriting was one of the two answers the item called bad.** What makes it the better
+	one is the alternative: a link from the document to each of twenty-two children puts one
+	fact in twenty-two places, which is the duplication this product exists to prevent.
+
+	**Labelled, which is the whole of what keeps it honest.** A rule whose source a reader
+	cannot see is a rule they cannot go and argue with.
+	"""
+
+	spec = _document(world, title="What the parser accepts")
+	milestone = _task(world, title="Ship the parser")
+	leaf = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Read a time range", "parent_task_id": milestone["id"]},
+	)
+
+	assert leaf.status_code == 201, leaf.text
+
+	under = leaf.json()["ref"]
+
+	# **Silent until somebody says something**, ancestry or no ancestry. §1.4's rule holds
+	# here or the section becomes a heading that appears on a personal to-do list.
+	assert _governing(world, under) == [], "being filed under something is not being governed"
+
+	made = world.call(
+		"POST",
+		f"/v1/documents/{spec['ref']}/links",
+		json={"target": milestone["ref"], "target_type": "task", "link_type": "documents"},
+	)
+
+	assert made.status_code == 201, made.text
+
+	found = _governing(world, under)
+
+	assert [one["document"]["ref"] for one in found] == [spec["ref"]], (
+		f"the leaf was left to notice the milestone and take another hop: {found}"
+	)
+	assert found[0]["inherited_from"]["ref"] == milestone["ref"], (
+		f"a rule arrived with nowhere to go and check it: {found}"
+	)
+	assert found[0]["inherited_from"]["title"] == "Ship the parser"
+
+	# **And the milestone's own rule is still its own.** The label is what makes the two
+	# sentences different, so it has to be absent where the item states it itself.
+	stated = _governing(world, milestone["ref"])
+
+	assert [one["document"]["ref"] for one in stated] == [spec["ref"]]
+	assert stated[0]["inherited_from"] is None, stated
+
+
+def test_the_nearest_ancestor_wins_and_what_an_item_says_itself_comes_first (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1354`'s two ordering rules, over a tree deep enough to tell them apart.
+
+	A specification governs the grandparent **and** the parent, and the reading list says it
+	once - a document reached twice is one rule, and saying it twice would make the section's
+	length a fact about the tree rather than about how much there is to read. The one it
+	names is the **nearer**, because that is the statement written knowing most about this
+	item.
+
+	**Distance before recency.** Within a step the existing newest-first rule survives, which
+	is asserted here too: the two rules at the parent come back in ref order, so a change to
+	either half is visible.
+	"""
+
+	spec = _document(world, title="What the parser accepts")
+	house = _document(world, title="How dates are written")
+	mine = _document(world, title="Times are read in the item's own zone")
+	grandparent = _task(world, title="Ship the parser")
+	parent = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Capture a clock", "parent_task_id": grandparent["id"]},
+	).json()
+	leaf = world.call(
+		"POST", "/v1/tasks", json={"title": "Read a range", "parent_task_id": parent["id"]}
+	).json()
+
+	for document, item in (
+		(spec, grandparent),
+		# The same specification again, one step nearer: this is the de-duplication case, and
+		# it is only a case at all because both ends are reachable from the leaf.
+		(spec, parent),
+		(house, parent),
+		(mine, leaf),
+	):
+		made = world.call(
+			"POST",
+			f"/v1/documents/{document['ref']}/links",
+			json={"target": item["ref"], "target_type": "task", "link_type": "documents"},
+		)
+
+		assert made.status_code == 201, made.text
+
+	found = _governing(world, leaf["ref"])
+
+	assert [one["document"]["ref"] for one in found] == [
+		mine["ref"],
+		house["ref"],
+		spec["ref"],
+	], f"nearest first, then newest first by ref within a step: {found}"
+	assert [
+		None if one["inherited_from"] is None else one["inherited_from"]["ref"]
+		for one in found
+	] == [None, parent["ref"], parent["ref"]], (
+		f"the specification was named from the grandparent, not the nearer parent: {found}"
+	)
 
 
 def test_a_superseded_decision_stops_governing (world: test_api_tasks.World) -> None:

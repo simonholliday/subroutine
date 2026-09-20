@@ -1388,6 +1388,63 @@ def test_the_suggested_link_names_the_governing_end_first (bound: typing.Any) ->
 	assert f"ref={work}" not in shown, f"a task does not document a decision: {shown}"
 
 
+def test_an_agent_on_a_leaf_is_shown_what_governs_the_milestone_above_it (
+	bound: typing.Any,
+) -> None:
+	"""`SR#1354`, on the surface an agent actually reads.
+
+	**Nothing asserted this section here before now.** `subroutine_show` has carried *Read
+	first* since `SR#1119` and the terminal and the browser both had guards; the agent's copy
+	had neither, so a renderer serving half this product's users was the untested one.
+
+	The label matters more here than anywhere, because an agent handed a rule with nowhere to
+	check it can only comply with it. The ancestor's number is what it calls next.
+	"""
+
+	written, failed = _called(
+		bound,
+		"subroutine_document",
+		title="What the parser accepts",
+		body="Because.",
+		type="decision",
+	)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	decision = int(numbered.group(1))
+	milestone, failed = _called(bound, "subroutine_add", text="Ship the parser")
+
+	assert not failed, milestone
+
+	above = int(milestone.split()[1].lstrip("#"))
+	leaf, failed = _called(bound, "subroutine_add", text="Read a time range", parent=above)
+
+	assert not failed, leaf
+
+	under = int(leaf.split()[1].lstrip("#"))
+	joined, failed = _called(
+		bound, "subroutine_link", ref=decision, type="documents", other=above
+	)
+
+	assert not failed, joined
+
+	shown = _called(bound, "subroutine_show", ref=under)[0]
+
+	assert "Read first" in shown, f"the leaf was told nothing about what binds it: {shown}"
+	assert "What the parser accepts" in shown, shown
+	assert f"from #{above}" in shown, (
+		f"a rule arrived with nowhere to go and check it: {shown}"
+	)
+
+	# **Nothing on the item that states its own rule**, which is what leaves every answer
+	# that inherits nothing exactly as long as it was.
+	assert "from #" not in _called(bound, "subroutine_show", ref=above)[0]
+
+
 def test_show_gives_the_latest_references_and_offers_suggestions_only_when_few (
 	bound: typing.Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

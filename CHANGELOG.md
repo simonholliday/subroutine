@@ -16,6 +16,15 @@ upgrade involves.
 
 ### Added
 
+- **Whoever picks up a leaf task is shown what governs the milestone above it.** *Read
+  first* used to name a decision or a specification only on the item somebody had linked it
+  to, which is usually the parent - so the person reading the milestone, who often wrote it,
+  got the reading list, and the person actually doing the work got nothing and had to notice
+  `part of #7` and take another hop. A task or a document now inherits what binds anything it
+  is filed under, nearest first, each rule said once and labelled with the item it came from
+  so you can go and read the reasoning. Nothing changes on an item whose rules are its own.
+  In the terminal, in the browser, on the agent tools and at
+  `GET /v1/tasks/{ref}/governing`, which gains an `inherited_from`.
 - **An agent can set a deadline.** `subroutine_update` takes `due` - a date, a date and
   time, or `''` to clear it - so an agent correcting one stays in its own name. Before this
   there was no argument for a deadline on the curated tools, and an agent that met a wrong one

@@ -1561,6 +1561,12 @@ class Governing(pydantic.BaseModel):
 	link_type: str
 	document: LinkEnd
 
+	#: Which ancestor's link said so, and null where this item's own did - `#1354`. A rule
+	#: whose source a reader cannot see is a rule they cannot go and argue with, and *this
+	#: was decided for this task* and *this was decided for the milestone it is part of* are
+	#: two different sentences. Null is the commoner answer and says the item's own link.
+	inherited_from: LinkEnd | None = None
+
 	def address (self) -> str:
 		"""Return what a caller addresses this by."""
 
@@ -1569,10 +1575,18 @@ class Governing(pydantic.BaseModel):
 	def columns (self, reader: str | None) -> tuple[str, ...]:
 		"""Return this as the cells of one compact line."""
 
+		# **A fourth cell that is usually empty, and §12.2a is why that is free**: a column
+		# empty on every row is dropped by `shaping.aligned`, so an item whose rules are all
+		# its own renders exactly the three cells it always did.
 		return (
 			subroutine.domain.refs.format_ref(self.document.ref),
 			self.document.type_label or self.document.type or "",
 			subroutine.domain.text.truncated(self.document.title),
+			(
+				""
+				if self.inherited_from is None
+				else f"from {subroutine.domain.refs.format_ref(self.inherited_from.ref)}"
+			),
 		)
 
 
@@ -4289,12 +4303,27 @@ def governing (
 	session: sqlalchemy.orm.Session,
 	found: typing.Sequence[subroutine.domain.links.Governs],
 ) -> list[Governing]:
-	"""Render what governs one item, with a single vocabulary across every document."""
+	"""Render what governs one item, with a single vocabulary across every end.
 
-	vocabulary = Vocabulary.for_link_ends(session, [one.document for one in found])
+	**The ancestors an inherited rule names go into the same vocabulary** (`#1354`), rather
+	than being rendered from a second reading of the same three lookups. They are ends of the
+	same shape and `#970`'s argument does not weaken for being one field along.
+	"""
+
+	vocabulary = Vocabulary.for_link_ends(
+		session,
+		[one.document for one in found]
+		+ [one.inherited_from for one in found if one.inherited_from is not None],
+	)
 
 	return [
-		Governing(link_type=one.link_type, document=_end(one.document, vocabulary))
+		Governing(
+			link_type=one.link_type,
+			document=_end(one.document, vocabulary),
+			inherited_from=(
+				None if one.inherited_from is None else _end(one.inherited_from, vocabulary)
+			),
+		)
 		for one in found
 	]
 

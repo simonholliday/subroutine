@@ -35,6 +35,7 @@ import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.hierarchy
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
@@ -1350,6 +1351,15 @@ class Governs:
 	link_type: str
 	document: End
 
+	#: Which ancestor's link said so, and ``None`` where this item's own did - `#1354`.
+	#:
+	#: **A rule whose source a reader cannot see is a rule they cannot go and check**, and
+	#: the two are different sentences: *this was decided for this task*, and *this was
+	#: decided for the milestone this task is part of, and nobody has said otherwise here*.
+	#: Merging them would make the second unfalsifiable - a reader who disagreed with an
+	#: inherited rule would have nowhere to go and argue with it.
+	inherited_from: End | None = None
+
 
 #: **Was a set of keys and is now a category** (decision `#1157`). The two seeded relations it
 #: used to name — ``documents`` and ``derives_from`` — are exactly the two the migration files
@@ -1389,11 +1399,42 @@ def governing (
 	* **Titles and refs, never bodies.** §6.14 makes a document's title state its conclusion,
 	  so the list is readable on its own and a reader fetches only the one they need. A reading
 	  list that inlined its reading would be the cost it exists to remove.
+	* **And what governs an ancestor governs this** (`#1354`, Simon 2026-09-20). The leaf is
+	  what somebody picks up, and the specification saying what to build is filed against the
+	  milestone above it - so the reader who needs it most was the one the typed graph said
+	  nothing to. Inheriting it was one of the two answers the item called bad; what makes it
+	  the better one is that the alternative, a link from the document to all twenty-two
+	  children, puts one fact in twenty-two places and is the duplication this product exists
+	  to prevent. Each inherited one names the ancestor it came from, which is the whole of
+	  what keeps it honest.
 
-	Newest first, by ref. A ref is allocated in creation order within a workspace (§6.2), so
-	that is the same ordering as newest-first and stays deterministic where ``created_at``
-	would not — two documents written in one transaction share an instant.
+	**Nearest first, then newest first by ref.** A ref is allocated in creation order within a
+	workspace (§6.2), so that is the same ordering as newest-first and stays deterministic
+	where ``created_at`` would not — two documents written in one transaction share an instant.
+	Distance comes first because the nearer statement is the one that was written knowing
+	about this item, and a reader with time for one is served by that one.
+
+	**De-duplicated, nearest winning.** A document reached from two ancestors is one rule, and
+	saying it twice would make the section's length a fact about the tree rather than about
+	how much there is to read.
+
+	**Bounded, and not by a promise.** The chain is read off ``path``, which
+	:func:`hierarchy.place` holds to ``max_hierarchy_depth``, so this is two statements more
+	than it was and the same number at any depth. A walk per ancestor would have been `#1295`'s
+	N+1 arriving in the one section a reader opens every item to read.
 	"""
+
+	standing = _filed_under(
+		session,
+		principal,
+		workspace_id=workspace_id,
+		entity_type=entity_type,
+		identifier=identifier,
+	)
+	away = {identifier: 0}
+
+	for step, ancestor in enumerate(standing, start=1):
+		away.setdefault(ancestor.id, step)
 
 	rows = [
 		(link, kind)
@@ -1401,7 +1442,7 @@ def governing (
 			session,
 			workspace_id=workspace_id,
 			entity_type=entity_type,
-			identifiers=[identifier],
+			identifiers=list(away),
 		)
 		if kind.category == GOVERNING
 	]
@@ -1409,23 +1450,47 @@ def governing (
 	if not rows:
 		return []
 
-	far: dict[uuid.UUID, str] = {}
+	# What governs each document, how far up it was said, and which item said it.
+	far: dict[uuid.UUID, tuple[int, str, uuid.UUID]] = {}
 
 	for link, kind in rows:
-		outgoing = link.source_type == entity_type and link.source_id == identifier
-		other_type = link.target_type if outgoing else link.source_type
-		other_id = link.target_id if outgoing else link.source_id
+		# **Both orderings, rather than one test for *outgoing***. A link is read from
+		# whichever of its ends is on the chain, and with more than one item on it the near
+		# end is no longer a thing this function already knows.
+		for near, other in (
+			((link.source_type, link.source_id), (link.target_type, link.target_id)),
+			((link.target_type, link.target_id), (link.source_type, link.source_id)),
+		):
+			if near[0] != entity_type or near[1] not in away:
+				continue
 
-		if other_type == "document" and other_id != identifier:
-			far.setdefault(other_id, kind.key)
+			# **Never the item itself**, which a one-item chain could not reach and this can:
+			# a document filed under another and governing it is read from both ends, and the
+			# second reading would list the subject in its own reading list.
+			if other[0] != "document" or other[1] in (near[1], identifier):
+				continue
+
+			held = far.get(other[1])
+
+			if held is None or away[near[1]] < held[0]:
+				far[other[1]] = (away[near[1]], kind.key, near[1])
 
 	binding = _in_force(session, workspace_id=workspace_id, identifiers=set(far))
 
 	if not binding:
 		return []
 
+	said_it = {ancestor.id: ancestor for ancestor in standing}
 	found = [
-		Governs(link_type=far[end.id], document=end)
+		(
+			far[end.id][0],
+			-end.ref,
+			Governs(
+				link_type=far[end.id][1],
+				document=end,
+				inherited_from=said_it.get(far[end.id][2]),
+			),
+		)
 		for end in _ends(
 			session,
 			principal,
@@ -1435,7 +1500,73 @@ def governing (
 		)
 	]
 
-	return sorted(found, key=lambda one: one.document.ref, reverse=True)
+	# Keyed on the first two alone: a `Governs` is not ordered, and two of them cannot tie
+	# here anyway, since a ref names one document.
+	return [one for _step, _ref, one in sorted(found, key=lambda one: one[:2])]
+
+
+def _filed_under (
+	session: sqlalchemy.orm.Session,
+	principal: subroutine.domain.authentication.Principal | None,
+	*,
+	workspace_id: uuid.UUID,
+	entity_type: str,
+	identifier: uuid.UUID,
+) -> list[End]:
+	"""Return the items this one is filed under that the caller may see, nearest first.
+
+	**Read off ``path`` rather than walked** (docs/design.md §10.6). The column holds the
+	ancestors' ids outright, so the chain costs one statement whatever its depth - and note
+	that ``LIKE 'prefix%'`` is the rule for the *other* direction. Everything beneath a node
+	is a prefix scan; everything above one is already written down.
+
+	**Narrowed like every other end here, and today that is belt-and-braces rather than a
+	live control.** A parent must be in the same project as its child - ``move`` refuses a
+	cross-project one by name - so an ancestor is visible exactly when the item is, and there
+	is no arrangement in which this drops a row. That is a property of a refusal in another
+	module, which is the kind of thing that changes; narrowing here means the day it does,
+	this does not become a way to learn that a private project holds a decision of a given
+	title. **Do not simplify it away on the grounds that it never fires.**
+
+	An item nobody may see has no ancestry here, which is what keeps this from changing the
+	answer for a subject in the trash: :func:`governing` still reads its own links.
+	"""
+
+	standing = _ends(
+		session,
+		principal,
+		workspace_id=workspace_id,
+		entity_type=entity_type,
+		identifiers=[identifier],
+	)
+	row = standing[0].row if standing else None
+
+	if row is None:
+		return []
+
+	walked = [
+		uuid.UUID(segment)
+		for segment in subroutine.domain.hierarchy.path_segments(row.path)
+	]
+	# A path carries the node's own id last, and nothing is its own ancestor here.
+	above = [one for one in walked if one != identifier]
+
+	if not above:
+		return []
+
+	seen = {
+		end.id: end
+		for end in _ends(
+			session,
+			principal,
+			workspace_id=workspace_id,
+			entity_type=entity_type,
+			identifiers=above,
+		)
+	}
+
+	# Outermost first on the path, so nearest first is the reverse of it.
+	return [seen[one] for one in reversed(above) if one in seen]
 
 
 def _in_force (

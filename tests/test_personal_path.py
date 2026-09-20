@@ -8720,6 +8720,35 @@ def test_show_says_what_to_read_before_starting (
 	)
 
 
+def test_show_gives_a_leaf_what_the_milestone_above_it_has_to_read (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1354`, driven where the first-contact review met it.
+
+	The reviewer's point was that this is backwards: the person picking up the leaf is the
+	one who needs the specification, and the person reading the milestone is usually the one
+	who wrote it. So the leaf gets the section, and it names the ancestor it came from -
+	which is the number that reader types next.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("doc", "create", "What the parser accepts", "--type", "decision", "--body", "Because.")
+	run("add", "Ship the parser")
+	run("add", "Read a time range")
+	run("move", "3", "--under", "2")
+	run("link", "1", "documents", "2")
+
+	shown = run("show", "3").output
+
+	assert "Read first" in shown, f"the leaf still says nothing about what binds it: {shown}"
+	assert "What the parser accepts" in shown, shown
+	assert "from #2" in shown, f"a rule arrived with nowhere to go and check it: {shown}"
+
+	# **Nothing where the item says it itself**, which is §12.2c's rule that a field nobody
+	# set is not printed - and is what keeps every list that inherits nothing unchanged.
+	assert "from #" not in run("show", "2").output
+
+
 def test_show_says_nothing_about_governance_where_nothing_governs (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
