@@ -68,6 +68,14 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"reason. Nothing is reported back but the key of a project the caller itself named, and "
 	"`_refuse_amplification` has already bounded the caller to its own reach before it runs",
 	"domain/mentions.py": "rewrites refs inside text it was already given",
+	# **An anti-join that can only take rows away** (`SR#2849`). The journal excludes an entry
+	# about the hidden row a repeat keeps its rule on, and asks the task table for the ids of
+	# those rows to do it. **Deliberately unnarrowed**: it is a `NOT IN`, so narrowing it by
+	# visibility could only *fail* to exclude something - never disclose one - and the events
+	# themselves are already narrowed by `scoping.visible_events` before this clause is
+	# applied. No column but `id` is read, and nothing it reads is reported.
+	"domain/journal.py": "excludes events about a repeat's rule-bearing row by id, an anti-join "
+	"that can only remove rows from a feed `scoping.visible_events` has already narrowed",
 	# **The task is handed in, never looked up** (`#1121`). Both functions here take a `Task`
 	# somebody else resolved through `readable_tasks`, and `record` authorizes against its
 	# workspace and project before writing — so the narrowing has happened one caller up, which

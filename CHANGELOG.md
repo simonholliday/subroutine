@@ -50,6 +50,12 @@ upgrade involves.
   back, so the item said somebody was holding work nobody could start. `subroutine claim`
   now answers *Already done*, as `subroutine start` does, and the agent tools and the API
   say it is finished and how to open it again.
+- **The journal no longer shows a repeat's hidden twin.** Giving an item a repeat makes a
+  second row to hold the rule, which no list shows - and the journal printed *created #2 Water
+  the plants* directly above the change that made it, so one act read as two and the second
+  named an item you could not find. The change itself is still there, against the item you can
+  see; the series' own history is still on its own page; and `/v1/changes`, the feed a client
+  polls, is untouched.
 - **A deadline written beside a defer is counted from it.** *Chase the invoice from 15
   September by 30 September*, written on the 17th, filed something hidden until next
   September that went overdue a fortnight later, and said nothing; *from sunday by friday*

@@ -23,6 +23,7 @@ import sqlalchemy.orm
 import subroutine.cli.personal
 import subroutine.db.models.activity
 import subroutine.db.models.identity
+import subroutine.db.models.work
 import subroutine.domain.events
 import subroutine.domain.journal
 import subroutine.domain.text
@@ -1106,6 +1107,60 @@ def test_changing_how_something_repeats_is_an_entry_and_leaves_the_last_one_as_i
 		"repeats: every Monday to every Tuesday",
 		"repeats: every Tuesday to never",
 	], lines
+
+
+def test_a_repeats_hidden_series_is_left_out_of_the_journal (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#2849`, Simon 2026-09-20: one act by a person reads as one entry.
+
+	Giving an item a repeat makes a second row to hold the rule - in no listing, reachable only
+	by a number nobody was shown - and the journal printed its creation above the change that
+	made it: *created #2 Water the plants*, then *updated #1 Water the plants*.
+
+	**Both halves are asserted**, because leaving the row out must not take the act with it: the
+	entry against the visible item is `SR#2825`'s and stays, and the events themselves are
+	untouched, so the feed a client polls still carries the series. That is the split `SR#1429`
+	made between what happened and what changed.
+	"""
+
+	created = world.call("POST", "/v1/tasks", json={"title": "Water the plants"})
+
+	assert created.status_code == 201, created.text
+
+	ref = created.json()["ref"]
+	answered = world.call("PATCH", f"/v1/tasks/{ref}", json={"recurrence": "every monday"})
+
+	assert answered.status_code == 200, answered.text
+
+	session.flush()
+	_settled(session)
+
+	model = subroutine.db.models.work.Task
+	series = session.scalars(
+		sqlalchemy.select(model).where(
+			model.is_template.is_(True), model.title == "Water the plants"
+		)
+	).one()
+	entries = _entries(world, limit=200)
+	refs = {entry["item_ref"] for entry in entries}
+
+	assert series.ref != ref, "the series row is the item itself, so this proves nothing"
+	assert series.ref not in refs, (
+		f"the journal named the hidden series #{series.ref}: "
+		f"{[entry for entry in entries if entry['item_ref'] == series.ref]}"
+	)
+
+	# **The act is still there**, on the item somebody can reach.
+	assert ref in refs, f"the change to the item itself went missing with it: {refs}"
+
+	# **And the events are untouched**, which is what keeps this a reading rather than a write.
+	changed = world.call("GET", "/v1/changes", params={"limit": 200})
+
+	assert changed.status_code == 200, changed.text
+	assert str(series.id) in json.dumps(changed.json()), (
+		"the series is gone from the feed a client polls, not only from the journal"
+	)
 
 
 def test_a_fact_is_named_once_however_many_columns_it_moved () -> None:

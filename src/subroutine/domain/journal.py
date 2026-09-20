@@ -24,6 +24,7 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.db.models.activity
+import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.events
 import subroutine.domain.scoping
@@ -99,6 +100,36 @@ class Said(typing.NamedTuple):
 	cut: bool
 
 
+def _not_a_rule_bearing_row () -> typing.Any:
+	"""Refuse an entry about the hidden row a repeat keeps its rule on - `#2849`.
+
+	**One act by a person is one entry** (Simon, 2026-09-20). Giving an item a repeat makes a
+	second row that holds the rule, in no listing and reachable only by a number nobody was
+	shown, and the journal printed its creation above the change that made it: *created #2
+	Water the plants*, then *updated #1 Water the plants*. A reader met a twin of the item
+	they were looking at, and nothing said what it was. Decision `#1249`'s framing is the
+	argument: a repeating item is **one** thing to the person who filed it.
+
+	**Nothing is lost by leaving it out.** The act itself is recorded against the item a
+	reader can reach (`#2825`), the series' own history is on its own page for anybody holding
+	its number, and the events are untouched - so ``/v1/changes``, the feed a client polls,
+	still carries them. That is the split `#1429` made: one store, two readings.
+
+	**The same flag every listing already uses**, ``task.is_template``, rather than a second
+	description of what a series row looks like.
+	"""
+
+	event = subroutine.db.models.activity.Event
+	task = subroutine.db.models.work.Task
+
+	return ~(
+		(event.entity_type == TASK)
+		& event.entity_id.in_(
+			sqlalchemy.select(task.id).where(task.is_template.is_(True))
+		)
+	)
+
+
 def page (
 	session: sqlalchemy.orm.Session,
 	principal: subroutine.domain.authentication.Principal,
@@ -120,6 +151,10 @@ def page (
 	**Here rather than in each transport**, because the rows are :func:`events.page`'s and that
 	function always answers forwards, which is right for the feed a cursor resumes. Two routes
 	reversing it for themselves is two answers to one question waiting to disagree.
+
+	**And a repeat's rule-bearing row is left out here rather than in the feed** (`#2849`),
+	because it is this reading of the events that has a person in front of it.
+	:func:`_not_a_rule_bearing_row` carries the argument.
 	"""
 
 	rows, more = subroutine.domain.events.page(
@@ -130,7 +165,9 @@ def page (
 		mine=mine,
 		by=by,
 		newest=not oldest,
-		narrowing=narrowing,
+		# A condition beside the caller's filters rather than one of them: both are clauses
+		# this statement is narrowed by, and only this one is the journal's own rule.
+		narrowing=(*narrowing, _not_a_rule_bearing_row()),
 	)
 
 	if not oldest:
