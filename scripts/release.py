@@ -512,7 +512,7 @@ def _replace_json_value (
 
 #: How a plugin asks ``uvx`` for the program: the package, pinned to the release series it was
 #: published beside. ``~=`` is a compatible release — ``~=0.6.0`` is ``>=0.6.0, ==0.6.*`` — so a
-#: user picks up fixes without being moved to a minor version that may carry a migration.
+#: user picks up fixes without being moved to the next minor on a day they did not choose.
 PIN = "subroutine~={major}.{minor}.0"
 
 
@@ -522,8 +522,15 @@ def _write_uvx_pin (version: str) -> None:
 	**This exists because ``uvx`` floats and a local instance cannot afford that** (`#585`).
 	``uvx subroutine`` resolves to whatever is newest whenever the cache next looks, so an
 	unpinned bootstrap changes the code running against somebody's SQLite database on a day
-	they did not choose — and a minor version is exactly where a migration lands. Pinned to
-	``~=X.Y.0`` they get patches and nothing that moves the schema.
+	they did not choose. Pinned to ``~=X.Y.0`` they stay in one series and meet the next minor
+	when they ask for it.
+
+	**It is not a promise that the schema will not move, and `#585` used to say it was.**
+	Simon decided on 2026-09-20 (`#2235`) that a patch may carry a migration, which is what
+	``v0.8.15`` and ``v0.8.18`` had already done. What protects the database is not this pin
+	but ``api/schema.py``: against a database a migration behind, reads are answered and writes
+	are refused by name, saying ``subroutine db upgrade``. The pin buys the *size* of the jump,
+	so nobody crosses a minor - where the larger changes land - without choosing to.
 
 	**Not pinned to the manifest's own version**, which is the tempting mistake: a manifest is a
 	cache key and leads the package between releases (`#396`), so a plugin at 0.6.1 beside a

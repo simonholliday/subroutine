@@ -442,8 +442,11 @@ def test_the_bootstrap_is_pinned_to_the_series_that_was_released () -> None:
 	choose**, which is the one thing ``uv tool install`` does not do.
 
 	``uvx subroutine`` resolves to whatever is newest whenever the cache next looks. For a local
-	instance that is the program *and* the instance, so a minor version arriving unasked is a
-	migration arriving unasked. ``~=X.Y.0`` is a compatible release — patches yes, a minor no.
+	instance that is the program *and* the instance, so an unasked change is an unasked change
+	to what runs against their data. ``~=X.Y.0`` is a compatible release — patches yes, a minor
+	no — and since `SR#2235` a patch may carry a migration, so what this holds is the size of
+	the jump rather than the schema. The schema is held by ``api/schema.py``, which answers
+	reads and refuses writes by name against a database that is behind.
 
 	Derived from ``docs/releases.json`` rather than restated, so the two cannot drift: that file
 	is written by the same run of ``release.py`` that writes this pin. **Not** compared against
