@@ -823,6 +823,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 	def _vocabulary_row (
@@ -3067,6 +3068,7 @@ class Client:
 					revisions=subroutine.views.revisions_seen(
 						session, entity_type="task", row=row
 					),
+					beneath=subroutine.views.beneath_seen(session, row=row),
 				),
 				unparsed=captured.unparsed,
 				summary=subroutine.domain.capture.summarise(captured),
@@ -3201,6 +3203,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 
@@ -3340,6 +3343,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 	def _moved (
@@ -3371,6 +3375,12 @@ class Client:
 			return subroutine.views.task(
 				acted(session, row, actor=actor),
 				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				# **Here too, though this is the one render that asks for no `revisions`**
+				# (`#3075`). The HTTP side answers a trash through `_rendered` like every
+				# other single-item response, so leaving it out would be a field one
+				# transport carries and the other does not - which is the divergence S3-07
+				# removed, and the existing hole is not a reason to dig a second one.
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 	def claim (
@@ -3392,6 +3402,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=held
 				),
+				beneath=subroutine.views.beneath_seen(session, row=held),
 			)
 
 	def release (
@@ -3411,6 +3422,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=freed
 				),
+				beneath=subroutine.views.beneath_seen(session, row=freed),
 			)
 
 	def complete (
@@ -3440,6 +3452,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=finished
 				),
+				beneath=subroutine.views.beneath_seen(session, row=finished),
 			)
 
 	def update (
@@ -3558,6 +3571,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 	def schedule (
@@ -3606,6 +3620,7 @@ class Client:
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
+				beneath=subroutine.views.beneath_seen(session, row=row),
 			)
 
 	def close (self) -> None:

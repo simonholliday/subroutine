@@ -16,6 +16,14 @@ upgrade involves.
 
 ### Added
 
+- **A parent says what the work beneath it adds up to.** `subroutine show` on a milestone,
+  and its page in the browser, now carry a line like `12h beneath this, over 9 of 14` under
+  the sub-task list - the whole subtree rather than just the children, so a middle layer's
+  own estimate is not lost. **It says what it could add up**: most backlogs have rows with no
+  estimate, and a bare total over those would report part of the work as if it were all of
+  it, so the coverage travels with the number. A parent whose work is entirely unsized says
+  so rather than reporting nothing. `GET /v1/tasks/{ref}` gains `beneath`; a listing does
+  not carry it.
 - **Whoever picks up a leaf task is shown what governs the milestone above it.** *Read
   first* used to name a decision or a specification only on the item somebody had linked it
   to, which is usually the parent - so the person reading the milestone, who often wrote it,

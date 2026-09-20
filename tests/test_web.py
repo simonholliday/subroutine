@@ -5845,6 +5845,39 @@ def test_an_inherited_rule_says_which_ancestor_it_came_from (tmp_path: pathlib.P
 	assert "#7" not in _rendered(tmp_path, {"Detail": {**shared, "governing": own}})["Detail"]
 
 
+def test_the_browser_says_what_the_work_beneath_a_parent_adds_up_to (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1356` in the browser, which is the surface the 81 hours were summed out of.
+
+	**Its own line, not the heading.** `Sub-tasks (0 of 1 done)` counts the direct children
+	and this counts the whole subtree, so the two denominators may not share a parenthesis.
+	They differ here - one child, three beneath - which is what makes the claim checkable.
+
+	**The duration arrives already written.** This app has no duration formatter; it reads
+	`estimate_human` off a task for the same reason, and a second copy of `durations.humanize`
+	here would be free to disagree with the server in silence.
+	"""
+
+	parent: dict[str, typing.Any] = {
+		"ref": 7, "title": "Ship the parser", "status": "open", "kind": "task"}
+	shared: dict[str, typing.Any] = {"item": parent,
+		"links": [], "comments": [], "workspace": "projects", "members": [],
+		"vocabulary": {"link_types": []},
+		"parts": {"items": [{"ref": 8, "title": "Read a time range", "kind": "task",
+			"entity_type": "task", "is_complete": False}]}}
+	sized = {**shared, "item": {**parent, "beneath": {
+		"estimate_minutes": 90, "estimate_human": "1h 30m", "estimated": 2, "tasks": 3}}}
+
+	shown = _rendered(tmp_path, {"Detail": sized})["Detail"]
+
+	assert "Sub-tasks" in shown, f"the parts list is absent, so this proves nothing: {shown}"
+	assert "1h 30m beneath this, over 2 of 3" in shown, shown
+
+	# **Silent where nothing is filed underneath**, so a leaf does not say zero.
+	assert "beneath this" not in _rendered(tmp_path, {"Detail": shared})["Detail"]
+
+
 def test_what_an_item_is_joined_to_is_read_before_its_description (
 	tmp_path: pathlib.Path,
 ) -> None:

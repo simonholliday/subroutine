@@ -64,6 +64,7 @@ import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.settings
 import subroutine.domain.tags
+import subroutine.domain.tasks
 import subroutine.domain.text
 import subroutine.domain.workspaces
 import subroutine.errors
@@ -125,6 +126,45 @@ class Page(pydantic.BaseModel):
 # a field with ``Edge``, and a pydantic field annotation is evaluated when the class body
 # runs — not lazily. Defined below, this module imports fine under mypy and raises
 # ``NameError`` on import. Same trap as ``Item`` above ``World`` in ``cli/personal.py``.
+class WorkBeneath(pydantic.BaseModel):
+	"""What the work filed under one task adds up to.
+
+	**No item reference in this docstring, and that is not an oversight.** A response model's
+	class docstring is published as the OpenAPI ``description``, which `/v1/openapi.json`
+	answers with no credential - so a ref here would point a stranger at an instance they
+	cannot reach. The item behind this is cited on the field below, which is a comment nothing
+	publishes.
+
+	**The coverage is reported beside the total and never folded into it.** A sum over the
+	rows that carry an estimate is not an estimate of the subtree, and the difference is not
+	small: when this was built, 150 of the 243 tasks with a parent carried no estimate. So
+	this says how many of them it could add up, and a reader can see at a glance whether the
+	number is worth anything - which is also what makes somebody go and fill the gap in.
+
+	**Null on the item means nothing is filed under it**, and on a listing it means nobody
+	asked. Both render as silence, which is the same answer either way.
+	"""
+
+	#: The estimates that exist, added up, in minutes. Zero is a real answer: it means things
+	#: are filed underneath and not one of them carries a number.
+	estimate_minutes: int
+
+	#: The same duration as a person would say it. **`estimate_human`'s precedent exactly**,
+	#: and for its reason: a grammar rendered once, on the server, so no client needs its own
+	#: copy. The browser has no duration formatter at all - it reads `estimate_human` off a
+	#: task for this reason - so without this it would carry a second implementation of
+	#: `durations.humanize`, free to disagree with the first in silence.
+	estimate_human: str
+
+	#: How many of the tasks beneath carry an estimate.
+	estimated: int
+
+	#: How many there are. **Of the whole subtree**, which is deliberately not the set the
+	#: *N of M done* rollup counts - that one is the direct children. Two different
+	#: denominators, so no surface may print them in one parenthesis.
+	tasks: int
+
+
 class Revisions(pydantic.BaseModel):
 	"""How often an item's body has been rewritten, and who last rewrote it.
 
@@ -776,6 +816,13 @@ class Task(pydantic.BaseModel):
 	#: (`#1764`). A first draft answers ``None`` from the resolved path too, which is §12.2a:
 	#: an item nobody has revised says nothing, as an unranked one shows no priority.
 	revisions: Revisions | None = None
+
+	#: What the work filed under this adds up to - `#1356`. **Null means nothing is filed
+	#: under it, or that nobody asked**, exactly as ``revisions`` above: only a single-item
+	#: read resolves it, because `#2210` is holding the per-row version behind `#2060` and
+	#: the population says the scan would be near-entirely waste - 16 parents in 2,476 tasks
+	#: when this was written.
+	beneath: WorkBeneath | None = None
 
 	#: The parent's **ref and title**, resolved. A ref is how an item is addressed (§6.2), so
 	#: a client given only `parent_task_id` has to fetch the parent before it can print
@@ -3529,6 +3576,33 @@ def repeats (task: Task) -> bool:
 	return task.is_template or task.recurrence_template_ref is not None
 
 
+def beneath_seen (
+	session: sqlalchemy.orm.Session, *, row: subroutine.db.models.work.Task
+) -> WorkBeneath | None:
+	"""Ask what the work under this task adds up to, and render the answer - `#1356`.
+
+	:func:`revisions_seen`'s shape and for its reason: the domain answers with a record of its
+	own because nothing under ``domain`` may know what a surface reports (§8.1), and a copy of
+	this three-field translation in each of the API and the local client is the pair this
+	codebase keeps finding wrong.
+
+	**A task only.** A document has no estimate to total, so this is not the asymmetry `#2207`
+	declines - there is no question here for the other kind to answer.
+	"""
+
+	found = subroutine.domain.tasks.estimate_beneath(session, row)
+
+	if found is None:
+		return None
+
+	return WorkBeneath(
+		estimate_minutes=found.minutes,
+		estimate_human=subroutine.domain.durations.humanize(found.minutes),
+		estimated=found.estimated,
+		tasks=found.tasks,
+	)
+
+
 def revisions_seen (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -3595,6 +3669,7 @@ def task (
 	blocked_by: list[LinkEnd] | None = None,
 	blocks_others: list[LinkEnd] | None = None,
 	revisions: Revisions | None = None,
+	beneath: WorkBeneath | None = None,
 ) -> Task:
 	"""Render one task.
 
@@ -3628,6 +3703,10 @@ def task (
 		parent_task_id=row.parent_task_id,
 		parent_ref=_parent_field(vocabulary.parents, row.parent_task_id, "ref"),
 		parent_title=_parent_field(vocabulary.parents, row.parent_task_id, "title"),
+		# Whatever the caller resolved, or `None` where it did not ask - `#1356`. The same
+		# reading as `revisions` above, and for the same reason: only a single-item answer
+		# pays for it.
+		beneath=beneath,
 		status=str(status.get("key", "")),
 		status_label=str(status.get("label", "")),
 		status_category=str(status.get("category", "")),

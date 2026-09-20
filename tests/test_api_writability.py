@@ -146,6 +146,14 @@ DERIVED: dict[str, str] = {
 	#: accept — revising the body *is* how it changes.
 	"revisions": "counted from the events at read time; rewriting the body is what moves it.",
 
+	#: **`SR#1356`.** What the work filed under this task adds up to, summed over the subtree
+	#: at read time. **Deliberately not a column**: a stored total is a second copy of a fact
+	#: every child's estimate already holds, and it goes stale through every door the write
+	#: path does not own - a re-estimate, a move, a trash, a restore. Nothing accepts it
+	#: because there is nothing to accept: estimating the work beneath **is** how it changes.
+	"beneath": "summed over the subtree at read time; estimating the work "
+	"under it is what moves it.",
+
 	#: **`SR#2173`.** How many documents are filed directly under this one, counted for the
 	#: page by `domain.documents.children_among`. **Deliberately not a column**: design
 	#: `SR#1801` §7 decided counts are derived, and measured why — a stored one is a second

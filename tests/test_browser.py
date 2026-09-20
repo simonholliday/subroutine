@@ -1930,6 +1930,13 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.adding .kind span',
 		'.app.wide',
 		'.assignee',
+		# **`SR#1356`, and it is the sample set that is missing rather than the rule.** The
+		# line a parent draws under its sub-task list needs `parts` on the page and a
+		# `beneath` on the item, and no sample draws a parent's sub-task list at all - so the
+		# whole Parts section is outside this suite, not just this rule. `SR#3076` is that
+		# gap. The entry expires the moment a sample grows one, because the check below fails
+		# on a registered selector that reaches something.
+		'.beneath',
 		'.board .column .cut',
 		'.board .column .empty a',
 		'.board .column .empty a:focus-visible',

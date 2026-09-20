@@ -1300,6 +1300,16 @@ textarea.field { resize: vertical; }
 	What just happened. **The tone is a colour and says nothing on its own** (`#102`): the
 	sentence carries the outcome, so the border is a way to spot it rather than to read it.
 */
+/* The total beneath a parent - `#1356`. A line under the heading rather than inside it,
+   because the count in the heading is of the direct children and this is of the whole
+   subtree: two denominators in one parenthesis read as one number. Soft and small, because
+   it is context for the list below it and not a heading of its own. */
+.beneath {
+	margin: 0 0 var(--space-6);
+	color: var(--ink-soft);
+	font-size: var(--text-small);
+}
+
 .note {
 	display: flex;
 	align-items: baseline;

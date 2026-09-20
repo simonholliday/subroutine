@@ -397,6 +397,81 @@ def refuse_a_deadline_on_an_occasion (
 	)
 
 
+class WorkBeneath(typing.NamedTuple):
+	"""What the work filed under one task adds up to - `#1356`."""
+
+	#: The estimates that exist, added up. Never a guess for the ones that do not.
+	minutes: int
+
+	#: How many of the tasks beneath carry an estimate, and how many there are. **Both**,
+	#: because the total alone is a claim about the whole subtree that it cannot support: at
+	#: the time this was built 150 of 243 tasks with a parent carried no estimate, so a bare
+	#: number would have reported about a third of the work as if it were all of it.
+	estimated: int
+	tasks: int
+
+
+def estimate_beneath (
+	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Task
+) -> WorkBeneath | None:
+	"""Return what the work filed under this task adds up to, or ``None`` if nothing is.
+
+	`#1356`, and Simon's two decisions of 2026-09-20 are both in the statement below.
+
+	**The whole subtree, not the direct children.** It is what the item asks for - *the work
+	beneath it* - and it stays right the day somebody nests three deep, where counting
+	children loses a middle layer's own estimate silently. The two rules returned the same
+	number on every parent in the instance when this was written, because no tree was three
+	levels deep, so the choice was made on which one stays true rather than on which one
+	differs today. ``hierarchy.subtree`` is the predicate, which is ``LIKE 'prefix%'`` and
+	never a range - `#843` measured what the range silently drops under this collation.
+
+	**The coverage travels with the total** rather than the total being adjusted to hide the
+	gap. :class:`WorkBeneath` says why.
+
+	**Asked about one task, never about a page.** `#2210` is holding a per-row version behind
+	`#2060` for a measured reason, and the population says the same: 16 parents in 2,476 tasks,
+	so a grouped scan would run on every listing to decorate about one row in six pages.
+	``api/tasks._rendered`` is the chokepoint every single-item answer passes and no listing
+	does, which is the split :attr:`views.Task.revisions` already uses.
+
+	**Not narrowed by visibility**, which is :func:`readiness.finished_underneath_among`'s own
+	decision in its own words: *whether a parent's own sub-tasks are finished is a fact about
+	that work rather than about the reader*. A total counting only what somebody can see would
+	understate the work and say so nowhere. It discloses nothing in practice either, since a
+	child is in the same project as its parent and is therefore visible exactly when it is.
+
+	**Deleted and rule-bearing rows are left out**, the two exclusions
+	:func:`readiness.every_sub_task_is_done` already makes, and for its reasons: a task in the
+	trash is not work, and a repeat's template is a rule rather than a sub-task (`#2292`).
+	**Finished ones are counted**, because the question is how big the work is - the number
+	the reviewer summed by hand into a plan document - and the rollup beside this one counts
+	them too, so excluding them would put two numbers on one screen disagreeing about which
+	rows exist.
+	"""
+
+	model = subroutine.db.models.work.Task
+	counted = session.execute(
+		sqlalchemy.select(
+			sqlalchemy.func.count(),
+			sqlalchemy.func.count(model.estimate_minutes),
+			sqlalchemy.func.coalesce(sqlalchemy.func.sum(model.estimate_minutes), 0),
+		).where(
+			model.workspace_id == row.workspace_id,
+			model.deleted_at.is_(None),
+			model.is_template.is_(False),
+			model.id != row.id,
+			subroutine.domain.hierarchy.subtree(model, row),
+		)
+	).one()
+	tasks, estimated, minutes = int(counted[0]), int(counted[1]), int(counted[2])
+
+	if not tasks:
+		return None
+
+	return WorkBeneath(minutes=minutes, estimated=estimated, tasks=tasks)
+
+
 def grid_field_for (due_at: datetime.datetime | None) -> str:
 	"""Say which column a row holding this deadline puts its slot on.
 

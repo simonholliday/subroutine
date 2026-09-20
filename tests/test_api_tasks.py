@@ -1783,6 +1783,107 @@ def _tree (world: World) -> tuple[int, int, int]:
 	return parent["ref"], child["ref"], grandchild["ref"]
 
 
+def _sized (world: World, ref: int, estimate: str) -> None:
+	"""Give one task an estimate."""
+
+	answered = world.call("PATCH", f"/v1/tasks/{ref}", json={"estimate": estimate})
+
+	assert answered.status_code == 200, answered.text
+
+
+def test_a_parent_reports_what_the_work_beneath_it_adds_up_to (world: World) -> None:
+	"""`SR#1356`, Simon 2026-09-20: the whole subtree, with the coverage beside the total.
+
+	**The grandchild is what makes this a test of the rule rather than of arithmetic.** A
+	direct-children total would answer `1h over 1 of 1` here and look perfectly reasonable;
+	the subtree answers `1h 30m over 2 of 2`. Both rules give the same number on every parent
+	in the real instance today, because nothing there is three levels deep - which is exactly
+	the condition under which the wrong one ships unnoticed.
+
+	**Null where nothing is filed underneath**, so a leaf says nothing rather than zero.
+	"""
+
+	parent, child, grandchild = _tree(world)
+
+	_sized(world, child, "1h")
+	_sized(world, grandchild, "30m")
+
+	read = world.call("GET", f"/v1/tasks/{parent}")
+
+	assert read.status_code == 200, read.text
+
+	beneath = read.json()["beneath"]
+
+	assert beneath["estimate_minutes"] == 90, (
+		f"the grandchild's half hour was dropped, so this counted children: {beneath}"
+	)
+	assert beneath["estimated"] == 2
+	assert beneath["tasks"] == 2
+
+	# **Written by the server**, because the browser has no duration formatter and a second
+	# copy of `durations.humanize` would be free to disagree with the first in silence.
+	assert beneath["estimate_human"] == "1h 30m", beneath
+
+	assert world.call("GET", f"/v1/tasks/{grandchild}").json()["beneath"] is None, (
+		"a leaf reported a total of nothing instead of saying nothing"
+	)
+
+
+def test_the_total_says_how_much_of_the_work_it_could_add_up (world: World) -> None:
+	"""`SR#1356`'s second decision, and the measurement behind it.
+
+	**150 of the 243 tasks with a parent carried no estimate** when this was built, so a bare
+	total would have reported about a third of the work as if it were all of it. The coverage
+	travels with the number instead of the number being quietly adjusted.
+
+	**Zero estimated is a real answer, not silence.** A parent holding work nobody has sized
+	is the case a supervisor most needs to see, and it is the commonest case on this data.
+	"""
+
+	parent, child, _grandchild = _tree(world)
+
+	_sized(world, child, "1h")
+
+	beneath = world.call("GET", f"/v1/tasks/{parent}").json()["beneath"]
+
+	assert (beneath["estimate_minutes"], beneath["estimated"], beneath["tasks"]) == (60, 1, 2), (
+		f"an unestimated row was counted as nothing rather than as missing: {beneath}"
+	)
+
+	bare, _child, _grandchild = _tree(world)
+	none_of_it = world.call("GET", f"/v1/tasks/{bare}").json()["beneath"]
+
+	assert none_of_it["estimated"] == 0, none_of_it
+	assert none_of_it["tasks"] == 2, none_of_it
+	assert none_of_it["estimate_minutes"] == 0, none_of_it
+
+
+def test_a_listing_does_not_pay_for_what_the_work_beneath_adds_up_to (world: World) -> None:
+	"""`SR#1356`, and the split is the whole reason it is affordable.
+
+	A per-row version is a fourth grouped scan in ``Vocabulary``, which `SR#2210` is holding
+	behind `SR#2060` on a measured argument - and the population agrees: 16 parents in 2,476
+	tasks, so the scan would run on every page to decorate about one row in six of them.
+
+	**So a row on a listing says nothing here, and that is not the same as saying zero.**
+	Asserted rather than left to the reader, because the field arriving null on a listing is
+	what somebody would otherwise read as *nothing is filed under this*.
+	"""
+
+	parent, child, _grandchild = _tree(world)
+
+	_sized(world, child, "1h")
+
+	listed = world.call("GET", "/v1/tasks").json()["items"]
+	rows = {row["ref"]: row for row in listed}
+
+	assert parent in rows, "the probe listed nothing, so it proves nothing"
+	assert rows[parent]["beneath"] is None, (
+		f"a listing resolved the rollup for every row: {rows[parent]}"
+	)
+	assert world.call("GET", f"/v1/tasks/{parent}").json()["beneath"] is not None
+
+
 def test_a_listing_can_return_one_task_s_children (world: World) -> None:
 	"""There was no way to ask what is under an item, which made hierarchy nearly write-only.
 

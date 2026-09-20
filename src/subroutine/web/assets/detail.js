@@ -132,6 +132,27 @@ export function Doing ({
 	`;
 }
 
+/* What the work under a parent adds up to, as one line - `#1356`. Worded exactly as the
+   terminal words it (`cli/personal._work_beneath`), because one fact rendered twice is the
+   pair this codebase keeps finding disagreed. The duration itself arrives already written -
+   `estimate_human`'s precedent - because this app has no duration formatter and a second
+   copy of `durations.humanize` would be free to disagree in silence. */
+function workBeneath (item) {
+	const beneath = item && item.beneath;
+
+	if (!beneath) {
+		return "";
+	}
+
+	if (!beneath.estimated) {
+		return `${beneath.tasks} beneath this, none estimated`;
+	}
+
+	return `${beneath.estimate_human} beneath this, `
+		+ `over ${beneath.estimated} of ${beneath.tasks}`;
+}
+
+
 export function Detail ({
 	item, links, comments, governing = [], checked = [], members = [], onOpen, onBack,
 	/* **What refers to this** — `#1143`. Defaulted for the same reason `parts` is: the render
@@ -374,6 +395,17 @@ export function Detail ({
 				<h3>${partsAre === "document"
 					? "Sub-documents"
 					: `Sub-tasks${partsDone(parts)}`}</h3>
+				${/* **What the work beneath adds up to** (`#1354`'s neighbour, `#1356`), on its
+				     own line rather than in the heading above. The heading counts the direct
+				     children and this counts the whole subtree, so two denominators in one
+				     parenthesis would read as one number - and they are equal on every parent
+				     in the instance today, which is exactly when that ships unnoticed.
+
+				     **The coverage is said rather than folded in**: a sum over the rows that
+				     carry an estimate is not an estimate of the subtree. Absent where nothing
+				     is filed underneath, and on a document, which has none. */ null}
+				${workBeneath(item) && html`
+					<p class="beneath">${workBeneath(item)}</p>`}
 				${/* **`linked` for the styling and `parts` to be addressable.** The two lists are
 				     drawn identically on purpose — Simon asked for *similar format* — which
 				     leaves a test no way to say *this row is a part* rather than *this row is on

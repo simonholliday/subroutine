@@ -11800,6 +11800,37 @@ def _what_moved (
 		_say_changes(world, gathered, console=program.console, say=program.say)
 
 
+def _work_beneath (beneath: subroutine.views.WorkBeneath | None) -> str:
+	"""Return what the work under a parent adds up to, as one line, or nothing - `#1356`.
+
+	**Its own line rather than the heading above it**, and that is not a layout preference.
+	The heading counts the **direct children** - `readiness.every_sub_task_is_done` is
+	`parent_task_id`, and both surfaces compute *N of M done* from the children they fetched -
+	while this counts the **whole subtree**, which is what Simon decided on 2026-09-20. Two
+	denominators in one parenthesis read as one number, and today they are equal on every
+	parent in the instance, so the confusion would ship with nothing able to show it.
+
+	**The coverage is said, never folded in.** A sum over the rows that happen to carry an
+	estimate is not an estimate of the subtree: 150 of 243 tasks with a parent carried no
+	number when this was written. So a reader is told what the total covers and can see
+	whether it is worth anything - which is also what gets the gap filled in.
+
+	Nothing at all where nothing is filed underneath, which is §12.2c's rule that a field
+	nobody set is not printed.
+	"""
+
+	if beneath is None:
+		return ""
+
+	if not beneath.estimated:
+		return f"{beneath.tasks} beneath this, none estimated"
+
+	return (
+		f"{beneath.estimate_human} beneath this, "
+		f"over {beneath.estimated} of {beneath.tasks}"
+	)
+
+
 def _shown_item (
 	program: Program,
 	world: World,
@@ -12257,6 +12288,16 @@ def _render_item (
 
 		console.print("")
 		console.print(rich.text.Text(heading_for_children, style=HEADING))
+
+		# **Under the heading, not in it** - :func:`_work_beneath` carries why. A document
+		# has no estimate to total, so this is silent for one without the kind being asked
+		# about: the field is null on anything that is not a task.
+		adds_up_to = _work_beneath(
+			item.beneath if isinstance(item, subroutine.views.Task) else None
+		)
+
+		if adds_up_to:
+			console.print(rich.text.Text(f"  {adds_up_to}", style=DETAIL))
 
 		for child in children:
 			row = rich.text.Text()

@@ -8749,6 +8749,59 @@ def test_show_gives_a_leaf_what_the_milestone_above_it_has_to_read (
 	assert "from #" not in run("show", "2").output
 
 
+def test_show_says_what_the_work_beneath_a_parent_adds_up_to (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#1356`, at the terminal, where the reviewer summed it by hand instead.
+
+	**On its own line, under the heading rather than in it.** The heading counts the direct
+	children and this counts the whole subtree, so two denominators in one parenthesis would
+	read as one number. Here they differ - three beneath, two children - which is what makes
+	the two claims distinguishable at all.
+
+	**And the coverage is said**, because a sum over the rows that happen to carry an estimate
+	is not an estimate of the subtree.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the parser ~30m")
+	run("add", "Read a time range ~1h")
+	run("add", "Reject an ambiguous one")
+	run("move", "2", "--under", "1")
+	run("move", "3", "--under", "2")
+
+	shown = run("show", "1").output
+
+	assert "Sub-tasks" in shown, f"the parent lists nothing, so this proves nothing: {shown}"
+	assert "1h beneath this, over 1 of 2" in shown, (
+		f"the total, its coverage, or the subtree rule is wrong: {shown}"
+	)
+
+	# **Nothing under a leaf**, which is §12.2c's rule that a field nobody set is not printed.
+	assert "beneath this" not in run("show", "3").output
+
+
+def test_show_says_when_the_work_beneath_a_parent_is_unsized (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The case `SR#1356`'s measurement says is the commonest, so it may not read as silence.
+
+	62% of the tasks with a parent carried no estimate when this was built. A parent holding
+	work nobody has sized is what a supervisor most needs to see, and a total of nothing would
+	look identical to a parent with nothing under it at all.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the parser")
+	run("add", "Read a time range")
+	run("move", "2", "--under", "1")
+
+	shown = run("show", "1").output
+
+	assert "1 beneath this, none estimated" in shown, shown
+	assert "0m" not in shown, f"nothing sized was reported as a duration of nothing: {shown}"
+
+
 def test_show_says_nothing_about_governance_where_nothing_governs (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

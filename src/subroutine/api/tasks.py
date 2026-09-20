@@ -1617,6 +1617,12 @@ def _rendered (
 	chokepoint rather than the builder: every single-item response passes here and no listing
 	does, which is the split :attr:`subroutine.views.Task.revisions` requires. One indexed
 	lookup, on the index the history endpoint already added.
+
+	**And what the work beneath adds up to** (`#1356`), which is here for that same split
+	rather than in ``Vocabulary``: `#2210` is holding the per-row version behind `#2060`, and
+	the population agrees - 16 parents in 2,476 tasks, so a grouped scan would run on every
+	page to decorate about one row in six of them. **The local client asks in ten places**
+	because it has no counterpart to this function, which is `#3075`.
 	"""
 
 	return subroutine.views.task(
@@ -1625,4 +1631,5 @@ def _rendered (
 		revisions=subroutine.views.revisions_seen(
 			session, entity_type="task", row=row
 		),
+		beneath=subroutine.views.beneath_seen(session, row=row),
 	)
