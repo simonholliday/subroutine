@@ -72,6 +72,14 @@ upgrade involves.
 
 ### Changed
 
+- **The README is rewritten around what Subroutine makes possible, and is half its former
+  length.** It opens with the thing that was hardest to find before: install it, tell your
+  coding agent *"we use Subroutine now"*, and that sentence is the setup - the skill configures
+  the project, marks the checkout and writes a pointer into whichever file your agent reads at
+  startup, without interviewing you. Then what that makes possible, a standing instruction an
+  agent can work from unattended, and why an agent picks the API up unaided. What was reference
+  is still here, below a divider, and the guide at `https://subsystem.co/subroutine/` carries
+  the walk-throughs.
 - **The one-line description is now *"A self-hosted, agent-native task and decision tracker for
   people and coding agents working on complex projects"***, on every surface that carries one.
   The old line said *task management*, which promised a to-do list - where a decision and a
