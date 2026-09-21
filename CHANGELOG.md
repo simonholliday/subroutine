@@ -41,6 +41,15 @@ upgrade involves.
   An `--order` you ask for now beats the one the view saved. Writing nothing after `--q`,
   `--order` or `--group-by` clears that part, which is a different instruction from leaving
   the flag off. `subroutine explain views` is the page.
+- **A busy database says so, and says to try again.** New error code `database_busy`. SQLite
+  allows one writer at a time, so a second process writing at that moment is ordinary and
+  clears by itself - but it arrived as `service_unavailable`, reading *"<connection> could not
+  be read: database is locked"* under advice to check `database_url`. That named a cause
+  nobody had established, about what was usually a *write*, and gave an agent nothing it could
+  act on. It now reads *"The database was busy: another process was writing to it"*, with the
+  remedy, and **on both transports**: a served instance reported the same condition as an
+  internal error blaming itself. No duration is claimed, because SQLite does not always
+  consult its busy timeout before reporting this.
 
 ## 0.8.29 — 2026-09-21
 

@@ -34,6 +34,7 @@ import subroutine.clients.base
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.failures
 import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
@@ -3946,6 +3947,17 @@ class Client:
 			raise subroutine.domain.versions.raced() from None
 
 		except sqlalchemy.exc.SQLAlchemyError as error:
+			# **Before the branch below, for the third time at this one site** (`#3117`, after
+			# `#165` and `#927`'s H-12). A busy database is reachable - it answered, and said
+			# it was busy - so *"could not be read: database is locked"* under a hint to check
+			# `database_url` names a cause nobody established, about a call that was usually a
+			# *write*. An agent meeting it over MCP is given nothing it can act on, where
+			# *try again* is both true and actionable.
+			held = subroutine.db.failures.busy(error)
+
+			if held is not None:
+				raise held from None
+
 			if self.settings.has_no_instance_yet():
 				# The connection's label is already printed in front of this, so naming it again
 				# would read "Local: local has no…". The generic message below does exactly

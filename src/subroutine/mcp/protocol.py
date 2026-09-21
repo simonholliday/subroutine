@@ -633,7 +633,17 @@ def _explained (failure: BaseException, tool: Tool | None = None) -> str:
 		# No `seconds`, deliberately: this surface does not hold the settings, and
 		# `db.failures` names the bound only where it knows it rather than inventing one
 		# (`#1077`).
-		stopped = subroutine.db.failures.gave_up(failure)
+		stopped: subroutine.errors.SubroutineError | None = subroutine.db.failures.gave_up(
+			failure
+		)
+
+		if stopped is None:
+			# **The other backend's way of saying it stopped** (`#3117`). SQLite reports a busy
+			# database in an error name where PostgreSQL reports giving up in a SQLSTATE, so
+			# `gave_up` cannot answer for it - and without this a busy database fell through to
+			# the `str(failure)` below, which is the bound-parameters leak this block exists to
+			# prevent, for a condition that clears by itself.
+			stopped = subroutine.db.failures.busy(failure)
 
 		if stopped is not None:
 			return _explained(stopped, tool)

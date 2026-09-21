@@ -13,6 +13,7 @@ following one lands on the section describing it.
 | --- | --- | --- | --- |
 | `cursor_expired` | 410 | Cursor expired | A change-feed cursor names a point older than the events this instance still holds, so the gap between there and now cannot be reported. The client resyncs from the beginning rather than being handed a page that silently omits everything pruned in between. |
 | `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another. |
+| `database_busy` | 503 | Busy | Another connection held the database and this one gave up waiting for it. Distinct from 'request_timed_out', which is a statement this instance stopped waiting for, and from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving and this database is working, and it was busy at that moment. Nothing was changed by the request that met it, and trying again is the remedy. |
 | `duplicate_key` | 409 | Already exists | Something with that identifying value is already here - a project key, a username, a tag name, or a document that has already been superseded. |
 | `forbidden` | 403 | Not permitted | The credential is valid but does not permit this. Where the refusal turns on a permission the caller lacks, that permission is named so they can ask for a token carrying it - but several do not: a token pinned to another workspace, a caller who is not a member, and a project scope narrower than the project reached are each about reach rather than about a verb. |
 | `in_use` | 409 | Still in use | The thing being removed is still referenced - a status some tasks are in, a link type some links use. The message says how many, so the caller can move them rather than guess. Removing a *tag* is deliberately not this: taking a label off the things it is on is what deleting a label means. |
@@ -44,6 +45,12 @@ A change-feed cursor names a point older than the events this instance still hol
 **Cycle detected** - HTTP 409.
 
 The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another.
+
+## database_busy
+
+**Busy** - HTTP 503.
+
+Another connection held the database and this one gave up waiting for it. Distinct from 'request_timed_out', which is a statement this instance stopped waiting for, and from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving and this database is working, and it was busy at that moment. Nothing was changed by the request that met it, and trying again is the remedy.
 
 ## duplicate_key
 

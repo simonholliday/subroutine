@@ -41,6 +41,23 @@ GAVE_UP: dict[str, str] = {
 #: is the same fault one field along: the cause was right and the *bound* was invented.
 BOUNDED_BY_THE_REQUEST_TIMEOUT = frozenset({"57014"})
 
+#: What SQLite calls a database it could not get into, and what this instance tells the caller
+#: was in the way - `#3117`.
+#:
+#: **Keyed on the name rather than on the message, which is `GAVE_UP`'s rule one backend over.**
+#: These two codes say *"database is locked"* and *"database table is locked"* - two sentences
+#: for two conditions - so reading the prose would have to know both spellings and would still
+#: be matching a string SQLite is free to reword. ``sqlite_errorname`` arrived in Python 3.11,
+#: which is this project's floor.
+#:
+#: **PostgreSQL cannot reach here and SQLite cannot reach `GAVE_UP`**: one reports a SQLSTATE
+#: and the other an error name, and neither carries the other's. So the two are asked in turn
+#: rather than merged, and each answers ``None`` for the backend that is not its own.
+BUSY: dict[str, str] = {
+	"SQLITE_BUSY": "another process was writing to it",
+	"SQLITE_LOCKED": "another connection held a table in it",
+}
+
 
 def sqlstate (exception: BaseException) -> str:
 	"""Return the five-character state the database reported, or the empty string.
@@ -53,6 +70,46 @@ def sqlstate (exception: BaseException) -> str:
 	original = getattr(exception, "orig", None)
 
 	return str(getattr(original, "sqlstate", "") or "")
+
+
+def errorname (exception: BaseException) -> str:
+	"""Return what SQLite called this, or the empty string.
+
+	:func:`sqlstate`'s counterpart, and defensive for the same reason: a driver that does not
+	carry the attribute should cost this translation rather than every database failure, which
+	would otherwise reach the caller as a crash inside an error handler.
+	"""
+
+	original = getattr(exception, "orig", None)
+
+	return str(getattr(original, "sqlite_errorname", "") or "")
+
+
+def busy (exception: BaseException) -> subroutine.errors.DatabaseBusy | None:
+	"""Return the refusal for a database that was busy, or ``None`` for anything else.
+
+	**No duration is named, deliberately, and that is `#1077`'s lesson rather than an
+	omission.** ``busy_timeout`` is five seconds, so naming it would be easy and would often be
+	right - but SQLite does not consult it in every case it reports this way, and a refusal
+	claiming *"after five seconds"* about a failure that came back at once is the exact fault
+	`#1077` corrected one function above: the cause was right and the bound was invented.
+
+	**What it does claim is that nothing changed**, which is established rather than assumed:
+	the statement never took its lock, so the transaction around it has nothing in it to undo.
+	"""
+
+	said = BUSY.get(errorname(exception))
+
+	if said is None:
+		return None
+
+	return subroutine.errors.DatabaseBusy(
+		f"The database was busy: {said}.",
+		hint=(
+			"Nothing was changed by this. Try it again - a busy database clears on its own, "
+			"and this is the ordinary way two processes take turns."
+		),
+	)
 
 
 def gave_up (

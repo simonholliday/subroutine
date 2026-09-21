@@ -296,10 +296,17 @@ def handle_a_request_that_did_not_finish (
 	surfaces.
 	"""
 
-	answer = subroutine.db.failures.gave_up(
+	answer: subroutine.errors.SubroutineError | None = subroutine.db.failures.gave_up(
 		exception,
 		seconds=subroutine.api.dependencies.settings(request).request_timeout_seconds,
 	)
+
+	# **The same question asked of the other backend** (`#3117`). PostgreSQL reports giving up
+	# in a SQLSTATE and SQLite reports a busy database in an error name, so neither translation
+	# can answer for the other - and a served SQLite instance reported one as a 500 blaming
+	# itself for something that was working.
+	if answer is None:
+		answer = subroutine.db.failures.busy(exception)
 
 	if answer is None:
 		return handle_unexpected_error(request, exception)

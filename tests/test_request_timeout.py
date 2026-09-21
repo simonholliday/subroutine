@@ -11,6 +11,8 @@ is indistinguishable from a deploy, a network fault or a proxy, which is what a 
 concluded during `#553` — reasonably, and wrongly.
 """
 
+import pathlib
+import sqlite3
 import time
 import typing
 
@@ -23,9 +25,12 @@ import sqlalchemy.orm
 import api_support
 import subroutine.api.app
 import subroutine.api.dependencies
+import subroutine.clients.local
 import subroutine.config
+import subroutine.connections
 import subroutine.db.failures
 import subroutine.db.session
+import subroutine.errors
 import subroutine.mcp.protocol
 
 #: What the bounded sessions in this file are given, in seconds. One rather than the shipped
@@ -504,3 +509,196 @@ def test_a_failure_carrying_no_state_at_all_is_still_reported_as_a_bug (
 	application.get("/probe-568-stateless")(probe)
 
 	assert api_support.call(application, "GET", "/probe-568-stateless").status_code == 500
+
+
+def _a_real_busy_error (path: pathlib.Path) -> sqlalchemy.exc.OperationalError:
+	"""Return the exception a genuinely busy SQLite hands SQLAlchemy — `SR#3117`.
+
+	**A real one rather than a stand-in**, unlike :func:`_raised` above, and the difference
+	matters here: what this translation reads is an attribute the *driver* sets and SQLAlchemy's
+	wrapper carries through ``.orig``. A fake with ``sqlite_errorname`` written on it would pass
+	whether or not either of those is where the value really lives, which is the whole of what
+	could be wrong.
+
+	The busy timeout is lowered for the duration, because the shipped five seconds is a number
+	this test would otherwise wait out for no gain.
+	"""
+
+	engine = subroutine.db.session.create_engine(f"sqlite+pysqlite:///{path}")
+
+	with engine.begin() as connection:
+		connection.exec_driver_sql("CREATE TABLE waiting (n INTEGER)")
+
+	holder = sqlite3.connect(path, timeout=0, isolation_level=None)
+	holder.execute("BEGIN EXCLUSIVE")
+
+	try:
+		with engine.connect() as connection:
+			connection.exec_driver_sql("PRAGMA busy_timeout=50")
+			connection.exec_driver_sql("INSERT INTO waiting VALUES (1)")
+			connection.commit()
+
+	except sqlalchemy.exc.OperationalError as error:
+		return error
+
+	finally:
+		holder.close()
+		engine.dispose()
+
+	raise AssertionError("SQLite did not report a busy database, so this proves nothing")
+
+
+def test_a_busy_database_is_recognised_from_what_sqlite_called_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3117`. Keyed on the error *name*, which is SQLite's contract, not on its prose.
+
+	``SQLITE_BUSY`` and ``SQLITE_LOCKED`` say "database is locked" and "database table is
+	locked" — two sentences for two conditions — so a translation reading the message would
+	have to know both spellings and would still be matching a string SQLite may reword.
+	"""
+
+	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
+
+	assert answer is not None, (
+		"a genuinely busy database was not recognised as one — the attribute this reads is "
+		"not where it is being looked for"
+	)
+	assert answer.CODE == "database_busy", answer.CODE
+
+
+def test_the_local_client_reports_a_busy_database_as_busy_rather_than_as_unreachable (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3117`, the defect a guide chapter met and the third narrower case at this one site.
+
+	A busy database **is** reachable: it answered, and what it said was that it was busy. The
+	generic branch reported *"<connection> could not be read: database is locked"* under a hint
+	to go and check ``database_url`` — a cause nobody had established, about a call that was
+	usually a *write*, and advice an agent could do nothing with.
+	"""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="guide"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=None,
+	)
+
+	with pytest.raises(subroutine.errors.DatabaseBusy) as refused, client._reported():
+		raise _a_real_busy_error(tmp_path / "busy.db")
+
+	assert "busy" in refused.value.detail, refused.value.detail
+
+	# The three faults it replaces, each asserted rather than assumed gone.
+	assert "could not be read" not in refused.value.detail, refused.value.detail
+	assert "database_url" not in (refused.value.hint or ""), refused.value.hint
+	assert "reachable" not in (refused.value.hint or ""), refused.value.hint
+
+
+def test_an_agent_meeting_a_busy_database_is_told_to_try_again (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The report's own complaint: *"not a refusal it can act on"*.
+
+	A refusal here is meant to be a lesson — name what happened, then what would work. For a
+	condition that clears by itself, *try again* is both, and it is what the old wording lacked.
+	"""
+
+	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
+
+	assert answer is not None
+	assert "again" in (answer.hint or "").lower(), answer.hint
+
+
+def test_a_busy_refusal_names_no_duration (tmp_path: pathlib.Path) -> None:
+	"""`SR#1077`'s lesson, one backend over, written down before anybody adds the number.
+
+	``busy_timeout`` is five seconds, so naming it would be easy and would often be right —
+	and SQLite does not consult it in every case it reports this way, so a refusal claiming
+	*"after five seconds"* about a failure that came back at once asserts a bound nobody
+	established. That is the exact fault `SR#1077` corrected for ``55P03`` and ``40P01``.
+	"""
+
+	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
+
+	assert answer is not None
+	assert "second" not in answer.detail, answer.detail
+	assert "second" not in (answer.hint or ""), answer.hint
+
+
+def test_neither_backend_s_translation_answers_for_the_other (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Two vocabularies, asked in turn rather than merged — and each must decline the other.
+
+	PostgreSQL reports giving up in a SQLSTATE and SQLite reports a busy database in an error
+	name, and neither exception carries the other's. If either translation answered for both,
+	the caller would be told the wrong thing in the one place there is no second opinion.
+	"""
+
+	really_busy = _a_real_busy_error(tmp_path / "busy.db")
+
+	assert subroutine.db.failures.gave_up(really_busy) is None, (
+		"a busy SQLite was reported as a request this instance gave up waiting for"
+	)
+	assert subroutine.db.failures.busy(_raised("57014")) is None, (
+		"a PostgreSQL statement that was given up on was reported as a busy database"
+	)
+	assert subroutine.db.failures.busy(_raised("40P01")) is None
+
+
+def test_a_served_instance_reports_a_busy_database_as_busy_and_not_as_a_bug (
+	engine: sqlalchemy.engine.Engine, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3117`, on the transport the report did not mention and which had the same fault.
+
+	**Two surfaces meet this condition and neither answers for the other** — which is `SR#1070`'s
+	own argument for `db/failures` existing. A served SQLite instance met a busy database
+	through this handler, where every `OperationalError` that is not a PostgreSQL SQLSTATE was
+	handed on unchanged, and so reported a 500 blaming this program for a database that was
+	working perfectly and said so.
+
+	The engine is taken only to build an application; the failure is a real busy SQLite raised
+	inside the route, because the question is what the *handler* does with one.
+	"""
+
+	failed = _a_real_busy_error(tmp_path / "busy.db")
+	application = api_support.build_app(subroutine.db.session.create_session_factory(engine))
+
+	def probe () -> dict[str, bool]:
+		"""Meet a database that was busy, exactly as a handler writing to one would."""
+
+		raise failed
+
+	application.get("/probe-3117")(probe)
+
+	answer = api_support.call(application, "GET", "/probe-3117")
+
+	assert answer.status_code == 503, answer.status_code
+	assert answer.json()["code"] == "database_busy", answer.json()
+	assert "request id" not in (answer.json().get("hint") or ""), answer.json()
+
+
+def test_an_agent_is_told_a_database_was_busy_rather_than_shown_the_sql (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3117`, and the third surface - the one where falling through costs the most.
+
+	**Found by asking what else read the translation, not by the report.** `SR#1070` put the
+	PostgreSQL case here because `str(failure)` on SQLAlchemy's wrapper is the statement, **the
+	bound parameters** and a link to its website - somebody's data in a model's context. SQLite
+	reports a busy database under an error name rather than a SQLSTATE, so `gave_up` declines
+	it and it fell through to exactly that, for a condition that clears by itself.
+	"""
+
+	failed = _a_real_busy_error(tmp_path / "busy.db")
+	answer = subroutine.mcp.protocol._explained(failed, _ANY_TOOL)
+
+	assert "busy" in answer, answer
+	assert "again" in answer.lower(), (
+		f"the agent was told what happened and not what to do about it:\n{answer}"
+	)
+
+	# The leak this block exists to prevent, asserted rather than assumed absent.
+	assert "INSERT INTO" not in answer, answer
+	assert "sqlalche.me" not in answer, answer
