@@ -85,14 +85,21 @@ def errorname (exception: BaseException) -> str:
 	return str(getattr(original, "sqlite_errorname", "") or "")
 
 
-def busy (exception: BaseException) -> subroutine.errors.DatabaseBusy | None:
+def busy (
+	exception: BaseException, *, waited: float | None = None
+) -> subroutine.errors.DatabaseBusy | None:
 	"""Return the refusal for a database that was busy, or ``None`` for anything else.
 
-	**No duration is named, deliberately, and that is `#1077`'s lesson rather than an
-	omission.** ``busy_timeout`` is five seconds, so naming it would be easy and would often be
-	right - but SQLite does not consult it in every case it reports this way, and a refusal
-	claiming *"after five seconds"* about a failure that came back at once is the exact fault
-	`#1077` corrected one function above: the cause was right and the bound was invented.
+	**The configured bound is never named and a measured one always is**, which is `#1077`
+	read precisely rather than loosely. That lesson forbids *asserting* a bound nobody
+	established - ``busy_timeout`` is five seconds, so *"after five seconds"* would usually be
+	right and would be a claim either way, because SQLite does not consult it in every case it
+	reports this way. ``waited`` is the opposite of that: it is how long this attempt actually
+	took, measured by the caller that made it, so saying it establishes rather than assumes.
+
+	**It is also the number a failure three surfaces away could not otherwise produce** -
+	`#3117`, where whether a refusal came back at once or after a full timeout separates two
+	unrelated causes, and nobody could answer it because nothing timed the call that failed.
 
 	**What it does claim is that nothing changed**, which is established rather than assumed:
 	the statement never took its lock, so the transaction around it has nothing in it to undo.
@@ -103,8 +110,10 @@ def busy (exception: BaseException) -> subroutine.errors.DatabaseBusy | None:
 	if said is None:
 		return None
 
+	took = "" if waited is None else f" This attempt was refused after {waited:.2f} seconds."
+
 	return subroutine.errors.DatabaseBusy(
-		f"The database was busy: {said}.",
+		f"The database was busy: {said}.{took}",
 		hint=(
 			"Nothing was changed by this. Try it again - a busy database clears on its own, "
 			"and this is the ordinary way two processes take turns."

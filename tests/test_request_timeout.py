@@ -610,20 +610,62 @@ def test_an_agent_meeting_a_busy_database_is_told_to_try_again (
 	assert "again" in (answer.hint or "").lower(), answer.hint
 
 
-def test_a_busy_refusal_names_no_duration (tmp_path: pathlib.Path) -> None:
-	"""`SR#1077`'s lesson, one backend over, written down before anybody adds the number.
+def test_a_busy_refusal_claims_no_bound_and_reports_a_measured_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1077` read precisely: do not *assert* a bound, and do report what you measured.
 
-	``busy_timeout`` is five seconds, so naming it would be easy and would often be right —
-	and SQLite does not consult it in every case it reports this way, so a refusal claiming
-	*"after five seconds"* about a failure that came back at once asserts a bound nobody
-	established. That is the exact fault `SR#1077` corrected for ``55P03`` and ``40P01``.
+	``busy_timeout`` is five seconds, so *"after five seconds"* would be easy and often right —
+	and a claim either way, because SQLite does not consult it in every case it reports this
+	way. A figure the caller **timed** is the opposite: it establishes rather than assumes.
+
+	`SR#3117` is why the second half matters. Whether a refusal came back at once or after a
+	full timeout separates two unrelated causes, and three rounds of investigation could not
+	answer it because nothing timed the call that failed.
 	"""
 
-	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
+	failed = _a_real_busy_error(tmp_path / "busy.db")
 
-	assert answer is not None
-	assert "second" not in answer.detail, answer.detail
-	assert "second" not in (answer.hint or ""), answer.hint
+	unmeasured = subroutine.db.failures.busy(failed)
+
+	assert unmeasured is not None
+	assert "second" not in unmeasured.detail, (
+		f"a duration nobody measured was named: {unmeasured.detail}"
+	)
+	assert "second" not in (unmeasured.hint or ""), unmeasured.hint
+
+	measured = subroutine.db.failures.busy(failed, waited=4.93)
+
+	assert measured is not None
+	assert "4.93 seconds" in measured.detail, (
+		f"the caller timed this attempt and the refusal did not say so: {measured.detail}"
+	)
+
+
+def test_a_busy_refusal_from_the_local_client_says_how_long_it_took (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3117`, and the reason the timer is in the client rather than in the translation.
+
+	``db/failures`` is handed an exception and has no idea when the operation began; the client
+	that opened the session does. Driving it through ``_reported`` is what shows the two ends
+	are actually joined — a timer started and never passed on would leave this refusal silent
+	while every unit test on the translation went on passing.
+	"""
+
+	client = subroutine.clients.local.Client(
+		subroutine.connections.Connection(name="guide"),
+		subroutine.config.Settings(dev_mode=True),
+		session_factory=None,
+	)
+
+	with pytest.raises(subroutine.errors.DatabaseBusy) as refused, client._reported():
+		raise _a_real_busy_error(tmp_path / "busy.db")
+
+	assert "seconds" in refused.value.detail, (
+		f"the client timed nothing, so the refusal cannot say whether it waited: "
+		f"{refused.value.detail}"
+	)
 
 
 def test_neither_backend_s_translation_answers_for_the_other (

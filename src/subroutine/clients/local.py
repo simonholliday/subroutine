@@ -21,6 +21,7 @@ meet a token. A token in the environment still narrows, through the same
 
 import contextlib
 import datetime
+import time
 import types
 import typing
 import urllib.parse
@@ -3935,6 +3936,12 @@ class Client:
 		on a database that does not open, which is what a new installation has.
 		"""
 
+		# **Timed, so that a busy database can say how long this took** (`#3117`). Nothing else
+		# is positioned to: SQLite reports that it gave up without saying whether it waited, and
+		# whether a refusal came back at once or after a full `busy_timeout` separates two
+		# unrelated causes. The cost is one `monotonic()` per operation.
+		started = time.monotonic()
+
 		try:
 			yield
 
@@ -3953,7 +3960,7 @@ class Client:
 			# `database_url` names a cause nobody established, about a call that was usually a
 			# *write*. An agent meeting it over MCP is given nothing it can act on, where
 			# *try again* is both true and actionable.
-			held = subroutine.db.failures.busy(error)
+			held = subroutine.db.failures.busy(error, waited=time.monotonic() - started)
 
 			if held is not None:
 				raise held from None

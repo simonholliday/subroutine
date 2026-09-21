@@ -48,8 +48,10 @@ upgrade involves.
   nobody had established, about what was usually a *write*, and gave an agent nothing it could
   act on. It now reads *"The database was busy: another process was writing to it"*, with the
   remedy, and **on both transports**: a served instance reported the same condition as an
-  internal error blaming itself. No duration is claimed, because SQLite does not always
-  consult its busy timeout before reporting this.
+  internal error blaming itself. **It claims no configured bound** - SQLite does not always
+  consult its busy timeout before reporting this - and instead says how long the attempt
+  actually took, measured by the caller that made it, because whether a refusal came back at
+  once or after a full timeout is the difference between two unrelated causes.
 
 ## 0.8.29 — 2026-09-21
 
