@@ -198,7 +198,7 @@ def _capture_body () -> str:
 
 	return f"""One line becomes a task. Anything not understood stays in the title.
 
-  subroutine add "Call the dentist before Sunday !3 ~15m #health"
+  subroutine add 'Call the dentist before Sunday !3 ~15m #health'
 
 {table}
 
@@ -218,6 +218,10 @@ Rules worth knowing:
 
   A repeat it cannot read stays in the title and says so, rather than being
   guessed at: 'every fortnight' is left alone and 'every 14 days' is read.
+
+  A line with a '!' in it needs single quotes. In an interactive bash or zsh
+  a '!' fetches an earlier command, and double quotes do not stop it: the
+  line is refused, or an old command's text silently lands in the title.
 
   A title that starts with two hyphens needs '--' in front of it, because the
   shell hands it over looking exactly like an option:

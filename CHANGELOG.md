@@ -22,6 +22,14 @@ upgrade involves.
 
 ### Fixed
 
+- **The capture shorthand's `!3` can be typed the way the help shows it.** In an interactive
+  bash or zsh a `!` starts a reference to an earlier command, and double quotes do not stop it
+  - so `subroutine add "Call the dentist before Sunday !3 ~15m #health"`, which is what
+  `subroutine explain capture` offered as its one worked example, was either refused as
+  `event not found` or had an earlier command's text pasted into the title with nothing said.
+  The task was created either way, so nothing looked wrong. Every example this program prints
+  is single-quoted where it carries a `!`, and `explain capture` says why.
+
 - **An agent's tool call no longer waits five seconds on itself.** Reaching an instance over
   the stdio MCP server runs the instance *in process*, and each tool call opened a second
   database session while the request still held its own - two connections, and on SQLite one

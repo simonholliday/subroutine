@@ -9110,7 +9110,7 @@ def register (
 
 		  subroutine add "Call the dentist before Sunday"
 
-		  subroutine add "Write the report by friday !3 ~2h #work"
+		  subroutine add 'Write the report by friday !3 ~2h #work'
 
 		  subroutine add "Dates render as if this year" --type bug
 

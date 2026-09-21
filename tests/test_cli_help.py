@@ -27,6 +27,7 @@ import typer.testing
 
 import subroutine.cli.main
 import subroutine.cli.personal
+import subroutine.cli.topics
 import subroutine.db.seed
 
 #: What may never appear in a published help string, and why each one matters.
@@ -938,6 +939,11 @@ def test_no_excused_flag_has_quietly_become_ours_or_gone_away () -> None:
 FEWEST_EXAMPLES = 120
 
 
+#: An example somebody is meant to type: an indented line opening with the program's own name.
+#: One definition, because two surfaces read it — a command's help page and an `explain` topic.
+_EXAMPLE_LINE = re.compile(r"^\s*(subroutine .+)$", re.M)
+
+
 def _examples (command: typing.Any) -> list[str]:
 	"""Return the command lines one help page offers as examples.
 
@@ -947,9 +953,7 @@ def _examples (command: typing.Any) -> list[str]:
 	hypotheses before anybody measured it.
 	"""
 
-	return [
-		line.strip() for line in re.findall(r"^\s*(subroutine .+)$", command.help or "", re.M)
-	]
+	return [line.strip() for line in _EXAMPLE_LINE.findall(command.help or "")]
 
 
 def _options_of (command: typing.Any) -> dict[str, bool]:
@@ -1094,6 +1098,115 @@ def test_the_example_reader_turns_down_the_two_lines_that_shipped () -> None:
 
 	assert not _refused("subroutine --profile scratch init"), (
 		"'scratch' is the profile's value rather than a command called 'scratch'"
+	)
+
+
+#: A single-quoted run. Stripping these leaves what an interactive shell would still read, and
+#: single quotes are the *only* thing that stops history expansion — double quotes do not.
+_SINGLE_QUOTED = re.compile(r"'[^']*'")
+
+#: The fewest example lines the `explain` topics carry between them, as a floor of their own.
+#: Measured at 31 across 9 topics on 2026-09-21. The whole-population floor cannot stand in for
+#: this one: the help pages offer 181 by themselves, so a walk that stopped reading the topics
+#: would clear it while reading nothing of the surface `SR#2980` was published on.
+FEWEST_TOPIC_EXAMPLES = 15
+
+
+def _history_expansion_in (line: str) -> bool:
+	"""Whether a line offers a ``!`` an interactive shell would try to expand before this program.
+
+	Takes the line rather than a page, so the defect can be driven through it (`#405`).
+	"""
+
+	return "!" in _SINGLE_QUOTED.sub("", line)
+
+
+def _lines_a_reader_would_type () -> list[tuple[str, str]]:
+	"""Return every example line this program offers, with where it offers it.
+
+	**Two surfaces, and only one of them is a command.** A command's examples are in its help;
+	`explain`'s are in a topic body, which no command object carries — and `explain capture` is
+	where `SR#2980` was published.
+	"""
+
+	found = [(path, line) for path, command in _commands() for line in _examples(command)]
+
+	for topic in subroutine.cli.topics.TOPICS:
+		found.extend(
+			(f"explain {topic.name}", line.strip())
+			for line in _EXAMPLE_LINE.findall(topic.body)
+		)
+
+	return found
+
+
+def test_no_example_offers_a_line_an_interactive_shell_would_rewrite () -> None:
+	"""`SR#2980`: ``!`` is history expansion, and double quotes do not stop it.
+
+	``subroutine add "Call the dentist before Sunday !3 ~15m #health"`` was `explain capture`'s
+	one worked example, and it could not be typed the way it was written. An interactive bash or
+	zsh either refuses it as *event not found* or — where the history holds a match, which it
+	does for anybody who has been using the shell — **pastes an earlier command's text into the
+	title and says nothing**. The task is created, so nothing looks wrong. It was found by
+	happening, while somebody wrote a guide chapter.
+
+	Single quotes stop it in bash and zsh and mean nothing special in fish, so they are the one
+	spelling that is right everywhere. **There is no register of exceptions and there should not
+	be**: measured at 212 example lines across both surfaces, of which two carry a ``!`` at all.
+
+	**The published pages are deliberately not walked here, and this is a signpost rather than a
+	boundary** (`SR#1542`). Measured 2026-09-21: no command line in ``README.md``,
+	``docs/connecting.md`` or ``docs/hosting.md`` carries a ``!`` at all — the README's one
+	occurrence is the grammar shown in a table cell, which nobody pastes. If a pasteable one is
+	ever written there, ``tests/test_documentation.py``'s ``_invocations()`` is the walk that
+	already reads those lines and is where this same question belongs.
+	"""
+
+	offered = _lines_a_reader_would_type()
+	from_topics = [one for one in offered if one[0].startswith("explain ")]
+
+	assert len(offered) >= FEWEST_EXAMPLES, (
+		f"only {len(offered)} example lines were read, fewer than the {FEWEST_EXAMPLES} that "
+		f"exist — this has stopped reading, and no offenders then reads exactly like a tree "
+		f"with nothing wrong with it"
+	)
+	assert len(from_topics) >= FEWEST_TOPIC_EXAMPLES, (
+		f"only {len(from_topics)} example lines were read from the explain topics, fewer than "
+		f"the {FEWEST_TOPIC_EXAMPLES} that exist — the surface this was written for"
+	)
+
+	wrong = [
+		f"{where} offers {line!r}" for where, line in offered if _history_expansion_in(line)
+	]
+
+	assert not wrong, (
+		"an interactive bash or zsh would rewrite these before this program ever saw them — "
+		"single-quote the line:\n  " + "\n  ".join(wrong)
+	)
+
+
+def test_the_history_expansion_reader_catches_the_line_that_shipped () -> None:
+	"""Driven with the published line through the reader itself (`#405`).
+
+	The accepted ones underneath are what stop this being a ban on the character: a line may
+	single-quote its title and still want double quotes around an option's value, which is a
+	shape the `add` page really uses.
+	"""
+
+	assert _history_expansion_in(
+		'subroutine add "Call the dentist before Sunday !3 ~15m #health"'
+	), "the double-quoted line `SR#2980` was filed about"
+
+	assert _history_expansion_in("subroutine add Call the dentist !3"), (
+		"an unquoted '!' expands too; single quotes are what stops it, not quoting as such"
+	)
+
+	assert not _history_expansion_in(
+		"subroutine add 'Call the dentist before Sunday !3 ~15m #health'"
+	)
+	assert not _history_expansion_in('subroutine add "Call the dentist before Sunday"')
+	assert not _history_expansion_in(
+		"subroutine add 'Pay the rent !3' --description \"Due on the 30th.\""
 	)
 
 
