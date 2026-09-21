@@ -1310,19 +1310,6 @@ def _populate (engine: sqlalchemy.engine.Engine) -> None:
 			},
 		),
 		(
-			"saved_view",
-			{
-				"id": subroutine.db.types.new_uuid(),
-				"workspace_id": workspace,
-				"owner_id": user,
-				"key": "a-view",
-				"title": "A view",
-				"arrangement": "list",
-				"shared": False,
-				"version": 1,
-			},
-		),
-		(
 			"calendar_feed",
 			{
 				"id": subroutine.db.types.new_uuid(),
@@ -1420,7 +1407,6 @@ SEEDED = frozenset(
 	{
 		"workspace",
 		"user",
-		"saved_view",
 		"item_type",
 		"status",
 		"role",

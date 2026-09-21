@@ -41,7 +41,6 @@ import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
-import subroutine.db.models.saved
 import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -1223,102 +1222,6 @@ class Comment(pydantic.BaseModel):
 			moment_day(self.created_at, reader),
 			subroutine.domain.text.truncated(self.body),
 		)
-
-
-class SavedView(pydantic.BaseModel):
-	"""A query and an arrangement, under a name.
-
-	**Two halves, reported as two halves.** ``q`` is the whole of what is narrowed, written in
-	the same search grammar a person types into a search box; ``arrangement``, ``order`` and
-	``group_by`` are the whole of how it is drawn. Nothing else belongs in either half, and a
-	narrowing reported as an arrangement field would hide a filter inside a display setting.
-
-	(No item numbers here, deliberately: this class docstring is published in
-	``/v1/openapi.json``, which answers with no credential, and a ref nobody outside can
-	resolve is a pointer to nothing.)
-
-	**``order`` here and ``ordering`` in the column**, which is the one place those two names
-	meet. Every listing takes ``order``, so that is what a caller sends and reads; the column
-	avoids a word the database would have to quote on every backend.
-	"""
-
-	id: uuid.UUID
-	workspace_id: uuid.UUID
-
-	#: The address, derived from the title. Reported because it is what a caller writes
-	#: everywhere else — in a terminal, in a browser address, in a message to a colleague —
-	#: and deriving it a second time on the client would be this codebase's signature defect.
-	key: str
-	title: str
-
-	q: str | None
-	arrangement: str
-	order: str | None
-	group_by: str | None
-
-	owner_id: uuid.UUID
-
-	#: Whose it is, by username, on :class:`Comment`'s argument one entity over: a shared view
-	#: is somebody's statement about how the team's queue is read, and a list of them that
-	#: could not say whose would need a lookup per row. `SR#39`'s N+1, through a renderer.
-	owner: str | None = None
-
-	#: Whether the workspace can see it. **Mine by default, shared on purpose**, so this is
-	#: the field that says which of the two a view is, and it is false unless somebody said.
-	shared: bool
-
-	created_at: datetime.datetime
-	updated_at: datetime.datetime
-	version: int
-
-	def address (self) -> str:
-		"""Return what a caller addresses this by: its name, never its id."""
-
-		return self.key
-
-	def columns (self, reader: str | None) -> tuple[str, ...]:
-		"""Return this view as the cells of one compact line.
-
-		**The query is truncated and the arrangement is not.** A ``q`` is as long as somebody
-		typed and is the cell that would push everything off a line; an arrangement is one of
-		three words. ``reader`` is taken and unused, as every ``columns`` takes it.
-		"""
-
-		return (
-			self.key,
-			self.arrangement,
-			subroutine.domain.text.truncated(self.q or ""),
-			self.owner or "",
-			"shared" if self.shared else "",
-		)
-
-
-def saved_view_seen (
-	row: subroutine.db.models.saved.SavedView, *, owner: str | None = None
-) -> SavedView:
-	"""Render one saved view.
-
-	``owner`` is passed rather than read off ``row.owner`` because a listing resolves every
-	name in one query and a single read resolves one — and a relationship load here would be
-	`SR#39`'s N+1 arriving through the renderer, which is the door it has come through before.
-	"""
-
-	return SavedView(
-		id=row.id,
-		workspace_id=row.workspace_id,
-		key=row.key,
-		title=row.title,
-		q=row.q,
-		arrangement=row.arrangement,
-		order=row.order,
-		group_by=row.group_by,
-		owner_id=row.owner_id,
-		owner=owner,
-		shared=row.shared,
-		created_at=row.created_at,
-		updated_at=row.updated_at,
-		version=row.version,
-	)
 
 
 class Event(pydantic.BaseModel):

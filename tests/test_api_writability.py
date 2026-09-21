@@ -54,7 +54,6 @@ import subroutine.api.calendars
 import subroutine.api.comments
 import subroutine.api.documents
 import subroutine.api.projects
-import subroutine.api.saved
 import subroutine.api.tasks
 import subroutine.api.tokens
 import subroutine.api.users
@@ -404,27 +403,10 @@ DERIVED: dict[str, str] = {
 	),
 	"created_by": "The actor who wrote the row. Taken from the credential, never from the body — a caller that could name someone else could forge attribution.",
 	"updated_by": "The actor who last changed it, on the same terms.",
-
-	#: **`SR#1402`.** A saved view's address, shaped from the title somebody typed - one name
-	#: in, one address out. Accepting it as well would be two facts about one thing that can
-	#: disagree, which is this codebase's signature defect; and `REFUSES_NULL` already records
-	#: the other half of the same word, that a project's key is its address and cannot be
-	#: cleared.
-	"key": (
-		"A saved view's address, derived from its title so a caller sends one name rather "
-		"than two. Renaming the view moves it; nothing sets it directly."
-	),
 }
 
 #: Settable at creation and fixed afterwards, on purpose.
 AT_CREATION: dict[str, str] = {
-	#: **`SR#1402`.** Whose a saved view is, and the name of that account beside it. Taken from
-	#: the credential and never from the body, on `created_by`'s argument one register up: a
-	#: caller that could name somebody else could publish a view to the workspace under their
-	#: name. **Sharing publishes a view; it does not hand it over**, so there is deliberately no
-	#: endpoint that changes an owner either.
-	"owner_id": "Whose the view is. Taken from the credential that saved it, never from the body.",
-	"owner": "The same account by username, resolved for the page rather than sent.",
 	"workspace_id": (
 		"An item's workspace is the middle segment of every `work/acme/#42` it has been "
 		"written as (§13.7) and the tenancy of its ref (§6.2). Moving one is a decision "
@@ -514,17 +496,6 @@ SURFACES: tuple[
 		subroutine.views.Calendar,
 		subroutine.api.calendars.Create,
 		(),
-	),
-	# **`SR#1402`, and registered here deliberately rather than left out.** This list is
-	# hand-written, so a view absent from it is not *excused* by this guard — it is invisible
-	# to it, which is the failure mode `SR#405` is about. The other direction (`STORED`) is
-	# derived from the models and would have caught the column half either way; this half is
-	# the one that found `beneath` reported and unwritable, and it only looks where it is told.
-	(
-		"saved view",
-		subroutine.views.SavedView,
-		subroutine.api.saved.CreateView,
-		(subroutine.api.saved.UpdateView,),
 	),
 )
 

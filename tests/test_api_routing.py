@@ -729,11 +729,6 @@ _SEGMENTS = {
 	# A vocabulary row (`SR#826`). A uuid naming nothing, which is what this table wants: the
 	# route answers 404 for it, exactly as it does for a status somebody has removed.
 	"which": "00000000-0000-0000-0000-000000000000",
-	# A saved view (`SR#1402`), and the one segment here that is a *word* somebody chose rather
-	# than an id or a slug. Shaped like a real key so it reaches the lookup rather than the
-	# name validator, and naming nothing, so the route answers 404 — which is what this table
-	# wants from every value in it.
-	"key": "no-such-view",
 }
 
 

@@ -98,12 +98,6 @@ REACHED_BY: dict[tuple[str, str], str] = {
 	("PATCH", "/v1/link-types/{which}"): "update_link_type",
 	("DELETE", "/v1/link-types/{which}"): "delete_link_type",
 	("POST", "/v1/tags"): "create_tag",
-	# Saved views — `#1402`. Addressed by the name somebody gave the view rather than by an
-	# id, which is why `{key}` here is a word where every other route's parameter is a ref or
-	# a UUID.
-	("POST", "/v1/views"): "save_view",
-	("PATCH", "/v1/views/{key}"): "update_saved_view",
-	("DELETE", "/v1/views/{key}"): "forget_saved_view",
 	("PATCH", "/v1/tags/{which}"): "update_tag",
 	("DELETE", "/v1/tags/{which}"): "delete_tag",
 	("PATCH", "/v1/tasks/{id_or_ref}"): "update",
@@ -159,9 +153,6 @@ READ_BY: dict[tuple[str, str], str] = {
 	("GET", "/v1/statuses"): "statuses",
 	("GET", "/v1/link-types"): "link_types",
 	("GET", "/v1/tags"): "tags",
-	# Saved views — `#1402`.
-	("GET", "/v1/views"): "saved_views",
-	("GET", "/v1/views/{key}"): "saved_view",
 	("GET", "/v1/agenda"): "agenda",
 	("GET", "/v1/tasks"): "tasks",
 	("GET", "/v1/tasks/{id_or_ref}"): "task",
@@ -365,21 +356,6 @@ NOT_IN_CLI: dict[str, Excuse] = {
 		"for `help` and `explain`.\n\n**What would remove it**: `show --history` reading this "
 		"rather than the audit log, which changes what that flag prints and is its own decision.",
 	),
-	#: **`#3095` is the terminal half of `#1402`, and these five are what it will call.**
-	#: The entity, the endpoints and both clients are `#3094`; a verb group, its help and its
-	#: `explain` topic are a commit of their own, and `#777` is the recorded cost of landing
-	#: a capability a terminal cannot name - `claim` and `release` were mandated for agents,
-	#: hidden from `help`, named by no topic, and therefore unused.
-	#:
-	#: **Not a flag on `list` or `search` when it lands**, which is the part worth writing down
-	#: here because it looks like the obvious shape: `list` already refuses a `q` three ways on
-	#: `#282`'s reasoning, and folding *run my saved board* into `search` would make it read
-	#: as a text search. **Deleting these five entries is what closes `#3095`.**
-	"saved_views": ("protocol", "`#3095`. The listing a `subroutine view` group prints, and the one command a person meets first."),
-	"saved_view": ("protocol", "`#3095`. Reading one saved view by the name it was given, for the same command group."),
-	"save_view": ("protocol", "`#3095`. Saving the narrowing you are looking at, from a terminal rather than a browser."),
-	"update_saved_view": ("protocol", "`#3095`. Changing a saved view, and sharing one with the workspace, from a terminal."),
-	"forget_saved_view": ("protocol", "`#3095`. Removing a saved view for good, giving its name back to the workspace."),
 	"statuses": (
 		"protocol",
 		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",
@@ -498,24 +474,6 @@ SETTINGS_ARE_A_PAGE = (
 )
 
 NOT_IN_MCP: dict[str, Excuse] = {
-	#: **`#1402`, and a decision rather than a deferral.** The agent tool surface is a budget
-	#: (§21.2): every name an agent must be *taught* is context spent for ever, where a grammar
-	#: it can *discover* is not. A saved view is a person's furniture - a way to stop retyping a
-	#: narrowing - and an agent composes the narrowing it wants directly, which is the whole
-	#: argument `#1806` put the grammar on `q` for.
-	#:
-	#: **The case this does not cover is reachable anyway**: an agent that genuinely needs *the
-	#: queue our team works from* by name reads `/v1/views` through `subroutine_call_api`, which
-	#: exists so the tool budget is a curation rather than a ceiling.
-	#:
-	#: **What would remove these**: somebody measuring an agent retyping one narrowing often
-	#: enough to be worth a tool. Until then a tool nothing asked for is the inert control this
-	#: project keeps finding.
-	"saved_views": ("disclosure", "`#1402`. A person's saved narrowing; an agent composes its own. Reachable through `subroutine_call_api` at `/v1/views` where it is genuinely wanted."),
-	"saved_view": ("disclosure", "`#1402`. The same argument, for reading one saved view by name: `GET /v1/views/{key}` through `subroutine_call_api`."),
-	"save_view": ("disclosure", "`#1402`. Writing a person's furniture is not work an agent has asked to do; `POST /v1/views` through `subroutine_call_api` is there for an agent that must."),
-	"update_saved_view": ("disclosure", "`#1402`. The same argument, for changing or sharing one: `PATCH /v1/views/{key}` through `subroutine_call_api`."),
-	"forget_saved_view": ("disclosure", "`#1402`. The same argument, for removing one for good: `DELETE /v1/views/{key}` through `subroutine_call_api`."),
 	"item_journal": (
 		"budget",
 		"`#2729`. Built for the browser's page of one item's history (`#1428`). An agent already "

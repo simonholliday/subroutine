@@ -19,7 +19,6 @@ import subroutine.db.mixins
 import subroutine.db.models
 import subroutine.db.models.identity
 import subroutine.db.models.project
-import subroutine.db.models.saved
 import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
@@ -41,7 +40,6 @@ EXPECTED_TABLES = {
 	"project",
 	"project_member",
 	"role",
-	"saved_view",
 	"status",
 	"tag",
 	"task",

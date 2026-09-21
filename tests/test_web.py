@@ -49,7 +49,6 @@ import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.config
 import subroutine.db.mixins
-import subroutine.db.models.saved
 import subroutine.db.models.system
 import subroutine.db.seed
 import subroutine.domain.agenda
@@ -9245,29 +9244,6 @@ def _view_names () -> list[str]:
 	assert found, "the app's list of views could not be read from app.js"
 
 	return re.findall(r'"([^"]+)"', found.group(1))
-
-
-def test_the_arrangements_a_view_can_be_saved_as_are_the_ones_the_app_draws () -> None:
-	"""`SR#1402`: the server refuses an arrangement it does not know, so the two lists must agree.
-
-	**A saved view names how it is drawn**, and that name is written on the server -
-	`db.models.saved.ARRANGEMENTS` - because refusing it where it is *written* is the only
-	place anybody is still around to be told. The page's own `VIEWS` is the same three words.
-
-	**Two copies of one rule is this codebase's signature defect**, so this is the guard that
-	makes them one. Without it, adding a fourth arrangement to the browser would let somebody
-	save a view the server refuses, and adding one to the server would publish an arrangement
-	no page can draw - and neither is wrong at any single site, which is what makes the
-	comparison the only thing that can see it.
-
-	Written because `ARRANGEMENTS`' own comment claimed this test existed before it did.
-	"""
-
-	assert list(subroutine.db.models.saved.ARRANGEMENTS) == _view_names(), (
-		"the arrangements a saved view may name and the ones the app draws have parted "
-		f"company: the server says {list(subroutine.db.models.saved.ARRANGEMENTS)} and "
-		f"address.js says {_view_names()}"
-	)
 
 
 #: How a `SELECTABLE` key is written: a bare word, or a quoted one carrying an operator.

@@ -367,13 +367,6 @@ NOT_DELIVERED: dict[str, str] = {
 	"token": "`#1060` — seven fields, and a credential is answered once and never read back "
 	"in full, so *what does it read back as* needs answering before any case can be written.",
 	"calendar": "`#1060`, and the same once-only answer as a token.",
-	"saved view": "`#1402` — `POST /v1/views` requires a title and an arrangement, which is "
-	"the same create-request obstacle as a project's key and a workspace's slug above. Driven "
-	"instead by `test_every_field_a_change_accepts_reaches_the_row` in "
-	"`tests/test_saved_views.py`, which asks this file's own question of every `UpdateView` "
-	"field — two different values each, read back — and derives its population the same way, "
-	"so a field added tomorrow is a case tomorrow. **Deleting this entry means driving it from "
-	"here instead**, which wants `#1060`'s create problem solved first.",
 }
 
 

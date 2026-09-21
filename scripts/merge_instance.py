@@ -89,16 +89,6 @@ NOT_CARRIED = {
 	"calendar_feed": "the same, and its URL names a host that is going away",
 	"web_session": "a browser session on a machine nobody will sign into again",
 	"login_link": "a one-time link, expired or spent either way",
-	# **A decision rather than an oversight, which is what this register is for** (`SR#1402`).
-	# Three things say leave it: a view's name is unique per workspace and both sides have
-	# their own, so carrying them turns a name somebody chose into an IntegrityError in the
-	# middle of a merge; its `q` can hold a `#N`, which would need the same renumbering as
-	# prose, on a string that is a *query* rather than a sentence; and it is furniture somebody
-	# retypes in a minute, where nothing else in this register could be recreated at all.
-	# **What it costs is a shared team queue**, which is the one case worth revisiting: if that
-	# turns out to matter, the work is renumbering `q` and settling what a name collision does.
-	"saved_view": "a reader's own furniture; names collide per workspace and a `q` would need "
-	"renumbering, and unlike everything else here it can simply be saved again",
 }
 
 #: Where a user is named, per table. Every one is mapped, and an unmapped user stops the run —
