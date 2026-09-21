@@ -959,6 +959,104 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 .place-settings:focus-visible,
 .place-journal:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
+/*
+	**The views saved here, under the place they belong to** - `#3096`, Simon's choice of where.
+
+	A row of its own rather than a cell in `.place`, because it wraps independently: a workspace
+	with eight saved views must not push the settings link off the end of the trail's line.
+
+	**Its spacing is `.place`'s own step, not a calculated fraction of one.** The first version
+	pulled this row up with a `calc()` so it sat closer to the trail than the page's content
+	does, and `test_every_size_in_the_stylesheet_comes_from_a_named_step` refused it - rightly:
+	`#906` decides the scale, and a size arrived at by arithmetic here is a step nobody named.
+	So the trail, this row and the content are one rhythm apart.
+*/
+.saved-views {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-3) var(--space-4);
+	margin: 0 0 var(--space-7) 0;
+	font-size: var(--text-small);
+}
+
+.saved-views-label {
+	color: var(--ink-faint);
+	font-weight: 600;
+}
+
+.saved-view {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+}
+
+/*
+	**A saved view is a button, not a link, and that is `#649` showing through.** Applying one
+	expands into the address rather than being an address of its own, so there is nothing here
+	to put in an `href` - the page it takes you to is the one you are on, rearranged. `.inline`
+	is the role for exactly that case and its own note says so, which is why nothing here
+	restates the border, the padding or the focus ring: `#1046`'s six roles own them, and the
+	first version of this file wrote a seventh look by hand.
+
+	**The one that is showing is marked by weight, not by hue alone** - decision `#102`, and
+	`aria-current` carries it for a reader who is not looking at the page.
+*/
+.saved-view .inline.chosen {
+	color: var(--ink);
+	font-weight: 600;
+	text-decoration: underline;
+}
+
+/* **The word, beside the view rather than instead of anything** - a shared view is somebody's
+   statement about how the team's queue is read, and which ones those are is acted on. */
+.saved-view-shared {
+	color: var(--ink-faint);
+	font-size: var(--text-fine);
+	text-transform: lowercase;
+}
+
+.saved-view-forget {
+	border-color: transparent;
+	color: var(--ink-faint);
+}
+
+.saved-view-asking {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	color: var(--ink-soft);
+}
+
+.saved-views-form {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: var(--space-3) var(--space-4);
+}
+
+.saved-views-form label {
+	display: inline-flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	color: var(--ink-soft);
+}
+
+.saved-views-shared { white-space: nowrap; }
+
+/*
+	**What a view cannot keep, on a line of its own and in the flow** - `#3096`.
+
+	Never a colour alone and never a modal: it is a statement about what saving will do, read
+	before the reader commits to it, so it sits inside the form it qualifies.
+*/
+.saved-views-unkept {
+	flex-basis: 100%;
+	margin: 0;
+	color: var(--ink-faint);
+}
+
+
 /* ---- adding, and what just happened ------------------------------------ */
 
 /*

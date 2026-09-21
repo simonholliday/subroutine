@@ -722,6 +722,17 @@ def _absent (wanted: str, refs: set[str]) -> bool:
 
 EMPTY = {"items": [], "page": {"has_more": False, "next_cursor": None, "total": None}}
 
+#: One saved view, so that coming back to one can be pressed rather than reasoned about -
+#: `SR#3096`. Its `q` is what the address must end up carrying, and its arrangement is a
+#: board so that applying it has to move two things rather than one.
+SAVED_VIEWS: dict[str, typing.Any] = {
+	"items": [{
+		"key": "my-bugs", "title": "My bugs", "q": "type:bug", "arrangement": "board",
+		"order": None, "group_by": "status_category", "owner": "si", "shared": False,
+	}],
+	"page": {"has_more": False, "next_cursor": None, "total": None},
+}
+
 
 #: A workspace's own vocabulary, which is what a column has to be resolved through. Renamed and
 #: with the default second, because a board choosing by key would be right only here.
@@ -1218,6 +1229,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 					wanted.split("?")[0] == "v1/tasks" and "parent=" in route.request.url
 				)
 				else listing[0] if wanted.split("?")[0] == "v1/tasks"
+				else SAVED_VIEWS if wanted.split("?")[0] == "v1/views"
 				else EMPTY
 			)
 
@@ -1984,7 +1996,6 @@ NOTHING_RENDERS: frozenset[str] = frozenset(
 		'.priority',
 		'.prose .mention',
 		'.prose li > p',
-		'.reveal[aria-expanded="true"] .icon',
 		'.row.with-assignee',
 		'.row.with-assignee .assignee',
 		'.rows .quiet',
@@ -2884,6 +2895,18 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	outlived its reason, which is the failure `#405` names and this file has already met twice.
 	It is falsified both ways: reinstating `#1722`'s comment reports ``.meta .rows li`` by name,
 	and registering a selector that does match fails the second.
+
+	**44 to 45, for `SR#3096`, and it is the wiring shape this file already takes five times.**
+	Coming back to a saved view runs in `App`'s own callback, which `tests/dom.js` cannot
+	execute (`SR#640`) and will not dispatch an event for by decision. The claim is that the
+	address ends up carrying the whole expansion - `SR#649`'s bound, that a view expands into
+	the address rather than replacing it with a name - and `go` writing the address while the
+	page stays as it was is the defect that has shipped **three** times here.
+
+	**Read for fat**: one gesture, and four assertions that are one claim between them. Three
+	say each saved part reached the address and the fourth says the view's *name* did not, which
+	is the half that fails if somebody ever reaches for the shorter `?view=my-bugs`. The
+	conversion either side of the click is pure and carries six tests in `tests/test_web.py`.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -2891,11 +2914,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 44, (
+	assert len(tests) <= 45, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 44 in fourteen days."
+		f"read every raise in this docstring as a set: it has moved 17 to 45."
 	)
 
 
@@ -5927,3 +5950,43 @@ def test_what_refers_to_an_item_is_a_second_list_a_reader_can_see_and_follow (
 	# terminal's wording and the reason it is said at all: a reader who opens #100 and cannot
 	# find the number has been sent to the wrong half of it.
 	assert "in a comment" in page.query_selector("#section-referring li").inner_text()
+
+
+def test_coming_back_to_a_saved_view_expands_it_into_the_address (
+	running: typing.Any,
+) -> None:
+	"""`SR#3096`, and `SR#649`'s bound is the whole of what this asserts.
+
+	**Pressed rather than reasoned about.** The conversion either side of this is pure and has
+	unit tests, and a pure function with tests is exactly what `SR#3038` got past: nothing had
+	driven the consumer. This presses the control in a real browser and reads the address bar.
+
+	**What the reader sends a colleague stays the thing they are looking at.** An opaque
+	`?view=my-bugs` would be shorter and would fail `SR#649` three ways at once: they could not
+	see what they were looking at, could not take one part away, and the link would mean
+	something different the day the view changed.
+	"""
+
+	opened, *_ = running
+
+	# **A workspace, not the root.** The merged agenda at `/` spans every workspace, so there
+	# is no single one to save a view into and the control is deliberately not drawn there -
+	# which is the same condition `Place` is drawn on.
+	page = opened("/projects")
+	page.wait_for_selector(".saved-views", timeout=10_000)
+	page.click(".saved-view .inline")
+
+	# **Waited on in CSS, never by evaluating a string** (`SR#1000`): the policy this app serves
+	# has no `unsafe-eval`, so `wait_for_function` is refused *intermittently* - and this view
+	# is saved as a board, so the arrangement arriving is a selector rather than a predicate.
+	page.wait_for_selector(".board", timeout=10_000)
+
+	where = page.url
+
+	assert "q=type%3Abug" in where, f"the saved narrowing did not reach the address: {where}"
+	assert "view=board" in where, f"the saved arrangement did not reach the address: {where}"
+	assert "group_by=status_category" in where, f"the grouping did not reach it: {where}"
+
+	# **And the name of the view is nowhere in it**, which is the half `SR#649` is actually
+	# about: the address says what is showing, not which saved thing it came from.
+	assert "my-bugs" not in where, f"the address names the view rather than what it shows: {where}"

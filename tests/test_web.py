@@ -56,6 +56,7 @@ import subroutine.domain.agenda
 import subroutine.domain.authentication
 import subroutine.domain.bootstrap
 import subroutine.domain.claims
+import subroutine.domain.grammar
 import subroutine.domain.ordering
 import subroutine.domain.projects
 import subroutine.domain.refs
@@ -443,6 +444,44 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		# draws whatever it is handed, and a sample that handed nothing would leave the link and
 		# its style drawn by nothing.
 		"journal": "/projects/-/journal",
+	},
+	# **The saved views, with the form open** - `#3096`. Open because the form is the riskier
+	# markup and the one a fallback would swallow: a name box, a shared checkbox and the
+	# sentence naming what a view cannot keep. The closed state is one button, and the browser
+	# tests drive the real app for it.
+	#
+	# **One view of each kind**, so the shared mark is drawn and the unshared row proves it is
+	# not drawn on every row - and `mine` matches one owner, so the forget control appears
+	# beside a view this reader may remove and not beside somebody else's.
+	"SavedViews": {
+		"views": [
+			{
+				"key": "my-bugs", "title": "My bugs", "q": "type:bug assignee:me",
+				"arrangement": "list", "order": None, "group_by": None,
+				"owner": "morpheus", "shared": False,
+			},
+			{
+				"key": "team-queue", "title": "Team queue", "q": "urgency>=4",
+				"arrangement": "board", "order": "-priority_score",
+				"group_by": "status_category", "owner": "morpheus", "shared": True,
+			},
+			# **Somebody else's**, so the row without a forget control is drawn too: only the
+			# person who saved a view may remove it, and a sample where every view was this
+			# reader's would leave that absence drawn by nothing.
+			{
+				"key": "everything", "title": "Everything", "q": None,
+				"arrangement": "agenda", "order": None, "group_by": None,
+				"owner": "trinity", "shared": True,
+			},
+		],
+		"showing": {"view": "list", "selection": {"q": "type:bug assignee:me"}},
+		"unkept": ["which category it is narrowed to"],
+		"saving": True,
+		# **Mid-confirm, because forgetting has no trash and the asking is real markup.** A
+		# sample without it leaves `.saved-view-asking` matching nothing, which
+		# `test_every_selector_in_the_stylesheet_reaches_something` reads as a dead rule.
+		"forgetting": "my-bugs",
+		"mine": "morpheus",
 	},
 	# **A workspace's journal, with every kind of line it draws** — `#2731`: two days, a door, a
 	# change and a phrase, a cut comment with the way to the rest, the instance acting, and older
@@ -9034,6 +9073,10 @@ class Instance(typing.NamedTuple):
 	journal_cursor: str
 	since: int
 	credential: str
+	#: A saved view that exists here (`SR#3096`), for `credential`'s reason: forgetting one
+	#: addresses a thing rather than a shape, so a literal key would be refused as *not
+	#: found* and would prove nothing about the path.
+	view: str
 
 	def call (self, method: str, path: str, **kwargs: typing.Any) -> httpx.Response:
 		"""Make one request, authenticated the way this app's session cookie would be."""
@@ -9177,6 +9220,15 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 	credential = call("POST", "/v1/tokens", json={"title": "Driven against the instance"})
 	assert credential.status_code == 201, credential.text
 
+	# **One saved view, so that forgetting has something real to name** (`SR#3096`), and a
+	# title of its own so the create driven below does not collide with it: a key is unique
+	# per workspace and is derived from the title, so two views called the same thing is the
+	# refusal that endpoint exists to make rather than a fault in this fixture.
+	view = call("POST", "/v1/views", json={
+		"title": "Forgettable", "q": "type:bug", "arrangement": "list",
+	})
+	assert view.status_code == 201, view.text
+
 	return Instance(
 		application=application,
 		secret=secret,
@@ -9199,6 +9251,7 @@ def instance (session: sqlalchemy.orm.Session) -> Instance:
 		journal_cursor=journal.json()["page"]["next_cursor"],
 		since=int(newest),
 		credential=credential.json()["id"],
+		view=view.json()["key"],
 	)
 
 
@@ -9409,6 +9462,18 @@ def _calls (place: Instance) -> list[tuple[str, list[typing.Any]]]:
 	] + [
 		("identityRequest", []),
 		("headRequest", []),
+		# **The saved views, and both writes** (`SR#3096`). The create is driven with every
+		# field a view carries rather than a title alone, because the nulls are the part a
+		# route can refuse: `order` and `group_by` are checked against the registry, and a
+		# create that omitted them would never ask whether null is accepted there.
+		("savedViewsRequest", [place.slug]),
+		("saveViewRequest", [place.slug, {
+			"title": "Driven against the instance", "q": "type:bug urgency>=4",
+			"arrangement": "board", "order": "-created_at", "groupBy": "status_category",
+			"shared": False,
+		}]),
+		# **Last of the three, because it removes what it names.**
+		("forgetViewRequest", [place.slug, place.view]),
 		# **Driven last of the reads, because it ends the session it is driven with.** The
 		# endpoint has existed since `SR#248` and nothing on the page reached it, so the only
 		# way to stop being signed in on a machine was to wait or to clear a cookie by hand
@@ -9924,7 +9989,7 @@ def test_every_request_builder_is_driven_against_the_instance () -> None:
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
 		document=2, spare_document=5, document_status="archived", document_link="dl",
 		username="si", status="open", cursor="c", document_cursor="d", journal_cursor="j", since=1,
-		credential="cr",
+		credential="cr", view="v",
 	)
 	exercised = {name for name, _arguments in _calls(place)}
 
@@ -10958,6 +11023,8 @@ def _views (
 			: name === "showingOf" ? app.showingOf(argument)
 			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
+			: name === "asSavedView" ? app.asSavedView(argument)
+			: name === "asShowing" ? app.asShowing(argument)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "moment" ? app.moment(argument.value, argument.now)
 			: name === "releaseMoved"
@@ -12518,6 +12585,9 @@ def test_every_request_the_app_makes_on_arrival_is_a_declared_builder (
 	known = {
 		"/v1/me", "/v1/meta", "/v1/agenda", "/v1/tasks", "/v1/documents", "/v1/changes",
 		"/v1/projects", "/v1/workspaces/projects/members",
+		# **`SR#3096`**: the saved views, read once the workspace is known so the control
+		# under the place name can draw them.
+		"/v1/views",
 	}
 	invented = paths - known
 
@@ -20113,3 +20183,172 @@ def test_the_two_reveal_controls_on_the_item_page_are_told_apart (
 
 	assert "Showing 5 of 8 links." in shown, shown
 	assert "Showing 5 of 9 mentions." in shown, shown
+
+
+#: Every selection parameter a saved view can carry, each with a value its own `SELECTABLE`
+#: entry allows. Written out rather than generated, because the point is to name the nine and
+#: notice when a tenth arrives — a scan built from `SAVED_AS_TERMS` would simply grow with it
+#: and go on passing, which is the shape this project keeps finding on the wrong side.
+EVERYTHING_A_VIEW_CAN_KEEP = {
+	"importance.gte": "4",
+	"urgency.gte": "4",
+	"importance.is": "unset",
+	"assignee.is": "unset",
+	"parent.is": "unset",
+	"tag": "errand",
+	"assignee": "laurence",
+	"answers_to": "laurence",
+	"q": "boiler",
+}
+
+
+def test_every_term_a_saved_view_writes_is_one_the_server_can_read (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3096`. The browser writes a search line; the server is the only thing that reads one.
+
+	**This is the guard against a second copy of somebody else's rule.** `SR#1806` put the whole
+	grammar on the server, so `SAVED_AS_TERMS` is the one place in this app that writes it — and
+	a spelling it gets wrong does not fail loudly. A term the parser cannot read is *searched
+	for as text*, so the view would save, apply, and quietly select rows that merely mention the
+	word `assignee`.
+
+	`unread` is how the parser says so, and the assertion is that it is empty.
+	"""
+
+	[saved] = _views(tmp_path, [
+		("asSavedView", {"view": "board", "selection": EVERYTHING_A_VIEW_CAN_KEEP}),
+	])
+
+	read = subroutine.domain.grammar.read(saved["q"], entity="task")
+
+	assert read.unread == [], (
+		f"the browser wrote terms the server cannot read, so they would be searched for as "
+		f"text instead of narrowing anything: {read.unread}\nfrom: {saved['q']}"
+	)
+
+	# **And the reader's own words survive as words**, which is the other half: a line that
+	# parsed every token as a filter would have eaten the thing somebody typed.
+	assert read.words == "boiler", read.words
+
+
+def test_a_saved_view_writes_a_term_for_every_chip_it_can_keep (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Nine of the thirteen, and a tenth arriving must not pass unnoticed.
+
+	The count is asserted rather than the spelling, because the spellings are the test above.
+	What this says is that nothing was silently dropped on the way.
+	"""
+
+	[saved] = _views(tmp_path, [
+		("asSavedView", {"view": "list", "selection": EVERYTHING_A_VIEW_CAN_KEEP}),
+	])
+
+	read = subroutine.domain.grammar.read(saved["q"], entity="task")
+	compiled = dict(read.parameters)
+
+	# **Asserted against what the parser compiled, not against the text.** The first version
+	# looked for each value inside the line and could not fail: `assignee` and `answers_to`
+	# both carry `laurence` here, so deleting the `assignee` term left the substring behind in
+	# the other one and the test went on passing. The server's own reading has no such overlap.
+	for name, value in EVERYTHING_A_VIEW_CAN_KEEP.items():
+		if name == "q":
+			continue
+
+		wanted = name if "." in name else f"{name}.eq"
+
+		assert compiled.get(wanted) == value, (
+			f"{name}={value} was showing, and the server read {compiled.get(wanted)!r} for "
+			f"{wanted} out of the saved line: {saved['q']}"
+		)
+
+	assert saved["unkept"] == [], saved["unkept"]
+
+
+def test_a_saved_view_says_which_part_of_the_page_it_could_not_keep (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3096`'s own rule, and the reason it is a list rather than a boolean.
+
+	A control offering to save a page whose narrowing it cannot hold gives back something other
+	than what was showing, under the name the reader chose for what *was* showing. `SR#3093` is
+	one of the two and will go away; `include_completed` is a decision and will not.
+	"""
+
+	[saved] = _views(tmp_path, [
+		("asSavedView", {
+			"view": "board",
+			"selection": {"status_category": "in_progress", "include_completed": "true"},
+		}),
+	])
+
+	assert sorted(saved["unkept"]) == ["include_completed", "status_category"], saved["unkept"]
+
+	# **Nothing was invented to stand in for them**, which is the failure mode worth naming: a
+	# board of *in progress* saved as a board of everything is the wrong answer wearing a name.
+	assert saved["q"] is None, saved["q"]
+
+
+def test_a_saved_view_expands_into_the_address_rather_than_replacing_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#649`'s bound, which is what decides the shape of all of this.
+
+	A reader can see what they are looking at, send it to somebody, and take one part away. An
+	opaque `?view=my-bugs` fails all three, so applying a view puts its parts into the address
+	where every other control can still reach them.
+	"""
+
+	[showing] = _views(tmp_path, [
+		("asShowing", {
+			"arrangement": "board", "q": "type:bug urgency>=4",
+			"order": "-created_at", "group_by": "assignee",
+		}),
+	])
+
+	assert showing["view"] == "board"
+	assert showing["selection"]["q"] == "type:bug urgency>=4"
+	assert showing["selection"]["order"] == "-created_at"
+	assert showing["selection"]["group_by"] == "assignee"
+
+
+def test_a_view_carrying_something_this_browser_cannot_draw_leaves_it_behind (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A view saved from a terminal may ask for an arrangement no control here offers.
+
+	`subroutine view save` takes any order `ordering.TASK_FIELDS` accepts, which is a wider set
+	than the six `SELECTABLE.order` offers. Writing one into the address would draw a page whose
+	own controls disagree with it — the chip for *how this is sorted* would show nothing chosen
+	while the rows came back sorted by something.
+	"""
+
+	[showing] = _views(tmp_path, [
+		("asShowing", {
+			"arrangement": "list", "q": "boiler",
+			"order": "estimate_minutes", "group_by": "project",
+		}),
+	])
+
+	assert showing["selection"]["q"] == "boiler"
+	assert "order" not in showing["selection"], showing["selection"]
+	assert "group_by" not in showing["selection"], showing["selection"]
+
+
+def test_an_arrangement_this_browser_does_not_draw_falls_back_rather_than_breaking (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`VIEWS` is three arrangements and the stored vocabulary is the same three today.
+
+	They are held together by `test_the_arrangements_a_view_can_be_saved_as_are_the_ones_the_app
+	_draws`, so this is about the day somebody adds a fourth on one side: `viewOf` already
+	refuses a word it does not know, and applying a view must refuse it the same way rather than
+	setting a view nothing can render.
+	"""
+
+	[showing] = _views(tmp_path, [
+		("asShowing", {"arrangement": "calendar", "q": "boiler"}),
+	])
+
+	assert showing["view"] == "agenda", showing["view"]

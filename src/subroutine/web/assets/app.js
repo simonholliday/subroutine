@@ -19,9 +19,10 @@ import { render } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { html } from "./html.js";
 import {
-	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, DEFAULT_VIEW, EVERYTHING, JOURNAL, MAX_REF,
-	ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SELECTABLE, VIEWS, addressOf, agendaRequest,
-	answers, areaOf, chips, chosenWorkspace, encodedPath, frame, journalAddress, journalPageOf,
+	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, CANNOT_BE_SAVED, DEFAULT_VIEW, EVERYTHING, JOURNAL,
+	MAX_REF, ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SAVED_AS_TERMS, SELECTABLE, VIEWS,
+	addressOf, agendaRequest, answers, areaOf, asSavedView, asShowing, chips, chosenWorkspace,
+	encodedPath, frame, journalAddress, journalPageOf,
 	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
 	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
@@ -33,7 +34,8 @@ import {
 	unpacked, unrenderable,
 } from "./answers.js";
 import {
-	Facts, Foot, Note, Place, Prose, THEMES, Theme, Wordmark, You, applyTheme, themeChoice,
+	Facts, Foot, Note, Place, Prose, SavedViews, THEMES, Theme, Wordmark, You, applyTheme,
+	themeChoice,
 } from "./chrome.js";
 import { Settings, deviceZone, listedZones, settingsHere } from "./configure.js";
 import {
@@ -75,6 +77,7 @@ import {
 	linkChoices, linkRequest,
 	credentialsRequest, everyPage, issueRequest, linkableTypes, listingRequests, localMoment,
 	peopleRequest, pollRequest, prioritiseRequest, revokeRequest,
+	savedViewsRequest, saveViewRequest, forgetViewRequest,
 	readForm,
 	readingRequest, releaseMoved, repeating, repeats, restoreRequest, rosterRequest, scoped, sent,
 	signOutRequest, statusRequest, timeFor, timezoneRequest, touching, unlinkRequest,
@@ -332,6 +335,14 @@ export function App () {
 		with the halves disagreeing. They are one fact: what this page is showing.
 	*/
 	const [showing, setShowing] = useState({ view: DEFAULT_VIEW, selection: {} });
+
+	/* **What this workspace has saved, and the two controls' own state** — `#3096`. Held
+	   here rather than in the component so that saving one and applying one are the same
+	   kind of thing as every other write on this page: one place that knows how to reach
+	   the instance, and a component that is handed answers. */
+	const [savedViews, setSavedViews] = useState([]);
+	const [savingView, setSavingView] = useState(false);
+	const [forgettingView, setForgettingView] = useState(null);
 	const since = useRef(null);
 
 	/* **What served this page, captured once and never again** — `#785`. `me` is refetched
@@ -3013,6 +3024,102 @@ export function App () {
 	}, [agenda, enter, everywhere, go, load, me, nowOpen, nowShowing, project, readAgenda,
 		showing, workspace]);
 
+	const readSavedViews = useCallback(async (slug) => {
+		/*
+			What this workspace has saved — `#3096`.
+
+			**A failure here draws nothing and says nothing**, which is the one place on this
+			page that swallows a refusal and needs its reason written down: an instance one
+			release behind does not serve `/v1/views` at all, and `#499`'s lag is the ordinary
+			case rather than the broken one. A note on every page load against an older server
+			would be this app complaining that the server is not new enough, on a page whose
+			work is otherwise perfectly readable.
+		*/
+		if (!slug) {
+			setSavedViews([]);
+
+			return;
+		}
+
+		try {
+			const answer = await sent(savedViewsRequest(slug));
+
+			setSavedViews(answer.items || []);
+		} catch {
+			setSavedViews([]);
+		}
+	}, []);
+
+	const applyView = useCallback((view) => {
+		/*
+			Come back to a saved view — `#3096`, and it is one line for a reason worth stating.
+
+			**A saved view *is* a `showing`**: a selection and an arrangement, which is exactly
+			what `chooseView` already takes. So applying one needs no address code of its own,
+			and `#649`'s bound — a view expands into the address rather than replacing it with
+			an opaque name — is met by the control every other arrangement already goes through
+			rather than by a second writer that would have to keep agreeing with it.
+		*/
+		setForgettingView(null);
+
+		return chooseView(asShowing(view));
+	}, [chooseView]);
+
+	const saveView = useCallback(async (title, shared) => {
+		/*
+			Save what is showing, under a name — `#3096`.
+
+			**The list is read again afterwards rather than patched.** The key is derived from
+			the title on the server, so inventing the row here would be this browser deciding
+			what the server did — `issue`'s rule one entity along, and the same one that keeps
+			`asSavedView` from deriving a key of its own.
+		*/
+		const wanted = asSavedView(showing);
+
+		setBusy(true);
+
+		try {
+			await sent(saveViewRequest(workspace, {
+				title,
+				q: wanted.q,
+				arrangement: wanted.arrangement,
+				order: wanted.order,
+				groupBy: wanted.group_by,
+				shared,
+			}));
+
+			setSavingView(false);
+			await readSavedViews(workspace);
+		} catch (bad) {
+			setNote(refusal(bad));
+		} finally {
+			setBusy(false);
+		}
+	}, [readSavedViews, showing, workspace]);
+
+	const forgetView = useCallback(async (view) => {
+		/*
+			Remove a view for good — `#3096`. Asked first, because there is no trash for one.
+		*/
+		setBusy(true);
+
+		try {
+			await sent(forgetViewRequest(workspace, view.key));
+
+			setForgettingView(null);
+			await readSavedViews(workspace);
+		} catch (bad) {
+			setNote(refusal(bad));
+		} finally {
+			setBusy(false);
+		}
+	}, [readSavedViews, workspace]);
+
+	useEffect(() => {
+		readSavedViews(workspace);
+	}, [readSavedViews, workspace]);
+
+
 	if (!ready) return html`<div class="app"><div class="empty">Reading…</div></div>`;
 
 	/* The address of the listing behind whatever is showing — what *All items* goes back to, and
@@ -3261,6 +3368,32 @@ export function App () {
 					settings=${settingsHere(
 						me, vocabulary && vocabulary.settings, { workspace, project },
 					)} />
+			`}
+
+			${/*
+				**The views saved here, under the place they belong to** — `#3096`, and Simon's
+				choice of where on 2026-09-21.
+
+				**Drawn exactly where `Place` is drawn**, and on the same condition: not over an
+				open item, not in the administrative area, and **not on the merged agenda**,
+				which spans every workspace and so has no single one to save a view into.
+
+				**`unkept` is computed here rather than in the component**, because what a view
+				cannot carry is a fact about the grammar rather than about the control: the
+				component is handed sentences and draws them.
+			*/ null}
+			${area === null && !open && !everywhere && html`
+				<${SavedViews}
+					views=${savedViews} showing=${showing}
+					unkept=${asSavedView(showing).unkept.map((name) => CANNOT_BE_SAVED[name])}
+					saving=${savingView} forgetting=${forgettingView} busy=${busy}
+					mine=${me ? me.user.username : null}
+					onApply=${applyView}
+					onStartSaving=${() => setSavingView(true)}
+					onStopSaving=${() => setSavingView(false)}
+					onSave=${saveView}
+					onStartForgetting=${setForgettingView}
+					onForget=${forgetView} />
 			`}
 
 			${released && html`
@@ -3647,6 +3780,7 @@ export {
 	ANSWERED_BY,
 	AREAS,
 	BOARD,
+	CANNOT_BE_SAVED,
 	DEFAULT_VIEW,
 	EVERYTHING,
 	JOURNAL,
@@ -3655,12 +3789,15 @@ export {
 	PAGE_MARK,
 	PATH_SEPARATOR,
 	PRODUCT,
+	SAVED_AS_TERMS,
 	SELECTABLE,
 	VIEWS,
 	addressOf,
 	agendaRequest,
 	answers,
 	areaOf,
+	asSavedView,
+	asShowing,
 	chips,
 	chosenWorkspace,
 	encodedPath,
@@ -3711,6 +3848,7 @@ export {
 	Note,
 	Place,
 	Prose,
+	SavedViews,
 	THEMES,
 	Theme,
 	Wordmark,
@@ -3935,7 +4073,10 @@ export {
 	repeating,
 	repeats,
 	restoreRequest,
+	forgetViewRequest,
 	revokeRequest,
+	saveViewRequest,
+	savedViewsRequest,
 	rosterRequest,
 	signOutRequest,
 	statusRequest,

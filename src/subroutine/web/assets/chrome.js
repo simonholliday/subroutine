@@ -287,6 +287,131 @@ export function Place ({
 	`;
 }
 
+export function SavedViews ({
+	views = [], showing = null, unkept = [], saving = false, forgetting = null, busy = false,
+	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
+	onStartForgetting = null, onForget = null, mine = null,
+}) {
+	/*
+		The views somebody saved, under the place they belong to - `#3096`, and Simon's choice of
+		where on 2026-09-21.
+
+		**Under the place name rather than beside the arrangement chips**, which is not only a
+		taste: `VIEWS` is three arrangements of *work* and `viewOf` refuses a word that is not
+		one of them, so a saved view drawn as a fourth chip would be a page the address grammar
+		cannot express. A view *selects*; an arrangement *draws*. They sit apart because they are
+		not the same kind of thing.
+
+		**Drawn even when there is nothing saved**, which is Simon's other answer and against
+		this app's usual instinct: `use` and `connections` are hidden until there is something to
+		choose between. The difference is that those two have a second way in and this has none -
+		a reader who has never seen the control cannot ask for the feature, so the empty state
+		names the one action and nothing else.
+
+		**Applying one goes through `onApply` rather than a link**, because a view expands into
+		the address (`#649`) and the caller is what knows how to write it. The control offers no
+		opaque `?view=my-bugs`: what the reader sends a colleague stays the thing they are
+		looking at.
+	*/
+	if (!views.length && !onStartSaving) return null;
+
+	const chosen = (view) => showing
+		&& showing.selection
+		&& (showing.selection.q || null) === (view.q || null)
+		&& showing.view === view.arrangement;
+
+	return html`
+		<div class="saved-views">
+			<span class="saved-views-label">Views</span>
+
+			${/* **Nothing is said about there being nothing** - Simon, 2026-09-21: an empty
+			     control names the one action and nothing else. A sentence here would be a row
+			     of furniture explaining that it is empty, which the button beside it already
+			     says by being the only thing in the row. */ null}
+			${views.map((view) => html`
+					<span key=${view.key} class="saved-view">
+						<button type="button" class=${chosen(view) ? "inline chosen" : "inline"}
+							disabled=${busy}
+							aria-current=${chosen(view) ? "true" : undefined}
+							onClick=${() => onApply && onApply(view)}>${view.title}</button>
+						${/* **The word, never a colour alone** - decision `#102`. A shared view is
+						     somebody's statement about how the team's queue is read, and which
+						     ones those are is information a reader acts on. */ null}
+						${view.shared ? html`<span class="saved-view-shared">shared</span>` : null}
+						${onForget && mine && view.owner === mine ? (
+							forgetting === view.key
+								? html`
+									<span class="saved-view-asking">
+										Forget it?
+										<button type="button" class="action" disabled=${busy}
+											onClick=${() => onForget(view)}>Yes</button>
+										<button type="button" class="quiet"
+											onClick=${() => onStartForgetting(null)}>No</button>
+									</span>
+								`
+								: html`
+									<button type="button" class="quiet saved-view-forget"
+										aria-label=${`Forget ${view.title}`}
+										onClick=${() => onStartForgetting(view.key)}>×</button>
+								`
+						) : null}
+					</span>
+			`)}
+
+			${/* **Asks before forgetting, because there is no trash for a view.** A task deleted
+			     by mistake comes back; a view does not, and the name goes back to the workspace
+			     with it. Two clicks rather than a modal, which is this app's idiom (`#785`). */
+			  null}
+
+			${/* **A reveal stays where it is and turns its caret** (`#1046` rule 4, Simon's
+			     *"a button which reveals more content should indicate that"*). The first
+			     version of this hid itself while the form was open, which is not a reveal at
+			     all: `aria-expanded` could only ever say false, and the guard said so. */ null}
+			${onStartSaving ? html`
+				<button type="button" class="reveal saved-views-save" disabled=${busy}
+					aria-expanded=${saving ? "true" : "false"}
+					onClick=${() => (saving ? onStopSaving() : onStartSaving())}>
+					Save this view
+					<${Icon} name="caret-down" />
+				</button>
+			` : null}
+
+			${saving ? html`
+				<form class="saved-views-form" onSubmit=${(event) => {
+					event.preventDefault();
+
+					const named = new FormData(event.target).get("title");
+
+					if (String(named || "").trim()) onSave(String(named).trim(),
+						event.target.elements.shared.checked);
+				}}>
+					<label>
+						<span>Call it</span>
+						<input name="title" maxlength="128" required
+							placeholder="My bugs" aria-label="What to call this view" />
+					</label>
+					<label class="saved-views-shared">
+						<input type="checkbox" name="shared" />
+						<span>Let the workspace see it</span>
+					</label>
+					<button type="submit" class="primary" disabled=${busy}>Save</button>
+
+					${/* **What it cannot keep, said before it is saved rather than after.** A
+					     control that saved a page whose narrowing it cannot hold would give back
+					     something other than what was showing, under the name the reader chose
+					     for what *was* showing. */ null}
+					${unkept.length ? html`
+						<p class="saved-views-unkept">
+							A saved view cannot keep ${unkept.join(", and ")}.
+						</p>
+					` : null}
+				</form>
+			` : null}
+		</div>
+	`;
+}
+
+
 export function Foot ({ count }) {
 	/*
 		What is on screen, and where this instance's own reference is.

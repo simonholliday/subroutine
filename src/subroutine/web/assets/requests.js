@@ -488,6 +488,64 @@ export function timezoneRequest (username, zone) {
 	};
 }
 
+export function savedViewsRequest (slug) {
+	/*
+		The views this reader saved, and the ones shared with the workspace — `#3096`.
+
+		**Enveloped and never paged**, which the endpoint states rather than implies: a
+		workspace's saved views are bounded by how many people took the trouble to write one.
+		So there is no cursor here and no *and more* to draw.
+
+		Ordered by name on the server, because a list somebody reads to pick from is read
+		alphabetically and *most recently saved* is a question nobody puts to their own
+		furniture.
+	*/
+	return { path: scoped("/views", slug), method: "GET" };
+}
+
+export function saveViewRequest (slug, { title, q, arrangement, order, groupBy, shared }) {
+	/*
+		Save what is showing, under a name — `#3096`.
+
+		**The key is not sent and cannot be**: it is derived from the title on the server
+		(`DERIVED` in `test_api_writability`), so deriving it here would be a second copy of
+		somebody else's rule and the answer is read back instead.
+
+		**`shared` is sent as false rather than left out.** A view is mine by default and shared
+		on purpose, and a body that omitted it would be relying on the server's default to mean
+		the same thing as the reader's untouched checkbox - which is true today and is exactly
+		the kind of agreement that stops being true quietly.
+
+		**Nulls are sent for the parts that are empty**, never omitted, because the create takes
+		them as *nothing here* and a missing key and an explicit null must not be two ways of
+		saying one thing on a surface where the update already distinguishes them.
+	*/
+	return {
+		path: scoped("/views", slug),
+		method: "POST",
+		body: {
+			title,
+			q: q || null,
+			arrangement,
+			order: order || null,
+			group_by: groupBy || null,
+			shared: Boolean(shared),
+		},
+	};
+}
+
+export function forgetViewRequest (slug, key) {
+	/*
+		Remove a view for good — `#3096`.
+
+		**No trash, unlike a task**, which the endpoint decided and this inherits: a view
+		records nothing that happened, and one left behind would hold its name against whoever
+		wants it next. So the button that calls this says *forget* rather than *delete*, and
+		the page asks first.
+	*/
+	return { path: scoped(`/views/${encodeURIComponent(key)}`, slug), method: "DELETE" };
+}
+
 export function workspaceSettingsRequest (slug) {
 	/*
 		What a workspace's settings page reads — `#1447`: every setting a workspace may carry,

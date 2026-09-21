@@ -32,6 +32,13 @@ upgrade involves.
   who saved one can change it, and sharing publishes a view rather than handing it over. Names
   are one per workspace so that a link you send somebody draws what you were looking at.
   Not yet reachable from the browser - that comes next.
+- **A view can be saved and reapplied from the browser**, under the place it belongs to. What
+  is showing becomes a search line and an arrangement: the chips you set - a tag, a person,
+  an importance, who somebody answers to - are written as terms, and the two a search line
+  cannot carry are **named before you save rather than dropped quietly**. Coming back to one
+  **expands it into the address** rather than replacing it with a name, so what you send a
+  colleague is still the thing you were looking at, you can see what you are looking at, and
+  you can take one part away.
 - **A saved view can be run and managed from a terminal.** `subroutine view` lists what you
   saved and what the workspace shared with you; `subroutine view run <name>` draws the work
   it selects; `save`, `edit` and `forget` are the rest of it. **A terminal honours what a view

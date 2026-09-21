@@ -1540,4 +1540,110 @@ export function mentionHref (workspace) {
 	return (ref) => `/${encodeURIComponent(workspace)}/${ref}`;
 }
 
+/*
+	How each selection parameter is written as a search term, for a view being saved — `#3096`.
+
+	**A saved view is a `q` and an arrangement, so what the reader narrowed with chips has to
+	become a search line.** The grammar is parsed on the server (`#1806`), which makes this the
+	one place in the browser that writes it — and therefore the place a second copy of somebody
+	else's rule would live. `tests/test_web.py` drives every line this produces through the real
+	parser and compares the rows against the address that produced it, so a spelling this gets
+	wrong fails the build rather than saving a view that quietly selects something else.
+
+	**Nine of the thirteen, and the four that are missing are missing for two different
+	reasons.** `order` and `group_by` are not narrowing at all — they are the arrangement, and a
+	view stores them in fields of their own. `status_category` and `include_completed` genuinely
+	cannot be written as a term, which is `CANNOT_BE_SAVED` below.
+*/
+export const SAVED_AS_TERMS = {
+	"importance.gte": (value) => `importance>=${value}`,
+	"urgency.gte": (value) => `urgency>=${value}`,
+	"importance.is": (value) => `importance:${value}`,
+	"assignee.is": (value) => `assignee:${value}`,
+	"parent.is": (value) => `parent:${value}`,
+	tag: (value) => `tag:${value}`,
+	assignee: (value) => `assignee:${value}`,
+	answers_to: (value) => `answers_to:${value}`,
+};
+
+/*
+	What a saved view cannot carry, in the reader's words rather than in the address's — `#3096`.
+
+	**Named and shown, never dropped quietly.** A control that offered to save a page whose
+	narrowing it cannot hold would give back something other than what was showing, wearing the
+	name the reader chose for what was showing. That is the same fault the terminal declines out
+	loud when it draws a saved board as a list.
+
+	**`status_category` is `#3093` and will go away**: it is a registry `Property` with no kind,
+	so the grammar cannot compare it, and the day it has one this entry is deleted rather than
+	rewritten. **`include_completed` is a decision and will not**: it is `NOT_A_PROPERTY` by
+	choice, because it takes no value and so can never be one.
+*/
+export const CANNOT_BE_SAVED = {
+	status_category: "which category it is narrowed to",
+	include_completed: "whether finished work is shown",
+};
+
+export function asSavedView (showing) {
+	/*
+		Return what is showing as a view to save, and what of it could not be kept — `#3096`.
+
+		**Emitted in `SELECTABLE` order**, which is `withShowing`'s rule and is load-bearing for
+		the same reason one step further on: one screen must produce one search line, or saving
+		the same page twice writes two views that select identically and read differently.
+
+		**The reader's own words go last.** Everything before them is a term the controls
+		produced; what somebody typed is free text, and putting it at the end keeps it readable
+		as the thing they typed rather than buried among generated terms.
+	*/
+	const selection = (showing && showing.selection) || {};
+	const terms = [];
+
+	Object.keys(SELECTABLE).forEach((name) => {
+		const writing = SAVED_AS_TERMS[name];
+		const value = selection[name];
+
+		if (writing && value !== undefined && value !== null && value !== "") {
+			terms.push(writing(value));
+		}
+	});
+
+	if (selection.q) terms.push(selection.q);
+
+	return {
+		q: terms.join(" ") || null,
+		arrangement: showing && showing.view ? showing.view : DEFAULT_VIEW,
+		order: selection.order || null,
+		group_by: selection.group_by || null,
+		unkept: Object.keys(CANNOT_BE_SAVED).filter((name) => selection[name] !== undefined),
+	};
+}
+
+export function asShowing (view) {
+	/*
+		Return what a saved view expands into — `#649`, and the bound it sets on all of this.
+
+		**A view expands into the address rather than replacing it with a name.** What the
+		reader sends a colleague stays the thing they were looking at, they can see what they
+		are looking at, and they can take one part away. An opaque `?view=my-bugs` would fail
+		all three at once.
+
+		**A value this browser has no control for is left behind rather than written in.** A view
+		saved from a terminal may carry an order or an axis that `SELECTABLE` does not offer, and
+		putting one into the address would produce a page whose own controls disagree with it —
+		`permits` is the same gate every other writer here passes through.
+	*/
+	const selection = {};
+
+	if (view.q) selection.q = view.q;
+	if (view.order && permits("order", view.order)) selection.order = view.order;
+	if (view.group_by && permits("group_by", view.group_by)) selection.group_by = view.group_by;
+
+	return {
+		view: VIEWS.includes(view.arrangement) ? view.arrangement : DEFAULT_VIEW,
+		selection,
+	};
+}
+
+
 /* ---- shaping ------------------------------------------------------------ */

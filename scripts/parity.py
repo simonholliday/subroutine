@@ -223,7 +223,7 @@ def browser_routes () -> tuple[int | None, str | None]:
 		task=1, spare=3, spare_version=1, repeating=4, repeating_version=1, link="l",
 		document=2, spare_document=5, document_status="archived", document_link="dl",
 		username="si", status="open", cursor="c", document_cursor="d", journal_cursor="j",
-		since=1, credential="cr",
+		since=1, credential="cr", view="v",
 	)
 
 	try:
