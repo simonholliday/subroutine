@@ -25,7 +25,7 @@ import subroutine.errors
 import subroutine.views
 
 
-def refuse_a_cursor (cursor: str | None, *, axis: str) -> None:
+def refuse_a_cursor (cursor: str | None, *, axis: str, kind: str = "task") -> None:
 	"""Refuse a cursor sent beside a grouping, naming what to send instead.
 
 	**Refused rather than ignored**, which is `#1484`'s rule. There is no one position in a
@@ -47,7 +47,18 @@ def refuse_a_cursor (cursor: str | None, *, axis: str) -> None:
 				message="'cursor' and 'group_by' cannot be sent together.",
 				hint=(
 					f"Each group carries its own next_cursor, which is valid on a listing "
-					f"narrowed to that group — send {axis}=<key> and the cursor together."
+					f"narrowed to that group — send {axis}=<key> and the cursor together"
+					# **Except for the one group whose key is not a value** — `#1425`. A
+					# row-keyed axis holds `unset` for the rows nobody is named on, and
+					# `assignee=unset` would look for an account of that name. The narrowing
+					# that really selects it is the grammar's own two reserved words, so the
+					# hint says them rather than sending somebody to a refusal.
+					+ (
+						f", or {axis}.is={subroutine.domain.grouping.UNASSIGNED} for the "
+						f"group holding what nobody is named on."
+						if axis in subroutine.domain.grouping.ROW_AXES.get(kind, ())
+						else "."
+					)
 				),
 			)
 		],
@@ -86,8 +97,17 @@ def answer (
 
 	size = subroutine.domain.grouping.size(limit)
 
-	clauses = subroutine.domain.grouping.narrowings(
-		session, workspace_id=workspace_id, axis=axis, kind=kind, status_column=status_column
+	# **The groups, in order, each with the clause that selects it** — `#1425`. One question,
+	# because there are two kinds of axis now and this loop is not the place to learn that:
+	# a fixed axis answers every key it declares, a row-keyed one answers the keys the
+	# caller's own rows carry. `statement` is passed for the second kind, which reads them.
+	held = subroutine.domain.grouping.columns(
+		session,
+		statement,
+		axis=axis,
+		kind=kind,
+		workspace_id=workspace_id,
+		status_column=status_column,
 	)
 
 	ordered = [key.ordering() for key in keys]
@@ -102,8 +122,8 @@ def answer (
 	#: difference was this.
 	found: list[tuple[str, list[typing.Any], bool, int | None]] = []
 
-	for group in subroutine.domain.grouping.keys_for(axis, kind=kind):
-		within = statement.where(clauses[group])
+	for group, clause in held:
+		within = statement.where(clause)
 
 		# **Counted before the cap, and only where it was asked for**, exactly as an ungrouped
 		# listing does it. ``has_more`` is what a column heading actually needs — *20, and more

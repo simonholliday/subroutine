@@ -16,6 +16,13 @@ upgrade involves.
 
 ### Added
 
+- **A board can be arranged by who the work is assigned to.** `?view=board&group_by=assignee`
+  in the browser, `group_by=assignee` on `GET /v1/tasks`. There is a column for each person
+  holding work in what you are looking at, and one headed *Nobody* for what nobody has been
+  given - which is drawn even when it is empty, because *nothing here is unassigned* is worth
+  being able to see. Columns follow the work rather than the roster, so a large team does not
+  produce a board of forty columns, and a person holding nothing here has no column. Dragging
+  is offered only on the status board, where a drop means something.
 - **A parent says what the work beneath it adds up to.** `subroutine show` on a milestone,
   and its page in the browser, now carry a line like `12h beneath this, over 9 of 14` under
   the sub-task list - the whole subtree rather than just the children, so a middle layer's

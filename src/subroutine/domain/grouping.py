@@ -21,15 +21,25 @@ to spill, and the cap can therefore go into the query where it belongs.
 
 **An axis must be bounded, which is why this is a register rather than a free field.** Grouping
 by a status category asks four questions; grouping by an assignee would ask one per member of
-the workspace, which is an N+1 wearing a query parameter. `SR#1425` wants a board grouped by
-principal and will need an answer to that before it can use any of this.
+the workspace, which is an N+1 wearing a query parameter.
+
+**`SR#1425` answered that rather than waiving it** (Simon, 2026-09-20). There are two kinds of
+axis now. A **fixed** one declares its keys, and its groups are the vocabulary's: four
+categories, asked whether or not any row carries them. A **row-keyed** one reads its keys off
+the rows the caller's own query returns, so the number of groups cannot exceed what that query
+found — **there is no roster query and no cap for anybody to justify**, which is what makes it
+affordable without a number nobody can defend. Measured on this instance while it was built:
+163 tasks carry an assignee and the whole installation has nine accounts, so the worst case
+there is ten columns, against the agenda's seventeen statements.
 """
 
+import typing
 import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
 
+import subroutine.db.models.identity
 import subroutine.db.models.vocabulary
 import subroutine.domain.filtering
 import subroutine.domain.tasks
@@ -50,6 +60,11 @@ STATUS_CATEGORY = subroutine.domain.filtering.STATUS_CATEGORY
 #: column holds nothing* from *this column was not asked about*, which is the false statement
 #: `SR#718`, `SR#738` and `SR#744` were each filed about on the surface that renders them.
 #:
+#: **That is a statement about this register and not about grouping**, since `SR#1425`.
+#: :data:`ROW_AXES` holds the other kind, whose keys *are* derived from what came back — and
+#: it pays exactly the price this paragraph names: a person holding nothing in a selection has
+#: no column there, so that axis cannot say *nothing for them*. It was chosen knowing so.
+#:
 #: **Read from the property registry since `SR#1803`.** This was the third of three lists
 #: declaring what a listing may be asked, in the third module, and **no field was in all
 #: three** — so *groupable* was a fact kept somewhere none of the other two could see. A kind
@@ -59,6 +74,31 @@ AXES: dict[str, dict[str, tuple[str, ...]]] = {
 	for kind in subroutine.domain.filtering.PROPERTIES
 	if subroutine.domain.filtering.axes(kind)
 }
+
+#: The axes whose keys are the rows' own values — `SR#1425`.
+#:
+#: **A tuple of names and no keys, because there are none to declare.** What a listing may be
+#: grouped by is :data:`AXES` *and* this; :func:`refuse_unknown_axis` is the one place that
+#: joins them, so nothing else has to remember that there are two registers.
+ROW_AXES: dict[str, tuple[str, ...]] = {
+	kind: subroutine.domain.filtering.row_axes(kind)
+	for kind in subroutine.domain.filtering.PROPERTIES
+	if subroutine.domain.filtering.row_axes(kind)
+}
+
+#: The group holding the rows nobody is named on — `SR#1425`.
+#:
+#: **The one key of a row-keyed axis that is *not* read off the rows**, and that is deliberate:
+#: it is known before any row is looked at, so it can be reported empty. *Nothing here is
+#: unassigned* is the answer `SR#1422` §5 says a lead is actually looking for — *work in
+#: progress that nobody owns* — and it is the one column of this axis that can give it.
+#:
+#: **Spelled as the filter grammar already spells it.** ``assignee.is=unset`` is how a caller
+#: asks this question today (two reserved words, `SR#1801` §11), so a group key of ``unset``
+#: is the same word in the same place rather than a second name for one idea. It also cannot
+#: collide with an account: a username is compared against this only after the reserved word
+#: has been taken, which :func:`narrowings_from_rows` does by construction.
+UNASSIGNED = "unset"
 
 #: How many rows one group carries when the caller does not say.
 #:
@@ -85,7 +125,7 @@ def refuse_unknown_axis (asked: str, *, kind: str) -> str:
 	and the wrong answer is a *superset*, so nothing looks broken.
 	"""
 
-	available = AXES.get(kind, {})
+	available = set(AXES.get(kind, {})) | set(ROW_AXES.get(kind, ()))
 
 	if asked in available:
 		return asked
@@ -137,9 +177,16 @@ def size (asked: int | None) -> int:
 
 
 def keys_for (axis: str, *, kind: str) -> tuple[str, ...]:
-	"""Return every key an axis has, in the order a reader meets them."""
+	"""Return every key an axis *declares*, in the order a reader meets them.
 
-	return AXES[kind][axis]
+	**Empty for a row-keyed axis** (`SR#1425`), which declares none — its groups are read off
+	the rows by :func:`columns` and cannot be known without them. Answering with nothing
+	rather than raising is what keeps :func:`unreached` free of the axis guard its own
+	docstring explains it must not have: the question that function asks is which keys are
+	finished categories, and an axis with no declared keys has none by construction.
+	"""
+
+	return AXES.get(kind, {}).get(axis, ())
 
 
 def unreached (axis: str, *, kind: str, reaching_finished: bool) -> frozenset[str]:
@@ -176,6 +223,108 @@ def unreached (axis: str, *, kind: str, reaching_finished: bool) -> frozenset[st
 		key
 		for key in keys_for(axis, kind=kind)
 		if key in subroutine.domain.tasks.FINISHED_CATEGORIES
+	)
+
+
+def columns (
+	session: sqlalchemy.orm.Session,
+	statement: sqlalchemy.Select[typing.Any],
+	*,
+	axis: str,
+	kind: str,
+	workspace_id: uuid.UUID,
+	status_column: sqlalchemy.orm.Mapped[uuid.UUID],
+) -> list[tuple[str, sqlalchemy.ColumnElement[bool]]]:
+	"""Return this listing's groups in order, each with the clause that selects it — `SR#1425`.
+
+	**One question asked of two kinds of axis**, so that :mod:`subroutine.api.grouped` does not
+	have to know there are two. A fixed axis answers from the vocabulary and always returns
+	every key it has; a row-keyed one answers from the caller's own rows and returns the keys
+	those rows carry, plus :data:`UNASSIGNED`.
+
+	``statement`` is the caller's whole query, which is what bounds the second kind: the keys
+	cannot name anybody the caller's own filters did not already return.
+	"""
+
+	if axis in AXES.get(kind, {}):
+		clauses = narrowings(
+			session,
+			workspace_id=workspace_id,
+			axis=axis,
+			kind=kind,
+			status_column=status_column,
+		)
+
+		return [(key, clauses[key]) for key in keys_for(axis, kind=kind)]
+
+	return narrowings_from_rows(session, statement, axis=axis, kind=kind)
+
+
+def narrowings_from_rows (
+	session: sqlalchemy.orm.Session,
+	statement: sqlalchemy.Select[typing.Any],
+	*,
+	axis: str,
+	kind: str,
+) -> list[tuple[str, sqlalchemy.ColumnElement[bool]]]:
+	"""Return the groups a row-keyed axis has in this listing — `SR#1425`.
+
+	**Two statements, whatever the answer.** One reads the distinct values the caller's rows
+	carry; one turns the ids among them into names. Neither grows with the workspace, which is
+	the whole argument for reading the keys off the rows: a roster query would have made the
+	cost a function of how many people exist rather than of how many are in this answer.
+
+	**Nobody comes first**, because it is the exception a lead is looking for (`SR#1422` §5:
+	*work in progress that nobody owns*), and the rest are in name order — **not** most-work
+	first, which would reshuffle the board between one look and the next. The set of columns
+	already moves as work moves; the order should not move as well.
+
+	**An id with no account behind it is left out rather than given a column named after a
+	uuid.** It cannot happen through the application, which is why this is a dropped row and
+	not a refusal: a column headed by 36 hex characters is worse than a column that is absent,
+	and the rows are still reachable from the ungrouped listing.
+	"""
+
+	column = subroutine.domain.filtering.PROPERTIES[kind][axis].column
+
+	assert column is not None, f"{axis} is an axis with no column to group on"
+
+	held = set(
+		session.scalars(statement.with_only_columns(column).order_by(None).distinct())
+	)
+	named = _named(session, {one for one in held if one is not None})
+	found: list[tuple[str, sqlalchemy.ColumnElement[bool]]] = [
+		(UNASSIGNED, column.is_(None))
+	]
+
+	found.extend(
+		(name, column == identifier)
+		for identifier, name in sorted(named.items(), key=lambda pair: pair[1])
+	)
+
+	return found
+
+
+def _named (
+	session: sqlalchemy.orm.Session, identifiers: typing.Collection[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+	"""Return the username of each of these accounts, for the ones that exist."""
+
+	if not identifiers:
+		return {}
+
+	model = subroutine.db.models.identity.User
+
+	# **`.tuples().all()`, and never `dict(session.execute(...))`.** A `Result` has a `.keys()`
+	# method, so `dict()` treats it as a mapping and raises `TypeError: not subscriptable` -
+	# a trap this project met once by *applying* ruff's C416 to working code. C416 asks for
+	# `dict()` here too; this is the spelling that satisfies it and works.
+	return dict(
+		session.execute(
+			sqlalchemy.select(model.id, model.username).where(model.id.in_(set(identifiers)))
+		)
+		.tuples()
+		.all()
 	)
 
 

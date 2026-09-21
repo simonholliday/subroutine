@@ -377,6 +377,22 @@ class Property (typing.NamedTuple):
 	#: would let somebody declare an assignee groupable, which is an N+1 wearing a parameter.
 	groupable: tuple[str, ...] | None = None
 
+	#: **The second kind of axis, whose keys are the rows' own values** — `#1425`, Simon
+	#: 2026-09-20. The paragraph above is still right about :attr:`groupable`, and it is why
+	#: this is a separate declaration rather than a looser type on that one: a *fixed*
+	#: vocabulary is what lets an empty group be reported at all, and grouping by an account
+	#: cannot have one, because a workspace's people are a query rather than four constants.
+	#:
+	#: **The boundedness argument is answered, not waived.** The keys are read off the rows
+	#: the caller's own query returns, so the number of groups cannot exceed what is already
+	#: on the page: there is no roster query, and no cap for anybody to justify. What it
+	#: costs is stated on `#1425` and is real — a person holding nothing here has no column,
+	#: so this kind of axis cannot say *nothing for them*, which the fixed kind can.
+	#:
+	#: **Both at once is refused** by :func:`axes` and :func:`row_axes` disagreeing about
+	#: which register a property belongs in, and by the guard that reads them.
+	groupable_from_rows: bool = False
+
 	#: Which properties compile into one predicate. See :class:`Filterable`.
 	group: str | None = None
 
@@ -881,6 +897,13 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 		kind=REFERENCE,
 		group=NAMES_AN_ACCOUNT,
 		because="ordering by an account id means nothing; ordering by who has what is `#1805`.",
+		# **A board can be arranged by it** — `#1425`, and `#1422` §4 is the argument: *who is
+		# working on what* stops being scanned and becomes the layout. The assignee rather
+		# than the claim, because option 3 of that same section aligned **this** column in
+		# the browser's list, so grouping by anything else would make one fact into two — and
+		# because a claim is a lease that expires (`#726`), so columns keyed on it would come
+		# and go on a timer as well as with the work.
+		groupable_from_rows=True,
 	),
 	# **What this compares against is not this column** — see :data:`LEASED` and `SR#2299`. A
 	# claim is a lease, so an expired one reads as nobody holding it, and the swap is made
@@ -1393,13 +1416,33 @@ def orderable (entity: str) -> dict[str, typing.Any]:
 
 
 def axes (entity: str) -> dict[str, tuple[str, ...]]:
-	"""Return what this entity's listing can be *grouped by*, with each axis's keys."""
+	"""Return the axes whose keys are a fixed vocabulary, with those keys.
+
+	**Not every axis is here** since `#1425`. :func:`row_axes` answers for the other kind,
+	whose keys are whatever the rows carry; a caller wanting *what may this be grouped by*
+	needs both, which is what :data:`subroutine.domain.grouping.AXES` and its neighbour are.
+	"""
 
 	return {
 		name: held.groupable
 		for name, held in PROPERTIES.get(entity, {}).items()
 		if held.groupable is not None
 	}
+
+
+def row_axes (entity: str) -> tuple[str, ...]:
+	"""Return the axes of this entity whose keys are read off the rows — `#1425`.
+
+	Separate from :func:`axes` rather than folded into it, because the two answer different
+	questions about an empty group: a fixed key that came back with no rows is a column that
+	is really empty, and there is no such thing here — a key exists **because** rows carry it.
+	"""
+
+	return tuple(
+		name
+		for name, held in PROPERTIES.get(entity, {}).items()
+		if held.groupable_from_rows
+	)
 
 
 #: What a task listing can be asked about — derived, and unchanged in shape or name.

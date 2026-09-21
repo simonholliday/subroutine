@@ -5878,6 +5878,45 @@ def test_the_browser_says_what_the_work_beneath_a_parent_adds_up_to (
 	assert "beneath this" not in _rendered(tmp_path, {"Detail": shared})["Detail"]
 
 
+def test_a_board_grouped_by_a_person_draws_a_column_each_and_one_for_nobody (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1425` in the browser, which is where `SR#1422` §4 asked for it.
+
+	**The board arranges the rows it was given by the axis its own address names.** The server
+	splits the answer so no column starves its neighbour; this page then draws the columns, and
+	until now it could only draw them by `status_category` against a fixed list of four.
+
+	**Nobody is a column and is drawn even when empty**, which is the one honest empty column
+	this axis has - every other key exists because a row carries it.
+	"""
+
+	rows = [
+		{"ref": 1, "kind": "task", "title": "Read the grammar", "status_category": "todo",
+			"assignee": "keanu"},
+		{"ref": 2, "kind": "task", "title": "Ship the parser", "status_category": "todo",
+			"assignee": "laurence"},
+		{"ref": 3, "kind": "task", "title": "Nobody has this", "status_category": "todo"},
+	]
+	shown = _rendered(tmp_path, {"Board": {
+		"items": rows, "workspace": "projects", "selection": {"group_by": "assignee"},
+	}})["Board"]
+
+	assert "keanu" in shown, f"no column for somebody holding work: {shown}"
+	assert "laurence" in shown, shown
+	assert "Nobody" in shown, f"the unassigned column is the one a lead scans for: {shown}"
+
+	# **Arranged, not merely listed**: each row is under its own heading, which is what makes
+	# this a layout rather than a chip on a line. Asserted by position, because a board that
+	# drew one column with everything in it would contain all three names too.
+	assert shown.index("keanu") < shown.index("Read the grammar"), shown
+	assert shown.index("laurence") < shown.index("Ship the parser"), shown
+
+	# **And the status columns are gone**, which is the half that says the axis was honoured
+	# rather than added to. A board still drawing *To do* has ignored the address.
+	assert "To do" not in shown, shown
+
+
 def test_what_an_item_is_joined_to_is_read_before_its_description (
 	tmp_path: pathlib.Path,
 ) -> None:

@@ -263,7 +263,7 @@ export const SELECTABLE = {
 		request builder must not know which arrangement is showing. The board chip carries it in
 		its selection, exactly as it already carries `include_completed`.
 	*/
-	group_by: ["status_category"],
+	group_by: ["status_category", "assignee"],
 	/*
 		**A tag and a person, free text like `q` and for the same reason** — `#1020`. Neither
 		can be enumerated: a tag is whatever somebody typed and an account name is whatever the
@@ -371,12 +371,20 @@ export const ANSWERED_BY = {
 	include_completed: { task: "sent", document: "already" },
 	order: { task: "sent", document: "sent" },
 	q: { task: "sent", document: "sent" },
-	/* **Both, and it is the same axis name meaning two vocabularies** — a task's categories are
-	   `todo`/`in_progress`/`done`/`cancelled` and a document's are
-	   `draft`/`current`/`superseded`/`archived`. Unlike `status_category` above, which is
-	   `cannot` because a *value* of it has no honest document half, the axis itself is answered
-	   by each collection in its own terms. */
-	group_by: { task: "sent", document: "sent" },
+	/* **The one entry whose answer depends on the value** — `#1425`.
+
+	   `status_category` is the same axis name meaning two vocabularies — a task's categories
+	   are `todo`/`in_progress`/`done`/`cancelled` and a document's are
+	   `draft`/`current`/`superseded`/`archived` — so each collection answers it in its own
+	   terms. **`assignee` is not like that**: a document has no assignee column at all, which
+	   is why the `assignee` entry below is already `cannot`. Grouping by it is the same fact
+	   arriving through the axis rather than through the filter, so it gets the same answer.
+
+	   **A map rather than a word, instead of a name hard-coded in `collectionsFor`.** That
+	   function used to name `status_category` itself and `#872` moved the statement here, on
+	   the grounds that this table is the one place that says where a selection goes. Putting
+	   a second name back into the caller would undo exactly that. */
+	group_by: { task: "sent", document: { status_category: "sent", assignee: "cannot" } },
 	/* **A document carries tags and can be narrowed by one**, so this is `sent` on both sides
 	   and a tagged page keeps its document half. */
 	tag: { task: "sent", document: "sent" },
@@ -405,12 +413,27 @@ export const ANSWERED_BY = {
 	"importance.is": { task: "sent", document: "cannot" },
 };
 
-export function answers (kind, name) {
-	/* How a collection handles this selection parameter: `sent`, `already` or `cannot`. */
+export function answers (kind, name, value = undefined) {
+	/*
+		How a collection handles this selection parameter: `sent`, `already` or `cannot`.
+
+		**`value` is consulted only where the table gives a map** — `#1425`, which is `group_by`
+		and nothing else today. A caller that does not pass one gets the answer for the axis a
+		board falls back to, which is what every existing caller was already asking about.
+	*/
 
 	const handling = ANSWERED_BY[name];
 
-	return handling === undefined ? "cannot" : handling[kind] || "cannot";
+	if (handling === undefined) return "cannot";
+
+	const held = handling[kind];
+
+	if (held && typeof held === "object") {
+		return held[value === undefined || value === null ? "status_category" : value]
+			|| "cannot";
+	}
+
+	return held || "cannot";
 }
 
 export function permits (name, value) {

@@ -613,9 +613,14 @@ export function collectionsFor (selection) {
 		stopped being so twice since. The table is now the one statement of where a selection
 		goes, so this asks it rather than agreeing with it.
 	*/
+	/* **The value goes with the name** — `#1425`. One entry in that table now answers
+	   differently for two of its own values, because grouping by assignee asks documents for
+	   a column they do not have where grouping by status category does not. Passing it here
+	   keeps the table the single statement rather than putting a name back in this function,
+	   which is what `#872` took out of it. */
 	const impossible = Object.keys(asked).some(
 		(name) => asked[name] !== undefined && asked[name] !== null
-			&& answers("document", name) === "cannot"
+			&& answers("document", name, asked[name]) === "cannot"
 	);
 
 	if (impossible) return ["task"];

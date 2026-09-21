@@ -19,6 +19,8 @@ import sqlalchemy
 import sqlalchemy.orm
 
 import subroutine.domain.grouping
+import subroutine.domain.users
+import subroutine.domain.workspaces
 import subroutine.views
 import test_api_tasks
 
@@ -236,6 +238,174 @@ def test_a_grouped_listing_asks_a_bounded_number_of_questions (
 	)
 
 
+def _holding (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session, who: str, titles: list[str]
+) -> str:
+	"""Make an account and give it this work. Returns the name."""
+
+	# **A member, not merely an account.** `POST /v1/tasks` refuses an assignee who is not one,
+	# by name - which is the refusal working, and is why this helper exists rather than each
+	# test creating a user and being surprised.
+	person = subroutine.domain.users.create(session, username=who)
+	subroutine.domain.workspaces.add_member(
+		session, world.workspace, person, role_key="member"
+	)
+	session.flush()
+
+	for title in titles:
+		made = world.call("POST", "/v1/tasks", json={"title": title, "assignee": who})
+
+		assert made.status_code == 201, made.text
+
+	return who
+
+
+def test_a_board_can_be_grouped_by_who_the_work_is_assigned_to (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#1425`, Simon's decision of 2026-09-20 and `SR#1422` §4's option 4.
+
+	*Who is working on what* stops being scanned and becomes the layout. **The columns are the
+	people who actually hold work here**, so the count follows the work rather than the roster
+	— there is no cap and no roster query, which is what makes the axis affordable at all.
+
+	**Nobody comes first and is always there**, because it is the one key not read off the
+	rows: it is known before any row is looked at, so it is the one column of this axis that
+	can honestly be drawn empty, and *work in progress that nobody owns* is what `SR#1422` §5
+	says a lead is scanning for.
+	"""
+
+	keanu = _holding(world, session, "keanu", ["Read the grammar", "Write the note"])
+	laurence = _holding(world, session, "laurence", ["Ship the parser"])
+
+	# **An account holding nothing**, which is the cost of this axis stated as a test: it gets
+	# no column, so the board cannot say *nothing for them*. Asserted rather than left implied,
+	# because it is the property `SR#718`/`SR#738`/`SR#744` are about and it was chosen knowing.
+	subroutine.domain.workspaces.add_member(
+		session,
+		world.workspace,
+		subroutine.domain.users.create(session, username="gloria"),
+		role_key="member",
+	)
+	session.flush()
+
+	assert world.call("POST", "/v1/tasks", json={"title": "Nobody has this"}).status_code == 201
+
+	answered = world.call("GET", "/v1/tasks?group_by=assignee&fields=ref")
+
+	assert answered.status_code == 200, answered.text
+
+	payload = answered.json()
+
+	assert payload["group_by"] == "assignee"
+	assert [group["key"] for group in payload["groups"]] == [
+		subroutine.domain.grouping.UNASSIGNED,
+		keanu,
+		laurence,
+	], f"nobody first, then people in name order: {payload['groups']}"
+	assert _drawn(payload) == {
+		subroutine.domain.grouping.UNASSIGNED: 1, keanu: 2, laurence: 1
+	}
+
+
+def test_an_unassigned_column_is_drawn_even_when_everything_is_taken (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""The one empty column this axis can report, and the reason it is worth having.
+
+	*Nothing here is unassigned* is the answer `SR#1422` §5 says a lead is looking for. Every
+	other key of this axis exists because a row carries it, so an absent person and a person
+	with nothing are the same silence — `unset` is the exception, and it says so by being
+	present and empty rather than by being missing.
+	"""
+
+	_holding(world, session, "keanu", ["Read the grammar"])
+
+	payload = world.call("GET", "/v1/tasks?group_by=assignee&fields=ref").json()
+
+	assert _drawn(payload) == {subroutine.domain.grouping.UNASSIGNED: 0, "keanu": 1}
+
+
+def test_grouping_by_a_person_costs_a_statement_per_column_and_not_per_row (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""The cost that made this axis wait, measured rather than argued — `SR#1425`.
+
+	`grouping.py`'s docstring refused an assignee axis as *an N+1 wearing a query parameter*,
+	and the answer was not to waive it but to change where the keys come from: reading them off
+	the caller's own rows means the columns cannot outnumber what that query already found.
+
+	So adding rows to an existing column must not add statements. Adding a *person* does, by
+	one, which is the trade and is not a fan-out.
+	"""
+
+	counted: list[str] = []
+
+	def record (
+		_connection: typing.Any, _cursor: typing.Any, statement: str, *_rest: typing.Any
+	) -> None:
+		"""Note every statement the engine is asked to run."""
+
+		counted.append(statement)
+
+	_holding(world, session, "keanu", [f"Row {number}" for number in range(2)])
+
+	def statements () -> int:
+		"""Return how many statements one board grouped by assignee takes."""
+
+		counted.clear()
+		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", record)
+
+		try:
+			answered = world.call("GET", "/v1/tasks?group_by=assignee&fields=ref")
+
+			assert answered.status_code == 200, answered.text
+
+			return len(counted)
+		finally:
+			sqlalchemy.event.remove(session.get_bind(), "before_cursor_execute", record)
+
+	small = statements()
+
+	for number in range(12):
+		assert world.call(
+			"POST", "/v1/tasks", json={"title": f"More {number}", "assignee": "keanu"}
+		).status_code == 201
+
+	large = statements()
+
+	assert large == small, (
+		f"fourteen rows in one column took {large} statements where two took {small}: "
+		f"the grouping is fanning out per row"
+	)
+
+
+def test_the_cursor_refusal_names_the_narrowing_that_selects_the_unassigned_group (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#1425`, and it is `SR#1484`'s rule applied to the hint rather than to the refusal.
+
+	Every group's `next_cursor` is valid on a listing narrowed to that group, and the refusal
+	says how to narrow one. **For the group keyed `unset` that is not `assignee=unset`** —
+	which would look for an account of that name — but the grammar's own two reserved words.
+	A hint that sent somebody to a second refusal would be worse than no hint.
+	"""
+
+	refused = world.call("GET", "/v1/tasks?group_by=assignee&cursor=whatever")
+
+	assert refused.status_code == 422
+
+	hint = refused.json()["errors"][0]["hint"]
+
+	assert "assignee.is=unset" in hint, hint
+
+	# **And the fixed axis does not grow the sentence**, because it has no such group. A hint
+	# naming a narrowing that selects nothing would be this codebase's inert control in prose.
+	other = world.call("GET", "/v1/tasks?group_by=status_category&cursor=whatever")
+
+	assert "unset" not in other.json()["errors"][0]["hint"]
+
+
 def test_a_grouping_this_listing_does_not_have_is_refused_by_name (
 	world: test_api_tasks.World,
 ) -> None:
@@ -243,9 +413,15 @@ def test_a_grouping_this_listing_does_not_have_is_refused_by_name (
 
 	A listing that quietly drops an axis it does not understand answers with the whole
 	ungrouped page, and **the wrong answer is a superset**, so nothing looks broken.
+
+	**`due_at` rather than a nonsense word, and this test used to say `assignee`.** `SR#1425`
+	made that an axis, so the probe was silently testing the opposite of what it asserts - the
+	memory of it is worth keeping: an example chosen because it was *not* a thing is a test
+	that expires the day somebody builds the thing. A real field that is filterable and will
+	never be groupable proves the refusal is about being an **axis**, not about existing.
 	"""
 
-	refused = world.call("GET", "/v1/tasks?group_by=assignee")
+	refused = world.call("GET", "/v1/tasks?group_by=due_at")
 
 	assert refused.status_code == 422
 
@@ -255,7 +431,11 @@ def test_a_grouping_this_listing_does_not_have_is_refused_by_name (
 	# to guess whether it belongs in the body, and being refused twice for one mistake is what
 	# that item is about.
 	assert problem["errors"][0]["field"] == "query.group_by"
+
+	# **Both axes are offered**, which is what says the second register reaches the refusal.
+	# A hint naming only the older one would be the two registers having come apart.
 	assert "status_category" in problem["errors"][0]["hint"]
+	assert "assignee" in problem["errors"][0]["hint"], problem["errors"][0]["hint"]
 
 
 def test_a_cursor_and_a_grouping_cannot_be_sent_together (

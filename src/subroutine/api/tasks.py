@@ -464,11 +464,13 @@ def listing (
 		None,
 		description=(
 			"Split the answer into groups, each with an allowance of its own, so that no "
-			"group can be starved by its neighbours. 'status_category' is the one axis "
-			"today. Changes the response shape: 'groups', each with 'key', 'items' and its "
-			"own 'page'. Every group the axis has is present, including empty ones."
+			"group can be starved by its neighbours. 'status_category' and 'assignee' are "
+			"the axes. Changes the response shape: 'groups', each with 'key', 'items' and "
+			"its own 'page'. Grouped by a category, every group is present including empty "
+			"ones; grouped by assignee, there is a group for each person holding work here "
+			"and one keyed 'unset' for what nobody is named on."
 		),
-		examples=["status_category"],
+		examples=["status_category", "assignee"],
 	),
 	group_limit: int | None = fastapi.Query(
 		None,
@@ -1495,7 +1497,7 @@ def _page (
 	if group_by is not None:
 		axis = subroutine.domain.grouping.refuse_unknown_axis(group_by, kind="task")
 
-		subroutine.api.grouped.refuse_a_cursor(cursor, axis=axis)
+		subroutine.api.grouped.refuse_a_cursor(cursor, axis=axis, kind="task")
 
 		return subroutine.api.grouped.answer(
 			session,

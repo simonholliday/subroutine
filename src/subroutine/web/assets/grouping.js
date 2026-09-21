@@ -19,6 +19,16 @@ import { HORIZON_DAYS, LINKS_SHOWN } from "./settings.js";
 	and break on the first installation that renames one. `category` is the fixed field
 	published beside the key precisely so a client may branch on it.
 */
+/* **The axis a board is arranged by when its address does not say** — `#1425`. `address.js`
+   fills `group_by` in whenever an address omits it, so in practice this is the default the
+   whole app already had; naming it is what lets `columns` branch without a bare string. */
+export const STATUS_CATEGORY = "status_category";
+
+/* **The column holding what nobody is named on** — `#1425`. The same word the server keys that
+   group with and the same word the filter grammar reserves (`assignee.is=unset`): one idea,
+   one spelling, in the three places that have to agree about it. */
+export const UNASSIGNED = "unset";
+
 const COLUMNS = [
 	{ key: "todo", label: "To do" },
 	{ key: "in_progress", label: "In progress" },
@@ -154,7 +164,49 @@ export function rememberChoices (chosen, storage, key) {
 }
 
 
-export function columns (items) {
+function byWhoever (items, axis) {
+	/*
+		Arrange rows by a value they carry, rather than by a fixed vocabulary — `#1425`.
+
+		**Every column is here because a row put it here**, which is the whole of Simon's
+		decision of 2026-09-20: the count follows the work rather than the roster, so a board
+		cannot grow a column per member of a large workspace and needs no cap to stop it.
+
+		**The cost, stated where somebody will meet it**: a person holding nothing in this
+		selection has no column, so this arrangement cannot say *nothing for them*. That is the
+		distinction `#718`, `#738` and `#744` are about, and it is the one thing the fixed
+		columns above can do that this cannot. It was chosen knowing so.
+
+		**`unset` is the exception and comes first.** It is the one key that is not read off the
+		rows — it is known before any row is looked at — so it is the one column here that can
+		honestly be drawn empty, and *work in progress that nobody owns* is what `#1422` §5 says
+		a lead is scanning for.
+
+		**The rest are in name order, not most-work-first.** The set of columns already moves as
+		work moves; an order that moved as well would leave nothing on the board stable between
+		one look and the next.
+	*/
+	const held = new Map();
+
+	for (const item of items) {
+		const value = item[axis];
+		const key = value === null || value === undefined || value === "" ? UNASSIGNED : value;
+		const bucket = held.get(key);
+
+		if (bucket) bucket.push(item);
+		else held.set(key, [item]);
+	}
+
+	const named = [...held.keys()].filter((key) => key !== UNASSIGNED).sort();
+
+	return [
+		{ key: UNASSIGNED, label: "Nobody", items: held.get(UNASSIGNED) || [] },
+		...named.map((key) => ({ key, label: key, items: held.get(key) })),
+	];
+}
+
+
+export function columns (items, axis = STATUS_CATEGORY) {
 	/*
 		Arrange the rows a listing already fetched into the board's columns — `#653`.
 
@@ -179,6 +231,10 @@ export function columns (items) {
 		A category the server grows and this does not know about still gets a column, so a new
 		one appears rather than taking its rows off the page.
 	*/
+	if (axis !== STATUS_CATEGORY) {
+		return byWhoever(items, axis);
+	}
+
 	const held = new Map();
 
 	for (const item of items) {

@@ -16,7 +16,9 @@ import {
 import {
 	Adding, Focus, Narrowed, Ordered, Priority, TopLevelOnly, Whose,
 } from "./forms.js";
-import { NOT_SHOWN, collapsedColumns, columns, followed } from "./grouping.js";
+import {
+	NOT_SHOWN, STATUS_CATEGORY, collapsedColumns, columns, followed,
+} from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, marks, moment,
 	when,
@@ -750,7 +752,22 @@ export function Board ({
 		that and is blocked by `#28`; a board that reads well is worth having first, which is
 		what `#445` §6 recommended and what unblocked this from a `!2/2` item.
 	*/
-	const arranged = columns(items);
+	/* **What this board is arranged by** — `#1425`. `address.js` fills `group_by` in for a
+	   board that omits it, so the fallback is belt-and-braces rather than a second default. */
+	const axis = (selection && selection.group_by) || STATUS_CATEGORY;
+	const arranged = columns(items, axis);
+
+	/* **Dragging is offered only where a drop means something** — `#1425`. A drop hands
+	   `onMove` the column's key, and the caller turns that into a status category; on a
+	   board arranged by assignee the key is a username, so the same gesture would ask for a
+	   status by that name. Withholding the handlers is how this app already says *no control*
+	   rather than one that does nothing — `onWhose` and `onCollapse` are withheld the same
+	   way, and `#711`'s own note says a card that lifts with nowhere to drop it is a control
+	   whose only outcome is putting it back. **Reassigning by drag is the obvious next thing
+	   and is deliberately not this item.** */
+	const arrangeable = axis === STATUS_CATEGORY;
+	const onMoveHere = arrangeable ? onMove : null;
+	const onDragHere = arrangeable ? onDrag : null;
 
 	/*
 		**A column nothing was asked for must not report "Nothing"** (`#738`, and it is `#718`
@@ -785,9 +802,13 @@ export function Board ({
 		return account ? account.reached === false : false;
 	};
 
+	/* **`excluded` reads a `status_category` narrowing**, so it is asked only of the axis it
+	   is about — `#1425`. On any other axis a column key is a username, which that selection
+	   can never contain, so the call would be a comparison that cannot change an answer: this
+	   codebase's inert control, and it reads as the thing doing the work. */
 	const unasked = (column) =>
 		column.items.length === 0
-		&& (unreached(column) || excluded(column.key, selection));
+		&& (unreached(column) || (arrangeable && excluded(column.key, selection)));
 
 	/*
 		**A collapsed column is still a drop target, at its narrow width** (`#1008`). The
@@ -934,16 +955,16 @@ export function Board ({
 						the kind of true-sounding falsehood this project keeps finding.
 					*/ null}
 					<section class=${classFor(column)} key=${column.key}
-						onDragOver=${onMove ? ((event) => {
+						onDragOver=${onMoveHere ? ((event) => {
 							event.preventDefault();
 							event.dataTransfer.dropEffect = "move";
 
 							if (onOver && over !== column.key) onOver(column.key);
 						}) : undefined}
-						onDragLeave=${onOver ? (() => onOver(null)) : undefined}
-						onDrop=${onMove ? ((event) => {
+						onDragLeave=${onOver && onMoveHere ? (() => onOver(null)) : undefined}
+						onDrop=${onMoveHere ? ((event) => {
 							event.preventDefault();
-							onMove(column.key);
+							onMoveHere(column.key);
 						}) : undefined}>
 						${/*
 							**A count of what is on the page, which is not a total** (`#718`).
@@ -1017,7 +1038,7 @@ export function Board ({
 													workspace=${workspace}
 													place=${{ workspace, project }} onGo=${onGo}
 													onOpen=${onOpen} onComplete=${onComplete}
-													onDrag=${onDrag}
+													onDrag=${onDragHere}
 													hideStatus=${soleStatusIn(
 														statuses,
 														item.kind === "document" ? "document" : "task",
