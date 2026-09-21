@@ -144,18 +144,66 @@ def test_the_hosting_page_quotes_the_bind_refusal_as_it_is_actually_worded (
 		assert line.strip() in page, f"docs/hosting.md no longer quotes: {line.strip()!r}"
 
 
-#: The three ways ``docs/hosting.md`` quotes *this build's* schema revision back to a reader —
-#: ``db current``, ``/readyz`` and ``upgrade``. Each is somebody checking their own instance
-#: against the page, so each has to name the head this build actually wants. Deliberately not
-#: every twelve-hex token on the page: the upgrade walkthrough also quotes an *older* revision,
-#: on purpose, and a guard that could not tell the two apart would have to be switched off.
-_QUOTED_HEAD = (
-	re.compile(r"Schema is at ([0-9a-f]{12})\."),
-	re.compile(r'"schema_revision":"([0-9a-f]{12})"'),
-	# The version is deliberately not pinned: it is illustrative like the backup filename's
-	# timestamp beside it, and pinning it would make every release edit this page (`#343`).
-	re.compile(r"Subroutine \S+ expects schema ([0-9a-f]{12})\."),
-)
+#: Every revision ``docs/hosting.md`` quotes that is **not** this build's head: how many times,
+#: and why the page carries it. A backup filename records the revision it was taken at, and an
+#: upgrade needs something older to upgrade *from*, so each of these is illustrative and stands
+#: still while the head moves. **An entry goes when the page stops quoting it.**
+#:
+#: **The count is not decoration, and falsifying the first version of this guard is what put it
+#: here.** Without it, a quotation of the head that becomes one of *these* is invisible: it is
+#: not an unexcused revision, so a check asking only which revisions appear passes. A new
+#: quotation of the head still needs no edit, which is the property `SR#3098` wanted — only the
+#: older ones are pinned, because only they can silently absorb one.
+ILLUSTRATIVE_REVISIONS: dict[str, tuple[int, str]] = {
+	"9c41d0b7ae52": (3, "the backup `db backup` takes on a personal instance, named in its filename"),
+	"d5d0458f5ad5": (6, "the same on the server, in the listing and in what `POST /v1/admin/backups` says"),
+	"f159c8635e54": (3, "what the `db upgrade` walkthrough upgrades *from*"),
+	"233f898a2bee": (1, "a database behind the code, which `agenda` refuses by name"),
+	"4f177421eb91": (1, "a database behind the code, as `db current` reports it"),
+	"1f61c97bf2ca": (1, "the newest backup `diagnosis` reports having found"),
+}
+
+
+#: Revision-shaped: twelve hex characters, bounded, which is how Alembic writes one and how the
+#: page spells every one of them. **Deliberately not a set of sentence-shaped patterns** — that
+#: was `SR#3098`. Three were written from the three lines somebody was looking at; they read six
+#: of the page's twenty-eight occurrences, and the other seven could go stale in silence.
+_REVISION = re.compile(r"\b[0-9a-f]{12}\b")
+
+
+def _revisions_quoted (page: str) -> list[str]:
+	"""Return every revision a page quotes, in the order it quotes them."""
+
+	return _REVISION.findall(page)
+
+
+def _disagreements (page: str, head: str) -> list[str]:
+	"""Return every way a page's quoted revisions disagree with this build. Empty is correct.
+
+	Takes the page rather than reading it, so a doctored one can be driven through this same
+	entry point rather than through a second copy of the rule (`SR#405`).
+	"""
+
+	quoted = _revisions_quoted(page)
+	said: list[str] = []
+
+	for one in sorted(set(quoted)):
+		if one != head and one not in ILLUSTRATIVE_REVISIONS:
+			said.append(
+				f"{one} is quoted {quoted.count(one)} time(s) and is neither this build's head "
+				f"({head}) nor an older revision excused in ILLUSTRATIVE_REVISIONS"
+			)
+
+	for revision, (times, reason) in ILLUSTRATIVE_REVISIONS.items():
+		found = quoted.count(revision)
+
+		if found != times:
+			said.append(
+				f"{revision} — {reason} — is quoted {found} time(s) and the register says "
+				f"{times}"
+			)
+
+	return said
 
 
 #: The heading the settings table sits under. Named rather than matched by shape, because the
@@ -230,26 +278,83 @@ def test_the_hosting_page_quotes_the_schema_revision_this_build_expects () -> No
 	output is what the program actually printed, which is the promise that makes it worth
 	reading and the one nothing was holding.
 
-	The other quoted revisions are left alone deliberately. A backup filename records the
-	revision it was taken at, and the upgrade example needs an older one to upgrade *from*;
-	both are illustrative, and only these three are claims about the software the reader has.
+	**Every revision on the page is read, and the older ones are excused by name** (`SR#3098`).
+	The three sentence-shaped patterns this replaced saw six of twenty-eight occurrences, and
+	their own docstring — *"the other quoted revisions are left alone deliberately"* — was true
+	of the older revisions and silently untrue of seven further quotations of the head. Asking
+	the question of every token is what covers a new quotation the day it is written rather than
+	the day somebody notices.
+
+	The *version* beside a revision stays unpinned and unchecked (`SR#343`): it is illustrative
+	like the timestamp in the backup filename next to it, and pinning it would make every
+	release edit this page.
+	"""
+
+	head = subroutine.db.migrate.head_revision()
+
+	assert head is not None
+
+	said = _disagreements(HOSTING.read_text(encoding="utf-8"), head)
+
+	assert said == [], "docs/hosting.md and this build disagree:\n  " + "\n  ".join(said)
+
+
+def test_every_excused_revision_is_one_this_build_has_heard_of () -> None:
+	"""An illustrative revision is still a claim, so it cannot be invented.
+
+	The reader is being shown what their own instance might print, and a revision no migration
+	ever wrote is a sentence nothing could produce. It would also be the easy way to silence
+	the check above — paste the offending token into the register and the build goes green —
+	so the register is held to naming revisions that are really in this build's history.
+
+	The other direction, that an entry the page has stopped quoting is deleted, is enforced by
+	the count in the register itself: dropping to zero is a disagreement like any other.
+	"""
+
+	for revision, (_, reason) in ILLUSTRATIVE_REVISIONS.items():
+		assert subroutine.db.migrate.knows_revision(revision), (
+			f"ILLUSTRATIVE_REVISIONS names {revision} — {reason} — which is not a revision "
+			f"this build has ever heard of, so nothing could print it."
+		)
+
+
+def test_the_revision_check_fires_on_a_quotation_left_behind_at_either_end () -> None:
+	"""Two doctored pages driven through the real check (`SR#405`), one for each way it can miss.
+
+	`SR#3098` was invisible *because* the old guard read three sentences: a page whose **last**
+	quotation of the head had been left behind passed it. That is the first page here.
+
+	The second is the hole falsification found in this check's own first draft. Replacing a
+	quotation of the head with an *excused older* revision changes which revisions appear by
+	nothing at all, so a check asking only which ones are on the page went green on it. The
+	count in the register is what sees it, and this is the case that earns the count.
 	"""
 
 	page = HOSTING.read_text(encoding="utf-8")
 	head = subroutine.db.migrate.head_revision()
 
 	assert head is not None
+	assert page.count(head) > 10, (
+		f"docs/hosting.md quotes the head {page.count(head)} times; it used to be thirteen, so "
+		f"either the page has shrunk or this scan has stopped reading most of it"
+	)
 
-	for pattern in _QUOTED_HEAD:
-		found = pattern.findall(page)
+	# Read out of the register rather than written here. A second copy would go on looking
+	# right after the entry it names had gone, and the substitution would then be an
+	# *unexcused* revision — which the first assertion already covers, so the second would pass
+	# without testing the thing it is named after.
+	excused = next(iter(ILLUSTRATIVE_REVISIONS))
 
-		assert found, f"docs/hosting.md no longer quotes {pattern.pattern!r} at all"
+	at = page.rindex(head)
+	unknown = page[:at] + "0123456789ab" + page[at + len(head) :]
+	absorbed = page[:at] + excused + page[at + len(head) :]
 
-		for quoted in found:
-			assert quoted == head, (
-				f"docs/hosting.md says this build expects schema {quoted}, and it expects "
-				f"{head}. A migration has landed since the page was written."
-			)
+	assert _disagreements(unknown, head), (
+		"a revision nothing knows, at the end of the page, went unnoticed"
+	)
+	assert _disagreements(absorbed, head), (
+		f"a quotation of the head replaced by {excused}, which is excused, went unnoticed"
+	)
 
 
 #: An absolute link to a file in *this* repository, which is how the README has to write them
