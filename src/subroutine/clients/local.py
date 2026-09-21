@@ -3824,18 +3824,59 @@ class Client:
 
 	# --- Inside ------------------------------------------------------------------------
 
+	def _release_the_credential_touch (self, session: sqlalchemy.orm.Session) -> None:
+		"""Commit the ``last_used_at`` touch now, so it holds no lock into the operation.
+
+		**`SR#932`'s fix, on the transport it never reached.** `authentication.authenticate`
+		writes ``last_used_at`` through the ORM, so it joins whatever transaction resolved the
+		principal — and on SQLite a flushed UPDATE takes the write lock and keeps it until that
+		transaction ends. So every call through this client, *including a read*, held a write
+		lock for the whole of its work in order to record a timestamp.
+
+		**The read path did worse than hold it: it threw the write away.** `_opened` never
+		commits, so the touch was rolled back when the session closed and a credential used
+		only for reading recorded nothing at all — `SR#3119`, measured rather than reasoned
+		about. `api/security._release_the_authentication_write` has done this on the served
+		side since `SR#932`, and neither file mentioned the other.
+
+		**Committing here is what `_record_use`'s own docstring asks for** — *"this is
+		telemetry, and it must never be the reason a request is held open"* — which joining the
+		caller's transaction is exactly what defeated.
+
+		**The trade it names reverses, and the new side is the more truthful one**: an operation
+		that fails after authenticating now records that the credential *was* presented, which
+		is what happened.
+
+		**Unconditional, because the cheap-looking guard cannot answer the question.** `#932`
+		records that `if session.dirty` is about changes not yet *flushed*, and a flush is
+		exactly what takes the lock — so once anything upstream had flushed, `dirty` was empty,
+		the commit was skipped and the lock stayed held. A commit with nothing pending is a
+		no-op on both backends.
+		"""
+
+		session.commit()
+
 	@contextlib.contextmanager
 	def _opened (
 		self,
 	) -> typing.Iterator[
 		tuple[sqlalchemy.orm.Session, subroutine.domain.authentication.Principal]
 	]:
-		"""Yield a session and who is acting, for a read."""
+		"""Yield a session and who is acting, for a read.
+
+		**A read commits**, which reads oddly and is `SR#3119`: resolving the principal writes
+		``last_used_at``, and letting that go is the difference between a read that holds a
+		write lock throughout and one that does not.
+		"""
 
 		with self._sessions() as session, self._reported():
 			self._require_a_schema_this_build_understands(session)
 
-			yield session, self._principal(session)
+			acting = self._principal(session)
+
+			self._release_the_credential_touch(session)
+
+			yield session, acting
 
 	@contextlib.contextmanager
 	def _writing (
@@ -3857,8 +3898,12 @@ class Client:
 		with self._sessions() as session, self._reported():
 			self._require_a_schema_this_build_understands(session)
 
+			acting = self._principal(session)
+
+			self._release_the_credential_touch(session)
+
 			try:
-				yield session, self._principal(session)
+				yield session, acting
 
 			except BaseException:
 				session.rollback()

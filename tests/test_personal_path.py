@@ -12397,3 +12397,72 @@ def test_the_saved_view_topic_offers_every_arrangement_and_names_the_group_s_ver
 
 	for verb in ("save", "run", "edit"):
 		assert f"subroutine view {verb}" in topic.body, f"the topic never shows {verb!r}"
+
+
+def _credential_use (aged: bool = False) -> typing.Any:
+	"""Return what the instance records about when its one credential was last used.
+
+	**Read from the database rather than from `token list`**, and that is `SR#3119`'s own
+	lesson repeating: the first version of the test below asserted that the listing did not say
+	*never used*, and it said *last used* before any read had happened - so the test passed
+	against the defect and against the fix alike. What is being asserted is a stored fact, so a
+	stored fact is what it reads.
+
+	``aged`` clears the stamp first, which is what a quiet minute does on its own:
+	`authentication.LAST_USED_INTERVAL` throttles the write to once a minute, so a read moments
+	after a write records nothing and would prove nothing either way.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.identity
+	import subroutine.db.session
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			held = session.scalars(
+				sqlalchemy.select(subroutine.db.models.identity.ApiToken)
+			).one()
+
+			if aged:
+				held.last_used_at = None
+				session.commit()
+
+			return held.last_used_at
+
+	finally:
+		engine.dispose()
+
+
+def test_a_credential_used_only_for_reading_is_recorded_as_used (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3119`. The read path resolved the credential, wrote the touch, and threw it away.
+
+	**One rule, two transports, opposite outcomes.** `api/security._release_the_authentication_
+	write` commits this on the served side and has since `SR#932`; `clients/local._opened` never
+	committed at all, so a token used only for reading recorded nothing - and *when was this
+	last used* is exactly the evidence somebody acts on when deciding whether to revoke one.
+
+	**The write lock is the other half, and why this sits in `SR#3117`'s path.** The touch is
+	flushed, so it took a write lock and held it for the whole read before discarding it. Every
+	call through this client was a writer, whatever the command was called.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("token", "create", "--title", "Reader", "--store", "local")
+
+	assert _credential_use(aged=True) is None, "the stamp was not cleared, so nothing is proven"
+
+	# A pure read, presenting the credential that was just stored.
+	run("list")
+
+	assert _credential_use() is not None, (
+		"a credential was presented on a read and the instance recorded nothing about it"
+	)

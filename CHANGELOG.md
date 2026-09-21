@@ -20,6 +20,16 @@ upgrade involves.
 > verified backup, migrates and checks the result — in that order. Stop the service
 > first if you are running one; expect it to be down for the length of the migration.
 
+### Fixed
+
+- **A credential used only for reading is recorded as used.** Resolving a credential writes
+  when it was last used, and the command line and the stdio MCP server wrote that into the
+  transaction doing the work and then threw it away - so a token in daily read-only use read
+  as *never used*, which is exactly the evidence somebody acts on when deciding whether to
+  revoke one. The served API has committed it separately since 0.6; now both do. **It also
+  held a write lock for the whole of every read** in order to record a timestamp, which on
+  SQLite makes every command a writer whatever it is called.
+
 ### Added
 
 - **A view can be saved under a name, and shared with the people you work with.** A saved
