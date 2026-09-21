@@ -383,6 +383,116 @@ class Client:
 			wanted=limit,
 		)
 
+	def saved_views (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.SavedView]:
+		"""List the views you saved and the ones shared with this workspace."""
+
+		return self._parsed(
+			subroutine.views.Collection[subroutine.views.SavedView],
+			self._json("GET", "/v1/views", params=_given(workspace_id=workspace)),
+		)
+
+	def saved_view (
+		self, *, key: str, workspace: str | None = None
+	) -> subroutine.views.SavedView:
+		"""Read one saved view by the name it was given."""
+
+		return self._parsed(
+			subroutine.views.SavedView,
+			self._json(
+				"GET", f"/v1/views/{_segment(key)}", params=_given(workspace_id=workspace)
+			),
+		)
+
+	def save_view (
+		self,
+		*,
+		title: str,
+		arrangement: str,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.SavedView:
+		"""Save a view under a name, so nobody has to retype the narrowing."""
+
+		self._refuse_if_read_only()
+
+		return self._parsed(
+			subroutine.views.SavedView,
+			self._json(
+				"POST",
+				"/v1/views",
+				params=_given(workspace_id=workspace),
+				json=_given(
+					title=title,
+					arrangement=arrangement,
+					q=q,
+					order=order,
+					group_by=group_by,
+					shared=shared,
+				),
+			),
+		)
+
+	def update_saved_view (
+		self,
+		*,
+		key: str,
+		title: str | None = None,
+		arrangement: str | None = None,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool | None = None,
+		expected_version: int | None = None,
+		workspace: str | None = None,
+		given: typing.Container[str] = (),
+	) -> subroutine.views.SavedView:
+		"""Change a view you saved."""
+
+		self._refuse_if_read_only()
+
+		# **Built from ``given`` rather than from ``_given``**, because the three clearable
+		# fields have ``None`` as a real value: `_given` drops a null, which is right for every
+		# other body here and is exactly wrong for *clear this one*.
+		body: dict[str, typing.Any] = {
+			name: value
+			for name, value in (
+				("title", title),
+				("arrangement", arrangement),
+				("q", q),
+				("order", order),
+				("group_by", group_by),
+				("shared", shared),
+			)
+			if name in given or value is not None
+		}
+
+		if expected_version is not None:
+			body["expected_version"] = expected_version
+
+		return self._parsed(
+			subroutine.views.SavedView,
+			self._json(
+				"PATCH",
+				f"/v1/views/{_segment(key)}",
+				params=_given(workspace_id=workspace),
+				json=body,
+			),
+		)
+
+	def forget_saved_view (self, *, key: str, workspace: str | None = None) -> None:
+		"""Remove a view you saved, for good."""
+
+		self._refuse_if_read_only()
+
+		self._json(
+			"DELETE", f"/v1/views/{_segment(key)}", params=_given(workspace_id=workspace)
+		)
+
 	def statuses (
 		self, *, workspace: str | None = None, entity_type: str | None = None
 	) -> subroutine.views.Collection[subroutine.views.Status]:

@@ -647,6 +647,75 @@ class Client(typing.Protocol):
 		by being refused.
 		"""
 
+	def saved_views (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.SavedView]:
+		"""List the views you saved and the ones shared with this workspace — `SR#1402`.
+
+		**A saved view is a query and an arrangement**: one `SR#1806` search line for what is
+		narrowed, and three named fields for how it is drawn. Declared here rather than on one
+		transport because both need it, which is the divergence S3-07 removed for tasks and
+		`SR#291`, `SR#294` and `SR#300` rebuilt one endpoint at a time.
+
+		Bounded by how many somebody wrote, so it is enveloped and never paged.
+		"""
+
+	def saved_view (
+		self, *, key: str, workspace: str | None = None
+	) -> subroutine.views.SavedView:
+		"""Read one saved view by the name it was given.
+
+		**By name, not by id.** A view exists to be typed, sent and clicked; it is the one
+		entity here addressed by a word somebody chose rather than by a ref or a UUID.
+		"""
+
+	def save_view (
+		self,
+		*,
+		title: str,
+		arrangement: str,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.SavedView:
+		"""Save a view under a name, so nobody has to retype the narrowing.
+
+		``shared`` is false unless said, which is the decision rather than a default anybody
+		chose lightly: a view is mine by default and shared on purpose, so nothing that forgets
+		to mention it publishes one person's experiment to everybody.
+		"""
+
+	def update_saved_view (
+		self,
+		*,
+		key: str,
+		title: str | None = None,
+		arrangement: str | None = None,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool | None = None,
+		expected_version: int | None = None,
+		workspace: str | None = None,
+		given: typing.Container[str] = (),
+	) -> subroutine.views.SavedView:
+		"""Change a view you saved.
+
+		``given`` names the fields the caller meant to send, because ``None`` is a *value* on
+		three of them: clearing a view's grouping and saying nothing about it are different
+		instructions, and a signature that could not tell them apart would make *ungroup this*
+		unaskable. `SR#1396` met the same shape one surface over.
+		"""
+
+	def forget_saved_view (self, *, key: str, workspace: str | None = None) -> None:
+		"""Remove a view you saved, for good.
+
+		No trash, unlike a task: a view records nothing that happened, and a deleted one left
+		behind would go on holding its name against the next person who wants it.
+		"""
+
 	def statuses (
 		self, *, workspace: str | None = None, entity_type: str | None = None
 	) -> subroutine.views.Collection[subroutine.views.Status]:

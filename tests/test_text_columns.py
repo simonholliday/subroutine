@@ -54,6 +54,7 @@ import subroutine.domain.calendars
 import subroutine.domain.comments
 import subroutine.domain.documents
 import subroutine.domain.projects
+import subroutine.domain.saved
 import subroutine.domain.tags
 import subroutine.domain.tasks
 import subroutine.domain.text
@@ -260,6 +261,25 @@ def _project_description (world: test_api_tasks.World, value: str) -> object:
 	)
 
 
+def _saved_view (field: str) -> Driver:
+	"""Return a driver that saves a view with ``value`` in one field — `SR#1402`."""
+
+	def drive (world: test_api_tasks.World, value: str) -> object:
+		"""Save a view carrying this value."""
+
+		asked: dict[str, typing.Any] = {"title": "Fine", "arrangement": "list"}
+		asked[field] = value
+
+		return subroutine.domain.saved.create(
+			world.session,
+			workspace_id=world.workspace.id,
+			actor=_principal(world),
+			**asked,
+		)
+
+	return drive
+
+
 def _workspace_description (world: test_api_tasks.World, value: str) -> object:
 	"""Make a workspace described as ``value``.
 
@@ -339,6 +359,11 @@ DRIVEN: dict[str, tuple[Driver, str]] = {
 	# refusal names that, which is right: a message about ``name`` would be about a row the
 	# caller never mentioned. Pinning it here is what makes the difference deliberate.
 	"tag.name": (_tag_name, "tags"),
+	# **`SR#1402`.** A view's name is a label in a list somebody typed, so both rules apply:
+	# it has a width to overflow and it is somebody's typing. Driven through the domain rather
+	# than the endpoint, because that is where the refusal is decided and both clients inherit
+	# it — the defect this file was written from was a domain writer with its own check.
+	"saved_view.title": (_saved_view("title"), "title"),
 	"task.title": (_task_title, "title"),
 	"user.display_name": (_user("display_name"), "display_name"),
 	"user.email": (_user("email"), "email"),
@@ -371,6 +396,11 @@ NOT_TYPED: dict[str, str] = {
 	"item_type.category": "one of a fixed set, refused by name",
 	"item_type.entity_type": "a discriminator this code writes, from a fixed set",
 	"item_type.key": "seeded; no writer takes one from a caller",
+	# **`SR#1402`, and each is a value the service has already narrowed to a set.**
+	"saved_view.arrangement": "one of a fixed set, refused by name",
+	"saved_view.group_by": "an axis name, refused by name against the grouping registry",
+	"saved_view.key": "derived from the title by `saved.normalize_key`, which keeps only letters and digits",
+	"saved_view.order": "field names, each refused by name against `ordering.TASK_FIELDS`",
 	"item_type.label": "seeded; no writer takes one from a caller",
 	"link.source_type": "a discriminator this code writes, from a fixed set",
 	"link.target_type": "a discriminator this code writes, from a fixed set",
@@ -418,6 +448,10 @@ PROSE: dict[str, tuple[Driver, str]] = {
 	# parse — so this is what says the parse is still what stands between them and a column.
 	"task.recurrence_rule": (_repeat("FREQ=DAILY{value}"), "repeat"),
 	"task.recurrence_text": (_repeat("every day{value}"), "repeat"),
+	# **`SR#1402`.** A search line somebody typed, stored as written so it can be read and
+	# edited by hand. Unbounded on purpose: `#1806`'s grammar puts filters and words in one
+	# string, and a cap would refuse a narrowing nobody thought was long.
+	"saved_view.q": (_saved_view("q"), "q"),
 	"task.description": (_task_description, "description"),
 	"workspace.description": (_workspace_description, "description"),
 }

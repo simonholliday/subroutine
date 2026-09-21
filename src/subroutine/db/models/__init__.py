@@ -12,6 +12,7 @@ avoids a partially-initialised-package problem that aliases here would reintrodu
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.saved
 import subroutine.db.models.system
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
