@@ -437,6 +437,45 @@ def test_the_journal_tool_says_a_claim_was_given_up (
 	assert "claimed" in written, written
 
 
+def test_the_journal_tool_does_not_report_a_link_as_the_item_being_created (
+	bound: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3127`, reported against this tool and true of three surfaces.
+
+	The agent tools build their own journal line, so the fix to the terminal's reaches nothing
+	here - which is the shape the whole item is about, one rule written in several places. This
+	is the surface the defect was found on: a guide chapter read the same item created twice at
+	the same second and had no way to tell that the second line was a link.
+
+	`subroutine_changes` next door was already right, which is what made the pair legible - it
+	asks :func:`views.happened`, and that has known about links since it was written.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	captured, failed = _called(bound, "subroutine_add", text="Do not generate the navigation")
+
+	assert not failed, captured
+
+	ref = int(captured.split()[1].lstrip("#"))
+	other, failed = _called(bound, "subroutine_add", text="The navigation is hand-written")
+
+	assert not failed, other
+
+	far = int(other.split()[1].lstrip("#"))
+
+	assert not _called(bound, "subroutine_link", ref=ref, type="relates_to", other=far)[1]
+
+	written = _called(bound, "subroutine_journal")[0]
+	about = [one for one in written.splitlines() if "Do not generate" in one]
+
+	assert len(about) == 2, f"the creation and the link were not both shown: {about}"
+	assert len(set(about)) == 2, (
+		f"one item drawn twice with nothing telling the lines apart: {about}"
+	)
+	assert f"linked it to #{far} (relates to)" in written, written
+
+
 def test_the_journal_tool_writes_a_period_up_in_the_order_it_happened (
 	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:

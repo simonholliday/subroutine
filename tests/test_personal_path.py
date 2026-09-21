@@ -7118,6 +7118,52 @@ def test_a_journal_that_stopped_says_so_in_both_forms (
 	assert "…and more" not in run("journal", "--limit", "50").output
 
 
+def test_a_link_is_not_reported_as_the_item_being_created (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3127`, driven at the surfaces rather than at the helper that feeds them.
+
+	**A link row's own action is `created`**, so both readings printed *created* against the
+	item and a linked document appeared **twice, at the same second, by the same person**, with
+	nothing saying which line was the link. The obvious inference is that something was filed
+	twice, which is why a duplicated line with the wrong verb is worse than a missing one.
+
+	**Reported against the agent tools, and the terminal was wrong the same way in two places.**
+	The browser had been right since `#2826`. The helper is checked in `tests/test_web.py`
+	against what the browser draws; this drives the two commands, because a guard written at
+	the helper would pass with either surface still printing the bare action - which is the
+	state this test exists to refuse.
+
+	**The assertion is the symptom**, not the wording: no two lines about one item may be
+	identical. A verb that distinguishes them satisfies it however it is phrased.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	run("init")
+	run("add", "Do not generate the navigation from the sitemap")
+	run("doc", "create", "The navigation is hand-written", "--type", "decision", "--body", "So.")
+	run("link", "1", "documents", "2")
+
+	for command in ("journal", "changes"):
+		printed = run(command).output
+		about = [
+			one.strip() for one in printed.splitlines() if "Do not generate" in one
+		]
+
+		assert len(about) == 2, f"{command} did not show both the creation and the link: {about}"
+		assert len(set(about)) == 2, (
+			f"{command} drew one item twice with nothing telling the lines apart: {about}"
+		)
+		assert any("link" in one for one in about), (
+			f"{command} distinguished the lines but never says one is a link: {about}"
+		)
+
+	# **The journal names the far end and says it the browser's way** - `relates to`, not
+	# `relates_to` - because it is the same reading on another surface.
+	assert "linked it to #2 (documents)" in run("journal").output
+
+
 def test_a_journal_prints_a_period_in_the_order_it_happened_and_answers_newest_first (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

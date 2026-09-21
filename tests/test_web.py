@@ -18573,6 +18573,92 @@ def test_a_journal_draws_a_row_per_run_and_says_each_thing_once (tmp_path: pathl
 	assert created["actor"] == agent and created["door"] == "api", created
 
 
+def test_the_terminal_and_the_browser_say_the_same_thing_about_a_link (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`#3127`. The browser had named a link since `#2826`; three other surfaces had not.
+
+	**A link row's own action is `created`**, because the row really was created - so every
+	surface that printed the bare action said a linked item was *created*, twice at the same
+	second by the same person, with nothing saying which line was the link. Reported against the
+	agent tools; the terminal's journal *and* its change feed were wrong the same way and nobody
+	had looked. `views.action_in_words` cannot fix it: it takes an action and no entity type, so
+	it is structurally unable to tell one `created` from another.
+
+	**This compares the two readings rather than pinning one.** `journal.js`'s `linkOf` and
+	`views.a_link_from_this_side` each turn the same entry into the same facts, and the spelling
+	of the relation is part of that: the browser spaces `relates_to`, and a Python phrase saying
+	`relates_to` beside it would be one event described two ways - which is this item.
+	"""
+
+	entry = subroutine.views.JournalEntry(
+		seq=29, id=uuid.UUID(int=29), item_ref=2828, item_title="A document",
+		actor="@claude-super", actor_interface="api", action="created", entity_type="link",
+		changed=[
+			subroutine.views.Change(field="link_type", said="link type", after="relates_to"),
+			subroutine.views.Change(field="source", said="source", after="2828"),
+			subroutine.views.Change(field="target", said="target", after="2822"),
+		],
+		created_at=datetime.datetime(2026, 9, 21, 9, 29, tzinfo=datetime.UTC),
+	)
+
+	(rows,) = _views(tmp_path, [("journalRows", [entry.model_dump(mode="json")])])
+	(line,) = rows[0]["lines"]
+	drawn = line["link"]
+	said = subroutine.views.a_link_from_this_side(entry)
+
+	assert said is not None
+	assert drawn["made"] is True, drawn
+	assert f"#{drawn['others'][0]}" in said, (
+		f"the browser names #{drawn['others'][0]} and the terminal says {said!r}"
+	)
+	assert f"({drawn['type']})" in said, (
+		f"the browser spells the relation {drawn['type']!r} and the terminal says {said!r}"
+	)
+	assert said == "linked it to #2822 (relates to)", said
+
+	# **The far end is whichever end is not this row's item**, so the same link read through the
+	# other item names this one - the property `linkOf` was built with and the reason neither
+	# surface may simply print `target`.
+	assert subroutine.views.a_link_from_this_side(
+		entry.model_copy(update={"item_ref": 2822})
+	) == "linked it to #2828 (relates to)"
+
+
+def test_a_link_never_reads_as_the_action_on_its_own_item (tmp_path: pathlib.Path) -> None:
+	"""The half of `#3127` that has no payload to name, and it was the worse half.
+
+	**An unlink records nothing** - measured 2026-09-21, `domain.links` writes the deletion with
+	`changes` null, which is `#3131`. So nothing can name the far end, and a surface falling
+	through to the bare action said **`deleted`** beside an item that still exists. A reader's
+	obvious inference is that the item was deleted.
+
+	So for a link this never returns null and never reaches `action_in_words`: an unreadable one
+	falls back to `_HAPPENED`'s generic phrase, which says what happened without inventing a
+	number. Null is reserved for *not a link at all*, which is what lets a caller write
+	``a_link_from_this_side(entry) or action_in_words(entry.action)``.
+	"""
+
+	def entry (action: str, entity: str, changed: list[typing.Any]) -> subroutine.views.JournalEntry:
+		"""One entry, built through the view the surfaces read."""
+
+		return subroutine.views.JournalEntry(
+			seq=1, id=uuid.UUID(int=1), item_ref=42, item_title="Water the plants",
+			action=action, entity_type=entity, changed=changed,
+			created_at=datetime.datetime(2026, 9, 21, 9, 1, tzinfo=datetime.UTC),
+		)
+
+	assert subroutine.views.a_link_from_this_side(entry("deleted", "link", [])) == (
+		"unlinked it from something"
+	)
+	assert subroutine.views.a_link_from_this_side(entry("created", "link", [])) == (
+		"linked it to something"
+	)
+	assert subroutine.views.a_link_from_this_side(entry("created", "task", [])) is None, (
+		"null is what tells a caller this entry is not a link, so it must not be a link's answer"
+	)
+
+
 def test_a_journal_row_is_the_lists_row_or_a_plain_one_where_the_item_is_gone (
 	tmp_path: pathlib.Path,
 ) -> None:

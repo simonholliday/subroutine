@@ -5029,6 +5029,65 @@ def _a_link (event: Event) -> str | None:
 	return f"{verb} #{source} {relation} #{target}"
 
 
+def a_link_from_this_side (entry: JournalEntry) -> str | None:
+	"""Return a journal entry's link as a phrase, read from the item whose row it sits under.
+
+	**The journal's phrasing rather than the feed's, and they differ on purpose** (`#1430`,
+	decision `#1429`). :func:`_a_link` names *both* ends because a feed's row may not name the
+	item; a journal row always does, so this names only the **other** end. That is what
+	``journal.js`` has said in the browser since `#2826` - *linked it to #4 (documents)* - and
+	this is the terminal and the agent tools catching up (`#3127`).
+
+	**Without it three surfaces printed the bare action**, which for a link row is ``created``:
+	the link row really was created, so nothing looked wrong, and a linked document appeared
+	twice at the same second by the same person with nothing saying which line was the link.
+	:func:`action_in_words` **cannot** fix that - it takes an action and no entity type, so it
+	is structurally unable to tell a link's ``created`` from an item's.
+
+	**The other end, whichever end this is.** An entry read through the far item names that one,
+	so the side to print is the one that is not ``item_ref``.
+
+	**Null only when the entry is not a link at all.** A link this cannot read falls back to
+	:data:`_HAPPENED`'s generic phrase rather than to None, because None sends the caller to
+	:func:`action_in_words` - which is the defect. **An unlink records no payload**: measured
+	2026-09-21, ``domain.links`` writes the deletion with ``changes`` null, so nothing can name
+	the far end and *deleted* is what a bare action then says, beside an item that still exists.
+	That is worse than the reported symptom, and `#3131` is the event that does not record what
+	it removed. Until then *unlinked it from something* is the honest answer - the degradation
+	`#302` asks of :func:`_a_link`, one surface along.
+	"""
+
+	if entry.entity_type != "link":
+		return None
+
+	generic = _HAPPENED.get((entry.entity_type, entry.action))
+	made = entry.action != "deleted"
+	side = {one.field: (one.after if made else one.before) for one in entry.changed}
+	relation = side.get("link_type")
+	ends: dict[str, int] = {}
+
+	for field in ("source", "target"):
+		try:
+			ends[field] = int(str(side.get(field)))
+
+		except (TypeError, ValueError):
+			return generic or action_in_words(entry.action)
+
+	if relation is None:
+		return generic or action_in_words(entry.action)
+
+	other = ends["target"] if ends["source"] == entry.item_ref else ends["source"]
+
+	# **Spaced, because `journal.js`'s `linkOf` spaces it** and this is the same reading on
+	# another surface - `relates_to` reads as *relates to* in the browser, and the two saying
+	# different things about one event is what this whole item is about. The *feed* keeps the
+	# stored key (:func:`_a_link`), which is a different reading and stays as it is.
+	return (
+		f"{'linked it to' if made else 'unlinked it from'} "
+		f"#{other} ({str(relation).replace('_', ' ')})"
+	)
+
+
 #: The actions that cannot stand on their own as a verb, and what they read as instead.
 #:
 #: **`released` is the whole of it** (Simon, 2026-09-17, `#2862`): *released it* reads as a

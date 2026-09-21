@@ -1908,7 +1908,10 @@ def _journal (
 		lines.append(
 			f"{entry.created_at.astimezone(zone):%d %b %H:%M}  "
 			f"{entry.actor or 'the instance'}  "
-			f"{subroutine.views.action_in_words(entry.action)}  {_named(entry)}"
+			# **A link's row really was created, so the bare action says `created`** (`#3127`)
+			# and a linked item appears twice with nothing telling the lines apart.
+			f"{subroutine.views.a_link_from_this_side(entry) or subroutine.views.action_in_words(entry.action)}"
+			f"  {_named(entry)}"
 		)
 
 		# **Indented under the line rather than appended to it**, so a body of several hundred

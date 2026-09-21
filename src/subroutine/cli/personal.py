@@ -3072,7 +3072,24 @@ def _event_verb (event: subroutine.views.Event | subroutine.views.JournalEntry) 
 
 	A comment is the one action whose entity is not what it is about, and *commented on* reads
 	as what happened where *created* would name the comment row nobody can see.
+
+	**A link is the second such entity and was missed for both readings** (`#3127`). Its row is
+	genuinely created, so the bare action read *created* and a linked item appeared twice with
+	nothing telling the two lines apart. Each reading asks for its own words, which is why this
+	branches on what it was handed rather than on the action alone: a feed names both ends
+	because its row may not name the item, and a journal names the other end because its row
+	always does.
 	"""
+
+	if event.entity_type == "link":
+		joined = (
+			subroutine.views.a_link_from_this_side(event)
+			if isinstance(event, subroutine.views.JournalEntry)
+			else subroutine.views.happened(event)
+		)
+
+		if joined is not None:
+			return joined
 
 	verb = subroutine.views.action_in_words(event.action)
 

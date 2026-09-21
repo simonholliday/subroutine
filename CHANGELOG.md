@@ -22,6 +22,15 @@ upgrade involves.
 
 ### Fixed
 
+- **A link no longer reads as the item being created.** A link is a row of its own, so the
+  event's action is `created` - and the journal, the change feed at a terminal and the journal
+  in the agent tools each printed that bare action. A linked item appeared **twice, at the same
+  second, by the same person**, with nothing saying which line was the link, and the obvious
+  inference is that something was filed twice. All three now say a link was made and name the
+  item at the far end and the kind of link, which is what the browser has said since it was
+  built. **Undoing a link says so as well**, where it used to say `deleted` beside an item that
+  still exists.
+
 - **The capture shorthand's `!3` can be typed the way the help shows it.** In an interactive
   bash or zsh a `!` starts a reference to an earlier command, and double quotes do not stop it
   - so `subroutine add "Call the dentist before Sunday !3 ~15m #health"`, which is what
