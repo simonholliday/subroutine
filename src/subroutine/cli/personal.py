@@ -7860,7 +7860,7 @@ def _views_listed (program: Program, *, json_output: bool) -> None:
 		# Taken because `columns` takes it everywhere rather than only where a cell needs one,
 		# which is what stops the next cell rendering a day in the server's zone (`#1091`).
 		reading = world.account_zone(where.name, None)
-		found = where.client.saved_views()
+		found = where.client.saved_views(workspace=_writing_workspace(world))
 
 	if json_output:
 		program.say(
@@ -7944,7 +7944,9 @@ def _view_run (
 	"""
 
 	with program.opened() as world:
-		found = world.writing_to().client.saved_view(key=key)
+		found = world.writing_to().client.saved_view(
+			key=key, workspace=_writing_workspace(world)
+		)
 
 	declined = _arrangement_declined(found)
 
@@ -7991,6 +7993,7 @@ def _view_saved (
 			order=order or None,
 			group_by=group_by or None,
 			shared=shared,
+			workspace=_writing_workspace(world),
 		)
 
 	if json_output:
@@ -8050,6 +8053,7 @@ def _view_edited (
 			group_by=group_by or None,
 			shared=shared,
 			given=given,
+			workspace=_writing_workspace(world),
 		)
 
 	if json_output:
@@ -8070,8 +8074,9 @@ def _view_forgotten (program: Program, *, key: str) -> None:
 
 	with program.opened() as world:
 		where = world.writing_to()
-		going = where.client.saved_view(key=key)
-		where.client.forget_saved_view(key=going.key)
+		named = _writing_workspace(world)
+		going = where.client.saved_view(key=key, workspace=named)
+		where.client.forget_saved_view(key=going.key, workspace=named)
 
 	program.say(f"Forgotten: {going.key}  {going.title}")
 

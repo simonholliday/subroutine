@@ -12466,3 +12466,31 @@ def test_a_credential_used_only_for_reading_is_recorded_as_used (
 	assert _credential_use() is not None, (
 		"a credential was presented on a read and the instance recorded nothing about it"
 	)
+
+
+def test_the_view_group_works_where_more_than_one_workspace_exists (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3120`. Every other test for this group runs against an instance holding one.
+
+	**A one-workspace fixture cannot exercise the two-workspace case**, and with one there is
+	nothing to be ambiguous about - so a request naming no workspace is answered rather than
+	refused, and twelve tests passed against a command that could not work on the served
+	instance. `SR#273` is the same fault mirrored: a marker test written against a
+	two-connection fixture that never exercised the one-connection case.
+
+	**Found by driving it against the real instance minutes after it was pushed there**, which
+	is `SR#749`'s rule rather than a lucky glance.
+	"""
+
+	run("init")
+	run("workspace", "create", "acme", "Acme")
+
+	run("-w", "acme", "view", "save", "Mine", "--q", "boiler")
+
+	assert "mine" in run("-w", "acme", "view", "list").output
+
+	# **And the one it is saved in is the one it is in.** Naming the other workspace must not
+	# find it, or the workspace is being accepted and ignored - which is the defect wearing a
+	# passing test.
+	assert "mine" not in run("-w", "projects", "view", "list").output
