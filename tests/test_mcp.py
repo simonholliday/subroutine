@@ -31,6 +31,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.api.app
+import subroutine.api.mcp
 import subroutine.api.routing
 import subroutine.cli.main
 import subroutine.cli.personal
@@ -9417,4 +9418,61 @@ def test_no_project_listing_difference_is_recorded_that_has_since_gone_away () -
 	assert settled == set(), (
 		f"{sorted(settled)} is written down as a deliberate difference and is not one any "
 		f"more. Delete the entry."
+	)
+
+
+def test_the_request_holds_nothing_while_the_tool_session_works () -> None:
+	"""`SR#3117`. Two sessions from one pool are two connections, and one can lock the other out.
+
+	**Measured in a guide chapter rather than reasoned about**: `SQLITE_BUSY` after exactly five
+	seconds, from a single process, with `/proc/<pid>/fd` confirming no other process had the
+	database open. Never a partial wait - which is what a holder that cannot let go until the
+	waiter returns looks like, as against contention that clears.
+
+	**Asserted on the order of the source, and that is a deliberate second best.** The claim is
+	that nothing of the request's own is held at the moment the client's session opens, and the
+	honest way to drive it would be to make the lock actually happen - which nobody has managed
+	to do outside that container. So this holds the shape instead: the commit is between the
+	last use of the request's session and the call that opens the second one. Falsified by
+	removing it.
+
+	`SR#932` and `SR#565` each repaired one symptom of this shape after meeting it. This is the
+	structure that produced all three.
+	"""
+
+	source = pathlib.Path(subroutine.api.mcp.__file__).read_text(encoding="utf-8")
+	tree = ast.parse(source)
+
+	handler = next(
+		node for node in ast.walk(tree)
+		if isinstance(node, ast.FunctionDef) and "session" in {
+			argument.arg for argument in node.args.args
+		} and any(
+			isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+			and call.func.id == "_client"
+			for call in ast.walk(node)
+		)
+	)
+
+	committed = [
+		node.lineno for node in ast.walk(handler)
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+		and node.func.attr == "commit"
+		and isinstance(node.func.value, ast.Name) and node.func.value.id == "session"
+	]
+	opened = [
+		node.lineno for node in ast.walk(handler)
+		if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+		and node.func.id == "_client"
+	]
+
+	assert opened, "the handler no longer opens a client, so this scan reads nothing"
+	assert committed, (
+		"the request's session is handed to the tool's session still holding whatever it has. "
+		"Two sessions from one pool are two connections, and on SQLite one waits the other out "
+		"for the whole busy timeout - `SR#3117`, measured from a single process."
+	)
+	assert min(committed) < min(opened), (
+		f"the request's session is committed at line {min(committed)}, after the client is "
+		f"opened at line {min(opened)} - so it is still holding while the second session works"
 	)

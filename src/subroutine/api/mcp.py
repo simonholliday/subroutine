@@ -182,6 +182,22 @@ def call (
 	# one built in this session detaches the moment anything on it loads in another. The
 	# credential is resolved again, in the session that uses it.
 	name = _instance_name(session)
+
+	# **Nothing of this request's own is held while the tool's session works** (`#3117`).
+	#
+	# `_client` below opens a second session from the same pool, which is a second *connection*
+	# - and on SQLite a lock one of them holds is one the other waits out. Measured in a guide
+	# chapter: `SQLITE_BUSY` after exactly five seconds, from a single process, with the kernel
+	# confirming no other process had the database open. Never a partial wait, because a holder
+	# that cannot let go until the waiter returns is not contention that clears.
+	#
+	# **Committing here makes the hazard structurally absent rather than merely unlikely.**
+	# `#932` did this for the authentication write and `#565` for the second touch, each after
+	# meeting it; both were repairs to one symptom of the same shape. A commit with nothing
+	# pending is a no-op, so the ordinary request pays for a round trip that does nothing
+	# rather than for a lock that outlives it.
+	session.commit()
+
 	server = subroutine.mcp.session.over(
 		_client(request, settings, name=name),
 		label=name,
@@ -333,12 +349,17 @@ def _acting_as (
 				subroutine.domain.authentication.Principal, instead(session)
 			)
 
-		# **Already counted, and counting it again deadlocks the request** (`#565`).
-		# `PrincipalDep` authenticated this caller in the request's own session and dirtied
-		# `token.last_used_at` there; `api/routing.Transactional` holds that transaction until
-		# after the handler returns, so the row lock outlives this call. Writing it a second
-		# time here — in the client's separate session, on the same row — blocked on the lock
-		# the same request was holding, with no concurrency involved at all.
+		# **Already counted, and counting it again deadlocked the request** (`#565`).
+		# `PrincipalDep` authenticates this caller in the request's own session, and writing
+		# `token.last_used_at` a second time here - in the client's separate session, on the
+		# same row - blocked on the lock the same request was holding, with no concurrency
+		# involved at all.
+		#
+		# **Two things have since removed the lock this describes, and this comment claimed it
+		# was still held until `#3117`**: `#932` commits the authentication write before the
+		# handler runs, and the handler now commits again before opening the client's session.
+		# Not counting a second time is still right - a request is one use - but it is no
+		# longer the only thing standing between here and a deadlock.
 		return subroutine.api.security.resolve(session, request, record_use=False)
 
 	return resolve

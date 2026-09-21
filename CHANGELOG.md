@@ -22,6 +22,13 @@ upgrade involves.
 
 ### Fixed
 
+- **An agent's tool call no longer waits five seconds on itself.** Reaching an instance over
+  the stdio MCP server runs the instance *in process*, and each tool call opened a second
+  database session while the request still held its own - two connections, and on SQLite one
+  waits the other out. It surfaced as `database is locked` after exactly five seconds, from a
+  single process with nothing else running, and it needed only one call to one server. The
+  request now holds nothing while the tool works.
+
 - **A credential used only for reading is recorded as used.** Resolving a credential writes
   when it was last used, and the command line and the stdio MCP server wrote that into the
   transaction doing the work and then threw it away - so a token in daily read-only use read
