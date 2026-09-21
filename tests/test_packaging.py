@@ -386,6 +386,11 @@ RETIRED_DESCRIPTIONS = (
 	# have"* — expired when one shipped, and the agent arc gave us a claim we could not make
 	# in August.
 	"Agent-native task management for your life, your projects and your team.",
+	# `#3105`, 2026-09-21. Retired for understating the noun rather than for the audience: the
+	# page beneath it claims decisions, findings, designs, dead ends and a roadmap, and a
+	# decision and a task share one numbering here - so *task management* promised a to-do
+	# list, and in a search result the opening sentence is the only thing that appears.
+	"Agent-native task management for complex projects, where the decisions live beside the work.",
 )
 
 

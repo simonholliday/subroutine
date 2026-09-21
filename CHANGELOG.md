@@ -72,6 +72,11 @@ upgrade involves.
 
 ### Changed
 
+- **The one-line description is now *"A self-hosted, agent-native task and decision tracker for
+  people and coding agents working on complex projects"***, on every surface that carries one.
+  The old line said *task management*, which promised a to-do list - where a decision and a
+  task are the same kind of item here, sharing one numbering. Nothing about the software
+  changes; a search result and a plugin listing now describe it correctly.
 - **An agent that has not said which timezone it is in reads days in its account
   parent's**, rather than in the workspace's. Nobody could set a zone for an agent they
   made, since an account's zone is its own to say, so a time an agent wrote for somebody -

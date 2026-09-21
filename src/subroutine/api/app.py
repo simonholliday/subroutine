@@ -57,7 +57,7 @@ import subroutine.views
 #: or an agent deciding whether this endpoint does what they need, so it points at the two
 #: places that answer that rather than describing the product again.
 DESCRIPTION = """
-Agent-native task management for complex projects, where the decisions live beside the work.
+A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects.
 
 `GET /v1/meta` reports this installation's vocabulary — its statuses, link types, field
 operators and date grammar — so a client can read them rather than assume them.
@@ -228,7 +228,7 @@ def create_app (
 
 	application = fastapi.FastAPI(
 		title="Subroutine",
-		summary="Agent-native task management for complex projects, where the decisions live beside the work.",
+		summary="A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects.",
 		description=DESCRIPTION,
 		version=subroutine.API_VERSION,
 		openapi_url="/v1/openapi.json",

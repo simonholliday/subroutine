@@ -1,4 +1,4 @@
-"""Subroutine — agent-native task management for complex projects, where the decisions live beside the work.
+"""Subroutine — a self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects.
 
 A self-hostable task and project tracker whose HTTP API, CLI and data model treat a
 person and an AI agent as equally first-class users. See ``docs/design.md`` for the full

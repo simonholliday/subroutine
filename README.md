@@ -1,6 +1,6 @@
 # Subroutine
 
-**Agent-native task management for complex projects, where the decisions live beside the work.**
+**A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects.**
 
 A self-hosted tracker for developers who work with coding agents, and for the people they
 work with.
