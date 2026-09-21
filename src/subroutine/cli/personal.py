@@ -51,6 +51,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.context
 import subroutine.credentials
+import subroutine.db.models.saved
 import subroutine.db.models.work
 import subroutine.db.seed
 import subroutine.db.types
@@ -7830,6 +7831,453 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 
 
+#: The one arrangement a terminal can draw, out of ``db.models.saved.ARRANGEMENTS``. Named
+#: once rather than written into a comparison and four help strings — a literal naming a
+#: member of somebody else's vocabulary is a copy of a rule, and this is the copy that would
+#: go quiet if the word moved. `tests/test_personal_path.py` checks it is still a member.
+ARRANGED_AS_A_LIST = "list"
+
+#: The arrangements a view can be saved as, for the help that offers them. Read from the
+#: vocabulary rather than transcribed, so a fourth one reaches ``--help`` without an edit.
+ARRANGEMENTS_IN_WORDS = ", ".join(subroutine.db.models.saved.ARRANGEMENTS)
+
+
+def _views_listed (program: Program, *, json_output: bool) -> None:
+	"""Print the views this account saved and the ones shared with the workspace.
+
+	**Read from the connection a write would go to** (§13.7). A saved view belongs to one
+	person in one workspace on one instance, so there is nothing to merge and no heading per
+	connection: ``use`` and a ``.subroutine`` marker decide whose furniture this is, exactly as
+	they decide where ``subroutine add`` files.
+
+	Never paged, because the collection is bounded by how many somebody typed — which is the
+	statement :meth:`Client.saved_views` makes, and the one ``Link`` makes one entity over.
+	"""
+
+	with program.opened() as world:
+		where = world.writing_to()
+
+		# Taken because `columns` takes it everywhere rather than only where a cell needs one,
+		# which is what stops the next cell rendering a day in the server's zone (`#1091`).
+		reading = world.account_zone(where.name, None)
+		found = where.client.saved_views()
+
+	if json_output:
+		program.say(
+			json.dumps([one.model_dump(mode="json") for one in found.items], indent=2)
+		)
+
+		return
+
+	if not found.items:
+		program.say("No views saved here yet.")
+		_suggest(program.console, 'subroutine view save "My bugs" --q "type:bug"')
+
+		return
+
+	for line in _tabulated([one.columns(reading) for one in found.items]):
+		program.say(line)
+
+
+def _arrangement_declined (view: subroutine.views.SavedView) -> str | None:
+	"""Return what a terminal cannot draw about a saved view, or ``None`` when it can draw it.
+
+	**`#1402`'s decision said out loud rather than applied quietly**: the terminal honours the
+	narrowing and declines the arrangement, so a view saved as a board is drawn as a list *and
+	the line above it says so*. A board silently drawn as a list is a different answer to the
+	question the reader asked, reported as the one they asked for.
+
+	**The narrowing is the half that is kept, and that is not arbitrary.** ``q`` is the whole of
+	what was selected and there is a listing here that takes it; ``arrangement`` and
+	``group_by`` are how a browser draws it, and there is nothing here to draw them with.
+	Keeping the other half instead — running the agenda for a view saved as one — would drop
+	the ``q`` entirely, which is the only part a terminal can be faithful to.
+	"""
+
+	# Only `agenda` and `board` reach the first half, because `list` is what is about to be
+	# drawn. The article is computed rather than written twice, so a fourth arrangement needs
+	# no edit here.
+	article = "an" if view.arrangement[:1] in "aeiou" else "a"
+
+	saved_as = "" if view.arrangement == ARRANGED_AS_A_LIST else f"as {article} {view.arrangement}"
+	grouped = "" if view.group_by is None else f"grouped by {view.group_by}"
+	how = " ".join(part for part in (saved_as, grouped) if part)
+
+	if not how:
+		return None
+
+	return (
+		f"{view.key!r} is saved {how}. A terminal draws a list, so this is the same "
+		"narrowing drawn flat."
+	)
+
+
+def _view_run (
+	program: Program,
+	*,
+	key: str,
+	limit: int,
+	json_output: bool,
+	merged: bool,
+	strict: bool,
+	order: str,
+	project: typing.Sequence[str] | None,
+	tag: typing.Sequence[str] | None,
+	connection: str,
+	deferred: bool,
+	dated: typing.Sequence[str] | None,
+) -> None:
+	"""Print the work a saved view selects, and say what of it a terminal cannot draw.
+
+	**The same listing every other command prints**, handed the saved ``q`` — which is what
+	makes a view portable rather than a second way to ask a question. A view whose ``q`` is
+	empty narrows nothing and draws exactly what ``subroutine list`` draws, because that is
+	what it says.
+
+	**An explicit ``--order`` beats the saved one.** A stored arrangement is a default somebody
+	chose once; a flag is what they are asking for now, and the alternative — a saved order no
+	flag can override — would make *my view, newest first* unaskable.
+
+	Two round trips rather than one: the view is read before the listing opens its own world.
+	Not folded together, because :func:`_listed` owns opening the connections, and threading a
+	half-open world through it would put this command inside a function serving four others.
+	"""
+
+	with program.opened() as world:
+		found = world.writing_to().client.saved_view(key=key)
+
+	declined = _arrangement_declined(found)
+
+	if declined is not None:
+		# **To standard error, so `--json` and a pipe stay clean.** The notice is for whoever
+		# is reading; a script has the whole view from `subroutine view list --json` and can
+		# see the arrangement for itself.
+		program.warn(declined)
+
+	_listed(
+		program,
+		limit=limit,
+		json_output=json_output,
+		merged=merged,
+		strict=strict,
+		order=order or found.order,
+		project=_only_once(program, "--project", project),
+		tag=_only_once(program, "--tag", tag),
+		connection=connection or None,
+		deferred=deferred,
+		q=found.q,
+		filters=_filters(program, dated),
+	)
+
+
+def _view_saved (
+	program: Program,
+	*,
+	title: str,
+	q: str,
+	arrangement: str,
+	order: str,
+	group_by: str,
+	shared: bool,
+	json_output: bool,
+) -> None:
+	"""Save a narrowing under a name, and answer with the name it will be typed by."""
+
+	with program.opened() as world:
+		saved = world.writing_to().client.save_view(
+			title=title,
+			arrangement=arrangement,
+			q=q or None,
+			order=order or None,
+			group_by=group_by or None,
+			shared=shared,
+		)
+
+	if json_output:
+		program.say(json.dumps(saved.model_dump(mode="json"), indent=2))
+
+		return
+
+	# **The key is what every other command takes and it is derived from the title**, so a save
+	# printing only the title would leave the reader guessing at the word. Read back from the
+	# answer rather than derived a second time here, which is `#508`'s signature defect.
+	program.say(f"Saved: {saved.key}  {saved.title}")
+	_suggest(program.console, f"subroutine view run {saved.key}")
+
+
+def _view_edited (
+	program: Program,
+	*,
+	key: str,
+	title: str,
+	q: str | None,
+	arrangement: str,
+	order: str | None,
+	group_by: str | None,
+	shared: bool | None,
+	json_output: bool,
+) -> None:
+	"""Change a view you saved, sending only the fields somebody named.
+
+	**``given`` is what makes *clear this* askable**, and this is the surface it exists for:
+	``None`` is a meaningful value on ``q``, ``order`` and ``group_by``, so a flag left off and
+	a flag set to nothing are different instructions. Typer can tell them apart because those
+	three default to ``None`` rather than to ``""`` — an empty string arrived only if somebody
+	typed one, and it is read as *clear it*.
+
+	**Renaming moves the address.** The key is derived from the title, so ``--title`` changes
+	the word every other command takes, and the answer prints the new one for that reason.
+	"""
+
+	asked: dict[str, str | bool | None] = {
+		"q": q, "order": order, "group_by": group_by, "shared": shared,
+	}
+	given = tuple(name for name, value in asked.items() if value is not None)
+
+	if not given and not title and not arrangement:
+		program.stop(
+			f"Nothing to change about {key!r}.",
+			"Name a part: --title, --q, --as, --order, --group-by, --shared or --private.",
+		)
+
+	with program.opened() as world:
+		changed = world.writing_to().client.update_saved_view(
+			key=key,
+			title=title or None,
+			arrangement=arrangement or None,
+			q=q or None,
+			order=order or None,
+			group_by=group_by or None,
+			shared=shared,
+			given=given,
+		)
+
+	if json_output:
+		program.say(json.dumps(changed.model_dump(mode="json"), indent=2))
+
+		return
+
+	program.say(f"Changed: {changed.key}  {changed.title}")
+
+
+def _view_forgotten (program: Program, *, key: str) -> None:
+	"""Remove a view for good, naming what went.
+
+	**Read first so the line can say what was lost.** There is no trash for a view, unlike a
+	task, so ``Forgotten: my-bugs`` alone would leave somebody who typed the wrong name with
+	no way to tell what they had. It costs one query on a command nobody runs twice a day.
+	"""
+
+	with program.opened() as world:
+		where = world.writing_to()
+		going = where.client.saved_view(key=key)
+		where.client.forget_saved_view(key=going.key)
+
+	program.say(f"Forgotten: {going.key}  {going.title}")
+
+
+def _register_views (app: typer.Typer, program: Program) -> None:
+	"""Add the ``view`` group to the application — `#3095`, the terminal half of `#1402`.
+
+	**Its own verb group rather than a flag on ``list`` or ``search``**, which is the part worth
+	writing down because the alternative looks obvious. ``list`` already refuses a ``q`` three
+	ways on `#282`'s reasoning — a hidden flag doing another command's job is the second way to
+	do one thing — and folding *run my saved board* into ``search`` would make it read as a text
+	search. `#282`'s own premise has moved since, because `#1806` put the whole grammar on
+	``q`` and ``search`` already filters; this gets a verb of its own rather than breaking a
+	standing decision to fix a premise that has gone stale.
+
+	**Out of ``register``**, for `#943`'s reason: that closure only shrinks, and a new group is
+	the signal to move rather than to make room.
+
+	**Reachable from ``help`` and named by an ``explain`` topic**, which is `#777`'s recorded
+	cost — ``claim`` and ``release`` were mandated for agents, hidden from help, named by no
+	topic, and therefore unused.
+	"""
+
+	view_app = typer.Typer(
+		help="Save a narrowing under a name, and come back to it.",
+		invoke_without_command=True,
+	)
+	app.add_typer(view_app, name="view")
+
+	# **A bare `view` lists, as a bare `workspace` and a bare `project` do** (`#1619`). The
+	# listing is the command somebody meets first, and printing help instead would answer a
+	# different question from the one the other two nouns answer to the same gesture.
+	@view_app.callback()
+	def view_group (context: typer.Context) -> None:
+		"""Save a narrowing under a name, and come back to it."""
+
+		if context.invoked_subcommand is not None:
+			return
+
+		_views_listed(program, json_output=False)
+
+	@view_app.command("list")
+	def view_list (
+		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
+	) -> None:
+		"""Show the views you saved and the ones shared with this workspace.
+
+		Examples:
+
+		  subroutine view list
+
+		Each row is the name you type to run it, how it is drawn, what it narrows to, whose
+		it is, and whether the workspace can see it. A view is yours until you share it.
+		"""
+
+		_views_listed(program, json_output=json_output)
+
+	@view_app.command("run")
+	def view_run (
+		key: str = typer.Argument("", help="Which view, by its name."),
+		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
+		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
+		merged: bool = typer.Option(
+			False, "--merged", help="One list rather than a group per connection."
+		),
+		strict: bool = typer.Option(
+			False, "--strict", help="Stop if any connection cannot be reached."
+		),
+		order: str = typer.Option(
+			"", "--order", help="Sort by this instead of the order the view saved."
+		),
+		project: list[str] | None = PROJECT_OPTION,
+		tag: list[str] | None = TAG_OPTION,
+		connection: str = typer.Option(
+			"", "--connection", help="Only this connection, by name."
+		),
+		deferred: bool = typer.Option(
+			False, "--deferred", help="Include what you have deferred until a later date."
+		),
+		dated: list[str] | None = typer.Option(None, "--filter", help=FILTER_OPTION_HELP),
+	) -> None:
+		"""Show the work a saved view selects.
+
+		Examples:
+
+		  subroutine view run my-bugs
+
+		  subroutine view run my-bugs --order -created_at
+
+		A terminal honours what a view narrows to and draws a list. A view saved as a board
+		or an agenda, or grouped, says so on the line above the rows rather than quietly
+		coming back as something else.
+		"""
+
+		_view_run(
+			program,
+			key=_asked(key, "Which view?"),
+			limit=limit,
+			json_output=json_output,
+			merged=merged,
+			strict=strict,
+			order=order,
+			project=project,
+			tag=tag,
+			connection=connection,
+			deferred=deferred,
+			dated=dated,
+		)
+
+	@view_app.command("save")
+	def view_save (
+		title: str = typer.Argument("", help="What to call it, in one line."),
+		q: str = typer.Option("", "--q", help="What it narrows to. See 'explain searching'."),
+		arrangement: str = typer.Option(
+			ARRANGED_AS_A_LIST, "--as", help=f"How it is drawn: {ARRANGEMENTS_IN_WORDS}."
+		),
+		order: str = typer.Option("", "--order", help="Sort by, e.g. '-priority_score'."),
+		group_by: str = typer.Option("", "--group-by", help="Group by this, where it is drawn."),
+		shared: bool = typer.Option(
+			False, "--shared", help="Let the whole workspace see it. Yours alone otherwise."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Save a narrowing under a name, so nobody has to retype it.
+
+		Examples:
+
+		  subroutine view save "My bugs" --q "type:bug assignee:me"
+
+		  subroutine view save "Team queue" --q "urgency>=4" --as board --shared
+
+		The name you type it by is made from the title, so "My bugs" answers to 'my-bugs'.
+		A view is yours until you say --shared, so forgetting publishes nothing.
+		"""
+
+		_view_saved(
+			program,
+			title=_asked(title, "What should it be called?"),
+			q=q,
+			arrangement=arrangement,
+			order=order,
+			group_by=group_by,
+			shared=shared,
+			json_output=json_output,
+		)
+
+	@view_app.command("edit")
+	def view_edit (
+		key: str = typer.Argument("", help="Which view, by its name."),
+		title: str = typer.Option("", "--title", help="Rename it. This changes its name too."),
+		q: str | None = typer.Option(None, "--q", help="What it narrows to. Empty clears it."),
+		arrangement: str = typer.Option(
+			"", "--as", help=f"How it is drawn: {ARRANGEMENTS_IN_WORDS}."
+		),
+		order: str | None = typer.Option(None, "--order", help="Sort by. Empty clears it."),
+		group_by: str | None = typer.Option(
+			None, "--group-by", help="Group by. Empty clears it."
+		),
+		shared: bool | None = typer.Option(
+			None, "--shared/--private", help="Show it to the workspace, or take it back."
+		),
+		json_output: bool = typer.Option(False, "--json", help="Print the result as JSON."),
+	) -> None:
+		"""Change a view you saved.
+
+		Examples:
+
+		  subroutine view edit my-bugs --q "type:bug urgency>=4"
+
+		  subroutine view edit team-queue --shared
+
+		  subroutine view edit team-queue --group-by ""
+
+		Only the parts you name change. Writing nothing after --q, --order or --group-by
+		clears that part, which is a different instruction from leaving the flag off.
+		"""
+
+		_view_edited(
+			program,
+			key=_asked(key, "Which view?"),
+			title=title,
+			q=q,
+			arrangement=arrangement,
+			order=order,
+			group_by=group_by,
+			shared=shared,
+			json_output=json_output,
+		)
+
+	@view_app.command("forget")
+	def view_forget (
+		key: str = typer.Argument("", help="Which view, by its name."),
+	) -> None:
+		"""Remove a view you saved, for good.
+
+		Examples:
+
+		  subroutine view forget my-bugs
+
+		There is no trash for a view, unlike a task: it records nothing that happened, and
+		one left behind would hold its name against whoever wants it next.
+		"""
+
+		_view_forgotten(program, key=_asked(key, "Which view?"))
+
+
 def _register_setup (app: typer.Typer, program: Program) -> None:
 	"""Add the ``setup`` group to the application — `#1122`.
 
@@ -9758,6 +10206,7 @@ def register (
 
 	_register_setup(app, program)
 	_register_users(app, program)
+	_register_views(app, program)
 
 	# **Hidden until there is something to choose between** (§1.4). `use` and `connections`
 	# are the full model's vocabulary — a workspace, an instance — and somebody with one

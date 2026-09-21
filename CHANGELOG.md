@@ -31,7 +31,16 @@ upgrade involves.
   purpose**, so nobody's half-finished experiment appears in everybody's list; only the person
   who saved one can change it, and sharing publishes a view rather than handing it over. Names
   are one per workspace so that a link you send somebody draws what you were looking at.
-  Not yet reachable from a terminal or from the browser - those come next.
+  Not yet reachable from the browser - that comes next.
+- **A saved view can be run and managed from a terminal.** `subroutine view` lists what you
+  saved and what the workspace shared with you; `subroutine view run <name>` draws the work
+  it selects; `save`, `edit` and `forget` are the rest of it. **A terminal honours what a view
+  narrows to and draws a list**, so a view saved as a board, or grouped by a field, says which
+  part it is not drawing on the line above the results rather than quietly coming back as
+  something else - and that line goes to standard error, so `--json` and a pipe are unchanged.
+  An `--order` you ask for now beats the one the view saved. Writing nothing after `--q`,
+  `--order` or `--group-by` clears that part, which is a different instruction from leaving
+  the flag off. `subroutine explain views` is the page.
 
 ## 0.8.29 — 2026-09-21
 

@@ -365,21 +365,6 @@ NOT_IN_CLI: dict[str, Excuse] = {
 		"for `help` and `explain`.\n\n**What would remove it**: `show --history` reading this "
 		"rather than the audit log, which changes what that flag prints and is its own decision.",
 	),
-	#: **`#3095` is the terminal half of `#1402`, and these five are what it will call.**
-	#: The entity, the endpoints and both clients are `#3094`; a verb group, its help and its
-	#: `explain` topic are a commit of their own, and `#777` is the recorded cost of landing
-	#: a capability a terminal cannot name - `claim` and `release` were mandated for agents,
-	#: hidden from `help`, named by no topic, and therefore unused.
-	#:
-	#: **Not a flag on `list` or `search` when it lands**, which is the part worth writing down
-	#: here because it looks like the obvious shape: `list` already refuses a `q` three ways on
-	#: `#282`'s reasoning, and folding *run my saved board* into `search` would make it read
-	#: as a text search. **Deleting these five entries is what closes `#3095`.**
-	"saved_views": ("protocol", "`#3095`. The listing a `subroutine view` group prints, and the one command a person meets first."),
-	"saved_view": ("protocol", "`#3095`. Reading one saved view by the name it was given, for the same command group."),
-	"save_view": ("protocol", "`#3095`. Saving the narrowing you are looking at, from a terminal rather than a browser."),
-	"update_saved_view": ("protocol", "`#3095`. Changing a saved view, and sharing one with the workspace, from a terminal."),
-	"forget_saved_view": ("protocol", "`#3095`. Removing a saved view for good, giving its name back to the workspace."),
 	"statuses": (
 		"protocol",
 		"`SR#1129`. The capability is built on every layer beneath the CLI — a domain service, an API module, and both clients — and twelve commands under `subroutine workspace` are what is missing. Split out of `SR#826` rather than folded in, because that item is about three permissions that gated nothing and they gate something now; a terminal is delivery rather than enforcement, and one commit covering a service, an API, twelve client methods, an error code and a dozen commands is more than one gate run can honestly cover.\n\n**§1.4 is what decides where they go**: under `workspace`, never on the personal path, because somebody keeping a to-do list must not meet a status listing before setting a status. **Deleting these entries is what closes `SR#1129`.**",

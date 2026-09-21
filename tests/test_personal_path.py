@@ -38,6 +38,7 @@ import subroutine.config
 import subroutine.connections
 import subroutine.context
 import subroutine.db.models.project
+import subroutine.db.models.saved
 import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.directory
@@ -9599,6 +9600,11 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **And a third, on one filter** (`#1120`). The ``user`` group moved to ``_register_users`` —
 #: eight commands, 309 lines out for two in, and the largest natural unit that was left.
 #:
+#: **`#3095` landed exactly on it, and left no room at all.** The ``view`` group is six
+#: module-level functions and one line in the closure, which is the shape this asks for — and
+#: that one line took the count to 1,500 of 1,500. So the next group to be added here cannot
+#: fit whatever it does, and the remedy is the one above rather than a larger number.
+#:
 #: **And a fourth, on one flag** (`#1122`). ``project`` moved to ``_register_projects``, and
 #: the new ``setup`` group was written outside the closure to begin with — which is the state
 #: this was pushing towards.
@@ -12151,3 +12157,243 @@ def test_the_workspace_listing_drops_the_column_when_nothing_has_been_described 
 
 	assert rows
 	assert all(line == line.rstrip() for line in rows), rows
+
+
+def test_a_view_saved_from_a_terminal_answers_to_the_name_made_from_its_title (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The key is derived from the title, and the save prints the word every other verb takes.
+
+	Somebody told only the title would have to guess at the spelling — and deriving it a second
+	time on this side rather than reading it back is `#508`'s signature defect, one surface on.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+
+	saved = run("view", "save", "My bugs", "--q", "boiler").output
+	reported = next(line for line in saved.splitlines() if line.startswith("Saved:"))
+
+	# **The line that reports the save, not the tip under it.** Asserting on the whole output
+	# passed with only the title reported, because `_suggest` prints the key in its example -
+	# so the test was reading a second channel and calling it the first.
+	assert "my-bugs" in reported, saved
+	assert "Fix the boiler" in run("view", "run", "my-bugs").output
+
+
+def test_running_a_view_narrows_to_what_it_saved_and_leaves_the_rest_out (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A narrowing is shown to work by what it leaves out, never by what it keeps.
+
+	**This test exists because its first version could not fail.** It asserted the boiler task
+	was listed, and a `view run` that dropped the saved `q` entirely listed it too - along with
+	everything else. Only the absent row makes the claim.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("add", "Call the dentist")
+	run("view", "save", "My bugs", "--q", "boiler")
+
+	printed = run("view", "run", "my-bugs").output
+
+	assert "Fix the boiler" in printed, printed
+	assert "Call the dentist" not in printed, printed
+
+
+def test_a_view_saved_as_a_board_is_drawn_as_a_list_and_says_which_part_it_dropped (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#1402`'s decision, at the surface that has to decline half of it.
+
+	A terminal has no board. Drawing one as a list is the honest answer; drawing one as a list
+	**without saying so** answers a different question from the one that was asked, wearing the
+	shape of the one that was asked.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run(
+		"view", "save", "Team queue", "--q", "boiler",
+		"--as", "board", "--group-by", "status_category",
+	)
+
+	printed = run("view", "run", "team-queue").output
+
+	assert "board" in printed, printed
+	assert "status_category" in printed, printed
+
+	# The narrowing is the half a terminal can be faithful to, so it is still applied.
+	assert "Fix the boiler" in printed, printed
+
+
+def test_the_line_about_a_declined_arrangement_never_reaches_a_scripted_reader (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`journal`'s rule (`#2624`), met by the notice rather than by a count.
+
+	Standard output stays a document a script can parse. A notice printed there would not merely
+	be noise — it would stop the JSON parsing at all, which is how this asserts it.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("view", "save", "Team queue", "--q", "boiler", "--as", "board")
+
+	scripted = run("view", "run", "team-queue", "--json")
+
+	assert json.loads(scripted.stdout), scripted.stdout
+	assert "board" in scripted.stderr, scripted.stderr
+
+
+def test_a_view_that_narrows_to_nothing_draws_what_the_plain_listing_draws (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""An empty ``q`` is a statement rather than a missing value.
+
+	A view can be nothing but an arrangement — *everything, as a board* — and a terminal asked
+	to run one has a listing that already means exactly that.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("add", "Call the dentist")
+	run("view", "save", "Everything")
+
+	printed = run("view", "run", "everything").output
+
+	assert "Fix the boiler" in printed, printed
+	assert "Call the dentist" in printed, printed
+
+
+def test_an_order_asked_for_now_beats_the_order_a_view_saved (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A stored arrangement is a default somebody chose once; a flag is the question now.
+
+	The alternative — a saved order no flag can override — would make *my view, newest first*
+	unaskable, which is the shape `#1285` refuses one concept over.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("add", "Call the dentist")
+	run("view", "save", "Mine", "--order", "created_at")
+
+	saved = run("view", "run", "mine").output
+	asked = run("view", "run", "mine", "--order", "-created_at").output
+
+	assert saved.index("Fix the boiler") < saved.index("Call the dentist"), saved
+	assert asked.index("Call the dentist") < asked.index("Fix the boiler"), asked
+
+
+def test_writing_nothing_after_a_flag_clears_that_part_and_leaving_it_off_does_not (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The ``given`` distinction, driven at the surface it exists for.
+
+	Two instructions a signature taking ``None`` for both could not tell apart: *clear the
+	grouping*, and *say nothing about the grouping*. Typer can tell them apart because the
+	option defaults to ``None`` rather than to the empty string, so an empty string arrived
+	only because somebody typed one.
+	"""
+
+	run("init")
+	run("view", "save", "Mine", "--q", "boiler", "--group-by", "status_category")
+
+	run("view", "edit", "mine", "--q", "dentist")
+	kept = json.loads(run("view", "list", "--json").stdout)[0]
+
+	assert kept["q"] == "dentist", kept
+	assert kept["group_by"] == "status_category", kept
+
+	run("view", "edit", "mine", "--group-by", "")
+	cleared = json.loads(run("view", "list", "--json").stdout)[0]
+
+	assert cleared["group_by"] is None, cleared
+	assert cleared["q"] == "dentist", cleared
+
+
+def test_changing_nothing_about_a_view_is_refused_and_names_what_could_change (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""A refusal says what to do next (§13.5), and a no-op that reported success would lie."""
+
+	run("init")
+	run("view", "save", "Mine", "--q", "boiler")
+
+	refused = run("view", "edit", "mine", expect=1).output
+
+	assert "--group-by" in refused, refused
+
+
+def test_renaming_a_view_moves_the_name_it_is_run_by (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""The key is made from the title, so a rename is an address change and is printed as one.
+
+	No alias is left behind, which is `#176`'s rule for a project key: a redirect is a rename
+	nobody notices.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+	run("view", "save", "My bugs", "--q", "boiler")
+
+	changed = run("view", "edit", "my-bugs", "--title", "My defects").output
+
+	assert "my-defects" in changed, changed
+	assert "Fix the boiler" in run("view", "run", "my-defects").output
+
+	run("view", "run", "my-bugs", expect=1)
+
+
+def test_forgetting_a_view_names_what_went (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""There is no trash for a view, so the line saying it went is the whole of the record."""
+
+	run("init")
+	run("view", "save", "My bugs", "--q", "boiler")
+
+	gone = run("view", "forget", "my-bugs").output
+
+	assert "My bugs" in gone, gone
+	assert not json.loads(run("view", "list", "--json").stdout)
+
+
+def test_the_arrangement_a_terminal_draws_without_comment_is_one_the_vocabulary_offers (
+) -> None:
+	"""A literal naming a member of somebody else's tuple is a copy of a rule.
+
+	``ARRANGED_AS_A_LIST`` decides both what is drawn with no notice above it and what the
+	``explain`` topic promises. Renaming the arrangement in ``db/models/saved.py`` and not here
+	would leave a terminal announcing it cannot draw the one thing it draws — and nothing else
+	would say so, because both halves would still be internally consistent.
+	"""
+
+	assert (
+		subroutine.cli.personal.ARRANGED_AS_A_LIST
+		in subroutine.db.models.saved.ARRANGEMENTS
+	), "the terminal draws an arrangement the vocabulary does not offer"
+
+
+def test_the_saved_view_topic_offers_every_arrangement_and_names_the_group_s_verbs (
+) -> None:
+	"""`#777`: a capability a terminal cannot name is a capability nobody uses.
+
+	``test_every_command_a_topic_recommends_exists`` reads the first word only, so it sees
+	``view`` and never the verb after it. Prose cannot import a constant either, which is why
+	this is the thing holding the page to the code.
+	"""
+
+	topic = subroutine.cli.topics.find("views")
+
+	assert topic is not None, "subroutine explain has no topic on saved views"
+
+	for arrangement in subroutine.db.models.saved.ARRANGEMENTS:
+		assert arrangement in topic.body, f"the topic does not offer {arrangement!r}"
+
+	for verb in ("save", "run", "edit"):
+		assert f"subroutine view {verb}" in topic.body, f"the topic never shows {verb!r}"

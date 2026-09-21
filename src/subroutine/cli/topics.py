@@ -14,6 +14,7 @@ import dataclasses
 import textwrap
 import typing
 
+import subroutine.db.models.saved
 import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
@@ -319,6 +320,64 @@ To mean a value that happens to be a reserved word, quote it:
 #: ``tests/test_api_meta.py`` holds that guide under a fixed size, so a sentence added to one of
 #: those topics can fail a test about the API. Look there before writing more: the remedy is to
 #: trim, or to take a topic out of the guide, and not to raise the budget.
+def _views_body () -> str:
+	"""Build the saved-views topic, reading the arrangements from the vocabulary itself.
+
+	Generated rather than transcribed for the reason this module opens with: a page offering
+	an arrangement nothing accepts is worse than no page, and the two would drift inside a
+	release. The word a terminal draws is named in ``cli/personal.py`` and checked against
+	this body by ``tests/test_personal_path.py``, because prose cannot import it.
+	"""
+
+	names = list(subroutine.db.models.saved.ARRANGEMENTS)
+	offered = f"{', '.join(names[:-1])} or {names[-1]}"
+
+	return f"""A saved view is two things under one name: what it narrows to, and
+how it is drawn. The narrowing is a search line - the same line you
+would type into 'subroutine search'. The arrangement is how a browser
+lays the results out.
+
+Save what you would otherwise retype:
+
+  subroutine view save "My bugs" --q "type:bug assignee:me"
+
+The name you run it by is made from the title, so "My bugs" answers to
+'my-bugs':
+
+  subroutine view run my-bugs
+
+A view is yours alone until you say otherwise. Share one when it is the
+queue a team works from, and anybody here can run it by name:
+
+  subroutine view save "Team queue" --q "urgency>=4" --shared
+
+Only the person who saved a view can change or remove it, shared or
+not.
+
+WHAT A TERMINAL DOES WITH THE ARRANGEMENT
+
+A view is saved as one of {offered}, and can ask for
+the results to be grouped by a field. A terminal has a list and no
+board, so it keeps the narrowing, draws it flat, and says which part
+it is not drawing on the line above the results. Nothing is quietly
+turned into something else.
+
+That line goes to standard error, so a view piped somewhere, or asked
+for with --json, gives you the results and nothing else.
+
+CHANGING ONE
+
+Name only the parts you are changing:
+
+  subroutine view edit my-bugs --q "type:bug urgency>=4"
+
+  subroutine view edit team-queue --private
+
+Writing nothing after --q, --order or --group-by clears that part,
+which is a different instruction from leaving the flag off. Renaming
+changes the name you run it by, because one is made from the other."""
+
+
 TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="dates",
@@ -339,6 +398,11 @@ TOPICS: tuple[Topic, ...] = (
 		name="searching",
 		summary="Finding things by their words, and narrowing the same line by their fields.",
 		body=_searching_body(),
+	),
+	Topic(
+		name="views",
+		summary="Saving a narrowing under a name, and what a terminal does with one.",
+		body=_views_body(),
 	),
 	Topic(
 		name="refs",
