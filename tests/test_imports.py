@@ -63,6 +63,9 @@ SIDE_EFFECT_IMPORTS: dict[tuple[str, str], str] = {
 	("src/subroutine/db/models/__init__.py", "subroutine.db.models.project"): (
 		"registers project and project_member, the same way"
 	),
+	("src/subroutine/db/models/__init__.py", "subroutine.db.models.saved"): (
+		"registers saved_view, the same way"
+	),
 	("src/subroutine/db/models/__init__.py", "subroutine.db.models.system"): (
 		"registers the instance singleton, the same way"
 	),

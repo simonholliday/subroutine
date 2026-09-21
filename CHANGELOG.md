@@ -14,7 +14,24 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `cfeea5d4dd35`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result — in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
+
+- **A view can be saved under a name, and shared with the people you work with.** A saved
+  view is a *query* and an *arrangement*: one search line for what is narrowed, written the
+  way you would type it into a search box, and a few named fields for how it is drawn - as an
+  agenda, a list or a board, in this order, grouped on this axis. `GET`, `POST`, `PATCH` and
+  `DELETE` on `/v1/views`, addressed by the name you gave it rather than by a number, because
+  a view exists to be typed, sent and clicked. **A view is yours by default and shared on
+  purpose**, so nobody's half-finished experiment appears in everybody's list; only the person
+  who saved one can change it, and sharing publishes a view rather than handing it over. Names
+  are one per workspace so that a link you send somebody draws what you were looking at.
+  Not yet reachable from a terminal or from the browser - those come next.
 
 - **A board can be arranged by who the work is assigned to.** `?view=board&group_by=assignee`
   in the browser, `group_by=assignee` on `GET /v1/tasks`. There is a column for each person

@@ -38,6 +38,7 @@ import subroutine.db.migrate
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.saved
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.db.session
@@ -65,6 +66,7 @@ import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
 import subroutine.domain.refs
+import subroutine.domain.saved
 import subroutine.domain.schedule
 import subroutine.domain.scoping
 import subroutine.domain.search
@@ -92,6 +94,45 @@ def _asked (**values: typing.Any) -> dict[str, typing.Any]:
 	"""
 
 	return {name: value for name, value in values.items() if value is not None}
+
+
+def _owner_names (
+	session: sqlalchemy.orm.Session, owners: typing.Iterable[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+	"""Return the username of each of these accounts, in one query.
+
+	One query for a whole page rather than one per row — `SR#39`'s N+1 is the door a renderer
+	reaching for `row.owner` walks straight through, and this client has ten single-item
+	renders already (`SR#3075`) for want of one place to put a lookup.
+	"""
+
+	wanted = set(owners)
+
+	if not wanted:
+		return {}
+
+	model = subroutine.db.models.identity.User
+
+	return dict(
+		session.execute(
+			sqlalchemy.select(model.id, model.username).where(model.id.in_(wanted))
+		).tuples().all()
+	)
+
+
+def _saved_view_shown (
+	session: sqlalchemy.orm.Session, row: subroutine.db.models.saved.SavedView
+) -> subroutine.views.SavedView:
+	"""Render one saved view, with its owner's name resolved.
+
+	**One place, on purpose.** `SR#3075` is this module rendering a single task in ten, and one
+	of the ten had already drifted; a second entity starting the same way would be that finding
+	repeated knowingly.
+	"""
+
+	return subroutine.views.saved_view_seen(
+		row, owner=_owner_names(session, [row.owner_id]).get(row.owner_id)
+	)
 
 
 class Client:
@@ -843,6 +884,135 @@ class Client:
 			raise subroutine.errors.NotFound(f"There is no {what} with that id.")
 
 		return found
+
+	def saved_views (
+		self, *, workspace: str | None = None
+	) -> subroutine.views.Collection[subroutine.views.SavedView]:
+		"""List the views you saved and the ones shared with this workspace."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			rows = list(
+				session.scalars(
+					subroutine.domain.saved.readable(session, actor, workspace_id=chosen.id).order_by(
+						subroutine.db.models.saved.SavedView.key
+					)
+				)
+			)
+			owners = _owner_names(session, [row.owner_id for row in rows])
+
+			return subroutine.views.Collection[subroutine.views.SavedView](
+				items=[
+					subroutine.views.saved_view_seen(row, owner=owners.get(row.owner_id))
+					for row in rows
+				],
+				page=subroutine.views.Page(limit=len(rows), has_more=False, total=len(rows)),
+			)
+
+	def saved_view (
+		self, *, key: str, workspace: str | None = None
+	) -> subroutine.views.SavedView:
+		"""Read one saved view by the name it was given."""
+
+		with self._opened() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return _saved_view_shown(
+				session,
+				subroutine.domain.saved.by_key(
+					session, actor, workspace_id=chosen.id, key=key
+				),
+			)
+
+	def save_view (
+		self,
+		*,
+		title: str,
+		arrangement: str,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool = False,
+		workspace: str | None = None,
+	) -> subroutine.views.SavedView:
+		"""Save a view under a name, so nobody has to retype the narrowing."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			return _saved_view_shown(
+				session,
+				subroutine.domain.saved.create(
+					session,
+					workspace_id=chosen.id,
+					title=title,
+					arrangement=arrangement,
+					q=q,
+					order=order,
+					group_by=group_by,
+					shared=shared,
+					actor=actor,
+				),
+			)
+
+	def update_saved_view (
+		self,
+		*,
+		key: str,
+		title: str | None = None,
+		arrangement: str | None = None,
+		q: str | None = None,
+		order: str | None = None,
+		group_by: str | None = None,
+		shared: bool | None = None,
+		expected_version: int | None = None,
+		workspace: str | None = None,
+		given: typing.Container[str] = (),
+	) -> subroutine.views.SavedView:
+		"""Change a view you saved."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+			row = subroutine.domain.saved.by_key(
+				session, actor, workspace_id=chosen.id, key=key
+			)
+
+			return _saved_view_shown(
+				session,
+				subroutine.domain.saved.update(
+					session,
+					row,
+					title=title,
+					arrangement=arrangement,
+					q=q,
+					order=order,
+					group_by=group_by,
+					shared=shared,
+					expected_version=expected_version,
+					actor=actor,
+					given=given,
+				),
+			)
+
+	def forget_saved_view (self, *, key: str, workspace: str | None = None) -> None:
+		"""Remove a view you saved, for good."""
+
+		self._refuse_if_read_only()
+
+		with self._writing() as (session, actor):
+			chosen = subroutine.domain.selection.workspace(session, actor, requested=workspace)
+
+			subroutine.domain.saved.delete(
+				session,
+				subroutine.domain.saved.by_key(
+					session, actor, workspace_id=chosen.id, key=key
+				),
+				actor=actor,
+			)
 
 	def statuses (
 		self, *, workspace: str | None = None, entity_type: str | None = None

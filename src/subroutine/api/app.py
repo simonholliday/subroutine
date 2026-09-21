@@ -37,6 +37,7 @@ import subroutine.api.projects
 import subroutine.api.query
 import subroutine.api.recurrence
 import subroutine.api.routing
+import subroutine.api.saved
 import subroutine.api.schema
 import subroutine.api.sessions
 import subroutine.api.tasks
@@ -101,6 +102,10 @@ ROUTERS: tuple[subroutine.api.routing.Mounting, ...] = (
 	# comment.
 	("", subroutine.api.vocabulary.router),
 	("", subroutine.api.agenda.router),
+	# Saved views — `#1402`. `/v1/views` is a literal under `/v1` sharing a prefix with
+	# nothing, and its `/{key}` form takes a word rather than a ref, so nothing can shadow
+	# it and it shadows nothing; `routing.check` is what says so rather than this comment.
+	("", subroutine.api.saved.router),
 	("", subroutine.api.recurrence.router),
 	("", subroutine.api.tasks.router),
 	# The link sub-resources come after the routers whose paths they extend. They cannot
