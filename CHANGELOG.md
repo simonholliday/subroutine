@@ -63,7 +63,7 @@ upgrade involves.
   clears by itself - but it arrived as `service_unavailable`, reading *"<connection> could not
   be read: database is locked"* under advice to check `database_url`. That named a cause
   nobody had established, about what was usually a *write*, and gave an agent nothing it could
-  act on. It now reads *"The database was busy: another process was writing to it"*, with the
+  act on. It now reads *"The database was busy: another connection was writing to it"*, with the
   remedy, and **on both transports**: a served instance reported the same condition as an
   internal error blaming itself. **It claims no configured bound** - SQLite does not always
   consult its busy timeout before reporting this - and instead says how long the attempt

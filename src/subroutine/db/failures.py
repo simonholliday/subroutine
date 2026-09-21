@@ -50,12 +50,19 @@ BOUNDED_BY_THE_REQUEST_TIMEOUT = frozenset({"57014"})
 #: be matching a string SQLite is free to reword. ``sqlite_errorname`` arrived in Python 3.11,
 #: which is this project's floor.
 #:
+#: **Neither says *process*, and the first draft of this said it** - `#3117`. SQLite defines
+#: `SQLITE_BUSY` as concurrent activity by *"some other database connection, **usually** a
+#: database connection in a separate process"*, and two connections inside one process produce
+#: it exactly as readily as two processes do. Saying *process* named a cause nobody had
+#: established, which is this project's recorded worst kind of refusal - and it did real harm
+#: within hours, sending somebody hunting for a second process on a machine that runs one.
+#:
 #: **PostgreSQL cannot reach here and SQLite cannot reach `GAVE_UP`**: one reports a SQLSTATE
 #: and the other an error name, and neither carries the other's. So the two are asked in turn
 #: rather than merged, and each answers ``None`` for the backend that is not its own.
 BUSY: dict[str, str] = {
-	"SQLITE_BUSY": "another process was writing to it",
-	"SQLITE_LOCKED": "another connection held a table in it",
+	"SQLITE_BUSY": "another connection was writing to it",
+	"SQLITE_LOCKED": "something sharing this connection's cache held a table in it",
 }
 
 

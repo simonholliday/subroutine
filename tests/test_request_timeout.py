@@ -744,3 +744,35 @@ def test_an_agent_is_told_a_database_was_busy_rather_than_shown_the_sql (
 	# The leak this block exists to prevent, asserted rather than assumed absent.
 	assert "INSERT INTO" not in answer, answer
 	assert "sqlalche.me" not in answer, answer
+
+
+def test_a_busy_refusal_never_claims_it_was_another_process (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3117`, and it is a correction of my own rather than a defect somebody else left.
+
+	**SQLite says *connection*, and the first version of this message said *process*.** Its own
+	definition of `SQLITE_BUSY` is concurrent activity by *"some other database connection,
+	usually a database connection in a separate process"* - usually, not always. Two connections
+	inside one process produce it exactly as readily as two processes do.
+
+	**This is not pedantry and the cost is measured.** The message shipped in the morning, and
+	by the afternoon somebody debugging a failure on a machine that runs one process at a time
+	had read *another process* as the program telling them so, and gone looking for one. A
+	refusal that asserts a cause it has not established is the fault this project records as its
+	worst kind; naming a *connection* is what the program actually knows.
+	"""
+
+	for name in subroutine.db.failures.BUSY:
+		said = subroutine.db.failures.BUSY[name]
+
+		assert "process" not in said, (
+			f"{name} claims to know it was another process: {said!r}. SQLite reports a "
+			f"connection, and which process that connection belongs to is not in the error."
+		)
+
+	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
+
+	assert answer is not None
+	assert "process" not in answer.detail, answer.detail
+	assert "connection" in answer.detail, answer.detail
