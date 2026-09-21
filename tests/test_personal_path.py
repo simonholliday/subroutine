@@ -7118,6 +7118,64 @@ def test_a_journal_that_stopped_says_so_in_both_forms (
 	assert "…and more" not in run("journal", "--limit", "50").output
 
 
+def test_the_board_a_team_asks_for_first_can_be_narrowed_to_and_saved (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#3093`. *What the team has in progress* was the one board a saved view could not hold.
+
+	A saved view's narrowing is a `q` string, so what the grammar cannot say a view cannot
+	keep - and `status_category` was a registry `Property` declared with **no kind**, which
+	means :func:`filtering.filters` left it out and it was not filterable at all. `#1804`
+	reserved an `ENUM` for exactly this and shipped the other two kinds.
+
+	**Three of these four cases came from driving it rather than from the item**, which had
+	named only the completion interaction:
+
+	- *in progress* narrows to the started work, which is the whole request.
+	- **A search reads tasks and documents together**, so the term is put to both - and a
+	  refusal from the document half killed the whole search, leaving the board exactly as
+	  unaskable as before. A word the other kind uses narrows this one to nothing instead.
+	- **A word no kind has is still refused**, naming the four this entity really has. Without
+	  that, a typo would answer an empty page and read as *nothing is in progress*.
+	- `status_category:done` reaches finished work **without** `include_completed`, which is
+	  `completion_wanted`'s rule meeting its sixth spelling. Its own docstring asks every
+	  narrowing added there whether completion is part of what it asked about.
+	"""
+
+	run("init")
+	run("add", "Rewrite the home page")
+	run("add", "Fix the importer")
+	run("doc", "create", "The plan", "--type", "decision", "--body", "So.")
+	run("start", "2")
+	run("done", "1")
+
+	in_flight = run("search", "status_category:in_progress").output
+
+	assert "Fix the importer" in in_flight, in_flight
+	assert "Rewrite the home page" not in in_flight, in_flight
+	assert "The plan" not in in_flight, "the document half refused instead of matching nothing"
+
+	# **The sixth spelling of *this asks for finished work*.** Without it the commonest
+	# follow-up question answers nothing on an instance full of finished work.
+	assert "Rewrite the home page" in run("search", "status_category:done").output
+
+	# **The other kind's word is a question with a real answer**, and the answer is none here.
+	assert "The plan" in run("search", "status_category:current").output
+
+	refused = run("search", "status_category:dnoe").output
+
+	assert "todo, in_progress, done, cancelled" in refused, refused
+	assert "draft" not in refused, "a task was offered a document's categories"
+
+	# **The point of the item**: the board saves and comes back.
+	run("view", "save", "in-flight", "--q", "status_category:in_progress")
+
+	kept = run("view", "run", "in-flight").output
+
+	assert "Fix the importer" in kept, kept
+	assert "Rewrite the home page" not in kept, kept
+
+
 def test_a_link_is_not_reported_as_the_item_being_created (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

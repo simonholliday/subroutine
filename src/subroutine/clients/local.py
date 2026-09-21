@@ -509,7 +509,16 @@ class Client:
 			# its key is the fifth spelling of that same question and answering it needs the
 			# workspace's own vocabulary — which is not in hand until the workspace is.
 			completion = subroutine.domain.tasks.completion_wanted(
-				status_category,
+				# **Both spellings, as `named` does for the status above** (`#3093`), and this
+				# transport has to do it too or `subroutine search "status_category:done"`
+				# answers nothing while the endpoint answers correctly — the divergence this
+				# client's whole shape exists to prevent.
+				([] if status_category is None else [status_category])
+				+ subroutine.domain.filtering.values_named(
+					terms,
+					entity="task",
+					field=subroutine.domain.filtering.STATUS_CATEGORY,
+				),
 				include_completed,
 				status_named=named,
 				about_completion=subroutine.domain.filtering.about(

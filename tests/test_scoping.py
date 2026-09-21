@@ -152,6 +152,14 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"carries no content of its own and is already bounded to a subject resolved through "
 	"scoping; it is here because this module names `Task` and `Document` on nearly every line, "
 	"so the detector cannot tell that select from the ones that are narrowed",
+	"domain/filtering.py": "names `Task` and `Document` on most of its registry lines, so the "
+	"detector reads any select here as one over work. It selects **no work at all**: the one "
+	"direct select is `status_category`'s, over `Status` ids narrowed to one workspace and one "
+	"entity type, and it is used as a subquery inside a statement the caller has already "
+	"started at readable_tasks/_documents — this module builds predicates, never row sets, "
+	"which is `domain/readiness.py`'s position one module along. **The entry goes if this "
+	"module ever selects a work row**: that would be a listing assembled where the narrowing "
+	"cannot reach it",
 	"domain/comments.py": "every caller-facing path resolves the subject through "
 	"scoping.readable_tasks/_projects/_documents; the one direct `session.get` is the "
 	"actor=None branch, which is the unauthenticated internal caller that has no principal to "

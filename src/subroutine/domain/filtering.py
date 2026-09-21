@@ -39,6 +39,7 @@ import subroutine.db.mixins
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.accountability
 import subroutine.domain.authentication
@@ -567,6 +568,31 @@ REFERENCE = Kind(
 	operators=frozenset({"eq", IN, IS}),
 )
 
+#: One of a fixed set of words the product itself defines — `#1804`'s unbuilt half, built by
+#: `#3093`.
+#:
+#: **Fixed, which is what separates it from :data:`REFERENCE`.** A status key is the
+#: *workspace's* and renameable, so a refusal has to go and read what this workspace has. A
+#: status *category* is the product's and the same everywhere, so the words can be listed
+#: without asking anything - which is the whole reason a kind for it is worth having.
+#:
+#: **The words come from the entry, not from here**, because there are two sets and a kind
+#: holding one would be right for tasks and wrong for documents: a task is
+#: `todo`/`in_progress`/`done`/`cancelled` and a document is
+#: `draft`/`current`/`superseded`/`archived` (`db.mixins`). :func:`filters` reads
+#: :attr:`Property.groupable` - already the vocabulary, already declared once - and specialises
+#: both the refusal and what `/v1/meta` publishes. So *a saved view that says in progress* works
+#: on the kind of thing that can be in progress, and the refusal on the other names the four
+#: words that do apply rather than the four that do not.
+#:
+#: **No `is`**, and nothing here says so: every row has a status, so :func:`_allowed` refuses it
+#: on the `NOT NULL` column and this kind does not have to know.
+ENUM = Kind(
+	predicate=_no_predicate_of_its_own,
+	expects="one of a fixed set of words",
+	operators=frozenset({"eq", "ne", IN}),
+)
+
 
 #: A field a caller may ask *whether* about and not yet *what* — `#1804`.
 #:
@@ -642,6 +668,14 @@ class Filterable (typing.NamedTuple):
 	#: which drove every published combination and reported four routes as broken.
 	operators: frozenset[str] = frozenset()
 
+	#: The words this field accepts, for a kind whose set is fixed — `#3093`. ``None`` for every
+	#: other kind, whose values are a shape rather than a list.
+	#:
+	#: **Derived from :attr:`Property.groupable`**, which is the vocabulary and was already
+	#: declared there for the grouping axis. Carried here so :data:`GROUPS` can refuse an unknown
+	#: word *by listing the ones that work*, rather than reading it back out of a sentence.
+	vocabulary: tuple[str, ...] | None = None
+
 	#: Which fields compile *together*, or ``None`` for one that stands alone.
 	#:
 	#: **`touched_at` and `touched_by` are one predicate, not two** (decision `#817`). Compiled
@@ -713,6 +747,15 @@ TAGGED = "tagged"
 #: here at the top would be a cycle — the one the :class:`Property` docstring records. The
 #: house style's nested-import exception is what :func:`_vocabulary_key` uses.
 FROM_THE_VOCABULARY = "vocabulary"
+
+#: Which group compiles ``status_category`` — `#3093`, and it is a group for the same reason
+#: ``status`` is: the field names something the row does not hold.
+#:
+#: **A category is a fact about the *status*, not about the item.** A task holds ``status_id``,
+#: and which category that status belongs to is a column one table along - so this compiles to
+#: a subquery over the statuses of this workspace and this entity type, never to a comparison
+#: on the item. A join would multiply the rows, which is :func:`_tagged`'s rule and its reason.
+A_FIXED_VOCABULARY = "fixed_vocabulary"
 
 #: Which group compiles ``project``, the one filter that resolves an *address* — `#1829`.
 #:
@@ -1033,25 +1076,6 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 }
 
 
-#: The task properties a listing may be grouped by and nothing else — `#1803`.
-#:
-#: **The first entry to carry the third capability on its own**, and it is what the registry
-#: makes visible: ``status_category`` was declared in :mod:`subroutine.domain.grouping` and in
-#: neither of the other two lists, so *this is groupable* and *this is filterable* were facts
-#: kept in different modules about the same word. It reaches a listing today as a flat route
-#: parameter, which `#1804` is what changes.
-_AXES_ONLY: dict[str, Property] = {
-	STATUS_CATEGORY: Property(
-		groupable=subroutine.db.mixins.TASK_STATUS_CATEGORIES,
-		because=(
-			"a flat route parameter today rather than a dotted filter, and an ordering by "
-			"category would sort by an id — `#1804` gives it an ENUM kind and `#1805` the "
-			"ordering, if a workspace's own status order turns out to be what people mean."
-		),
-	),
-}
-
-
 #: What a task listing can be asked about.
 #:
 #: **Every entry is a promise about an index**, exactly as ``ordering.TASK_FIELDS`` is: a filter
@@ -1136,7 +1160,25 @@ TASK_PROPERTIES: dict[str, Property] = {
 	),
 	**_worked_on(subroutine.db.models.work.Task.id),
 	**_ORDERABLE,
-	**_AXES_ONLY,
+	# **Was the whole of a `_AXES_ONLY` register, and that register is gone with it** — `#3093`.
+	# It existed to hold the one property that was groupable and nothing else, which `#1803`
+	# made visible: `status_category` was declared in `domain.grouping` and in neither of the
+	# other two lists, so *groupable* and *filterable* were facts kept in different modules
+	# about one word. Now that it is all three, a register called *axes only* holding it would
+	# be a name that is false.
+	STATUS_CATEGORY: Property(
+		column=subroutine.db.models.work.Task.status_id,
+		kind=ENUM,
+		groupable=subroutine.db.mixins.TASK_STATUS_CATEGORIES,
+		group=A_FIXED_VOCABULARY,
+		because=(
+			"the product's own four words rather than the workspace's, so a refusal lists them "
+			"without going and looking — `#1804` reserved an ENUM for exactly this and `#3093` "
+			"built it. The column is `status_id` because a category is a fact about the status "
+			"one table along, so it compiles to a subquery. `#1805` is still the ordering, if "
+			"a workspace's own status order turns out to be what people mean."
+		),
+	),
 	**_RESOLVED_BY_NAME,
 }
 
@@ -1239,8 +1281,15 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		because="the task entry's reason, unchanged.",
 	),
 	STATUS_CATEGORY: Property(
+		column=subroutine.db.models.work.Document.status_id,
+		kind=ENUM,
 		groupable=subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES,
-		because="a flat route parameter today rather than a dotted filter — `#1804`.",
+		group=A_FIXED_VOCABULARY,
+		because=(
+			"the task entry's reason, with this entity's own four words — and they are the "
+			"reason the kind reads its vocabulary from the entry rather than holding one, "
+			"since a document is never `in_progress` and a task is never `draft` (`#3093`)."
+		),
 	),
 	"title": Property(
 		column=subroutine.db.models.work.Document.title,
@@ -1355,6 +1404,19 @@ def filters (entity: str) -> dict[str, Filterable]:
 
 	A property with no :attr:`Property.kind` is not filterable and is simply absent — so the
 	dict this returns is exactly what it always was, and every caller of it is untouched.
+
+	**A fixed vocabulary travels beside the kind, never inside it** (`#3093`). Two entities carry
+	``status_category`` and their words differ, so :attr:`Filterable.vocabulary` carries this
+	entity's and the refusal lists them - a task is never offered ``draft``.
+
+	**The first version wrote the words into a copy of the kind, and that was wrong in a way
+	that failed silently.** This codebase asks *what kind is this* by identity -
+	``mcp.tools._fields_of`` is ``field.kind is kind`` - so a copy answered *not an ENUM* to
+	every such question. The agent tools' filter description then omitted ``status_category``
+	**without an error**, because a filter that matches nothing reads exactly like a filter with
+	nothing to match; only a guard checking that every accepted field is named caught it. The
+	copy bought nothing the vocabulary did not already carry, since ``expects`` is read by one
+	refusal that this kind never reaches.
 	"""
 
 	found = {}
@@ -1366,6 +1428,7 @@ def filters (entity: str) -> dict[str, Filterable]:
 		found[name] = Filterable(
 			column=held.column,
 			kind=held.kind,
+			vocabulary=held.groupable if held.kind is ENUM else None,
 			group=held.group,
 			operators=_allowed(held.kind, held.column),
 		)
@@ -2395,6 +2458,102 @@ def _vocabulary_key (comparisons: list[Comparison], where: Where) -> typing.Any:
 	return sqlalchemy.and_(*narrowing)
 
 
+def _a_fixed_vocabulary (comparisons: list[Comparison], where: Where) -> typing.Any:
+	"""Compile ``status_category`` — `#3093`, and `#1804`'s ``ENUM`` finally wired up.
+
+	**A subquery over this workspace's statuses, never a comparison on the item.** The item
+	holds ``status_id``; which category that status belongs to is a column one table along. A
+	join would multiply an item's rows by however many statuses matched, which is
+	:func:`_tagged`'s rule and its reason - a listing whose row count depends on the filter is
+	not a listing.
+
+	**The entity is read off the column**, the shape :func:`_vocabulary_key` established: a
+	status is ``entity_type`` scoped, so a task's ``done`` and a document's ``current`` are rows
+	in one table and asking about the wrong half of it answers an empty page and says nothing.
+
+	**An unknown word is refused by listing the ones that work**, which is the whole argument for
+	a kind here rather than a flat parameter: the set is the product's and fixed, so the refusal
+	can be complete without going and looking. ``status_category.eq=draft`` on a *task* names the
+	four a task has instead of answering nothing.
+
+	**``ne`` is compiled as *not in* rather than as ``!=``.** `SR#2284` is why that needs saying:
+	a bare ``column != value`` is NULL, and so false, for an unset column - it silently drops the
+	rows that have no value. Here the column is ``NOT NULL``, so the two agree, and writing it
+	this way keeps them agreeing if that ever stops being true.
+	"""
+
+	if where.session is None:
+		raise AssertionError("a status category needs a session to read the workspace's statuses")
+
+	# **One workspace** - :func:`_vocabulary_key`'s rule and for its reason: statuses belong to a
+	# workspace, so a listing reading several has no one set to compare against.
+	if len(where.workspace_ids) != 1:
+		raise subroutine.errors.ValidationError(
+			"A status category can only be asked about inside one workspace.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=comparisons[0].field,
+					code="invalid_field_value",
+					message="A workspace curates its own statuses, and this reads several.",
+					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+				)
+			],
+		)
+
+	owner = typing.cast(typing.Any, comparisons[0].against.column).parent.class_
+	entities: dict[typing.Any, str] = {
+		subroutine.db.models.work.Task: "task",
+		subroutine.db.models.work.Document: "document",
+	}
+	entity = entities[owner]
+	narrowing = []
+
+	for comparison in comparisons:
+		column = comparison.against.column
+		allowed = comparison.against.vocabulary or ()
+		values = _values(comparison)
+
+		for value in values:
+			if value not in subroutine.db.mixins.STATUS_CATEGORIES:
+				raise subroutine.errors.ValidationError(
+					f"There is no status category called '{value}'.",
+					errors=[
+						subroutine.errors.FieldError(
+							field=comparison.field,
+							code="invalid_field_value",
+							message=f"A {entity} is one of {', '.join(allowed)}.",
+							hint=f"Try '{comparison.field}.eq={allowed[0]}'.",
+						)
+					],
+				)
+
+		# **A word the *other* kind uses narrows this one to nothing rather than refusing it**,
+		# and driving it is what found this. `subroutine search` reads tasks and documents
+		# together, so `status_category:in_progress` asks both - and a refusal from the
+		# document half killed the whole search, leaving *what is in progress* exactly as
+		# unaskable as it was before. Refusing is right for a word no kind has, which is a
+		# typo; a word that is simply about the other kind is a question with a real answer,
+		# and the answer is none of these.
+		mine = [one for one in values if one in allowed]
+
+		if not mine:
+			narrowing.append(sqlalchemy.true() if comparison.operator == "ne" else sqlalchemy.false())
+
+			continue
+
+		statuses = sqlalchemy.select(subroutine.db.models.vocabulary.Status.id).where(
+			subroutine.db.models.vocabulary.Status.workspace_id == where.workspace_ids[0],
+			subroutine.db.models.vocabulary.Status.entity_type == entity,
+			subroutine.db.models.vocabulary.Status.category.in_(mine),
+		)
+
+		narrowing.append(
+			column.not_in(statuses) if comparison.operator == "ne" else column.in_(statuses)
+		)
+
+	return sqlalchemy.and_(*narrowing)
+
+
 def _tagged (comparisons: list[Comparison], where: Where) -> typing.Any:
 	"""Compile ``tag`` — `#1804`, on the read side `#1319` built.
 
@@ -2510,6 +2669,7 @@ GROUPS: dict[str, typing.Callable[[list[Comparison], Where], typing.Any]] = {
 	WHO_DID_IT: _who_did_it,
 	TAGGED: _tagged,
 	FROM_THE_VOCABULARY: _vocabulary_key,
+	A_FIXED_VOCABULARY: _a_fixed_vocabulary,
 	IN_PROJECT: _in_project,
 	IN_THE_TREE: _in_the_tree,
 	ANSWERABLE_TO: _answerable_to,

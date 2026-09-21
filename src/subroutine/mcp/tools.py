@@ -140,6 +140,19 @@ FEED_FILTER = _filter_schema(
 #: of that kind added later is still told to an agent.
 _ONLY_EMPTINESS = _fields_of(subroutine.domain.filtering.CONDITION)
 
+#: The fields whose value is one of a fixed set of words, with the words — `#3093`.
+#:
+#: **The words, not just the name**, because the name alone teaches nothing: an agent that
+#: reads *status_category* has to guess *in_progress* before a refusal can correct it, and the
+#: whole reason this kind exists is that the set is fixed and so can be listed. **Read from the
+#: registry's vocabulary**, never written here, which is the only version that cannot drift
+#: from what the instance accepts.
+_ONE_OF = "".join(
+	f"{name} is one of {', '.join(field.vocabulary or ())}. "
+	for name, field in sorted(subroutine.domain.filtering.filters("task").items())
+	if field.kind is subroutine.domain.filtering.ENUM
+)
+
 DATE_FILTER = _filter_schema(
 	"Narrow by when, by whom and by how long: {'created_at.gte': 'yesterday'}; two "
 	"entries make a range. gt/gte/lt/lte on "
@@ -150,6 +163,7 @@ DATE_FILTER = _filter_schema(
 	# moving the cap, and it is the one filter that answers *what can I finish now*.
 	f"{_fields_of(subroutine.domain.filtering.DURATION)} takes '2h' or '90'. "
 	f"{_fields_of(subroutine.domain.filtering.NUMBER)} are 1-5. "
+	f"{_ONE_OF}"
 	# **And `ref` a number, since `#2826`** — how the journal reads its rows, named for `#821`'s
 	# reason: a filter an agent is never told about is one it never sends. Folded into this
 	# sentence rather than given one, and *comma-separated* for *separated by commas*, to stay

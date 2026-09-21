@@ -767,6 +767,16 @@ def _sample (
 	if operator == subroutine.domain.filtering.IS:
 		return subroutine.domain.filtering.UNSET
 
+	# **A fixed vocabulary answers for itself** — `SR#3093`. One `ENUM` serves two entities
+	# whose words differ, so a single entry in `_SAMPLES` would be a task's word driven at a
+	# document and report that listing broken. Read from the registry instead, which is also
+	# the only version that cannot go stale: a listed sample is a second copy of a vocabulary
+	# already declared, which is the defect the registry itself was built to end.
+	published = subroutine.domain.filtering.filters(entity).get(field)
+
+	if published is not None and published.vocabulary:
+		return published.vocabulary[0]
+
 	if kind is subroutine.domain.filtering.WHO:
 		return str(world.user.username)
 

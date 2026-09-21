@@ -3649,7 +3649,7 @@ def statuses_in_category (
 
 
 def completion_wanted (
-	category: str | None,
+	categories: typing.Sequence[str],
 	asked: bool | None,
 	*,
 	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status] = (),
@@ -3750,10 +3750,17 @@ def completion_wanted (
 		status.category in FINISHED_CATEGORIES for status in status_named
 	)
 
+	# **A sequence since `#3093`, and that is the sixth spelling arriving** — the one the
+	# paragraph above asks every addition here to check for. `status_category` became a filter
+	# the grammar can compile, so `?status_category=done` and `status_category.eq=done` are one
+	# field asked two ways exactly as `status` has been since `#1829`, and the caller merges
+	# them before this sees them. Taking one value would have let the flat spelling reach
+	# finished work while `subroutine search "status_category:done"` answered nothing on an
+	# instance full of it - which is this function's own founding trap, in a new vocabulary.
 	wants_finished = (
 		about_completion
 		or named_finished
-		or (category is not None and category in FINISHED_CATEGORIES)
+		or any(one in FINISHED_CATEGORIES for one in categories)
 	)
 
 	if not wants_finished:
@@ -3776,17 +3783,17 @@ def completion_wanted (
 		# those rows; *does the request admit nothing* is **all** of them. With one status they
 		# are the same sentence, which is why they shared a name until a second value was
 		# possible.
-		if not _admits_nothing(category, status_named, about_completion):
+		if not _admits_nothing(categories, status_named, about_completion):
 			return False
 
 		raise subroutine.errors.ValidationError(
-			_excluding_all_of_it(category, status_named),
+			_excluding_all_of_it(categories, status_named),
 			errors=[
 				subroutine.errors.FieldError(
 					field="include_completed",
 					code="invalid_field_value",
 					message=(
-						f"{_asking_for_it(category, status_named)} asks only for finished "
+						f"{_asking_for_it(categories, status_named)} asks only for finished "
 						"work and include_completed=false excludes all of it."
 					),
 					hint="Drop include_completed — asking about finished work implies it.",
@@ -3798,7 +3805,7 @@ def completion_wanted (
 
 
 def _admits_nothing (
-	category: str | None,
+	categories: typing.Sequence[str],
 	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
 	about_completion: bool,
 ) -> bool:
@@ -3815,7 +3822,7 @@ def _admits_nothing (
 	if about_completion:
 		return True
 
-	if category is not None and category in FINISHED_CATEGORIES:
+	if any(one in FINISHED_CATEGORIES for one in categories):
 		return True
 
 	return bool(status_named) and all(
@@ -3824,7 +3831,7 @@ def _admits_nothing (
 
 
 def _asking_for_it (
-	category: str | None,
+	categories: typing.Sequence[str],
 	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
 ) -> str:
 	"""Name whichever part of the request asked for finished work.
@@ -3839,8 +3846,13 @@ def _asking_for_it (
 	written. Only the *several* case is new wording; one status reads exactly as it always did.
 	"""
 
-	if category is not None and category in FINISHED_CATEGORIES:
-		return f"status_category={category!r}"
+	asked_for = sorted(one for one in categories if one in FINISHED_CATEGORIES)
+
+	if asked_for:
+		# **Named the same way as the status half below**, which `#1829` wrote for the case a
+		# second value made possible - and `#3093` gave this field the same shape, so the
+		# wording follows it rather than staying singular beside it.
+		return "status_category=" + ", ".join(repr(one) for one in asked_for)
 
 	finished = sorted(
 		status.key for status in status_named if status.category in FINISHED_CATEGORIES
@@ -3853,13 +3865,20 @@ def _asking_for_it (
 
 
 def _excluding_all_of_it (
-	category: str | None,
+	categories: typing.Sequence[str],
 	status_named: typing.Sequence[subroutine.db.models.vocabulary.Status],
 ) -> str:
 	"""Say what the contradiction was, in the caller's own terms."""
 
-	if category is not None and category in FINISHED_CATEGORIES:
-		return f"{category!r} is finished work, so excluding finished work leaves nothing."
+	asked_for = [one for one in categories if one in FINISHED_CATEGORIES]
+
+	if asked_for:
+		# **Every one of them**, for the reason the status half gives below: naming the first
+		# would be a refusal asserting a cause it has not established.
+		return (
+			f"{', '.join(repr(one) for one in sorted(asked_for))} is finished work, so "
+			"excluding finished work leaves nothing."
+		)
 
 	finished = [
 		status.key for status in status_named if status.category in FINISHED_CATEGORIES

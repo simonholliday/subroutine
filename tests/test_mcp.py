@@ -1730,7 +1730,15 @@ def test_an_agent_can_read_what_has_happened_to_an_item (
 #: description leaves out ``type``, ``description``, ``assignee``, ``until``, ``repeat`` and now
 #: ``project`` — an enumeration nobody kept up — and it was left alone rather than lengthened,
 #: because the schema lists them all and the agent that wanted this one found it by argument.
-TOOL_BYTE_CEILING = 14_810
+#: **14,810 → 14,880 on 2026-09-21, and what 62 bytes bought** (`SR#3093`): the words
+#: ``status_category`` takes, in ``subroutine_list``'s filter description. `SR#3093` made the
+#: field filterable and nothing on this surface named it, so an agent would have had to guess
+#: *in_progress* before a refusal could teach it - `SR#821`'s defect, a field accepted and never
+#: published, which an agent never learns because it never sends the word. **Read for fat
+#: first, and none was found**: ``subroutine_list`` names neither the field nor its words
+#: anywhere else, so this is not a second copy. The slack before it was one byte. The words are
+#: read from the registry, so the clause cannot drift from what the instance accepts.
+TOOL_BYTE_CEILING = 14_880
 
 
 def test_the_whole_tool_surface_stays_small (

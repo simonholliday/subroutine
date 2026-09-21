@@ -56,6 +56,16 @@ upgrade involves.
 
 ### Added
 
+- **A search line can narrow by status category, so the board a team asks for first can be
+  saved.** `status_category:in_progress` - and `done`, `todo` or `cancelled`, or a document's
+  `draft`, `current`, `superseded` and `archived` - compiles like any other term now: in the
+  search box, on the command line, and inside a saved view. A saved view's narrowing **is** a
+  search line, so until now *what the team has in progress* was the one view that could not be
+  kept. The words are the product's rather than your workspace's, so a status you renamed still
+  answers to the category it belongs to; a word that is no category at all is refused by
+  listing the four that are; and asking for a finished category reaches finished work without
+  also saying `include_completed`, exactly as the older spellings do.
+
 - **A view can be saved under a name, and shared with the people you work with.** A saved
   view is a *query* and an *arrangement*: one search line for what is narrowed, written the
   way you would type it into a search box, and a few named fields for how it is drawn - as an

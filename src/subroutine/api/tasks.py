@@ -522,7 +522,13 @@ def listing (
 	]
 
 	completion = subroutine.domain.tasks.completion_wanted(
-		status_category,
+		# **Both spellings, exactly as `named` does for the status above** (`#3093`).
+		# `status_category` is a filter the grammar compiles since that item, so
+		# `?status_category=done` and `q=status_category:done` are one field asked two ways —
+		# and taking only the flat one would answer the finished work for one spelling and an
+		# empty page for the other, which is this rule's own founding trap.
+		([] if status_category is None else [status_category])
+		+ dates.values_for(subroutine.domain.filtering.STATUS_CATEGORY),
 		include_completed,
 		# **Naming the finished status by its key asks for finished work** (`#1032`), as
 		# unambiguously as naming the category does. `subroutine list --status done` answered
