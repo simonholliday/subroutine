@@ -680,7 +680,7 @@ def _refuse_a_second_membership (
 
 	raise subroutine.errors.Conflict(
 		f"{user.username} is already {held} in {workspace.slug}.",
-		hint=f"Nothing to do, unless you meant to change what they may do there — "
+		hint=f"Nothing to do, unless you meant to change what they may do there - "
 		f"'subroutine user role {user.username} <role>' moves them.",
 	)
 
@@ -936,7 +936,7 @@ def remove_member (
 		# misspelt username, and `user list` is a real command that settles that.
 		raise subroutine.errors.NotFound(
 			f"{user.username} is not a member of {workspace.slug}.",
-			hint="Nothing was changed. Check the spelling — 'subroutine user list' shows who "
+			hint="Nothing was changed. Check the spelling - 'subroutine user list' shows who "
 			"is on this instance.",
 		)
 
@@ -1132,7 +1132,7 @@ def validated_slug (
 					field="slug",
 					code="invalid_field_value",
 					message=f"{normalized!r} starts with {normalized[0]!r}.",
-					hint="A short name is part of an address — 'work/acme/42' — so it must not "
+					hint="A short name is part of an address - 'work/acme/42' - so it must not "
 					"read as a number. Try 'acme' or 'q3-planning'.",
 				)
 			],

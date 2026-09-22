@@ -552,13 +552,13 @@ def worker (request: starlette.requests.Request) -> starlette.responses.Response
 	"""Serve the service worker, and say that it may control the whole site.
 
 	**A route of its own for one header.** A worker's default scope is the directory it is
-	served from, so ``/app/sw.js`` would control ``/app/`` and not the page at ``/`` — which is
+	served from, so ``/app/sw.js`` would control ``/app/`` and not the page at ``/`` - which is
 	the page it exists to make installable. ``Service-Worker-Allowed`` is what lets it claim a
 	wider scope than its own address, and the registration in ``app.js`` asks for exactly that.
 
 	**The alternative was serving it at ``/sw.js``**, where the default scope would be right and
 	no header would be needed. It is not that, because *everything the app is made of is served
-	flat at ``/app/<name>``* is an invariant three tests and the stylesheet check already read —
+	flat at ``/app/<name>``* is an invariant three tests and the stylesheet check already read -
 	and one file living somewhere else for a reason nobody would guess is worse than a header
 	whose absence fails loudly, with a ``SecurityError`` naming the scope.
 	"""

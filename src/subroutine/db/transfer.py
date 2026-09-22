@@ -158,7 +158,7 @@ def _prepare (target_url: str, target: sqlalchemy.engine.Engine) -> None:
 			f"The target database holds tables this does not know about: "
 			f"{', '.join(strangers)}.",
 			hint=(
-				"That looks like somebody else's database. Copy into an empty one — this "
+				"That looks like somebody else's database. Copy into an empty one - this "
 				"would put an instance's tables alongside whatever is already in there."
 			),
 		)

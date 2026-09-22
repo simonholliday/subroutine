@@ -382,7 +382,7 @@ def read_file () -> dict[str, Stored]:
 		raise subroutine.errors.ValidationError(
 			f"{path} is not valid TOML: {error}",
 			code="invalid_field_value",
-			hint="Each connection is a table with one key — '[work]' then "
+			hint="Each connection is a table with one key - '[work]' then "
 			'\'token = "sr_…"\'.',
 		) from None
 

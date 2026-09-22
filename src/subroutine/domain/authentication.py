@@ -220,7 +220,7 @@ class Principal:
 
 		if self.interface == LOCAL and (self.session is not None or self.feed is not None):
 			raise ValueError(
-				"A local caller opens the database directly, so there is no request — and a "
+				"A local caller opens the database directly, so there is no request - and a "
 				"browser session and a calendar feed only exist over one."
 			)
 
@@ -609,7 +609,7 @@ def _refuse_amplification (
 						code="forbidden",
 						message="The credential you presented reaches: "
 						f"{_named(session, allowed)}.",
-						hint="Issue a token reaching the same projects or fewer — each one "
+						hint="Issue a token reaching the same projects or fewer - each one "
 						"named there, or filed under something that is.",
 					)
 				],
@@ -653,7 +653,7 @@ def _refuse_amplification (
 						code="forbidden",
 						message="The credential you presented writes in: "
 						f"{_named(session, allowed)}.",
-						hint="Issue a token writing in the same projects or fewer — each one "
+						hint="Issue a token writing in the same projects or fewer - each one "
 						"named there, or filed under something that is.",
 					)
 				],
@@ -858,7 +858,7 @@ def _canonical_project_scope (
 						field=field,
 						code="invalid_field_value",
 						message=f"{field} holds project ids; {entry!r} is not one.",
-						hint="A project's id is the `id` field of GET /v1/projects — a UUID, "
+						hint="A project's id is the `id` field of GET /v1/projects - a UUID, "
 						"not its key.",
 					)
 				],
@@ -925,7 +925,7 @@ def _refuse_a_write_set_outside_the_reach (
 				field="project_write_scope",
 				code="invalid_field_value",
 				message=f"Not inside this credential's reach: {', '.join(sorted(outside))}.",
-				hint="The write set has to be inside the projects the credential can reach — "
+				hint="The write set has to be inside the projects the credential can reach - "
 				"each one named there, or filed under something that is. Widen project_scope, "
 				"or drop these from the write set.",
 			)

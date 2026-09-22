@@ -386,6 +386,6 @@ def refuse (
 				message=f"Workspaces here: {listed}.",
 			)
 		],
-		hint=f"Say which — 'subroutine -w {candidates[0]} …' for one command, or "
+		hint=f"Say which - 'subroutine -w {candidates[0]} …' for one command, or "
 		f"'subroutine use {example}' to keep working there.",
 	)

@@ -582,7 +582,7 @@ def check_engine (engine: sqlalchemy.engine.Engine, source: pathlib.Path) -> Non
 		f"'{source.name}' is a {held} backup and this instance runs on {ours}.",
 		hint=(
 			f"Backups are taken with the tools of one engine and cannot be read by the other, "
-			f"so this one cannot be restored here — nothing has been changed. A {ours} backup "
+			f"so this one cannot be restored here - nothing has been changed. A {ours} backup "
 			f"of this instance ends in "
 			f"{SQLITE_SUFFIX if ours == 'SQLite' else POSTGRESQL_SUFFIX}; "
 			f"'subroutine db backups' lists them with their engine. To move an instance "
@@ -834,7 +834,7 @@ def _postgresql_in_use_by (engine: sqlalchemy.engine.Engine) -> str | None:
 
 	plural = "" if len(others) == 1 else "s"
 
-	return f"{len(others)} other connection{plural} — {'; '.join(described)}"
+	return f"{len(others)} other connection{plural} - {'; '.join(described)}"
 
 
 def check_unused (engine: sqlalchemy.engine.Engine) -> None:
@@ -848,7 +848,7 @@ def check_unused (engine: sqlalchemy.engine.Engine) -> None:
 	raise subroutine.errors.ValidationError(
 		f"Something else is using this database: {holder}.",
 		hint=(
-			"Restoring underneath a running service does not reach it — it keeps writing to "
+			"Restoring underneath a running service does not reach it - it keeps writing to "
 			"the file that was replaced, and its next checkpoint can corrupt the restored "
 			"one. Stop the service first ('systemctl stop subroutine', or however it is run), "
 			"then restore. Use --force only if you are certain nothing is connected."
@@ -1170,7 +1170,7 @@ def refuse_unsafe_commands (path: pathlib.Path) -> None:
 
 		raise subroutine.errors.BadRequest(
 			f"'{path.name}' line {number} carries the command '\\{found.group(1)}', which "
-			f"'pg_dump' does not write. A backup that runs commands is not a backup — this "
+			f"'pg_dump' does not write. A backup that runs commands is not a backup - this "
 			f"one has not been restored.",
 			hint="Take a fresh backup with 'subroutine db backup', and treat this file as "
 			"hostile rather than as damaged.",
@@ -1627,7 +1627,7 @@ def prune_rollback_points (settings: subroutine.config.Settings, *, keep: int) -
 	if keep < 1:
 		raise subroutine.errors.ValidationError(
 			f"backup_keep_upgrades must be 1 or more, not {keep}: an upgrade takes a rollback "
-			f"point and then keeps this many, so nought would delete the copy it just took — "
+			f"point and then keeps this many, so nought would delete the copy it just took - "
 			f"leaving the upgrade with no way back at the moment one is most likely wanted."
 		)
 
@@ -1694,7 +1694,7 @@ def check_restorable (path: pathlib.Path) -> str:
 
 	raise subroutine.errors.SchemaMismatch(
 		f"'{path.name}' was taken on database schema {backup_head}, which this installation "
-		f"does not know — it is at {ours}. Restoring it would mean reading data whose shape "
+		f"does not know - it is at {ours}. Restoring it would mean reading data whose shape "
 		f"this version cannot know. Upgrade Subroutine to a version that has migration "
 		f"{backup_head}, then restore."
 	)
@@ -1839,7 +1839,7 @@ def _discard_the_replaced_log (target: pathlib.Path) -> None:
 		except OSError as error:
 			raise subroutine.errors.ServiceUnavailable(
 				f"The database was restored, but {beside.name} could not be removed: {error}. "
-				f"Delete it before anything opens this database — SQLite would replay it over "
+				f"Delete it before anything opens this database - SQLite would replay it over "
 				f"the restored file and put back what was just replaced."
 			) from error
 

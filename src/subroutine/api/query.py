@@ -364,7 +364,7 @@ INCLUDE_QUERY = fastapi.Query(
 	None,
 	description=(
 		"Extras to return beside the items, comma-separated. `links` adds a `links` array "
-		"of the links among this page's items — each one `{id, link_type, label, source, "
+		"of the links among this page's items - each one `{id, link_type, label, source, "
 		"target}`, reported once however many of its ends are on the page. Absent unless "
 		"asked for, and unaffected by `fields`."
 	),

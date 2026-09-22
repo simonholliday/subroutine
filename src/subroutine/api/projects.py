@@ -83,12 +83,12 @@ class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/projects/{id_or_key}`` accepts.
 
 	``key`` **may be changed**. It was absent here on the grounds that it is "the
-	first half of every ref the project has minted" — which stopped being true on 2026-07-29,
+	first half of every ref the project has minted" - which stopped being true on 2026-07-29,
 	when a ref became a bare workspace-scoped integer. A project key is in no ref.
 
 	What a rename costs is *addresses*: this URL, a ``.subroutine`` marker in somebody's
 	checkout, ``+KEY`` in a capture line. The old key stops resolving and there is deliberately
-	no alias — the decision is that retiring a name should retire it. Callers who cached the
+	no alias - the decision is that retiring a name should retire it. Callers who cached the
 	old address get a 404 they can act on rather than a redirect they never notice.
 	"""
 
@@ -121,10 +121,10 @@ class Move(subroutine.api.schemas.RequestModel):
 	"""Where a project should sit in the tree.
 
 	``parent: null`` makes it a root, which is why this is a body rather than a query
-	parameter — "no parent" and "unchanged" have to be distinguishable.
+	parameter - "no parent" and "unchanged" have to be distinguishable.
 
 	**And they were not, until 2026-07-30.** The handler read ``body.parent`` directly, so an
-	*omitted* parent and an explicit ``null`` both meant "move to root" — and
+	*omitted* parent and an explicit ``null`` both meant "move to root" - and
 	``POST /v1/projects/web/move {}`` silently flattened a project and its whole subtree. This
 	was the one mutating site in the API that did not use ``model_fields_set``, twenty lines
 	below a docstring saying it must. A move is not a field being dropped; it rewrites the
@@ -303,8 +303,8 @@ def project_settings (
 	"""Every setting this project may carry, as it applies here, and where each value came from.
 
 	A project inherits what it does not state from the nearest project above it that does, and
-	then from its workspace. Each setting says which of those answered — this project, an
-	ancestor named by its address, the workspace, or nobody, in which case the default applies —
+	then from its workspace. Each setting says which of those answered - this project, an
+	ancestor named by its address, the workspace, or nobody, in which case the default applies -
 	because *chose grey* and *inherits grey* look the same and are cleared differently.
 
 	Needs ``project:read``.
@@ -342,7 +342,7 @@ def sharing (
 	Needs ``project:read``. Nothing anywhere else answers *who can see this*, and until this
 	existed the question had no home on any surface.
 
-	Enveloped and unpaginated, like a workspace's members and a task's links — a
+	Enveloped and unpaginated, like a workspace's members and a task's links - a
 	project's membership is bounded by how many people somebody put in it.
 
 	**A public project ordinarily reports just its owner, and that is honest rather than
@@ -440,7 +440,7 @@ def evict (
 	"""Take one person's sight of a project away again.
 
 	Neither the owner's own row nor the last remaining one can be removed: a private project
-	with no member is one that nobody — including whoever runs the instance — can see or make
+	with no member is one that nobody - including whoever runs the instance - can see or make
 	public again.
 
 	Works whatever the project's visibility is. A row on a public project grants nothing today

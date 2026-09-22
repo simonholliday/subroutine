@@ -103,7 +103,7 @@ def _refuse_an_unsupported_backend (database_url: str) -> None:
 		f"{backend!r} is not a database Subroutine can use.",
 		hint=(
 			f"It runs on {' and '.join(SUPPORTED_BACKENDS)}. Set 'database_url' to a "
-			f"'sqlite:///…' path or a 'postgresql+psycopg://…' URL — "
+			f"'sqlite:///…' path or a 'postgresql+psycopg://…' URL - "
 			f"'subroutine config show' says where the file is."
 		),
 	)

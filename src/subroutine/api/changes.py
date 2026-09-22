@@ -124,11 +124,11 @@ def listing (
 
 	**Resuming is `?since=`, not a cursor.** Take the `seq` of the last event you dealt with
 	and send it back; you will receive it again and everything after it. `has_more` says
-	whether another page is waiting immediately — when it is false you are caught up, and
+	whether another page is waiting immediately - when it is false you are caught up, and
 	polling again will return only what happens next.
 
 	**Going the other way is `?before=`.** With `newest` set, `has_more` means there are
-	*earlier* events, and `since` is a floor — so walking back through a long history is
+	*earlier* events, and `since` is a floor - so walking back through a long history is
 	`?before=<the earliest seq you hold>`, exclusive. Every answer still reads oldest first.
 
 	Ordered oldest first, because a feed is read forwards. The per-item histories run the

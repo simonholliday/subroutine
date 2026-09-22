@@ -174,7 +174,7 @@ def gave_up (
 		f"This request {said}.",
 		hint=(
 			"Nothing was changed by it. Retrying may work; if it does not, ask for less "
-			"in one request — a narrower filter, a smaller page, or one item rather than "
+			"in one request - a narrower filter, a smaller page, or one item rather than "
 			"a listing."
 		),
 	)

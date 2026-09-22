@@ -428,7 +428,7 @@ def update (
 						field="project",
 						code="invalid_field_value",
 						message="This document is part of another, which decides its project.",
-						hint="Move the one it belongs to — its sections go with it.",
+						hint="Move the one it belongs to - its sections go with it.",
 					)
 				],
 			)

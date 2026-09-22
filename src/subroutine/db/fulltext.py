@@ -203,7 +203,7 @@ def query (terms: typing.Sequence[str]) -> typing.Any:
 	if not terms:
 		raise subroutine.errors.InternalError(
 			"A search ranking was asked for with no words to rank against.",
-			hint="Test search.terms(q) rather than q — a query of spaces is truthy and has "
+			hint="Test search.terms(q) rather than q - a query of spaces is truthy and has "
 			"no words in it.",
 		)
 

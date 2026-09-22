@@ -91,7 +91,7 @@ def _refuse_a_key_that_is_not_one (key: str, *, field: str) -> str:
 					field=field,
 					code="invalid_field_value",
 					message="A key has no spaces and is not empty.",
-					hint="It is what a caller sends back — 'in_review' rather than 'In review'.",
+					hint="It is what a caller sends back - 'in_review' rather than 'In review'.",
 				)
 			],
 		)

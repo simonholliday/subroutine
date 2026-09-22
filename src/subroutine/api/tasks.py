@@ -82,7 +82,7 @@ SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Task)
 class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tasks`` accepts.
 
-	Either ``text`` — one captured line, as ``subroutine add`` takes it — or the structured
+	Either ``text`` - one captured line, as ``subroutine add`` takes it - or the structured
 	fields, or both: **anything given explicitly wins over what the text said**, so a client
 	that wants no magic simply sends structured fields and no text.
 	"""
@@ -158,7 +158,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/tasks/{id_or_ref}`` accepts.
 
 	**A field left out is unchanged; a field sent as ``null`` is cleared.** The two
-	are told apart by ``model_fields_set``, never by comparing against a default — that is
+	are told apart by ``model_fields_set``, never by comparing against a default - that is
 	what makes "clear the due date" expressible at all.
 	"""
 
@@ -374,7 +374,7 @@ def listing (
 	assignee: str | None = fastapi.Query(
 		None,
 		description="Restrict to one assignee, by username or id. 'me' is the account you are "
-		"signed in as — which is not the same as ?actor=me on the change feed, where it means "
+		"signed in as - which is not the same as ?actor=me on the change feed, where it means "
 		"this credential.",
 	),
 	claimed_by: str | None = fastapi.Query(
@@ -408,7 +408,7 @@ def listing (
 		None,
 		description=(
 			"Include finished tasks. Left unsaid it is off, unless status_category names a "
-			"finished category — asking for finished work and not mentioning completion is not "
+			"finished category - asking for finished work and not mentioning completion is not "
 			"a request for an empty page."
 		),
 	),
@@ -441,7 +441,7 @@ def listing (
 		False,
 		description=(
 			"Only work that is yours to act on: assigned to you, or to nobody, or held by "
-			"you. Wider than 'assignee=me', which is strictly assigned — on a shared backlog "
+			"you. Wider than 'assignee=me', which is strictly assigned - on a shared backlog "
 			"most of what anybody can pick up belongs to nobody yet. Composes with 'ready'."
 		),
 	),
@@ -1045,7 +1045,7 @@ def occurrences (
 
 	The decision behind this is why it exists at all: **one occurrence is real
 	and the rest are computed**, so *show me every birthday* is a question about a view rather
-	than about the backlog. Nothing is stored and nothing is materialised — a `GET` that wrote
+	than about the backlog. Nothing is stored and nothing is materialised - a `GET` that wrote
 	would break a read-only credential and race two concurrent readers.
 
 	**It answers about the series, from whichever end the caller is holding.** A person is
@@ -1060,7 +1060,7 @@ def occurrences (
 	if series.recurrence_rule is None:
 		raise subroutine.errors.NotFound(
 			f"#{task.ref} does not repeat, so there is nothing to expand.",
-			hint="Give it a repeat first — 'recurrence' on this task, or the Repeats section "
+			hint="Give it a repeat first - 'recurrence' on this task, or the Repeats section "
 			"of its form.",
 		)
 
@@ -1109,7 +1109,7 @@ class RecordVerification(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tasks/{id_or_ref}/verifications`` accepts.
 
 	**No ``ran_at``, deliberately.** The service stamps it, and a field the route accepted and
-	no client passed would be an inert control — declared, documented and read by
+	no client passed would be an inert control - declared, documented and read by
 	nothing. What a caller would use it for is backdating a check that ran before the record
 	was posted, which is seconds in the one producer there is: a post-commit hook runs
 	immediately after the gate it is recording. When something needs longer, that is a
@@ -1158,7 +1158,7 @@ def verifications (
 
 	**Self-reported evidence is a record, not a proof. An agent can post exit code 0 without
 	running anything.** What this is worth is being a durable, attributable, invalidatable
-	record of what was checked — never "verified work", and nothing reading it should say so.
+	record of what was checked - never "verified work", and nothing reading it should say so.
 
 	Each record carries the tree it ran against, where there was one. Whether a record has
 	expired is a comparison against the tree *you* are standing on, and this instance cannot
@@ -1196,7 +1196,7 @@ def verify (
 
 	**Self-reported evidence is a record, not a proof. An agent can post exit code 0 without
 	running anything.** What this is worth is being a durable, attributable, invalidatable
-	record of what was checked — never "verified work".
+	record of what was checked - never "verified work".
 
 	`tree_hash` is what makes it invalidatable, and `git rev-parse HEAD^{tree}` prints one. Send
 	it where there is one and leave it out where there is not: a record without one is still a
@@ -1272,7 +1272,7 @@ def give_back (
 ) -> subroutine.views.Task:
 	"""Give a task back, so somebody else can take it.
 
-	Releasing something nobody holds is not an error and records nothing — a worker tidying up
+	Releasing something nobody holds is not an error and records nothing - a worker tidying up
 	after itself should not have to check first.
 
 	**Anybody who may change the task may release it**, not only the holder. The case this
@@ -1297,7 +1297,7 @@ class Move(subroutine.api.schemas.RequestModel):
 	"""Where a task should sit in the tree.
 
 	``parent: null`` promotes it to a top-level task, which is why this is a body rather than
-	a query parameter — "no parent" and "unchanged" have to be distinguishable, and
+	a query parameter - "no parent" and "unchanged" have to be distinguishable, and
 	``POST /v1/projects/{key}/move`` learned that the expensive way: an omitted parent read as
 	"move to root" and flattened whole subtrees.
 	"""
@@ -1378,10 +1378,10 @@ def unremove (
 ) -> subroutine.views.Task:
 	"""Restore a soft-deleted task.
 
-	**The half that made soft delete soft**, and for a long time it did not exist — a deleted
+	**The half that made soft delete soft**, and for a long time it did not exist - a deleted
 	item was promised to be restorable, a `trash_retention_days` setting was declared, and
 	`EventAction.RESTORED` has always been in the vocabulary, with nothing clearing
-	`deleted_at`. That setting is gone — nothing ever purged the trash, so it was one more
+	`deleted_at`. That setting is gone - nothing ever purged the trash, so it was one more
 	place the promise was made.
 
 	Registered before the parameterised deletes below it for `routing.check`'s reason, and
@@ -1416,7 +1416,7 @@ def remove (
 	"""Soft-delete a task. It stays recoverable.
 
 	The deleted task is returned rather than an empty 204, so a caller can see when it
-	happened without asking again — and so an agent can tell a repeat call apart from a
+	happened without asking again - and so an agent can tell a repeat call apart from a
 	first one.
 	"""
 

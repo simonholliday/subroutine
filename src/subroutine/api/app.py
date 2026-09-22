@@ -59,8 +59,8 @@ import subroutine.views
 DESCRIPTION = """
 A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects.
 
-`GET /v1/meta` reports this installation's vocabulary — its statuses, link types, field
-operators and date grammar — so a client can read them rather than assume them.
+`GET /v1/meta` reports this installation's vocabulary - its statuses, link types, field
+operators and date grammar - so a client can read them rather than assume them.
 `GET /v1/docs/agent` is a guide written for an agent working through this API.
 
 Errors are RFC 9457 problem documents and every one carries a stable `code`; the codes are

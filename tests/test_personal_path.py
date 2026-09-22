@@ -394,10 +394,10 @@ def test_the_record_of_finishing_an_occasion_says_what_the_screen_said (
 	run("done", "1", "--because", "she had a lovely day")
 	run("done", "2", "--because", "they were dry")
 
-	assert "Marked as past — she had a lovely day" in run("show", "1").output
-	assert "Done — she had a lovely day" not in run("show", "1").output
+	assert "Marked as past - she had a lovely day" in run("show", "1").output
+	assert "Done - she had a lovely day" not in run("show", "1").output
 
-	assert "Done — they were dry" in run("show", "2").output, "ordinary work is still Done"
+	assert "Done - they were dry" in run("show", "2").output, "ordinary work is still Done"
 
 
 def test_the_older_name_for_the_agenda_says_where_it_went (
@@ -2950,8 +2950,8 @@ def test_a_project_says_what_it_is_configured_with_and_where_each_value_came_fro
 
 	shown = run("project", "settings", "web").output
 
-	assert "teal — set here" in shown, shown
-	assert "blocked — inherited from the workspace" in shown, shown
+	assert "teal - set here" in shown, shown
+	assert "blocked - inherited from the workspace" in shown, shown
 
 
 def test_a_workspace_says_what_it_is_configured_with (
@@ -2964,7 +2964,7 @@ def test_a_workspace_says_what_it_is_configured_with (
 
 	shown = run("workspace", "settings", "projects").output
 
-	assert "amber — set here" in shown, shown
+	assert "amber - set here" in shown, shown
 	assert "not set anywhere, so the default applies" in shown, shown
 
 
@@ -3003,7 +3003,7 @@ def test_a_value_inherited_from_a_project_above_names_that_project (
 
 	shown = run("project", "settings", "web/docs").output
 
-	assert "teal — inherited from Web (web)" in shown, shown
+	assert "teal - inherited from Web (web)" in shown, shown
 
 
 def test_a_scope_with_nothing_to_configure_says_so (
@@ -10178,7 +10178,7 @@ def test_the_trash_listing_offers_a_command_that_works_on_its_own_rows (
 	run("delete", "1")
 
 	listed = run("list", "--trash").output
-	suggested = re.search(r"Tip: (subroutine [^\n—]+)", listed)
+	suggested = re.search(r"Tip: (subroutine [^\n]+?) - ", listed)
 
 	assert suggested, f"the trash listing offered no tip at all:\n{listed}"
 
@@ -12848,14 +12848,14 @@ def test_a_reason_is_read_from_a_pipe_at_every_command_that_records_one (
 	stored = _stored_prose()["comments"]
 
 	assert len(stored) == 5, stored
-	assert {one.rsplit(" — ", 1)[-1] for one in stored} == {
+	assert {one.split(" - ", 1)[-1] for one in stored} == {
 		"The part arrived.",
 		"The review is on Monday.",
 		"Waiting on the hire company.",
 		"It is getting late.",
 		"Away that week.",
 	}, stored
-	assert all(one.split(" — ")[0].strip() for one in stored), (
+	assert all(one.split(" - ", 1)[0].strip() for one in stored), (
 		f"a reason was recorded without the act it was given for: {stored}"
 	)
 

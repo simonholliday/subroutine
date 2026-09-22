@@ -542,4 +542,4 @@ class TestTheCommand:
 		runner = typer.testing.CliRunner()
 		done = runner.invoke(subroutine.cli.main.app, ["doctor"])
 
-		assert "— needs attention" in done.output, "the word, not only the colour"
+		assert "- needs attention" in done.output, "the word, not only the colour"

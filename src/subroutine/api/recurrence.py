@@ -65,7 +65,7 @@ def parse (
 	"""Read a written repeat without storing anything, and say what it means.
 
 	**A refusal here is the same refusal a create would give**, because it is the same
-	function — so a caller that checks first and then commits cannot be told two different
+	function - so a caller that checks first and then commits cannot be told two different
 	things about one phrase, which is the divergence every two-implementations defect in this
 	codebase has been.
 	"""

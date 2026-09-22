@@ -2331,7 +2331,7 @@ class Client:
 
 		return subroutine.errors.ServiceUnavailable(
 			f"{self.connection.name} answered, but not as a Subroutine instance: {because}.",
-			hint=f"Check what is serving {self.connection.url} — a proxy, a captive portal or "
+			hint=f"Check what is serving {self.connection.url} - a proxy, a captive portal or "
 			"an instance on a different API version will answer like this.",
 		)
 
@@ -2519,7 +2519,7 @@ class Client:
 			raise subroutine.errors.ServiceUnavailable(
 				f"{self.connection.name} answered {response.status_code}, and not in this "
 				"program's error format.",
-				hint=f"Check what is serving {self.connection.url} — a proxy or a captive "
+				hint=f"Check what is serving {self.connection.url} - a proxy or a captive "
 				"portal will answer like this.",
 			)
 

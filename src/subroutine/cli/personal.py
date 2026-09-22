@@ -85,7 +85,7 @@ import subroutine.views
 #: Out here for `#943`'s ratchet, like the two below it: the sentinel default and
 #: ``show_default=False`` are three more lines in the closure, and the help text is the part
 #: that does not need to be there.
-PLANNED_DAY = "A day — 'today', 'tomorrow', 'friday', '2026-08-01'. Pass '' to clear it."
+PLANNED_DAY = "A day - 'today', 'tomorrow', 'friday', '2026-08-01'. Pass '' to clear it."
 
 #: What ``--type`` offers, built from the seeds rather than written out — `#1240`.
 #:
@@ -1772,7 +1772,7 @@ def _terminal_handover (
 			"",
 			f"  subroutine connections add {nickname} --url {address}",
 			"",
-			f"It asks for the credential, so {nickname} is theirs to change — it becomes the "
+			f"It asks for the credential, so {nickname} is theirs to change - it becomes the "
 			f"first part of every address they write.",
 		]
 	)
@@ -2496,7 +2496,7 @@ def _where_new_work_goes (wanted: str, *, sole: bool) -> str:
 
 	said = f"New work goes to {wanted} now, because this machine has no list of its own"
 
-	return f"{said} — and nothing here will look for one." if sole else f"{said}."
+	return f"{said} - and nothing here will look for one." if sole else f"{said}."
 
 
 def _connection_settings (
@@ -2666,7 +2666,7 @@ def _completions (item: Reached) -> str:
 	slugs = [workspace.slug for workspace in item.identity.workspaces]
 
 	if len(slugs) == 1:
-		return f"Say which workspace on it — 'subroutine use {item.name}/{slugs[0]}'."
+		return f"Say which workspace on it - 'subroutine use {item.name}/{slugs[0]}'."
 
 	if not slugs:
 		return (
@@ -2676,7 +2676,7 @@ def _completions (item: Reached) -> str:
 
 	listed = ", ".join(sorted(slugs))
 
-	return f"Say which workspace on it — 'subroutine use {item.name}/<one of: {listed}>'."
+	return f"Say which workspace on it - 'subroutine use {item.name}/<one of: {listed}>'."
 
 
 def _finished (program: Program, *, which: str, because: str) -> None:
@@ -2691,7 +2691,7 @@ def _finished (program: Program, *, which: str, because: str) -> None:
 	with program.opened() as world:
 		located, task = _a_task(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="done",
 		)
 
@@ -2746,7 +2746,7 @@ def _planned (
 	with program.opened() as world:
 		located, task = _a_task(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="plan",
 		)
 		client = _require_connection(program, world, located.connection)
@@ -2823,7 +2823,7 @@ def _hidden (
 	with program.opened() as world:
 		located, task = _a_task(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="defer",
 		)
 		client = _require_connection(program, world, located.connection)
@@ -3873,7 +3873,7 @@ def _settled (
 			# this machine does not have, which somebody will want to put right.
 			program.warn(
 				f"{FILE_NAME} here names connection "
-				f"{current.unusable_marker_connection!r}, which is not configured — its "
+				f"{current.unusable_marker_connection!r}, which is not configured - its "
 				f"workspace is on {current.marker_found_on!r}, so that is where this goes."
 			)
 
@@ -3993,7 +3993,7 @@ def _several (program: Program, given: str) -> list[str]:
 				if len(bad) < 2
 				else f"{named} are not item numbers.",
 				hint="Every one has to be a number 'subroutine list' prints, separated by "
-				"commas — as in '9,11,12'.",
+				"commas - as in '9,11,12'.",
 			)
 		)
 
@@ -4039,7 +4039,7 @@ def _locate (
 	if address is None:
 		program.stop(
 			f"{given!r} is not an item number.",
-			"Items are named by the number 'subroutine list' prints beside them — "
+			"Items are named by the number 'subroutine list' prints beside them - "
 			f"'subroutine {verb} 42'.",
 		)
 
@@ -4071,7 +4071,7 @@ def _locate (
 		program.stop(
 			f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
 			f"{_in_place(world, named[1])}.",
-			"Run 'subroutine list' to see what there is — or "
+			"Run 'subroutine list' to see what there is - or "
 			"'subroutine list --trash' if you deleted it.",
 		)
 
@@ -4085,7 +4085,7 @@ def _locate (
 	program.stop(
 		f"There is no {subroutine.domain.refs.format_ref(address.ref)}"
 		f"{_in_place(world, named[1])}, but there is one here:\n{listed}",
-		f"Say which — 'subroutine {verb} "
+		f"Say which - 'subroutine {verb} "
 		f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}'.",
 	)
 
@@ -4109,7 +4109,7 @@ def _a_task (program: Program, world: World, given: str, *, verb: str) -> tuple[
 		shown = world.address_of_located(located)
 
 		program.stop(
-			f"{shown} is a document, not a task — {found.title}",
+			f"{shown} is a document, not a task - {found.title}",
 			f"'subroutine {verb}' works on tasks. Read this one with 'subroutine show "
 			f"{shown.replace(subroutine.domain.refs.SIGIL, '')}'.",
 		)
@@ -4138,7 +4138,7 @@ def _a_document (
 		bare = shown.replace(subroutine.domain.refs.SIGIL, "")
 
 		program.stop(
-			f"{shown} is a task, not a document — {found.title}",
+			f"{shown} is a task, not a document - {found.title}",
 			f"'subroutine document {verb}' works on documents. Change this one with "
 			f"'subroutine update {bare}'.",
 		)
@@ -4187,7 +4187,7 @@ def _unqualified (
 	if not candidates:
 		program.stop(
 			f"There is no {subroutine.domain.refs.format_ref(ref)} here.",
-			"Run 'subroutine list' to see what there is — or "
+			"Run 'subroutine list' to see what there is - or "
 			"'subroutine list --trash' if you deleted it.",
 		)
 
@@ -4203,7 +4203,7 @@ def _unqualified (
 
 	program.stop(
 		f"{given!r} could mean any of these:\n{listed}",
-		f"Say which — 'subroutine {verb} "
+		f"Say which - 'subroutine {verb} "
 		f"{shown[0].replace(subroutine.domain.refs.SIGIL, '')}', or "
 		f"'subroutine use {_place_of(world, candidates[0])}' to keep working there.",
 	)
@@ -4343,7 +4343,7 @@ def _listed (
 			# listing with a failure meant a server was down, and now it means a typo'd
 			# key, which reads exactly like a project that happens to be empty.
 			if gathered.failures or world.unreachable:
-				program.say("Nothing to show — some of what you asked for could not be read.")
+				program.say("Nothing to show - some of what you asked for could not be read.")
 
 				return
 
@@ -4612,7 +4612,7 @@ def _moved_to (program: Program, which: str, category: str, *, verb: str, said: 
 	with program.opened() as world:
 		located, task = _a_task(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb=verb,
 		)
 
@@ -4728,7 +4728,7 @@ TAG_OPTION = typer.Option(None, "--tag", help="Only what carries this tag, witho
 #: last one, silently. Every repeat is a conjunction, so a range and one field asked twice are
 #: the same rule and the sentence says so once.
 FILTER_OPTION_HELP = (
-	"Narrow by a field — 'importance.gte=4', 'tag.in=ops,web', 'assignee.is=unset', "
+	"Narrow by a field - 'importance.gte=4', 'tag.in=ops,web', 'assignee.is=unset', "
 	"'created_at.gte=yesterday'. Repeat to narrow further: a range, or one field twice."
 )
 #: Which document this one is filed under, by its number — `#2173`.
@@ -4775,10 +4775,10 @@ def _a_document_ref (program: Program, given: str) -> int | None:
 #: which is this codebase's signature defect at its smallest. The ratchet asked for exactly
 #: this: a thing two commands share belongs in something `register` reads.
 READY_OPTION = typer.Option(
-	False, "--ready", help="Only what you could start now — nothing unfinished blocks it."
+	False, "--ready", help="Only what you could start now - nothing unfinished blocks it."
 )
 TO_ACT_ON_OPTION = typer.Option(
-	False, "--to-act-on", help="Only what is yours to act on — yours, nobody's, or held by you."
+	False, "--to-act-on", help="Only what is yours to act on - yours, nobody's, or held by you."
 )
 
 
@@ -5004,7 +5004,7 @@ def _adopted_project (
 		program.stop(
 			f"{wanted!r} is a project in {_names_in_words(candidates)}, so there is no way "
 			"to tell which one this directory is about.",
-			f"Say which — 'subroutine -w {candidates[0]} use --here --project {wanted}'.",
+			f"Say which - 'subroutine -w {candidates[0]} use --here --project {wanted}'.",
 		)
 
 	return holding[0]
@@ -5147,7 +5147,7 @@ def _default_project (program: Program, world: World, text: str) -> str | None:
 
 		program.warn(
 			f"{FILE_NAME} here says {world.marker.project!r}; the project's key is stored "
-			f"as {named!r}. It still resolves, so nothing is broken — 'subroutine use "
+			f"as {named!r}. It still resolves, so nothing is broken - 'subroutine use "
 			f"--here --project {named}' brings the file into line."
 			if respelling
 			else f"{FILE_NAME} here still says {world.marker.project!r}; that project is "
@@ -5257,7 +5257,7 @@ def _connection_row (
 				token = f"{token}; also stored: {' and '.join(unused)}"
 
 	except subroutine.errors.SubroutineError as error:
-		token = f"unusable — {error.detail}"
+		token = f"unusable - {error.detail}"
 
 	notes = []
 
@@ -5290,7 +5290,7 @@ def _chosen (program: Program, world: World, where: str) -> tuple[str, str]:
 	if len(parts) > 2 or any(not part for part in parts):
 		program.stop(
 			f"{where!r} is not a place to work.",
-			"Give a workspace, or a connection and a workspace — 'subroutine use "
+			"Give a workspace, or a connection and a workspace - 'subroutine use "
 			"work/acme'.",
 		)
 
@@ -5530,7 +5530,7 @@ def _project_moved (program: Program, *, key: str, under: str, root: bool, yes: 
 			key, parent=None if root else under, workspace=workspace
 		)
 
-		program.say(f"Moved {moved.key} — {moved.title}")
+		program.say(f"Moved {moved.key} - {moved.title}")
 
 def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None:
 	"""Retire a project's short name, saying what stops working first — `#176`."""
@@ -5563,7 +5563,7 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 
 		renamed = where.client.rename_project(key, key=to, workspace=workspace)
 
-		program.say(f"Renamed to {renamed.key} — {renamed.title}")
+		program.say(f"Renamed to {renamed.key} - {renamed.title}")
 
 		# The marker in *this* directory is the one that can be repaired from here, and
 		# the one most likely to be stale a second from now (`#177`).
@@ -5625,7 +5625,7 @@ def _instance_workspaces (program: Program, *, json_output: bool) -> None:
 
 		for one in found:
 			people = "1 person" if one.members == 1 else f"{one.members} people"
-			mark = "" if one.joined else "  — you are not a member"
+			mark = "" if one.joined else "  - you are not a member"
 
 			program.say(f"  {one.slug}  {one.title}  ({people}){mark}")
 
@@ -5808,7 +5808,7 @@ def _instance_updated (program: Program, *, name: str, timezone: str) -> None:
 			name=name.strip() or None, timezone=timezone.strip() or None
 		)
 
-		program.say(f"{changed.name} — days here are counted in {changed.timezone}.")
+		program.say(f"{changed.name} - days here are counted in {changed.timezone}.")
 
 		# **Said because it is the commonest reason to be here and the easiest to get wrong.**
 		# This zone is the last word in the chain rather than the first, so it is read only by
@@ -5911,7 +5911,7 @@ def _settings_in_force (
 		for one in answer.settings:
 			value = _setting_value(one.value)
 
-			program.say(f"  {one.key:<{width}}  {value} — {_setting_source(one)}")
+			program.say(f"  {one.key:<{width}}  {value} - {_setting_source(one)}")
 
 
 def _setting_value (value: typing.Any) -> str:
@@ -5982,7 +5982,7 @@ def _workspace_renamed (program: Program, *, slug: str, to: str, yes: bool) -> N
 
 		renamed = where.client.rename_workspace(slug, slug=to)
 
-		program.say(f"Renamed to {renamed.slug} — {renamed.title}")
+		program.say(f"Renamed to {renamed.slug} - {renamed.title}")
 
 		# The stored context is the one caller we *can* repair, and the one that would
 		# otherwise fail on the very next command.
@@ -6018,7 +6018,7 @@ def _workspace_deleted (program: Program, *, slug: str, yes: bool) -> None:
 
 		removed = where.client.delete_workspace(slug)
 
-		program.say(f"Deleted {removed.slug} — {removed.title}")
+		program.say(f"Deleted {removed.slug} - {removed.title}")
 		_suggest(program.console, f"subroutine workspace restore {removed.slug}")
 
 
@@ -6029,7 +6029,7 @@ def _workspace_restored (program: Program, *, slug: str) -> None:
 		where = world.writing_to()
 		back = where.client.restore_workspace(slug)
 
-		program.say(f"Restored {back.slug} — {back.title}")
+		program.say(f"Restored {back.slug} - {back.title}")
 
 
 #: What ``--colour`` offers, composed once. **At module level because `#943`'s ratchet counts
@@ -6169,7 +6169,7 @@ def _project_updated (
 			key, workspace=_writing_workspace(world), **changes
 		)
 
-		program.say(f"Changed {changed.key} — {changed.title}")
+		program.say(f"Changed {changed.key} - {changed.title}")
 
 		# **Said only when the status moved, and said as a consequence rather than as a
 		# label.** `on_hold` is a seeded key a workspace may rename (§5.5), so what is
@@ -6408,7 +6408,7 @@ def _claimed (program: Program, *, which: str, minutes: int) -> None:
 		located, task = _a_task(
 			program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="claim",
 		)
 
@@ -6519,7 +6519,7 @@ def _verified (
 		located, task = _a_task(
 			program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="verify",
 		)
 		client = _require_connection(program, world, located.connection)
@@ -6666,7 +6666,7 @@ def _released (program: Program, *, which: str) -> None:
 		located, task = _a_task(
 			program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="release",
 		)
 		client = _require_connection(program, world, located.connection)
@@ -6690,7 +6690,7 @@ def _released (program: Program, *, which: str) -> None:
 		program.say(
 			_acted(world, done, "Released")
 			if unheld is None
-			else f"{_acted(world, done, 'Nothing to give back')} — {unheld}."
+			else f"{_acted(world, done, 'Nothing to give back')} - {unheld}."
 		)
 
 		# **Given back while still in progress, it shows as being worked on by nobody**
@@ -7050,7 +7050,7 @@ def _workspace_updated (
 		where = world.writing_to()
 		changed = where.client.update_workspace(slug, **changes)
 
-		program.say(f"Changed {changed.slug} — {changed.title}")
+		program.say(f"Changed {changed.slug} - {changed.title}")
 
 		# §6.5 makes this the step every date in the workspace is read through, so the
 		# confirmation names the zone in force rather than reporting that something changed.
@@ -7104,7 +7104,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 			False, "--no-body", help="Leave the document's text out of the result."
 		),
 	) -> None:
-		"""Write a document — a decision, a finding, a design, a dead end.
+		"""Write a document - a decision, a finding, a design, a dead end.
 
 		A decision, a finding and a dead end are in force the moment you write them, so they
 		start as 'active'; a specification or a design starts as 'draft'. Pass '--status draft'
@@ -7203,7 +7203,7 @@ def _register_documents (app: typer.Typer, program: Program) -> None:
 		With nothing to change, this opens the document in your editor. Text piped in is read
 		when nothing else is named; beside another flag, '--body -' is what reads it.
 
-		A conclusion that cannot be revised is a record of what you concluded once — so this
+		A conclusion that cannot be revised is a record of what you concluded once - so this
 		is what keeps the instance the place the *current* answer lives.
 		"""
 
@@ -7393,7 +7393,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		Several numbers separated by commas make one link each, all of the same kind. Either
 		side takes them, and both sides at once means every one of the first joined to every
-		one of the second — which is what 'each of these blocks each of those' says and is the
+		one of the second - which is what 'each of these blocks each of those' says and is the
 		only thing it could say.
 
 		Both sides matter because a plan is written from both ends: 'these six make up the
@@ -7441,7 +7441,7 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		  subroutine unlink 42 43 --type blocks
 
 		Worth having beside 'link' rather than later. A link added by mistake blocks work that
-		is not blocked, and --ready then hides it — so an unwanted link is worse than a missing
+		is not blocked, and --ready then hides it - so an unwanted link is worse than a missing
 		one, because it narrows what looks startable and says nothing about doing so.
 
 		You do not have to say which kind, because usually there is only one and having to
@@ -7609,7 +7609,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		  subroutine project create service-marketing "Marketing site" --parent web
 
-		The key is how this project is addressed here — in '+web' when you capture a line,
+		The key is how this project is addressed here - in '+web' when you capture a line,
 		and in its web address. Letters and digits, starting with a letter, hyphens inside
 		but not at either end, up to 32 characters.
 
@@ -7640,7 +7640,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 				return
 
-			program.say(f"Created {created.key} — {created.title}")
+			program.say(f"Created {created.key} - {created.title}")
 
 			# **Said at the one moment it can be acted on** (`#1444`). A private project is
 			# visible to its owner and to nobody else until somebody is named, and this is the
@@ -7694,7 +7694,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		  subroutine project rename ST SR
 
 		The old name stops working, and nothing is left pointing at it. That is deliberate:
-		a name you retired should be retired. Nothing already recorded moves — every item keeps
+		a name you retired should be retired. Nothing already recorded moves - every item keeps
 		its number, and what it is filed under does not change.
 
 		What does break is anything that wrote the old name down: a bookmarked address, a
@@ -7715,7 +7715,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		  subroutine project share secret jo
 
-		This grants sight and nothing else — what they may do in the project is still their
+		This grants sight and nothing else - what they may do in the project is still their
 		role in the workspace, so they have to be in it already.
 
 		A project inside a private one is hidden by the parent, and a membership on the child
@@ -7753,7 +7753,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		  subroutine project sharing secret
 
-		A public project usually shows just its owner. That is not a mistake — it says who
+		A public project usually shows just its owner. That is not a mistake - it says who
 		would still see it if somebody made it private, which is what anybody about to do
 		that is asking.
 		"""
@@ -7815,7 +7815,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		Putting a project on hold leaves everything in it exactly where it is and still
 		findable. What changes is that its work stops being offered as something to start.
 
-		Its short name is not changed here — that breaks addresses, so it has a command of
+		Its short name is not changed here - that breaks addresses, so it has a command of
 		its own with a warning attached: 'subroutine project rename'.
 		"""
 
@@ -7851,7 +7851,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 
 		  subroutine instance update --timezone Europe/London
 
-		The name is a label rather than an identity — it is what tells this installation from
+		The name is a label rather than an identity - it is what tells this installation from
 		another one you can reach, and changing it breaks nothing.
 
 		The timezone is the last word on what a day means here. It is read by anybody who has
@@ -7875,7 +7875,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 		  subroutine instance workspaces
 
 		'subroutine workspace list' shows the ones you can work in. This shows the ones that
-		exist — which is a different question, and the one nothing answered: somebody who can
+		exist - which is a different question, and the one nothing answered: somebody who can
 		create a workspace can create one you are not in, and it would not appear anywhere you
 		were looking.
 
@@ -8550,7 +8550,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		role: str = typer.Option(
 			"",
 			"--role",
-			help=f"What they may do — 'member', 'admin', 'viewer'. Unset means "
+			help=f"What they may do - 'member', 'admin', 'viewer'. Unset means "
 			f"'{ONBOARDING_ROLE}'.",
 		),
 		workspace: str = typer.Option(
@@ -8585,7 +8585,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user create sam --superuser
 
 		One command rather than five. It makes the account, puts them in a workspace with a
-		role, and — if you say how they will reach this instance — produces the sign-in link
+		role, and - if you say how they will reach this instance - produces the sign-in link
 		or the credential in the same breath. An account with no membership authenticates and
 		can see nothing, which reads as a broken token rather than as a missing role.
 
@@ -8595,11 +8595,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		'--browser' and '--terminal' are not alternatives. Somebody who uses the web interface
 		and has a colleague setting their machine up needs both, so both may be given. Naming
-		neither is fine too — the account is real, and the two commands that hand it over are
+		neither is fine too - the account is real, and the two commands that hand it over are
 		printed.
 
 		'--superuser' is what lets somebody create accounts and workspaces, and it is the only
-		way to grant that — no role carries it. It joins no workspace: an instance owner needs
+		way to grant that - no role carries it. It joins no workspace: an instance owner needs
 		no workspace role, and granting one quietly would be a permission taken by default.
 
 		There is no password. Subroutine authenticates with tokens, so what a new person needs
@@ -8717,7 +8717,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user list --workspace acme
 
-		Without --workspace this is every account, oldest first — the first one is whoever ran
+		Without --workspace this is every account, oldest first - the first one is whoever ran
 		'subroutine init'. With it, only that workspace's members, and what each may do there.
 		"""
 
@@ -8780,7 +8780,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	def user_add (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
 		role: str = typer.Option(
-			"", "--role", help="What they may do there — 'member', 'admin', 'viewer'."
+			"", "--role", help="What they may do there - 'member', 'admin', 'viewer'."
 		),
 		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
 	) -> None:
@@ -8824,7 +8824,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 	def user_role (
 		username: str = typer.Argument(..., help="Who, by the name 'user list' shows."),
 		role: str = typer.Argument(
-			..., help="What they may do there — 'member', 'admin', 'viewer'."
+			..., help="What they may do there - 'member', 'admin', 'viewer'."
 		),
 		workspace: str = typer.Option("", "--workspace", help="Which workspace."),
 	) -> None:
@@ -8839,7 +8839,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		The role is positional rather than an option, unlike 'user add': there it is one
 		decision among several, and here it is the whole of what this command is for.
 
-		Somebody who is not there yet is turned down by name — 'user add' is what puts them in
+		Somebody who is not there yet is turned down by name - 'user add' is what puts them in
 		a workspace, and this is what moves them once they are.
 		"""
 
@@ -8868,7 +8868,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user deactivate keanu
 
 		Their account stays and so does everything they wrote, still attributed to them. What
-		stops is their credentials and every agent answerable to them — because somebody gave
+		stops is their credentials and every agent answerable to them - because somebody gave
 		those agents permission to work, and that permission was this person's to give.
 
 		The last person who can administer this instance cannot leave: an instance nobody can
@@ -8917,7 +8917,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		  subroutine user timezone
 
-		Your own account and nobody else's — you know which zone you are in better than
+		Your own account and nobody else's - you know which zone you are in better than
 		anybody else does, so there is no permission that lets somebody set it for you. An
 		agent that has said none reads days in its account parent's zone, so whoever made one
 		has nothing to set for it.
@@ -8941,7 +8941,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		  subroutine user transfer deploy-bot --to jo
 
 		Agents stop when the person answerable for them leaves, so this is how one is kept when
-		somebody goes. Only a person can take an agent on — being accountable is something
+		somebody goes. Only a person can take an agent on - being accountable is something
 		somebody agrees to, and an agent cannot agree on anybody's behalf.
 		"""
 
@@ -9039,7 +9039,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		  subroutine workspace create acme "Acme Ltd" --timezone Europe/London
 
 		Numbers start again at 1 in a new workspace, so the two do not have to share a
-		sequence — and nothing in one is visible from the other unless you are in both.
+		sequence - and nothing in one is visible from the other unless you are in both.
 		"""
 
 		with program.opened() as world:
@@ -9058,7 +9058,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 				timezone=timezone.strip() or None,
 			)
 
-			program.say(f"Created {created.slug} — {created.title}")
+			program.say(f"Created {created.slug} - {created.title}")
 
 			# **Said because it is the surprising part.** Everything reachable is still listed,
 			# but a *write* goes to one place (§13.7), so a new workspace is not where the next
@@ -9077,7 +9077,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 
 		  subroutine workspace rename si projects
 
-		Nothing inside moves — every item keeps its number and everything stays joined to what
+		Nothing inside moves - every item keeps its number and everything stays joined to what
 		it was joined to. What stops working is anything that wrote the old name down.
 		"""
 
@@ -9115,7 +9115,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		workspace set up in the wrong one shows every deadline at the wrong time. Clearing it
 		follows the instance instead.
 
-		Its short name is not changed here — that breaks addresses, so it has a command of
+		Its short name is not changed here - that breaks addresses, so it has a command of
 		its own with a warning attached: 'subroutine workspace rename'.
 		"""
 
@@ -9161,7 +9161,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		with 'subroutine workspace restore'. Its short name is freed, so if something else
 		takes the name in the meantime the restore will ask you to rename that one first.
 
-		The only workspace here cannot be deleted — make the one that replaces it first.
+		The only workspace here cannot be deleted - make the one that replaces it first.
 		"""
 
 		_workspace_deleted(program, slug=slug, yes=yes)
@@ -9254,12 +9254,12 @@ def register (
 
 		  subroutine add "Water the plants tomorrow" --repeat "every 3 days" --repeat-from completion
 
-		Write the title as an instruction — 'Cache the roster', not 'The roster is cached'.
+		Write the title as an instruction - 'Cache the roster', not 'The roster is cached'.
 		A bug says what is wrong now instead, as the third example does, and a question ends
 		in a question mark: three moods, so a list reads at a glance. '--description' is
 		where the reasoning goes, which is what lets a title stay that short.
 
-		'--repeat-from schedule' keeps the rhythm whatever you do — rent is due on the 30th
+		'--repeat-from schedule' keeps the rhythm whatever you do - rent is due on the 30th
 		whether or not last month's was paid late. '--repeat-from completion' measures from
 		when you finished, which is what "every three days" means about watering.
 		"""
@@ -9380,7 +9380,7 @@ def register (
 	@app.command("agenda")
 	def agenda (
 		when: str = typer.Argument(
-			"", help="A day — 'tomorrow', 'friday', '+2w', '2026-08-01'. Default today."
+			"", help="A day - 'tomorrow', 'friday', '+2w', '2026-08-01'. Default today."
 		),
 		days: int = typer.Option(
 			subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
@@ -9445,8 +9445,8 @@ def register (
 		# else. Honest, and useless to somebody with it in their shell history.
 		program.say("'subroutine today' is now 'subroutine agenda'.")
 		program.say("")
-		program.say("Every surface calls it an agenda — the page, the API and the tools an")
-		program.say("agent uses — so the command does too.")
+		program.say("Every surface calls it an agenda - the page, the API and the tools an")
+		program.say("agent uses - so the command does too.")
 
 		raise typer.Exit(2)
 
@@ -9508,13 +9508,13 @@ def register (
 			help=FILTER_OPTION_HELP,
 		),
 		words: list[str] | None = typer.Argument(
-			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
+			None, hidden=True, metavar="", help="Not a filter - see 'subroutine search'."
 		),
 		looking_for: str = typer.Option(
-			"", "-q", "--search", hidden=True, help="Not a filter — see 'subroutine search'."
+			"", "-q", "--search", hidden=True, help="Not a filter - see 'subroutine search'."
 		),
 	) -> None:
-		"""List everything still open — tasks and documents — newest first.
+		"""List everything still open - tasks and documents - newest first.
 
 		Examples:
 
@@ -9633,7 +9633,7 @@ def register (
 		"""What happened over a period, with who did it and what they said.
 
 		'subroutine changes' says what *moved* and is what you resume from a number. This says
-		what *happened* — the same events, with the comments people wrote, the names of who
+		what *happened* - the same events, with the comments people wrote, the names of who
 		did each thing, and what a change moved between rather than which rows it touched.
 
 		Ask it for a period. It is the question to ask when somebody wants writing up.
@@ -9682,7 +9682,7 @@ def register (
 			False, "--strict", help="Stop if any connection cannot be reached."
 		),
 	) -> None:
-		"""What has changed, oldest first — the question to ask after time away.
+		"""What has changed, oldest first - the question to ask after time away.
 
 		'subroutine list' says what is open now. This says what *moved*, which is the thing
 		you cannot work out by looking at the current state.
@@ -9691,7 +9691,7 @@ def register (
 		agent you handed work to. '--mine' is the same question about this machine.
 
 		'--since' resumes where you left off; '--filter' asks about a period. They are
-		different questions — you have no number to offer for 'what happened yesterday'.
+		different questions - you have no number to offer for 'what happened yesterday'.
 
 		Examples:
 
@@ -9753,10 +9753,10 @@ def register (
 			help=FILTER_OPTION_HELP,
 		),
 		words: list[str] | None = typer.Argument(
-			None, hidden=True, metavar="", help="Not a filter — see 'subroutine search'."
+			None, hidden=True, metavar="", help="Not a filter - see 'subroutine search'."
 		),
 		looking_for: str = typer.Option(
-			"", "-q", "--search", hidden=True, help="Not a filter — see 'subroutine search'."
+			"", "-q", "--search", hidden=True, help="Not a filter - see 'subroutine search'."
 		),
 	) -> None:
 		"""The short name for 'subroutine list'. Both do the same thing.
@@ -9784,7 +9784,7 @@ def register (
 		),
 		json_output: bool = typer.Option(False, "--json", help="Print as JSON."),
 	) -> None:
-		"""Read one item — what it is, what it is joined to, and what happened to it.
+		"""Read one item - what it is, what it is joined to, and what happened to it.
 
 		Works on a task or on a document, because one counter per workspace serves both and
 		a number on a command line does not say which it is.
@@ -9801,14 +9801,14 @@ def register (
 
 		'--tree' walks what has to happen before this can, indented by how deep it sits. On a
 		milestone that is its contents, since a milestone is an item whose blockers are its
-		parts — so it is how you read a plan without opening every item in it.
+		parts - so it is how you read a plan without opening every item in it.
 		"""
 
 		# One address resolved in one context, so there is nothing to combine (`#327`).
 		with program.opened() as world:
 			located = _locate(program,
 				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 				kinds=ANY_ITEM,
 				verb="show",
 			)
@@ -9850,7 +9850,7 @@ def register (
 		  subroutine release 42
 
 		For when more than one person or agent works from the same list. A claim expires on its
-		own, so nothing is stranded if whoever took it never comes back — say it again to hold
+		own, so nothing is stranded if whoever took it never comes back - say it again to hold
 		it for longer.
 
 		Work somebody else has claimed disappears from 'subroutine list --ready' until their
@@ -9875,7 +9875,7 @@ def register (
 		  subroutine release --all
 
 		Releasing something nobody had claimed is not an error, so this is safe to run when you
-		are not sure. Anybody who can change the task can release it — which is what makes an
+		are not sure. Anybody who can change the task can release it - which is what makes an
 		agent that died mid-task somebody else's problem to solve rather than nobody's.
 
 		'--all' is what a session-end hook runs. It says nothing when there is nothing to give
@@ -9904,13 +9904,13 @@ def register (
 
 		  subroutine verify 42 --failed --summary "3 failed in test_agenda"
 
-		This is a record, not a proof — anybody can say a check passed without running one.
+		This is a record, not a proof - anybody can say a check passed without running one.
 		What it is worth is being kept, attributed, and able to go out of date: it carries the
 		state of the code it ran against, so somebody reading it later can tell whether the
 		code has moved since.
 
 		In a git checkout the tree is read from git unless you name one. Outside one there is
-		nothing to read, and the record is kept without it — it simply cannot go out of date.
+		nothing to read, and the record is kept without it - it simply cannot go out of date.
 		"""
 
 		_verified(
@@ -9990,7 +9990,7 @@ def register (
 		with program.opened() as world:
 			located, task = _a_task(program,
 				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 				verb="skip",
 			)
 			client = _require_connection(program, world, located.connection)
@@ -10017,7 +10017,7 @@ def register (
 	) -> None:
 		"""Say which day you will do something.
 
-		'--until' is for something that lasts — a holiday, a conference, a code freeze.
+		'--until' is for something that lasts - a holiday, a conference, a code freeze.
 
 		Examples:
 
@@ -10051,7 +10051,7 @@ def register (
 		"""Hide something until later.
 
 		A day on its own hides it until that morning. Write a time as well and it comes back
-		at that time — your agenda still waits for the day to turn.
+		at that time - your agenda still waits for the day to turn.
 
 		Examples:
 
@@ -10252,7 +10252,7 @@ def register (
 		with program.opened() as world:
 			located = _locate(program,
 				world,
-				_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+				_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 				kinds=ANY_ITEM,
 				verb="comment",
 			)
@@ -10283,7 +10283,7 @@ def register (
 		  subroutine uncomment 42 "two failures in the date parser"
 
 		Named by what it says, because that is what you are looking at. A comment has no
-		number of its own and its id is a UUID that appears in nothing a person reads — so
+		number of its own and its id is a UUID that appears in nothing a person reads - so
 		asking for one would make this a command only a script could run.
 
 		Matching more than one is refused rather than guessed at: say more of the sentence.
@@ -10307,7 +10307,7 @@ def register (
 
 		  subroutine delete 42
 
-		It goes to the trash rather than vanishing, so it can be put back — the wrong number
+		It goes to the trash rather than vanishing, so it can be put back - the wrong number
 		is the commonest mistake anybody makes here, and the second commonest is making it
 		twice.
 		"""
@@ -10367,7 +10367,7 @@ def register (
 	) -> None:
 		"""Choose what a bare task number means.
 
-		It changes what a number means. It never changes what you can see — every listing
+		It changes what a number means. It never changes what you can see - every listing
 		still spans everything you can reach.
 
 		Examples:
@@ -10456,7 +10456,7 @@ def register (
 		  subroutine whoami --json
 
 		Worth asking before the first change of a session. One machine can hold more than one
-		credential — yours in the credentials file, an agent's in the environment — and the one
+		credential - yours in the credentials file, an agent's in the environment - and the one
 		that answers here is the one your next command will act under.
 		"""
 
@@ -10492,7 +10492,7 @@ def register (
 		one's token came from.
 
 		No token is ever printed, and none can be recovered from what is. Which of the four
-		places supplied it is the useful part — the standing footgun in comparable tooling is
+		places supplied it is the useful part - the standing footgun in comparable tooling is
 		not having several sources but not knowing which one won.
 		"""
 
@@ -10843,7 +10843,7 @@ def _changed (
 	with program.opened() as world:
 		located, task = _a_task(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			verb="update",
 		)
 		client = _require_connection(program, world, located.connection)
@@ -11117,7 +11117,7 @@ def _the_repeat_left_behind (world: World, located: Located, gone: Item) -> str 
 	).replace(subroutine.domain.refs.SIGIL, "")
 
 	return (
-		f"The repeat behind it, {named}, is still there — "
+		f"The repeat behind it, {named}, is still there - "
 		f"'subroutine done {typeable}' stops it altogether."
 	)
 
@@ -11205,7 +11205,7 @@ def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
 	if _a_terminal_is_attached():
 		program.stop(
 			f"'{flag} -' means read what is piped in, and nothing is.",
-			f"Pipe the text in — 'cat notes.md | subroutine … {flag} -' — or pass it as "
+			f"Pipe the text in - 'cat notes.md | subroutine … {flag} -' - or pass it as "
 			f"'{flag} \"the text\"'.",
 		)
 
@@ -11406,7 +11406,7 @@ def _withdrawn (program: Program, *, which: str, words: str) -> None:
 	with program.opened() as world:
 		located = _locate(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			kinds=ANY_ITEM,
 			verb="uncomment",
 		)
@@ -11865,7 +11865,7 @@ def _suggest (
 	shows today is noise, and noise is how a signpost stops being read.
 	"""
 
-	line = f"  Tip: {command}" if about is None else f"  Tip: {command} — {about}"
+	line = f"  Tip: {command}" if about is None else f"  Tip: {command} - {about}"
 
 	console.print(rich.text.Text(line, style=SUGGESTION))
 
@@ -11899,7 +11899,7 @@ def _because (
 
 	client.remark(
 		ref=located.ref,
-		body=f"{what} — {reason.strip()}",
+		body=f"{what} - {reason.strip()}",
 		entity_type=located.entity_type,
 		workspace=located.workspace,
 	)
@@ -12308,7 +12308,7 @@ def _moved_under (program: Program, *, which: str, under: str, top: bool) -> Non
 		# be turning down half the numbers a reader can see, which is `#44`'s worse half.
 		located = _locate(program,
 			world,
-			_asked(which, "Which one? (a number like 42 — a shell eats '#42')"),
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
 			kinds=ANY_ITEM,
 			verb="move",
 		)

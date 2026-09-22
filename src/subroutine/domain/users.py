@@ -121,7 +121,7 @@ def create (
 
 	if password is not None and is_service_account:
 		raise subroutine.errors.ValidationError(
-			"A service account has no password — it authenticates with a token.",
+			"A service account has no password - it authenticates with a token.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="password",
@@ -290,7 +290,7 @@ def set_timezone (
 		raise subroutine.errors.Forbidden(
 			f"You can set your own timezone, not {user.username}'s.",
 			hint=(
-				"There is no permission that grants this. Ask them to set it — they know "
+				"There is no permission that grants this. Ask them to set it - they know "
 				"which zone they are in better than anybody else does."
 			),
 		)
@@ -536,7 +536,7 @@ def member (
 				field=field,
 				code="not_found",
 				message=f"No member of this workspace has the id {given!r}.",
-				hint="Name them by username instead — 'subroutine user list' shows them.",
+				hint="Name them by username instead - 'subroutine user list' shows them.",
 			)
 		],
 	)
@@ -594,7 +594,7 @@ def set_password (
 
 	if user.is_service_account:
 		raise subroutine.errors.ValidationError(
-			"A service account has no password — it authenticates with a token.",
+			"A service account has no password - it authenticates with a token.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="password",

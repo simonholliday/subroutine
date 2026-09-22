@@ -84,7 +84,7 @@ class Update(subroutine.api.schemas.RequestModel):
 	"""What ``PATCH /v1/workspaces/{id_or_slug}`` accepts.
 
 	``slug`` **may be changed**. It was absent on the grounds that it lives "in
-	other people's notes, in shell history and in ``config.toml`` on other machines" — and the
+	other people's notes, in shell history and in ``config.toml`` on other machines" - and the
 	last of those is not true: no connection and no setting names a workspace. What is left is
 	the same exposure a project key has, which is acceptable when the caller is
 	told what stops working first.
@@ -479,8 +479,8 @@ def unremove (
 	"""Restore a soft-deleted workspace, and everything in it with it.
 
 	``POST`` rather than ``DELETE ?restore=``, matching a project's restore, because it is not
-	a deletion of anything. The short name may have been taken while this was in the trash —
-	the unique index ignores deleted rows — and that is refused by name with the rename that
+	a deletion of anything. The short name may have been taken while this was in the trash -
+	the unique index ignores deleted rows - and that is refused by name with the rename that
 	clears it, rather than surfacing as a constraint violation.
 	"""
 
@@ -507,7 +507,7 @@ def remove (
 	"""Soft-delete a workspace. Everything in it leaves the visible world, and returns with it.
 
 	Needs ``workspace:delete``, which is the *only* verb separating the `owner` and `admin`
-	roles — so until this route existed the two were the same role with two descriptions.
+	roles - so until this route existed the two were the same role with two descriptions.
 
 	The workspace itself is returned rather than a 204, so a caller can see ``deleted_at`` and
 	knows what to hand back to the restore. The last live workspace is refused: an installation
@@ -567,7 +567,7 @@ def workspace_settings (
 	"""Every setting this workspace may carry, as it applies here.
 
 	Each says what is in force, what it would be if nothing stated it, and whether this workspace
-	states it — so a settings page can tell a choice somebody made here from a default nobody
+	states it - so a settings page can tell a choice somebody made here from a default nobody
 	chose. A workspace is the widest scope there is, so nothing here is inherited.
 
 	Needs ``workspace:read``, and membership: an administrator who may name any workspace still
@@ -607,7 +607,7 @@ def members (
 	Needs ``workspace:read``: knowing who you are working alongside is part of working
 	somewhere, and it is the question anybody about to add or remove somebody asks first.
 
-	Enveloped and unpaginated, like a task's links and for the same reason — a
+	Enveloped and unpaginated, like a task's links and for the same reason - a
 	workspace's membership is bounded by how many people somebody put in it.
 	"""
 
@@ -657,8 +657,8 @@ def join (
 
 	Needs ``workspace:admin`` rather than ``workspace:write``: deciding who belongs somewhere is
 	not the same act as doing work there, and a member who can add members can grant themselves
-	anything the roles allow. That check did not exist at all at first — the service took an
-	actor, attributed the event to it, and never asked it anything — and it was found on the
+	anything the roles allow. That check did not exist at all at first - the service took an
+	actor, attributed the event to it, and never asked it anything - and it was found on the
 	morning this endpoint was written.
 	"""
 
@@ -699,7 +699,7 @@ def regrade (
 	now that they do. Until this existed the only route was to remove them and add them back,
 	which writes two events for one act and leaves nothing in the record saying a role moved.
 
-	Needs ``user:admin``, the same verb that gates adding and removing — its own description is
+	Needs ``user:admin``, the same verb that gates adding and removing - its own description is
 	*managing who belongs to this workspace and what they may do here*, and this is the half of
 	that sentence nothing implemented.
 
@@ -707,7 +707,7 @@ def regrade (
 	POST a pair: each turns down the other's case and says which one to run.
 
 	The last account able to administer the workspace cannot be moved out of an administering
-	role, for the same reason it cannot be removed — a workspace nobody can administer cannot
+	role, for the same reason it cannot be removed - a workspace nobody can administer cannot
 	be repaired from inside, including by granting the role that would repair it.
 	"""
 
@@ -746,7 +746,7 @@ def leave (
 	somebody joined by mistake can see private projects they should not, and a membership that
 	can only be granted is one whose mistakes are permanent.
 
-	The last account able to administer the workspace cannot be removed — a workspace nobody can
+	The last account able to administer the workspace cannot be removed - a workspace nobody can
 	administer has thrown away the remedy for every later mistake, including that one.
 	"""
 

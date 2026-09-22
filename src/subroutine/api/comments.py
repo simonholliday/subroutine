@@ -63,7 +63,7 @@ SELECTABLE = subroutine.api.shaping.selectable(subroutine.views.Comment)
 class Create(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/{entity}/{ref}/comments`` accepts.
 
-	Only a body. No title, no type, no project — a comment that needed those would be a
+	Only a body. No title, no type, no project - a comment that needed those would be a
 	document, and offering them here would blur the one distinction between them: a comment
 	is what happened, and a document is what somebody concluded.
 	"""

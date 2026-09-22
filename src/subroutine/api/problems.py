@@ -96,7 +96,7 @@ def respond (
 		# than one of them.
 		error = subroutine.errors.PayloadTooLarge(
 			"That request body is larger than this instance reads.",
-			hint="Send less in one request — a listing takes 'limit', and a document's body "
+			hint="Send less in one request - a listing takes 'limit', and a document's body "
 			"is the one field that is meant to be long.",
 		)
 

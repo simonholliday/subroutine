@@ -106,7 +106,7 @@ def workspaces (
 	**Discovery, not reach.** ``GET /v1/workspaces`` lists what this caller can *work in* and
 	is unchanged; this says what *exists*, and nothing a workspace contains is widened by it.
 	Anybody holding ``instance:workspace_create`` can make a workspace the instance owner is
-	not in, and until this route the owner's answer to *what is here* silently left it out —
+	not in, and until this route the owner's answer to *what is here* silently left it out -
 	an empty list, which reads as nothing being there rather than as something unseen.
 
 	Enveloped and unpaginated, like a workspace's members: the number of workspaces on

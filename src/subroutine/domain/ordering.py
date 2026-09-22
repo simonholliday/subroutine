@@ -192,8 +192,8 @@ def refuse_ranking_without_a_search (expression: str | None, *, searching: bool)
 				code="invalid_field_value",
 				message=f"{RELEVANCE!r} ranks how well a row answered a search, and no search "
 				f"was made.",
-				hint="Add a search — 'q' over HTTP, or the words themselves at the command "
-				"line — or choose another field.",
+				hint="Add a search - 'q' over HTTP, or the words themselves at the command "
+				"line - or choose another field.",
 			)
 		],
 	)

@@ -160,14 +160,14 @@ def mismatch_reason (
 	if expected is not None and knows_revision(current):
 		return (
 			f"This database is at schema {current}, and this build expects {expected}.",
-			"Run 'subroutine db upgrade' — it backs up first, then migrates.",
+			"Run 'subroutine db upgrade' - it backs up first, then migrates.",
 		)
 
 	return (
 		f"This database is at schema {current}, which this build has never heard of. It "
 		f"expects {expected}.",
 		"That database was written by a newer version. Update the software rather than the "
-		"database — there is no downgrade.",
+		"database - there is no downgrade.",
 	)
 
 

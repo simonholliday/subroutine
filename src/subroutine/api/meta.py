@@ -91,7 +91,7 @@ GUIDE_TOPICS = frozenset({"dates", "capture"})
 PURPOSE = (
 	"Shared project management for people and agents. You are a principal here, not a "
 	"tool being driven: what you write is attributed to you, addressable, and still here "
-	"after your context is gone. Read GET /v1/docs/agent — it is written for you and says "
+	"after your context is gone. Read GET /v1/docs/agent - it is written for you and says "
 	"what that is worth before it says how."
 )
 
@@ -113,28 +113,28 @@ PURPOSE = (
 #: **arrangement** are not predicates, and neither is anything that changes only how a row is
 #: reported.
 NOT_FILTERS: dict[str, str] = {
-	"order": "arrangement — it decides the sequence, never the set.",
-	"limit": "arrangement — how much of the answer, not which answer.",
-	"cursor": "arrangement — where in the sequence to continue.",
-	"include_total": "reporting — it adds a count beside the same rows.",
-	"format": "reporting — §14.10, how a row is rendered.",
-	"fields": "reporting — §14.10, which of a row is rendered.",
-	"group_by": "arrangement — `#1790`. It splits one answer into several, and every row that "
+	"order": "arrangement - it decides the sequence, never the set.",
+	"limit": "arrangement - how much of the answer, not which answer.",
+	"cursor": "arrangement - where in the sequence to continue.",
+	"include_total": "reporting - it adds a count beside the same rows.",
+	"format": "reporting - §14.10, how a row is rendered.",
+	"fields": "reporting - §14.10, which of a row is rendered.",
+	"group_by": "arrangement - `#1790`. It splits one answer into several, and every row that "
 	"was in the ungrouped answer is in exactly one group.",
-	"group_limit": "arrangement — how much of each group, which is `limit`'s question per "
+	"group_limit": "arrangement - how much of each group, which is `limit`'s question per "
 	"column.",
-	"include": "reporting — it adds related entities beside the same rows.",
+	"include": "reporting - it adds related entities beside the same rows.",
 	# **Scope, and `#1801` §3 is emphatic that it is not a predicate**: it decides which rows
 	# exist for this caller at all, is never negotiable, and `domain.scoping` owns it. Publishing
 	# it beside the filters invites `workspace_id.eq=`, which every listing refuses.
-	"workspace_id": "scope — which rows exist for this caller at all, and never negotiable.",
+	"workspace_id": "scope - which rows exist for this caller at all, and never negotiable.",
 	# **A resumable cursor rather than a comparison**, which `domain.filtering`'s own registry
 	# records: `?since=` carries §5.11's inclusive-with-dedupe guarantee where a filter would be
 	# an ordinary `>=`. Two spellings of one number, one of which quietly loses the resume, is
 	# the shape `#1017` warns about — so the feed publishes neither of them as a filter.
-	"since": "arrangement — a resumable cursor with §5.11's semantics, not a comparison.",
-	"before": "arrangement — `since`'s pair, and a cursor for the same reason.",
-	"newest": "arrangement — which end of the feed to start from.",
+	"since": "arrangement - a resumable cursor with §5.11's semantics, not a comparison.",
+	"before": "arrangement - `since`'s pair, and a cursor for the same reason.",
+	"newest": "arrangement - which end of the feed to start from.",
 }
 
 #: Which listing each entity's filters and sort fields come from. Declared as data so the
@@ -191,7 +191,7 @@ def meta (
 	This endpoint breaks that criterion: a discarded parameter here does not return too much,
 	it returns **a different answer that looks like a true one**.
 
-	``?workspace=projects`` — the spelling every MCP tool uses — was dropped, and the reply was
+	``?workspace=projects`` - the spelling every MCP tool uses - was dropped, and the reply was
 	``200`` with ``workspace: null`` and empty vocabulary maps, which is exactly what a fresh
 	instance with no custom vocabulary would say. An agent read it that way, concluded the
 	status keys were unavailable, derived them instead from the statuses *in use*, decided there
@@ -384,7 +384,7 @@ def guide_text () -> str:
 	"""
 
 	sections = [
-		"# Subroutine — a guide for agents",
+		"# Subroutine - a guide for agents",
 		"",
 		"You are a principal here, not a tool being driven. You have an identity, your actions "
 		"are attributed to you, and what you write is addressable by everyone else working on "
@@ -401,7 +401,7 @@ def guide_text () -> str:
 		"the task it came from | The next session opens with your conclusion rather than "
 		"re-deriving it |",
 		"| You re-propose an approach already ruled out | A document recording the decision "
-		"*and* what was rejected | You find it before proposing it again — the failure a human "
+		"*and* what was rejected | You find it before proposing it again - the failure a human "
 		"finds most irritating, and the cheapest to prevent |",
 		"| You re-read the same files to rebuild the same understanding | A document, with "
 		"`#42` in its body to tie it to the work | The mention is indexed, so the next "
@@ -413,7 +413,7 @@ def guide_text () -> str:
 		"write | A `409` telling you to re-read, rather than a silent overwrite of somebody's "
 		"edit |",
 		"| Another worker starts the task you just started | `POST /v1/tasks/{ref}/claim` | It "
-		"leaves their ready listing while you hold it — a lease, so nothing is stranded if you "
+		"leaves their ready listing while you hold it - a lease, so nothing is stranded if you "
 		"stop first. Writing to it renews the lease, and finishing hands it back. Finishing "
 		"never reassigns: whoever assigned it finds it with `assigned_by.eq=me` |",
 		"| You cannot go on without an answer | Set `needs_input` and assign it back to whoever "
@@ -428,7 +428,7 @@ def guide_text () -> str:
 		"finished with nothing in between |",
 		"",
 		"**Being bounded is what earns you more to do.** Your token can be scoped narrower "
-		"than its owner's — particular permissions, particular projects, one workspace. That "
+		"than its owner's - particular permissions, particular projects, one workspace. That "
 		"is the reason a human hands over work they would otherwise supervise. `GET /v1/me` "
 		"says exactly what you may do, so you never learn it by being refused.",
 		"",
@@ -441,7 +441,7 @@ def guide_text () -> str:
 		"it once; it is the fastest way to stop guessing at shapes.",
 		"",
 		"The four endpoints that do most of the work: `GET /v1/agenda` answers \"what should I "
-		"do today\" across every workspace at once — add `?workspace_id=` (an id or a short "
+		"do today\" across every workspace at once - add `?workspace_id=` (an id or a short "
 		"name from the `workspaces` list above) to narrow it to one, which is what you want "
 		"when a personal list and a project's backlog share an instance; `GET /v1/tasks` "
 		"lists one workspace's; "
@@ -466,7 +466,7 @@ def guide_text () -> str:
 		"link types and limits, which are workspace data and are not the same everywhere.",
 		"",
 		"Authenticate with `Authorization: Bearer sr_…`. `GET /v1/me` reports who you are "
-		"and exactly what you may do, already narrowed by your token — you never need to "
+		"and exactly what you may do, already narrowed by your token - you never need to "
 		"work that out by being refused.",
 		"",
 		# **Below the two `/v1/me` paragraphs and not between them.** "It also reports" names
@@ -475,7 +475,7 @@ def guide_text () -> str:
 		# join between two paragraphs exists at all.
 		"It also reports `instance_version` and `schema_revision`: what this installation "
 		"runs, and which migration its database is at. Read them when a field you expected "
-		"is absent — a client ahead of its instance is ordinary, and looks from your side "
+		"is absent - a client ahead of its instance is ordinary, and looks from your side "
 		"exactly like a feature that was never built.",
 		"",
 		# `#780`. Served since `#516` and named by neither channel a reader is guaranteed, so
@@ -483,7 +483,7 @@ def guide_text () -> str:
 		# was already answering at that address. Decision `#499` is the rule, and this is the
 		# one document its reader has. `tests/test_api_meta.py` derives the claim from the
 		# mounted routes rather than trusting this paragraph to keep in step.
-		"**This instance speaks MCP as well, at `POST /mcp`** — the same bearer credential, "
+		"**This instance speaks MCP as well, at `POST /mcp`** - the same bearer credential, "
 		"and `?workspace=` chooses a default workspace. If your client speaks MCP, that is "
 		"one address and one token with nothing installed at your end, and the tools you get "
 		"are this instance's own, so they can never be older than it. They are a deliberately "
@@ -491,7 +491,7 @@ def guide_text () -> str:
 		"rest of what is described below.",
 		"",
 		"On `PATCH`, a field you omit is left alone and a field you send as `null` is "
-		"cleared — the only way to clear a date. **The names you write are not the names you "
+		"cleared - the only way to clear a date. **The names you write are not the names you "
 		"read:** send `due`, `starts`, `ends` and `snooze`, which accept the whole date "
 		"grammar; you get back `due_at`, `starts_at`, `ends_at` and `snoozed_until`, which "
 		"are instants. `ends` is the far side of a span and needs a `starts` beside it; it "
@@ -510,7 +510,7 @@ def guide_text () -> str:
 		"`GET /v1/tasks/42` and `GET /v1/tasks/{id}` are the same request; every "
 		"task- and document-addressed endpoint takes either. Refs are unique per workspace "
 		"and shared between tasks and documents, they are never reused, and they never "
-		"change — not when an item moves between projects. In a request body, a field that "
+		"change - not when an item moves between projects. In a request body, a field that "
 		"names another item (`target`, `parent`) takes the same integer, so "
 		"you can send back what you were given without converting it.",
 		"",
@@ -521,7 +521,7 @@ def guide_text () -> str:
 		"**Ask for less.** A full task is 400-600 tokens, mostly fields you did not need. "
 		"`?fields=ref,title,due_at` returns only those: lossless, ~20x smaller, the one to "
 		"reach for. `?format=ids` gives addresses alone, ~200x smaller, for choosing what to "
-		"look at next. `?format=compact` is a *terminal* rendering — aligned columns, long "
+		"look at next. `?format=compact` is a *terminal* rendering - aligned columns, long "
 		"titles cut short; read it, do not parse it. The `items`/`page` envelope is the same "
 		"in all three, so pagination does not change. `fields` and `format` cannot be "
 		"combined. `GET /v1/meta` lists the selectable fields and formats per entity.",
@@ -545,12 +545,12 @@ def guide_text () -> str:
 		# date field" reaches for `updated_at` and is told, wrongly, that nothing happened.
 		"**`touched_at` is the one to reach for when you mean *worked on*.** "
 		"`?touched_at.gte=yesterday` finds what was created, edited, completed, commented on "
-		"or moved through a status — **including changes that move no field on the item "
+		"or moved through a status - **including changes that move no field on the item "
 		"itself**, which is exactly why `updated_at` is a different question: writing a comment "
 		"does not touch the commented-on item's `updated_at` at all. `?touched_by.eq=<username>` "
 		"narrows it to one person, and the two are one question rather than two, so they match "
-		"the same events. Claiming and releasing do not count — that is bookkeeping, not work "
-		"— and work you finished in the period is included, since finishing something is the "
+		"the same events. Claiming and releasing do not count - that is bookkeeping, not work "
+		" -  and work you finished in the period is included, since finishing something is the "
 		"clearest case of having worked on it. `include_completed=false` beside it narrows to "
 		"what is still in flight.",
 		"",
@@ -559,7 +559,7 @@ def guide_text () -> str:
 		# have gone looking for an endpoint that was not there. It is back because the
 		# endpoint is: `POST /v1/tasks/{ref}/comments`, and the same on projects and
 		# documents.
-		"In prose — a title, a description, a document body, a comment — a reference is "
+		"In prose - a title, a description, a document body, a comment - a reference is "
 		"written `#42`, and that is what builds the mention index. The sigil belongs to the "
 		"*text*: do not put it in a URL, where it would have to be escaped, and do not "
 		"expect it in the `ref` field, which is a number.",
@@ -571,7 +571,7 @@ def guide_text () -> str:
 		"**If you read something, think, and then write it, send the version back.** Put "
 		"`expected_version` in the body or `If-Match: \"<version>\"` in the header, and a "
 		"change made by somebody else in between is refused with a `409` carrying both "
-		"version numbers — rather than silently overwriting their work. A human may be "
+		"version numbers - rather than silently overwriting their work. A human may be "
 		"editing the same task in a text editor while you think.",
 		"",
 	]
@@ -632,7 +632,7 @@ def _why_the_vocabulary_is_empty (
 	return (
 		"No workspace was named, so the statuses, item types, link types and tags above are "
 		"empty for that reason rather than because this installation has none. Pick one from "
-		f"'workspaces' and ask again — GET /v1/meta?workspace_id={reachable[0].slug}."
+		f"'workspaces' and ask again - GET /v1/meta?workspace_id={reachable[0].slug}."
 	)
 
 
@@ -832,7 +832,7 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				"<field><symbol><value> where the field is one this listing filters on; ':' is "
 				"equality, or 'is' when the value is a reserved word, or 'in' when the value "
 				"holds commas. Everything else is searched for as text, including a term "
-				"naming no field — so an ordinary query is unchanged. A term naming a field "
+				"naming no field - so an ordinary query is unchanged. A term naming a field "
 				"that cannot compare that way is searched for too, and reported in "
 				"page.unread."
 			),
@@ -970,7 +970,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		None,
 	),
 	(
-		"Decide what to look at next. `format=ids` is ~200x smaller than full — addresses "
+		"Decide what to look at next. `format=ids` is ~200x smaller than full - addresses "
 		"alone, then fetch the few you actually want.",
 		"GET",
 		"/v1/tasks?format=ids&limit=5",
@@ -981,7 +981,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	# filters I already use", which is the reason this is a filter and not a second endpoint.
 	(
 		"What was worked on recently? A date field takes `.gte`, `.gt`, `.lt` and `.lte`, and "
-		"the value is the same date grammar a write accepts — so `yesterday` and "
+		"the value is the same date grammar a write accepts - so `yesterday` and "
 		"`start_of_week` work, read in your timezone.",
 		"GET",
 		"/v1/tasks?updated_at.gte=start_of_week&fields=ref,title,updated_at&limit=5",
@@ -996,7 +996,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"What was *worked on* recently? `touched_at` reads the event feed rather than the "
-		"row, so a comment or a status change counts — neither of which moves `updated_at` "
+		"row, so a comment or a status change counts - neither of which moves `updated_at` "
 		"on the item itself. Add `touched_by.eq=<username>` for one person's.",
 		"GET",
 		"/v1/tasks?touched_at.gte=now-7d&fields=ref,title&limit=5",
@@ -1016,7 +1016,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"A term naming no field is searched for verbatim, so a query written before this "
-		"grammar existed asks exactly what it always did — `15:30` is a time, not a filter "
+		"grammar existed asks exactly what it always did - `15:30` is a time, not a filter "
 		"on a field called `15`. A term that names a field and cannot be read is searched "
 		"for too, and reported in `page.unread`.",
 		"GET",
@@ -1032,14 +1032,14 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		None,
 	),
 	(
-		"Create a task from a line of text — dates, tags, priority and estimate are parsed "
+		"Create a task from a line of text - dates, tags, priority and estimate are parsed "
 		"out of it (see the Capture section of /v1/docs/agent).",
 		"POST",
 		"/v1/tasks",
 		{"text": "Research audio devices for 4.0 output on Windows !3 ~2h #audio"},
 	),
 	(
-		"Write down what you concluded. This is where a finding belongs — a comment is what "
+		"Write down what you concluded. This is where a finding belongs - a comment is what "
 		"happened, a document is what you concluded.",
 		"POST",
 		"/v1/documents",
@@ -1051,7 +1051,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"Tie the document to the task it came from. **`target_type` defaults to `task`**, so "
-		"linking to a document without it is a 404 about a task that does not exist — refs "
+		"linking to a document without it is a 404 about a task that does not exist - refs "
 		"are shared between tasks and documents, so this is the easiest mistake to make.",
 		"POST",
 		"/v1/tasks/1/links",
@@ -1059,7 +1059,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 	),
 	(
 		"Say when something begins, and how long it lasts. Send `starts`, `ends`, `due` or "
-		"`snooze` — the names you *write*. You read back `starts_at`, `ends_at`, `due_at` and "
+		"`snooze` - the names you *write*. You read back `starts_at`, `ends_at`, `due_at` and "
 		"`snoozed_until`, which are instants. Only "
 		"`snooze` hides the item; the others leave it on the list. A whole day is `tomorrow` "
 		"or `2026-08-17`; an instant needs a full timestamp, because `tomorrow at 14:00` is the "
@@ -1075,7 +1075,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		{"due": None},
 	),
 	(
-		"Read what has happened to one item — newest first, and including a change made a "
+		"Read what has happened to one item - newest first, and including a change made a "
 		"moment ago. Comments made on it are here too, as events whose `subject_id` is this "
 		"item and whose `entity_id` is the comment. This is the *history* of one thing; "
 		"`/v1/changes` below is the feed of everything.",
@@ -1084,7 +1084,7 @@ EXAMPLES: tuple[tuple[str, str, str, dict[str, typing.Any] | None], ...] = (
 		None,
 	),
 	(
-		"Ask what has changed across everything you can see — the question to open a session "
+		"Ask what has changed across everything you can see - the question to open a session "
 		"with, when your last one ended and you do not know what moved. Oldest first. Keep the "
 		"`seq` of the last event you dealt with and send it back as `?since=` next time; it is "
 		"inclusive, so you will see that one again and should ignore what you already have. "
@@ -1135,13 +1135,13 @@ def examples_text () -> str:
 	"""
 
 	lines = [
-		"# Subroutine — worked examples",
+		"# Subroutine - worked examples",
 		"",
 		"Authenticate every one of these with `Authorization: Bearer sr_…`. Read",
 		"`GET /v1/docs/agent` first for what these are *for*; this file is the shapes.",
 		"",
 		"A `ref` is the small integer in every response. It is unique per workspace, shared",
-		"between tasks and documents, and never reused — so `/v1/tasks/1` and `/v1/tasks/{id}`",
+		"between tasks and documents, and never reused - so `/v1/tasks/1` and `/v1/tasks/{id}`",
 		"are the same request.",
 		"",
 	]

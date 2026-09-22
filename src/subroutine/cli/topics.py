@@ -81,7 +81,7 @@ def _dates_body () -> str:
   starts       When it begins. This is what 'agenda' shows.
                It takes a time, so 'monday at 14:00' is an appointment.
   until        When it is over, for something that lasts more than a
-               moment — a holiday, a conference, a code freeze. Set it
+               moment - a holiday, a conference, a code freeze. Set it
                with 'plan 7 "14 august" --until "28 august"', or write
                it: 'Dentist on monday 2pm-3pm'. A calendar you have
                subscribed shows the whole run of days.
@@ -95,36 +95,36 @@ Ways to write a date. **Everything below works at the command line wherever a
 date is asked for; all but the last also work in a captured line, and the ones
 marked (api) are accepted in a `due`, `starts`, `ends` or `snooze` field over
 HTTP.** The one exception is `plan`, which asks for a day and refuses a time
-of day — so a timestamp sets a deadline or a defer here and does not plan one.
+of day - so a timestamp sets a deadline or a defer here and does not plan one.
 A weekday name is
 shorthand this tool resolves for you, so `subroutine plan 1 friday` works
-while `{{"due": "friday"}}` is refused — send `2026-07-31` or `end_of_week`
+while `{{"due": "friday"}}` is refused - send `2026-07-31` or `end_of_week`
 there instead. /v1/meta publishes the exact list the API takes, under
 grammars.relative_dates.
 
   a weekday      {weekdays}
-                 — or mon, tue, wed, thu, fri, sat, sun
-                 — the soonest such day, counting today
+                 - or mon, tue, wed, thu, fri, sat, sun
+                 - the soonest such day, counting today
   next <weekday> the one in the following week
   a written date 1 September, 1 Sep, Sept 1, 14 March
                  {months}
-                 — either way round, with or without the 'st'
-                 — the soonest such date, counting today, so one written
+                 - either way round, with or without the 'st'
+                 - the soonest such date, counting today, so one written
                    in October means next year's
-                 — no year: write 2027-03-14 when the year matters
-                 — as a deadline beside a start in a captured line, a
+                 - no year: write 2027-03-14 when the year matters
+                 - as a deadline beside a start in a captured line, a
                    weekday or a written date counts from the start, so
                    'on 20 July by 5 August' is due the same year
   today, tomorrow                                              (api)
   a date         2026-08-01                                    (api)
   a time         2026-08-01T17:00:00Z                          (api)
-                 — not to 'plan', which takes a day
+                 - not to 'plan', which takes a day
   an expression  {keywords}                                    (api)
                  with offsets: now+7d, end_of_week-1d, today+1w
-                 — in a captured line 'now' needs an offset, so 'by now'
+                 - in a captured line 'now' needs an offset, so 'by now'
                    and 'from now on' are left as words
-  an offset      +7d, +2w — the same, counted from today
-                 — the command line only: '+' opens a project in a
+  an offset      +7d, +2w - the same, counted from today
+                 - the command line only: '+' opens a project in a
                    captured line, so '+7d' there is left as words
 
 Offset units are m minutes, h hours, d days, w weeks, M months, y years.
@@ -149,7 +149,7 @@ For what was *worked on* rather than what changed, ask touched_at:
   subroutine list --filter touched_at.gte=yesterday
   subroutine list --filter touched_at.gte=start_of_week --filter touched_by.eq=si
 
-That covers a comment or a status change as well as an edit — neither of which
+That covers a comment or a status change as well as an edit - neither of which
 moves updated_at on the item itself. Claiming something does not count."""
 
 
@@ -274,7 +274,7 @@ means something different for each person reading the same number.
 
 Units go largest to smallest and every duration has exactly one spelling,
 so '1h30m' is right and '30m1h' is refused. You can always write plain
-minutes instead — '90' is the same as '1h30m'.
+minutes instead - '90' is the same as '1h30m'.
 
 This is not a deadline. An estimate says how long, and a deadline says by
 when; 'subroutine explain dates' is the other one."""
@@ -309,8 +309,8 @@ Anything that is not a term is looked for as written. '15:30' is a time,
 not a field called 15, so an ordinary search needs no escaping and works
 exactly as it always has.
 
-If you write a term the field cannot take — 'created_at:today', where a
-date is compared with '>' or '<' rather than matched exactly — it is
+If you write a term the field cannot take - 'created_at:today', where a
+date is compared with '>' or '<' rather than matched exactly - it is
 looked for as text and you are told, rather than quietly dropped.
 
 To mean a value with a space in it, quote it: 'tag:"garden work"' is
@@ -412,7 +412,7 @@ TOPICS: tuple[Topic, ...] = (
 	Topic(
 		name="refs",
 		summary="How tasks are named, and how to address them without typing a name.",
-		body="""Every task has a number of its own — its ref — and that number never
+		body="""Every task has a number of its own - its ref - and that number never
 changes. Not when the task moves to another project, not when something
 above it in a list is finished, not ever. Numbers are shared with
 documents and are never reused, so they grow and leave gaps.
@@ -426,7 +426,7 @@ Any list this tool prints shows it:
   subroutine show 7
   subroutine done 7
 
-The # is how a ref is written down — in a note, a commit message, or a
+The # is how a ref is written down - in a note, a commit message, or a
 task's own description, where #7 shows up as a reference back on task
 7. You do not have to type it, and mostly you should not: a shell
 treats # as the start of a comment, so
@@ -445,7 +445,7 @@ else has been finished.""",
 		summary="Where your work lives, and how to reach it from here or from an agent.",
 		body="""Your work can be on this machine, on a server somebody runs, or
 both at once. Each of those is a connection, and your own database is
-one of them — it is called 'local' and it exists whether or not you
+one of them - it is called 'local' and it exists whether or not you
 say so. 'subroutine connections' lists them.
 
 To reach a server as well, you need its address and a token from
@@ -454,7 +454,7 @@ whoever runs it. Then:
   subroutine connections add work --url https://tasks.example.com
 
 It asks for the token, reaches the instance to check both, and writes
-nothing until they work. The name — 'work' here — is yours, and it
+nothing until they work. The name - 'work' here - is yours, and it
 becomes the first part of every address that server's items print as.
 
 From then on one list shows both:
@@ -469,7 +469,7 @@ Reading always spans everything you can reach, so nothing is hidden by
 being in the wrong place. Only writing picks one, and 'subroutine use
 work' is how you move it.
 
-An agent reaches an instance a different way — through a plugin rather
+An agent reaches an instance a different way - through a plugin rather
 than through this program, and if the work is on somebody else's
 server it needs nothing installed at all. That is a longer story than
 a terminal needs, and it is written up in docs/connecting.md in the
@@ -495,7 +495,7 @@ to a browser.""",
   subroutine show 7 --json
   subroutine add "Buy milk" --json
 
-A listing's JSON carries the ref, the title, the dates and the tags —
+A listing's JSON carries the ref, the title, the dates and the tags -
 enough to act on without asking again. 'show' carries the whole item
 instead, with its links and everything recorded against it, because the
 reason to ask about one thing is to read what a list left out.
@@ -504,7 +504,7 @@ There is no login for local use: the file permissions on your database
 are what protect it. If you want to give an agent narrower access than
 your own, issue it a token and set SUBROUTINE_TOKEN. Every command that
 reads or changes your work then obeys it exactly as it would over the
-network — a token scoped to task:read cannot add anything.
+network - a token scoped to task:read cannot add anything.
 
 What it does not bound is anybody who can reach the file. The 'db'
 commands open the database directly, because they have to work when the
@@ -512,7 +512,7 @@ service will not start, so 'db backup' and 'db restore' answer to the
 file permissions rather than to a token. Neither could anything else:
 somebody who can run these can read your config.toml, find the database
 and open it themselves. **If the boundary has to hold, it needs a server
-between them and the file** — that is what 'subroutine serve' and a
+between them and the file** - that is what 'subroutine serve' and a
 token over the network are for.""",
 	),
 	Topic(

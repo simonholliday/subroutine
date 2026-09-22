@@ -319,7 +319,7 @@ WHO = Kind(
 #: with it, which reads as *not the ones I said were two hours*.
 DURATION = Kind(
 	predicate=_duration_predicate,
-	expects="a length of time, like `30m`, `2h` or `1h30m` — or a bare number of minutes",
+	expects="a length of time, like `30m`, `2h` or `1h30m` - or a bare number of minutes",
 	# **`is` too**: *nobody has estimated this* is what a planner asks before anything else, and
 	# `estimate_minutes.lte=<huge>` cannot express it — an unestimated task has no value to
 	# compare rather than a large one.
@@ -538,7 +538,7 @@ def _ref_predicate (
 #: ``is`` would have no unset rows to find.
 REF = Kind(
 	predicate=_ref_predicate,
-	expects="an item's number, like 42 or #42 — or several, like 42,43",
+	expects="an item's number, like 42 or #42 - or several, like 42,43",
 	operators=frozenset({"eq", IN}),
 )
 
@@ -884,7 +884,7 @@ _ORDERABLE: dict[str, Property] = {
 	"priority_score": Property(
 		orderable=True,
 		because=(
-			"computed, and banded by §6.3a rather than stored — there is no value to compare "
+			"computed, and banded by §6.3a rather than stored - there is no value to compare "
 			"against. The three ranking states are what an ordering arranges; what a caller "
 			"reads is `importance * urgency`, and the two are deliberately different things."
 		),
@@ -901,7 +901,7 @@ _ORDERABLE: dict[str, Property] = {
 		orderable=True,
 		because=(
 			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
-			"— `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+			" -  `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
 		),
 	),
 }
@@ -956,7 +956,7 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 		column=subroutine.db.models.work.Task.claimed_by_id,
 		kind=REFERENCE,
 		group=NAMES_AN_ACCOUNT,
-		because="ordering by an account id means nothing — `claimed_at` is the sort that "
+		because="ordering by an account id means nothing - `claimed_at` is the sort that "
 		"answers *taken longest ago*, and it is orderable.",
 	),
 	# **What did I file, against what did my agent file** — `#1577`, Simon's question (a) of
@@ -1007,7 +1007,7 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 			"a row carries several tags, so there is no one value to sort it by. Ordering a "
 			"listing by a set is a different question and nothing has asked it. `tag.is` is "
 			"absent for a second reason worth knowing: the column here is the item's own "
-			"identity, so `_allowed` refuses it — and *has no tags at all* really is a "
+			"identity, so `_allowed` refuses it - and *has no tags at all* really is a "
 			"different query, a `NOT EXISTS` over the join table rather than a null column."
 		),
 	),
@@ -1024,7 +1024,7 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 		kind=REFERENCE,
 		group=FROM_THE_VOCABULARY,
 		because=(
-			"a status key sorts alphabetically, which is never the order somebody means — "
+			"a status key sorts alphabetically, which is never the order somebody means - "
 			"`status.position` is the workspace's own and `status_category` is the axis a "
 			"board groups on."
 		),
@@ -1038,7 +1038,7 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 		group=IN_PROJECT,
 		because=(
 			"a project id sorts by nothing anybody means, and *group by project* is the "
-			"question underneath — which wants a bounded axis and is `#1803`'s third "
+			"question underneath - which wants a bounded axis and is `#1803`'s third "
 			"capability rather than an ordering."
 		),
 	),
@@ -1057,7 +1057,7 @@ _RESOLVED_BY_NAME: dict[str, Property] = {
 		kind=REFERENCE,
 		group=IN_THE_TREE,
 		because="ordering by a parent id means nothing, and *what is under what* is a shape "
-		"rather than a sort — `#1790`'s grouping is where a tree would be drawn.",
+		"rather than a sort - `#1790`'s grouping is where a tree would be drawn.",
 	),
 	# **Its column is the item's own identity, and that is what refuses `is`** — the idiom
 	# `tag` established for the same reason. The predicate walks `path` and never compares this
@@ -1155,7 +1155,7 @@ TASK_PROPERTIES: dict[str, Property] = {
 		group=ANSWERABLE_TO,
 		because=(
 			"ordering by an account id means nothing, and this names a set of them rather than "
-			"one — there is no single value on the row to sort by. *Whose work is oldest* is "
+			"one - there is no single value on the row to sort by. *Whose work is oldest* is "
 			"`claimed_at` and `created_at`, both of which are orderable."
 		),
 	),
@@ -1174,7 +1174,7 @@ TASK_PROPERTIES: dict[str, Property] = {
 		group=A_FIXED_VOCABULARY,
 		because=(
 			"the product's own four words rather than the workspace's, so a refusal lists them "
-			"without going and looking — `#1804` reserved an ENUM for exactly this and `#3093` "
+			"without going and looking - `#1804` reserved an ENUM for exactly this and `#3093` "
 			"built it. The column is `status_id` because a category is a fact about the status "
 			"one table along, so it compiles to a subquery. `#1805` is still the ordering, if "
 			"a workspace's own status order turns out to be what people mean."
@@ -1228,7 +1228,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		kind=REFERENCE,
 		group=TAGGED,
 		because=(
-			"a row carries several tags, so there is no one value to sort it by — the task "
+			"a row carries several tags, so there is no one value to sort it by - the task "
 			"entry's reason, unchanged. `tag.is` is absent for its second reason too: the "
 			"column is the item's own identity, so `_allowed` refuses it, and *has no tags at "
 			"all* is a `NOT EXISTS` over the join table rather than a null column."
@@ -1244,7 +1244,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		column=subroutine.db.models.work.Document.status_id,
 		kind=REFERENCE,
 		group=FROM_THE_VOCABULARY,
-		because="the task entry's reason, unchanged — a key sorts alphabetically and "
+		because="the task entry's reason, unchanged - a key sorts alphabetically and "
 		"`position` is the order the workspace meant.",
 	),
 	# **A document can be filed under another one, and nothing could ask** — `#2173`, Simon's
@@ -1259,7 +1259,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		column=subroutine.db.models.work.Document.parent_id,
 		kind=REFERENCE,
 		group=IN_THE_TREE,
-		because="the task entry's reason, unchanged — ordering by a parent id means nothing.",
+		because="the task entry's reason, unchanged - ordering by a parent id means nothing.",
 	),
 	UNDER: Property(
 		column=subroutine.db.models.work.Document.id,
@@ -1287,7 +1287,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		groupable=subroutine.db.mixins.DOCUMENT_STATUS_CATEGORIES,
 		group=A_FIXED_VOCABULARY,
 		because=(
-			"the task entry's reason, with this entity's own four words — and they are the "
+			"the task entry's reason, with this entity's own four words - and they are the "
 			"reason the kind reads its vocabulary from the entry rather than holding one, "
 			"since a document is never `in_progress` and a task is never `draft` (`#3093`)."
 		),
@@ -1297,7 +1297,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		orderable=True,
 		because=(
 			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
-			"— `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+			" -  `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
 		),
 	),
 	"ref": Property(
@@ -1324,7 +1324,7 @@ PROJECT_PROPERTIES: dict[str, Property] = {
 			column=column,
 			orderable=True,
 			because=(
-				"a project is reached by its address rather than narrowed to by its name — "
+				"a project is reached by its address rather than narrowed to by its name - "
 				"`parent` is the flat parameter that does it, and `#1804` is where a "
 				"REFERENCE kind would change that."
 			),
@@ -1371,7 +1371,7 @@ EVENT_PROPERTIES: dict[str, Property] = {
 		group=WHO_DID_IT,
 		because=(
 			"a feed always runs forwards and the caller chooses only which end to start "
-			"from — `newest` — so this listing offers no ordering at all rather than one "
+			"from - `newest` - so this listing offers no ordering at all rather than one "
 			"that would contradict the cursor."
 		),
 	),
@@ -1379,7 +1379,7 @@ EVENT_PROPERTIES: dict[str, Property] = {
 		column=subroutine.db.models.activity.Event.created_at,
 		kind=INSTANT,
 		because=(
-			"a feed always runs forwards and the caller does not choose — `domain.events.feed`. "
+			"a feed always runs forwards and the caller does not choose - `domain.events.feed`. "
 			"`newest` picks which end to start from and is a flat parameter, so this listing "
 			"offers no ordering at all rather than one that would contradict the cursor."
 		),
@@ -2169,7 +2169,7 @@ def _split (value: str, operator: str, *, field: str, reported: str) -> list[str
 						f"{reported} lists its values separated by "
 						f"{IN_SEPARATOR!r} and one of them is empty."
 					),
-					hint="Write them as 'ops,web' — no trailing separator.",
+					hint="Write them as 'ops,web' - no trailing separator.",
 				)
 			],
 		)
@@ -2319,7 +2319,7 @@ def _in_the_tree (comparisons: list[Comparison], where: Where) -> typing.Any:
 					code="invalid_field_value",
 					message="A ref is numbered within a workspace, and this listing reads "
 					"more than one.",
-					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+					hint="Ask one workspace at a time - 'workspace_id' narrows a listing.",
 				)
 			],
 		)
@@ -2385,7 +2385,7 @@ def _in_project (comparisons: list[Comparison], where: Where) -> typing.Any:
 					code="invalid_field_value",
 					message="A project is addressed within a workspace, and this listing reads "
 					"more than one.",
-					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+					hint="Ask one workspace at a time - 'workspace_id' narrows a listing.",
 				)
 			],
 		)
@@ -2445,7 +2445,7 @@ def _vocabulary_key (comparisons: list[Comparison], where: Where) -> typing.Any:
 					code="invalid_field_value",
 					message="A workspace curates its own statuses and types, and this reads "
 					"several.",
-					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+					hint="Ask one workspace at a time - 'workspace_id' narrows a listing.",
 				)
 			],
 		)
@@ -2517,7 +2517,7 @@ def _a_fixed_vocabulary (comparisons: list[Comparison], where: Where) -> typing.
 					field=comparisons[0].field,
 					code="invalid_field_value",
 					message="A workspace curates its own statuses, and this reads several.",
-					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+					hint="Ask one workspace at a time - 'workspace_id' narrows a listing.",
 				)
 			],
 		)
@@ -2604,7 +2604,7 @@ def _tagged (comparisons: list[Comparison], where: Where) -> typing.Any:
 					field="tag",
 					code="invalid_field_value",
 					message="Tags are a workspace's own vocabulary, and this reads several.",
-					hint="Ask one workspace at a time — 'workspace_id' narrows a listing.",
+					hint="Ask one workspace at a time - 'workspace_id' narrows a listing.",
 				)
 			],
 		)

@@ -94,7 +94,7 @@ def refuse_a_reference (name: str) -> None:
 						f"tags when a listing is narrowed to either."
 					),
 					hint=(
-						"Use a hyphen — 'ops-web' rather than 'ops,web' — or make them two "
+						"Use a hyphen - 'ops-web' rather than 'ops,web' - or make them two "
 						"tags and ask for both with 'tag.in=ops,web'."
 					),
 				)
@@ -112,7 +112,7 @@ def refuse_a_reference (name: str) -> None:
 				code="invalid_field_value",
 				message=f"A tag made only of digits would be indistinguishable from a "
 				f"reference to item #{name}.",
-				hint="Add a letter — 'q3' rather than '3' — or, if you meant to refer to "
+				hint="Add a letter - 'q3' rather than '3' - or, if you meant to refer to "
 				f"item #{name}, write that in the description instead.",
 			)
 		],
@@ -332,7 +332,7 @@ def carrying (
 					field="tag",
 					code="invalid_field_value",
 					message=f"Nothing is tagged {name!r} in this workspace.",
-					hint="A tag exists once something carries it — add one by writing "
+					hint="A tag exists once something carries it - add one by writing "
 					"'#name' in a captured line.",
 				)
 			],

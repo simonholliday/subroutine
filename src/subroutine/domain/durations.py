@@ -119,7 +119,7 @@ def _sum_terms (text: str, original: int | str, field: str) -> int:
 		raise _invalid(
 			original,
 			field,
-			f"Write a duration as a number of minutes, or as digits and units — {_VALID_UNITS}. "
+			f"Write a duration as a number of minutes, or as digits and units - {_VALID_UNITS}. "
 			"For example: 90, '90m', '1h30m', '2d'.",
 		)
 
@@ -138,7 +138,7 @@ def _sum_terms (text: str, original: int | str, field: str) -> int:
 			raise _invalid(
 				original,
 				field,
-				f"Units must run from largest to smallest and appear once each — "
+				f"Units must run from largest to smallest and appear once each - "
 				f"'1h30m', not '30m1h'. Valid units are {_VALID_UNITS}.",
 			)
 

@@ -139,7 +139,7 @@ def user (
 	if found is None or found.deleted_at is not None:
 		raise subroutine.errors.NotFound(
 			f"There is no account with the id {given!r} here.",
-			hint="Name the account by its username instead — 'subroutine user list' shows them.",
+			hint="Name the account by its username instead - 'subroutine user list' shows them.",
 		)
 
 	return found
@@ -498,7 +498,7 @@ def task (
 			# to believe documents were immutable and stopped filing them at all.
 			raise subroutine.errors.NotFound(
 				f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a task "
-				f"— {instead.title}",
+				f" -  {instead.title}",
 				errors=[
 					subroutine.errors.FieldError(
 						field="id_or_ref",
@@ -572,7 +572,7 @@ def document (
 			# Having looked, it can say which.
 			raise subroutine.errors.NotFound(
 				f"{subroutine.domain.refs.format_ref(instead.ref)} is a task, not a document "
-				f"— {instead.title}",
+				f" -  {instead.title}",
 				errors=[
 					subroutine.errors.FieldError(
 						field="id_or_ref",
@@ -758,7 +758,7 @@ def _a_workspace_read_as_a_project (
 		# also wrong would replace one refusal with another, and the reader would have learned
 		# nothing about which half they got wrong.
 		instead = _walked(session, statement, segments[1:], through=through)
-		advice = f" — write {rest!r} instead" if instead is not None else ""
+		advice = f" - write {rest!r} instead" if instead is not None else ""
 
 		return (
 			f"{first!r} is the workspace you are in, not a project in it{advice}. An address "
@@ -918,7 +918,7 @@ def _named_twice (
 				field=field,
 				code="invalid_field_value",
 				message=f"{wanted!r} names each of: {listed}.",
-				hint=f"Say which, by its whole address — '{sorted(addresses.values())[0]}'.",
+				hint=f"Say which, by its whole address - '{sorted(addresses.values())[0]}'.",
 			)
 		],
 	)
@@ -1173,7 +1173,7 @@ def _sole_project (
 					field="project",
 					code="invalid_field_value",
 					message=f"{wanted!r} names a project in each of: {where}.",
-					hint="Say which workspace the credential is for — 'token create "
+					hint="Say which workspace the credential is for - 'token create "
 					"--workspace <name>'.",
 				)
 			],

@@ -76,7 +76,7 @@ class Create(subroutine.api.schemas.RequestModel):
 
 	**There is no owner field, deliberately.** A feed renders with its owner's sight,
 	so naming somebody else would mint a URL that reads their work and hand it to whoever
-	asked — the escalation already found on sign-in links, and worse here because a feed has no
+	asked - the escalation already found on sign-in links, and worse here because a feed has no
 	session to end and nothing to audit. The owner is the caller, structurally.
 	"""
 
@@ -113,7 +113,7 @@ def create (
 	"""Mint a feed and return its URL once.
 
 	**The URL is the credential and it is in this response and in nothing else, ever.** Only a
-	hash of the secret is stored, so nothing recovers it afterwards — including this instance.
+	hash of the secret is stored, so nothing recovers it afterwards - including this instance.
 	Give it to a calendar application when you receive it, and reset the feed if it leaks.
 
 	``url`` is null when this instance has not been told its own ``public_url``. That is not a
@@ -164,7 +164,7 @@ def listing (
 ) -> typing.Any:
 	"""Your own feeds, newest first. Never the secret, which cannot be recovered.
 
-	**Yours and nobody else's, including an instance administrator's** — which is where this
+	**Yours and nobody else's, including an instance administrator's** - which is where this
 	differs from ``GET /v1/tokens``. A list of somebody's feeds says which projects they watch
 	and from how many devices, and a feed URL is already accepted as a bearer credential
 	nobody can audit; an inventory of them is the map that makes one worth stealing.
@@ -206,7 +206,7 @@ def reset (
 	fixed without losing the scope, the audience, or the record of when it was last polled.
 	Revoking and making another would lose all three and hand back a different id.
 
-	Whoever subscribed to the old URL sees their calendar stop updating and is not told why —
+	Whoever subscribed to the old URL sees their calendar stop updating and is not told why -
 	there is nobody to tell. Re-subscribing them is the new URL, given to them the same way.
 	"""
 
@@ -238,7 +238,7 @@ def revoke (
 	Immediate: ``revoked_at`` is read on every poll rather than cached, so there is no window
 	to wait out. Whoever holds the URL gets the same 404 as somebody who guessed one.
 
-	Idempotent, and it keeps the first revocation time — when a credential stopped being
+	Idempotent, and it keeps the first revocation time - when a credential stopped being
 	trusted is worth not overwriting. The revoked feed is returned rather than an empty 204, so
 	a repeat call is distinguishable from a first one.
 	"""
@@ -265,7 +265,7 @@ def feed (
 	"""Return one calendar as iCalendar, or 404 if that address names nothing.
 
 	The whole credential is rebuilt from the two path segments rather than either being looked
-	up on its own, so this reaches the same `resolve` a caller of the domain would — and the
+	up on its own, so this reaches the same `resolve` a caller of the domain would - and the
 	grammar that splits a credential into a prefix and a secret stays in one place.
 	"""
 

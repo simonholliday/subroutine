@@ -83,7 +83,7 @@ app = typer.Typer(
 	# `subroutine` and is otherwise undiscoverable — a capability nothing announces is one
 	# nobody has. The epilog is the channel every reader of `--help` gets.
 	epilog=(
-		"Try 'subroutine explain dates' for the ideas behind the commands — how a date is "
+		"Try 'subroutine explain dates' for the ideas behind the commands - how a date is "
 		"written, what a number means, what the capture shorthand does. "
 		"Every command here also answers to 'subr'."
 	),
@@ -305,7 +305,7 @@ TERMINAL_FIELD_NAMES = {"workspace_id": "workspace"}
 #: the same condition gets the same answer whichever command met it.
 TERMINAL_REMEDIES = {
 	("workspace_id", "missing_field"): (
-		"Say which — 'subroutine -w <workspace> …' for one command, or 'subroutine use "
+		"Say which - 'subroutine -w <workspace> …' for one command, or 'subroutine use "
 		"<workspace>' to keep working there."
 	),
 }
@@ -669,12 +669,12 @@ def mcp (
 	client is not running it, nothing is serving.
 
 	One connection, chosen here. Unlike 'agenda', which merges every configured instance
-	because a person has one day, a tool call writes somewhere — and where it writes has to
+	because a person has one day, a tool call writes somewhere - and where it writes has to
 	be a decision you can see rather than one this process takes for you.
 
 	'--workspace' is the same argument one level down, and it matters as soon as an instance
 	holds two: without it every read is refused as ambiguous, and the agent has no way to
-	learn a name it was never told. It is a default rather than a limit — a call naming a
+	learn a name it was never told. It is a default rather than a limit - a call naming a
 	workspace still goes there, and a token pinned to one narrows it for real.
 	"""
 
@@ -823,7 +823,7 @@ def serve (
 		_say(f"Reached at {reachable}")
 
 	for surface in surfaces:
-		_say(f"  {surface.path:<{column}}  {surface.what} — {surface.note}")
+		_say(f"  {surface.path:<{column}}  {surface.what} - {surface.note}")
 
 	_warn_about_an_open_origin_list(settings)
 
@@ -977,7 +977,7 @@ def _refuse_an_unusable_public_url (settings: subroutine.config.Settings) -> Non
 		f"public_url is set to {(settings.public_url or '').strip()!r}, and {fault}.",
 		"It is what calendar subscriptions, sign-in links and the origins an agent may "
 		"connect from are all built from, so it has to be the address people actually reach "
-		"this on — through a proxy if there is one.",
+		"this on - through a proxy if there is one.",
 	)
 
 
@@ -1017,7 +1017,7 @@ def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None
 	if settings.dev_mode:
 		_stop(
 			"This instance has a public_url and no secret_key, and dev_mode makes one up each "
-			"time it starts — so anybody paging through a listing would be refused after every "
+			"time it starts - so anybody paging through a listing would be refused after every "
 			"restart.",
 			f"Put a secret_key in {subroutine.config.config_file_path()} or set "
 			"SUBROUTINE_SECRET_KEY. dev_mode can stay: it changes nothing once there is a key.",
@@ -1025,7 +1025,7 @@ def _refuse_without_a_signing_key (settings: subroutine.config.Settings) -> None
 
 	_stop(
 		"There is no secret_key here, and it signs the cursor that carries a listing from "
-		"one page to the next — so this would start, pass every health check, and fail on "
+		"one page to the next - so this would start, pass every health check, and fail on "
 		"the first listing longer than a page.",
 		f"Put a secret_key in {subroutine.config.config_file_path()} or set "
 		"SUBROUTINE_SECRET_KEY. 'subroutine init' writes one, and a database that arrived "
@@ -1065,14 +1065,14 @@ def upgrade_moved (
 	_say("'subroutine upgrade' is now 'subroutine db upgrade'.")
 	_say("")
 	_say("Everything that acts on the database is under 'db'. The blunt migrator that used")
-	_say("to be 'db upgrade' — no backup, no confirmation — is now 'db migrate'.")
+	_say("to be 'db upgrade' - no backup, no confirmation - is now 'db migrate'.")
 
 	raise typer.Exit(2)
 
 
 @app.command("help")
 def help_command (context: typer.Context) -> None:
-	"""Show what this can do — the same as 'subroutine --help'.
+	"""Show what this can do - the same as 'subroutine --help'.
 
 	The same answer, deliberately. This used to explain concepts while '--help' listed
 	commands, so one question had two answers and the reader had to learn which was which
@@ -1090,7 +1090,7 @@ def help_command (context: typer.Context) -> None:
 def explain_topic (
 	topic: str = typer.Argument("", help="A concept to explain. Omit to list them."),
 ) -> None:
-	"""Explain a concept — refs, dates, the capture grammar, scripting.
+	"""Explain a concept - refs, dates, the capture grammar, scripting.
 
 	Examples:
 
@@ -1153,7 +1153,7 @@ def config_show () -> None:
 		# "not a backup". `subroutine db upgrade` takes one automatically, so an operator who never
 		# set the value has their pre-upgrade copy on the disk they are worried about.
 		elif name == "backup_directory" and not value:
-			value = f"(unset — beside the database, in {subroutine.db.backup.directory(settings)})"
+			value = f"(unset - beside the database, in {subroutine.db.backup.directory(settings)})"
 
 		_say(f"{name.ljust(width)}  {value}  [{sources[name]}]")
 
@@ -1221,7 +1221,7 @@ def database_migrate () -> None:
 def database_copy (
 	to: str = typer.Option(..., "--to", help="The database URL to copy into."),
 ) -> None:
-	"""Copy this instance's data into another database — SQLite to PostgreSQL, or back.
+	"""Copy this instance's data into another database - SQLite to PostgreSQL, or back.
 
 	Examples:
 
@@ -1362,7 +1362,7 @@ def doctor () -> None:
 
 		else:
 			_out.print(
-				rich.text.Text(f"{line}  — needs attention", style="red"),
+				rich.text.Text(f"{line}  - needs attention", style="red"),
 				markup=False,
 				highlight=False,
 			)
@@ -1401,7 +1401,7 @@ def upgrade (
 	  subroutine db upgrade --check
 
 	This does not install anything, and will not try to. Update Subroutine itself with
-	whatever you installed it with — pip, pipx, uv, your package manager, a new container —
+	whatever you installed it with - pip, pipx, uv, your package manager, a new container -
 	and then run this to bring the database along.
 
 	'--check' asks whether a newer release exists and whether it changes the database schema,
@@ -1457,7 +1457,7 @@ def upgrade (
 		# the write set came apart in `#413`.
 		_say(
 			f"{running} is a development build rather than a release, so upgrading from a "
-			f"package index may have declined to replace it — it can compare as newer than "
+			f"package index may have declined to replace it - it can compare as newer than "
 			f"anything published."
 		)
 
@@ -1479,7 +1479,7 @@ def upgrade (
 		_stop(
 			f"That database is newer than this software: it is at {current}, which this "
 			f"version has never heard of.",
-			"Update Subroutine rather than the database — there is no downgrade. Whatever "
+			"Update Subroutine rather than the database - there is no downgrade. Whatever "
 			"installed it is what upgrades it.",
 		)
 
@@ -1535,7 +1535,7 @@ def upgrade (
 		_stop(
 			f"The upgrade failed: {getattr(error, 'orig', None) or error}",
 			f"It stopped at {_schema_now(settings)}. What was there before the upgrade is at "
-			f"{written.path} — 'subroutine db restore {written.path} --recover' puts it back.",
+			f"{written.path} - 'subroutine db restore {written.path} --recover' puts it back.",
 		)
 
 	# **Read it back rather than assuming.** A migration that reports success and leaves the
@@ -1678,7 +1678,7 @@ def _what_it_held (written: subroutine.db.backup.Backup) -> str:
 
 	if not any(held.values()):
 		return (
-			"  It holds nothing — no workspaces, no projects, no tasks and no documents. "
+			"  It holds nothing - no workspaces, no projects, no tasks and no documents. "
 			"That is a backup of an empty instance, not of your work."
 		)
 
@@ -1707,7 +1707,7 @@ def _holdings_cell (backup: subroutine.db.backup.Backup) -> str:
 
 	if held is None:
 		return (
-			"Holdings not recorded — taken before this was written down. Check it before "
+			"Holdings not recorded - taken before this was written down. Check it before "
 			"relying on it."
 		)
 
@@ -2078,7 +2078,7 @@ def token_create (
 
 	'--store' is opt-in rather than the default, and that is a deliberate choice. Writing a
 	narrow token into credentials.toml under the local connection would silently narrow your
-	own CLI to whatever the agent was given — a token that quietly takes authority away is
+	own CLI to whatever the agent was given - a token that quietly takes authority away is
 	worse than one you have to paste somewhere.
 
 	With '--service-account' it is stored as that connection's agent instead, which is the one
@@ -2199,7 +2199,7 @@ def token_list () -> None:
 
 	  subroutine token list
 
-	Prefixes, never secrets. Only a hash is stored, so there is nothing here to leak — and
+	Prefixes, never secrets. Only a hash is stored, so there is nothing here to leak - and
 	the prefix is what 'token revoke' takes, which is the point of printing it.
 
 	Each credential says what it can reach and when it was last used, so "which of these can
@@ -2408,22 +2408,22 @@ def agent_create (
 	broken token rather than as a missing role.
 
 	Handing the token over is half the work. An agent that can run shell commands reaches this
-	instance two ways — through the tools its editor wired up, and by running 'subroutine'
-	itself — and those resolve credentials separately. Give the token only to the editor and the
+	instance two ways - through the tools its editor wired up, and by running 'subroutine'
+	itself - and those resolve credentials separately. Give the token only to the editor and the
 	agent is itself over the tools and *you* in its shell, which is worse than plainly acting as
 	you: half its work is correctly attributed, so a spot check finds its name and concludes the
 	setup worked.
 
 	'--store' covers both halves for every agent on this machine. It records the credential
 	beside yours rather than in place of it, and 'subroutine' then acts as the agent in a process
-	the agent started and as you everywhere else — including in 'git' hooks, which are the
+	the agent started and as you everywhere else - including in 'git' hooks, which are the
 	highest-volume writer here. For one project's agent instead, leave '--store' off and give
 	the credential to that project's own settings, as docs/connecting.md shows.
 
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
 	and changes nothing. A combination that means two things at once is refused rather than
-	resolved — '--profile observer --write WEB' is not a narrower observer.
+	resolved - '--profile observer --write WEB' is not a narrower observer.
 
 	The credential is checked by being presented, not by being described: what it can actually
 	do is read back from the instance before this command claims anything.
@@ -2506,7 +2506,7 @@ def agent_create (
 	_say("")
 
 	if written is None:
-		_say("Nothing here will use it yet — '--store' is what records it on this machine.")
+		_say("Nothing here will use it yet - '--store' is what records it on this machine.")
 		_say(
 			f"Until then its shell acts as {operator.user.username}, and nothing above bounds "
 			f"what it does there."
@@ -2595,7 +2595,7 @@ def login_link (
 
 	  subroutine login link --username keanu
 
-	Hand it over however you would hand over anything private — it signs in as whoever it
+	Hand it over however you would hand over anything private - it signs in as whoever it
 	names, once, and stops working after half an hour.
 
 	This is also the way back in when email is not set up or is not working, which is why it
@@ -2671,7 +2671,7 @@ def token_revoke (
 	  subroutine token revoke sr_a1b2c3d4
 
 	Immediate. A revoked credential is checked on every request rather than cached, so there
-	is no session to wait out — which is what makes this the answer when a token has leaked
+	is no session to wait out - which is what makes this the answer when a token has leaked
 	or a piece of work has ended.
 	"""
 
@@ -2737,7 +2737,7 @@ def calendar_create (
 
 	  subroutine calendar create "Just mine" --mine --type bug
 
-	Give the address to whatever you keep your diary in — Google Calendar, Apple Calendar,
+	Give the address to whatever you keep your diary in - Google Calendar, Apple Calendar,
 	Outlook and Thunderbird all take one. Anything with a date shows up there and updates on
 	its own; nothing you do in the calendar comes back here, which is the trade for it
 	working everywhere without an account.
@@ -2746,7 +2746,7 @@ def calendar_create (
 	would treat one: paste it into the calendar application and nowhere else. If it gets out,
 	'subroutine calendar reset' gives this feed a new one and the old address stops working.
 
-	It is shown exactly once, here. Nothing recovers it afterwards, including this program —
+	It is shown exactly once, here. Nothing recovers it afterwards, including this program -
 	what is kept is a fingerprint of it rather than the address itself.
 
 	It shows what *you* can see, at the moment somebody's calendar asks. Losing sight of a
@@ -2819,7 +2819,7 @@ def calendar_list (
 
 	  subroutine calendar list
 
-	Never the address, which cannot be recovered — what is printed is the short reference
+	Never the address, which cannot be recovered - what is printed is the short reference
 	'reset' and 'revoke' take.
 
 	'last polled' is the one worth reading. A calendar application fetches every quarter of
@@ -2909,7 +2909,7 @@ def calendar_reset (
 	  subroutine calendar reset a1b2c3d4
 
 	The old address stops working immediately, so this is what to run if one has got out. The
-	subscription itself survives — same name, same scope — which is why this exists rather
+	subscription itself survives - same name, same scope - which is why this exists rather
 	than making another one.
 
 	Whoever was subscribed to the old address will find their calendar quietly stops
@@ -3040,7 +3040,7 @@ def _named_prefix (
 		if whole is not None:
 			_stop(
 				f"That is a whole {noun}, not a {part}.",
-				f"Pass only the {part} — '{whole[0]}' here — so the secret stays out of "
+				f"Pass only the {part} - '{whole[0]}' here - so the secret stays out of "
 				f"your shell history. 'subroutine {listing}' prints them.",
 			)
 
@@ -3265,7 +3265,7 @@ def _safety_copy (settings: subroutine.config.Settings, *, yes: bool) -> None:
 		_warn(f"The database being replaced could not be backed up: {error}")
 		_warn(
 			"That usually means it is already damaged, which is a reason to go on rather than "
-			"to stop — but it does mean there is no way back to the state it is in now."
+			"to stop - but it does mean there is no way back to the state it is in now."
 		)
 
 		if not (yes or typer.confirm("Restore anyway?", default=True)):
@@ -3360,7 +3360,7 @@ def _refuse_a_local_connection_that_is_off () -> None:
 		f"{subroutine.config.config_file_path()}, so a database created here could not be "
 		f"reached.",
 		f"Set 'enabled = true' under [connections.{subroutine.connections.LOCAL_NAME}] and "
-		f"run this again — or leave it off, if this machine is meant to reach a server and "
+		f"run this again - or leave it off, if this machine is meant to reach a server and "
 		f"keep no list of its own.",
 	)
 
@@ -3500,8 +3500,8 @@ def _warn_an_earlier_instance_is_elsewhere (settings: subroutine.config.Settings
 	# `init` that failed while preparing its database, where no earlier instance exists at all —
 	# so asserting that one does would be false exactly when somebody is already recovering.
 	_warn(
-		f"'init' has run here before — {subroutine.config.config_file_path()} already holds a "
-		f"signing key — and there is no database at {safe_url(settings.database_url)}. If you "
+		f"'init' has run here before - {subroutine.config.config_file_path()} already holds a "
+		f"signing key - and there is no database at {safe_url(settings.database_url)}. If you "
 		f"set an instance up earlier and it is not there, it is somewhere this configuration "
 		f"does not name: put its 'database_url' in that file and run this again, or carrying "
 		f"on will build a second, empty one."
@@ -3540,7 +3540,7 @@ def _warn_an_environment_database_is_not_recorded (
 	_warn(
 		f"This database came from the environment, and nothing has recorded it. Put "
 		f"'database_url' in {subroutine.config.config_file_path()}, or anything started "
-		f"without that variable — a service, another shell — will look somewhere else."
+		f"without that variable - a service, another shell - will look somewhere else."
 	)
 
 
@@ -3611,14 +3611,14 @@ def _where_a_database_would_come_from (settings: subroutine.config.Settings) -> 
 		# second way of writing a series is a second thing to keep consistent.
 		return (
 			f"This machine has no instance of its own; it reaches {', '.join(elsewhere)}. "
-			f"This command acts on a local database, so run it where that instance lives — "
+			f"This command acts on a local database, so run it where that instance lives - "
 			f"'subroutine init' would set up a second, empty one here."
 		)
 
 	return (
 		"Nothing has configured 'database_url', so this is the default. Run 'subroutine init' "
 		f"to set an instance up here, or name the database you meant in "
-		f"{subroutine.config.config_file_path()} — a URL given only in the environment is not "
+		f"{subroutine.config.config_file_path()} - a URL given only in the environment is not "
 		f"recorded anywhere, so a service started without it will not find it."
 	)
 

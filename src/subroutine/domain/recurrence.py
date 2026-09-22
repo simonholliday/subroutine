@@ -429,7 +429,7 @@ def _checked (value: str, *, field: str) -> str:
 		raise _refuse(
 			value,
 			field=field,
-			why=f"A rule repeats {', '.join(sorted(FREQUENCIES)).lower()} — "
+			why=f"A rule repeats {', '.join(sorted(FREQUENCIES)).lower()} - "
 			f"anything finer would materialise faster than anybody works.",
 		)
 

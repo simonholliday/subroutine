@@ -79,7 +79,7 @@ STORED_TITLE_LENGTH = 512
 #: What to do with the rest — `#2022`. A number alone says the caller is wrong without saying
 #: what to do instead, and both `subroutine_add` and `subroutine_update` take a `description`
 #: in the same call, so there is no second step to teach.
-TITLE_HINT = "A title is one line — put the detail in the description."
+TITLE_HINT = "A title is one line - put the detail in the description."
 
 #: The range §6.3 gives both priority axes, where 5 is highest. There is a CHECK constraint
 #: for each on the table, and until 2026-07-29 that was the *only* thing enforcing them — so
@@ -244,7 +244,7 @@ def _repeat (
 			raise subroutine.errors.ValidationError(
 				"That describes how something repeats, and nothing here repeats.",
 				code="invalid_field_value",
-				hint="Say how often it comes round as well — this only qualifies that.",
+				hint="Say how often it comes round as well - this only qualifies that.",
 				errors=[
 					subroutine.errors.FieldError(
 						field=field,
@@ -626,7 +626,7 @@ def series_start (
 		raise subroutine.errors.ValidationError(
 			"A repeat needs a date to repeat from.",
 			code="invalid_field_value",
-			hint="Give it a deadline or a start — 'every month' says how often, not when.",
+			hint="Give it a deadline or a start - 'every month' says how often, not when.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="recurrence",
@@ -1577,7 +1577,7 @@ def update (
 						field="project",
 						code="invalid_field_value",
 						message="This task is part of another task, which decides its project.",
-						hint="Move the parent instead — its parts go with it.",
+						hint="Move the parent instead - its parts go with it.",
 					)
 				],
 			)
@@ -3111,7 +3111,7 @@ def _repeat_changed (
 			raise subroutine.errors.ValidationError(
 				"That describes how something repeats, and this does not repeat.",
 				code="invalid_field_value",
-				hint="Give it a repeat first — this describes one rather than starting one.",
+				hint="Give it a repeat first - this describes one rather than starting one.",
 				errors=[
 					subroutine.errors.FieldError(
 						field=field,
@@ -3809,7 +3809,7 @@ def completion_wanted (
 						f"{_asking_for_it(categories, status_named)} asks only for finished "
 						"work and include_completed=false excludes all of it."
 					),
-					hint="Drop include_completed — asking about finished work implies it.",
+					hint="Drop include_completed - asking about finished work implies it.",
 				)
 			],
 		)

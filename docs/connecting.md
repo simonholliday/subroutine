@@ -203,7 +203,7 @@ $ subroutine list
 that machine had a list already:
 
 ```console
-New work goes to work now, because this machine has no list of its own — and nothing here
+New work goes to work now, because this machine has no list of its own - and nothing here
 will look for one.
 ```
 

@@ -128,7 +128,7 @@ def no_stream () -> fastapi.Response:
 	is new is that it now comes from a route instead of from there being no route.
 
 	**The difference matters because an absence can be claimed by somebody else.** The browser
-	app later added ``GET /{workspace}``, which matches every single-segment path — so this
+	app later added ``GET /{workspace}``, which matches every single-segment path - so this
 	``GET`` began returning an HTML page, and a 405 that had only ever existed as a coincidence
 	stopped being true. ``api/routing.check`` could not see it: nothing became *unreachable*,
 	which is the question it asks.
@@ -167,7 +167,7 @@ def call (
 	door. A plugin puts it in the URL, which is the one place a static configuration file can
 	put it.
 
-	Left unset on a multi-workspace instance, every read is refused as ambiguous — which is
+	Left unset on a multi-workspace instance, every read is refused as ambiguous - which is
 	deliberate, and the refusal names the workspaces rather than merely complaining.
 	"""
 

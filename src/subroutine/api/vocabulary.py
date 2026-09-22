@@ -119,7 +119,7 @@ class UpdateLinkType(subroutine.api.schemas.RequestModel):
 class CreateTag(subroutine.api.schemas.RequestModel):
 	"""What ``POST /v1/tags`` accepts.
 
-	A tag is still made by being *used* — this is the other door, for declaring one in
+	A tag is still made by being *used* - this is the other door, for declaring one in
 	advance and saying what it means here.
 	"""
 
@@ -252,7 +252,7 @@ def list_statuses (
 ) -> subroutine.views.Collection[subroutine.views.Status]:
 	"""Return this workspace's statuses, in the order a client should show them.
 
-	**Enveloped like every other listing**, with ``has_more`` always false — the link
+	**Enveloped like every other listing**, with ``has_more`` always false - the link
 	listing settled that a bare array is the one shape a caller cannot tell complete from
 	truncated, and *always false* here is a statement rather than a shrug: a workspace's
 	vocabulary is bounded by how many somebody wrote.
@@ -414,16 +414,16 @@ def list_tags (
 	cursor: str | None = fastapi.Query(None, description="Continue after a previous page."),
 	include_total: bool = fastapi.Query(False, description="Count the whole result."),
 ) -> subroutine.views.Collection[subroutine.views.TagEntry]:
-	"""Return this workspace's tags as things to curate — id, name and what it means.
+	"""Return this workspace's tags as things to curate - id, name and what it means.
 
 	**No usage counts here, and `/v1/meta` is where they stay.** It already answers how often
 	each tag is used, narrowed to the tasks this
-	caller can see — a tag used only in a private project they are not a member of does not
+	caller can see - a tag used only in a private project they are not a member of does not
 	appear. Recomputing that beside a curation listing would either duplicate a
 	disclosure-sensitive aggregate or publish an unscoped one.
 
 	**Paged like every other listing here** (`SR#1572`). It used to return every row and accept
-	no ``limit``, honestly — ``has_more`` was false because there genuinely was no more — but a
+	no ``limit``, honestly - ``has_more`` was false because there genuinely was no more - but a
 	tag is minted as a side effect of the ordinary write path, on every surface, so the response
 	grew without anybody deciding it should. ``domain/paging.size`` is one definition of a page
 	size that both clients share, and this route was an exception nobody chose: it was written

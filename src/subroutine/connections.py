@@ -274,7 +274,7 @@ def _declared_tables () -> dict[str, dict[str, typing.Any]]:
 		if not isinstance(table, dict):
 			raise _refusal(
 				f"connections.{name}",
-				f"'{name}' must be a table — write '[connections.{name}]' and put its "
+				f"'{name}' must be a table - write '[connections.{name}]' and put its "
 				"settings under it.",
 			)
 
@@ -324,7 +324,7 @@ def _valid_name (name: str) -> str:
 	raise _refusal(
 		f"connections.{name}",
 		f"{name!r} cannot be a connection name. A name starts with a letter and uses "
-		"letters, numbers, hyphens and underscores — it becomes the first part of an "
+		"letters, numbers, hyphens and underscores - it becomes the first part of an "
 		"address, as in 'work/acme/42'.",
 	)
 
@@ -418,7 +418,7 @@ def _connection (name: str, table: dict[str, typing.Any]) -> Connection:
 		raise _refusal(
 			"connections.local.url",
 			"'local' always means this installation's own database, so it cannot have a "
-			"url. Give the remote instance a name of its own — '[connections.work]'.",
+			"url. Give the remote instance a name of its own - '[connections.work]'.",
 		)
 
 	if name != LOCAL_NAME and url is None:

@@ -102,7 +102,7 @@ def answering (
 			return _refused(
 				raw,
 				f"{connection.name} answered {status}, and not with a JSON-RPC message.",
-				"Check what is serving that address — a proxy or a captive portal answers "
+				"Check what is serving that address - a proxy or a captive portal answers "
 				"like this.",
 			)
 

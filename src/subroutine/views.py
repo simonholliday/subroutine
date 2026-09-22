@@ -170,8 +170,8 @@ class WorkBeneath(pydantic.BaseModel):
 class Revisions(pydantic.BaseModel):
 	"""How often an item's body has been rewritten, and who last rewrote it.
 
-	**A count and a name, never a diff.** It answers one question — *has what I am reading
-	been replaced?* — and the superseded text stays where it is, in the change feed.
+	**A count and a name, never a diff.** It answers one question - *has what I am reading
+	been replaced?* - and the superseded text stays where it is, in the change feed.
 
 	**Only a replacement of the body counts.** A rename or a status change is something a
 	reader already sees; writing prose onto an item that had none is a first draft rather
@@ -198,7 +198,7 @@ class LinkEnd(pydantic.BaseModel):
 	"""What is at the far end of a link, with enough of the row to **judge** it.
 
 	Enough, and no more. A caller looking at an item's links wants to know what it is joined
-	to, not to receive every field of everything it touches — and an end the caller may not
+	to, not to receive every field of everything it touches - and an end the caller may not
 	see is never reported at all, which is :mod:`subroutine.domain.links`' obligation rather
 	than this model's.
 
@@ -209,13 +209,13 @@ class LinkEnd(pydantic.BaseModel):
 	judge is a list that has to be clicked through one item at a time.
 
 	**The set is derived rather than chosen.** These are the fields the browser's ``marks``
-	reads — the indicator vocabulary its list, board and agenda rows already share — so a link
+	reads - the indicator vocabulary its list, board and agenda rows already share - so a link
 	line renders through the same function as a row and cannot drift from it.
 	``tests/test_web.py`` fails if ``marks`` grows a read this cannot answer.
 
 	**And it is a projection of the full rendering rather than a parallel one**, which is what
 	:func:`_end` is about: sixteen of :class:`Task`'s fifty-nine, resolved by the code that
-	resolves them for a row. The one field deliberately not taken is ``description`` — the
+	resolves them for a row. The one field deliberately not taken is ``description`` - the
 	whole body of every item this one touches, which is what the paragraph above refuses and
 	what measurement made a first-order cost.
 	"""
@@ -473,7 +473,7 @@ class Instance(pydantic.BaseModel):
 
 	``id`` is the one value in this program that must never change. A client
 	keys its caches on it, notices the same instance configured twice under two names by it,
-	and labels merged results with it — so an id that moved would silently corrupt all three
+	and labels merged results with it - so an id that moved would silently corrupt all three
 	at once. ``name`` is the server's own label and may be changed freely; neither is the
 	*connection* name, which is the nickname in the reader's own configuration.
 
@@ -579,7 +579,7 @@ class Occurrences(pydantic.BaseModel):
 	be a question about a **view** rather than about the backlog.
 
 	**Dates and nothing else.** An occurrence that has not happened has no status, no assignee
-	and no comments — it is not a row and reporting it in a task's shape would invite a client
+	and no comments - it is not a row and reporting it in a task's shape would invite a client
 	to act on something that does not exist. What it does carry is the description, so a
 	calendar can say what the rule *is* beside the dates it produced.
 	"""
@@ -1140,8 +1140,8 @@ class Backlink(pydantic.BaseModel):
 
 	**The mention table has been written by every title, description, body and comment since
 	M1 and read by nothing.** `domain/mentions.backlinks` had no caller and the planned
-	``?include=backlinks`` was honestly refused, so *what refers to this?* — the question the
-	whole table exists for — was answerable on no surface at all.
+	``?include=backlinks`` was honestly refused, so *what refers to this?* - the question the
+	whole table exists for - was answerable on no surface at all.
 
 	**It names something a reader can open**, which is what makes the list worth having: a ref
 	and a title, the same argument that settled a link's far end. A comment has no ref, so
@@ -1338,14 +1338,14 @@ class Event(pydantic.BaseModel):
 	other entity here has one and a client keying a local cache by id should not have to
 	special-case this table.
 
-	``changes`` is whatever the service that recorded it chose to say — ``{"status": {"from":
+	``changes`` is whatever the service that recorded it chose to say - ``{"status": {"from":
 	…, "to": …}}`` and similar. Deliberately untyped: the shape belongs to the action, a new
 	action adds its own without a migration or a schema change here, and a client reads it
 	after switching on ``action``.
 
 	**Both actor fields, and both nullable.** A system action has no user and a
 	session-authenticated one has no token; recording which is which is what makes an audit
-	trail worth reading. Ids rather than names — an unrequested relation is
+	trail worth reading. Ids rather than names - an unrequested relation is
 	an id, and resolving every actor on every page is what the compact format exists to avoid.
 
 	``subject_*`` is what the event happened *on* when that differs from the entity, and it is
@@ -1567,7 +1567,7 @@ class Changes(Collection[Event]):
 
 	**It exists because a feed is not a listing of one kind.** A credential narrowed away from
 	one of the three used to be refused the whole feed, because each kind enforces its own read
-	scope — so an agent whose skill tells it to *ask what changed first* failed on its first
+	scope - so an agent whose skill tells it to *ask what changed first* failed on its first
 	call rather than degrading to the two thirds it could see.
 
 	``covers`` is a subset of ``scoping.readable_event_kinds``' vocabulary, in a stable order.
@@ -1584,13 +1584,13 @@ class Journal(Collection[JournalEntry]):
 
 	**It carries `covers` for the same reason the feed does.** A journal reads the
 	same store through the same scoping, so a credential narrowed away from a kind gets a
-	journal of what it may read — and without this, *nothing happened on Friday* and *I am not
+	journal of what it may read - and without this, *nothing happened on Friday* and *I am not
 	shown that* are the same sentence. Said positively and always, per Simon's decision of
 	2026-08-22.
 
 	**Declared here rather than beside `JournalEntry`, and that is not tidiness.** pydantic's
 	mypy plugin crashes on `Collection[JournalEntry]` when the item model is the class
-	immediately above it — *unresolved placeholder type*, because the generic base is
+	immediately above it - *unresolved placeholder type*, because the generic base is
 	serialised before the plugin has finished the model it names. Anything in between is
 	enough. `Changes` never met it only because `Event` is four hundred lines further up.
 	"""
@@ -1704,7 +1704,7 @@ class Governing(pydantic.BaseModel):
 
 	**Titles and refs, never bodies**, which is what makes it affordable. A document's title
 	states its conclusion, so the list is readable on its own and a reader
-	fetches only the one they need — a reading list that inlined its reading would be the cost
+	fetches only the one they need - a reading list that inlined its reading would be the cost
 	it exists to remove.
 	"""
 
@@ -1810,7 +1810,7 @@ class Verification(pydantic.BaseModel):
 	"""What was checked against a task, and which tree it was checked on.
 
 	**A record, not a proof.** An agent can post an exit code of zero without having run
-	anything, so what this is worth is being durable, attributable and invalidatable — never
+	anything, so what this is worth is being durable, attributable and invalidatable - never
 	*verified work*. That sentence is settled and nothing built on this model may soften it.
 
 	``is_stale`` is deliberately absent: it is derived from the tree the *reader* is standing
@@ -1860,7 +1860,7 @@ class Workspace(pydantic.BaseModel):
 	is administering the workspace rather than resolving an address through it.
 
 	``next_ref_number`` is deliberately absent. It is the counter behind the ref sequence, and
-	publishing it would invite a client to predict the next ref — which is exactly the guess that
+	publishing it would invite a client to predict the next ref - which is exactly the guess that
 	breaks the moment two writes race.
 	"""
 
@@ -2003,14 +2003,14 @@ class Caller(pydantic.BaseModel):
 
 	**Not :class:`User`, and it was written as a subclass of one first.** The privacy
 	line is where the two part: an email is personal data that no caller needs a colleague's,
-	and everybody is entitled to their own — so this carries one and a directory entry does
+	and everybody is entitled to their own - so this carries one and a directory entry does
 	not. What a directory carries and this does not is ``is_active`` and ``created_at``, facts
 	about an account *as an administrator sees it* rather than about the authority being
 	exercised.
 
 	Inheriting looked tidier and was wrong for a reason worth keeping: it would have added two
 	required fields to a response that has been shipping without them, so a client built from
-	this tree could not read ``/v1/me`` from a server one release behind — and the failure it
+	this tree could not read ``/v1/me`` from a server one release behind - and the failure it
 	produced said the server was "not a Subroutine instance". Found by running the command
 	against the live instance, which is a release behind, in the first minute of its existence.
 	"""
@@ -2043,7 +2043,7 @@ class Credential(pydantic.BaseModel):
 	"""The credential a caller presented, and how far it narrows their authority.
 
 	**Not :class:`Token`, which answers a different question.** That one describes a credential
-	in an inventory — whose it is, whether it still works, when it was revoked — and every one
+	in an inventory - whose it is, whether it still works, when it was revoked - and every one
 	of those facts is settled here by the fact that this request was answered at all. What is
 	left is the part a caller acts on: what it lets them do.
 
@@ -2102,7 +2102,7 @@ class Credential(pydantic.BaseModel):
 
 
 class WorkspaceOnInstance(pydantic.BaseModel):
-	"""One workspace as the installation sees it — what exists, rather than what is in it.
+	"""One workspace as the installation sees it - what exists, rather than what is in it.
 
 	**Deliberately thinner than :class:`Workspace`**, which carries settings and the project a
 	workspace has prioritised. Those are facts from inside, and the caller here may not be a
@@ -2364,8 +2364,8 @@ class SignInLink(pydantic.BaseModel):
 	credential would be two places for it to be logged, and a caller that wants the parts has
 	the URL to take them from.
 
-	Unlike :class:`Token`, there is no ``prefix`` here. Nothing revokes an individual link —
-	it is spent by being used and gone within the half hour either way — so the public half
+	Unlike :class:`Token`, there is no ``prefix`` here. Nothing revokes an individual link -
+	it is spent by being used and gone within the half hour either way - so the public half
 	would be a field with no question to answer.
 	"""
 
@@ -2486,7 +2486,7 @@ class IssuedToken(Token):
 	"""A credential at the one moment its secret exists in readable form.
 
 	Returned by ``POST /v1/tokens`` and by nothing else, ever. Nothing recovers the secret
-	afterwards, including this program — which is why it is a separate type rather than an
+	afterwards, including this program - which is why it is a separate type rather than an
 	optional field on :class:`Token`: a field that is usually absent is one somebody eventually
 	expects to find.
 	"""
@@ -2511,7 +2511,7 @@ class Calendar(pydantic.BaseModel):
 	listing prints and what resetting and revoking take.
 
 	``last_polled_at`` is why this view is worth having at all: a URL nobody has fetched
-	for six months is one to revoke, and there is no other way to tell — a feed has no login,
+	for six months is one to revoke, and there is no other way to tell - a feed has no login,
 	so *when was this last used* is the only signal that it is still wanted.
 	"""
 
@@ -2621,7 +2621,7 @@ class Member(pydantic.BaseModel):
 class ProjectMember(pydantic.BaseModel):
 	"""One person who has been shared into a project.
 
-	Sight of the project, and nothing else — what somebody may do in it is still their role in
+	Sight of the project, and nothing else - what somebody may do in it is still their role in
 	the workspace. There is deliberately no ``role`` here, unlike a workspace membership:
 	project visibility reads whether the row exists and nothing that is in it, so a role would
 	be a published field no surface can set.
@@ -2950,7 +2950,7 @@ class Agenda(pydantic.BaseModel):
 	"""The sections of a day, and what they were computed against.
 
 	``date`` and ``timezone`` are both reported because "today" is not a fact about the
-	server — and a client merging several instances resolves the date *once*,
+	server - and a client merging several instances resolves the date *once*,
 	in its own zone, then asks every connection for that explicit day. Without that, a person
 	whose work profile says ``America/New_York`` and whose personal one says
 	``Europe/London`` would get two different days merged into one list.
@@ -5853,7 +5853,7 @@ def zones (me: Me, *, machine: str | None) -> list[str]:
 		f"Days for {me.user.username} are read in {', '.join(differing)}; this machine is set "
 		f"to {machine}.",
 		f"'subroutine user timezone <zone>' sets it for {me.user.username}, which is the "
-		f"account this credential is for — and no other.",
+		f"account this credential is for - and no other.",
 	]
 
 
@@ -6035,7 +6035,7 @@ def _versions (me: Me, *, program: str | None, plugin: str | None = None) -> lis
 	if program is None and plugin is None:
 		return [
 			f"Instance {instance}{schema}.",
-			"What you are running is not visible from here — these tools answer on the "
+			"What you are running is not visible from here - these tools answer on the "
 			"instance, and your plugin and program are on your own machine. Run 'subroutine "
 			"whoami' in a terminal there to compare all three.",
 		]
@@ -6157,7 +6157,7 @@ def _versions (me: Me, *, program: str | None, plugin: str | None = None) -> lis
 	if unranked:
 		lines.append(
 			"A development build's version is fixed at install time rather than describing "
-			"the code it runs, so it cannot be ranked — the program has not been compared "
+			"the code it runs, so it cannot be ranked - the program has not been compared "
 			f"with {' or '.join(unranked)}."
 		)
 
@@ -7092,7 +7092,7 @@ class ItemType(Named):
 
 	**A sibling of :class:`Status` rather than a field on :class:`Named`**, and for its reason:
 	a link type is a ``Named`` too and has no category, so putting one on the base would publish
-	a field that is empty for one of the three vocabularies — a column that says nothing,
+	a field that is empty for one of the three vocabularies - a column that says nothing,
 	one layer up.
 
 	The category exists for exactly one branch: a client draws by key when it
@@ -7220,7 +7220,7 @@ class Listing(pydantic.BaseModel):
 
 	**Each key is named after the parameter that consumes it**, except ``path`` and ``filters``:
 	``filters`` is a list of parameter *names* rather than one parameter's values, so there is
-	no single parameter to name it after. That rule arrived late — the two lists below were
+	no single parameter to name it after. That rule arrived late - the two lists below were
 	originally called ``sortable`` and ``selectable``, after what they *contain*, so a caller
 	who read one and reached for ``?select=`` earned a refusal.
 
@@ -7270,7 +7270,7 @@ class Setting(pydantic.BaseModel):
 	"""One thing this installation may be configured with, as a client needs to know it.
 
 	The settings registry, published: each setting's key, where it may be set, the kind of value
-	it takes, its default, what it is for and who may change it — so a settings form is assembled
+	it takes, its default, what it is for and who may change it - so a settings form is assembled
 	from this rather than written by hand. A form written by hand would be a second list of what
 	settings exist, and the two would agree on the day they were written.
 	"""

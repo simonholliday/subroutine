@@ -3324,7 +3324,7 @@ class Client:
 			if series.recurrence_rule is None:
 				raise subroutine.errors.NotFound(
 					f"#{row.ref} does not repeat, so there is nothing to expand.",
-					hint="Give it a repeat first — 'subroutine update "
+					hint="Give it a repeat first - 'subroutine update "
 					f"{row.ref} --repeat \"every month\"'.",
 				)
 
@@ -4091,7 +4091,7 @@ class Client:
 			if instead is not None:
 				raise subroutine.errors.NotFound(
 					f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a "
-					f"task — {instead.title}",
+					f"task - {instead.title}",
 					hint="Revise it with 'subroutine document edit "
 					f"{instead.ref}', or read it with 'subroutine show {instead.ref}'.",
 				)
@@ -4204,7 +4204,7 @@ class Client:
 
 			if series is not None and series.is_template:
 				return subroutine.errors.NotFound(
-					f"{written} is the repeat itself, not a task — {series.title}",
+					f"{written} is the repeat itself, not a task - {series.title}",
 					hint=(
 						f"'subroutine list' names the occurrence to act on instead, and "
 						f"'subroutine show {ref}' reads the repeat. 'subroutine done {ref}' "

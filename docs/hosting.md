@@ -338,7 +338,7 @@ afternoon when it is skipped.
   Ready. Try: subroutine add "something to do"
   This database came from the environment, and nothing has recorded it. Put 'database_url' in
   /var/lib/subroutine/config/subroutine/config.toml, or anything started without that
-  variable — a service, another shell — will look somewhere else.
+  variable - a service, another shell - will look somewhere else.
 ```
 
 **`init` will not write it for you, and that is deliberate.** A PostgreSQL URL routinely
@@ -1001,7 +1001,7 @@ who did what if the screen is ever used to write, and turning it off does not lo
 
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
-  Nothing here will use it yet — '--store' is what records it on this machine.
+  Nothing here will use it yet - '--store' is what records it on this machine.
   Until then its shell acts as laurence, and nothing above bounds what it does there.
 ```
 
@@ -1307,7 +1307,7 @@ $ subroutine list
   work
     work/acme/#1  Fix the deploy script
 
-    Tip: subroutine show work/acme/1 — read one of them in full
+    Tip: subroutine show work/acme/1 - read one of them in full
 ```
 
 **`subroutine connections` is how you check it**, and it is worth knowing about because it
@@ -1915,7 +1915,7 @@ deciding the remedy:
     /opt/subroutine/bin/subroutine agenda
   Nothing could be read.
   Local: This database is at schema 233f898a2bee, and this build expects cfeea5d4dd35.
-    Run 'subroutine db upgrade' — it backs up first, then migrates.
+    Run 'subroutine db upgrade' - it backs up first, then migrates.
 ```
 
 A database *newer* than the software is refused the other way - update the software, because
@@ -2016,7 +2016,7 @@ substitute.
     /opt/subroutine/bin/subroutine db upgrade
   Subroutine 0.8.2.dev14+g80e1a4a06 expects schema cfeea5d4dd35.
   The database is at cfeea5d4dd35.
-  0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it — it can compare as newer than anything published.
+  0.8.2.dev14+g80e1a4a06 is a development build rather than a release, so upgrading from a package index may have declined to replace it - it can compare as newer than anything published.
   Nothing to do.
 ```
 

@@ -1453,7 +1453,7 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 					message=f"A key may be up to {MAX_KEY_LENGTH} characters and that is "
 					f"{len(normalized_key)}.",
 					hint="A key is typed in every line that mentions the project, so shorter "
-					"is kinder — 'web-sales' rather than 'website-sales-and-marketing'.",
+					"is kinder - 'web-sales' rather than 'website-sales-and-marketing'.",
 				)
 			],
 		)
@@ -1471,8 +1471,8 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 					field="key",
 					code="invalid_field_value",
 					message=f"{wrote!r} is an address rather than a key.",
-					hint=f"A project is keyed by its last part alone — "
-					f"{normalized_key.rsplit(PATH_SEPARATOR, 1)[-1]!r} — and put inside "
+					hint=f"A project is keyed by its last part alone - "
+					f"{normalized_key.rsplit(PATH_SEPARATOR, 1)[-1]!r} - and put inside "
 					f"another by naming that one as its parent.",
 				)
 			],
@@ -1489,7 +1489,7 @@ def check_key (normalized_key: str, *, given: str | None = None) -> None:
 					if not normalized_key
 					else f"{normalized_key!r} is not a usable key.",
 					hint="A key is lower case: a letter, then letters, digits and hyphens "
-					"between them — 'sr', 'home', 'web-sales'.",
+					"between them - 'sr', 'home', 'web-sales'.",
 				)
 			],
 		)

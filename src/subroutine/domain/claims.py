@@ -383,7 +383,7 @@ def _who_holds_it (
 	)
 
 	return (
-		f"{who} claimed it{until}. Wait for the lease to run out, or ask them — "
+		f"{who} claimed it{until}. Wait for the lease to run out, or ask them - "
 		f"'subroutine release <ref>' takes it back if they have finished with it."
 	)
 

@@ -107,11 +107,11 @@ def create (
 	"""Mint a credential and return it once.
 
 	**The secret is in this response and in nothing else, ever.** Only a hash is stored, so
-	nothing recovers it afterwards — including this instance. Store it when you receive it.
+	nothing recovers it afterwards - including this instance. Store it when you receive it.
 
 	A credential may never grant more than the one that asked for it: wider scopes, a wider set
 	of projects, a wider set of projects it may *write* in, an expiry later than its own, or an
-	unpinned workspace where the caller's own token is pinned are all refused — as is issuing
+	unpinned workspace where the caller's own token is pinned are all refused - as is issuing
 	for somebody else without ``instance:user_create``.
 	"""
 
@@ -158,7 +158,7 @@ def listing (
 	"""The credentials this caller may see, newest first.
 
 	**Narrowed the same way revoking is**, so nothing appears here that the caller could not
-	then act on: your own, the ones you issued, and — for an instance administrator —
+	then act on: your own, the ones you issued, and - for an instance administrator -
 	everything. An inventory you can read and not revoke is a worse answer than a short one.
 
 	Not paginated, for the reason ``GET /v1/users`` gives: an instance's credentials are
@@ -200,7 +200,7 @@ def revoke (
 	Immediate: ``revoked_at`` is checked on every request rather than cached anywhere, so there
 	is no session to wait out. That is what makes this the answer when a token has leaked.
 
-	Idempotent, and it keeps the first revocation time — when a credential stopped being
+	Idempotent, and it keeps the first revocation time - when a credential stopped being
 	trusted is a fact worth not overwriting, and a caller retrying should not change it. The
 	revoked credential is returned rather than an empty 204 so that a repeat call is
 	distinguishable from a first one.

@@ -47,7 +47,7 @@ def refuse_a_cursor (cursor: str | None, *, axis: str, kind: str = "task") -> No
 				message="'cursor' and 'group_by' cannot be sent together.",
 				hint=(
 					f"Each group carries its own next_cursor, which is valid on a listing "
-					f"narrowed to that group — send {axis}=<key> and the cursor together"
+					f"narrowed to that group - send {axis}=<key> and the cursor together"
 					# **Except for the one group whose key is not a value** — `#1425`. A
 					# row-keyed axis holds `unset` for the rows nobody is named on, and
 					# `assignee=unset` would look for an account of that name. The narrowing

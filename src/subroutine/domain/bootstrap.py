@@ -123,7 +123,7 @@ def initialise (
 	if inbox is None:
 		raise subroutine.errors.SubroutineError(
 			"This workspace was created without an Inbox.",
-			hint="Nothing has been set up. Report this — it should not be reachable.",
+			hint="Nothing has been set up. Report this - it should not be reachable.",
 		)
 
 	session.flush()
@@ -182,7 +182,7 @@ def _describe (
 
 	if user is None or inbox is None:
 		raise subroutine.errors.InternalError(
-			"This database is set up but incomplete — its workspace has no owner or no Inbox.",
+			"This database is set up but incomplete - its workspace has no owner or no Inbox.",
 			hint="Restore it, or start again from an empty database.",
 		)
 

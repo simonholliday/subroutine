@@ -100,8 +100,8 @@ def sign_in_lines (
 			[
 				"",
 				"Nobody has set public_url, so that address is where this instance listens. "
-				"It works in a browser on this machine; if you reach it another way — a "
-				"proxy, another machine — set public_url and make a fresh link.",
+				"It works in a browser on this machine; if you reach it another way - a "
+				"proxy, another machine - set public_url and make a fresh link.",
 			]
 		)
 

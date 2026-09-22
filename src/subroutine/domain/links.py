@@ -584,7 +584,7 @@ def _why_a_ring_is_wrong (
 	# superseding exists to answer.
 	if link_type.key == SUPERSEDING:
 		return (
-			"Then none of them would be the current one. Withdraw a link in that chain — "
+			"Then none of them would be the current one. Withdraw a link in that chain - "
 			"superseding runs one way, from the replacement to what it replaces."
 		)
 

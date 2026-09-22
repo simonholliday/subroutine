@@ -25,7 +25,7 @@ import subroutine.domain.refs
 ItemAddress = typing.Annotated[
 	str,
 	fastapi.Path(
-		description="The item's ref — a plain integer, as returned in `ref` — or its id. "
+		description="The item's ref - a plain integer, as returned in `ref` - or its id. "
 		"`42` and `019f…` are both accepted. Write `#42` in prose, never in a URL.",
 		examples=["42"],
 	),

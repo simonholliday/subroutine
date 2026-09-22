@@ -52,7 +52,7 @@ def read (
 	date: str | None = fastapi.Query(
 		None,
 		description=(
-			"The day to build the agenda for — 2026-09-01, 'friday' or 'today'. Defaults to "
+			"The day to build the agenda for - 2026-09-01, 'friday' or 'today'. Defaults to "
 			"today, in your zone."
 		),
 	),

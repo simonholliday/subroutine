@@ -659,7 +659,7 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 
 	if mid:
 		clauses.append(
-			f"Left as written: {', '.join(mid)} — read as part of the sentence rather than "
+			f"Left as written: {', '.join(mid)} - read as part of the sentence rather than "
 			f"as a repeat, because words follow it. Put it at the end to make it one."
 		)
 
@@ -669,33 +669,33 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		# none of them: a repeat this grammar cannot read is a repeat *phrased* in a way it
 		# does not know, and pointing at the forms that work is what a reader can act on.
 		clauses.append(
-			f"Left as written: {', '.join(repeats)} — not a repeat this understands. "
+			f"Left as written: {', '.join(repeats)} - not a repeat this understands. "
 			f"{subroutine.domain.recurrence.PHRASE_HINT}"
 		)
 
 	if spans:
 		clauses.append(
-			f"Left as written: {', '.join(spans)} — a span needs its first day before its "
+			f"Left as written: {', '.join(spans)} - a span needs its first day before its "
 			f"last, and both of them days there are, so neither was set."
 		)
 
 	if clocked:
 		clauses.append(
-			f"Left as written: {', '.join(clocked)} — a span with a time on each of two days "
+			f"Left as written: {', '.join(clocked)} - a span with a time on each of two days "
 			f"is not read yet, so nothing was set. Times on one day are read, as in 'from "
 			f"monday 9am to 5pm', and a span of whole days is read without them."
 		)
 
 	if hours:
 		clauses.append(
-			f"Left as written: {', '.join(hours)} — an appointment on one day needs a day this "
+			f"Left as written: {', '.join(hours)} - an appointment on one day needs a day this "
 			f"understands and two different times, as in 'from monday 9am to 5pm', so nothing "
 			f"here was set."
 		)
 
 	if ranges:
 		clauses.append(
-			f"Left as written: {', '.join(ranges)} — two times are an appointment's two ends, "
+			f"Left as written: {', '.join(ranges)} - two times are an appointment's two ends, "
 			f"so they go on a start and need a day this understands. A deadline and a deferral "
 			f"are each one moment, and take one time rather than two."
 		)
@@ -705,7 +705,7 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		# and a date and they are different days; this grammar cannot know which the writer
 		# meant, and choosing would be the confident wrong answer the fix replaced.
 		clauses.append(
-			f"Left as written: {', '.join(contradicted)} — the day and the date name "
+			f"Left as written: {', '.join(contradicted)} - the day and the date name "
 			f"different days, so neither was used. Write one or the other."
 		)
 
@@ -715,13 +715,13 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		# read. Without one it stays in the title, which is `#797`'s decision and is why this
 		# is a note rather than a refusal.
 		clauses.append(
-			f"Left as written: {', '.join(timed)} — a time is read after 'at', or straight "
+			f"Left as written: {', '.join(timed)} - a time is read after 'at', or straight "
 			f"after a day, as in 'Dentist on Monday at 2pm'."
 		)
 
 	if said:
 		clauses.append(
-			f"Left as written: {', '.join(said)} — a project is named like '+web': letters and "
+			f"Left as written: {', '.join(said)} - a project is named like '+web': letters and "
 			"digits, hyphens inside, and nothing else."
 		)
 

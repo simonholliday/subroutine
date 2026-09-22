@@ -174,7 +174,7 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 		return [
 			Finding(
 				area="signing key",
-				detail="none, and nothing here serves a listing — every connection is elsewhere",
+				detail="none, and nothing here serves a listing - every connection is elsewhere",
 			)
 		]
 
@@ -194,7 +194,7 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 				Finding(
 					area="signing key",
 					detail=(
-						"none, and dev_mode is on, so one is made up per process — and "
+						"none, and dev_mode is on, so one is made up per process - and "
 						"public_url says other people reach this instance, so every listing "
 						"they have in flight fails when it restarts"
 					),
@@ -216,7 +216,7 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 		Finding(
 			area="signing key",
 			detail=(
-				"none — listings longer than a page will fail, because the cursor that "
+				"none - listings longer than a page will fail, because the cursor that "
 				"carries them is signed with it"
 			),
 			ok=False,
@@ -282,7 +282,7 @@ def _the_settings (settings: subroutine.config.Settings) -> list[Finding]:
 			Finding(
 				area="cors_origins",
 				detail=(
-					"'*' on a published instance — any page on any site can read and write "
+					"'*' on a published instance - any page on any site can read and write "
 					"as anybody who is signed in and visits it. Name the origins that need "
 					"it, or leave the list empty"
 				),

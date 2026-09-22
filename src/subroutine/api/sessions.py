@@ -151,7 +151,7 @@ def signin (
 	"""Spend a sign-in link, set the browser's session cookie and send it to the app.
 
 	**303 rather than 200, so the link leaves the address bar.** A URL holding a credential
-	that stays on screen is one somebody bookmarks, screenshots or pastes into a chat — and
+	that stays on screen is one somebody bookmarks, screenshots or pastes into a chat - and
 	although this one is already spent by the time the redirect is followed, a person cannot
 	tell a spent secret from a live one by looking at it.
 
@@ -161,21 +161,21 @@ def signin (
 	and the answers differ:
 
 	* **Referrer: never.** Every request the browser makes after signing in carries
-	  ``Referer: <root>/`` — a redirect keeps the *original* referrer rather than the redirecting
+	  ``Referer: <root>/`` - a redirect keeps the *original* referrer rather than the redirecting
 	  URL, and the document that ends up loaded is the landing page. The 303 is what makes that
 	  true, so ``test_a_link_is_exchanged_for_a_cookie_and_a_redirect`` is what holds it.
 	* **History: no**, closed by the same 303, which is why it is a 303.
 
 	**Both of those are about the path that redeems, and the confirmation page is not it.**
 	That page is a 200 carrying the link in its own URL, so it stays in the address bar and in
-	the history — a deliberate trade, since it does not spend the link. Its referrer is closed separately, by
+	the history - a deliberate trade, since it does not spend the link. Its referrer is closed separately, by
 	:func:`_ask_before_switching` sending ``no-referrer``.
 	* **Access log: yes**, in full. :mod:`subroutine.api.logs` keeps it out of the one this
 	  process writes; an operator's proxy is theirs, and ``docs/hosting.md`` says so.
 
 	**And the confirmation below made a dead secret into a live one.** Before it, the logged
 	value was always spent by the time the line was written, because the line is written on
-	response. A confirmation deliberately does *not* spend the link — so this route can now log a
+	response. A confirmation deliberately does *not* spend the link - so this route can now log a
 	credential that still works, on exactly the path somebody meets when a link arrives that they
 	did not expect. That is the reason the redaction exists rather than a note saying it did not
 	matter.
@@ -410,17 +410,17 @@ def switch (
 	  without one is refused before this body runs. ``SameSite=lax`` withholds the cookie from a
 	  cross-site ``POST``, so a hostile page cannot supply it.
 	* That same dependency runs the origin check, because this is a write authenticated by
-	  cookie — the one control the public ``GET`` could never have.
+	  cookie - the one control the public ``GET`` could never have.
 	* And §7.7's limiters, for the same reason.
 
 	**A form encoding rather than JSON, deliberately, and it is the only route here that takes
 	one.** It is submitted by a page this application served and by nothing else, and a form is
-	what lets that page work with no script at all — which matters on the one screen whose job
+	what lets that page work with no script at all - which matters on the one screen whose job
 	is to let somebody stop.
 
 	**The standing session is revoked rather than abandoned.** Replacing the cookie alone would
 	leave a live session belonging to somebody who is no longer at this browser, which is a
-	credential nobody is holding — and *sign out first, then sign in* is what a reader would
+	credential nobody is holding - and *sign out first, then sign in* is what a reader would
 	have done by hand.
 	"""
 
@@ -503,7 +503,7 @@ def sign_out_everywhere (
 	"""Revoke every live session and unspent link belonging to one account.
 
 	This is what a lost laptop needs, and revocation being a row rather than a wait is the
-	property an opaque cookie was chosen for — a self-describing signed credential would
+	property an opaque cookie was chosen for - a self-describing signed credential would
 	have kept working until it expired, whatever anybody did about it.
 
 	**Unspent links go too.** A link is a session that has not happened yet, so stopping the

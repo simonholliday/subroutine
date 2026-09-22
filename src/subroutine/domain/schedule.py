@@ -443,7 +443,7 @@ def interpret_written_day_only (
 		f"{value!r} names a time of day, and this takes a day.",
 		code="invalid_field_value",
 		hint=(
-			f"Write just the day — {local.date().isoformat()}. Planning names days and keeps "
+			f"Write just the day - {local.date().isoformat()}. Planning names days and keeps "
 			f"whatever time of day the item already carries."
 		),
 		errors=[

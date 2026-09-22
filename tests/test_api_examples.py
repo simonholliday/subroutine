@@ -37,7 +37,7 @@ def test_the_examples_document_is_served_and_readable (
 
 	assert response.status_code == 200
 	assert response.headers["content-type"].startswith("text/plain")
-	assert "# Subroutine — worked examples" in response.text
+	assert "# Subroutine - worked examples" in response.text
 	assert "Bearer sr_" in response.text
 
 

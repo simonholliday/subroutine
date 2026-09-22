@@ -36,7 +36,7 @@ class Backup(pydantic.BaseModel):
 
 	**The name identifies it and the server's path is deliberately not reported.**
 	A caller over HTTP is somewhere else: they cannot open the file, and there is no endpoint
-	that takes a path — restore deliberately has none, so the one thing a reader might
+	that takes a path - restore deliberately has none, so the one thing a reader might
 	do with it is the one thing they cannot. What it does say is where this instance keeps its
 	data, to somebody who by definition is not on that machine.
 

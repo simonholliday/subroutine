@@ -183,7 +183,7 @@ DATE_FILTER = _filter_schema(
 	# `parent=none` looked up a task called *none* and answered 404.
 	"Add '.is' with 'set' or 'unset' to any field that can be empty"
 	+ (f"; {_ONLY_EMPTINESS} takes only that. " if _ONLY_EMPTINESS else ". ")
-	+ "touched_at is *worked on* — a comment or status change counts, which no other "
+	+ "touched_at is *worked on* - a comment or status change counts, which no other "
 	"field sees. touched_by takes a username and pairs with it."
 )
 
@@ -447,7 +447,7 @@ def _choose_a_workspace (names: typing.Sequence[str]) -> str:
 	"""Return what to do about it, in the terms of a reader with no arguments to pass."""
 
 	return (
-		f"This installation has more than one workspace — {', '.join(names)} — and this "
+		f"This installation has more than one workspace - {', '.join(names)} - and this "
 		f"session is not bound to one, so nothing here can tell which you mean. Ask for one by "
 		f"name with subroutine_call_api, for example GET /v1/meta?workspace_id={names[0]}; or "
 		f"ask the person running this session to set the plugin's 'workspace' setting, which "
@@ -657,8 +657,8 @@ def _conventions (client: subroutine.clients.base.Client, workspace: str | None)
 		lines += [
 			"",
 			f"**Narrowed to {chosen.project}**, from `{subroutine.directory.FILE_NAME}` in this",
-			"checkout. Anything in force elsewhere in this workspace — under another project, or",
-			"in the Inbox — is not listed above; `subroutine_list` with a `type` and a `project`",
+			"checkout. Anything in force elsewhere in this workspace - under another project, or",
+			"in the Inbox - is not listed above; `subroutine_list` with a `type` and a `project`",
 			"shows it.",
 		]
 
@@ -743,7 +743,7 @@ def _governing (
 		"",
 		kind.obliges,
 		"",
-		*[f"- **#{one.ref}** — {_on_one_line(one.title)}" for one in found],
+		*[f"- **#{one.ref}** - {_on_one_line(one.title)}" for one in found],
 	]
 
 	if cut:
@@ -909,7 +909,7 @@ def _tools (
 			name="subroutine_list",
 			title="List work",
 			description=(
-				"List open items — tasks and documents — from the backlog. Newest first; "
+				"List open items - tasks and documents - from the backlog. Newest first; "
 				"order='-priority_score' is what to work on next, ranking assessed items "
 				"above half-assessed above unranked."
 			),
@@ -965,13 +965,13 @@ def _tools (
 			# quietly checking nothing, which is what it was built to do. The grammar's own
 			# detail belongs in `grammars.search_line`, not in a tool description that every
 			# session pays for.
-			description="Find items by their words, and terms — 'type:bug deploy'. Tasks and documents both.",
+			description="Find items by their words, and terms - 'type:bug deploy'. Tasks and documents both.",
 			schema={
 				"type": "object",
 				"properties": {
 					"q": {
 						"type": "string",
-						"description": "Words to look for, and terms — 'type:bug deploy'.",
+						"description": "Words to look for, and terms - 'type:bug deploy'.",
 					},
 					"project": PROJECT,
 					"limit": {"type": "integer", "description": f"Rows. Default {DEFAULT_LIMIT}."},
@@ -1067,8 +1067,8 @@ def _tools (
 			name="subroutine_comment",
 			title="Record what happened",
 			description=(
-				"Add to an item's record of what happened — what you did, what you found, "
-				"what failed. A '#42' in the body is a reference, not a link — "
+				"Add to an item's record of what happened - what you did, what you found, "
+				"what failed. A '#42' in the body is a reference, not a link - "
 				"subroutine_show offers the link where one fits. For a conclusion the next "
 				"session needs, write a document instead. Pass remove=true with words from a "
 				"comment to take it back out."
@@ -1090,11 +1090,11 @@ def _tools (
 			name="subroutine_document",
 			title="Write or revise a document",
 			description=(
-				"Record a conclusion the next session needs — a decision, a finding, a "
+				"Record a conclusion the next session needs - a decision, a finding, a "
 				"design, a dead end. A comment is what happened; a document is what you "
 				"concluded. What you write is in force at once, and what is in force is what "
-				"subroutine://conventions delivers — give it a status to hold it back while "
-				"you are still thinking. A '#42' in the body is a reference, not a link — "
+				"subroutine://conventions delivers - give it a status to hold it back while "
+				"you are still thinking. A '#42' in the body is a reference, not a link - "
 				"subroutine_show offers the link where one fits. Pass ref to revise one "
 				"rather than writing a second."
 			),
@@ -1120,7 +1120,7 @@ def _tools (
 						# `subroutine_update` already names one this way; the marker is that
 						# it says *e.g.* rather than promising the word exists.
 						"description": (
-							"A document status key, e.g. draft — subroutine://meta lists this "
+							"A document status key, e.g. draft - subroutine://meta lists this "
 							"workspace's own. Omitted puts it in force."
 						),
 					},
@@ -1141,7 +1141,7 @@ def _tools (
 			title="Change a task",
 			description=(
 				"Change a task: priority, estimate, status, title, or when it is due, starts, "
-				"ends or is deferred until. Set both priority axes — one alone sorts below "
+				"ends or is deferred until. Set both priority axes - one alone sorts below "
 				"everything ranked. Omitted fields are unchanged."
 			),
 			schema={
@@ -1253,7 +1253,7 @@ def _tools (
 			title="Join two items",
 			description=(
 				"Say how two items are related. "
-				"'blocks' is what readiness reads — a task with an unfinished blocker is not "
+				"'blocks' is what readiness reads - a task with an unfinished blocker is not "
 				"listed as ready. Pass remove=true to withdraw the link instead."
 			),
 			schema={
@@ -1327,7 +1327,7 @@ def _tools (
 			description=(
 				"What has changed since you last looked, oldest first. Ask at the start of a "
 				"session: nothing here tells you when your own knowledge went stale. Pass the "
-				"seq of the last event you saw back as 'since' — it is inclusive, so you will "
+				"seq of the last event you saw back as 'since' - it is inclusive, so you will "
 				"see that one again. For a period rather than a resume, use 'filter'."
 			),
 			schema={
@@ -1362,7 +1362,7 @@ def _tools (
 				"subroutine_changes says what *moved* and is what you resume from a seq; this "
 				"is the same events joined to the comments, the actor names and what a change "
 				"moved between. Ask it when somebody wants a period written up. Give it a "
-				"'filter' — without one you get the most recent."
+				"'filter' - without one you get the most recent."
 			),
 			schema={
 				"type": "object",
@@ -1513,7 +1513,7 @@ def _called_directly (
 		# writes twice. The message is what invites that, so the message says so first.
 		advice = (
 			" Ask again more narrowly with 'fields' to choose columns, 'limit' to take fewer "
-			"rows, or format=compact — see subroutine://meta for what this listing accepts."
+			"rows, or format=compact - see subroutine://meta for what this listing accepts."
 			if method in subroutine.clients.base.READING_VERBS
 			else " Whatever it changed is already changed, so sending it again would change "
 			"things twice rather than report them once. Read the result back instead."
@@ -1521,7 +1521,7 @@ def _called_directly (
 
 		raise ValueError(
 			f"The request reached the instance and it answered {answer.status}, but the answer "
-			f"is {len(answer.text) // 1024} KB — more context than it is worth spending, so it "
+			f"is {len(answer.text) // 1024} KB - more context than it is worth spending, so it "
 			f"is not being reported.{advice}"
 		)
 
@@ -1627,7 +1627,7 @@ def _claimed (
 		said = (
 			f"Released #{freed.ref}  {freed.title}"
 			if unheld is None
-			else f"Nothing to give back on #{freed.ref}  {freed.title} — {unheld}."
+			else f"Nothing to give back on #{freed.ref}  {freed.title} - {unheld}."
 		)
 
 		# **Given back while still in progress, it reads as being worked on by nobody**
@@ -1665,7 +1665,7 @@ def _claimed (
 	# seeded one, which no workspace can rename today — `#826` holds that obligation.
 	if held.status_category == "todo":
 		said += (
-			f"\nStill {held.status_label or held.status} to anybody looking — a claim does not "
+			f"\nStill {held.status_label or held.status} to anybody looking - a claim does not "
 			f"say work has begun. When you begin: "
 			f"subroutine_update(ref={held.ref}, status=\"in_progress\")."
 		)
@@ -3484,7 +3484,7 @@ def _within_budget (
 	# as the second.
 	marker = "\n\n[… cut here at character {}. Continue with subroutine_show(ref={}, from={}). "
 	tail = (
-		f"The whole item is at 'subroutine show {ref}' in a terminal, or GET {where}/{ref} — "
+		f"The whole item is at 'subroutine show {ref}' in a terminal, or GET {where}/{ref} - "
 		f"neither is capped.]"
 	)
 	# **Reserved at the widest the note can be, not at the narrowest.** The number it prints
@@ -3986,7 +3986,7 @@ def _completed (
 		return f"{said} The claim on it went back with it."
 
 	return (
-		f"{said} It was not claimed — claim one before you start it, so "
+		f"{said} It was not claimed - claim one before you start it, so "
 		f"nobody else takes the same work."
 	)
 

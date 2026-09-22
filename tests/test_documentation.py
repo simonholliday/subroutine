@@ -12,6 +12,8 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 "still accurate" from "reworded" would fail on every edit and be switched off.
 """
 
+import ast
+import collections
 import datetime
 import json
 import pathlib
@@ -35,6 +37,8 @@ import subroutine.db.migrate
 import subroutine.diagnosis
 import subroutine.domain.capture
 import subroutine.domain.sessions
+import test_cli_help
+import test_references
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HOSTING = ROOT / "docs" / "hosting.md"
@@ -3038,41 +3042,201 @@ SPACED_HYPHEN_PAGES = (
 EM_DASH = "\u2014"
 
 
-def _outside_quoted_output (text: str) -> typing.Iterator[tuple[int, str]]:
-	"""Yield each numbered line of a page that is not inside a ``console`` block.
-
-	**A console block quotes what the program printed**, and the pages promise those quotes are
-	real. Program output is outside the house-style sweep (`#2595`), so a dash the program prints
-	stays in its transcript until the program's own wording changes. Every other block is written
-	for the page, so it is held like prose: the example unit file's comments are the case.
-	"""
-
-	fence: str | None = None
-
-	for number, line in enumerate(text.splitlines(), start=1):
-		opened = re.match(r"^\s*```(\S*)", line)
-
-		if opened:
-			fence = opened.group(1) if fence is None else None
-
-			continue
-
-		if fence != "console":
-			yield number, line
-
-
 def test_a_page_held_to_the_house_style_carries_no_em_dash () -> None:
 	"""`#2570`. The house style's dash is a spaced hyphen: ``word - word``.
 
 	Named by line, because a page with one stray dash in it is fixed by going to that line, and a
 	count alone sends somebody searching for a character most editors draw like a hyphen.
+
+	**Quoted output is held too, since `#2819`.** It was exempt while the program printed em
+	dashes, because a transcript has to quote what the program said. The program prints none now -
+	:func:`test_what_the_program_prints_carries_no_em_dash` holds that - so a dash inside a
+	``console`` block is a transcript gone stale rather than a faithful one.
 	"""
 
 	for name in SPACED_HYPHEN_PAGES:
 		text = (ROOT / name).read_text(encoding="utf-8")
-		found = [number for number, line in _outside_quoted_output(text) if EM_DASH in line]
+		found = [number for number, line in enumerate(text.splitlines(), 1) if EM_DASH in line]
 
 		assert not found, (
 			f"{name} carries an em dash on line {', '.join(map(str, found))}. The house style is "
 			f"a spaced hyphen."
 		)
+
+
+#: **Where the program draws an em dash as a value rather than as punctuation** (`#2819`). Each is
+#: an empty cell - no due date, no timezone, neither axis of a priority, no date - and all four wait
+#: on one decision: what an empty cell shows once the dash goes. Pinned per file rather than as a
+#: total, so a new dash in one of these files is refused rather than absorbed by the others, and
+#: each entry goes - and this register with them - when that is answered.
+EMPTY_CELL_GLYPHS = {
+	"cli/personal.py": 1,
+	"views.py": 3,
+}
+
+
+def _dashes_the_program_prints (
+	root: pathlib.Path = ROOT / "src" / "subroutine",
+) -> tuple[list[str], collections.Counter[str], int]:
+	"""Return the strings the program prints holding an em dash, the glyphs, and how many were read.
+
+	**A string the program prints is every string constant that is not a docstring**, walked as an
+	AST rather than grepped, so a docstring explaining the rule is not read as a breach of it.
+	Ordinary docstrings stay as they are, as the decision says; the ones the program *publishes*
+	are held by the tests that read what the API and the command line publish.
+
+	**An f-string is read whole.** Its literal pieces are separate constants, so the piece between
+	two fields is the dash and its spaces on their own - which is punctuation, and a scan asking
+	each piece whether it *was* a dash calls it a glyph. That is not hypothetical: it is how a first
+	count of these reported twenty-one glyphs where there are four.
+
+	**Takes the tree as an argument** (`#405`), so a synthetic offender reaches the real scan; and
+	returns how many strings it read, because a scan returning only offenders reports the same
+	empty list when the tree is clean and when it read nothing. Findings are named relative to
+	``root``.
+	"""
+
+	offenders: list[str] = []
+	glyphs: collections.Counter[str] = collections.Counter()
+	read = 0
+
+	for path in sorted(root.rglob("*.py")):
+		if "migrations" in path.parts:
+			continue
+
+		tree = ast.parse(path.read_text(encoding="utf-8"))
+		where = str(path.relative_to(root))
+
+		docstrings = {
+			id(node.body[0].value)
+			for node in ast.walk(tree)
+			if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+			and node.body
+			and isinstance(node.body[0], ast.Expr)
+			and isinstance(node.body[0].value, ast.Constant)
+			and isinstance(node.body[0].value.value, str)
+		}
+		pieces = {
+			id(value)
+			for node in ast.walk(tree)
+			if isinstance(node, ast.JoinedStr)
+			for value in node.values
+		}
+
+		for node in ast.walk(tree):
+			if isinstance(node, ast.JoinedStr):
+				read += 1
+
+				if any(
+					isinstance(value, ast.Constant) and EM_DASH in str(value.value)
+					for value in node.values
+				):
+					offenders.append(f"{where}:{node.lineno}")
+
+			elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+				if id(node) in docstrings or id(node) in pieces:
+					continue
+
+				read += 1
+
+				if node.value.strip() == EM_DASH:
+					glyphs[where] += 1
+
+				elif EM_DASH in node.value:
+					offenders.append(f"{where}:{node.lineno}")
+
+	return offenders, glyphs, read
+
+
+def test_what_the_program_prints_carries_no_em_dash () -> None:
+	"""`#2819`. Command output, refusals and MCP tool descriptions use the house dash.
+
+	Simon's decision of 2026-09-20: everything a reader is shown loses the em dash, and code
+	comments and ordinary docstrings stay as they are. **This is the half no published document
+	can show**, because output and refusals are made at run time; the tests after the next one
+	read what the API and the command line actually publish.
+	"""
+
+	offenders, glyphs, read = _dashes_the_program_prints()
+
+	assert read > 5000, (
+		f"the scan read {read} strings, which is too few to be the program - so it is not reading "
+		f"where the program is, and a clean result would mean nothing"
+	)
+	assert not offenders, (
+		"the program prints an em dash, and the house dash is a spaced hyphen: " + ", ".join(offenders)
+	)
+	assert dict(glyphs) == EMPTY_CELL_GLYPHS, (
+		f"the em dashes drawn as an empty cell have changed: {dict(glyphs)} against "
+		f"{EMPTY_CELL_GLYPHS}. One added is a breach of the house style; one gone means the register "
+		f"above is stale and its entry should go"
+	)
+
+
+def test_the_scan_of_what_the_program_prints_can_fire (tmp_path: pathlib.Path) -> None:
+	"""`#405`: the scan above is fed each shape of defect through its own entry point.
+
+	Three shapes, because each is a different way for it to miss one - a plain string, the piece of
+	an f-string between two fields, and a glyph, which must be counted rather than reported - and a
+	docstring beside them, which must be neither.
+	"""
+
+	dash = EM_DASH
+	(tmp_path / "loud.py").write_text(
+		f'said = "one {dash} two"\n'
+		f'shown = f"{{said}} {dash} {{said}}"\n'
+		f'empty = "{dash}"\n'
+		f'def quiet ():\n'
+		f'\t"""A docstring with one {dash} in it is not printed."""\n',
+		encoding="utf-8",
+	)
+
+	offenders, glyphs, _read = _dashes_the_program_prints(tmp_path)
+
+	assert offenders == ["loud.py:1", "loud.py:2"], offenders
+	assert dict(glyphs) == {"loud.py": 1}, glyphs
+
+
+def test_what_the_api_publishes_carries_no_em_dash () -> None:
+	"""`#2819`. A route, parameter or schema description is published, so it uses the house dash.
+
+	**Read from the served document**, through the walk that holds item citations out of it (`#944`),
+	because an endpoint's docstring becomes its route description and a response model's class
+	docstring becomes its schema description - so this is where a docstring stops being ordinary.
+	"""
+
+	prose = test_references._published_prose()
+
+	assert len(prose) > 700, f"read {len(prose)} published lines, which is too few to be the API"
+
+	offenders = [f"{where}: {line}" for _kind, where, line in prose if EM_DASH in line]
+
+	assert not offenders, "the API publishes an em dash:\n" + "\n".join(offenders)
+
+
+def test_what_help_prints_carries_no_em_dash () -> None:
+	"""`#2819`. What ``--help`` prints uses the house dash, the docstring-sourced text included.
+
+	**Typer prints a command's docstring as its help**, so those docstrings are published though
+	they read like ordinary ones - which is why this reads the help a person is shown, walked the
+	way `test_cli_help` walks it, rather than scanning source for strings that look like help.
+	"""
+
+	commands = list(test_cli_help._commands())
+
+	assert len(commands) > 60, f"walked {len(commands)} commands, which is too few to be the CLI"
+
+	offenders = [
+		path
+		for path, command in commands
+		if any(
+			EM_DASH in (text or "")
+			for text in [
+				command.help,
+				getattr(command, "epilog", None),
+				*(getattr(parameter, "help", None) for parameter in getattr(command, "params", [])),
+			]
+		)
+	]
+
+	assert not offenders, "the help prints an em dash: " + ", ".join(offenders)

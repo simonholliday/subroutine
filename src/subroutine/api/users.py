@@ -88,7 +88,7 @@ def create (
 ) -> subroutine.views.User:
 	"""Add a person, or a machine identity, to this instance.
 
-	Needs ``instance:user_create``. The new account belongs to no workspace yet — joining it to
+	Needs ``instance:user_create``. The new account belongs to no workspace yet - joining it to
 	one is a separate act with a separate permission, because deciding that somebody exists and
 	deciding where they may work are different decisions and often different people.
 	"""
@@ -116,7 +116,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	The two halves of somebody leaving, and they belong together: one records that they have
 	gone, the other keeps the agents that would otherwise stop with them. Either alone is a
-	control people work around — losing an agent is a price nobody pays willingly, so a leaver
+	control people work around - losing an agent is a price nobody pays willingly, so a leaver
 	simply does not get marked as one.
 	"""
 
@@ -151,7 +151,7 @@ def update (
 	deactivation, so somebody clearing up after a leaver in a single request keeps what they
 	meant to keep.
 
-	Needs ``instance:user_create`` — the same grant as making an account, because deciding
+	Needs ``instance:user_create`` - the same grant as making an account, because deciding
 	somebody works here and deciding they no longer do are the same decision twice.
 
 	**Except ``timezone``, which needs no permission and is refused for anybody but yourself.**
@@ -162,7 +162,7 @@ def update (
 	**Deactivating stops every agent answerable to that person**, at their next call, wherever
 	they are running. Ask for the list first with ``GET /v1/users?answers_to=<username>``: the
 	CLI names them before it does it, and a caller here should too. **That used to say to read
-	``GET /v1/users`` and pick the rows out by ``responsible_user_id``** — which was a whole
+	``GET /v1/users`` and pick the rows out by ``responsible_user_id``** - which was a whole
 	directory fetched to answer one question, and it stopped being possible the moment that
 	listing was paged (`SR#2384`, `SR#2387`). It also only ever found the agents answerable
 	*directly*; the filter walks the chain, which is what "answerable to that person" means
@@ -230,7 +230,7 @@ def listing (
 
 	**Paged like every other listing here** (`SR#2384`). It used to take a ceiling of 200 rows
 	from the domain, supply no ``limit`` of its own, and answer with a literal
-	``has_more: false`` — so past two hundred accounts it dropped rows and stated there were no
+	``has_more: false`` - so past two hundred accounts it dropped rows and stated there were no
 	more, with a null total that could not contradict it. The docstring said ``has_more`` was
 	always false *for the same reason a task's links are*, and that reason does not survive a
 	ceiling: a task's links are bounded by what somebody typed, where this was bounded by a
@@ -329,7 +329,7 @@ def one (
 	actor: subroutine.api.security.PrincipalDep,
 	session: subroutine.api.dependencies.SessionDep,
 ) -> subroutine.views.User:
-	"""Read the account with this name — `SR#2386`.
+	"""Read the account with this name - `SR#2386`.
 
 	**The API was behind its own domain here.** ``domain.users.by_username`` has always existed
 	and both ``POST`` and ``PATCH`` resolve through it; nothing published a way to *read* one
@@ -341,7 +341,7 @@ def one (
 	unique and public where content is neither, and this view carries no email address and no
 	content at all.
 
-	Case-insensitive, because ``by_username`` resolves through the normalised column — ``Simon``
+	Case-insensitive, because ``by_username`` resolves through the normalised column - ``Simon``
 	and ``simon`` being two accounts would be a trap rather than a feature.
 	"""
 

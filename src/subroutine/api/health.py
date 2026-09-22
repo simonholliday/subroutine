@@ -168,7 +168,7 @@ def _refuse_a_database_that_has_been_replaced (
 		hint=(
 			"The database was replaced underneath a running process, so what it is serving "
 			"is not what anybody else can see. Restart the service. If this followed a "
-			"'db restore --as-clone', that is expected — a clone is deliberately a new "
+			"'db restore --as-clone', that is expected - a clone is deliberately a new "
 			"instance."
 		),
 	)

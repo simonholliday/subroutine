@@ -103,7 +103,7 @@ class Update(subroutine.api.schemas.RequestModel):
 
 	**Superseding is a link, not a field here** (`SR#1684`). ``POST /v1/tasks/{ref}/links`` and
 	the document equivalent take a ``supersedes`` link, which is the same mechanism a task uses
-	— where this was a column only a document had, and which no surface ever rendered.
+	 -  where this was a column only a document had, and which no surface ever rendered.
 	"""
 
 	title: str | None = None
@@ -138,7 +138,7 @@ class LinkRequest(subroutine.api.schemas.RequestModel):
 	to a task, which is what most links point at.
 
 	A ref is an integer in every response this API sends, so ``42`` is accepted as well as
-	``"42"`` — a client should be able to send back what it was given without converting
+	``"42"`` - a client should be able to send back what it was given without converting
 	it. An id arrives as a string, since a UUID is not a number.
 	"""
 
@@ -167,7 +167,7 @@ def create (
 	session: subroutine.api.dependencies.SessionDep,
 	settings: subroutine.api.dependencies.SettingsDep,
 ) -> subroutine.views.Document:
-	"""Create a document — a spec, a design, a note, a decision, a finding or a dead end."""
+	"""Create a document - a spec, a design, a note, a decision, a finding or a dead end."""
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=body.workspace_id)
 
@@ -230,7 +230,7 @@ def listing (
 		description=(
 			"Restrict to one status category: draft, current, superseded or archived. Unlike "
 			"'status' this survives an installation renaming its statuses, so it is the handle "
-			"to ask which documents are in force with. A document's categories are its own — "
+			"to ask which documents are in force with. A document's categories are its own - "
 			"a superseded specification is not 'done'."
 		),
 		examples=["current"],
@@ -627,7 +627,7 @@ def move (
 	"""Re-nest a document, taking its sections with it.
 
 	**The half of re-parenting that had no endpoint at all.** ``parent_id`` was reported by this
-	view and accepted nowhere — not here, not on create, not on update — so a document could
+	view and accepted nowhere - not here, not on create, not on update - so a document could
 	be a section of another only by being inserted into the database directly.
 	"""
 
@@ -672,7 +672,7 @@ def unremove (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = fastapi.Query(None, description="Which workspace, by id or slug."),
 ) -> subroutine.views.Document:
-	"""Restore a soft-deleted document — the task endpoint's counterpart.
+	"""Restore a soft-deleted document - the task endpoint's counterpart.
 
 	Both, because one ref counter serves both kinds: a restore that worked on half the
 	numbers would surprise anybody holding a ref.
@@ -734,7 +734,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		Enveloped like every other collection, and returned whole: an item's links are
 		bounded by how many somebody typed, so there is nothing to page through. ``has_more``
-		is therefore always false — which is a *statement* the caller can rely on, and is the
+		is therefore always false - which is a *statement* the caller can rely on, and is the
 		reason this is worth an envelope rather than a bare array. Until 2026-07-30 it was a
 		bare array, and a caller had no way to tell a complete set from a truncated one.
 		"""
@@ -776,7 +776,7 @@ def _links_for (entity_type: str) -> typing.Any:
 		forty-two links can be read in one call rather than reconstructed from twenty-eight.
 
 		Prerequisites rather than dependents, which is what a milestone's contents are: an item
-		whose blockers are its parts. Only the sequencing link types are followed — *relates
+		whose blockers are its parts. Only the sequencing link types are followed - *relates
 		to* and *documents* order nothing, and a tree drawn through them would put a decision
 		under a phase as though the phase were waiting on it.
 
@@ -915,7 +915,7 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 		**A sub-resource rather than the ``?include=backlinks`` first planned**, deliberately.
 		``INCLUDABLE``'s own rule is that every entry promises a bounded number of
 		queries *per page*, and backlinks on a page of fifty is either fifty lookups or a join
-		nobody asked for — the N+1 that parameter exists to remove, moved inside the server.
+		nobody asked for - the N+1 that parameter exists to remove, moved inside the server.
 		Every other section ``subroutine show`` renders is already a sub-resource: links,
 		comments and history.
 
@@ -923,7 +923,7 @@ def _backlinks_for (entity_type: str) -> typing.Any:
 		links listing gives: what refers to an item is bounded by how much somebody wrote, so
 		``has_more`` is a statement rather than a shrug.
 
-		**Narrowed in the domain**, which is where visibility is decided — a mention from a
+		**Narrowed in the domain**, which is where visibility is decided - a mention from a
 		project the reader cannot see is omitted entirely, because *something you cannot see
 		mentioned this* discloses that activity exists and explains nothing.
 		"""
@@ -965,7 +965,7 @@ def _governing_for (entity_type: str) -> typing.Any:
 		session: subroutine.api.dependencies.SessionDep,
 		workspace_id: str | None = fastapi.Query(None, description="Which workspace."),
 	) -> subroutine.views.Collection[subroutine.views.Governing]:
-		"""Return the documents in force that govern this item — what to read before starting.
+		"""Return the documents in force that govern this item - what to read before starting.
 
 		The workspace-wide *what binds you* narrowed to a single item. It answers from typed
 		links alone: a `documents` or `derives_from` link is somebody saying that a decision
@@ -974,7 +974,7 @@ def _governing_for (entity_type: str) -> typing.Any:
 		not to trust the answer.
 
 		**In force, not merely of the right type.** A superseded decision is not a rule and a
-		draft one is not yet, and the status category decides it — so a workspace that has
+		draft one is not yet, and the status category decides it - so a workspace that has
 		renamed its statuses still gets an answer.
 
 		**Titles and refs, never bodies.** A document's title states its conclusion, so this
@@ -1025,7 +1025,7 @@ def _proposed_links_for (entity_type: str) -> typing.Any:
 		Confirming one is an ordinary `POST` to this item's links, with the `link_type` and the
 		other end this names. Nothing here writes anything.
 
-		Only a document that governs — a decision, a specification, a design or a dead end — and
+		Only a document that governs - a decision, a specification, a design or a dead end - and
 		only where no link of any kind already joins the pair, because a pair somebody has
 		already related is one somebody has already thought about.
 		"""

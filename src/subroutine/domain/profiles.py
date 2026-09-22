@@ -320,7 +320,7 @@ def _alternatives () -> str:
 	"""List every profile with its one line, for a refusal that names no valid choice."""
 
 	return "The profiles are: " + "; ".join(
-		f"{profile.key} — {profile.summary}" for profile in CATALOGUE
+		f"{profile.key} - {profile.summary}" for profile in CATALOGUE
 	)
 
 

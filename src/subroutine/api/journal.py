@@ -72,7 +72,7 @@ def reading (
 
 	**This is the change feed joined, not a second record of anything.** Every entry is one
 	event; what is added is what a comment said, the actor's name, and the meaning of the values
-	inside a change — three things the feed leaves as an id or omits, and three things nobody
+	inside a change - three things the feed leaves as an id or omits, and three things nobody
 	can reconstruct from it.
 
 	**No entry carries a whole text.** A comment is its opening on one line, at most 140 characters
@@ -87,7 +87,7 @@ def reading (
 
 	**The latest entries, newest first**, unlike the change feed. A feed is read forwards because
 	it resumes; a journal is a report about a past stretch of time, and the recent end is the one
-	somebody asking for it usually means — so the entries before these are the page after.
+	somebody asking for it usually means - so the entries before these are the page after.
 	Pass `oldest=true` for a period's first entries in the order they happened, which is what
 	you want when writing it up.
 	"""
