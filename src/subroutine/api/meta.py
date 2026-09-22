@@ -793,11 +793,9 @@ def _listings (
 			and parameter["name"] not in NOT_FILTERS
 		]
 
-		# **Two values under four names, and deliberately not four values.** `sortable` and
-		# `selectable` said what the list *contains* where a caller needs the parameter that
-		# *consumes* it; `order` and `fields` are the correction and the old pair is carried
-		# through 0.8.1 for clients that have not moved. Computing each once is what stops this
-		# becoming two copies of one rule — which is the defect the rename is repaying.
+		# **Named after the parameter that consumes each** - `order` and `fields`, where
+		# `sortable` and `selectable` said what the list *contains*. The old pair was published
+		# beside them from 0.8.1 and left in 0.9.0, as `#1202` decided (`#3133`).
 		ordering = sorted(orderable)
 		reportable = sorted(selectable)
 
@@ -807,8 +805,6 @@ def _listings (
 			order=ordering,
 			fields=reportable,
 			formats=list(subroutine.api.shaping.FORMATS),
-			sortable=ordering,
-			selectable=reportable,
 		)
 
 	return found

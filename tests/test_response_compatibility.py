@@ -634,9 +634,9 @@ def test_the_fill_is_derived_from_the_seed_rather_than_written_out_beside_it () 
 	), "and the relation `#1168` was about is in it"
 
 
-#: A listing as an instance one release behind describes it: the two keys named after what the
-#: lists *contain*, and neither of the keys named after the parameter that consumes them.
-#: Written out for the reason above — capturing needs a running 0.8.0.
+#: A listing as a 0.8.0 instance describes it: the two keys named after what the lists
+#: *contain*, and neither of the keys named after the parameter that consumes them. Written
+#: out for the reason above — capturing needs a running 0.8.0.
 A_LISTING_FROM_BEFORE_THE_RENAME = {
 	"path": "/v1/tasks",
 	"filters": ["project", "status"],
@@ -645,9 +645,8 @@ A_LISTING_FROM_BEFORE_THE_RENAME = {
 	"formats": ["json", "table"],
 }
 
-#: The same listing as an instance one release *ahead* describes it, once the deprecated pair
-#: has been dropped. This one is a prediction rather than a record, and it is the only version
-#: of this client that can ever be taught to read it.
+#: The same listing as every instance from 0.9.0 describes it, the deprecated pair dropped. It
+#: was a prediction when 0.8.1 wrote it, so that 0.8.1 could be taught to read it.
 A_LISTING_FROM_AFTER_THE_REMOVAL = {
 	"path": "/v1/tasks",
 	"filters": ["project", "status"],
@@ -657,73 +656,35 @@ A_LISTING_FROM_AFTER_THE_REMOVAL = {
 }
 
 
-def test_an_older_instances_listing_still_says_what_can_be_ordered_and_selected () -> None:
-	"""The same lesson as the category above, on the release that renamed two published keys.
+def test_a_listing_from_after_the_removal_is_read_by_its_own_names () -> None:
+	"""What 0.9.0 publishes, read by the client that ships with it - `SR#3133`."""
 
-	``order`` and ``fields`` have to be **defaulted** — a required field would make a 0.8.1
-	client refuse every 0.8.0 instance outright, which is `#345` in its worst direction. But a
-	default answers *will it refuse* and says nothing about *will it misread*, and empty is the
-	most misleading value these two could take: a client reads it as *this listing sorts by
-	nothing* about an instance advertising thirteen names, and the discovery endpoint that
-	exists to save a round trip has cost one instead.
+	listing = subroutine.views.Listing.model_validate(A_LISTING_FROM_AFTER_THE_REMOVAL)
+
+	assert listing.order == ["created_at", "due_at"]
+	assert listing.fields == ["ref", "title"]
+
+
+def test_a_0_8_0_instance_is_outside_the_range_this_client_reads () -> None:
+	"""`SR#3133`, Simon's decision of 2026-09-22: stated here rather than deleted in silence.
+
+	0.8.1 read either spelling of these two keys, so that 0.9.0 could drop the old one - which
+	it has, as `SR#1202` decided. That leaves the other direction: this client reading a 0.8.0
+	instance, which sends only ``sortable`` and ``selectable``. **It parses and reads as
+	offering nothing to order or select by**, which is `SR#345`'s quiet wrong answer - accepted
+	because the rename shipped in 0.8.1, no running instance is known to be older, and a fill
+	kept for one would be kept for ever.
+
+	**It parses rather than refusing**, and that half is still guarded: ``order`` and
+	``fields`` are defaulted, so an older instance's discovery answer is read rather than
+	breaking every command that fetches it.
 	"""
 
 	listing = subroutine.views.Listing.model_validate(A_LISTING_FROM_BEFORE_THE_RENAME)
 
-	assert listing.order == ["created_at", "due_at"], (
-		"a 0.8.0 instance says what it can sort by under the old key, and the caller asked "
-		"the question rather than the key"
-	)
-	assert listing.fields == ["ref", "title"]
-
-
-def test_a_newer_instances_listing_still_answers_the_deprecated_names () -> None:
-	"""The half that can only be written now, because this is the client that ships with it.
-
-	0.9.0 drops ``sortable`` and ``selectable``. A 0.8.1 client reading one would then have the
-	identical silence one release later, in the direction nobody is watching — so the fill runs
-	both ways and the deprecated names keep answering for as long as this model declares them.
-	"""
-
-	listing = subroutine.views.Listing.model_validate(A_LISTING_FROM_AFTER_THE_REMOVAL)
-
-	assert listing.sortable == ["created_at", "due_at"]
-	assert listing.selectable == ["ref", "title"]
-
-
-def test_a_listing_that_offers_nothing_is_not_given_something () -> None:
-	"""Empty is ambiguous here and the ambiguity is deliberately not resolved.
-
-	*The instance did not say* and *there is nothing to sort by* are different claims, and
-	``None`` would tell them apart — at the cost of publishing ``array | null`` for a
-	distinction that changes no outcome. It changes none because a listing genuinely offering
-	nothing sends **both** names empty, so the fill has nothing to copy either way.
-	"""
-
-	bare = subroutine.views.Listing.model_validate(
-		{"path": "/v1/nothing", "filters": [], "formats": []}
-	)
-
-	assert bare.order == [] and bare.sortable == []
-	assert bare.fields == [] and bare.selectable == []
-
-
-def test_what_the_instance_did_state_is_never_overwritten () -> None:
-	"""The instance decides, and a fill that second-guessed it would be a fabrication.
-
-	The case that would break: an instance whose two lists legitimately differ. Nothing builds
-	one today — ``meta`` publishes one value under each pair of names — but the fill must be a
-	repair for silence rather than a rule about what the pair contains, or it becomes the
-	second copy this rename was spent removing.
-	"""
-
-	disagreeing = dict(
-		A_LISTING_FROM_BEFORE_THE_RENAME, order=["title"], fields=["ref"]
-	)
-	listing = subroutine.views.Listing.model_validate(disagreeing)
-
-	assert listing.order == ["title"], "the new key was stated and must stand"
-	assert listing.sortable == ["created_at", "due_at"], "and so must the old one"
+	assert listing.order == [] and listing.fields == []
+	assert "sortable" not in subroutine.views.Listing.model_fields
+	assert "selectable" not in subroutine.views.Listing.model_fields
 
 
 def test_unparsed_models_do_not_silently_widen_the_scope () -> None:

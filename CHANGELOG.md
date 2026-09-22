@@ -90,6 +90,14 @@ upgrade involves.
   held a write lock for the whole of every read** in order to record a timestamp, which on
   SQLite makes every command a writer whatever it is called.
 
+### Removed
+
+- **`/v1/meta` no longer publishes `sortable` and `selectable`.** They were renamed `order`
+  and `fields` in 0.8.1, both spellings were published since, and 0.8.1's notes said the old
+  pair would go in 0.9.0. A client from 0.8.1 on reads the new names already. A client from
+  this release reads only the new names, so it reads a 0.8.0 instance as offering nothing to
+  order or select by: upgrade that instance first.
+
 ### Added
 
 - **A search line can narrow by status category, so the board a team asks for first can be
