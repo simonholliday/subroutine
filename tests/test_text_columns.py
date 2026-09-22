@@ -364,6 +364,10 @@ DRIVEN: dict[str, tuple[Driver, str]] = {
 	# than the endpoint, because that is where the refusal is decided and both clients inherit
 	# it — the defect this file was written from was a domain writer with its own check.
 	"saved_view.title": (_saved_view("title"), "title"),
+	# **Driven, where it was excused as field names each refused by name** - `SR#3141`. True of
+	# each name and not of the whole: eight valid fields ran past the column, and PostgreSQL
+	# answered a 500 where SQLite stored them. The excuse was the defect's own description.
+	"saved_view.order": (_saved_view("order"), "order"),
 	"task.title": (_task_title, "title"),
 	"user.display_name": (_user("display_name"), "display_name"),
 	"user.email": (_user("email"), "email"),
@@ -400,7 +404,6 @@ NOT_TYPED: dict[str, str] = {
 	"saved_view.arrangement": "one of a fixed set, refused by name",
 	"saved_view.group_by": "an axis name, refused by name against the grouping registry",
 	"saved_view.key": "derived from the title by `saved.normalize_key`, which keeps only letters and digits",
-	"saved_view.order": "field names, each refused by name against `ordering.TASK_FIELDS`",
 	"item_type.label": "seeded; no writer takes one from a caller",
 	"link.source_type": "a discriminator this code writes, from a fixed set",
 	"link.target_type": "a discriminator this code writes, from a fixed set",

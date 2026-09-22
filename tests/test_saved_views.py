@@ -237,6 +237,77 @@ def test_an_order_a_listing_cannot_answer_is_refused_when_the_view_is_saved (
 	assert "created_at" in refused.text, "the refusal did not say what can be ordered by"
 
 
+#: Eight fields every listing sorts by, and 85 characters - longer than the column holds.
+_LONG_AND_VALID = (
+	"-priority_score,created_at,-updated_at,due_at,-importance,urgency,-completed_at,title"
+)
+
+
+@pytest.mark.parametrize(
+	("order", "said", "status"),
+	(
+		("--priority_score", "not a field", 422),
+		("created_at,created_at", "twice", 422),
+		# Too long for the column, which is refused as every such value is - 413, by name.
+		(_LONG_AND_VALID, "sort order", 413),
+	),
+	ids=("two dashes", "one field twice", "longer than the column"),
+)
+def test_an_order_every_run_would_refuse_is_refused_when_it_is_saved (
+	world: test_api_tasks.World, order: str, said: str, status: int
+) -> None:
+	"""`SR#3141`, the cold review of 2026-09-21's M-3: a looser copy of the listing's parser.
+
+	The check stripped every dash and never looked for a repeat, so the first two were saved
+	and every run of them refused - the 422 stored for somebody who did not write it, which the
+	test above is about. The third is valid and too long for the column: SQLite stored it and
+	PostgreSQL answered a 500. **Saving and editing are both refused**, since each writes it.
+	"""
+
+	saved = world.call(
+		"POST", "/v1/views", json={"title": "Sorted", "arrangement": "list", "order": order}
+	)
+
+	assert saved.status_code == status, saved.text
+	assert said in saved.text, saved.text
+
+	made = world.call("POST", "/v1/views", json={"title": "Plain", "arrangement": "list"})
+
+	assert made.status_code == 201, made.text
+
+	edited = world.call("PATCH", "/v1/views/plain", json={"order": order})
+
+	assert edited.status_code == status, edited.text
+
+
+def test_every_field_of_a_saved_order_is_checked (
+	world: test_api_tasks.World,
+) -> None:
+	"""L-10 of the same review: no test saved an order of more than one field.
+
+	Checking only the first survived every test there was, so the second field of *most
+	important, then soonest due* could have been anything at all.
+	"""
+
+	saved = world.call(
+		"POST",
+		"/v1/views",
+		json={"title": "Ranked", "arrangement": "list", "order": "-importance,due_at"},
+	)
+
+	assert saved.status_code == 201, saved.text
+	assert saved.json()["order"] == "-importance,due_at"
+
+	refused = world.call(
+		"POST",
+		"/v1/views",
+		json={"title": "Half right", "arrangement": "list", "order": "-importance,whenever"},
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "whenever" in refused.text
+
+
 def test_an_axis_a_board_cannot_group_by_is_refused_when_the_view_is_saved (
 	world: test_api_tasks.World,
 ) -> None:

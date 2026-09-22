@@ -157,11 +157,21 @@ def check_arrangement (arrangement: str) -> str:
 	)
 
 
+#: The longest a view's order may be written: the column's width. **Several valid fields run
+#: past it** (the cold review of 2026-09-21, `#3141`) - eight were 85 characters, which SQLite
+#: stored and PostgreSQL answered with a 500.
+MAX_ORDER_LENGTH = 64
+
+
 def check_order (order: str | None) -> str | None:
 	"""Return the ordering a view is saved with, or refuse it by name.
 
-	Checked against ``ordering.TASK_FIELDS``, which is the same map ``api/tasks.SORTABLE``
-	is — so an order this accepts is one the listing accepts.
+	**Through the listing's own parser, against the map the listing sorts by** - so an order
+	this accepts is one every run of the view accepts, which is this module's rule: refused when
+	it is written, not when it is read (the cold review of 2026-09-21, `#3141`). It was a copy
+	of that parser, and a looser one: ``lstrip("-")`` took every dash, so an order with two
+	before its field was saved, and a field named twice was saved - each a view every run of
+	which was refused.
 
 	**``relevance`` is deliberately not reachable here**, and that falls out of using the
 	static map rather than being a second rule: relevance ranks one search's hits, and
@@ -172,27 +182,13 @@ def check_order (order: str | None) -> str | None:
 	if order is None or not order.strip():
 		return UNARRANGED
 
-	wanted = order.strip()
-	allowed = subroutine.domain.ordering.TASK_FIELDS
-	unknown = [
-		name for name in (part.strip().lstrip("-") for part in wanted.split(","))
-		if name and name not in allowed
-	]
+	wanted = subroutine.domain.text.fit(
+		order, field="order", limit=MAX_ORDER_LENGTH, label="sort order"
+	)
 
-	if unknown:
-		known = ", ".join(sorted(allowed))
-
-		raise subroutine.errors.ValidationError(
-			f"A view cannot be ordered by {unknown[0]!r}.",
-			errors=[
-				subroutine.errors.FieldError(
-					field="order",
-					code="invalid_field_value",
-					message=f"No ordering called {unknown[0]!r}.",
-					hint=f"Order by one of: {known}. A leading '-' reverses it.",
-				)
-			],
-		)
+	subroutine.domain.ordering.requested(
+		wanted, allowed=subroutine.domain.ordering.TASK_FIELDS, default=()
+	)
 
 	return wanted
 
