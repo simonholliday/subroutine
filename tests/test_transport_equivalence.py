@@ -2844,6 +2844,40 @@ def test_neither_transport_acts_on_the_part_of_an_address_before_a_hash (pair: P
 	assert "web" in {row.key for row in pair.remote.projects(workspace=pair.workspace.slug)}
 
 
+@pytest.mark.parametrize("dots", (".", ".."))
+def test_neither_transport_reaches_the_level_above_a_name_of_dots (pair: Pair, dots: str) -> None:
+	"""`SR#3147`: over HTTP a name of ``..`` reached the parent, and removed a workspace.
+
+	``quote`` leaves a dot alone and httpx removes dot segments before it sends, so
+	``remove_member(username="..", workspace="beta")`` became ``DELETE /v1/workspaces/beta`` -
+	the cold review of 2026-09-21 drove it, and the terminal said a member had left. The local
+	client said there was nobody of that name. **Both refuse it now as not found**, and the
+	workspace, the project and its neighbour named through ``web/../api`` are all untouched.
+
+	**Not the same sentence, and that is the one difference `SR#2893`'s test does not allow.**
+	The HTTP client refuses before it sends, because encoded as ``%2E%2E`` the name would reach
+	this server and a normalising intermediary could still remove it - and the client cannot
+	know which kind of name it holds, so it cannot word the local client's refusal.
+	"""
+
+	spare = pair.local.create_workspace(slug="spare", title="Somewhere else")
+	pair.local.create_project(key="web", title="Web", workspace=pair.workspace.slug)
+	pair.local.create_project(key="api", title="API", workspace=pair.workspace.slug)
+
+	for client in pair.both():
+		with pytest.raises(subroutine.errors.NotFound):
+			client.remove_member(username=dots, workspace=spare.slug)
+
+		with pytest.raises(subroutine.errors.NotFound):
+			client.unshare_project("web", username=dots, workspace=pair.workspace.slug)
+
+		with pytest.raises(subroutine.errors.SubroutineError):
+			client.rename_project(f"web/{dots}/api", key="elsewhere", workspace=pair.workspace.slug)
+
+	assert "spare" in {row.slug for row in pair.remote.identity().workspaces}
+	assert {"web", "api"} <= {row.key for row in pair.remote.projects(workspace=pair.workspace.slug)}
+
+
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
 	"""The invariant the whole `views.py` move exists for, held by a test rather than by prose.
 

@@ -605,6 +605,14 @@ def test_a_tag_cannot_be_named_in_a_way_a_filter_could_not_ask_for (
 
 	assert made.status_code == 201, made.text
 
+	# **Nor a name that is only dots** (`SR#3147`): a tag is addressed by its name, and `..` in
+	# an address is the level above - the HTTP client refuses one before it sends anything.
+	for dots in (".", ".."):
+		dotted = world.call("POST", "/v1/tasks", json={"title": "Dotted", "tags": [dots]})
+
+		assert dotted.status_code == 422, dotted.text
+		assert "level" in dotted.text, dotted.text
+
 
 #: A tag the case above makes before it drives a filter that names one.
 _A_TAG = "ops"

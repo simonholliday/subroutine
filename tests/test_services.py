@@ -506,6 +506,22 @@ def test_a_duplicate_username_is_refused_by_name (session: sqlalchemy.orm.Sessio
 	assert error.value.errors[0].field == "username"
 
 
+@pytest.mark.parametrize("dots", (".", ".."))
+def test_a_username_that_is_only_dots_is_refused_by_name (
+	session: sqlalchemy.orm.Session, dots: str
+) -> None:
+	"""`SR#3147`: a username is a path segment, and ``..`` there is the level above.
+
+	The HTTP client refuses such a name before it sends anything, so one stored would be an
+	account the local client could reach and every served one could not.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as error:
+		subroutine.domain.users.create(session, username=dots)
+
+	assert error.value.errors[0].field == "username"
+
+
 def test_a_weak_password_is_refused_with_the_reason (
 	session: sqlalchemy.orm.Session,
 ) -> None:

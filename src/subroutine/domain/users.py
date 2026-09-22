@@ -81,6 +81,11 @@ def create (
 		limit=MAX_USERNAME_LENGTH,
 	)
 
+	# **A username is an address segment** (`#3147`): every route about somebody puts it in a
+	# path, and ``..`` there is the level above - `subroutine user remove ..` over HTTP removed
+	# the workspace. The HTTP client refuses one before sending, so none may be stored.
+	subroutine.domain.text.refuse_a_dot_segment(name, field="username", what="a username")
+
 	if email is not None:
 		email = subroutine.domain.text.fit(
 			email, field="email", limit=MAX_EMAIL_LENGTH, label="email address"

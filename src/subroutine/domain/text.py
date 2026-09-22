@@ -305,6 +305,41 @@ def require (value: str | None, *, field: str, label: str | None = None) -> str:
 	)
 
 
+#: The two names an address cannot carry - `#3147`. RFC 3986 reads ``.`` and ``..`` in a path
+#: as *this level* and *the level above*, and a client removes them before a request is sent,
+#: so nothing called either could be reached by one.
+DOT_SEGMENTS = frozenset({".", ".."})
+
+
+def refuse_a_dot_segment (name: str, *, field: str, what: str) -> None:
+	"""Refuse a name that is only ``.`` or ``..``, which no address can carry - `#3147`.
+
+	**Asked where a name is made, for the names that go into a path**: a username and a tag.
+	The HTTP client refuses these before it sends anything, because ``subroutine user remove
+	..`` once sent ``DELETE /v1/workspaces/beta`` - so a stored one would be a name the local
+	client could reach and the HTTP client never could. Refusing it here is what makes that
+	refusal always right.
+	"""
+
+	if name.strip() not in DOT_SEGMENTS:
+		return
+
+	raise subroutine.errors.ValidationError(
+		f"{name.strip()!r} cannot be used as {what}.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=field,
+				code="invalid_field_value",
+				message=(
+					f"In an address {name.strip()!r} means the level it is written in or the one "
+					"above, so nothing called that could be reached over HTTP."
+				),
+				hint="Use a name with a letter or a digit in it.",
+			)
+		],
+	)
+
+
 #: A line break with whatever whitespace surrounds it - the run :func:`opening` makes one space.
 _A_LINE_BREAK = re.compile(r"\s*[\r\n]+\s*")
 

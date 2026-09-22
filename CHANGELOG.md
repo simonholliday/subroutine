@@ -51,6 +51,13 @@ upgrade involves.
   `parent:12` when item 12 is a task and the documents were asked too. A project that is in
   no workspace at all is still refused by name.
 
+- **A name of `.` or `..` is refused rather than sent over HTTP.** From a terminal on a
+  served instance, `subroutine user remove ..` removed the **whole workspace** and said a
+  member had left, because an address reads `..` as the level above; `project unshare web ..`
+  reached the project the same way. Both are refused before anything is sent now, and a
+  username or a tag cannot be `.` or `..`, so nothing is ever called one. The workspace went
+  to the trash, not away, so anything removed this way can be restored.
+
 - **A link no longer reads as the item being created.** A link is a row of its own, so the
   event's action is `created` - and the journal, the change feed at a terminal and the journal
   in the agent tools each printed that bare action. A linked item appeared **twice, at the same

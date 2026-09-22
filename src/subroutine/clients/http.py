@@ -32,6 +32,7 @@ import subroutine.db.types
 import subroutine.domain.capture
 import subroutine.domain.filtering
 import subroutine.domain.readiness
+import subroutine.domain.text
 import subroutine.errors
 import subroutine.installations
 import subroutine.views
@@ -2665,7 +2666,25 @@ def _segment (name: str) -> str:
 	client said there was no such workspace. A ref is the one value left bare, because every
 	method here takes it as an ``int``, and ``tests/test_transport_equivalence.py`` holds every
 	path to that.
+
+	**And a name that is only ``.`` or ``..`` is refused before anything is sent** (the cold
+	review of 2026-09-21, `#3147`). ``quote`` leaves a dot alone and httpx removes dot segments,
+	so ``subroutine user remove ..`` sent ``DELETE /v1/workspaces/beta``: the workspace went to
+	the trash and the terminal said a member had left. Encoded as ``%2E%2E`` it would reach
+	this server intact, but an intermediary normalising the address may decode it and remove it
+	all the same (RFC 3986 §6.2.2), and a proxy is the wrong place to find that out. Nothing
+	stored can be called either (:func:`subroutine.domain.text.refuse_a_dot_segment`), so *not
+	found* is the true answer, and it is the local client's.
 	"""
+
+	if name.strip() in subroutine.domain.text.DOT_SEGMENTS:
+		raise subroutine.errors.NotFound(
+			f"Nothing here is called {name.strip()!r}.",
+			hint=(
+				f"{name.strip()!r} in an address means a level rather than a name, so it is not "
+				"sent. Name the account, project or tag itself."
+			),
+		)
 
 	return urllib.parse.quote(name, safe="")
 

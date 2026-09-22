@@ -74,7 +74,12 @@ def refuse_a_reference (name: str) -> None:
 	**Refused here rather than only in the parser**, which is this function's whole argument —
 	a rule that lives in a regex is a rule the next entry point does not have, and renaming was
 	the door the digit rule was missed at.
+
+	**And a name that is only dots, since `#3147`**: a tag is addressed by its name, and ``.``
+	or ``..`` in an address means a level rather than a name.
 	"""
+
+	subroutine.domain.text.refuse_a_dot_segment(name, field="tags", what="a tag")
 
 	if REFUSED_IN_A_NAME in name:
 		raise subroutine.errors.ValidationError(
