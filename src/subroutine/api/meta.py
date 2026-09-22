@@ -841,13 +841,14 @@ def _grammars () -> dict[str, subroutine.views.Grammar]:
 				*(symbol for symbol, _operator in subroutine.domain.grammar.SYMBOLS),
 				subroutine.domain.grammar.BETWEEN_VALUES,
 				*subroutine.domain.filtering.CONDITIONS,
-				'"value" to mean a value rather than a reserved word',
+				'"value" to keep a value with a space in it whole, or to mean a value rather '
+				"than a reserved word",
 			],
 			examples=[
 				"type:bug urgency>3 deploy script",
 				"assignee:unset",
 				"status:open,in_progress",
-				'assignee:"unset"',
+				'tag:"garden work"',
 			],
 		),
 		"durations": subroutine.views.Grammar(

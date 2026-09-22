@@ -75,7 +75,9 @@ BETWEEN_VALUES = subroutine.domain.filtering.IN_SEPARATOR
 #: asks whether anybody has it, because :data:`filtering.CONDITIONS` are reserved in the value
 #: position and a grammar that resolved them against usernames would answer a different
 #: question on an instance that happens to have an account called *unset*. Quoting says the
-#: opposite: ``assignee:"unset"`` is the person of that name.
+#: opposite: ``assignee:"unset"`` is the person of that name. **No new account can have one
+#: of those names since `#3155`**, so that reaches only one named before; what quoting mostly
+#: does now is keep a value with a space in it whole - ``tag:"garden work"`` is one tag (`#3164`).
 #:
 #: **Reserved words win unquoted, rather than the account winning**, because the condition is
 #: the far commoner question and because the quoted form is always available where the account

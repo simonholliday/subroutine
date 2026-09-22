@@ -313,8 +313,9 @@ If you write a term the field cannot take — 'created_at:today', where a
 date is compared with '>' or '<' rather than matched exactly — it is
 looked for as text and you are told, rather than quietly dropped.
 
-To mean a value that happens to be a reserved word, quote it:
-'assignee:"unset"' is the person called unset."""
+To mean a value with a space in it, quote it: 'tag:"garden work"' is
+one tag. Quoting also reaches an account named after a reserved word
+before such names were refused, as in 'assignee:"unset"'."""
 
 
 #: Every topic ``subroutine explain`` knows.

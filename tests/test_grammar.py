@@ -89,6 +89,24 @@ def test_the_reserved_words_win_unquoted_and_quoting_is_the_escape () -> None:
 	assert person.parameters == [("assignee.eq", "unset")]
 
 
+def test_a_quoted_value_keeps_its_space () -> None:
+	"""`SR#3164`: what quoting is taught for, once `SR#3155` refused the reserved usernames.
+
+	Unquoted, the space ends the value and the rest is searched for as words, which is a
+	different narrowing that looks like the right one.
+	"""
+
+	quoted = subroutine.domain.grammar.read('tag:"garden work"', entity="task")
+
+	assert quoted.parameters == [("tag.eq", "garden work")]
+	assert not quoted.words, quoted
+
+	bare = subroutine.domain.grammar.read("tag:garden work", entity="task")
+
+	assert bare.parameters == [("tag.eq", "garden")]
+	assert bare.words == "work"
+
+
 def test_a_comma_asks_for_any_of_them_where_the_field_takes_it () -> None:
 	"""``tag:ops,web`` and ``tag.in=ops,web`` are one question written two ways.
 
