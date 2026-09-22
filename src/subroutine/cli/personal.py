@@ -9971,7 +9971,7 @@ def register (
 		  subroutine done 42 --because "superseded by #99"
 		"""
 
-		_finished(program, which=which, because=because)
+		_finished(program, which=which, because=_reason(program, because))
 
 	@app.command()
 	def skip (
@@ -9996,7 +9996,7 @@ def register (
 			client = _require_connection(program, world, located.connection)
 			skipped = client.skip(ref=task.ref, workspace=located.workspace)
 
-			_because(client, located, because, what="Skipped")
+			_because(client, located, _reason(program, because), what="Skipped")
 
 			say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
 			_suggest(console, "subroutine agenda")
@@ -10033,7 +10033,7 @@ def register (
 			which=which,
 			when=when,
 			until=until,
-			because=because,
+			because=_reason(program, because),
 			just_this_one=just_this_one,
 			from_now_on=from_now_on,
 		)
@@ -10066,7 +10066,7 @@ def register (
 			program,
 			which=which,
 			when=when,
-			because=because,
+			because=_reason(program, because),
 			just_this_one=just_this_one,
 			from_now_on=from_now_on,
 		)
@@ -10225,7 +10225,7 @@ def register (
 			program,
 			which=which,
 			changes=changes,
-			because=because,
+			because=_reason(program, because),
 			as_json=json_output,
 			just_this_one=just_this_one,
 			from_now_on=from_now_on,
@@ -11188,7 +11188,8 @@ def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
 	the command where it bit. `doc create`, `doc edit`, `add` and `update` all take prose the
 	same way, and this repository's signature defect is a rule applied to three places out of
 	four. **It reached four sites and missed five** (`#3152`): `comment`, and a project's and a
-	workspace's description as created and as changed, stored ``-`` as written.
+	workspace's description as created and as changed, stored ``-`` as written. **And the five
+	reasons** (`#3166`), which `#3152` had left out as a line somebody types.
 	``tests/test_personal_path.py`` now walks the command tree for every argument named as
 	prose, so the next one is found when it is written.
 
@@ -11220,6 +11221,21 @@ def _described (program: "Program", given: str) -> str | None:
 	"""
 
 	return _text_or_standard_input(program, given, "--description").strip() or None
+
+
+def _reason (program: "Program", given: str) -> str:
+	"""Return why an act was taken, reading what is piped where ``-`` asks for it - `#3166`.
+
+	**Out here rather than inline**, for :func:`_described`'s reason: the five commands that
+	record a reason live in `register`, a closure under a ratchet that only goes down (`#943`).
+
+	**A reason is short and this is still the same rule.** `#3152` fixed the prose arguments and
+	left this one out because *Why, recorded against it* is a line somebody types; what makes it
+	worth having anyway is that the mistake is not a person's - it is a caller applying the rule
+	it met at `doc create --body -` to the next flag that takes words.
+	"""
+
+	return _text_or_standard_input(program, given, "--because")
 
 
 def _comment_text (program: "Program", given: str, ref: int) -> str:

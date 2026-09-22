@@ -12598,17 +12598,18 @@ def test_a_view_saved_or_changed_can_be_answered_as_json (
 	assert changed["version"] == saved["version"] + 1, changed
 
 
-#: What this command line names a long piece of prose, where ``-`` reads what is piped
-#: (`SR#2106`, `SR#3152`). **By parameter name rather than by command**, so a new command taking
-#: one is held to the rule the day it is written. ``--because`` and ``verify --summary`` are a
-#: reason and a line, and outside it.
-PROSE = frozenset({"body", "description"})
+#: What this command line names a piece of prose, where ``-`` reads what is piped (`SR#2106`,
+#: `SR#3152`, `SR#3166`). **By parameter name rather than by command**, so a new command taking
+#: one is held to the rule the day it is written. ``verify --summary`` is *what was run, in one
+#: line* and is the one prose-ish argument left outside, because a line is typed rather than
+#: piped and nothing has ever asked it to be.
+PROSE = frozenset({"body", "description", "because"})
 
-#: The calls that read a prose argument through the rule. Two of them are wrappers, out of
+#: The calls that read a prose argument through the rule. Three of them are wrappers, out of
 #: `register` because its ratchet only goes down (`SR#943`), and
 #: :func:`test_every_reader_the_walk_trusts_reads_what_is_piped` is what stops a name here
 #: standing in for a function that never reads a pipe.
-READERS = frozenset({"_text_or_standard_input", "_described", "_comment_text"})
+READERS = frozenset({"_text_or_standard_input", "_described", "_comment_text", "_reason"})
 
 
 def _prose_left_raw (root: typing.Any) -> tuple[int, list[str]]:
@@ -12673,7 +12674,7 @@ def test_every_prose_argument_reads_a_hyphen_as_what_is_piped () -> None:
 
 	seen, raw = _prose_left_raw(typer.main.get_command(subroutine.cli.main.app))
 
-	assert seen >= 11, f"only {seen} prose arguments were found, so the walk reads little"
+	assert seen >= 16, f"only {seen} prose arguments were found, so the walk reads little"
 	assert not raw, "a prose argument is stored as written, so '-' is kept as a hyphen:\n" + (
 		"\n".join(raw)
 	)
@@ -12806,6 +12807,51 @@ def test_a_hyphen_reads_the_pipe_for_a_comment_and_every_description (
 		"Paid work.",
 		"The last city.",
 	), stored
+
+
+def test_a_reason_is_read_from_a_pipe_at_every_command_that_records_one (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3166`: five commands stored ``-`` as the reason they recorded.
+
+	`SR#3152` left ``--because`` out as a line somebody types, and filed the gap rather than
+	guessing. **The reason it is worth closing is not the typist**: it is a caller applying the
+	rule it learned at `doc create --body -` to the next flag that takes words, which is exactly
+	how the comment was lost.
+
+	**Asserted on what was stored and on the act beside it**, because a reason is recorded as a
+	comment carrying both - *Deferred until Mon 3 Aug - waiting on the provider's reply* - and a
+	test that read only the reason would pass on a comment that had lost half its sentence.
+	"""
+
+	run("init")
+
+	# **The repeat first, and it takes two numbers**: `#1` is the rule itself and `#2` the
+	# occurrence, which is the only one of the pair that can be skipped.
+	run("add", "Water the plants", "--repeat", "every tuesday")
+
+	for title in ("Fix the boiler", "Chase the invoice", "Book the van", "Call the dentist"):
+		run("add", title)
+
+	run("skip", "2", "--because", "-", input="Away that week.\n")
+	run("done", "3", "--because", "-", input="The part arrived.\n")
+	run("plan", "4", "friday", "--because", "-", input="The review is on Monday.\n")
+	run("defer", "5", "monday", "--because", "-", input="Waiting on the hire company.\n")
+	run("update", "6", "--importance", "4", "--because", "-", input="It is getting late.\n")
+
+	stored = _stored_prose()["comments"]
+
+	assert len(stored) == 5, stored
+	assert {one.rsplit(" — ", 1)[-1] for one in stored} == {
+		"The part arrived.",
+		"The review is on Monday.",
+		"Waiting on the hire company.",
+		"It is getting late.",
+		"Away that week.",
+	}, stored
+	assert all(one.split(" — ")[0].strip() for one in stored), (
+		f"a reason was recorded without the act it was given for: {stored}"
+	)
 
 
 def test_a_comment_asked_to_read_a_pipe_that_is_not_there_says_so (

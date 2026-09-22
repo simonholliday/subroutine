@@ -82,11 +82,12 @@ planned for it is in.
   account called one could not be found by it, and a board drew a person called *unset* under
   **Nobody**.
 
-- **`-` reads what is piped for a comment and for a project's or workspace's description.**
-  `subroutine comment 42 -` stored a single hyphen and reported the comment as noted, where
-  `doc create`, `doc edit`, `add` and `update` read the pipe. `project create`, `project
-  update`, `workspace create` and `workspace update` did the same with `--description -`. All
-  of them read the pipe now.
+- **`-` reads what is piped everywhere a command takes words.** `subroutine comment 42 -`
+  stored a single hyphen and reported the comment as noted, where `doc create`, `doc edit`,
+  `add` and `update` read the pipe. `--description` on `project create`, `project update`,
+  `workspace create` and `workspace update` did the same, and so did `--because` on `done`,
+  `skip`, `plan`, `defer` and `update`. All of them read the pipe now, and a `-` with nothing
+  piped is refused rather than stored.
 
 - **A link no longer reads as the item being created.** A link is a row of its own, so the
   event's action is `created` - and the journal, the change feed at a terminal and the journal
