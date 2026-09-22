@@ -22,6 +22,27 @@ upgrade involves.
 
 ### Fixed
 
+- **An appointment with a deadline beside it is filed rather than refused.** *Workshop from
+  Monday 9am to 5pm by friday* stopped the whole capture - `subroutine add` failed, and the
+  API, the agent tools and the browser's capture box answered with an internal error - from
+  the release that learned to read an appointment's two ends. The deadline is counted from
+  the appointment's day now, as it is from any other start.
+
+- **A range of times is read the way it is written, or not at all.** 0.8.29 began reading two
+  times as an appointment and read three kinds of line wrongly without saying so. *Dinner on
+  friday at 7:30-9:30pm* was stored as 07:30 to 21:30; a range beside a defer made an
+  appointment today; and a range in the middle of a sentence was read as one because a date
+  came later in the line. A meridiem written once now counts at both ends where it fits. A
+  range whose end reads earlier than its start, with nothing on the line to say which clock
+  it is - *12:30-1:30* - stays in the title and is reported, as every range was before. And a
+  time counts as written beside a date only when nothing stands between them.
+
+- **Two ISO spellings are read as the words are, and the calendar's edges no longer break
+  capture.** *from 2026-10-01 by friday* is due on the Friday after the first rather than the
+  one before it. *from 2026-10-02T09:00 to 17:00* is an appointment, where it was a hidden
+  defer with *to 17:00* left in its title. A span in the first or last years the calendar
+  holds is read, where it was an internal error.
+
 - **A link no longer reads as the item being created.** A link is a row of its own, so the
   event's action is `created` - and the journal, the change feed at a terminal and the journal
   in the agent tools each printed that bare action. A linked item appeared **twice, at the same

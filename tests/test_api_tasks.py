@@ -107,6 +107,25 @@ def test_a_task_can_be_created_from_a_line_of_text (world: World) -> None:
 	assert body["status_category"] == "todo"
 
 
+def test_an_appointment_beside_a_deadline_is_filed (world: World) -> None:
+	"""`SR#3136` through the create: the capture raised, so this answered 500 on both backends.
+
+	The deadline is read from the appointment's day, so it cannot come before the start.
+	"""
+
+	response = world.call(
+		"POST", "/v1/tasks", json={"text": "Workshop from Monday 9am to 5pm by friday"}
+	)
+
+	assert response.status_code == 201, response.text
+
+	body = response.json()
+
+	assert body["title"] == "Workshop"
+	assert body["ends_at"] is not None
+	assert body["due_at"][:10] >= body["starts_at"][:10], body
+
+
 def test_a_task_with_no_project_goes_to_the_inbox (world: World) -> None:
 	"""docs/design.md §1.4 over HTTP: creating a task must not require knowing about projects."""
 

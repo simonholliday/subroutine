@@ -12,6 +12,7 @@ before the sigil rules were tightened.
 
 import dataclasses
 import datetime
+import itertools
 
 import hypothesis
 import hypothesis.strategies
@@ -1716,6 +1717,48 @@ A_RANGE = (
 		datetime.datetime(2026, 10, 2, 9, 0),
 		datetime.datetime(2026, 10, 2, 17, 0),
 	),
+	# **The same appointment with its day written in ISO** (`SR#3157`), which fell to the date
+	# rules as a hidden defer with *to 17:00* in its title.
+	(
+		"Workshop from 2026-10-02T09:00 to 17:00",
+		"Workshop",
+		datetime.datetime(2026, 10, 2, 9, 0),
+		datetime.datetime(2026, 10, 2, 17, 0),
+	),
+	# **A meridiem written once is read at both ends where it fits** (`SR#3138`). The first
+	# was stored as 07:30 to 21:30, and it is how an evening is ordinarily written.
+	(
+		"Dinner on friday at 7:30-9:30pm",
+		"Dinner",
+		datetime.datetime(2026, 7, 31, 19, 30),
+		datetime.datetime(2026, 7, 31, 21, 30),
+	),
+	(
+		"Workshop from monday 7:30-9:30pm",
+		"Workshop",
+		datetime.datetime(2026, 8, 3, 19, 30),
+		datetime.datetime(2026, 8, 3, 21, 30),
+	),
+	(
+		"Lunch on friday at 12:30-1:30pm",
+		"Lunch",
+		datetime.datetime(2026, 7, 31, 12, 30),
+		datetime.datetime(2026, 7, 31, 13, 30),
+	),
+	# **And only where it fits**: 11pm would come after 1pm, so 11 is kept as written.
+	(
+		"Talk on friday at 11:00-1:00pm",
+		"Talk",
+		datetime.datetime(2026, 7, 31, 11, 0),
+		datetime.datetime(2026, 7, 31, 13, 0),
+	),
+	# **A start past twelve says the clock is twenty-four-hour**, so the small hours are read.
+	(
+		"Late shift on friday at 22:00-1:30",
+		"Late shift",
+		datetime.datetime(2026, 7, 31, 22, 0),
+		datetime.datetime(2026, 8, 1, 1, 30),
+	),
 )
 
 
@@ -1802,6 +1845,172 @@ def test_a_one_day_span_it_cannot_read_keeps_from_out_of_the_defer () -> None:
 	assert captured.snooze is None
 	assert captured.starts_at is None
 	assert captured.ends_at is None
+
+
+#: Three of the four lines the cold review of 2026-09-21 found stored wrongly (`SR#3138`) - the
+#: fourth, *Dinner on friday at 7:30-9:30pm*, is read now and is in `A_RANGE` - and one more of
+#: the first mechanism's shape. Each was left in its title and reported before `SR#675` read
+#: ranges, and each must be again: which field is set, what the title keeps, and the words
+#: said back. At this file's clock, Friday is 31 July.
+NOT_A_RANGE_TO_READ = (
+	# No meridiem anywhere, and the end reads earlier: thirteen hours of lunch, or one.
+	("Lunch on friday at 12:30-1:30", "Lunch at 12:30-1:30", "starts_at", "at 12:30"),
+	# A meridiem on the end alone that would put the start after it.
+	("Show on friday at 11:30-1am", "Show at 11:30-1am", "starts_at", "at 11:30"),
+	# A range beside a defer, which invented a start today.
+	(
+		"Call Bob at 2pm-3pm about it from friday",
+		"Call Bob at 2pm-3pm about it",
+		"snooze",
+		"at 2pm-3pm",
+	),
+	# A range in prose, signalled by a deadline four words later.
+	("Summarise the 2pm-3pm call by friday", "Summarise the 2pm-3pm call", "due", "2pm"),
+)
+
+
+@pytest.mark.parametrize(
+	("text", "title", "field", "said"),
+	NOT_A_RANGE_TO_READ,
+	ids=[one[0] for one in NOT_A_RANGE_TO_READ],
+)
+def test_a_range_nothing_on_the_line_can_settle_is_reported_rather_than_guessed (
+	text: str, title: str, field: str, said: str
+) -> None:
+	"""`SR#3138`, the cold review of 2026-09-21's H-3: four readings stored wrong times silently.
+
+	**The date the line did name is still read, as a whole day**, and nothing else is set. A
+	start at a time, an end, or a start on today would each be a field no word vanished for,
+	which is §6.13 rule 1's forbidden outcome, and the confirmation printing both ends is no
+	defence when the ends are wrong.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == title, captured
+	assert captured.ends_at is None, f"{text!r} invented an end: {captured.ends_at!r}"
+	assert getattr(captured, field) == datetime.date(2026, 7, 31), captured
+	assert said in captured.unparsed, f"{text!r} did not say what it left: {captured.unparsed}"
+
+	# **The start is either the day that was named, whole, or nothing** - never a clock.
+	assert not isinstance(captured.starts_at, datetime.datetime), captured.starts_at
+
+
+@pytest.mark.parametrize(
+	("deadline", "due"),
+	(
+		# Searched for from the start, since from today it would come first.
+		("by friday", datetime.date(2026, 8, 7)),
+		# The same, for a written date - `SR#1239`'s rule, which reads it a year on.
+		("by 2 August", datetime.date(2027, 8, 2)),
+		# Already after the start, so left where it fell.
+		("by 7 August", datetime.date(2026, 8, 7)),
+		# Not a search, so left as written, before the start or not.
+		("by today", datetime.date(2026, 7, 30)),
+	),
+)
+def test_an_appointment_beside_a_deadline_counts_the_deadline_from_its_day (
+	deadline: str, due: datetime.date
+) -> None:
+	"""`SR#3136`, the cold review of 2026-09-21's H-1: this raised, and filing it was a 500.
+
+	*Workshop from Monday 9am to 5pm by friday* begins at an instant, and the rule reading a
+	deadline from the day the line begins on compared that instant with a date - which Python
+	refuses, and no ``isinstance`` guard could see, because a ``datetime`` is a ``date``.
+	Nothing combined the two before this.
+	"""
+
+	captured = _parse(f"Workshop from Monday 9am to 5pm {deadline}")
+
+	assert captured.starts_at == datetime.datetime(2026, 8, 3, 9, 0)
+	assert captured.ends_at == datetime.datetime(2026, 8, 3, 17, 0)
+	assert captured.due == due
+	assert captured.title == "Workshop"
+
+
+@pytest.mark.parametrize(
+	"text", ("Chase it from 2026-08-05 by friday", "Chase it from 2026-08-05T09:00 by friday")
+)
+def test_a_defer_written_in_iso_counts_a_deadline_from_its_day (text: str) -> None:
+	"""`SR#3157`: `SR#2854`'s rule reached a defer only when it was already a date.
+
+	An ISO defer is still the string it was written as when the deadline is compared with it,
+	so *from 2026-10-01 by friday* was due on a Friday before anybody could see it - exactly the
+	line `SR#2854` was written to stop, one spelling along.
+	"""
+
+	captured = _parse(text)
+
+	# Wednesday 5 August, so the Friday it means is the 7th rather than tomorrow.
+	assert captured.due == datetime.date(2026, 8, 7), captured
+
+
+def test_a_span_at_either_end_of_the_calendar_is_read_rather_than_raised () -> None:
+	"""`SR#3157`: counting nine years back from year 5 overflowed, and capture answered 500.
+
+	Absurd dates, and typeable ones. A written year answers the same from anywhere, so the
+	count is clamped at the earliest day there is rather than refused.
+	"""
+
+	early = _parse("Holiday from 0005-01-02 to 0005-01-05")
+	late = _parse("Holiday from 9999-12-30 to 9999-12-31")
+
+	assert (early.starts_at, early.ends_at) == (datetime.date(5, 1, 2), datetime.date(5, 1, 5))
+	assert (late.starts_at, late.ends_at) == (
+		datetime.date(9999, 12, 30),
+		datetime.date(9999, 12, 31),
+	)
+
+
+#: Every shape of date and time the grammar reads, and the edges each has broken on, to be
+#: combined by :func:`test_no_line_of_dates_and_times_raises`.
+_WHEN = (
+	"",
+	" from Monday 9am to 5pm",
+	" from monday 7:30-9:30pm",
+	" from 2026-10-02T09:00 to 17:00",
+	" on friday at 7:30-9:30pm",
+	" on friday at 12:30-1:30",
+	" at 2pm-3pm",
+	" on 2026-10-02 at 14:00-15:00",
+	" from 2 October to 12 October",
+	" from 12 October to 2 October",
+	" from 29 February to 2 March",
+	" from 0005-01-02 to 0005-01-05",
+	" from 9999-12-30 to 9999-12-31",
+	" tomorrow at 2pm",
+)
+_DUE = (
+	"", " by friday", " by 2 October", " by today", " by 2026-10-01", " by friday 17:00", " by 31 April"
+)
+_DEFER = ("", " from friday", " from 2026-10-01", " from 2026-10-01T09:00")
+_ZONES = (LONDON, "America/Los_Angeles", "Pacific/Auckland")
+
+
+def test_no_line_of_dates_and_times_raises () -> None:
+	"""`SR#3136`: a line this cannot read is reported, never raised - capture is the first way in.
+
+	**The cold review of 2026-09-21 generated 180,000 lines and 2,985 of them raised**, every one
+	H-1's comparison, and nothing here asked the question: the two invariants above are about
+	words. This asks it of every combination of the shapes that have broken, in three zones
+	either side of the clock.
+	"""
+
+	offenders: list[tuple[str, str, str]] = []
+	asked = 0
+
+	for when, due, defer, zone in itertools.product(_WHEN, _DUE, _DEFER, _ZONES):
+		text = f"Workshop{when}{due}{defer}"
+		asked += 1
+
+		try:
+			subroutine.domain.capture.parse(text, now=NOW, timezone=zone)
+
+		except Exception as raised:
+			offenders.append((text, zone, repr(raised)))
+
+	assert asked > 1_000, f"only {asked} lines were generated, so this proves little"
+	assert offenders == [], f"{len(offenders)} of {asked} lines raised, first: {offenders[:3]}"
 
 
 def test_til_joins_two_days_as_it_joins_two_times () -> None:

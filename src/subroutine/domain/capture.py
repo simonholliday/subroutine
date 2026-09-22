@@ -265,8 +265,12 @@ _CLOCKED_SPAN = re.compile(
 #: ``on`` is absent deliberately: *Standup on Monday 2pm-3pm* is a date this grammar
 #: already reads with a range written beside it, and claiming it here would take the
 #: reading away from the rule that does it properly.
+#:
+#: **An ISO day may carry its first time with a ``T``** (`#3157`): *from 2026-10-02T09:00 to
+#: 17:00* is the same appointment as *from 2 October 09:00 to 17:00*, and without this it fell
+#: to the date rules as a hidden defer with *to 17:00* left in its title - `#2894` again.
 _CLOCKED_DAY = re.compile(
-	rf"{_STARTS_A_WORD}from\s+(?P<day>{_PHRASE})\s+(?:at\s+)?(?P<first>{_CLOCK})"
+	rf"{_STARTS_A_WORD}from\s+(?P<day>{_PHRASE})(?:\s+(?:at\s+)?|(?<=\d)T)(?P<first>{_CLOCK})"
 	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?(?P<last>{_CLOCK})"
 	rf"(?![\w'])",
 	re.IGNORECASE,
@@ -1075,36 +1079,68 @@ def _counted_from_when_it_begins (
 	**A start wins where a line names both**, because a deadline belongs to the work rather
 	than to the hiding: *on monday from friday by sunday* is work that starts on Monday, and
 	what the deadline follows is the start.
+
+	**Days are compared, however the beginning is held** (the cold review of 2026-09-21,
+	`#3136` and `#3157`). An appointment read by :func:`_collect_spans` begins at an instant,
+	and an ISO defer is still the string it was written as. Comparing the first with a date
+	raised - ``datetime`` is a ``date``, so no ``isinstance`` guard could see it - and filing
+	*Workshop from Monday 9am to 5pm by friday* was a 500. The second was left out, so *from
+	2026-10-01 by friday* was due before anybody could see it.
 	"""
 
-	# **The start, or the defer where there is none.** A start is always a plain date here;
-	# a defer may still be the string of a written ISO time, which the ``isinstance`` below
-	# leaves alone exactly as it leaves one on the deadline.
-	begins = fields.get("starts_at")
-
-	if begins is None:
-		begins = fields.get("snooze")
-
+	begins = _the_day_of(
+		fields["starts_at"] if fields.get("starts_at") is not None else fields.get("snooze"),
+		now=now,
+		timezone=timezone,
+	)
 	due = fields.get("due")
 
-	# **Two dates are compared, whatever `Capture.starts_at` may hold by the end of `parse`**
-	# (the cold review of 2026-09-18, `#2882`, asked for this here, since it rests on three
-	# other functions). A start is always a plain date: `_collect_dates` passes each through
-	# `_as_date`, and `_collect_spans` and `_collect_bare_days` write one. A deadline is a date
-	# or, written as an ISO time, its string, which the `isinstance` guard leaves alone; a
-	# written time is not on it yet, because `parse` applies times only after this runs.
-	if (
-		phrase is None
-		or not isinstance(begins, datetime.date)
-		or not isinstance(due, datetime.date)
-		or due >= begins
-	):
+	# **A deadline written as an ISO time is left as it was written**, as the docstring says of
+	# every deadline that is not a search: it is still its string here, because `parse` puts
+	# times on anything only after this runs.
+	ends = _the_day_of(due, now=now, timezone=timezone) if isinstance(due, datetime.date) else None
+
+	if phrase is None or begins is None or ends is None or ends >= begins:
 		return
 
 	value, all_day = _read_phrase(phrase, today=begins, now=now, timezone=timezone)
 
 	if isinstance(value, datetime.date):
 		fields["due"], fields["due_is_all_day"] = value, all_day
+
+
+def _the_day_of (
+	value: typing.Any, *, now: datetime.datetime, timezone: str
+) -> datetime.date | None:
+	"""Return the calendar day a start, a defer or a deadline falls on, or ``None``.
+
+	**Whatever it is held as at this point in** :func:`parse`: a day, the instant an
+	appointment begins (`#675`), or the string of an ISO date or time, which is resolved where
+	the writer is. ``None`` is a value that names no day, and a caller comparing days has
+	nothing to compare.
+	"""
+
+	if isinstance(value, datetime.datetime):
+		if value.tzinfo is None:
+			return value.date()
+
+		return subroutine.domain.schedule.local_date(value, timezone)
+
+	if isinstance(value, datetime.date):
+		return value
+
+	if not isinstance(value, str):
+		return None
+
+	try:
+		named = subroutine.domain.schedule.interpret_written_moment(
+			value, timezone=timezone, now=now
+		)
+
+	except subroutine.errors.SubroutineError:
+		return None
+
+	return _the_day_of(named, now=now, timezone=timezone) if named is not None else None
 
 
 def _collect_sigils (
@@ -1218,6 +1254,71 @@ def _clock_at (written: str) -> datetime.time | None:
 	return datetime.time(hour=hour, minute=minute)
 
 
+def _range_of (first: str, last: str) -> tuple[datetime.time, datetime.time] | None:
+	"""Return the two times a range names, or ``None`` where it names none to be sure of.
+
+	**One reading for both places a range is written** - beside a date (:func:`_collect_times`)
+	and inside *from Monday 9am to 5pm* (:func:`_clocked_day`) - for :func:`_clock_at`'s
+	reason: two copies of one rule are this codebase's signature defect.
+
+	**A meridiem written once is read at both ends where it fits** (the cold review of
+	2026-09-21, `#3138`). *7:30-9:30pm* is how an evening is ordinarily written, and reading
+	each end alone stored it as 07:30 to 21:30, fourteen hours, without a word. So an end
+	written with none takes the other's where that keeps the start before the end:
+	*11:00-1:00pm* keeps its 11:00, since 23:00 would come after the end.
+
+	**An end earlier than its start is the next morning only where the line says which clock
+	it is on** (Simon, 2026-09-20: *9pm til 1am*): a meridiem on the start, or a start written
+	as a twelve-hour clock never would be - a leading zero, or an hour past twelve. *22:00-1:30*
+	is plainly the small hours. *12:30-1:30* is lunch to nearly everybody and a thirteen-hour
+	one on a twenty-four-hour clock, and nothing on the line says which, so it is not read: the
+	line does what it did before `#675` read ranges, and the words are reported (§6.13 rule 1).
+
+	**An end equal to its start is not a range** either, and ``None`` gives it the same
+	fallback.
+	"""
+
+	one = _ONE_CLOCK.match(first.strip())
+	other = _ONE_CLOCK.match(last.strip())
+	at = _clock_at(first)
+	until = _clock_at(last)
+
+	if one is None or other is None or at is None or until is None:
+		return None
+
+	said = (one.group("meridiem") or "").lower()
+	said_after = (other.group("meridiem") or "").lower()
+
+	if said_after and _on_either_clock(one):
+		carried = _clock_at(f"{one.group('hour24')}:{one.group('minute24')}{said_after}")
+
+		if carried is not None and carried < until:
+			at = carried
+
+	if said and _on_either_clock(other):
+		carried = _clock_at(f"{other.group('hour24')}:{other.group('minute24')}{said}")
+
+		if carried is not None and carried > at:
+			until = carried
+
+	if at == until or (until < at and _on_either_clock(one)):
+		return None
+
+	return at, until
+
+
+def _on_either_clock (written: re.Match[str]) -> bool:
+	"""Say whether a clock with no meridiem reads the same on a twelve-hour clock - `#3138`.
+
+	``7:30`` does and ``07:30`` and ``19:30`` do not: nobody writing a twelve-hour clock puts
+	a zero in front of the hour or counts past twelve.
+	"""
+
+	hour = written.group("hour24")
+
+	return hour is not None and not hour.startswith("0") and 1 <= int(hour) <= 12
+
+
 def _signalled (
 	text: str, match: re.Match[str], *, after: typing.Sequence[tuple[int, int]]
 ) -> bool:
@@ -1227,10 +1328,17 @@ def _signalled (
 	number in prose - *Email Bob re: 3pm* - and reading it is exactly the guessing the closed
 	date vocabulary exists to refuse. One answer for a single time and for a range (`#675`),
 	because a range written in prose is prose as much as one time is.
+
+	**Attached means nothing between them, on whichever side the date is** (the cold review of
+	2026-09-21, `#3138`). This sliced from the date's end to the time's start, which is empty
+	when the date comes *after* the time - so *Summarise the 2pm-3pm call by friday* counted a
+	deadline four words on as the range's signal, and invented an appointment today.
 	"""
 
 	return match.group("at") is not None or any(
-		text[end:match.start()].strip() == "" for _start, end in after
+		(end <= match.start() and not text[end:match.start()].strip())
+		or (match.end() <= start and not text[match.end():start].strip())
+		for start, end in after
 	)
 
 
@@ -1265,17 +1373,16 @@ def _collect_times (
 		if found is not None or not _signalled(text, match, after=after):
 			continue
 
-		at = _clock_at(match.group("first"))
-		until = _clock_at(match.group("last"))
+		# **A range this cannot be sure of falls back to what the line did before this rule
+		# existed**: the start is read where one time would be, and the rest is reported. An
+		# end equal to its start is one - read as a span it would be a zero-length appointment
+		# or, counted backwards, a whole day - and :func:`_range_of` names the others.
+		read = _range_of(match.group("first"), match.group("last"))
 
-		# **An end equal to its start is not a range**, so the line falls back to what it did
-		# before this rule existed: the start is read and the second time is reported. Reading
-		# it as a span would mean a zero-length appointment or - worse, counting it backwards -
-		# a whole day, neither of which is what somebody who wrote *2pm to 2pm* meant.
-		if at is None or until is None or at == until:
+		if read is None:
 			continue
 
-		found = _Clock(at=at, until=until, span=match.span())
+		found = _Clock(at=read[0], until=read[1], span=match.span())
 
 		claimed.append(match.span())
 
@@ -1490,13 +1597,17 @@ def _apply_time (
 		if beside is not None and field != beside:
 			continue
 
-		if until is not None and field != "starts_at":
-			continue
-
 		value = fields.get(field)
 
 		if value is not None:
 			named_a_day = True
+
+		# **Asked after the line is known to have named a day, not before** (the cold review of
+		# 2026-09-21, `#3138`). A range skips the deadline and the defer, and skipping them
+		# first left ``named_a_day`` false, so *Call Bob at 2pm-3pm about it from friday* fell
+		# through to today and made an appointment beside a defer to Friday.
+		if until is not None and field != "starts_at":
+			continue
 
 		# **A span already read takes no clock** (`#2687`). A span of whole days has one flag
 		# describing both of its ends (decision `#1235` §2), so a time on the start alone would
@@ -1639,12 +1750,12 @@ def _clocked_day (
 	"""
 
 	day = _span_day(groups.get("day") or "", today=today, now=now, timezone=timezone)
-	at = _clock_at(groups.get("first") or "")
-	until = _clock_at(groups.get("last") or "")
+	read = _range_of(groups.get("first") or "", groups.get("last") or "")
 
-	if day is None or at is None or until is None or at == until:
+	if day is None or read is None:
 		return None
 
+	at, until = read
 	starting = datetime.datetime.combine(day, at)
 	ending = datetime.datetime.combine(day, until)
 
@@ -1702,7 +1813,11 @@ def _span_days (
 	if end is None:
 		return None
 
-	earlier = start - datetime.timedelta(days=_FAR_ENOUGH_BACK)
+	# **No further back than the calendar goes** (`#3157`): *from 0005-01-02 to 0005-01-05* is
+	# absurd and typeable, and nine years before it raised `OverflowError` - a 500 on capture.
+	# Clamped rather than refused, since a year written out answers the same from anywhere.
+	reach = min(_FAR_ENOUGH_BACK, (start - datetime.date.min).days)
+	earlier = start - datetime.timedelta(days=reach)
 	counted = _span_day(phrase, today=earlier, now=now, timezone=timezone) != end
 
 	return (start, end) if _a_real_span(start, end, counted=counted) else None
