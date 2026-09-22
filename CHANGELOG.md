@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## 0.9.0 — 2026-09-22
+## Unreleased
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything
 planned for it is in.
