@@ -3758,6 +3758,55 @@ def test_an_agent_planning_a_timed_event_keeps_the_clock_it_captured (
 	assert after.starts_is_all_day is False, "a timed event was re-snapped to a whole day"
 
 
+def test_a_moment_the_tools_print_is_one_they_read_back (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3156`, L-5 of the cold review of 2026-09-21: a printed deadline was refused as input.
+
+	Since `SR#2985` a timed moment is written with its zone - ``2026-12-01T11:00 Europe/London``
+	- and handed back to ``subroutine_update`` that way it was *not a day this understands*. **A
+	zone that is not the account's is read as the zone named**, which is the half that matters:
+	without it an agent correcting a deadline would move it by the difference between the two.
+	"""
+
+	text, _failed = _called(bound, "subroutine_add", text="Renew the domain")
+	found = re.search(r"#(\d+)", text)
+
+	assert found is not None, text
+
+	ref = int(found.group(1))
+	answered, failed = _called(
+		bound, "subroutine_update", ref=ref, due="2027-03-05T16:30 America/New_York"
+	)
+
+	assert not failed, f"the printed form was refused:\n{answered}"
+
+	shown, _failed = _called(bound, "subroutine_show", ref=ref)
+	printed = re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2} (?:UTC|[A-Za-z_]+/[A-Za-z_]+)", shown)
+
+	assert printed is not None, f"no timed deadline was printed:\n{shown}"
+
+	# Handed straight back, it names the same moment: nothing moves.
+	again, failed = _called(bound, "subroutine_update", ref=ref, due=printed.group(0))
+
+	assert not failed, again
+
+	after, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert printed.group(0) in after, f"reading back what was printed moved it:\n{after}"
+
+	# And the New York afternoon is 21:30 in London, where this account is not.
+	london, failed = _called(
+		bound, "subroutine_update", ref=ref, due="2027-03-05T21:30 Europe/London"
+	)
+
+	assert not failed, london
+
+	same, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert printed.group(0) in same, f"one moment in two zones read as two moments:\n{same}"
+
+
 def test_an_agent_can_set_a_deadline_without_leaving_its_tools (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

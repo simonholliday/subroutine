@@ -4215,6 +4215,17 @@ def _moment (
 	if not given.strip():
 		return None
 
+	# **The form these tools print, read back as itself** (the cold review of 2026-09-21,
+	# `#3156`). :func:`_moment_of` writes a timed moment as ``2026-12-01T11:00 Europe/London``,
+	# naming its zone on Simon's decision of 2026-09-20 - and handed back that way it was
+	# refused, while without the name it was read in the *account's* zone, which is not always
+	# the item's: `#2972`'s confusion, arriving through the round trip. A last word that is a
+	# zone says which zone the rest is in.
+	written, _space, last = given.strip().rpartition(" ")
+
+	if written and _names_a_zone(last):
+		given, timezone = written, last
+
 	# **The refusal is the domain's, not one written here** — `interpret_written_moment` names
 	# the whole typed vocabulary, weekdays first, so an agent and a person are told the same
 	# thing in the same words. A second message here would be a place for the two to drift.
@@ -4224,6 +4235,26 @@ def _moment (
 		now=subroutine.db.types.utcnow(),
 		field=field,
 	)
+
+
+def _names_a_zone (word: str) -> bool:
+	"""Say whether a word is a timezone's name, as :func:`_moment_of` writes one - `#3156`.
+
+	**Only a name with a region in it, or UTC.** A bare word is far likelier to be a day - *next
+	friday* - than one of the handful of zones spelled without a slash, and reading *friday*'s
+	neighbour as a zone would be the guessing the date vocabulary exists to refuse.
+	"""
+
+	if "/" not in word and word != "UTC":
+		return False
+
+	try:
+		subroutine.domain.dates.zone(word)
+
+	except subroutine.errors.SubroutineError:
+		return False
+
+	return True
 
 
 def _linked (
