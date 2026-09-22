@@ -683,7 +683,15 @@ export function Detail ({
 						<li key=${record.id}>
 							<span class="label">${record.passed ? "passed" : "failed"}</span>${" "}
 							${record.summary || "(no summary)"}${" "}
-							<span class="muted">${record.tree_hash
+							${/* **The class that exists, not a second undeclared one** (`#3073`). This
+							     said `muted`, which names no rule in any stylesheet — the three
+							     `muted` hits in `app.css` are all inside comments — so the suffix
+							     drew at the body's own colour while every other secondary word on
+							     these rows was soft. `.linked .label` is the declared one and this
+							     list is a `.linked`; `#1354` chose it for the same reason, and
+							     declaring `.muted` would only be better with a second caller,
+							     which a scan of every literal class name says there is not. */""}
+							<span class="label">${record.tree_hash
 								? `tree ${record.tree_hash.slice(0, 7)}`
 								: "no tree — this cannot go out of date"}</span>
 						</li>`)}
