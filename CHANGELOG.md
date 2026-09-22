@@ -14,6 +14,15 @@ upgrade involves.
 
 ## Unreleased
 
+**0.9.0 is the release candidate for the first ready version of Subroutine.** Everything
+planned for it is in.
+
+> **If you use the `subroutine` plugin in Claude Code, it stays on 0.8.x until you refresh
+> it.** It runs the version its manifest names and never moves to a new minor on its own. Run
+> `claude plugin marketplace update subroutine`, then `claude plugin update
+> subroutine@subroutine`, and start a new session. `subroutine-remote` takes its tools from
+> your server, so it follows whatever version the server runs.
+
 > **This release changes the database schema**, to `cfeea5d4dd35`.
 >
 > Install it, then run `subroutine db upgrade`. That reports both versions, takes a
