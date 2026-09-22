@@ -7627,7 +7627,9 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			created = where.client.create_project(
 				key=key,
 				title=title,
-				description=description.strip() or None,
+				description=(
+					_text_or_standard_input(program, description, "--description").strip() or None
+				),
 				parent=parent.strip() or None,
 				visibility="private" if private else "public",
 				workspace=_writing_workspace(world),
@@ -7821,7 +7823,7 @@ def _register_projects (app: typer.Typer, program: Program) -> None:
 			program,
 			key=key,
 			title=title,
-			description=description,
+			description=_text_or_standard_input(program, description, "--description"),
 			status=status,
 			colour=colour,
 			hide_status=hide_status,
@@ -9050,7 +9052,9 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 			created = where.client.create_workspace(
 				slug=slug,
 				title=title,
-				description=description.strip() or None,
+				description=(
+					_text_or_standard_input(program, description, "--description").strip() or None
+				),
 				timezone=timezone.strip() or None,
 			)
 
@@ -9119,7 +9123,7 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 			program,
 			slug=slug,
 			title=title,
-			description=description,
+			description=_text_or_standard_input(program, description, "--description"),
 			timezone=timezone,
 			colour=colour,
 			hide_status=hide_status,
@@ -10256,7 +10260,7 @@ def register (
 
 			client.remark(
 				ref=located.ref,
-				body=_asked(body, "What happened?"),
+				body=_comment_text(program, body, located.ref),
 				entity_type=located.entity_type,
 				workspace=located.workspace,
 			)
@@ -11183,7 +11187,10 @@ def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
 	**One rule at every site that takes a long text argument**, rather than a special case on
 	the command where it bit. `doc create`, `doc edit`, `add` and `update` all take prose the
 	same way, and this repository's signature defect is a rule applied to three places out of
-	four.
+	four. **It reached four sites and missed five** (`#3152`): `comment`, and a project's and a
+	workspace's description as created and as changed, stored ``-`` as written.
+	``tests/test_personal_path.py`` now walks the command tree for every argument named as
+	prose, so the next one is found when it is written.
 
 	**A terminal is refused rather than left blocking.** `cat -` waits for a keystroke and
 	somebody who typed this at a prompt would meet a hang with no message, which is the outcome
@@ -11213,6 +11220,18 @@ def _described (program: "Program", given: str) -> str | None:
 	"""
 
 	return _text_or_standard_input(program, given, "--description").strip() or None
+
+
+def _comment_text (program: "Program", given: str, ref: int) -> str:
+	"""Return what a comment says, reading the pipe where it was given as ``-`` - `#3152`.
+
+	**`-` reads what is piped**, as it has for `doc create`, `doc edit`, `add` and `update` since
+	`#2106`. A comment took it literally, and a design record piped in that way was stored as
+	one hyphen. **Out here rather than inline** for :func:`_described`'s reason: `register` is a
+	closure under a ratchet that only goes down (`#943`).
+	"""
+
+	return _asked(_text_or_standard_input(program, given, f"comment {ref}"), "What happened?")
 
 
 def _a_terminal_is_attached () -> bool:

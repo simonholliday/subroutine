@@ -12,6 +12,7 @@ directory, the local-mode principal, and the numbering that makes ``done 1`` wor
 
 import ast
 import datetime
+import inspect
 import json
 import os
 import pathlib
@@ -20,6 +21,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import textwrap
 import typing
 import uuid
 
@@ -12594,6 +12596,252 @@ def test_a_view_saved_or_changed_can_be_answered_as_json (
 
 	assert (changed["key"], changed["q"]) == ("heating", "boiler"), changed
 	assert changed["version"] == saved["version"] + 1, changed
+
+
+#: What this command line names a long piece of prose, where ``-`` reads what is piped
+#: (`SR#2106`, `SR#3152`). **By parameter name rather than by command**, so a new command taking
+#: one is held to the rule the day it is written. ``--because`` and ``verify --summary`` are a
+#: reason and a line, and outside it.
+PROSE = frozenset({"body", "description"})
+
+#: The calls that read a prose argument through the rule. Two of them are wrappers, out of
+#: `register` because its ratchet only goes down (`SR#943`), and
+#: :func:`test_every_reader_the_walk_trusts_reads_what_is_piped` is what stops a name here
+#: standing in for a function that never reads a pipe.
+READERS = frozenset({"_text_or_standard_input", "_described", "_comment_text"})
+
+
+def _prose_left_raw (root: typing.Any) -> tuple[int, list[str]]:
+	"""Return how many prose arguments a command tree has, and those stored as written.
+
+	**The tree is an argument** (`SR#405`), so a planted command reaches the same walk. A prose
+	argument counts as read when its command's own body hands it to one of :data:`READERS`.
+
+	**``typing.Any`` for the tree, as `tests/test_cli_help.py` explains**: Typer vendors its own
+	click shim, so what ``get_command`` returns is a private class that is not a
+	``click.Command`` and that Typer exports no name for.
+	"""
+
+	def walked (
+		command: typing.Any, path: tuple[str, ...]
+	) -> typing.Iterator[tuple[tuple[str, ...], typing.Any]]:
+		"""Yield every command beneath this one, groups included, with the words that reach it."""
+
+		yield path, command
+
+		for name, beneath in getattr(command, "commands", {}).items():
+			yield from walked(beneath, (*path, name))
+
+	seen, raw = 0, []
+
+	for path, command in walked(root, ()):
+		named = {parameter.name for parameter in command.params} & PROSE
+
+		if not named or command.callback is None:
+			continue
+
+		source = textwrap.dedent(inspect.getsource(inspect.unwrap(command.callback)))
+		read = {
+			call.args[1].id
+			for call in ast.walk(ast.parse(source))
+			if isinstance(call, ast.Call)
+			and (
+				call.func.id if isinstance(call.func, ast.Name)
+				else call.func.attr if isinstance(call.func, ast.Attribute)
+				else None
+			) in READERS
+			and len(call.args) > 1
+			and isinstance(call.args[1], ast.Name)
+		}
+
+		for name in sorted(named):
+			seen += 1
+
+			if name not in read:
+				raw.append(f"{' '.join(path)}: {name}")
+
+	return seen, raw
+
+
+def test_every_prose_argument_reads_a_hyphen_as_what_is_piped () -> None:
+	"""`SR#3152`: `comment` and four descriptions stored ``-`` where four other sites read a pipe.
+
+	**Found by losing a design record to it**: a comment piped in with ``-`` was stored as one
+	hyphen and reported as noted. `SR#2106` had made the rule, reached four sites, and listed
+	them - which is how the other five were missed.
+	"""
+
+	seen, raw = _prose_left_raw(typer.main.get_command(subroutine.cli.main.app))
+
+	assert seen >= 11, f"only {seen} prose arguments were found, so the walk reads little"
+	assert not raw, "a prose argument is stored as written, so '-' is kept as a hyphen:\n" + (
+		"\n".join(raw)
+	)
+
+
+def test_every_reader_the_walk_trusts_reads_what_is_piped () -> None:
+	"""`SR#3152`: the walk accepts a *name*, so each name must reach the rule it stands for.
+
+	Two of :data:`READERS` are one-line wrappers, which is how a command keeps `register` short.
+	Without this, renaming the rule out of one of them would leave the walk reporting that every
+	prose argument is read.
+	"""
+
+	written = pathlib.Path(inspect.getfile(subroutine.cli.personal)).read_text(encoding="utf-8")
+	found = {
+		node.name: node
+		for node in ast.walk(ast.parse(written))
+		if isinstance(node, ast.FunctionDef) and node.name in READERS
+	}
+
+	assert set(found) == set(READERS), f"a name the walk trusts is not defined: {sorted(found)}"
+
+	for name, node in sorted(found.items()):
+		if name == "_text_or_standard_input":
+			continue
+
+		called = {
+			call.func.id
+			for call in ast.walk(node)
+			if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+		}
+
+		assert "_text_or_standard_input" in called, (
+			f"{name} is trusted to read a pipe and does not"
+		)
+
+
+def test_the_prose_walk_finds_an_argument_stored_as_written () -> None:
+	"""The guard above, handed one command that reads the rule and one that does not (`SR#405`)."""
+
+	planted = typer.Typer()
+
+	@planted.command("note")
+	def note (body: str = typer.Argument("")) -> None:
+		"""Keep it exactly as it was typed."""
+
+		print(body)
+
+	@planted.command("describe")
+	def describe (description: str = typer.Option("", "--description")) -> None:
+		"""Read it through the rule."""
+
+		print(
+			subroutine.cli.personal._text_or_standard_input(
+				typing.cast(typing.Any, None), description, "--description"
+			)
+		)
+
+	assert _prose_left_raw(typer.main.get_command(planted)) == (2, ["note: body"])
+
+
+def _stored_prose () -> dict[str, typing.Any]:
+	"""Return the comments and the descriptions this instance holds, read from its database.
+
+	**The stored fact, not a rendering of it**: the defect was a hyphen that every surface then
+	printed faithfully, so a check on the output would read whatever was stored.
+	"""
+
+	import sqlalchemy.orm
+
+	import subroutine.db.models.activity
+	import subroutine.db.models.identity
+	import subroutine.db.session
+
+	engine = subroutine.db.session.create_engine(
+		subroutine.config.load_settings().database_url
+	)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			return {
+				"comments": [
+					row.body
+					for row in session.scalars(
+						sqlalchemy.select(subroutine.db.models.activity.Comment)
+					)
+				],
+				"projects": {
+					row.key: row.description
+					for row in session.scalars(
+						sqlalchemy.select(subroutine.db.models.project.Project)
+					)
+				},
+				"workspaces": {
+					row.slug: row.description
+					for row in session.scalars(
+						sqlalchemy.select(subroutine.db.models.identity.Workspace)
+					)
+				},
+			}
+
+	finally:
+		engine.dispose()
+
+
+def test_a_hyphen_reads_the_pipe_for_a_comment_and_every_description (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3152`, driven: the five sites the walk above holds, each given ``-`` and a pipe."""
+
+	run("init")
+	run("add", "Fix the boiler")
+
+	run("comment", "1", "-", input="Two radiators stay cold.\nThe valve is seized.\n")
+	run("project", "create", "home", "Home", "--description", "-", input="Around the house.\n")
+	run("project", "create", "garden", "Garden")
+	run("project", "update", "garden", "--description", "-", input="Beds and the lawn.\n")
+	run("workspace", "create", "acme", "Acme", "--description", "-", input="Paid work.\n")
+	run("workspace", "create", "zion", "Zion")
+	run("workspace", "update", "zion", "--description", "-", input="The last city.\n")
+
+	stored = _stored_prose()
+
+	assert stored["comments"] == ["Two radiators stay cold.\nThe valve is seized."], stored
+	assert (stored["projects"]["home"], stored["projects"]["garden"]) == (
+		"Around the house.",
+		"Beds and the lawn.",
+	), stored
+	assert (stored["workspaces"]["acme"], stored["workspaces"]["zion"]) == (
+		"Paid work.",
+		"The last city.",
+	), stored
+
+
+def test_a_comment_asked_to_read_a_pipe_that_is_not_there_says_so (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3152`: the refusal names the command, where every other site names a flag.
+
+	`SR#2106`'s refusal is written from the flag that asked - ``--body -`` - and a comment's text
+	is an argument with no flag to name, so this one is built from the command and the number
+	the reader typed. That is the only wording this change writes, and `cat -`'s hang is what it
+	exists to prevent.
+
+	**Substituting `_a_terminal_is_attached` rather than `sys.stdin`**, for the reason recorded
+	on `SR#299`: `CliRunner` replaces stdin for the duration of an invocation, so a test that
+	patches the real one patches something the command never sees.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler")
+
+	monkeypatch.setattr(subroutine.cli.personal, "_a_terminal_is_attached", lambda: True)
+
+	refused = run("comment", "1", "-", expect=1)
+
+	assert "comment 1 -" in refused.output, (
+		f"the refusal does not name what was typed: {refused.output}"
+	)
+	assert "nothing is" in refused.output, refused.output
+	assert "cat notes.md" in refused.output, (
+		f"the refusal does not show the way to do what was meant: {refused.output}"
+	)
+
+	# **And nothing was recorded**, which is the half that matters: a hyphen stored here is the
+	# defect this whole item is about, and a refusal that wrote one first would be worse than it.
+	assert _stored_prose()["comments"] == [], _stored_prose()
 
 
 def test_the_view_group_works_where_more_than_one_workspace_exists (
