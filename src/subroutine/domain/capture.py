@@ -1870,6 +1870,7 @@ def _anniversary (day: datetime.date) -> datetime.date:
 
 	try:
 		return day.replace(year=day.year + 1)
+
 	except ValueError:
 		return day.replace(year=day.year + 1, day=28)
 
@@ -1893,6 +1894,7 @@ def _span_day (
 
 	try:
 		return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now)
+
 	except subroutine.errors.ValidationError:
 		return None
 

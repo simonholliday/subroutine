@@ -186,6 +186,7 @@ def origin_of (url: str | None) -> str | None:
 
 	try:
 		port = parsed.port
+
 	except ValueError:
 		return None
 

@@ -163,6 +163,7 @@ def _settings_before_removal () -> typing.Any:
 
 	try:
 		return subroutine.config.load_settings()
+
 	# **Broad on purpose**: a configuration file too broken to load is exactly the machine
 	# somebody wants to clean, so failing to read it must not stop the removal.
 	except Exception as reason:
@@ -185,6 +186,7 @@ def _remove (path: pathlib.Path, *, kind: str, dry_run: bool) -> Step:
 			shutil.rmtree(path)
 		else:
 			path.unlink()
+
 	except OSError as reason:
 		return Step(
 			kind, str(path), "FAILED", detail=str(reason), by_hand=f"rm -rf {shlex.quote(str(path))}"
@@ -250,6 +252,7 @@ def installed_names () -> list[str]:
 
 	try:
 		found = importlib.metadata.distribution(name).entry_points
+
 	except importlib.metadata.PackageNotFoundError:
 		return [name]
 
@@ -283,6 +286,7 @@ def _candidates (
 
 		try:
 			pointed = entry.resolve()
+
 		except OSError:
 			continue
 
@@ -385,6 +389,7 @@ def _left_behind (home: pathlib.Path, market: str) -> bool:
 		try:
 			if market in (plugins / name).read_text(encoding="utf-8"):
 				return True
+
 		except (OSError, UnicodeDecodeError):
 			continue
 
@@ -667,6 +672,7 @@ def _elsewhere () -> list[tuple[str, str]]:
 
 	try:
 		declared = subroutine.config.read_config_file().get("connections") or {}
+
 	except Exception:
 		return []
 

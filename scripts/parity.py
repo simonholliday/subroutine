@@ -215,6 +215,7 @@ def browser_routes () -> tuple[int | None, str | None]:
 		import fastapi
 
 		import test_web
+
 	except ImportError as absent:  # pragma: no cover - a dev environment without the suite
 		return None, f"the test helpers could not be imported ({absent})"
 

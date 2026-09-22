@@ -730,6 +730,7 @@ def test_no_tracked_file_names_somebody_s_machine () -> None:
 			# passing having opened **nothing** — measured, with the real tailnet planted back
 			# in and this reporting clean.
 			text = (ROOT / path).read_text(encoding="utf-8")
+
 		except (OSError, UnicodeDecodeError):
 			continue
 

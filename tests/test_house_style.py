@@ -154,17 +154,30 @@ def _undocumented (path: pathlib.Path) -> list[str]:
 
 
 def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
-	"""Return how many ``from`` imports one file has, and those that bring in a value.
+	"""Return how many ``from`` imports one file has, and those outside the one exception.
 
 	**The house rule is ``import x``, and one form of ``from`` is its documented exception**:
 	``from subroutine.api import app as api``, a *module*, imported inside a function so that
 	a plain ``import subroutine.x`` does not bind ``subroutine`` as a local name. Whether the
 	name is a module is asked of the import system rather than guessed from its spelling.
+
+	**Inside a function, as the exception says** (`SR#3161`, L-10 of the cold review of
+	2026-09-21). This asked only whether the name was a module, so ``from subroutine.api
+	import app`` at the top of a file passed - which is the plain ``import`` rule broken, with
+	none of the reason the exception exists for.
 	"""
 
+	tree = ast.parse(path.read_text(encoding="utf-8"))
+	nested = {
+		id(node)
+		for function in ast.walk(tree)
+		if isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef)
+		for node in ast.walk(function)
+		if isinstance(node, ast.ImportFrom)
+	}
 	seen, values = 0, []
 
-	for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+	for node in ast.walk(tree):
 		if not isinstance(node, ast.ImportFrom):
 			continue
 
@@ -176,13 +189,58 @@ def _values_imported (path: pathlib.Path) -> tuple[int, list[str]]:
 				module = node.module is not None and not node.level and (
 					importlib.util.find_spec(target) is not None
 				)
+
 			except (ImportError, ValueError):
 				module = False
 
-			if not module:
+			if not module or id(node) not in nested:
 				values.append(f"{node.lineno} from {node.module} import {alias.name}")
 
 	return seen, values
+
+
+def _crowded (path: pathlib.Path) -> tuple[int, list[str]]:
+	"""Return how many ``except`` clauses one file has, and those with no blank line above.
+
+	**A blank line before ``except``, or before the comment that explains it** (`SR#3161`),
+	which is how 240 of the tree's clauses were already written and nothing held: the cold
+	review of 2026-09-21 counted seven without one in ``src`` and ``tests``, and ``scripts``
+	had seven more.
+	"""
+
+	source = path.read_text(encoding="utf-8")
+	lines = source.splitlines()
+	seen, found = 0, []
+
+	for node in ast.walk(ast.parse(source)):
+		if not isinstance(node, ast.ExceptHandler):
+			continue
+
+		seen += 1
+		above = node.lineno - 2
+
+		while above >= 0 and lines[above].strip().startswith("#"):
+			above -= 1
+
+		if above >= 0 and lines[above].strip():
+			found.append(str(node.lineno))
+
+	return seen, found
+
+
+def test_every_except_has_a_blank_line_above_it () -> None:
+	"""`SR#3161`: the house style every other clause follows, now held by something."""
+
+	examined = 0
+	found: list[str] = []
+
+	for path in _files():
+		seen, crowded = _crowded(path)
+		examined += seen
+		found.extend(f"{path.relative_to(ROOT)}:{line}" for line in crowded)
+
+	assert examined >= 200, f"only {examined} except clauses were examined, so this checks little"
+	assert not found, "an except with no blank line above it:\n" + "\n".join(found)
 
 
 def test_every_class_and_module_has_a_docstring () -> None:
@@ -228,8 +286,19 @@ def test_a_from_import_brings_in_a_module () -> None:
 		('"""A module."""\n\nclass Helper:\n\tpass\n', ["3 class Helper"], []),
 		('def helper ():\n\t"""Do a thing."""\n', ["the module"], []),
 		('"""A module."""\n\nfrom uvicorn import run\n', [], ["3 from uvicorn import run"]),
-		# The documented exception, which must pass: a module, from its package.
-		('"""A module."""\n\nfrom subroutine.api import app\n', [], []),
+		# **A module at the top of a file is not the exception** (`SR#3161`): that is inside a
+		# function, which is the case below.
+		(
+			'"""A module."""\n\nfrom subroutine.api import app\n',
+			[],
+			["3 from subroutine.api import app"],
+		),
+		# The documented exception, which must pass: a module, from its package, in a function.
+		(
+			'"""A module."""\n\n\ndef serve ():\n\t"""Start it."""\n\n\tfrom subroutine.api import app\n',
+			[],
+			[],
+		),
 	],
 )
 def test_each_new_rule_catches_its_own_defect_and_passes_the_exception (
@@ -246,6 +315,21 @@ def test_each_new_rule_catches_its_own_defect_and_passes_the_exception (
 
 	assert _undocumented(path) == undocumented
 	assert _values_imported(path)[1] == values
+
+
+def test_the_except_rule_catches_a_crowded_clause_and_passes_a_commented_one (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3161`'s scanner, handed one crowded clause and one with a comment between (`SR#405`)."""
+
+	path = tmp_path / "planted.py"
+	path.write_text(
+		'"""A module."""\n\ntry:\n\tpass\nexcept ValueError:\n\tpass\n\ntry:\n\tpass\n\n'
+		"# Why it is caught.\nexcept KeyError:\n\tpass\n",
+		encoding="utf-8",
+	)
+
+	assert _crowded(path) == (2, ["5"])
 
 
 @pytest.mark.parametrize(

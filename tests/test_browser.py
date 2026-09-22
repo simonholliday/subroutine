@@ -151,6 +151,7 @@ def _unavailable () -> str | None:
 
 	try:
 		import playwright.sync_api
+
 	except ImportError:
 		return "playwright is not installed, so install it with `pip install -e '.[dev]'`"
 
@@ -1325,6 +1326,7 @@ def running (looks: typing.Any) -> typing.Iterator[typing.Any]:
 		# both, and turns a thirty-second timeout into a diagnosis.
 		try:
 			page.wait_for_selector(".app", timeout=10_000)
+
 		except Exception:
 			assert not violations, (
 				f"the app never painted, and it broke its own Content-Security-Policy first: "
