@@ -5064,12 +5064,15 @@ def a_link_from_this_side (entry: JournalEntry) -> str | None:
 
 	**Null only when the entry is not a link at all.** A link this cannot read falls back to
 	:data:`_HAPPENED`'s generic phrase rather than to None, because None sends the caller to
-	:func:`action_in_words` - which is the defect. **An unlink records no payload**: measured
-	2026-09-21, ``domain.links`` writes the deletion with ``changes`` null, so nothing can name
-	the far end and *deleted* is what a bare action then says, beside an item that still exists.
-	That is worse than the reported symptom, and `#3131` is the event that does not record what
-	it removed. Until then *unlinked it from something* is the honest answer - the degradation
-	`#302` asks of :func:`_a_link`, one surface along.
+	:func:`action_in_words` - which is the defect: for a link that prints *deleted* beside an
+	item which still exists, and a reader's obvious inference is that the item was deleted.
+
+	**An unlink names its far end since `#3131`**, so a deletion now reads like a creation and
+	this fallback is no longer where a fresh one lands. **It stays reachable, deliberately**:
+	those events were not backfilled (`#52`), because inventing a far end from today's links
+	would be a claim about the past the data does not support. So every unlink already in a
+	history still degrades to *unlinked it from something* - the degradation `#302` asks of
+	:func:`_a_link`, one surface along.
 	"""
 
 	if entry.entity_type != "link":

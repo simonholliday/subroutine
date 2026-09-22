@@ -733,14 +733,20 @@ def remove (
 	if link.deleted_at is not None:
 		return link
 
-	for entity_type, identifier in (
-		(link.source_type, link.source_id),
-		(link.target_type, link.target_id),
+	#: **Both ends, kept rather than resolved and thrown away** (`#3131`). This loop existed to
+	#: check the caller may touch each end; their refs are what the deletion event has to record,
+	#: and resolving a second time below would re-run two queries for facts already in hand.
+	withdrawn_ends: dict[str, End] = {}
+
+	for side, entity_type, identifier in (
+		("source", link.source_type, link.source_id),
+		("target", link.target_type, link.target_id),
 	):
 		end = resolve(session, actor, workspace_id=link.workspace_id, entity_type=entity_type, identifier=identifier)
 
 		if end is not None:
 			_permitted(session, actor, link.workspace_id, end)
+			withdrawn_ends[side] = end
 
 	link.deleted_at = now if now is not None else subroutine.db.types.utcnow()
 	session.flush()
@@ -748,6 +754,9 @@ def remove (
 	withdrawn_type, withdrawn_id = _far_end(
 		link, subject_id=link.source_id if acted_on is None else acted_on.id
 	)
+	relation = session.get(subroutine.db.models.vocabulary.LinkType, link.link_type_id)
+	source_end = withdrawn_ends.get("source")
+	target_end = withdrawn_ends.get("target")
 
 	subroutine.domain.events.record(
 		session,
@@ -761,14 +770,41 @@ def remove (
 		# source would attribute their work to an item they never opened.
 		subject_type=link.source_type if acted_on is None else acted_on.entity_type,
 		subject_id=link.source_id if acted_on is None else acted_on.id,
-		# **Set here too, though a withdrawal discloses nothing** (`#302`): this call records no
-		# ``changes`` at all, so it never named the far end. It is the visibility model that has
-		# to be uniform — an event whose creation is hidden from somebody while its deletion is
-		# not is its own small disclosure, and *this link went away* about a link they were
-		# never told about is a stranger thing to read than either.
+		# **Set here too, and since `#3131` it is what makes the payload below safe** (`#302`).
+		# It was set while this call recorded no ``changes`` at all, on the argument that the
+		# visibility model has to be uniform — an event whose creation is hidden from somebody
+		# while its deletion is not is its own small disclosure, and *this link went away* about
+		# a link they were never told about is a stranger thing to read than either.
+		#
+		# **So it is load-bearing now rather than tidy.** ``scoping.visible_events`` shows a link
+		# event only where **both** subjects are visible, which is exactly the set of readers the
+		# refs below may reach. **The pair moves together or not at all**: ``changes`` written on
+		# a path that left ``subject_b`` unset would hand a far end to somebody entitled to one
+		# end, which is the disclosure `#302` closed. Asserted on one row in
+		# ``tests/test_events_scoping.py`` rather than left to whoever edits this next, because
+		# the two are set a dozen lines apart.
 		subject_b_type=withdrawn_type,
 		subject_b_id=withdrawn_id,
 		action=subroutine.domain.events.EventAction.DELETED,
+		# **What was removed, in the shape every other delete uses** (`#3131`): the value under
+		# ``from`` and ``to`` null, which is what :func:`subroutine.views.a_link_from_this_side`
+		# reads for a deletion and what ``views._a_link`` already expects. Until this, an unlink
+		# was an event that said something was removed and never said what — so *why is this no
+		# longer under that milestone* was a question the record could not answer, about the one
+		# relationship a person undoes and later wonders about.
+		#
+		# **Not backfilled** (`#52`): the events written before this genuinely do not hold it, and
+		# inventing a far end from today's links would be a claim about the past the data does not
+		# support. That is why the generic phrase stays reachable on the reading side rather than
+		# being removed as unreachable.
+		#
+		# **An end this caller cannot resolve leaves its ref null**, and the reader falls back to
+		# that same phrase rather than printing half a sentence.
+		changes={
+			"link_type": {"from": None if relation is None else relation.key, "to": None},
+			"source": {"from": None if source_end is None else source_end.ref, "to": None},
+			"target": {"from": None if target_end is None else target_end.ref, "to": None},
+		},
 		actor=actor,
 	)
 	session.flush()

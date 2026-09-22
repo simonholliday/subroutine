@@ -18637,10 +18637,14 @@ def test_the_terminal_and_the_browser_say_the_same_thing_about_a_link (
 def test_a_link_never_reads_as_the_action_on_its_own_item (tmp_path: pathlib.Path) -> None:
 	"""The half of `#3127` that has no payload to name, and it was the worse half.
 
-	**An unlink records nothing** - measured 2026-09-21, `domain.links` writes the deletion with
-	`changes` null, which is `#3131`. So nothing can name the far end, and a surface falling
-	through to the bare action said **`deleted`** beside an item that still exists. A reader's
-	obvious inference is that the item was deleted.
+	**An unlink recorded nothing until `#3131`** - `domain.links` wrote the deletion with
+	`changes` null, so nothing could name the far end, and a surface falling through to the bare
+	action said **`deleted`** beside an item that still exists. A reader's obvious inference is
+	that the item was deleted.
+
+	**That is fixed and these cases still matter**, because it was not backfilled (`#52`): every
+	unlink written before it holds no payload, so an entry with nothing to read is what a real
+	history still serves and this is the behaviour it gets.
 
 	So for a link this never returns null and never reaches `action_in_words`: an unreadable one
 	falls back to `_HAPPENED`'s generic phrase, which says what happened without inventing a

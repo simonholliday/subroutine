@@ -606,10 +606,11 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 		"visible end — so the write path is not recording the second subject"
 	)
 
-	# **And the withdrawal, which discloses nothing and is still narrowed.** ``links.remove``
-	# records no ``changes`` at all, so an unlink never named the far end — but a reader who
-	# was not told the link was made and *is* told it went away has learned the same thing one
-	# step later. The visibility model is uniform or it is a hole with a delay on it.
+	# **And the withdrawal, which since `#3131` discloses exactly what the creation does.**
+	# ``links.remove`` recorded no ``changes`` at all and was narrowed anyway, on the argument
+	# that a reader who was not told the link was made and *is* told it went away has learned the
+	# same thing one step later. Now it names both ends, so the narrowing carries refs and the
+	# assertion below is on the pair rather than on the subject alone.
 	subroutine.domain.links.remove(session, joined, actor=acting)
 	session.flush()
 
@@ -622,6 +623,28 @@ def test_a_link_across_the_boundary_is_written_with_both_ends (
 	assert _reaches(session, world, world.owner, gone)
 	assert not _reaches(session, world, world.outsider, gone), (
 		"the unlink reached somebody the link itself was hidden from"
+	)
+
+	# **The payload and the second subject are set together, or the payload is a disclosure**
+	# (`#3131`, `#302`). ``changes`` now names both refs and ``visible_events`` shows the event
+	# only where both subjects are visible, so the two are one control with its halves a dozen
+	# lines apart in ``domain/links.py``. Asserted on the same row, because a path that wrote the
+	# refs and left ``subject_b`` unset would hand a private ref to a reader entitled to one end
+	# — which is the disclosure `#302` closed, arrived at from the other side.
+	unlinked = session.get(subroutine.db.models.activity.Event, gone)
+
+	assert unlinked is not None, "the unlink wrote no event"
+	assert unlinked.changes, (
+		"the unlink recorded no payload, so no surface can name what it removed — #3131"
+	)
+	assert {"link_type", "source", "target"} <= set(unlinked.changes), unlinked.changes
+	assert unlinked.changes["source"]["to"] is None, (
+		"a deletion records the value under 'from' and null under 'to', which is the shape "
+		"views.a_link_from_this_side reads for a delete"
+	)
+	assert unlinked.subject_b_type and unlinked.subject_b_id, (
+		"the unlink names both ends in changes and carries no second subject, so nothing "
+		"narrows it — the refs would reach a reader who may see only one end"
 	)
 
 
