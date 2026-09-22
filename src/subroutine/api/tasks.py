@@ -521,14 +521,19 @@ def listing (
 		+ dates.values_for(subroutine.domain.filtering.STATUS)
 	]
 
+	# **Both spellings, exactly as `named` does for the status above** (`#3093`).
+	# `status_category` is a filter the grammar compiles since that item, so
+	# `?status_category=done` and `q=status_category:done` are one field asked two ways — and
+	# taking only the flat one would answer the finished work for one spelling and an empty page
+	# for the other, which is this rule's own founding trap. **What was asked for, and not what
+	# was left out** (`#3139`): an `ne` names the category it excludes. One list, read by both
+	# rules below, so the order and the reach cannot be told two different things.
+	categories = ([] if status_category is None else [status_category]) + dates.values_for(
+		subroutine.domain.filtering.STATUS_CATEGORY, only=subroutine.domain.filtering.ASKING_FOR
+	)
+
 	completion = subroutine.domain.tasks.completion_wanted(
-		# **Both spellings, exactly as `named` does for the status above** (`#3093`).
-		# `status_category` is a filter the grammar compiles since that item, so
-		# `?status_category=done` and `q=status_category:done` are one field asked two ways —
-		# and taking only the flat one would answer the finished work for one spelling and an
-		# empty page for the other, which is this rule's own founding trap.
-		([] if status_category is None else [status_category])
-		+ dates.values_for(subroutine.domain.filtering.STATUS_CATEGORY),
+		categories,
 		include_completed,
 		# **Naming the finished status by its key asks for finished work** (`#1032`), as
 		# unambiguously as naming the category does. `subroutine list --status done` answered
@@ -827,9 +832,7 @@ def listing (
 		default=(
 			(f"-{subroutine.domain.ordering.RELEVANCE}",)
 			if ranked is not None
-			else subroutine.domain.tasks.default_order(
-				status=named, category=status_category
-			)
+			else subroutine.domain.tasks.default_order(status=named, categories=categories)
 		),
 	)
 

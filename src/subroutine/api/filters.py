@@ -95,8 +95,11 @@ class Asked (typing.NamedTuple):
 			(comparison.field for comparison in self.comparisons), field
 		)
 
-	def values_for (self, field: str) -> list[str]:
+	def values_for (self, field: str, *, only: frozenset[str] | None = None) -> list[str]:
 		"""Return the values this request gave one field — `#1829`.
+
+		``only`` keeps the comparisons made with those operators (`#3139`), as
+		:func:`subroutine.domain.filtering.values_for` does.
 
 		:meth:`about` answers *whether*; some rules need *what*. Naming a finished status
 		decides whether the listing reaches finished work at all (`#1032`), and a `REFERENCE`
@@ -105,7 +108,7 @@ class Asked (typing.NamedTuple):
 		narrowing.
 		"""
 
-		return subroutine.domain.filtering.values_for(self.comparisons, field)
+		return subroutine.domain.filtering.values_for(self.comparisons, field, only=only)
 
 
 class Reader:

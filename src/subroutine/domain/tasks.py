@@ -3549,7 +3549,7 @@ def status_for (
 def default_order (
 	*,
 	status: typing.Sequence[subroutine.db.models.vocabulary.Status] = (),
-	category: str | None = None,
+	categories: typing.Sequence[str] = (),
 ) -> tuple[str, ...]:
 	"""Return what a task listing is ordered by when the caller named no order.
 
@@ -3585,6 +3585,11 @@ def default_order (
 	it wants a fourth band in §6.3a's three. That rule exists twice by necessity and a
 	disagreement between the halves is a page boundary that skips rows, so it is `#1152` and a
 	decision rather than a continuation of this.
+
+	**``categories`` is both spellings of the category**, merged by the caller exactly as for
+	:func:`completion_wanted` (`#3139`). It read the flat parameter alone, so
+	``q=status_category:done`` was ordered by when each item was made - the sixth-spelling trap
+	that function's docstring describes, on the ordering side of it.
 	"""
 
 	# A set rather than a precedence, because there is no right answer when a caller says both
@@ -3594,9 +3599,13 @@ def default_order (
 	# **Every named status, not any of them** — `#1829`, and it is the paragraph above kept
 	# rather than widened. One status behaves exactly as before; ``status.in=open,done`` is a
 	# *mixed* listing, which this docstring says is `#1152`'s question and not this one's, so
-	# it keeps the ordinary order rather than being quietly given the finished one.
+	# it keeps the ordinary order rather than being quietly given the finished one. **Every
+	# named category too**, since `#3093` let a category name several (`#3139`).
 	named = {one.category for one in status}
-	narrowed_to = {category} | (named if named <= FINISHED_CATEGORIES else set())
+	asked = set(categories)
+	narrowed_to = (asked if asked <= FINISHED_CATEGORIES else set()) | (
+		named if named <= FINISHED_CATEGORIES else set()
+	)
 
 	if narrowed_to & FINISHED_CATEGORIES:
 		return tuple(subroutine.domain.ordering.FINISHED_TASK_ORDER)
@@ -3757,6 +3766,10 @@ def completion_wanted (
 	# them before this sees them. Taking one value would have let the flat spelling reach
 	# finished work while `subroutine search "status_category:done"` answered nothing on an
 	# instance full of it - which is this function's own founding trap, in a new vocabulary.
+	#
+	# **What was asked for, and never what was left out** (`#3139`): the caller passes the
+	# values of `eq` and `in` alone. `status_category.ne=done` names `done` and asks for the
+	# rest, and read as asked for it let cancelled work into a listing that excluded it.
 	wants_finished = (
 		about_completion
 		or named_finished
@@ -3816,13 +3829,19 @@ def _admits_nothing (
 	being finished, and the two coincide for every request that could be written before ``in``.
 
 	``completed_at`` is unconditional here because that column is null on everything unfinished,
-	so no other narrowing can rescue it. A finished ``status_category`` is the same.
+	so no other narrowing can rescue it.
+
+	**The categories by the status half's rule, *all* of them** (the cold review of 2026-09-21,
+	`#3139`). This asked whether *any* was finished, which is what the status half asked until
+	`#1829`, and `#3093` gave the category an ``in`` without carrying the change across - so
+	``status_category.in=in_progress,done&include_completed=false`` was refused as a
+	contradiction, where it asks for the work in progress.
 	"""
 
 	if about_completion:
 		return True
 
-	if any(one in FINISHED_CATEGORIES for one in categories):
+	if categories and all(one in FINISHED_CATEGORIES for one in categories):
 		return True
 
 	return bool(status_named) and all(

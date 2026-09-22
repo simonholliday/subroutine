@@ -2071,8 +2071,24 @@ def _whoever (comparison: Comparison, where: Where) -> uuid.UUID:
 	).id
 
 
-def values_for (comparisons: typing.Iterable[Comparison], field: str) -> list[str]:
+#: The operators that ask for rows holding a value, as against ``ne``, which asks for every row
+#: without it - `#3139`. ``status_category.ne=done`` names ``done`` and asks for everything
+#: else, so a rule deciding what a caller *asked for* reads these operators and no others.
+ASKING_FOR = frozenset({"eq", IN})
+
+
+def values_for (
+	comparisons: typing.Iterable[Comparison],
+	field: str,
+	*,
+	only: frozenset[str] | None = None,
+) -> list[str]:
 	"""Return every value these comparisons name for one field, with :data:`IN` split out.
+
+	**``only`` keeps the comparisons made with those operators** (`#3139`). Whether a listing
+	reaches finished work turns on what the caller asked for, and the values of an ``ne`` are
+	what they asked to leave out: reading them as asked for let ``status_category.ne=done`` in
+	cancelled work, and refused it beside ``include_completed=false`` as a contradiction.
 
 	**The companion to :func:`about`, which answers *whether* where this answers *what*** —
 	`#1829`. Some rules need the value and not only the presence: naming a finished status
@@ -2087,14 +2103,18 @@ def values_for (comparisons: typing.Iterable[Comparison], field: str) -> list[st
 	found = []
 
 	for comparison in comparisons:
-		if comparison.field == field:
+		if comparison.field == field and (only is None or comparison.operator in only):
 			found.extend(_values(comparison))
 
 	return found
 
 
 def values_named (
-	parameters: typing.Iterable[tuple[str, str]], *, entity: str, field: str
+	parameters: typing.Iterable[tuple[str, str]],
+	*,
+	entity: str,
+	field: str,
+	only: frozenset[str] | None = None,
 ) -> list[str]:
 	"""Return the values one field was given, reading the dotted names as written.
 
@@ -2104,7 +2124,7 @@ def values_named (
 	compares ``due_after`` against ``due_at`` and answers no about a filter that was applied.
 	"""
 
-	return values_for(understood(parameters, entity=entity), field)
+	return values_for(understood(parameters, entity=entity), field, only=only)
 
 
 def _values (comparison: Comparison) -> list[str]:

@@ -2878,6 +2878,30 @@ def test_neither_transport_reaches_the_level_above_a_name_of_dots (pair: Pair, d
 	assert {"web", "api"} <= {row.key for row in pair.remote.projects(workspace=pair.workspace.slug)}
 
 
+def test_both_read_an_excluded_status_category_as_left_out (pair: Pair) -> None:
+	"""`SR#3139` on both transports: each merges the category's spellings for itself.
+
+	The local client reads its own filters rather than the route's, so the operator had to be
+	read there as well - an ``ne`` that reached finished work over one transport and not the
+	other would be the divergence S3-07 removed.
+	"""
+
+	for title, status in (("busy", "in_progress"), ("finished", "done"), ("dropped", "cancelled")):
+		made = make(pair, title)
+		pair.local.update(ref=made.ref, status=status)
+
+	make(pair, "waiting")
+
+	for client in pair.both():
+		excluded = client.tasks(filters=[("status_category.ne", "done")])
+		some_finished = client.tasks(
+			filters=[("status_category.in", "in_progress,done")], include_completed=False
+		)
+
+		assert sorted(row.title for row in excluded) == ["busy", "waiting"], client
+		assert [row.title for row in some_finished] == ["busy"], client
+
+
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
 	"""The invariant the whole `views.py` move exists for, held by a test rather than by prose.
 

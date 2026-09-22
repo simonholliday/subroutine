@@ -871,6 +871,71 @@ def test_asking_about_completion_and_excluding_it_is_refused (world: World) -> N
 	assert "include_completed" in answer.text
 
 
+def test_a_status_category_is_asked_for_by_eq_and_in_and_never_by_ne (world: World) -> None:
+	"""`SR#3139`, the cold review of 2026-09-21's M-1, and a defect of `SR#3093`'s making.
+
+	`SR#3093` gave `status_category` an ``ne`` and an ``in``, and the rule deciding whether a
+	listing reaches finished work was taught the values and not the operators. So an ``ne``
+	read as a request - ``ne=done`` names *done*, so finished work was let in, cancelled and
+	all - and the refusal asked whether *any* category was finished, where `SR#1829` had already
+	made the status half ask whether *all* were.
+	"""
+
+	for ref, status in ((1, "in_progress"), (2, "done"), (3, "cancelled")):
+		changed = world.call("PATCH", f"/v1/tasks/{ref}", json={"status": status})
+
+		assert changed.status_code == 200, changed.text
+
+	assert world.call("POST", "/v1/tasks", json={"title": "still open"}).status_code == 201
+
+	# **Some of it finished is not a contradiction**, as `status.in` has said since `SR#1829`.
+	assert world.titles(
+		"/v1/tasks?status_category.in=in_progress,done&include_completed=false"
+	) == ["the 1st"]
+
+	# **An exclusion asks for nothing**, so finished work stays out unless it is asked for.
+	assert world.titles("/v1/tasks?status_category.ne=done") == ["still open", "the 1st"]
+	assert world.titles("/v1/tasks?status_category.ne=done&include_completed=false") == [
+		"still open",
+		"the 1st",
+	]
+	assert world.titles("/v1/tasks?status_category.ne=done&include_completed=true") == [
+		"still open",
+		"the 1st",
+		"the 5th",
+	]
+
+	# **And all of it finished is still refused**, which is the rule kept rather than dropped.
+	refused = world.call(
+		"GET", "/v1/tasks?status_category.in=done,cancelled&include_completed=false"
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "include_completed" in refused.text
+
+
+def test_finished_work_asked_for_either_way_is_ordered_by_when_it_finished (
+	world: World,
+) -> None:
+	"""`SR#3139`: `default_order` read the flat parameter, so the search line ordered by creation.
+
+	`SR#1150` orders a listing of finished work by when it finished, and `SR#3093` made the
+	category a term of the search line - so ``q=status_category:done`` answered the same rows as
+	``?status_category=done`` in the order they were made, which is the sixth-spelling trap
+	`completion_wanted`'s docstring describes, one rule along.
+	"""
+
+	# Finished in the reverse of the order they were made, so the two orders differ.
+	for ref in (3, 1):
+		assert world.call("POST", f"/v1/tasks/{ref}/complete").status_code == 200
+
+	flat = world.call("GET", "/v1/tasks?status_category=done").json()["items"]
+	worded = world.call("GET", "/v1/tasks?q=status_category:done").json()["items"]
+
+	assert [row["title"] for row in flat] == ["the 1st", "the 5th"]
+	assert [row["title"] for row in worded] == ["the 1st", "the 5th"]
+
+
 def test_a_comment_counts_as_having_worked_on_something (world: World) -> None:
 	"""**Simon's third question, and the whole reason this is an `EXISTS`** — `#815`, `#817`.
 

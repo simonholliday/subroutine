@@ -508,17 +508,21 @@ class Client:
 			# **It moved inside the session for `#1032`**, because naming the finished status by
 			# its key is the fifth spelling of that same question and answering it needs the
 			# workspace's own vocabulary — which is not in hand until the workspace is.
-			completion = subroutine.domain.tasks.completion_wanted(
-				# **Both spellings, as `named` does for the status above** (`#3093`), and this
-				# transport has to do it too or `subroutine search "status_category:done"`
-				# answers nothing while the endpoint answers correctly — the divergence this
-				# client's whole shape exists to prevent.
-				([] if status_category is None else [status_category])
-				+ subroutine.domain.filtering.values_named(
+			# **Both spellings, as `named` does for the status above** (`#3093`), and this
+			# transport has to do it too or `subroutine search "status_category:done"` answers
+			# nothing while the endpoint answers correctly — the divergence this client's whole
+			# shape exists to prevent. What was asked for, not what was left out (`#3139`).
+			categories = ([] if status_category is None else [status_category]) + (
+				subroutine.domain.filtering.values_named(
 					terms,
 					entity="task",
 					field=subroutine.domain.filtering.STATUS_CATEGORY,
-				),
+					only=subroutine.domain.filtering.ASKING_FOR,
+				)
+			)
+
+			completion = subroutine.domain.tasks.completion_wanted(
+				categories,
 				include_completed,
 				status_named=named,
 				about_completion=subroutine.domain.filtering.about(
@@ -595,7 +599,7 @@ class Client:
 			# was already real, with the browser's *done* view carrying `-completed_at` as a
 			# literal of its own while this path and every board's finished column did not.
 			fallback: tuple[str, ...] = subroutine.domain.tasks.default_order(
-				status=named, category=status_category
+				status=named, categories=categories
 			)
 
 			# **Built in steps rather than one chained expression, and `is not None` rather
