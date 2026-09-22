@@ -43,6 +43,14 @@ upgrade involves.
   defer with *to 17:00* left in its title. A span in the first or last years the calendar
   holds is read, where it was an internal error.
 
+- **A search narrowed to a project finds it in whichever workspace holds it.** On an
+  instance with two workspaces, `subroutine search "project:web"` put the question to both,
+  the one without `web` refused, and its refusal threw away the rows the other returned -
+  so the search said nothing matched. `subroutine list --project web` had worked for a long
+  time; the tolerance was keyed on the flag rather than on the project. The same was true of
+  `parent:12` when item 12 is a task and the documents were asked too. A project that is in
+  no workspace at all is still refused by name.
+
 - **A link no longer reads as the item being created.** A link is a row of its own, so the
   event's action is `created` - and the journal, the change feed at a terminal and the journal
   in the agent tools each printed that bare action. A linked item appeared **twice, at the same

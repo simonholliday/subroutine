@@ -3213,8 +3213,12 @@ def _listing (
 	type: str | None = None,
 	tag: str | None = None,
 	filters: subroutine.domain.filtering.Terms | None = None,
+	only_workspace: str | None = None,
 ) -> subroutine.fanout.Gathered[Listing]:
 	"""List every reachable workspace's items, one request per workspace per kind.
+
+	**Or one workspace's, where ``only_workspace`` names it** (`#3137`): a saved view belongs to
+	the workspace it was saved in, and running one everywhere reached work it was never about.
 
 	Per workspace rather than per connection because ``GET /v1/tasks`` refuses an
 	ambiguous one (§8.2) — and a local client that quietly spanned them would return
@@ -3289,6 +3293,9 @@ def _listing (
 		reached = False
 
 		for workspace in () if item is None else item.identity.workspaces:
+			if only_workspace is not None and workspace.slug != only_workspace:
+				continue
+
 			try:
 				found_here = client.tasks(
 					workspace=workspace.slug,
@@ -3309,19 +3316,32 @@ def _listing (
 				)
 
 			except subroutine.errors.NotFound as absent:
-				# Only a named project can legitimately be absent from a workspace the
-				# caller can otherwise read. Anything else is this connection failing.
+				# Only a named project, or an item named by its ref, can legitimately be absent
+				# from a workspace the caller can otherwise read. Anything else is this
+				# connection failing.
+				#
+				# **Named however the caller named it** (`#3137`): this asked whether the
+				# ``--project`` flag was set, so ``project:web`` in a search line or a saved
+				# view refused in every other workspace and the fan-out threw the right one's
+				# rows away. The refusal says what it is about, so that is what is read.
 				#
 				# **An assignee is deliberately not in this list.** An account belongs to
 				# the instance rather than to a workspace, so a name that resolves nowhere
 				# is a typo wherever it was asked — and tolerating it here would turn one
 				# into "nothing on your list" across every workspace at once.
-				if project is None:
+				if not subroutine.clients.base.names_what_another_place_keeps(absent):
 					raise
 
 				absent_project = absent
 
-				continue
+				# **A project the tasks do not have, the documents do not have either**, so
+				# the second request would refuse the same way. A ref is different: `#1` may
+				# be a document here, and *its* children are the documents' to answer.
+				if any(problem.field == "project" for problem in absent.errors):
+					continue
+
+				found_here = subroutine.clients.base.Listing()
+				answered = False
 
 			except subroutine.errors.ValidationError as unknown:
 				# **A status and a type are per-entity, per-workspace vocabulary** (§5.5),
@@ -3474,9 +3494,12 @@ def _listing (
 				# skipping the workspace — and this call then ran where the project does not
 				# exist, with nothing to catch it.
 				#
-				# Same rule as above: only a named project may legitimately be absent from a
-				# workspace the caller can otherwise read.
-				if project is None:
+				# Same rule as above: only a named project, or an item named by its ref, may
+				# legitimately be absent from a workspace the caller can otherwise read - and
+				# a ref naming a task is exactly that to the documents (`#3137`). `#2173` has
+				# the document listing refuse it by name, which is right for a caller asking
+				# documents alone; beside the task half it is one half with nothing to add.
+				if not subroutine.clients.base.names_what_another_place_keeps(absent):
 					raise
 
 				absent_project = absent
@@ -4206,8 +4229,12 @@ def _listed (
 	type: str | None = None,
 	tag: str | None = None,
 	filters: subroutine.domain.filtering.Terms | None = None,
+	workspace: str | None = None,
 ) -> None:
-	"""Print the list. Registered twice — three times, with ``search`` — from one body."""
+	"""Print the list. Registered twice — three times, with ``search`` — from one body.
+
+	``workspace`` narrows it to one, which only ``view run`` asks for (`#3137`).
+	"""
 
 	# **The scripted path is never narrowed by a presentation rule.** Hiding parked work
 	# is a decision about a list somebody *reads*, which is what §6.5's "default views"
@@ -4255,6 +4282,7 @@ def _listed (
 			type=type,
 			tag=tag,
 			filters=filters,
+			only_workspace=workspace,
 		)
 
 		_report(program, world, gathered.failures)
@@ -7947,9 +7975,16 @@ def _view_run (
 	"""Print the work a saved view selects, and say what of it a terminal cannot draw.
 
 	**The same listing every other command prints**, handed the saved ``q`` — which is what
-	makes a view portable rather than a second way to ask a question. A view whose ``q`` is
-	empty narrows nothing and draws exactly what ``subroutine list`` draws, because that is
-	what it says.
+	makes a view the grammar every surface reads rather than a second way to ask a question. A
+	view whose ``q`` is empty narrows nothing and draws what ``subroutine list`` draws in its
+	workspace, because that is what it says.
+
+	**In the workspace it was read from, on the connection it was read from** (the cold review
+	of 2026-09-21, `#3137`). A view's name is one workspace's (`#1402`), and the browser applies
+	one there; run everywhere, a view on ``project:web`` refused in every workspace without
+	it, and one on plain words listed work from workspaces it was never about. ``--connection``
+	names where the view is read *and* run - it read from the connection a write would go to
+	and ran on the one named.
 
 	**An explicit ``--order`` beats the saved one.** A stored arrangement is a default somebody
 	chose once; a flag is what they are asking for now, and the alternative — a saved order no
@@ -7961,9 +7996,12 @@ def _view_run (
 	"""
 
 	with program.opened() as world:
-		found = world.writing_to().client.saved_view(
-			key=key, workspace=_writing_workspace(world)
-		)
+		if connection:
+			world = _only_this_connection(program, world, connection)
+
+		here = world.writing_to()
+		workspace = _writing_workspace(world)
+		found = here.client.saved_view(key=key, workspace=workspace)
 
 	declined = _arrangement_declined(found)
 
@@ -7982,10 +8020,11 @@ def _view_run (
 		order=order or found.order,
 		project=_only_once(program, "--project", project),
 		tag=_only_once(program, "--tag", tag),
-		connection=connection or None,
+		connection=here.client.connection.name,
 		deferred=deferred,
 		q=found.q,
 		filters=_filters(program, dated),
+		workspace=workspace,
 	)
 
 

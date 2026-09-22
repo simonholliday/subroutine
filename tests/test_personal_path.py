@@ -12598,3 +12598,84 @@ def test_the_view_group_works_where_more_than_one_workspace_exists (
 	# find it, or the workspace is being accepted and ignored - which is the defect wearing a
 	# passing test.
 	assert "mine" not in run("-w", "projects", "view", "list").output
+
+
+def test_a_view_runs_in_the_workspace_it_was_saved_in (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3137`, the cold review of 2026-09-21's H-2: a view ran everywhere and lost its answer.
+
+	**Two workspaces, because `SR#3120`'s lesson is that one cannot show this.** A view on
+	``project:web``, saved where ``web`` is, answered *Nothing matches*: it was put to every
+	workspace, the one without the project refused, and the fan-out threw away the rows the
+	right one returned. A view on plain words listed the other workspace's work beside its own.
+	"""
+
+	run("init")
+	run("add", "Fix the boiler at home")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "project", "create", "web", "Web")
+	run("-w", "acme", "add", "Fix the boiler +web")
+
+	run("-w", "acme", "view", "save", "Web work", "--q", "project:web")
+	narrowed = run("-w", "acme", "view", "run", "web-work").output
+
+	assert "Fix the boiler" in narrowed, narrowed
+	assert "Nothing matches" not in narrowed, narrowed
+	assert "There is no project" not in narrowed, narrowed
+
+	run("-w", "acme", "view", "save", "Boilers", "--q", "boiler")
+	worded = run("-w", "acme", "view", "run", "boilers").output
+
+	assert "Fix the boiler" in worded, worded
+	assert "at home" not in worded, f"the view reached a workspace it was not saved in: {worded}"
+
+
+def test_a_view_narrowed_to_a_parent_lists_its_children (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3137` on one workspace: `parent:1` names a task, and the document half refused it.
+
+	`SR#2173` has a document listing refuse a task's ref by name, which is right for a caller
+	asking documents alone. Put to both halves of a list, it took the task half's answer with
+	it, and a view saved as *what is under #1* printed *Nothing matches* with #1's child there.
+	"""
+
+	run("init")
+	run("add", "Plan the move")
+	run("add", "Book the van")
+	run("move", "2", "--under", "1")
+
+	run("view", "save", "The move", "--q", "parent:1")
+	printed = run("view", "run", "the-move").output
+
+	assert "Book the van" in printed, printed
+	assert "Nothing matches" not in printed, printed
+
+
+def test_a_search_narrowed_to_a_project_finds_it_in_the_workspace_that_has_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3137`'s older half: the fan-out forgave an absent project only when a flag named it.
+
+	``subroutine list --project web`` has found the work since `SR#332`, and ``subroutine search
+	"project:web"`` refused in the workspace without it and printed nothing. The refusal says
+	what it is about, and that is what the fan-out reads now, however the project was named.
+	**A project that is nowhere is still refused by name**, since *nothing matches* would read
+	as a project that exists and is empty.
+	"""
+
+	run("init")
+	run("workspace", "create", "acme", "Acme")
+	run("-w", "acme", "project", "create", "web", "Web")
+	run("-w", "acme", "add", "Fix the boiler +web")
+
+	found = run("search", "project:web").output
+
+	assert "Fix the boiler" in found, found
+	assert "There is no project" not in found, found
+
+	missing = run("search", "project:nowhere").output
+
+	assert "nowhere" in missing, missing
+	assert run("search", "project:nowhere", "--strict", expect=1)

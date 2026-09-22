@@ -100,6 +100,31 @@ def names_a_word_not_kept_here (refusal: subroutine.errors.ValidationError) -> b
 	return bool({problem.field for problem in refusal.errors} & PER_WORKSPACE_WORDS)
 
 
+#: What a listing refuses when a name it was given belongs to one workspace and it is asked
+#: in another - `#3137`. A project key is one workspace's, and a ref is numbered within one
+#: and names one kind (§6.2).
+KEPT_IN_ONE_PLACE = frozenset({"project", "id_or_ref"})
+
+
+def names_what_another_place_keeps (refusal: subroutine.errors.NotFound) -> bool:
+	"""Say whether a listing refused a project or an item that may be kept somewhere else.
+
+	**`#332`'s tolerance, for whichever way the name arrived** (the cold review of 2026-09-21,
+	`#3137`). A listing asked of every workspace meets a project that lives in one of them and
+	refuses in the rest, and this used to be forgiven only where the project came through the
+	``--project`` flag - so ``project:web`` typed into a search, or saved in a view, refused in
+	the workspace without it and the fan-out threw away the rows the right one returned. A ref
+	is the same fact about a number: ``parent:1`` names a task, and the document half refused
+	it and took the task half with it.
+
+	**Identified by the field**, as :func:`names_a_word_not_kept_here` is and for its reason,
+	so an assignee - which belongs to the instance, and is a typo wherever it is missing - is
+	still raised. A name that resolved nowhere is raised too, by the caller, once it knows.
+	"""
+
+	return bool({problem.field for problem in refusal.errors} & KEPT_IN_ONE_PLACE)
+
+
 #: What a listing method returns — the rows, and whether they are all of them.
 #:
 #: **A list, so nothing that already reads one has to change** (`#1037`). Every caller here
