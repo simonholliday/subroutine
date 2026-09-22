@@ -105,6 +105,31 @@ def test_the_editors_agent_variable_does_not_reach_a_test () -> None:
 	assert subroutine.connections.DEFAULT_AGENT_WHEN not in os.environ
 
 
+def test_the_machines_terminal_width_does_not_reach_a_test () -> None:
+	"""No test may render differently for the size of the window it was run in — `SR#3167`.
+
+	**Both halves, because a console freezes ``COLUMNS`` when it is built.** The variable pins
+	every console made after the fixture; the program's own two were made when its module was
+	imported, and only an attribute reaches those. Each assertion below fails on its own remedy
+	being removed, which is what makes them two tests rather than one written twice.
+
+	**The program's console rather than a fresh one.** A fresh one would be pinned by the
+	variable alone and would report 80 on any machine with no terminal — every CI runner, and
+	every gate whose output is redirected — so a guard built on one would be green in exactly
+	the places the defect already was (`SR#2093`'s rule about a guard that cannot reach its own
+	failure path).
+	"""
+
+	assert os.environ.get("COLUMNS") == str(conftest.TERMINAL[0]), (
+		"the width is not pinned, so anything made later is cut to the window this was started in"
+	)
+	assert os.environ.get("LINES") == str(conftest.TERMINAL[1])
+	assert subroutine.cli.main._out.width == conftest.TERMINAL[0], (
+		"the program's own console still carries the width it was built with"
+	)
+	assert subroutine.cli.main._err.width == conftest.TERMINAL[0]
+
+
 def test_the_machines_colour_setting_does_not_reach_a_test (
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:

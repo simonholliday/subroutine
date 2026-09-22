@@ -252,16 +252,75 @@ def _no_inherited_colour (monkeypatch: pytest.MonkeyPatch) -> None:
 	for name in ("FORCE_COLOR", "PY_COLORS", "NO_COLOR"):
 		monkeypatch.delenv(name, raising=False)
 
+	for console in _consoles_already_built():
+		# `_color_system` is private and is the whole of what was frozen. Reaching for it
+		# beats rebuilding these consoles, which would mean restating the arguments each
+		# was constructed with — a second copy that can disagree.
+		monkeypatch.setattr(console, "_color_system", None, raising=False)
+
+
+def _consoles_already_built () -> typing.Iterator[rich.console.Console]:
+	"""Yield every `rich` console a loaded ``subroutine`` module is holding.
+
+	**Found rather than named** (`SR#2290`). Two exist today — the program's output and its
+	errors — and a third declared at module level anywhere under ``subroutine`` would otherwise
+	inherit the machine's colour, or the size of its window, in silence.
+
+	**Shared by the two fixtures that need it** (`SR#3167`), because each freezes something a
+	console captured when it was constructed, and two copies of this walk would be two things
+	to keep in step.
+	"""
+
 	for module in list(sys.modules.values()):
 		if not getattr(module, "__name__", "").startswith("subroutine"):
 			continue
 
 		for value in list(vars(module).values()):
-			# `_color_system` is private and is the whole of what was frozen. Reaching for it
-			# beats rebuilding these consoles, which would mean restating the arguments each
-			# was constructed with — a second copy that can disagree.
 			if isinstance(value, rich.console.Console):
-				monkeypatch.setattr(value, "_color_system", None, raising=False)
+				yield value
+
+
+#: The terminal every test renders into — `SR#3167`. **The size a run with no terminal already
+#: gets**: `rich` falls back to 80 by 25 when `os.get_terminal_size` raises, which is every CI
+#: job and every gate whose output is redirected, so this is the window every green run this
+#: suite has ever had rather than a number chosen here.
+TERMINAL = (80, 25)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_width (monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Render every test into one terminal, whatever window it was started in — `SR#3167`.
+
+	**Found by cutting a release.** `scripts/release.py` gates its own commit, Simon ran it in a
+	wide terminal, and a test asserting a project's row was at most 200 characters failed on a
+	row cut to *his* width. Nothing was tagged, which is the gate working; the point here is
+	that the same test is green on every CI runner and on every gate whose output is redirected,
+	because both of those have no terminal at all and `rich` falls back to 80.
+
+	**Two remedies, because a console freezes what it found when it was built.**
+	``Console.__init__`` reads ``COLUMNS`` there and then, so the variable pins every console
+	constructed after this fixture runs — and the program's two are module-level, built when
+	`subroutine.cli.main` was first imported, which is long before any fixture. Left to the
+	variable alone this would look right and do nothing, which is exactly what
+	:func:`_no_inherited_colour` records one attribute along.
+
+	**And without ``COLUMNS`` a console never freezes anything**: ``size`` then asks
+	``os.get_terminal_size`` for file descriptors 0, 1 and 2 on every render — the ones the
+	shell handed this process, which pytest's capturing does not hide.
+
+	The rule is :func:`_no_inherited_installation`'s, stated there in full: a test must not read
+	the configuration of the machine it happens to be running on. Colour was the piece nobody
+	had thought of; the size of the window is this one.
+	"""
+
+	columns, lines = TERMINAL
+
+	monkeypatch.setenv("COLUMNS", str(columns))
+	monkeypatch.setenv("LINES", str(lines))
+
+	for console in _consoles_already_built():
+		monkeypatch.setattr(console, "_width", columns, raising=False)
+		monkeypatch.setattr(console, "_height", lines, raising=False)
 
 
 @pytest.fixture(autouse=True)

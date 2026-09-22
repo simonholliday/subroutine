@@ -32,6 +32,7 @@ import rich.text
 import typer.main
 import typer.testing
 
+import conftest
 import instance_templates
 import subroutine.cli.main
 import subroutine.cli.personal
@@ -12165,6 +12166,11 @@ def test_a_long_description_is_cut_to_the_line_with_the_cut_shown (
 
 	**The ellipsis is the whole of why this is honest** — a line that has quietly lost its end
 	reads as the whole summary, which is the failure `text.truncated` was written against.
+
+	**The length is the terminal, not a number** (`SR#3167`). This read *at most 200 characters*
+	and a row is cut to the width it is drawn into, so it failed the day somebody gated a
+	release in a wide window. Every test renders into `conftest.TERMINAL` now, and the row is
+	asserted to fit it — which is the property, where 200 was a guess about somebody's screen.
 	"""
 
 	said = "Sentence about the project. " * 20
@@ -12177,7 +12183,7 @@ def test_a_long_description_is_cut_to_the_line_with_the_cut_shown (
 
 	assert "…" in row, row
 	assert said.strip() not in row
-	assert len(row) <= 200, row
+	assert len(row) <= conftest.TERMINAL[0], row
 
 
 def test_a_description_longer_than_a_listing_can_carry_is_refused_by_name (
