@@ -1163,6 +1163,28 @@ def test_a_repeats_hidden_series_is_left_out_of_the_journal (
 	)
 
 
+def test_a_journal_page_asks_about_each_events_own_task (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3159`, L-8 of the cold review of 2026-09-21: every page read the whole task table.
+
+	**Asserted on the statement's shape, not on a query plan**, which is the part that holds on
+	both backends: a planner may scan a table this small whatever the index. The leaving-out
+	itself is the test above's; this is that it asks one task per event, correlated on the
+	event's own id, rather than listing every template there is.
+	"""
+
+	written = str(
+		subroutine.domain.journal._not_a_rule_bearing_row().compile(
+			dialect=session.get_bind().dialect
+		)
+	)
+
+	assert "EXISTS" in written.upper(), written
+	assert "event.entity_id" in written, f"the lookup is not correlated on the event: {written}"
+	assert " IN (" not in written.upper(), f"every template is still listed: {written}"
+
+
 def test_a_fact_is_named_once_however_many_columns_it_moved () -> None:
 	"""Decision `#2823`'s *one line per fact*, in the feed's half: names, deduplicated and folded."""
 

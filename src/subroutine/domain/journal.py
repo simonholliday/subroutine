@@ -117,6 +117,12 @@ def _not_a_rule_bearing_row () -> typing.Any:
 
 	**The same flag every listing already uses**, ``task.is_template``, rather than a second
 	description of what a series row looks like.
+
+	**Asked of each event's own task, by its key** (the cold review of 2026-09-21, `#3159`). This
+	was ``entity_id IN (every template in the installation)``, unnarrowed, over a column with no
+	index - so each page, and the browser polls pages, read the whole task table to take a
+	handful of rows out of a page of fifty. A correlated ``EXISTS`` looks up one task by its
+	primary key for each event about a task, and grows with the page rather than the install.
 	"""
 
 	event = subroutine.db.models.activity.Event
@@ -124,9 +130,7 @@ def _not_a_rule_bearing_row () -> typing.Any:
 
 	return ~(
 		(event.entity_type == TASK)
-		& event.entity_id.in_(
-			sqlalchemy.select(task.id).where(task.is_template.is_(True))
-		)
+		& sqlalchemy.exists().where(task.id == event.entity_id, task.is_template.is_(True))
 	)
 
 

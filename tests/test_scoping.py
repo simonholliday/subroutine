@@ -69,11 +69,13 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"`_refuse_amplification` has already bounded the caller to its own reach before it runs",
 	"domain/mentions.py": "rewrites refs inside text it was already given",
 	# **An anti-join that can only take rows away** (`SR#2849`). The journal excludes an entry
-	# about the hidden row a repeat keeps its rule on, and asks the task table for the ids of
-	# those rows to do it. **Deliberately unnarrowed**: it is a `NOT IN`, so narrowing it by
+	# about the hidden row a repeat keeps its rule on, and asks the task table about each
+	# event's own task to do it - a correlated `NOT EXISTS` by primary key since `SR#3159`,
+	# chosen over an index on `is_template` because it needs no migration and its cost follows
+	# the page rather than the installation. **Deliberately unnarrowed**: narrowing it by
 	# visibility could only *fail* to exclude something - never disclose one - and the events
 	# themselves are already narrowed by `scoping.visible_events` before this clause is
-	# applied. No column but `id` is read, and nothing it reads is reported.
+	# applied. No column but `id` and `is_template` is read, and nothing it reads is reported.
 	"domain/journal.py": "excludes events about a repeat's rule-bearing row by id, an anti-join "
 	"that can only remove rows from a feed `scoping.visible_events` has already narrowed",
 	# **The task is handed in, never looked up** (`#1121`). Both functions here take a `Task`
