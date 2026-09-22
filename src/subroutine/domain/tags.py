@@ -38,8 +38,9 @@ _WHITESPACE = re.compile(r"\s+")
 #: ``tag`` filter needs :func:`carrying` and the dependency can only run one way.
 #:
 #: **Simon took the consequence on 2026-09-01 with the cost measured first**: the `projects`
-#: workspace holds 34 tags and not one contains a comma or a space. Project keys, status keys,
-#: type keys and usernames are already constrained and cannot hold one either.
+#: workspace holds 34 tags and not one contains a comma or a space. Project keys, status keys and
+#: type keys are already constrained and cannot hold one either. **A username can**, which this
+#: said it could not until `#3155` measured it: *carrie anne*, *a,b* and *x:y* are all accepted.
 REFUSED_IN_A_NAME = ","
 
 

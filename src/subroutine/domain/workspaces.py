@@ -15,6 +15,7 @@ import sqlalchemy.orm
 import subroutine.addressing
 import subroutine.db.models.identity
 import subroutine.db.models.project
+import subroutine.db.models.saved
 import subroutine.db.seed
 import subroutine.db.types
 import subroutine.domain.authentication
@@ -901,6 +902,11 @@ def remove_member (
 	the remedy for every later mistake — including this one — has been thrown away, and it
 	cannot be undone from inside. Refused with the count, so the operator can see what they are
 	being told rather than only that they were told something.
+
+	**Their private views here go with them** (`#3142`, Simon's decision of 2026-09-22). Nobody
+	else could see them and now neither can they, and each held its name in the workspace for
+	good. Their shared ones stay, for the workspace they were shared with, and an administrator
+	may forget one.
 	"""
 
 	if actor is not None:
@@ -946,6 +952,15 @@ def remove_member (
 		actor=actor,
 	)
 
+	saved = subroutine.db.models.saved.SavedView
+
+	session.execute(
+		sqlalchemy.delete(saved).where(
+			saved.workspace_id == workspace.id,
+			saved.owner_id == user.id,
+			saved.shared.is_(False),
+		)
+	)
 	session.delete(found)
 	session.flush()
 

@@ -2689,7 +2689,7 @@ def test_the_read_only_scan_can_see_a_write_that_forgot () -> None:
 
 
 #: What may stand in a path the HTTP client builds, besides a parameter declared ``int``.
-QUOTING = frozenset({"_segment", "_address", "_workspace", "_plural"})
+QUOTING = frozenset({"_segment", "_address", "_workspace", "_plural", "_view"})
 
 
 def _unquoted_in_paths (source: str) -> tuple[int, list[str]]:
@@ -2900,6 +2900,28 @@ def test_both_read_an_excluded_status_category_as_left_out (pair: Pair) -> None:
 
 		assert sorted(row.title for row in excluded) == ["busy", "waiting"], client
 		assert [row.title for row in some_finished] == ["busy"], client
+
+
+def test_both_find_a_view_by_a_typed_name_and_page_their_views_alike (pair: Pair) -> None:
+	"""`SR#3158`: a name typed with a ``/`` found the view locally and a 404 over HTTP.
+
+	The local client shapes what was typed into the address; the HTTP client quoted it as typed,
+	and the server decodes ``%2F`` before routing. **And the local client's page said it was
+	limited to the rows it had**, where the route says nothing limited it, which is ``Page``'s
+	own rule - copied from two older listings in the same file, which now agree too.
+	"""
+
+	pair.local.save_view(title="Bugs/triage", arrangement="list", workspace=pair.workspace.slug)
+
+	for client in pair.both():
+		found = client.saved_view(key="Bugs/triage", workspace=pair.workspace.slug)
+
+		assert found.key == "bugs-triage", client
+
+	listed = [client.saved_views(workspace=pair.workspace.slug).page for client in pair.both()]
+
+	assert listed[0] == listed[1], listed
+	assert listed[0].limit is None
 
 
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:

@@ -583,9 +583,7 @@ export function showingOf (search) {
 		without it is a coherent thing to ask for, which is `#738`: its finished column reads
 		*Not shown* rather than reporting on rows nobody asked about.
 	*/
-	const selection = showing === "board" && rows.selection.group_by === undefined
-		? { ...rows.selection, group_by: BOARD.group_by }
-		: rows.selection;
+	const selection = withItsAxis(showing, rows.selection);
 
 	return {
 		view: showing,
@@ -594,6 +592,21 @@ export function showingOf (search) {
 			.concat(impossible && named ? ["view=agenda beside a filter"] : [])
 			.concat(rows.refused),
 	};
+}
+
+export function withItsAxis (view, selection) {
+	/*
+		A board's selection with its axis filled in where it names none - `#1798`, and the one
+		place that rule is written (the cold review of 2026-09-21, `#3146`).
+
+		**The address and a saved view being applied both need it.** A view saved as a board
+		with no axis - the terminal's own `--as board` example - went straight to `chooseView`,
+		which drew it with one allowance across every column: the ungrouped board this rule
+		exists to make unreachable, and a reload of the same address drew it differently.
+	*/
+	return view === "board" && selection.group_by === undefined
+		? { ...selection, group_by: BOARD.group_by }
+		: selection;
 }
 
 export function withShowing (path, showing) {
@@ -956,6 +969,16 @@ export function pageTitle ({
 	const shown = view.charAt(0).toUpperCase() + view.slice(1);
 
 	return (scope.length > 0 ? `${scope.join(" / ")}: ${shown}` : shown) + suffix;
+}
+
+export function atItsWorkspace (workspace) {
+	/*
+		The place a saved view is applied at: its workspace's own level - `#3144`, Simon's
+		decision of 2026-09-22. A view's query holds the project it was saved in, so drawn
+		inside another project's path the two would narrow each other to nothing. Shaped as
+		`placeShown` answers, so `chooseView` takes either.
+	*/
+	return { agenda: false, workspace, project: null };
 }
 
 export function placeShown (open, listing) {
@@ -1550,20 +1573,30 @@ export function mentionHref (workspace) {
 	parser and compares the rows against the address that produced it, so a spelling this gets
 	wrong fails the build rather than saving a view that quietly selects something else.
 
-	**Nine of the thirteen, and the four that are missing are missing for two different
+	**Ten of the thirteen, and the three that are missing are missing for two different
 	reasons.** `order` and `group_by` are not narrowing at all — they are the arrangement, and a
-	view stores them in fields of their own. `status_category` and `include_completed` genuinely
-	cannot be written as a term, which is `CANNOT_BE_SAVED` below.
+	view stores them in fields of their own. `include_completed` genuinely cannot be written as
+	a term, which is `CANNOT_BE_SAVED` below. `status_category` could not either until it had a
+	kind, and it has had one since `#3093` - which changed no browser file, so the board of *what
+	the team has in progress* went on dropping its narrowing when saved (`#3143`).
+
+	**A name is written quoted** (`#3155`). A tag may hold a space, so `tag:needs review` was
+	read back as the tag *needs* and the word *review*; and a person called *unset* written bare
+	was read back as *assigned to nobody*. The grammar takes a quoted value whole and as a name,
+	so quoting every one is the rule with no list of exceptions to fall behind.
 */
+const asAName = (value) => `"${value}"`;
+
 export const SAVED_AS_TERMS = {
 	"importance.gte": (value) => `importance>=${value}`,
 	"urgency.gte": (value) => `urgency>=${value}`,
 	"importance.is": (value) => `importance:${value}`,
 	"assignee.is": (value) => `assignee:${value}`,
 	"parent.is": (value) => `parent:${value}`,
-	tag: (value) => `tag:${value}`,
-	assignee: (value) => `assignee:${value}`,
-	answers_to: (value) => `answers_to:${value}`,
+	status_category: (value) => `status_category:${value}`,
+	tag: (value) => `tag:${asAName(value)}`,
+	assignee: (value) => `assignee:${asAName(value)}`,
+	answers_to: (value) => `answers_to:${asAName(value)}`,
 };
 
 /*
@@ -1574,17 +1607,15 @@ export const SAVED_AS_TERMS = {
 	name the reader chose for what was showing. That is the same fault the terminal declines out
 	loud when it draws a saved board as a list.
 
-	**`status_category` is `#3093` and will go away**: it is a registry `Property` with no kind,
-	so the grammar cannot compare it, and the day it has one this entry is deleted rather than
-	rewritten. **`include_completed` is a decision and will not**: it is `NOT_A_PROPERTY` by
-	choice, because it takes no value and so can never be one.
+	**`include_completed` is a decision and is the one left**: it is `NOT_A_PROPERTY` by choice,
+	because it takes no value and so can never be one. `status_category` was here until it had a
+	kind (`#3143`).
 */
 export const CANNOT_BE_SAVED = {
-	status_category: "which category it is narrowed to",
 	include_completed: "whether finished work is shown",
 };
 
-export function asSavedView (showing) {
+export function asSavedView (showing, project = null) {
 	/*
 		Return what is showing as a view to save, and what of it could not be kept — `#3096`.
 
@@ -1595,9 +1626,15 @@ export function asSavedView (showing) {
 		**The reader's own words go last.** Everything before them is a term the controls
 		produced; what somebody typed is free text, and putting it at the end keeps it readable
 		as the thing they typed rather than buried among generated terms.
+
+		**And the project the page is in goes first** (`#3144`, Simon's decision of 2026-09-22).
+		The project is the page's *place*, not a selection parameter, so a board saved on
+		`/acme/web` was stored with no project and drew whichever project it was opened from. A
+		saved view is not relative to its place: what was saved is what was showing, and a view
+		is applied at its workspace's own level, where the term can narrow.
 	*/
 	const selection = (showing && showing.selection) || {};
-	const terms = [];
+	const terms = project ? [`project:${project}`] : [];
 
 	Object.keys(SELECTABLE).forEach((name) => {
 		const writing = SAVED_AS_TERMS[name];
@@ -1639,10 +1676,12 @@ export function asShowing (view) {
 	if (view.order && permits("order", view.order)) selection.order = view.order;
 	if (view.group_by && permits("group_by", view.group_by)) selection.group_by = view.group_by;
 
-	return {
-		view: VIEWS.includes(view.arrangement) ? view.arrangement : DEFAULT_VIEW,
-		selection,
-	};
+	const drawn = VIEWS.includes(view.arrangement) ? view.arrangement : DEFAULT_VIEW;
+
+	/* **Through the address's own rules** (`#3146`): a board gets its axis as an address
+	   would give it one. The agenda beside a query is refused when a view is saved, so none
+	   reaches here from a server that refuses it. */
+	return { view: drawn, selection: withItsAxis(drawn, selection) };
 }
 
 

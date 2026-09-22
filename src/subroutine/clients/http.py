@@ -32,6 +32,7 @@ import subroutine.db.types
 import subroutine.domain.capture
 import subroutine.domain.filtering
 import subroutine.domain.readiness
+import subroutine.domain.saved
 import subroutine.domain.text
 import subroutine.errors
 import subroutine.installations
@@ -402,7 +403,7 @@ class Client:
 		return self._parsed(
 			subroutine.views.SavedView,
 			self._json(
-				"GET", f"/v1/views/{_segment(key)}", params=_given(workspace_id=workspace)
+				"GET", f"/v1/views/{_view(key)}", params=_given(workspace_id=workspace)
 			),
 		)
 
@@ -479,7 +480,7 @@ class Client:
 			subroutine.views.SavedView,
 			self._json(
 				"PATCH",
-				f"/v1/views/{_segment(key)}",
+				f"/v1/views/{_view(key)}",
 				params=_given(workspace_id=workspace),
 				json=body,
 			),
@@ -491,7 +492,7 @@ class Client:
 		self._refuse_if_read_only()
 
 		self._json(
-			"DELETE", f"/v1/views/{_segment(key)}", params=_given(workspace_id=workspace)
+			"DELETE", f"/v1/views/{_view(key)}", params=_given(workspace_id=workspace)
 		)
 
 	def statuses (
@@ -2687,6 +2688,18 @@ def _segment (name: str) -> str:
 		)
 
 	return urllib.parse.quote(name, safe="")
+
+
+def _view (key: str) -> str:
+	"""Return a saved view's name as the address it is kept under, quoted - `#3158`.
+
+	**Shaped as the server shapes it before it goes into the path.** The local client finds
+	*Bugs/triage* by its address ``bugs-triage``; quoted as typed, the ``/`` went out as ``%2F``,
+	which the server decodes before routing, and the answer was a 404 from the router rather
+	than the view.
+	"""
+
+	return _segment(subroutine.domain.saved.normalize_key(key))
 
 
 def _address (project: str) -> str:

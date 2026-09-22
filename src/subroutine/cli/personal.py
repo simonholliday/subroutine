@@ -61,6 +61,7 @@ import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.filtering
+import subroutine.domain.grammar
 import subroutine.domain.ordering
 import subroutine.domain.palette
 import subroutine.domain.projects
@@ -5543,12 +5544,19 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 		# will stop finding it" is a thing somebody can weigh. The count is the reason
 		# this reads the project first rather than renaming and reporting.
 		held = where.client.count_tasks(workspace=workspace, project=key)
+		naming = _views_naming(where.client, workspace=workspace, key=key)
 
 		if not yes:
 			program.say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
 			program.say(f"  {_kept(held)}.")
 			program.say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
 			program.say("  .subroutine file that names it.")
+
+			if naming:
+				program.say(
+					f"  {len(naming)} saved view{'s' if len(naming) != 1 else ''} you can see "
+					f"will stop finding it: {', '.join(naming)}."
+				)
 
 			if not typer.confirm("Go on?"):
 				program.stop("Nothing was renamed.")
@@ -5566,6 +5574,40 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 			== subroutine.domain.projects.normalize_key(key)
 		):
 			_suggest(program.console, f"subroutine use --here --project {renamed.key}")
+
+
+def _views_naming (
+	client: subroutine.clients.base.Client, *, workspace: str, key: str
+) -> list[str]:
+	"""Return the saved views this caller can see whose query names a project - `#3142`.
+
+	**Counted rather than rewritten** (Simon's decision of 2026-09-22). A view's query holds a
+	project by its current name, so a rename breaks it for everybody who reads it, and a program
+	rewriting the words somebody saved would change what they wrote. Counted here, the rename is
+	a thing somebody can weigh, as `#176`'s count of items already makes it.
+
+	**The views this caller can see**, which are theirs and the workspace's shared ones: another
+	person's private view is not theirs to know about, and not theirs to repair either.
+	"""
+
+	wanted = subroutine.domain.projects.normalize_key(key)
+	naming = []
+
+	for view in client.saved_views(workspace=workspace).items:
+		named = subroutine.domain.filtering.values_named(
+			subroutine.domain.grammar.read(view.q, entity="task").parameters,
+			entity="task",
+			field=subroutine.domain.filtering.PROJECT,
+		)
+
+		# **The key is the last part of an address**, so ``project:acme/web`` names ``web``.
+		if any(
+			subroutine.domain.projects.normalize_key(one.rsplit("/", 1)[-1]) == wanted
+			for one in named
+		):
+			naming.append(view.key)
+
+	return naming
 
 
 def _instance_workspaces (program: Program, *, json_output: bool) -> None:

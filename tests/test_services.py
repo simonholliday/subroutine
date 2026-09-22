@@ -38,12 +38,14 @@ import subroutine.domain.authorization
 import subroutine.domain.bootstrap
 import subroutine.domain.documents
 import subroutine.domain.events
+import subroutine.domain.filtering
 import subroutine.domain.hierarchy
 import subroutine.domain.links
 import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.refs
+import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.users
 import subroutine.domain.vocabulary
@@ -520,6 +522,30 @@ def test_a_username_that_is_only_dots_is_refused_by_name (
 		subroutine.domain.users.create(session, username=dots)
 
 	assert error.value.errors[0].field == "username"
+
+
+@pytest.mark.parametrize("word", ("unset", "Set", "me"))
+def test_a_username_the_search_grammar_reads_as_something_else_is_refused (
+	session: sqlalchemy.orm.Session, word: str
+) -> None:
+	"""`SR#3155`: a person called *unset* was drawn under Nobody and saved as unassigned work."""
+
+	with pytest.raises(subroutine.errors.ValidationError) as error:
+		subroutine.domain.users.create(session, username=word)
+
+	assert error.value.errors[0].field == "username"
+
+
+def test_the_words_a_username_may_not_be_are_the_grammars_own () -> None:
+	"""`SR#3155`: written twice because `users` cannot import either module, so held together."""
+
+	grammar = {
+		subroutine.domain.filtering.SET,
+		subroutine.domain.filtering.UNSET,
+		subroutine.domain.selection.CALLER,
+	}
+
+	assert grammar == subroutine.domain.users.READ_AS_SOMETHING_ELSE
 
 
 def test_a_weak_password_is_refused_with_the_reason (

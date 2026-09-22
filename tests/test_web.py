@@ -473,10 +473,19 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				"arrangement": "agenda", "order": None, "group_by": None,
 				"owner": "trinity", "shared": True,
 			},
+			# **A shared view that names its reader** (`SR#3150`), so the label saying each
+			# reader sees their own work is drawn by something.
+			{
+				"key": "what-i-hold", "title": "What I hold", "q": "assignee:me",
+				"arrangement": "list", "order": None, "group_by": None,
+				"owner": "morpheus", "shared": True, "about_the_reader": True,
+			},
 		],
 		"showing": {"view": "list", "selection": {"q": "type:bug assignee:me"}},
-		"unkept": ["which category it is narrowed to"],
+		"unkept": ["whether finished work is shown"],
 		"saving": True,
+		# **Offered sharing** (`SR#3158`), so the checkbox a sharer sees is drawn by something.
+		"mayShare": True,
 		# **Mid-confirm, because forgetting has no trash and the asking is real markup.** A
 		# sample without it leaves `.saved-view-asking` matching nothing, which
 		# `test_every_selector_in_the_stylesheet_reaches_something` reads as a dead rule.
@@ -11023,7 +11032,7 @@ def _views (
 			: name === "showingOf" ? app.showingOf(argument)
 			: name === "withShowing" ? app.withShowing(argument.path, argument.showing)
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
-			: name === "asSavedView" ? app.asSavedView(argument)
+			: name === "asSavedView" ? app.asSavedView(argument, argument.project || null)
 			: name === "asShowing" ? app.asShowing(argument)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "moment" ? app.moment(argument.value, argument.now)
@@ -20272,15 +20281,17 @@ def test_the_two_reveal_controls_on_the_item_page_are_told_apart (
 
 
 #: Every selection parameter a saved view can carry, each with a value its own `SELECTABLE`
-#: entry allows. Written out rather than generated, because the point is to name the nine and
-#: notice when a tenth arrives — a scan built from `SAVED_AS_TERMS` would simply grow with it
-#: and go on passing, which is the shape this project keeps finding on the wrong side.
+#: entry allows. Written out rather than generated, because the point is to name the ten and
+#: notice when an eleventh arrives — a scan built from `SAVED_AS_TERMS` would simply grow with
+#: it and go on passing, which is the shape this project keeps finding on the wrong side.
+#: **The tenth is `status_category`** (`SR#3143`), savable since it had a kind.
 EVERYTHING_A_VIEW_CAN_KEEP = {
 	"importance.gte": "4",
 	"urgency.gte": "4",
 	"importance.is": "unset",
 	"assignee.is": "unset",
 	"parent.is": "unset",
+	"status_category": "in_progress",
 	"tag": "errand",
 	"assignee": "laurence",
 	"answers_to": "laurence",
@@ -20321,7 +20332,7 @@ def test_every_term_a_saved_view_writes_is_one_the_server_can_read (
 def test_a_saved_view_writes_a_term_for_every_chip_it_can_keep (
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""Nine of the thirteen, and a tenth arriving must not pass unnoticed.
+	"""Ten of the thirteen, and an eleventh arriving must not pass unnoticed.
 
 	The count is asserted rather than the spelling, because the spellings are the test above.
 	What this says is that nothing was silently dropped on the way.
@@ -20358,8 +20369,10 @@ def test_a_saved_view_says_which_part_of_the_page_it_could_not_keep (
 	"""`SR#3096`'s own rule, and the reason it is a list rather than a boolean.
 
 	A control offering to save a page whose narrowing it cannot hold gives back something other
-	than what was showing, under the name the reader chose for what *was* showing. `SR#3093` is
-	one of the two and will go away; `include_completed` is a decision and will not.
+	than what was showing, under the name the reader chose for what *was* showing.
+	`include_completed` is a decision and is the one left; `status_category` was the other
+	until it had a kind, and **the board of *what the team has in progress* is kept whole now**
+	(`SR#3143`) - it was the one board a team asks for first, and the one `SR#3093` was for.
 	"""
 
 	[saved] = _views(tmp_path, [
@@ -20369,11 +20382,127 @@ def test_a_saved_view_says_which_part_of_the_page_it_could_not_keep (
 		}),
 	])
 
-	assert sorted(saved["unkept"]) == ["include_completed", "status_category"], saved["unkept"]
+	assert saved["unkept"] == ["include_completed"], saved["unkept"]
 
-	# **Nothing was invented to stand in for them**, which is the failure mode worth naming: a
-	# board of *in progress* saved as a board of everything is the wrong answer wearing a name.
-	assert saved["q"] is None, saved["q"]
+	read = subroutine.domain.grammar.read(saved["q"], entity="task")
+
+	assert dict(read.parameters) == {"status_category.eq": "in_progress"}, saved["q"]
+
+
+def test_a_saved_view_keeps_the_project_it_was_saved_in (tmp_path: pathlib.Path) -> None:
+	"""`SR#3144`, Simon's decision of 2026-09-22: a saved view is not relative to its place.
+
+	The project is the page's *place*, in its path, and not a selection parameter, so a board
+	saved on `/acme/web` kept no project and drew whichever one it was opened from. It is written
+	into the query first, where the server reads it.
+	"""
+
+	[inside, outside] = _views(tmp_path, [
+		("asSavedView", {"view": "board", "selection": {"q": "boiler"}, "project": "web"}),
+		("asSavedView", {"view": "board", "selection": {"q": "boiler"}}),
+	])
+
+	read = subroutine.domain.grammar.read(inside["q"], entity="task")
+
+	assert dict(read.parameters) == {"project.eq": "web"}, inside["q"]
+	assert read.words == "boiler", inside["q"]
+	assert outside["q"] == "boiler", outside["q"]
+
+
+def test_a_name_in_a_saved_view_is_read_back_as_that_name (tmp_path: pathlib.Path) -> None:
+	"""`SR#3155`: written bare, a tag with a space and a person called *unset* came back as others.
+
+	`tag:needs review` is the tag *needs* and the word *review*, and `assignee:unset` is *assigned
+	to nobody*. **The chip for nobody still writes the word the grammar reads as nobody**, so
+	the two are told apart by what was chosen rather than by the spelling.
+	"""
+
+	[person, nobody] = _views(tmp_path, [
+		("asSavedView", {
+			"view": "list",
+			"selection": {"tag": "needs review", "assignee": "unset", "answers_to": "carrie anne"},
+		}),
+		("asSavedView", {"view": "list", "selection": {"assignee.is": "unset"}}),
+	])
+
+	read = subroutine.domain.grammar.read(person["q"], entity="task")
+
+	assert dict(read.parameters) == {
+		"tag.eq": "needs review",
+		"assignee.eq": "unset",
+		"answers_to.eq": "carrie anne",
+	}, person["q"]
+	assert read.words is None, person["q"]
+	assert dict(subroutine.domain.grammar.read(nobody["q"], entity="task").parameters) == {
+		"assignee.is": "unset",
+	}, nobody["q"]
+
+
+def test_every_notice_is_handed_words_and_a_tone () -> None:
+	"""`SR#3146`, M-7 of the cold review of 2026-09-21: four handlers drew an empty banner.
+
+	`setNote(refusal(bad))` handed the banner an error built from a response, and `Note` draws
+	`text` and `tone`, which an error has not got - so *"This workspace already has a view called
+	..."* appeared as a blank box. Two of the four were new and two were older and copied, so the
+	rule is asked of the whole app rather than of the sites that were found: **a notice is an
+	object with words in it, `null` to clear one, or a caller's own `said` building one.**
+	"""
+
+	calls = re.findall(r"setNote\((.{0,10})", _our_source())
+	odd = [one for one in calls if not one.startswith(("{", "null", "said("))]
+
+	assert len(calls) > 30, f"only {len(calls)} notices were found, so this checks little"
+	assert odd == [], f"a notice was handed something that is not one: {odd}"
+
+
+def test_a_saved_view_says_whose_work_it_draws_and_offers_only_what_the_reader_may_do (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3150`, `SR#3158` and `SR#3142`, all three decided by Simon on 2026-09-22.
+
+	**A shared view on `assignee:me` says it draws each reader's own work.** **Sharing is
+	offered only to a reader who may share**: a box that could only be refused drew an empty
+	banner. **And an administrator is offered forgetting a shared view** somebody else saved,
+	as they may take a comment out.
+	"""
+
+	sample = {**SAMPLES["SavedViews"], "forgetting": None}
+	shown = _rendered(tmp_path, {"SavedViews": sample})["SavedViews"]
+	barred = _rendered(tmp_path, {"SavedViews": {**sample, "mayShare": False}})["SavedViews"]
+	administering = _rendered(
+		tmp_path, {"SavedViews": {**sample, "mayForgetShared": True}}
+	)["SavedViews"]
+
+	assert "shared, each reader's own" in shown, shown
+	assert "Let the workspace see it" in shown, shown
+	assert "Let the workspace see it" not in barred, barred
+
+	# One forget control per view this reader may remove: their own three, and the fourth -
+	# somebody else's shared one - only for an administrator. The control is a multiplication
+	# sign, written as its escape because it is easy to misread for a letter.
+	forget = "\u00d7"
+
+	assert shown.count(forget) == 3, shown
+	assert administering.count(forget) == 4, administering
+
+
+def test_a_board_saved_with_no_axis_is_applied_with_the_one_an_address_gives_it (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3146`: applying one went round the address's rule, and drew the board ungrouped.
+
+	`subroutine view save --as board` is the terminal's own example, and saves no axis. The
+	address fills one in (`SR#1798`), and a view applied through `chooseView` skipped that and
+	drew one allowance across every column - the board that rule exists to make unreachable.
+	"""
+
+	[board, listed] = _views(tmp_path, [
+		("asShowing", {"arrangement": "board", "q": "boiler"}),
+		("asShowing", {"arrangement": "list", "q": "boiler"}),
+	])
+
+	assert board["selection"]["group_by"] == "status_category", board
+	assert "group_by" not in listed["selection"], listed
 
 
 def test_a_saved_view_expands_into_the_address_rather_than_replacing_it (

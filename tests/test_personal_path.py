@@ -12631,6 +12631,27 @@ def test_a_view_runs_in_the_workspace_it_was_saved_in (
 	assert "at home" not in worded, f"the view reached a workspace it was not saved in: {worded}"
 
 
+def test_renaming_a_project_names_the_saved_views_that_will_stop_finding_it (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3142`, Simon's decision of 2026-09-22: counted rather than rewritten.
+
+	A saved view holds a project by its name, so a rename breaks every view naming it - for the
+	whole workspace, if it is shared. `SR#176`'s rename already said what stops working; the
+	views were the one thing it did not count.
+	"""
+
+	run("init")
+	run("project", "create", "web", "Web")
+	run("view", "save", "Web work", "--q", "project:web")
+	run("view", "save", "Boilers", "--q", "boiler")
+
+	asked = run("project", "rename", "web", "site", expect=1, input="n\n").output
+
+	assert "web-work" in asked, asked
+	assert "boilers" not in asked, asked
+
+
 def test_a_view_narrowed_to_a_parent_lists_its_children (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

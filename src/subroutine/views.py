@@ -54,6 +54,7 @@ import subroutine.domain.dates
 import subroutine.domain.documents
 import subroutine.domain.durations
 import subroutine.domain.events
+import subroutine.domain.grammar
 import subroutine.domain.instances
 import subroutine.domain.journal
 import subroutine.domain.links
@@ -1267,6 +1268,11 @@ class SavedView(pydantic.BaseModel):
 	#: the field that says which of the two a view is, and it is false unless somebody said.
 	shared: bool
 
+	#: Whether its query names whoever reads it - ``assignee:me`` - so each reader it is
+	#: shared with sees their own work rather than its owner's. Derived from ``q`` and never
+	#: sent: a shared view saying *me* is allowed, and this is what says so where it is listed.
+	about_the_reader: bool = False
+
 	created_at: datetime.datetime
 	updated_at: datetime.datetime
 	version: int
@@ -1289,7 +1295,9 @@ class SavedView(pydantic.BaseModel):
 			self.arrangement,
 			subroutine.domain.text.truncated(self.q or ""),
 			self.owner or "",
-			"shared" if self.shared else "",
+			("shared, each reader's own" if self.about_the_reader else "shared")
+			if self.shared
+			else "",
 		)
 
 
@@ -1315,6 +1323,7 @@ def saved_view_seen (
 		owner_id=row.owner_id,
 		owner=owner,
 		shared=row.shared,
+		about_the_reader=subroutine.domain.grammar.names_the_reader(row.q, entity="task"),
 		created_at=row.created_at,
 		updated_at=row.updated_at,
 		version=row.version,

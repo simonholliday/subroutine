@@ -124,6 +124,9 @@ WRITTEN_AS: dict[str, str] = {
 #: Computed, allocated or maintained by the system. A client cannot supply these because a
 #: client does not decide them.
 DERIVED: dict[str, str] = {
+	#: **`SR#3150`.** Whether a saved view's query names its reader, read off ``q`` - which is
+	#: settable - so a caller changes this by changing the query.
+	"about_the_reader": "Whether a saved view's query says `me`, derived from `q`.",
 	#: **`#1033`'s batch — the six views past `task` and `document`.** Widening the guard was
 	#: expected to surface a run of these and did: twenty-four fields, of which four were
 	#: renames and the rest are below. None turned out to be a gap, which is the answer this

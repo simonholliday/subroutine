@@ -290,7 +290,8 @@ export function Place ({
 export function SavedViews ({
 	views = [], showing = null, unkept = [], saving = false, forgetting = null, busy = false,
 	onApply = null, onSave = null, onStartSaving = null, onStopSaving = null,
-	onStartForgetting = null, onForget = null, mine = null,
+	onStartForgetting = null, onForget = null, mine = null, mayShare = false,
+	mayForgetShared = false,
 }) {
 	/*
 		The views somebody saved, under the place they belong to - `#3096`, and Simon's choice of
@@ -337,8 +338,12 @@ export function SavedViews ({
 						${/* **The word, never a colour alone** - decision `#102`. A shared view is
 						     somebody's statement about how the team's queue is read, and which
 						     ones those are is information a reader acts on. */ null}
-						${view.shared ? html`<span class="saved-view-shared">shared</span>` : null}
-						${onForget && mine && view.owner === mine ? (
+						${view.shared ? html`<span class="saved-view-shared">${
+							view.about_the_reader ? "shared, each reader's own" : "shared"
+						}</span>` : null}
+						${/* **A workspace's administrator may forget a shared view** (`#3142`),
+						     as they may take a comment out, and may not change one. */ null}
+						${onForget && mine && (view.owner === mine || (view.shared && mayForgetShared)) ? (
 							forgetting === view.key
 								? html`
 									<span class="saved-view-asking">
@@ -383,17 +388,22 @@ export function SavedViews ({
 					const named = new FormData(event.target).get("title");
 
 					if (String(named || "").trim()) onSave(String(named).trim(),
-						event.target.elements.shared.checked);
+						Boolean(event.target.elements.shared && event.target.elements.shared.checked));
 				}}>
 					<label>
 						<span>Call it</span>
 						<input name="title" maxlength="128" required
 							placeholder="My bugs" aria-label="What to call this view" />
 					</label>
-					<label class="saved-views-shared">
-						<input type="checkbox" name="shared" />
-						<span>Let the workspace see it</span>
-					</label>
+					${/* **Offered to a reader who may share** (`#3158`): sharing needs
+					     `project:write`, and a box that could only be refused drew an empty
+					     banner. */ null}
+					${mayShare ? html`
+						<label class="saved-views-shared">
+							<input type="checkbox" name="shared" />
+							<span>Let the workspace see it</span>
+						</label>
+					` : null}
 					<button type="submit" class="primary" disabled=${busy}>Save</button>
 
 					${/* **What it cannot keep, said before it is saved rather than after.** A

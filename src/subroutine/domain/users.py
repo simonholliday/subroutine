@@ -24,6 +24,15 @@ import subroutine.permissions
 #: Column widths from docs/design.md §10.6, enforced here so the refusal names the field rather
 #: than arriving as a driver error on PostgreSQL and not at all on SQLite.
 MAX_USERNAME_LENGTH = 64
+
+#: Words the search grammar reads as something other than a name - `#3155`. ``assignee:unset``
+#: is *assigned to nobody* and ``assignee:set`` *to anybody* (``filtering.UNSET`` and
+#: ``filtering.SET``), and ``assignee:me`` is whoever is asking (``selection.CALLER``). An account
+#: called one of them could not be named by it: the board drew a person called *unset* under
+#: **Nobody**, and a view saved over their chip read back as unassigned work. **Written out here
+#: because this module cannot import either of those**, which both import it, and held to them
+#: by ``tests/test_services.py``.
+READ_AS_SOMETHING_ELSE = frozenset({"set", "unset", "me"})
 MAX_EMAIL_LENGTH = 320
 MAX_DISPLAY_NAME_LENGTH = 255
 
@@ -85,6 +94,20 @@ def create (
 	# path, and ``..`` there is the level above - `subroutine user remove ..` over HTTP removed
 	# the workspace. The HTTP client refuses one before sending, so none may be stored.
 	subroutine.domain.text.refuse_a_dot_segment(name, field="username", what="a username")
+
+	if name.lower() in READ_AS_SOMETHING_ELSE:
+		raise subroutine.errors.ValidationError(
+			f"{name!r} cannot be used as a username.",
+			errors=[
+				subroutine.errors.FieldError(
+					field="username",
+					code="invalid_field_value",
+					message=f"A search reads {name.lower()!r} as a state rather than as a person, "
+					"so nobody could be found by it.",
+					hint="Choose a name with more to it - a first name is the usual one.",
+				)
+			],
+		)
 
 	if email is not None:
 		email = subroutine.domain.text.fit(

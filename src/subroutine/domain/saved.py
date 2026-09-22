@@ -157,6 +157,67 @@ def check_arrangement (arrangement: str) -> str:
 	)
 
 
+#: The arrangement that draws one person's day, and cannot be narrowed by a search line.
+AGENDA = "agenda"
+
+
+def check_query_beside (arrangement: str, q: str | None) -> None:
+	"""Refuse an agenda narrowed by a query - `#3145`, Simon's decision of 2026-09-22.
+
+	**The agenda is one person's day** (`#1267`) and no surface draws it narrowed: the browser's
+	address refuses *view=agenda beside a filter*, and the browser applying a saved view went
+	round that refusal, so a view saved as an agenda with a ``q`` drew the whole agenda and said
+	nothing about the query. The terminal drew the ``q`` as a list instead. Refused here, where
+	it is written, so neither surface has a stored view it cannot draw.
+	"""
+
+	if arrangement != AGENDA or not q:
+		return
+
+	raise subroutine.errors.ValidationError(
+		"An agenda cannot be narrowed by a search line.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="q",
+				code="invalid_field_value",
+				message="A view drawn as the agenda draws all of it.",
+				hint="Save it as a list or a board to keep the search line, or leave the line "
+				"out to keep the agenda.",
+			)
+		],
+	)
+
+
+def _refuse_sharing_from_a_narrowed_credential (
+	actor: subroutine.domain.authentication.Principal,
+) -> None:
+	"""Refuse to share a view from a credential narrowed to some projects - `#3151`.
+
+	**A view shared is in front of the whole workspace**, and a credential narrowed to some of
+	its projects is narrower than its maker on purpose: `#1367`'s rule is that it stays so, and
+	``_refuse_amplification`` makes the same argument for issuing credentials. Running a view
+	grants nobody any reach, so nothing could be read that could not be already; what sharing
+	does is put a name and a query in front of everybody, which is a workspace-wide act.
+	Keeping a view of its own touches nobody else, and is untouched.
+	"""
+
+	if actor.project_scope is None and actor.project_write_scope is None:
+		return
+
+	raise subroutine.errors.Forbidden(
+		"A credential narrowed to some projects cannot share a view with the whole workspace.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="shared",
+				code="forbidden",
+				message="Sharing is an act on the workspace, and this credential reaches part of it.",
+				hint="Keep it as your own, or share it from a credential that reaches the whole "
+				"workspace.",
+			)
+		],
+	)
+
+
 #: The longest a view's order may be written: the column's width. **Several valid fields run
 #: past it** (the cold review of 2026-09-21, `#3141`) - eight were 85 characters, which SQLite
 #: stored and PostgreSQL answered with a 500.
@@ -355,9 +416,14 @@ def create (
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=workspace_id
 		)
+		_refuse_sharing_from_a_narrowed_credential(actor)
 
 	named = check_title(title)
 	key = normalize_key(named)
+	drawn = check_arrangement(arrangement)
+	narrowed = _kept(q)
+
+	check_query_beside(drawn, narrowed)
 
 	if _taken(session, workspace_id=workspace_id, key=key):
 		_refuse_a_taken_name(key)
@@ -366,8 +432,8 @@ def create (
 		workspace_id=workspace_id,
 		key=key,
 		title=named,
-		q=_kept(q),
-		arrangement=check_arrangement(arrangement),
+		q=narrowed,
+		arrangement=drawn,
 		order=check_order(order),
 		group_by=check_group_by(group_by),
 		owner_id=actor.user.id,
@@ -400,6 +466,12 @@ def update (
 	mentioning it are different instructions, and a signature that cannot tell them apart makes
 	*unset this* unaskable. `#1396` met the same shape one surface over: ``scopes: []`` means
 	*no narrowing* where the field's absence means *say nothing about it*.
+
+	**A null for a field that cannot be cleared is refused rather than ignored**, and **a change
+	that changes nothing moves no version** (the cold review of 2026-09-21, `#3158`). A view
+	always has a name, an arrangement and a yes or no about sharing, so ``{"title": null}``
+	answered 200 having done nothing - and moved the version, as ``{}`` did, so a caller's
+	no-op made a concurrent editor's next write a false conflict.
 	"""
 
 	_refuse_somebody_elses(row, actor)
@@ -408,10 +480,29 @@ def update (
 	)
 	subroutine.domain.versions.require(row, expected_version)
 
+	for field, value in (("title", title), ("arrangement", arrangement), ("shared", shared)):
+		if field in given and value is None:
+			raise subroutine.errors.ValidationError(
+				f"A view's {field} cannot be cleared.",
+				errors=[
+					subroutine.errors.FieldError(
+						field=field,
+						code="invalid_field_value",
+						message=f"Every view has a {field}, so null is not a value it can take.",
+						hint="Leave it out to keep it as it is.",
+					)
+				],
+			)
+
+	before = _held(row)
+
 	if shared is not None and shared != row.shared:
 		subroutine.domain.authorization.authorize(
 			session, actor, subroutine.permissions.PROJECT_WRITE, workspace_id=row.workspace_id
 		)
+
+		if shared:
+			_refuse_sharing_from_a_narrowed_credential(actor)
 
 		row.shared = shared
 
@@ -437,10 +528,20 @@ def update (
 	if "group_by" in given:
 		row.group_by = check_group_by(group_by)
 
-	row.version += 1
+	check_query_beside(row.arrangement, row.q)
+
+	if _held(row) != before:
+		row.version += 1
+
 	session.flush()
 
 	return row
+
+
+def _held (row: subroutine.db.models.saved.SavedView) -> tuple[object, ...]:
+	"""Return what a change to a view can change, to ask afterwards whether anything did."""
+
+	return (row.title, row.key, row.arrangement, row.q, row.order, row.group_by, row.shared)
 
 
 def delete (
@@ -455,9 +556,22 @@ def delete (
 	the trash and so a ref is never reused; a view is neither — it holds no record of anything
 	that happened, and leaving a deleted one in the table would go on holding its name against
 	the next person who wants it, which is the one thing this table's unique constraint is for.
+
+	**A workspace's administrator may forget a shared view somebody else wrote** (`#3142`,
+	Simon's decision of 2026-09-22), and may not edit one: §5.10's rule for comments, whose
+	author alone may change their words and whose administrator may take them out. A shared
+	view whose author has left, or whose query names a project that has since been renamed,
+	was otherwise broken for everybody and removable by nobody.
 	"""
 
-	_refuse_somebody_elses(row, actor)
+	if row.owner_id != actor.user.id:
+		if not row.shared:
+			_refuse_somebody_elses(row, actor)
+
+		subroutine.domain.authorization.authorize(
+			session, actor, subroutine.permissions.WORKSPACE_ADMIN, workspace_id=row.workspace_id
+		)
+
 	subroutine.domain.authorization.authorize(
 		session, actor, subroutine.permissions.TASK_WRITE, workspace_id=row.workspace_id
 	)
@@ -508,7 +622,8 @@ def _refuse_somebody_elses (
 				field="key",
 				code="forbidden",
 				message="Only the person who saved a view may change it.",
-				hint="Save your own copy of it under another name.",
+				hint="Save your own copy of it under another name. A workspace's administrator "
+				"may forget a shared one.",
 			)
 		],
 	)

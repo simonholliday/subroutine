@@ -26,6 +26,7 @@ import subroutine.api.saved
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.db.models.identity
 import subroutine.db.models.saved
 import subroutine.domain.authentication
 import subroutine.domain.saved
@@ -364,6 +365,186 @@ def test_only_the_person_who_saved_a_shared_view_may_change_it (
 	assert world.call("GET", "/v1/views/team-queue").json()["title"] == "Team queue"
 
 
+def test_an_administrator_may_forget_a_shared_view_and_may_not_change_it (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3142`, Simon's decision of 2026-09-22: §5.10's rule for comments, applied.
+
+	Only a view's author could change or remove it, administrators included, so a shared view
+	whose author had left, or whose query named a renamed project, was broken for everybody and
+	removable by nobody. **Removing is what an administrator may do, and editing is not**: a
+	shared view is one person's words about how the team's queue is read.
+	"""
+
+	keanu = _somebody_else(world)
+	made = _as(
+		world,
+		keanu,
+		"POST",
+		"/v1/views",
+		json={"title": "Keanu's queue", "arrangement": "board", "shared": True},
+	)
+
+	assert made.status_code == 201, made.text
+
+	# The world's own account administers the workspace, and did not write the view.
+	refused = world.call("PATCH", "/v1/views/keanu-s-queue", json={"title": "Renamed"})
+
+	assert refused.status_code == 403, refused.text
+
+	forgotten = world.call("DELETE", "/v1/views/keanu-s-queue")
+
+	assert forgotten.status_code == 204, forgotten.text
+	assert world.call("GET", "/v1/views/keanu-s-queue").status_code == 404
+
+
+def test_a_members_private_views_leave_with_them_and_their_shared_ones_stay (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3142`: removing somebody deleted the membership and nothing else.
+
+	**Their private views go**: nobody else could see them and now neither can they, and each
+	held its name in the workspace for good. **Their shared ones stay**, for the workspace they
+	were shared with, and an administrator may forget one.
+	"""
+
+	keanu = _somebody_else(world)
+
+	for body in (
+		{"title": "Scratch", "arrangement": "list"},
+		{"title": "Team queue", "arrangement": "board", "shared": True},
+	):
+		assert _as(world, keanu, "POST", "/v1/views", json=body).status_code == 201
+
+	person = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.User).where(
+			subroutine.db.models.identity.User.username == "keanu"
+		)
+	).one()
+	subroutine.domain.workspaces.remove_member(world.session, world.workspace, person)
+
+	model = subroutine.db.models.saved.SavedView
+	kept = set(
+		world.session.scalars(
+			sqlalchemy.select(model.key).where(model.workspace_id == world.workspace.id)
+		)
+	)
+
+	assert kept == {"team-queue"}, kept
+
+	# And the private one's name is free for somebody else.
+	_saved(world, title="Scratch", arrangement="list")
+
+
+def test_an_agenda_cannot_be_saved_narrowed_by_a_search_line (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3145`, Simon's decision of 2026-09-22: refused where it is written.
+
+	The agenda is one person's day and no surface draws it narrowed. The browser applied such a
+	view by going round its own refusal and drew the whole agenda without a word; the terminal
+	drew the query as a list. **Refused on both writes**, and when the two halves meet from two
+	separate changes.
+	"""
+
+	refused = world.call(
+		"POST", "/v1/views", json={"title": "Busy day", "arrangement": "agenda", "q": "tag:ops"}
+	)
+
+	assert refused.status_code == 422, refused.text
+	assert "agenda" in refused.text
+
+	_saved(world, title="My day", arrangement="agenda")
+
+	assert world.call("PATCH", "/v1/views/my-day", json={"q": "tag:ops"}).status_code == 422
+
+	_saved(world, title="Ops", arrangement="list", q="tag:ops")
+
+	assert world.call("PATCH", "/v1/views/ops", json={"arrangement": "agenda"}).status_code == 422
+
+	# **Moving to the agenda and dropping the query in one change is coherent**, and allowed.
+	moved = world.call("PATCH", "/v1/views/ops", json={"arrangement": "agenda", "q": None})
+
+	assert moved.status_code == 200, moved.text
+
+
+def test_a_credential_narrowed_to_some_projects_cannot_share_a_view (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3151`, Simon's decision of 2026-09-22: a narrowed credential stays narrower.
+
+	Sharing asked for ``project:write`` with no project, so a credential narrowed to one could
+	put a view in front of the whole workspace. **Keeping one of its own is untouched.**
+	"""
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Inbox only", project_scope=[inbox]
+	)
+	world.session.flush()
+	narrow = str(issued.value.get_secret_value())
+
+	shared = _as(
+		world,
+		narrow,
+		"POST",
+		"/v1/views",
+		json={"title": "Everyone's", "arrangement": "list", "shared": True},
+	)
+
+	assert shared.status_code == 403, shared.text
+
+	kept = _as(
+		world, narrow, "POST", "/v1/views", json={"title": "Just mine", "arrangement": "list"}
+	)
+
+	assert kept.status_code == 201, kept.text
+	assert _as(
+		world, narrow, "PATCH", "/v1/views/just-mine", json={"shared": True}
+	).status_code == 403
+
+
+def test_a_view_whose_query_names_its_reader_says_so (world: test_api_tasks.World) -> None:
+	"""`SR#3150`, Simon's decision of 2026-09-22: allowed, and labelled where it is listed.
+
+	A shared view on ``assignee:me`` draws each reader's own work rather than its owner's.
+	**Only a field naming an account reads ``me`` that way**, so a tag called *me* does not.
+	"""
+
+	assert _saved(world, title="Mine", q="assignee:me", shared=True)["about_the_reader"] is True
+	assert _saved(world, title="Tagged me", q="tag:me")["about_the_reader"] is False
+	assert _saved(world, title="Keanu's", q="assignee:keanu")["about_the_reader"] is False
+	assert _saved(world, title="Nothing")["about_the_reader"] is False
+
+
+def test_an_edit_that_changes_nothing_moves_no_version (world: test_api_tasks.World) -> None:
+	"""`SR#3158`: a no-op edit moved the version, and a null for a name was ignored.
+
+	So a caller's empty change made a concurrent editor's next write a false 409, and
+	``{"title": null}`` answered 200 having done nothing - where ``UpdateView`` says every field
+	is read from whether it was sent. A view always has a name, an arrangement and a yes or no
+	about sharing, so a null for one is refused by name.
+	"""
+
+	made = _saved(world, title="Team queue", arrangement="board")
+	version = made["version"]
+
+	assert world.call("PATCH", "/v1/views/team-queue", json={}).json()["version"] == version
+	assert world.call(
+		"PATCH", "/v1/views/team-queue", json={"title": "Team queue"}
+	).json()["version"] == version
+
+	for field in ("title", "arrangement", "shared"):
+		refused = world.call("PATCH", "/v1/views/team-queue", json={field: None})
+
+		assert refused.status_code == 422, refused.text
+		assert field in refused.text
+
+	changed = world.call("PATCH", "/v1/views/team-queue", json={"arrangement": "list"})
+
+	assert changed.json()["version"] == version + 1
+
+
 def test_clearing_a_views_grouping_is_not_the_same_as_not_mentioning_it (
 	world: test_api_tasks.World,
 ) -> None:
@@ -510,7 +691,9 @@ def test_every_field_a_change_accepts_reaches_the_row (world: test_api_tasks.Wor
 	# Two different values per field, so *accepted and dropped* cannot look like success.
 	rounds: tuple[tuple[str, typing.Any, typing.Any], ...] = (
 		("title", "First name", "Second name"),
-		("arrangement", "list", "agenda"),
+		# **List and board, never the agenda**: this view has a query, and an agenda beside one
+		# is refused when it is written (`SR#3145`).
+		("arrangement", "list", "board"),
 		("q", "type:bug", "type:chore"),
 		("order", "-created_at", "title"),
 		("group_by", "status_category", "assignee"),

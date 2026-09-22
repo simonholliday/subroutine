@@ -21,7 +21,8 @@ import { html } from "./html.js";
 import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, CANNOT_BE_SAVED, DEFAULT_VIEW, EVERYTHING, JOURNAL,
 	MAX_REF, ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SAVED_AS_TERMS, SELECTABLE, VIEWS,
-	addressOf, agendaRequest, answers, areaOf, asSavedView, asShowing, chips, chosenWorkspace,
+	addressOf, agendaRequest, answers, areaOf, asSavedView, asShowing, atItsWorkspace, chips,
+	chosenWorkspace,
 	encodedPath, frame, journalAddress, journalPageOf,
 	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
 	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
@@ -313,6 +314,8 @@ export function App () {
 	   rather than state: it is read by the callback that wrote it and never rendered, so
 	   putting it in state would re-render the page on every keystroke to no effect. */
 	const latestRepeat = useRef("");
+	/* The workspace whose saved views were asked for last, for the same reason (`#3158`). */
+	const viewsAskedFor = useRef(null);
 	const [vocabulary, setVocabulary] = useState(null);
 	const [filable, setFilable] = useState([]);
 
@@ -1662,7 +1665,8 @@ export function App () {
 			setChosen(minted.username);
 			await directoryFor(me);
 		} catch (bad) {
-			setNote(refusal(bad));
+			/* An empty banner until `#3146`, for `saveView`'s reason. */
+			setNote({ text: `That credential was not issued. ${bad.message}`, tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
@@ -1685,7 +1689,7 @@ export function App () {
 			setConfirming(null);
 			await directoryFor(me);
 		} catch (bad) {
-			setNote(refusal(bad));
+			setNote({ text: `That credential was not revoked. ${bad.message}`, tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
@@ -2943,7 +2947,7 @@ export function App () {
 		}
 	}, [everywhere, go, load, nowShowing, project, showing, workspace]);
 
-	const chooseView = useCallback(async (wanted) => {
+	const chooseView = useCallback(async (wanted, at = null) => {
 		/*
 			**Switching refetches, and the comment here used to say it must not.**
 
@@ -2970,8 +2974,10 @@ export function App () {
 		const again = reloads(showing, wanted);
 
 		/* **The place the masthead describes** (`SR#2607`), which over an open item is the
-		   item's own: that is where its views were drawn to go. */
-		const place = placeShown(held.current, { agenda: everywhere, workspace, project });
+		   item's own: that is where its views were drawn to go - **or the place the caller
+		   names** (`#3144`): a saved view is applied at its workspace's own level, since what
+		   it narrows to is in its query. */
+		const place = at || placeShown(held.current, { agenda: everywhere, workspace, project });
 		const moving = place.agenda !== everywhere || place.workspace !== workspace
 			|| place.project !== project;
 
@@ -3035,18 +3041,25 @@ export function App () {
 			would be this app complaining that the server is not new enough, on a page whose
 			work is otherwise perfectly readable.
 		*/
+		viewsAskedFor.current = slug;
+
 		if (!slug) {
 			setSavedViews([]);
 
 			return;
 		}
 
+		/* **Only the newest workspace's answer is drawn** (`#3158`), as `latestRepeat` does for
+		   a repeat's preview. Switching workspaces while one was in flight drew the one left
+		   behind, and forgetting one of those acted on the workspace in front. */
+		const current = () => viewsAskedFor.current === slug;
+
 		try {
 			const answer = await sent(savedViewsRequest(slug));
 
-			setSavedViews(answer.items || []);
+			if (current()) setSavedViews(answer.items || []);
 		} catch {
-			setSavedViews([]);
+			if (current()) setSavedViews([]);
 		}
 	}, []);
 
@@ -3062,8 +3075,11 @@ export function App () {
 		*/
 		setForgettingView(null);
 
-		return chooseView(asShowing(view));
-	}, [chooseView]);
+		/* **At the workspace's own level** (`#3144`, Simon's decision of 2026-09-22): a view's
+		   query holds the project it was saved in, and drawn inside another project's path the
+		   two would narrow each other to nothing. */
+		return chooseView(asShowing(view), atItsWorkspace(workspace));
+	}, [chooseView, workspace]);
 
 	const saveView = useCallback(async (title, shared) => {
 		/*
@@ -3074,7 +3090,7 @@ export function App () {
 			what the server did — `issue`'s rule one entity along, and the same one that keeps
 			`asSavedView` from deriving a key of its own.
 		*/
-		const wanted = asSavedView(showing);
+		const wanted = asSavedView(showing, project);
 
 		setBusy(true);
 
@@ -3091,11 +3107,13 @@ export function App () {
 			setSavingView(false);
 			await readSavedViews(workspace);
 		} catch (bad) {
-			setNote(refusal(bad));
+			/* **A sentence and a tone** (`#3146`): `refusal` builds an error from a response, and a
+			   note drawn from one had neither, so a refused save was an empty banner. */
+			setNote({ text: `That view was not saved. ${bad.message}`, tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
-	}, [readSavedViews, showing, workspace]);
+	}, [project, readSavedViews, showing, workspace]);
 
 	const forgetView = useCallback(async (view) => {
 		/*
@@ -3109,7 +3127,7 @@ export function App () {
 			setForgettingView(null);
 			await readSavedViews(workspace);
 		} catch (bad) {
-			setNote(refusal(bad));
+			setNote({ text: `That view was not forgotten. ${bad.message}`, tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
@@ -3388,6 +3406,8 @@ export function App () {
 					unkept=${asSavedView(showing).unkept.map((name) => CANNOT_BE_SAVED[name])}
 					saving=${savingView} forgetting=${forgettingView} busy=${busy}
 					mine=${me ? me.user.username : null}
+					mayShare=${allowed.has("project:write")}
+					mayForgetShared=${allowed.has("workspace:admin")}
 					onApply=${applyView}
 					onStartSaving=${() => setSavingView(true)}
 					onStopSaving=${() => setSavingView(false)}

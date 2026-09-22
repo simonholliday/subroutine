@@ -258,11 +258,14 @@ def delete_view (
 	session: subroutine.api.dependencies.SessionDep,
 	workspace_id: str | None = WORKSPACE,
 ) -> None:
-	"""Remove a view you saved.
+	"""Remove a view you saved, or one shared with a workspace you administer.
 
 	**Gone rather than trashed**, unlike a task: a view holds no record of anything that
 	happened, and a deleted one left in the table would go on holding its name against the next
 	person who wants it.
+
+	**An administrator may remove a shared view and may not change one**, as with a comment:
+	its words are its author's, and taking them out is the honest alternative to rewriting them.
 	"""
 
 	workspace = _chosen(session, actor, workspace_id)

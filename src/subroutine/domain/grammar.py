@@ -41,6 +41,7 @@ different facts, and a caller reading one list would have to know which kind eac
 import typing
 
 import subroutine.domain.filtering
+import subroutine.domain.selection
 
 #: What separates a field from its value in the written form. Not :data:`filtering.SEPARATOR`,
 #: which separates a field from its *operator* in the dotted form — two punctuation marks doing
@@ -144,6 +145,30 @@ def read (line: str | None, *, entity: str) -> Read:
 		parameters=parameters,
 		words=" ".join(words) if words else None,
 		unread=unread,
+	)
+
+
+def names_the_reader (line: str | None, *, entity: str) -> bool:
+	"""Say whether a search line names whoever reads it, as ``assignee:me`` does - `#3150`.
+
+	**So a view shared with a workspace can say it draws each reader's own work**, which is
+	Simon's decision of 2026-09-22. `#745` refused an address that changes under the reader
+	without saying so; a query saying ``me`` says it in words anybody can read, so it is allowed
+	and labelled rather than refused.
+
+	**Only a field naming an account reads ``me`` as its reader** - ``tag:me`` is a tag called
+	*me* - so which fields those are is the registry's answer, never a list written here.
+	"""
+
+	comparisons = subroutine.domain.filtering.understood(
+		read(line, entity=entity).parameters, entity=entity
+	)
+
+	return any(
+		comparison.against.group == subroutine.domain.filtering.NAMES_AN_ACCOUNT
+		and subroutine.domain.selection.CALLER
+		in subroutine.domain.filtering.values_for([comparison], comparison.field)
+		for comparison in comparisons
 	)
 
 
