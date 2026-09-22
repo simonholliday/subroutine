@@ -162,7 +162,9 @@ ILLUSTRATIVE_REVISIONS: dict[str, tuple[int, str]] = {
 	"f159c8635e54": (3, "what the `db upgrade` walkthrough upgrades *from*"),
 	"233f898a2bee": (1, "a database behind the code, which `agenda` refuses by name"),
 	"4f177421eb91": (1, "a database behind the code, as `db current` reports it"),
-	"1f61c97bf2ca": (1, "the newest backup `diagnosis` reports having found"),
+	# **Twice, and both as that run printed them** (`SR#3160`): the page says the transcript is
+	# *as it came out*, and its schema line had been rewritten to each new head since.
+	"1f61c97bf2ca": (2, "a real doctor run's schema, and the newest backup it reports finding"),
 }
 
 

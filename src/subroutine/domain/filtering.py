@@ -581,9 +581,10 @@ REFERENCE = Kind(
 #: `todo`/`in_progress`/`done`/`cancelled` and a document is
 #: `draft`/`current`/`superseded`/`archived` (`db.mixins`). :func:`filters` reads
 #: :attr:`Property.groupable` - already the vocabulary, already declared once - and specialises
-#: both the refusal and what `/v1/meta` publishes. So *a saved view that says in progress* works
-#: on the kind of thing that can be in progress, and the refusal on the other names the four
-#: words that do apply rather than the four that do not.
+#: the refusal and the words the agent tools publish for each field (`/v1/meta` publishes the
+#: field's name only). So *a saved view that says in progress* works on the kind of thing that
+#: can be in progress; a word the *other* kind uses narrows this one to nothing, since a
+#: search puts one line to both; and a word no kind has is refused by naming the ones that work.
 #:
 #: **No `is`**, and nothing here says so: every row has a status, so :func:`_allowed` refuses it
 #: on the `NOT NULL` column and this kind does not have to know.
@@ -2493,8 +2494,9 @@ def _a_fixed_vocabulary (comparisons: list[Comparison], where: Where) -> typing.
 
 	**An unknown word is refused by listing the ones that work**, which is the whole argument for
 	a kind here rather than a flat parameter: the set is the product's and fixed, so the refusal
-	can be complete without going and looking. ``status_category.eq=draft`` on a *task* names the
-	four a task has instead of answering nothing.
+	can be complete without going and looking. ``status_category.eq=draft`` on a *task* is not
+	that: ``draft`` is a document's word, and one line is put to both kinds by a search, so it
+	narrows the tasks to nothing rather than refusing the whole search.
 
 	**``ne`` is compiled as *not in* rather than as ``!=``.** `SR#2284` is why that needs saying:
 	a bare ``column != value`` is NULL, and so false, for an unset column - it silently drops the

@@ -1238,9 +1238,9 @@ class SavedView(pydantic.BaseModel):
 	``/v1/openapi.json``, which answers with no credential, and a ref nobody outside can
 	resolve is a pointer to nothing.)
 
-	**``order`` here and ``ordering`` in the column**, which is the one place those two names
-	meet. Every listing takes ``order``, so that is what a caller sends and reads; the column
-	avoids a word the database would have to quote on every backend.
+	**``order`` here and in the column too**: every listing takes ``order``, so that is what a
+	caller sends and reads, and the column carries the same word although the database has to
+	quote it, because one name for one fact is worth more than a word left unquoted.
 	"""
 
 	id: uuid.UUID

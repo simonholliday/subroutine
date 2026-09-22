@@ -162,8 +162,9 @@ def _the_signing_key (settings: subroutine.config.Settings) -> list[Finding]:
 	anything here signs a cursor at all; it did not ask who pays when one is signed with a key
 	that will not survive a restart. So a ``dev_mode`` instance with ``public_url`` set — which
 	is a served instance telling the world where it is — reported that nothing needed
-	attention. Permitted rather than refused, because `SR#1568` made the key unguessable and
-	what is left is a reliability cost, and a cost is reported.
+	attention. It was permitted then, because `SR#1568` made the key unguessable and what was
+	left was a reliability cost, which is reported; `serve` has refused the combination since
+	`da16acf`, so this reports it for a configuration that is read without being served.
 	"""
 
 	if settings.secret_key:

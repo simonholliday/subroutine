@@ -134,7 +134,6 @@ upgrade involves.
   purpose**, so nobody's half-finished experiment appears in everybody's list; only the person
   who saved one can change it, and sharing publishes a view rather than handing it over. Names
   are one per workspace so that a link you send somebody draws what you were looking at.
-  Not yet reachable from the browser - that comes next.
 - **A view can be saved and reapplied from the browser**, under the place it belongs to. What
   is showing becomes a search line and an arrangement: the chips you set - a tag, a person,
   an importance, who somebody answers to - are written as terms, and the two a search line
@@ -209,8 +208,9 @@ upgrade involves.
   that terminal holds.
 - **A captured line reads an appointment's two ends.** *Dentist on Monday at 2pm til 3pm*
   files a start at two and an end at three, where the end used to stay in the title. Write
-  them as `2pm-3pm`, `at 9am to 5pm`, `from Monday 9am til 5pm` or on the 24-hour clock, on
-  a day the line names or on today, and an end earlier than its start is the next morning -
+  them as `at 2pm-3pm`, `at 9am to 5pm`, `from Monday 9am til 5pm` or on the 24-hour clock,
+  after a day the line names or after `at` for today, and an end earlier than its start is the
+  next morning -
   so *Party on Friday at 9pm til 1am* ends on Saturday. Two times in prose are still left
   alone, so *Email Bob re: 3pm* is untouched; a span whose two days each carry a time is
   still held back and says so.

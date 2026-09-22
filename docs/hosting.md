@@ -1735,7 +1735,7 @@ answers, and when a backup was last taken.
   signing key   set
   cors_origins  empty, so only this instance's own pages may call it
   rate_limit    on, because this instance is published
-  local         0.8.8.dev74+gec0b98131, schema cfeea5d4dd35, as laurence (person)
+  local         0.8.8.dev74+gec0b98131, schema 1f61c97bf2ca, as laurence (person)
   backups       108 in /srv/backups/subroutine, newest subroutine-default-20260904T101113Z-1f61c97bf2ca.dump (8,730,600 bytes, today)
 
   Nothing here needs attention.

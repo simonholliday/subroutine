@@ -188,7 +188,8 @@ status change as two identifiers. Measured on a real day here: 130 of 450 events
 carrying no text at all.
 
 `subroutine_journal` says what **happened**. Same events, with how each comment opens joined on
-(at most 140 characters of it, and `said_truncated` true when there was more), the
+(at most 140 characters of it, ending *(cut; subroutine_show has the rest)* where there was
+more), the
 actors named — an agent shows as `@name (agent, @person)`, exactly as it does on a row — and a
 change rendered as *status: "Open" to "Done"*. Ask it for a period rather than a cursor.
 

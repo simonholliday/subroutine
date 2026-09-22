@@ -173,7 +173,7 @@ def _capture_body () -> str:
 		("from <date> to <date>", "a span of days; also 'until', '2-12 October'"),
 		("at <time>", "a time of day, after a date or alone"),
 		# **`#675`**: the same signal reads two times, and two times are an appointment.
-		("<time> to <time>", "an appointment's ends: '2pm-3pm', 'at 9am til 5pm'"),
+		("<time> to <time>", "an appointment's ends: 'at 2pm-3pm', 'at 9am til 5pm'"),
 		# Added when the page was found still saying repeats were unread, four days after
 		# they shipped (`#929`). The grammar reads them, so the table that lists the grammar
 		# has to say so.

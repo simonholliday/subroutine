@@ -653,8 +653,9 @@ def _development_key () -> str:
 	``serve --host 0.0.0.0`` with ``dev_mode = true`` and no key started and served, signing
 	with a value anybody could read.
 
-	**Made true rather than reworded**, which closes it without refusing anything: an instance
-	that starts today still starts, and the key is now unguessable. What it costs is that
+	**Made true rather than reworded**, which closed it without refusing anything at the time:
+	the key is unguessable. `serve` has since refused ``dev_mode`` beside a ``public_url``
+	(`da16acf`), so an instance published that way no longer starts at all. What it costs is that
 	cursors do not survive a restart — on a machine whose configuration says ``dev_mode``,
 	where that is the smaller price. An instance serving real readers should set ``secret_key``,
 	and this is one more thing pushing it to.
