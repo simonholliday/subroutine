@@ -34,6 +34,7 @@ import instance_templates
 import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.cli.topics
+import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.context
@@ -12629,6 +12630,32 @@ def test_a_view_runs_in_the_workspace_it_was_saved_in (
 
 	assert "Fix the boiler" in worded, worded
 	assert "at home" not in worded, f"the view reached a workspace it was not saved in: {worded}"
+
+
+def test_an_account_made_and_not_joined_says_how_to_finish (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3153`: `user create` makes an account and then joins it, as two requests.
+
+	A busy database on the second said *this request changed nothing*, which read as the whole
+	command having done nothing - and the account was there.
+	"""
+
+	run("init")
+
+	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse as a busy database does, whatever was asked."""
+
+		raise subroutine.errors.DatabaseBusy(
+			"The database was busy: another connection was writing to it."
+		)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "add_member", busy)
+
+	said = run("user", "create", "keanu", expect=1).output
+
+	assert "Created keanu" in said, said
+	assert "subroutine user add keanu" in said, said
 
 
 def test_renaming_a_project_names_the_saved_views_that_will_stop_finding_it (

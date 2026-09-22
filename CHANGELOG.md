@@ -146,16 +146,17 @@ upgrade involves.
   `--order` or `--group-by` clears that part, which is a different instruction from leaving
   the flag off. `subroutine explain views` is the page.
 - **A busy database says so, and says to try again.** New error code `database_busy`. SQLite
-  allows one writer at a time, so a second process writing at that moment is ordinary and
+  allows one writer at a time, so a second connection writing at that moment is ordinary and
   clears by itself - but it arrived as `service_unavailable`, reading *"<connection> could not
   be read: database is locked"* under advice to check `database_url`. That named a cause
   nobody had established, about what was usually a *write*, and gave an agent nothing it could
   act on. It now reads *"The database was busy: another connection was writing to it"*, with the
   remedy, and **on both transports**: a served instance reported the same condition as an
   internal error blaming itself. **It claims no configured bound** - SQLite does not always
-  consult its busy timeout before reporting this - and instead says how long the attempt
-  actually took, measured by the caller that made it, because whether a refusal came back at
-  once or after a full timeout is the difference between two unrelated causes.
+  consult its busy timeout before reporting this - and the command line says how long its
+  attempt actually took, because whether a refusal came back at once or after a full timeout
+  is the difference between two unrelated causes. Where one command makes two changes and the
+  second meets a busy database, it says which went through.
 
 ### Security
 

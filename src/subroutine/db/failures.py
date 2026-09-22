@@ -112,20 +112,39 @@ def busy (
 	the statement never took its lock, so the transaction around it has nothing in it to undo.
 	"""
 
-	said = BUSY.get(errorname(exception))
+	said = BUSY.get(_primary(errorname(exception)))
 
 	if said is None:
 		return None
 
 	took = "" if waited is None else f" This attempt was refused after {waited:.2f} seconds."
 
+	# **What the request changed, and nothing about who else was writing** (the cold review of
+	# 2026-09-21, `#3153`). This said *nothing was changed by this* and *the ordinary way two
+	# processes take turns*: the second is the word `8f591dc` took out of the detail, one field
+	# along, and the first is true of one request and was read as true of a whole operation. A
+	# request's transaction is undone when it is refused, so that much is established; a caller
+	# that made several says which of them went through.
 	return subroutine.errors.DatabaseBusy(
 		f"The database was busy: {said}.{took}",
-		hint=(
-			"Nothing was changed by this. Try it again - a busy database clears on its own, "
-			"and this is the ordinary way two processes take turns."
-		),
+		hint="This request changed nothing. Try it again - a busy database clears on its own.",
 	)
+
+
+def _primary (name: str) -> str:
+	"""Return the primary name an extended SQLite error name belongs to - `#3153`.
+
+	**``sqlite_errorname`` is the extended name**, so a WAL snapshot conflict arrives as
+	``SQLITE_BUSY_SNAPSHOT`` (517, measured) and fell past :data:`BUSY` to the message this
+	replaced - *could not be read, check database_url* - on the local client, a 500 over HTTP.
+	An extended name is its primary with a suffix, which is SQLite's own naming.
+	"""
+
+	for primary in BUSY:
+		if name == primary or name.startswith(f"{primary}_"):
+			return primary
+
+	return name
 
 
 def gave_up (

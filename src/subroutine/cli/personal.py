@@ -8630,15 +8630,26 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 			# repair could sit at the end and nothing noticed.
 			settled = _keep_the_operators_own_list(world, before, operator=operator)
 
-			joined = (
-				None
-				if joining is None
-				else where.client.add_member(
-					username=created.username,
-					role=role.strip() or ONBOARDING_ROLE,
-					workspace=joining,
+			try:
+				joined = (
+					None
+					if joining is None
+					else where.client.add_member(
+						username=created.username,
+						role=role.strip() or ONBOARDING_ROLE,
+						workspace=joining,
+					)
 				)
-			)
+
+			except subroutine.errors.DatabaseBusy:
+				# **The account was made and the joining was not** (`#3153`): two requests,
+				# and the refusal's *this request changed nothing* is about the second alone.
+				program.stop(
+					f"Created {created.username}, and the database was too busy to add them "
+					f"to {joining}.",
+					f"Finish with 'subroutine user add {created.username} --role "
+					f"{role.strip() or ONBOARDING_ROLE} --workspace {joining}'.",
+				)
 
 			handed = _handed_over(
 				where,

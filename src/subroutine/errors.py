@@ -238,12 +238,14 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			"database_busy",
 			503,
 			"Busy",
-			"Another connection held the database and this one gave up waiting for it. "
-			"Distinct from 'request_timed_out', which is a statement this instance stopped "
-			"waiting for, and from 'service_unavailable', which says the instance cannot "
-			"serve anything yet: this instance is serving and this database is working, and "
-			"it was busy at that moment. Nothing was changed by the request that met it, and "
-			"trying again is the remedy.",
+			"Another connection held the database and this request was refused - sometimes "
+			"at once and sometimes after waiting, which is why the terminal says how long its "
+			"attempt took. Distinct from 'request_timed_out', which is a statement this "
+			"instance stopped waiting for, and from 'service_unavailable', which says the "
+			"instance cannot serve anything yet: this instance is serving and this database is "
+			"working, and it was busy at that moment. The request that met it changed nothing, "
+			"and trying again is the remedy; a caller that made several requests says which "
+			"of them went through.",
 		),
 		_define(
 			"service_unavailable",
@@ -502,7 +504,7 @@ class RequestTimedOut(SubroutineError):
 
 
 class DatabaseBusy(SubroutineError):
-	"""Another connection held the database and this one gave up waiting."""
+	"""Another connection held the database, and this request was refused."""
 
 	CODE = "database_busy"
 

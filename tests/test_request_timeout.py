@@ -14,6 +14,7 @@ concluded during `#553` — reasonably, and wrongly.
 import pathlib
 import sqlite3
 import time
+import types
 import typing
 
 import fastapi
@@ -746,6 +747,35 @@ def test_an_agent_is_told_a_database_was_busy_rather_than_shown_the_sql (
 	assert "sqlalche.me" not in answer, answer
 
 
+@pytest.mark.parametrize(
+	"name", ("SQLITE_BUSY_SNAPSHOT", "SQLITE_BUSY_RECOVERY", "SQLITE_LOCKED_SHAREDCACHE")
+)
+def test_an_extended_busy_code_is_a_busy_database (name: str) -> None:
+	"""`SR#3153`, L-1 of the cold review of 2026-09-21: `BUSY` knew the primary names only.
+
+	``sqlite_errorname`` is the extended name, so a WAL snapshot conflict - measured, 517,
+	``SQLITE_BUSY_SNAPSHOT`` - fell past the table to the message this replaced, *could not be
+	read, check database_url*, and over HTTP to an internal error.
+	"""
+
+	class Refused (Exception):
+		"""An error as SQLAlchemy wraps the driver's, carrying only the name that is read."""
+
+		orig = types.SimpleNamespace(sqlite_errorname=name)
+
+	answer = subroutine.db.failures.busy(Refused())
+
+	assert isinstance(answer, subroutine.errors.DatabaseBusy), (name, answer)
+
+	# **And only a real extension of one**, so a name that merely starts the same way is not.
+	class Unrelated (Exception):
+		"""A name sharing the primary's first letters and nothing else."""
+
+		orig = types.SimpleNamespace(sqlite_errorname="SQLITE_BUSYNESS")
+
+	assert subroutine.db.failures.busy(Unrelated()) is None
+
+
 def test_a_busy_refusal_never_claims_it_was_another_process (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -770,6 +800,13 @@ def test_a_busy_refusal_never_claims_it_was_another_process (
 			f"{name} claims to know it was another process: {said!r}. SQLite reports a "
 			f"connection, and which process that connection belongs to is not in the error."
 		)
+
+	# **And the hint, which the terminal and the agent tools print directly under the detail**
+	# (`SR#3153`): the word came out of the detail and stayed one field along.
+	hint = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "hinted.db"))
+
+	assert hint is not None
+	assert "process" not in (hint.hint or ""), hint.hint
 
 	answer = subroutine.db.failures.busy(_a_real_busy_error(tmp_path / "busy.db"))
 

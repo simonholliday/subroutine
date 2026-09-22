@@ -59,6 +59,7 @@ import subroutine.domain.projects
 import subroutine.domain.text
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.errors
 import subroutine.installations
 import subroutine.mcp.protocol
 import subroutine.mcp.relay
@@ -526,6 +527,40 @@ def test_a_refusal_reaches_the_agent_with_its_remedy_attached (
 	# What is wrong, and then what to do about it. One line means the remedy was lost again.
 	assert "next quarter" in answered
 	assert "friday" in answered, answered
+
+
+def test_an_update_that_was_half_saved_says_which_half (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3153`: a status and a plan are two requests, and a busy refusal spoke for both.
+
+	The refusal says *this request changed nothing*, which is true of the second request - the
+	dates - and was read as true of the whole call, when the status had been saved a moment
+	before. An agent told nothing happened sets the status again, or gives up on it.
+	"""
+
+	ref = _added(bound, "Chase the invoice")
+
+	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse as a busy database does, whatever was asked."""
+
+		raise subroutine.errors.DatabaseBusy(
+			"The database was busy: another connection was writing to it."
+		)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "schedule", busy)
+
+	answered, failed = _called(
+		bound, "subroutine_update", ref=ref, status="in_progress", plan="friday"
+	)
+
+	assert failed, answered
+	assert "saved first" in answered, answered
+	assert "status" in answered, answered
+
+	shown, _failed = _called(bound, "subroutine_show", ref=ref)
+
+	assert "in_progress" in shown, shown
 
 
 def _called (

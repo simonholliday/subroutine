@@ -4642,14 +4642,30 @@ def _updated (
 				else when
 			)
 
-		changed = client.schedule(
-			ref=ref,
-			workspace=workspace,
-			applies_to=applies_to,
-			# ``None`` when ``update`` above already spent it — see ``guarding``.
-			expected_version=None if changes else guarding,
-			**sending,
-		)
+		try:
+			changed = client.schedule(
+				ref=ref,
+				workspace=workspace,
+				applies_to=applies_to,
+				# ``None`` when ``update`` above already spent it — see ``guarding``.
+				expected_version=None if changes else guarding,
+				**sending,
+			)
+
+		except subroutine.errors.DatabaseBusy as busy:
+			# **Two requests, and the first went through** (`#3153`). The refusal says the
+			# request changed nothing, which is true of the dates and false of the call: the
+			# fields above were saved a moment before. Said, so an agent retries the half that
+			# was refused rather than the whole, or concludes nothing happened.
+			if not changes:
+				raise
+
+			raise subroutine.errors.DatabaseBusy(
+				f"{busy.detail} {', '.join(sorted(changes))} on #{ref} had been saved first; "
+				"the dates were not.",
+				hint="Set the dates again - the rest is done, and a busy database clears on "
+				"its own.",
+			) from busy
 
 	if changed is None:
 		raise LookupError(
