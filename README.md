@@ -38,8 +38,9 @@ what follows.
 
 ### Keeping an eye on the work
 
-You will want to see what is happening, though. Run `subroutine serve`, open the sign-in link it
-gives you, and leave the browser on a second screen.
+You will want to see what is happening, though. Run `subroutine serve`, then
+`subroutine login link` for a link that signs your browser in, and leave the browser on a second
+screen.
 
 The page refreshes itself every few seconds, so you watch your agent work as it works: items
 appearing as it files them, a card crossing the board as it claims something and starts, a
@@ -67,8 +68,8 @@ end - and a dead end is worth as much as a decision, because the next agent stop
 spending a day proving it again.
 
 **Conclusions that reach the work without anybody remembering to link them.** File a decision
-against a milestone and every task beneath it inherits it, nearest first, labelled with where it
-came from. The agent that opens a leaf three weeks later reads the rule that binds it under
+against a parent and everything filed beneath it inherits it, nearest first, labelled with where
+it came from. The agent that opens a leaf three weeks later reads the rule that binds it under
 *Read first*, having done nothing to find it.
 
 **A roadmap that stops the tangents.** An agent that asks *what should I do next* gets the plan
@@ -157,8 +158,8 @@ browser and your agents all clients of it.
 Three ways in, and they compose:
 
 - **MCP**, for your agents - over stdio or straight from the server, with nothing installed.
-- **A terminal**, for you. `subroutine add "call the dentist tomorrow 2pm"` reads the date out
-  of the sentence.
+- **A terminal**, for you. `subroutine add "call the dentist tomorrow at 2pm"` reads the date
+  out of the sentence.
 - **A browser**, for you and for everyone who is never going to use a terminal - an agenda, a
   list, a drag-and-drop board, and the whole of an item.
 
@@ -184,8 +185,9 @@ them, and none is needed on day one.
 same job. If the shell cannot find `subroutine` afterwards, `uv tool update-shell` fixes it, and
 you will need a fresh terminal.
 
-**Give each agent an account of its own** - `subroutine agent create` - and every change it
-makes carries its name and a credential narrower than yours, rather than being filed as you. On
+**Give each agent an account of its own** - `subroutine agent create --store` - and every
+change it makes carries its name and a credential narrower than yours, rather than being filed
+as you. On
 one laptop with one person this does not matter; the moment there are two agents it does.
 
 **Sign in from anywhere else** with `subroutine login link`, which prints a link that works once
@@ -196,9 +198,9 @@ page is how everybody else sees the work.
 
 # Reference
 
-Everything above is the argument. The rest of this page is the detail, and it is checked rather
-than remembered: the table below is read against `GET /v1/meta` on every build, so a row that
-claims more than the software does fails here before anybody reads it.
+Everything above is the argument. The rest of this page is the detail, and where a program can
+check it, it is checked rather than remembered: a row in the table below marked built that
+`GET /v1/meta` calls unbuilt fails the build before anybody reads it.
 
 ## What is built, and what is planned
 
@@ -315,7 +317,7 @@ than at the site.
 `subroutine help` lists them all and `subroutine explain dates` covers the ideas behind them.
 
 ```console
-$ subroutine add "call the dentist tomorrow 2pm"
+$ subroutine add "call the dentist tomorrow at 2pm"
 $ subroutine agenda
 $ subroutine list --ready
 $ subroutine search "retries"

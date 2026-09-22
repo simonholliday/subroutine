@@ -12,6 +12,7 @@ Prose that merely *describes* code is deliberately not covered — a check that 
 "still accurate" from "reworded" would fail on every edit and be switched off.
 """
 
+import datetime
 import json
 import pathlib
 import re
@@ -32,6 +33,7 @@ import subroutine.config
 import subroutine.db.backup
 import subroutine.db.migrate
 import subroutine.diagnosis
+import subroutine.domain.capture
 import subroutine.domain.sessions
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -2753,6 +2755,31 @@ def _readme_rows () -> dict[str, bool]:
 			found[row.group(1)] = row.group(2) != "Planned"
 
 	return found
+
+
+#: Every ``subroutine add`` example the README offers, quoted either way.
+_ADDED = re.compile(r"""subroutine add (["'])(?P<line>[^"']+)\1""")
+
+
+def test_every_line_the_readme_offers_to_add_is_one_the_grammar_reads () -> None:
+	"""`SR#3148`, M-9 of the cold review of 2026-09-21: the headline example read nothing.
+
+	*`subroutine add "call the dentist tomorrow 2pm"` reads the date out of the sentence* - and it
+	kept the whole line as the title and reported *2pm*, because a bare *tomorrow* is read only at
+	the end and a time needs *at* or a date read before it. The page is the product's argument,
+	and its first example is the one somebody types. **Every one is parsed here, and nothing in
+	it may be left unread.**
+	"""
+
+	now = datetime.datetime(2026, 7, 30, 14, 0, tzinfo=datetime.UTC)
+	offered = [found.group("line") for found in _ADDED.finditer(README.read_text())]
+
+	assert len(offered) >= 2, f"only {len(offered)} examples were found, so this checks little"
+
+	for line in offered:
+		read = subroutine.domain.capture.parse(line, now=now, timezone="Europe/London")
+
+		assert read.unparsed == (), f"the README offers {line!r}, and {read.unparsed} is not read"
 
 
 def test_nothing_the_api_calls_unbuilt_is_advertised_as_built () -> None:
