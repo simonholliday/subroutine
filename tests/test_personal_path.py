@@ -12573,6 +12573,29 @@ def test_a_credential_used_only_for_reading_is_recorded_as_used (
 	)
 
 
+def test_a_view_saved_or_changed_can_be_answered_as_json (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3149`, L-10 of the cold review of 2026-09-21: neither ``--json`` had ever run.
+
+	A script saving a view reads what was stored from the answer, so the answer is the view the
+	instance holds - its address included, which is the one field the caller did not send.
+	"""
+
+	run("init")
+
+	saved = json.loads(run("view", "save", "Boiler work", "--q", "boiler", "--json").output)
+
+	assert (saved["key"], saved["q"], saved["title"]) == ("boiler-work", "boiler", "Boiler work")
+
+	changed = json.loads(
+		run("view", "edit", "boiler-work", "--title", "Heating", "--json").output
+	)
+
+	assert (changed["key"], changed["q"]) == ("heating", "boiler"), changed
+	assert changed["version"] == saved["version"] + 1, changed
+
+
 def test_the_view_group_works_where_more_than_one_workspace_exists (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

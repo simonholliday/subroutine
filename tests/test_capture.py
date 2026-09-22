@@ -35,6 +35,27 @@ def _parse (text: str) -> subroutine.domain.capture.Capture:
 	return subroutine.domain.capture.parse(text, now=NOW, timezone=LONDON)
 
 
+def test_an_appointment_with_one_time_twice_is_explained_as_such () -> None:
+	"""`SR#3149`, L-10 of the cold review of 2026-09-21: this explanation had never run.
+
+	`SR#675` reads *from monday 9am to 5pm* as an appointment, so a phrase of that shape is
+	left as written only when its pair of times cannot be used - the same time twice - and it
+	has its own sentence rather than the one about a span over two timed days.
+	"""
+
+	captured = _parse("Workshop from Monday 9am to 9am")
+
+	assert captured.unparsed == ("from Monday 9am to 9am",), captured.unparsed
+
+	explained = subroutine.domain.capture.explain(captured.unparsed)
+
+	assert explained is not None
+	assert "an appointment on one day needs a day this understands and two different times" in (
+		explained
+	), explained
+	assert "two days" not in explained, explained
+
+
 def test_the_specifications_own_example_yields_its_five_fields () -> None:
 	"""docs/design.md §6.13's worked example, and half of S2-03's done-criterion."""
 

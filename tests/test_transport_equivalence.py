@@ -2924,6 +2924,61 @@ def test_both_find_a_view_by_a_typed_name_and_page_their_views_alike (pair: Pair
 	assert listed[0].limit is None
 
 
+def test_both_save_change_and_forget_a_view_alike (pair: Pair) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: the HTTP client's five view methods.
+
+	Only the local client's were ever called, so the HTTP half of `SR#1402` could have sent
+	anything. ``test_reach`` measures that a method exists; this measures that it answers, and
+	answers what the other transport does.
+	"""
+
+	where = pair.workspace.slug
+	seen = []
+	clients: tuple[subroutine.clients.base.Client, ...] = pair.both()
+
+	for number, client in enumerate(clients):
+		saved = client.save_view(
+			title=f"Queue {number}",
+			arrangement="board",
+			q="type:bug",
+			order="-created_at",
+			group_by="assignee",
+			workspace=where,
+		)
+		read = client.saved_view(key=f"queue-{number}", workspace=where)
+		changed = client.update_saved_view(
+			key=f"queue-{number}",
+			title=f"Bugs {number}",
+			group_by=None,
+			shared=True,
+			expected_version=saved.version,
+			workspace=where,
+			given=("title", "group_by", "shared"),
+		)
+		listed = [row.key for row in client.saved_views(workspace=where).items]
+
+		client.forget_saved_view(key=f"bugs-{number}", workspace=where)
+
+		seen.append(
+			(
+				(saved.key, saved.arrangement, saved.q, saved.order, saved.group_by, saved.shared),
+				read.id == saved.id,
+				(changed.key, changed.group_by, changed.shared, changed.version - saved.version),
+				listed,
+				client.saved_views(workspace=where).items,
+			)
+		)
+
+	for number, answered in enumerate(seen):
+		assert answered == (
+			(f"queue-{number}", "board", "type:bug", "-created_at", "assignee", False),
+			True,
+			(f"bugs-{number}", None, True, 1),
+			[f"bugs-{number}"],
+			[],
+		), (number, answered)
+
+
 def test_the_shared_views_do_not_pull_in_a_web_framework () -> None:
 	"""The invariant the whole `views.py` move exists for, held by a test rather than by prose.
 

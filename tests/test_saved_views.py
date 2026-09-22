@@ -32,6 +32,7 @@ import subroutine.domain.authentication
 import subroutine.domain.saved
 import subroutine.domain.users
 import subroutine.domain.workspaces
+import subroutine.errors
 import subroutine.permissions
 import subroutine.views
 import test_api_tasks
@@ -44,7 +45,9 @@ def world (session: sqlalchemy.orm.Session) -> test_api_tasks.World:
 	return test_api_tasks._world(session)
 
 
-def _somebody_else (world: test_api_tasks.World, who: str = "keanu") -> str:
+def _somebody_else (
+	world: test_api_tasks.World, who: str = "keanu", *, role: str = "member"
+) -> str:
 	"""Make a second real person in this workspace and return a token that is theirs.
 
 	**A person, not an agent.** `SR#1432` is the recorded cost of using an agent as the
@@ -57,7 +60,7 @@ def _somebody_else (world: test_api_tasks.World, who: str = "keanu") -> str:
 
 	person = subroutine.domain.users.create(world.session, username=who)
 	subroutine.domain.workspaces.add_member(
-		world.session, world.workspace, person, role_key="member"
+		world.session, world.workspace, person, role_key=role
 	)
 	world.session.flush()
 
@@ -468,6 +471,76 @@ def test_an_agenda_cannot_be_saved_narrowed_by_a_search_line (
 	assert moved.status_code == 200, moved.text
 
 
+def test_a_contributor_may_keep_a_view_and_may_not_share_one (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: removing both sharing checks passed.
+
+	**Sharing asks ``project:write``**, because it changes what the whole workspace is shown, and
+	a contributor does not hold it; keeping a view of one's own asks only ``task:write``. Every
+	test here ran as somebody who held both, so nothing could tell the checks were there.
+	"""
+
+	carrie = _somebody_else(world, "carrie-anne", role="contributor")
+	refused = _as(
+		world,
+		carrie,
+		"POST",
+		"/v1/views",
+		json={"title": "For everyone", "arrangement": "list", "shared": True},
+	)
+
+	assert refused.status_code == 403, refused.text
+
+	kept = _as(
+		world, carrie, "POST", "/v1/views", json={"title": "Just mine", "arrangement": "list"}
+	)
+
+	assert kept.status_code == 201, kept.text
+
+	later = _as(world, carrie, "PATCH", "/v1/views/just-mine", json={"shared": True})
+
+	assert later.status_code == 403, later.text
+	assert world.call("GET", "/v1/views/just-mine").status_code == 404, (
+		"a view its owner was refused permission to share was shown to somebody else"
+	)
+
+
+def test_a_viewer_cannot_save_a_view (world: test_api_tasks.World) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: removing the create check passed.
+
+	A view changes no work, but it is written, and a viewer changes nothing. Nothing had tried
+	as somebody without ``task:write``, so the check could go and every test stayed green.
+	"""
+
+	hugo = _somebody_else(world, "hugo", role="viewer")
+	refused = _as(
+		world, hugo, "POST", "/v1/views", json={"title": "Watching", "arrangement": "list"}
+	)
+
+	assert refused.status_code == 403, refused.text
+	assert _as(world, hugo, "GET", "/v1/views").json()["items"] == []
+
+
+def test_renaming_a_view_onto_a_name_already_taken_is_refused_by_name (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: removing the refusal passed.
+
+	Creating a view under a taken name was tested and renaming onto one was not, so without the
+	refusal the table's unique constraint answered instead - a 500 naming nothing.
+	"""
+
+	_saved(world, title="Team queue")
+	_saved(world, title="Bug queue")
+
+	refused = world.call("PATCH", "/v1/views/bug-queue", json={"title": "Team Queue"})
+
+	assert refused.status_code == 409, refused.text
+	assert refused.json()["errors"][0]["field"] == "title", refused.text
+	assert world.call("GET", "/v1/views/bug-queue").json()["title"] == "Bug queue"
+
+
 def test_a_credential_narrowed_to_some_projects_cannot_share_a_view (
 	world: test_api_tasks.World,
 ) -> None:
@@ -620,6 +693,42 @@ def test_a_saved_view_is_reachable_through_the_local_client_too (
 	assert [row.key for row in local_client.saved_views().items] == []
 
 
+def test_a_credential_presented_for_a_refused_write_is_recorded_as_used (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: the write path's half of `SR#3119`.
+
+	``clients/local._writing`` lets the touch go before the work begins, as ``_opened`` does, so
+	a write the domain refuses still records that the credential was presented - which is what
+	happened. Only the read path was tested, so removing the release here passed, and the
+	refusal's rollback took the touch with it.
+
+	**At the client, not through the command line**, because a command reads before it writes
+	and the read records the touch first: a first version of this ran ``view save`` and passed
+	with the release removed.
+	"""
+
+	local_client = _in_process(world)
+	held = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.identity.ApiToken).where(
+			subroutine.db.models.identity.ApiToken.title == "The operator, explicitly"
+		)
+	).one()
+	held.last_used_at = None
+	world.session.flush()
+
+	# Refused by the domain, inside the write and after the credential is resolved: a name
+	# with no letters in it gives a view no address.
+	with pytest.raises(subroutine.errors.ValidationError):
+		local_client.save_view(title="!!!", arrangement="list")
+
+	world.session.refresh(held)
+
+	assert held.last_used_at is not None, (
+		"a credential was presented for a write that was refused, and nothing was recorded"
+	)
+
+
 def test_a_forgotten_view_gives_its_name_back (world: test_api_tasks.World) -> None:
 	"""Deleted for good, unlike a task — and the unique constraint is why it matters.
 
@@ -650,9 +759,10 @@ def test_the_arrangement_half_carries_exactly_three_fields (
 	selection is refused rather than quietly stored, and the reason is that a view's whole
 	narrowing lives in ``q`` where anybody can read it.
 
-	`SR#3093` is the one honest gap that leaves: ``status_category`` is a registry property
-	with no kind, so it cannot be written as a term and a board of *what the team has in
-	progress* is not yet savable.
+	**Exactly three, not at least three** (`SR#3149`, M-11 of the cold review of 2026-09-21).
+	This asserted a subset, so a fourth arrangement field - the narrowing field it exists to
+	stop - passed it. Everything else a view carries is named below as what the view says about
+	itself, so a new field has to be put on one side or the other by somebody who decided.
 	"""
 
 	refused = world.call(
@@ -663,11 +773,24 @@ def test_the_arrangement_half_carries_exactly_three_fields (
 
 	assert refused.status_code == 422, refused.text
 
-	saved = subroutine.views.SavedView.model_fields
+	saved = set(subroutine.views.SavedView.model_fields)
+	# Which view this is, whose, who may see it, and when it changed - never how it is drawn.
+	about_itself = {
+		"id",
+		"workspace_id",
+		"key",
+		"title",
+		"owner_id",
+		"owner",
+		"shared",
+		"about_the_reader",
+		"created_at",
+		"updated_at",
+		"version",
+	}
 
-	assert {"arrangement", "order", "group_by"} <= set(saved)
-	assert "status_category" not in saved
-	assert "include_completed" not in saved
+	assert about_itself <= saved, f"a field named here is gone, so this list is stale: {saved}"
+	assert saved - about_itself - {"q"} == {"arrangement", "order", "group_by"}
 
 
 def test_every_field_a_change_accepts_reaches_the_row (world: test_api_tasks.World) -> None:

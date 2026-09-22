@@ -739,6 +739,51 @@ def test_the_nearest_ancestor_wins_and_what_an_item_says_itself_comes_first (
 	)
 
 
+def test_the_nearer_statement_wins_whichever_link_was_made_first (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: *last seen wins* passed the test above.
+
+	That test links the grandparent before the parent, so a rule keeping whichever link it read
+	last named the parent too. **Both orders here**, one document each, so the rule has to be
+	distance whatever order the rows come back in.
+	"""
+
+	early = _document(world, title="Said to the parent first")
+	late = _document(world, title="Said to the grandparent first")
+	grandparent = _task(world, title="Ship the parser")
+	parent = world.call(
+		"POST",
+		"/v1/tasks",
+		json={"title": "Capture a clock", "parent_task_id": grandparent["id"]},
+	).json()
+	leaf = world.call(
+		"POST", "/v1/tasks", json={"title": "Read a range", "parent_task_id": parent["id"]}
+	).json()
+
+	for document, item in (
+		(early, parent),
+		(early, grandparent),
+		(late, grandparent),
+		(late, parent),
+	):
+		made = world.call(
+			"POST",
+			f"/v1/documents/{document['ref']}/links",
+			json={"target": item["ref"], "target_type": "task", "link_type": "documents"},
+		)
+
+		assert made.status_code == 201, made.text
+
+	found = _governing(world, leaf["ref"])
+
+	assert {
+		one["document"]["ref"]: one["inherited_from"]["ref"] for one in found
+	} == {early["ref"]: parent["ref"], late["ref"]: parent["ref"]}, (
+		f"a document was named from the grandparent, not the nearer parent: {found}"
+	)
+
+
 def test_a_superseded_decision_stops_governing (world: test_api_tasks.World) -> None:
 	"""`#1036`'s rule: it asks whether a document is in force, not what type it is.
 

@@ -1877,6 +1877,47 @@ def test_the_total_says_how_much_of_the_work_it_could_add_up (world: World) -> N
 	assert none_of_it["estimate_minutes"] == 0, none_of_it
 
 
+def test_the_work_beneath_leaves_out_the_trash_and_a_repeats_rule (world: World) -> None:
+	"""`SR#3149`, M-11 of the cold review of 2026-09-21: removing both exclusions passed.
+
+	`SR#1356` leaves out what ``readiness.every_sub_task_is_done`` leaves out - a task in the
+	trash, which is not work, and a repeat's template, which is a rule rather than a sub-task -
+	and no test had put either beneath a parent.
+	"""
+
+	parent, child, grandchild = _tree(world)
+
+	_sized(world, child, "1h")
+	_sized(world, grandchild, "30m")
+
+	under = world.call("GET", f"/v1/tasks/{parent}").json()["id"]
+	thrown = world.call(
+		"POST", "/v1/tasks", json={"title": "Thrown away", "parent_task_id": under}
+	).json()["ref"]
+	rule = world.call(
+		"POST", "/v1/tasks", json={"title": "Every Monday", "parent_task_id": under}
+	).json()["ref"]
+
+	_sized(world, thrown, "4h")
+	_sized(world, rule, "8h")
+
+	assert world.call("DELETE", f"/v1/tasks/{thrown}").status_code == 200
+
+	# **A template made by hand**, as ``test_agenda`` does: the shape is the question, and a
+	# real repeat would bring an occurrence beside it that is ordinary work.
+	model = subroutine.db.models.work.Task
+	world.session.scalars(
+		sqlalchemy.select(model).where(model.workspace_id == world.workspace.id, model.ref == rule)
+	).one().is_template = True
+	world.session.flush()
+
+	beneath = world.call("GET", f"/v1/tasks/{parent}").json()["beneath"]
+
+	assert (beneath["estimate_minutes"], beneath["estimated"], beneath["tasks"]) == (90, 2, 2), (
+		f"the trash or a repeat's rule was counted as work beneath: {beneath}"
+	)
+
+
 def test_a_listing_does_not_pay_for_what_the_work_beneath_adds_up_to (world: World) -> None:
 	"""`SR#1356`, and the split is the whole reason it is affordable.
 

@@ -3575,6 +3575,57 @@ def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
 	assert "subroutine agent create <name>" in whoami, whoami
 
 
+def test_the_agent_create_hint_names_whoever_may_run_it (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3149`, L-10 of the cold review of 2026-09-21: the hint passed with ``may = True``.
+
+	`#1620`'s sentence names the person when they may make an account and *an administrator
+	here* when they may not. The one test asserted only that the command was named, so telling
+	a member they could run a command that refuses them passed.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	member = subroutine.domain.users.create(session, username=f"keanu-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(
+		session, workspace=setup.workspace, user=member, role_key="member"
+	)
+	session.flush()
+
+	said: dict[str, str] = {}
+
+	for person in (setup.user, member):
+		_row, issued = subroutine.domain.authentication.issue_token(
+			session, user=person, title="whoami", workspace_id=setup.workspace.id
+		)
+		session.flush()
+
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=api_support.factory_for(session),
+			token=issued.value.get_secret_value(),
+		)
+
+		with client:
+			server = subroutine.mcp.protocol.Server(
+				subroutine.mcp.tools.catalogue(client), name="subroutine", version="0"
+			)
+			text, failed = _called(server, "subroutine_whoami")
+
+		assert not failed, text
+
+		said[person.username] = text
+
+	command = "can run 'subroutine agent create <name>'"
+
+	assert f"{setup.user.username} {command}" in said[setup.user.username], said
+	assert f"an administrator here {command}" in said[member.username], said
+	assert f"{member.username} {command}" not in said[member.username], said
+
+
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
 	"""`#2789`. The terminal's line, through the tools an agent actually asks with.
 

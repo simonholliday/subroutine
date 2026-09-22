@@ -308,6 +308,27 @@ def test_a_board_can_be_grouped_by_who_the_work_is_assigned_to (
 	}
 
 
+def test_people_are_drawn_in_name_order_whatever_order_they_joined_in (
+	world: test_api_tasks.World, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#3149`, L-10 of the cold review of 2026-09-21: the test above cannot see the order.
+
+	keanu joins before laurence there, and an account's id is made in time order, so a board
+	ordered by id drew the same columns and passed. Here laurence joins first.
+	"""
+
+	laurence = _holding(world, session, "laurence", ["Ship the parser"])
+	carrie = _holding(world, session, "carrie-anne", ["Read the grammar"])
+
+	payload = world.call("GET", "/v1/tasks?group_by=assignee&fields=ref").json()
+
+	assert [group["key"] for group in payload["groups"]] == [
+		subroutine.domain.grouping.UNASSIGNED,
+		carrie,
+		laurence,
+	], f"people in the order they joined rather than by name: {payload['groups']}"
+
+
 def test_an_unassigned_column_is_drawn_even_when_everything_is_taken (
 	world: test_api_tasks.World, session: sqlalchemy.orm.Session
 ) -> None:

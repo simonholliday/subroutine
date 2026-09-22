@@ -33,6 +33,7 @@ import subroutine.db.seed
 import subroutine.db.session
 import subroutine.db.types
 import subroutine.directory
+import subroutine.domain.accountability
 import subroutine.domain.authentication
 import subroutine.domain.authorization
 import subroutine.domain.bootstrap
@@ -45,6 +46,7 @@ import subroutine.domain.mentions
 import subroutine.domain.patch
 import subroutine.domain.projects
 import subroutine.domain.refs
+import subroutine.domain.schedule
 import subroutine.domain.selection
 import subroutine.domain.tasks
 import subroutine.domain.users
@@ -546,6 +548,48 @@ def test_the_words_a_username_may_not_be_are_the_grammars_own () -> None:
 	}
 
 	assert grammar == subroutine.domain.users.READ_AS_SOMETHING_ELSE
+
+
+def test_an_agent_whose_chain_reaches_nobody_follows_no_accounts_zone (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3149`, L-10 of the cold review of 2026-09-21: an unwalkable chain had never been met.
+
+	An agent's days follow the nearest account above it to have said a zone (`SR#3154`), and a
+	chain that reaches no person cannot be walked. **That is not a refusal here**: a zone is
+	read on every date the agent writes, so an agent in that state follows no account's zone -
+	the workspace's or the instance's then answer - rather than having every date refused.
+
+	**Broken by hand**, because the application refuses to make it: an agent is created with
+	somebody answering for it, and a circle is the state the walk exists to refuse.
+	"""
+
+	person = subroutine.domain.users.create(session, username=f"laurence-{uuid.uuid4().hex[:8]}")
+	person.timezone = "Europe/London"
+	first = subroutine.domain.users.create(
+		session,
+		username=f"first-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	second = subroutine.domain.users.create(
+		session,
+		username=f"second-{uuid.uuid4().hex[:8]}",
+		is_service_account=True,
+		responsible_user_id=person.id,
+	)
+	session.flush()
+
+	# Each answers for the other, so neither chain ever reaches laurence and the zone set there.
+	first.responsible_user_id = second.id
+	second.responsible_user_id = first.id
+	session.flush()
+
+	with pytest.raises(subroutine.errors.ValidationError):
+		subroutine.domain.accountability.chain(session, first)
+
+	assert subroutine.domain.schedule.zone_set_by(session, first) is None
+	assert subroutine.domain.schedule.account_zone(session, first) is None
 
 
 def test_a_weak_password_is_refused_with_the_reason (

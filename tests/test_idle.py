@@ -24,13 +24,26 @@ import subroutine
 PACKAGE_ROOT = pathlib.Path(subroutine.__file__).resolve().parent.parent
 
 #: The calls that start work of their own, by the dotted name they are called by.
+#:
+#: **Seven of these were invisible until `SR#3149`**, which is the cold review of 2026-09-21's
+#: L-10: a job started through any of them passed the guard written to refuse it.
 STARTING = {
 	"asyncio.create_task": "a task",
 	"asyncio.ensure_future": "a task",
 	"asyncio.sleep": "a coroutine that waits",
+	"asyncio.to_thread": "a thread",
+	"anyio.create_task_group": "a group of tasks",
+	"concurrent.futures.ThreadPoolExecutor": "a pool of threads",
+	"concurrent.futures.ProcessPoolExecutor": "a pool of processes",
+	"multiprocessing.Process": "a process",
+	"multiprocessing.Pool": "a pool of processes",
+	"sched.scheduler": "a scheduler",
 	"threading.Thread": "a thread",
 	"threading.Timer": "a timer",
 }
+
+#: What an event loop is asked to run later, by the method it is asked through.
+ON_THE_LOOP = {"run_in_executor", "call_later", "call_at"}
 
 #: The names that schedule work whatever calls them: FastAPI's tasks after a response, and the
 #: helper that repeats a function every so often.
@@ -43,6 +56,12 @@ SCHEDULERS = {"apscheduler", "celery"}
 #: with the reason. **Deleting an entry is what the reason expiring looks like**, and
 #: :func:`test_every_excuse_still_names_something_that_is_there` fails for one left behind.
 EXCUSED = {
+	# **Found by teaching the scan a lifespan** (`SR#3149`), and the first case of a reason
+	# written for something that starts nothing while it serves.
+	("subroutine/api/app.py", "lifespan"): (
+		"Disposes the database engine when the server stops. While it serves, it starts "
+		"nothing and waits for nothing."
+	),
 	("subroutine/releases.py", "threading.Thread"): (
 		"The release check: started by a request from somebody signed in, at most once a day, "
 		"and only where an operator has set 'check' under [releases]. An instance nobody is "
@@ -83,8 +102,23 @@ def _starts (source: str) -> set[str]:
 			if called in STARTING:
 				found.add(called)
 
-			if isinstance(node.func, ast.Attribute) and node.func.attr == "run_in_executor":
-				found.add("run_in_executor")
+			if isinstance(node.func, ast.Attribute) and node.func.attr in ON_THE_LOOP:
+				found.add(node.func.attr)
+
+			# **A hook a server runs on its own**: FastAPI's startup event, and a lifespan -
+			# work that begins because the process did rather than because somebody asked.
+			if isinstance(node.func, ast.Attribute) and node.func.attr == "on_event":
+				found.add("on_event")
+
+			if any(keyword.arg == "lifespan" for keyword in node.keywords):
+				found.add("lifespan")
+
+		elif isinstance(node, ast.ClassDef) and any(
+			_dotted(base) == "threading.Thread" for base in node.bases
+		):
+			# **A thread written as a subclass** is started by ``.start()`` on an instance,
+			# which names neither the module nor the class this looks for in a call.
+			found.add("threading.Thread")
 
 		elif isinstance(node, ast.Name) and node.id in SCHEDULING:
 			found.add(node.id)
@@ -107,8 +141,9 @@ def _starts (source: str) -> set[str]:
 		elif (
 			isinstance(node, ast.While)
 			and isinstance(node.test, ast.Constant)
-			and node.test.value is True
+			and bool(node.test.value)
 		):
+			# **Any constant that is true**, which ``while 1`` is and ``is True`` was not.
 			found.add("while True")
 
 	return found
@@ -210,6 +245,17 @@ def test_the_scan_sees_each_way_of_starting_work (tmp_path: pathlib.Path) -> Non
 		"apscheduler": "import apscheduler.schedulers.background\n",
 		"celery": "import celery\n",
 		"while True": "while True:\n\tsweep()\n",
+		# The ways `SR#3149` taught it, each once invisible.
+		"asyncio.to_thread": "import asyncio\nasync def f ():\n\tawait asyncio.to_thread(sweep)\n",
+		"anyio.create_task_group": "import anyio\nasync def f ():\n\tanyio.create_task_group()\n",
+		"concurrent.futures.ThreadPoolExecutor": (
+			"import concurrent.futures\nconcurrent.futures.ThreadPoolExecutor().submit(sweep)\n"
+		),
+		"multiprocessing.Process": "import multiprocessing\nmultiprocessing.Process(target=sweep)\n",
+		"sched.scheduler": "import sched\nsched.scheduler()\n",
+		"call_later": "loop.call_later(60, sweep)\n",
+		"on_event": "@app.on_event('startup')\ndef warm () -> None:\n\tpass\n",
+		"lifespan": "fastapi.FastAPI(lifespan=sweeping)\n",
 	}
 	(tmp_path / "subroutine").mkdir()
 
@@ -218,6 +264,19 @@ def test_the_scan_sees_each_way_of_starting_work (tmp_path: pathlib.Path) -> Non
 		module.write_text(source, encoding="utf-8")
 
 		assert _offenders([module], root=tmp_path) == {(f"subroutine/planted_{number}.py", started)}
+
+	# **And the two that are shapes rather than names**: a thread written as a subclass, and a
+	# loop on a constant that is true without being ``True``.
+	shapes = {
+		"threading.Thread": "import threading\nclass Sweeper (threading.Thread):\n\tpass\n",
+		"while True": "while 1:\n\tsweep()\n",
+	}
+
+	for number, (started, source) in enumerate(shapes.items()):
+		module = tmp_path / "subroutine" / f"shaped_{number}.py"
+		module.write_text(source, encoding="utf-8")
+
+		assert _offenders([module], root=tmp_path) == {(f"subroutine/shaped_{number}.py", started)}
 
 	# **An excuse covers only what it names**: the release check's thread passes, and a timer
 	# planted beside it in the same module does not.
