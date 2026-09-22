@@ -913,14 +913,21 @@ class TestWhichZonesAreNamed:
 		assert subroutine.views.zones(_me(zones=[None]), machine="Asia/Tokyo") == []
 
 
-def _agent (me: subroutine.views.Me, *, parent: str) -> subroutine.views.Me:
-	"""Return ``me`` as an agent that has set no zone of its own and answers to ``parent``."""
+def _agent (
+	me: subroutine.views.Me, *, parent: str, set_by: str | None = None
+) -> subroutine.views.Me:
+	"""Return ``me`` as an agent that has set no zone of its own and answers to ``parent``.
+
+	``set_by`` is whose zone it follows, which is the instance's answer (`SR#3154`): the parent,
+	an account further up, or nobody.
+	"""
 
 	return me.model_copy(
 		update={
 			"user": me.user.model_copy(
 				update={"username": "bot", "is_service_account": True, "account_parent": parent}
-			)
+			),
+			"reader_timezone_set_by": set_by,
 		}
 	)
 
@@ -942,12 +949,35 @@ class TestTheZoneAnAgentIsTold:
 	def test_an_agent_that_has_set_none_is_told_whose_it_is (self) -> None:
 		"""`SR#2974`'s step, named where it applies, so an agent knows where it would change."""
 
-		said = subroutine.views.read_in(_agent(_me(zones=["Europe/London"]), parent="si"))
+		said = subroutine.views.read_in(
+			_agent(_me(zones=["Europe/London"]), parent="si", set_by="si")
+		)
 
 		assert said == [
 			"Days for bot are read in Europe/London, its account parent si's: it has set none "
 			"of its own."
 		]
+
+	def test_an_agent_whose_parent_has_set_none_is_not_told_it_follows_its_parent (self) -> None:
+		"""`SR#3154`: the parent was named whether or not it had set a zone.
+
+		So an agent whose parent had said nothing was told it followed that parent, about a zone
+		that came from further up the chain, or from a workspace or the instance.
+		"""
+
+		further = subroutine.views.read_in(
+			_agent(_me(zones=["America/New_York"]), parent="laurence", set_by="keanu")
+		)
+		nobody = subroutine.views.read_in(
+			_agent(_me(zones=["America/New_York"]), parent="laurence", set_by=None)
+		)
+
+		assert further == [
+			"Days for bot are read in America/New_York, keanu's, which is the nearest account "
+			"above it to have set one."
+		], further
+		assert "laurence" not in nobody[0], nobody
+		assert "nobody it answers to has set one" in nobody[0], nobody
 
 	def test_workspaces_that_differ_are_each_named_with_their_zone (self) -> None:
 		"""Only an account whose chain has set none sees this, and each zone holds in its own."""

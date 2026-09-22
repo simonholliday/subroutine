@@ -2336,6 +2336,12 @@ class Me(pydantic.BaseModel):
 	#: commit ahead must not refuse the whole response over it (`#345`, `#482`).
 	reader_timezone: str | None = None
 
+	#: Whose zone that is: this account's own username where it has set one, an account's above
+	#: it where it has not and that account has - an agent follows the account that made it -
+	#: and null where nobody on the chain has, so a workspace's zone or the instance's decides.
+	#: Published beside the zone so every sentence about it names the account that set it.
+	reader_timezone_set_by: str | None = None
+
 	workspaces: list[WorkspaceAccess]
 
 	#: **What this instance has found out about releases** (`#2223`), so ``whoami``, the agent
@@ -5363,6 +5369,7 @@ def me (
 			subroutine.domain.authorization.instance_permissions(principal)
 		),
 		reader_timezone=reader_zone(session, principal),
+		reader_timezone_set_by=_zone_setter(session, principal.user),
 		workspaces=[
 			workspace_access(
 				session,
@@ -5884,8 +5891,21 @@ def read_in (me: Me) -> list[str]:
 
 	said = f"Days for {me.user.username} are read in {zone}"
 
+	# **The account that set it, named only when it is somebody else** (`#3154`). This named
+	# the account parent whenever one existed, whether or not the parent had set a zone - and
+	# the zone could be a grandparent's, a workspace's or the instance's.
 	if me.user.timezone is None and me.user.account_parent is not None:
-		said += f", its account parent {me.user.account_parent}'s: it has set none of its own"
+		holder = me.reader_timezone_set_by
+
+		if holder is None:
+			said += (
+				": nobody it answers to has set one, so the workspace's or the instance's "
+				"decides"
+			)
+		elif holder == me.user.account_parent:
+			said += f", its account parent {holder}'s: it has set none of its own"
+		elif holder != me.user.username:
+			said += f", {holder}'s, which is the nearest account above it to have set one"
 
 	return [f"{said}."]
 
@@ -6761,6 +6781,16 @@ def moment_day (instant: datetime.datetime, timezone: str | None) -> str:
 	"""
 
 	return subroutine.domain.schedule.day_in(instant, timezone).isoformat()
+
+
+def _zone_setter (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User
+) -> str | None:
+	"""Return the username of the account whose zone this one's days are read in - `#3154`."""
+
+	found = subroutine.domain.schedule.zone_set_by(session, user)
+
+	return None if found is None else found.username
 
 
 def reader_zone (

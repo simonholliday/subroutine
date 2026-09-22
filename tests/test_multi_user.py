@@ -505,6 +505,26 @@ def test_an_agent_that_has_said_no_timezone_is_told_whose_it_follows (
 	assert "bot's days are counted in laurence's zone again" in cleared, cleared
 
 
+def test_an_agent_whose_parent_has_said_no_timezone_is_not_told_it_follows_them (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3154`: the terminal named the account parent whether or not it had set a zone.
+
+	laurence clears theirs here, so nobody on bot's chain has said, and the days fall to the
+	workspace or the instance - which is what the sentence must say, rather than *laurence's*.
+	"""
+
+	run("init", "--username", "laurence", "--workspace", "Acme")
+	run("user", "timezone", "--clear")
+	run("user", "create", "bot", "--agent")
+	monkeypatch.setenv("SUBROUTINE_LOCAL_USER", "bot")
+
+	unset = run("user", "timezone").output
+
+	assert "laurence's zone" not in unset, unset
+	assert "nobody it answers to has set one" in unset, unset
+
+
 def test_nobody_is_offered_a_way_to_set_somebody_else_s_timezone (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

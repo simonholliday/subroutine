@@ -58,6 +58,12 @@ upgrade involves.
   username or a tag cannot be `.` or `..`, so nothing is ever called one. The workspace went
   to the trash, not away, so anything removed this way can be restored.
 
+- **Whose timezone an agent's days follow is named correctly.** `whoami`, the agent tools and
+  `subroutine user timezone` named an agent's account parent whenever it had one, whether or
+  not that account had set a zone - so an agent whose days came from further up, or from the
+  workspace or the instance, was told the wrong account. They name the account that set it
+  now, or say that nobody has. `/v1/me` publishes it as `reader_timezone_set_by`.
+
 - **A refused credential in the browser says why.** Issuing or revoking one on the People page
   and being refused drew an empty banner, because the notice was handed the error rather than
   its words.

@@ -6807,15 +6807,16 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 			# state Simon decided an agent should be in, not a gap left for somebody to fill.
 			if account.account_parent is not None:
 				program.say(f"{username} has not said which timezone it is in.")
-				program.say(
-					f"  Its days are counted in {account.account_parent}'s zone until it does, "
-					f"since {account.account_parent} is its account parent."
-				)
+				whose, why = _whose_zone(where, account.account_parent)
+				program.say(f"  Until it does, its days are counted in {whose}, {why}.")
 
 				return
 
 			program.say("You have not said which timezone you are in.")
-			program.say("  Your days are counted in this workspace's zone until you do.")
+			program.say(
+				"  Your days are counted in your workspace's zone until you do, or in the "
+				"instance's where the workspace has none."
+			)
 
 			# **Suggested only when there is nothing to read back** (`#1002`). §12.2a's habit
 			# is that a command names the next one, and the next one is not the one that has
@@ -6831,14 +6832,15 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 
 		if changed.timezone is None:
 			if changed.account_parent is not None:
-				program.say(
-					f"Cleared. {username}'s days are counted in {changed.account_parent}'s zone "
-					"again."
-				)
+				whose, why = _whose_zone(where, changed.account_parent)
+				program.say(f"Cleared. {username}'s days are counted in {whose} again, {why}.")
 
 				return
 
-			program.say("Cleared. Your days are counted in this workspace's zone again.")
+			program.say(
+				"Cleared. Your days are counted in your workspace's zone again, or in the "
+				"instance's where the workspace has none."
+			)
 
 			return
 
@@ -6849,6 +6851,25 @@ def _user_timezone (program: Program, *, zone: str, clear: bool) -> None:
 		# the *task's* zone whatever the reader's is. What it moves is which day a deadline
 		# counts as, which is the whole of `#989`'s second decision.
 		program.say("  Your agenda is counted from midnight there, on every surface.")
+
+
+def _whose_zone (where: Reached, parent: str) -> tuple[str, str]:
+	"""Return whose zone an agent's days follow, and why that one - `#3154`.
+
+	**Read from the instance rather than assumed to be the parent's.** An agent follows the
+	nearest account above it to have said (`#2974`), which may be further up than its parent or
+	nobody at all, and these sentences named the parent either way.
+	"""
+
+	holder = where.client.me().reader_timezone_set_by
+
+	if holder is None:
+		return "the workspace's zone or the instance's", "since nobody it answers to has set one"
+
+	if holder == parent:
+		return f"{holder}'s zone", f"since {holder} is its account parent"
+
+	return f"{holder}'s zone", "the nearest account above it to have set one"
 
 
 def _whoami (program: Program, *, json_output: bool, strict: bool) -> None:

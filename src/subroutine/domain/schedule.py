@@ -181,13 +181,36 @@ def account_zone (
 	such an agent before it can ask anything, and a date is not the place to report it.
 	"""
 
+	found = zone_set_by(session, user)
+
+	return None if found is None else found.timezone
+
+
+def zone_set_by (
+	session: sqlalchemy.orm.Session, user: subroutine.db.models.identity.User | None
+) -> subroutine.db.models.identity.User | None:
+	"""Return the account whose zone this one's days are read in, or ``None`` - `#3154`.
+
+	:func:`account_zone`'s walk, answering *whose* where that answers *what*. **The sentences
+	that name it were written for the one step they expected**: *its account parent's zone* was
+	said of an agent whose parent had set none and whose zone came from a grandparent, the
+	workspace or the instance - the cold review of 2026-09-21 drove *read in America/New_York,
+	its account parent laurence's* about a laurence who had said nothing. Answered here once,
+	each sentence names the account that did.
+
+	``None`` is nobody on the chain, where a workspace's zone or the instance's decides.
+	"""
+
 	if user is None:
 		return None
 
 	# **The common path costs no query**: an account that has said, and a person, whose chain is
 	# themselves. Only an agent that has said nothing is walked, one lookup per link.
-	if user.timezone or not user.is_service_account:
-		return user.timezone or None
+	if user.timezone:
+		return user
+
+	if not user.is_service_account:
+		return None
 
 	try:
 		walked = subroutine.domain.accountability.chain(session, user)
@@ -195,7 +218,7 @@ def account_zone (
 	except subroutine.errors.ValidationError:
 		return None
 
-	return next((account.timezone for account in walked if account.timezone), None)
+	return next((account for account in walked if account.timezone), None)
 
 
 def zone_for (
