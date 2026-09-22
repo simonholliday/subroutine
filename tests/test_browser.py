@@ -605,6 +605,58 @@ def _until (
 		page.wait_for_timeout(50)
 
 
+def _lettered (page: typing.Any, family: str, weight: str, seconds: float = 10.0) -> None:
+	"""Wait until the face a measurement depends on has actually arrived — `SR#3168`.
+
+	**An unloaded face is drawn as a synthesised fallback, with no error anywhere** (`SR#2873`),
+	and the substitution is a different width. So a test measuring a box around text drawn in a
+	weight of its own measures the fallback until the file lands. It failed a release: the
+	`Release` workflow's browser job on the `v0.9.0` tag read the masthead's menu at 1207 and then
+	1209, and `Build`, `PyPI` and `GitHub release` are all gated on that job.
+
+	**Named per face rather than waited for in ``opened``, and that was measured.** A blanket wait
+	on ``document.fonts.status`` was written first and abandoned: on 19 of the 95 tests here the
+	set still reported ``loading`` after five seconds of polling, and in one case reported
+	``loading`` while no individual face was — so it is not a signal a general wait can rest on.
+	A named family and weight is answerable, and it is what a measurement actually depends on.
+
+	**Polled from Python, never the Playwright call that evaluates a string** (`SR#1000`). That
+	call takes a string and the policy this application serves has no ``unsafe-eval``, so Chromium
+	refuses the injected predicate — *intermittently*, which would have replaced this flake with
+	another of exactly the same shape. Caught by that guard rather than by reading.
+
+	**``status`` on the faces, never ``document.fonts.check``.** ``check`` resolves through font
+	matching, so it answers true for 600 while only the 400 file exists (`SR#2871`); asking the
+	faces themselves is the half that can tell a weight apart, which is why the branding test
+	reads ``[...document.fonts]``.
+
+	**Asserted after the wait, because ``_until`` does not raise.** A wait that gives up quietly is
+	a wait that does nothing, and the failure names the face rather than leaving a later assertion
+	to report two pixels.
+	"""
+
+	def arrived () -> bool:
+		"""Has every face of this family and weight finished loading?"""
+
+		return bool(page.evaluate(
+			"""([family, weight]) => {
+				const faces = [...document.fonts].filter(
+					(face) => face.family === family && face.weight === weight,
+				);
+
+				return faces.length > 0 && faces.every((face) => face.status === "loaded");
+			}""",
+			[family, weight],
+		))
+
+	_until(page, arrived, seconds)
+
+	assert arrived(), (
+		f"{family} {weight} never finished loading, so measuring text drawn in it reads a "
+		f"synthesised fallback and the real face lands later — SR#3168"
+	)
+
+
 def _prioritised (
 	roster: list[typing.Any], slug: str, body: str | None
 ) -> None:
@@ -3900,6 +3952,14 @@ def test_the_masthead_takes_the_page_home_and_not_only_the_address (
 	opened, _written, _refusing, _roster, _missing, reads, *_ = running
 	page = opened("/projects?view=board&include_completed=true")
 	page.wait_for_selector(".board .rows li", timeout=10_000)
+
+	# **The name under `.you` is drawn in a weight of its own and it arrives late** (`SR#3168`).
+	# `chrome.js` renders nothing there until `/v1/me` has answered — *a menu under nobody's name
+	# is a claim about nobody* — so Inter 600 is requested after the app has painted. Without this
+	# the first measurement below reads a synthesised bold, the real face lands before the second,
+	# and the test accuses the product of `#962` over two pixels of its own text.
+	page.wait_for_selector(".you .reveal strong", timeout=10_000)
+	_lettered(page, "Inter", "600")
 
 	def masthead () -> dict[str, typing.Any]:
 		"""Where the masthead and the menu under the reader's name are drawn."""
