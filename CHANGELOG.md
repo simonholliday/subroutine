@@ -157,6 +157,16 @@ upgrade involves.
   actually took, measured by the caller that made it, because whether a refusal came back at
   once or after a full timeout is the difference between two unrelated causes.
 
+### Security
+
+- **An instance served over HTTPS reads only `__Host-subroutine_session`.** 0.8.29 read the old
+  name beside it so that a browser signed in before the change stayed signed in - and so did a
+  cookie a page on a neighbouring subdomain had written under the old name, which then reached
+  a browser that had never signed in there, or had just signed out, and was handed back under
+  the protected name. Nothing can tell the two apart, so the old name is not read. **A browser
+  that signed in before 0.8.29 and has not opened the instance since will be asked to sign in
+  once.** An instance on loopback or plain HTTP is unchanged.
+
 ## 0.8.29 — 2026-09-21
 
 ### Added

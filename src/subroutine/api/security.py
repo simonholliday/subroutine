@@ -275,25 +275,23 @@ def session_cookie_name (settings: subroutine.config.Settings) -> str:
 
 
 def presented_session_cookie (request: starlette.requests.Request) -> str | None:
-	"""Return the session a browser presented, under either of the cookie's names.
+	"""Return the session a browser presented, under the one name this instance writes.
 
-	**Both are read and one is written**, which is what carries a browser across the change
-	(`#1700`): somebody signed in before it holds the plain name, and the renewal that
-	:func:`_keep_the_browser_signed_in` writes on their next authenticated response hands the
-	same session back under the prefixed one. Reading only the new name would sign every open
-	browser out at the moment an operator upgraded, with nothing saying why.
+	**Only that name** (the cold review of 2026-09-21, `#3140`, and Simon's decision of
+	2026-09-22). `#1700` read the plain name beside the prefixed one so that a browser signed in
+	before the change was carried across it, and the renewal handed its session back under the
+	prefixed name. That also carried a *neighbour's* cookie across: a page on another subdomain
+	can still write the plain name, so a browser that had never signed in here, or had just
+	signed out, was put inside whatever session the neighbour planted - and then handed it back
+	under the protected name. Nothing can tell a pre-upgrade cookie from a planted one.
 
-	The prefixed name wins where a browser holds both, which it does between that renewal and
-	the old cookie's own expiry.
+	**The cost is one sign-in**, for a browser still holding only the plain name when its
+	instance reaches this release. The served instance had run the migration since 2026-09-20.
 	"""
 
-	for name in (HOST_SESSION_COOKIE, SESSION_COOKIE):
-		presented = request.cookies.get(name)
+	settings: subroutine.config.Settings = request.app.state.settings
 
-		if presented is not None:
-			return presented
-
-	return None
+	return request.cookies.get(session_cookie_name(settings))
 
 
 def from_session_cookie (
@@ -700,10 +698,10 @@ def clear_session_cookie (
 	keeps sending a cookie the instance has already revoked — which looks, from the outside,
 	exactly like signing out not working.
 
-	**Both names, because a revoked session is refused rather than ignored** (`#1700`): a
-	browser left holding the plain cookie would present it on every request and be told its
-	session has ended, where what happened is that it signed out. Where this instance writes
-	the plain name the two are one, and this writes one header.
+	**Both names, because a browser may hold both** (`#1700`): one signed in before the prefix
+	holds the plain one. It is no longer read on an instance served over HTTPS (`#3140`), and
+	clearing it leaves nothing behind a later reader could mistake for a session. Where this
+	instance writes the plain name the two are one, and this writes one header.
 	"""
 
 	names = [session_cookie_name(settings)]

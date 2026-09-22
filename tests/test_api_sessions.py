@@ -314,14 +314,16 @@ def test_the_cookies_name_follows_the_same_condition_as_its_secure_flag (
 	assert "domain=" not in written.lower(), written
 
 
-def test_a_browser_holding_the_old_name_stays_signed_in_and_is_handed_the_new_one (
+def test_an_instance_served_over_https_reads_only_the_name_it_writes (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""`SR#1700`: an upgrade reading only the new name would sign every open browser out.
+	"""`SR#3140`, the cold review of 2026-09-21's M-2, and Simon's decision of 2026-09-22.
 
-	Both names are read and one is written, so a request arriving with the old cookie is
-	answered, and `#1671`'s renewal - written on every authenticated response - hands the same
-	session straight back under the new name. Nobody signs in again and nothing is said.
+	`SR#1700` read the plain name beside the prefixed one, so a browser signed in before the
+	change stayed signed in. **So did a cookie a neighbouring subdomain planted** under the plain
+	name, which reached a browser that had never signed in here or had just signed out - and was
+	handed back under the protected name. Nothing tells a pre-upgrade cookie from a planted one,
+	so the plain name is not read at all on an instance served over HTTPS.
 	"""
 
 	application = api_support.build_app(
@@ -329,29 +331,64 @@ def test_a_browser_holding_the_old_name_stays_signed_in_and_is_handed_the_new_on
 	)
 	_opened, held = subroutine.domain.sessions.redeem(session, _link(session, setup.user))
 
-	answer = api_support.call(
+	planted = api_support.call(
 		application, "GET", "/v1/me", cookies={subroutine.api.security.SESSION_COOKIE: held}
 	)
 
+	assert planted.status_code == 401, planted.text
+	assert subroutine.api.security.HOST_SESSION_COOKIE not in planted.headers.get(
+		"set-cookie", ""
+	), "a session presented under the plain name was handed back under the protected one"
+
+	answered = api_support.call(
+		application, "GET", "/v1/me", cookies={subroutine.api.security.HOST_SESSION_COOKIE: held}
+	)
+
+	assert answered.status_code == 200, answered.text
+	assert answered.json()["credential"]["kind"] == "web_session"
+
+
+def test_a_cookie_planted_beside_the_readers_own_is_not_the_one_read (
+	session: sqlalchemy.orm.Session, setup: Setup
+) -> None:
+	"""`SR#3140`, and M-11 of the same review: which of two names wins had no test at all.
+
+	The attack is two cookies arriving together - the reader's own under the prefixed name, and
+	somebody else's planted under the plain one. Reversing the order the two were read in left
+	the suite green. **The reader is who answers**, and the planted session is nowhere in it.
+	"""
+
+	application = api_support.build_app(
+		api_support.factory_for(session), public_url="https://work.example.com"
+	)
+	_mine, held = subroutine.domain.sessions.redeem(session, _link(session, setup.user))
+
+	neighbour = subroutine.domain.users.create(session, username=f"trinity-{uuid.uuid4().hex[:6]}")
+	session.flush()
+	_theirs, planted = subroutine.domain.sessions.redeem(session, _link(session, neighbour))
+
+	answer = api_support.call(
+		application,
+		"GET",
+		"/v1/me",
+		cookies={
+			subroutine.api.security.SESSION_COOKIE: planted,
+			subroutine.api.security.HOST_SESSION_COOKIE: held,
+		},
+	)
+
 	assert answer.status_code == 200, answer.text
-	assert answer.json()["credential"]["kind"] == "web_session"
-
-	written = answer.headers["set-cookie"]
-
-	assert written.startswith(f"{subroutine.api.security.HOST_SESSION_COOKIE}="), written
-	# **The same session handed back under the other name**, rather than a new one: what the
-	# browser sent is what it is given, so nothing else it has open is disturbed.
-	assert held in written, written
+	assert answer.json()["user"]["username"] == setup.user.username, answer.json()["user"]
 
 
 def test_signing_out_clears_the_cookie_under_both_names (
 	session: sqlalchemy.orm.Session, setup: Setup
 ) -> None:
-	"""`SR#1700`: a revoked session is refused by name, so one left behind is not harmless.
+	"""`SR#1700`: a browser that signed in before the prefix holds both names.
 
-	`subroutine.domain.sessions.authenticate` raises for a session that has been signed out,
-	so a browser still holding the plain cookie would be told its session had ended on every
-	request it made - where what happened is that it signed out, successfully.
+	The plain one is no longer read on an instance served over HTTPS (`SR#3140`), and signing
+	out clears it all the same, so nothing is left behind that a later reader could mistake for
+	a session.
 	"""
 
 	application = api_support.build_app(
@@ -363,7 +400,7 @@ def test_signing_out_clears_the_cookie_under_both_names (
 		application,
 		"DELETE",
 		"/v1/session",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 	)
 
 	assert answer.status_code == 204, answer.text
@@ -761,7 +798,7 @@ def test_a_sibling_subdomain_cannot_act_as_a_signed_in_browser (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": SIBLING},
 	)
 
@@ -771,7 +808,7 @@ def test_a_sibling_subdomain_cannot_act_as_a_signed_in_browser (
 	# **And the session is untouched**, which is the half worth checking: a refusal that signed
 	# the reader out anyway would be the attack succeeding through the defence.
 	after = api_support.call(
-		application, "GET", "/v1/me", cookies={subroutine.api.security.SESSION_COOKIE: held}
+		application, "GET", "/v1/me", cookies={subroutine.api.security.HOST_SESSION_COOKIE: held}
 	)
 
 	assert after.status_code == 200, "the refused write ended the session it was refusing"
@@ -788,7 +825,7 @@ def test_a_page_this_instance_serves_may_write (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": INSTANCE},
 	)
 
@@ -811,7 +848,7 @@ def test_a_caller_that_states_no_origin_may_write (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 	)
 
 	assert answer.status_code == 200, answer.text
@@ -833,7 +870,7 @@ def test_reading_is_not_restricted_by_where_the_page_was (
 		application,
 		"GET",
 		"/v1/me",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": SIBLING},
 	)
 
@@ -918,7 +955,7 @@ def test_reaching_the_instance_directly_still_writes (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": api_support.BASE_URL},
 	)
 
@@ -1177,7 +1214,7 @@ def test_confirming_from_a_sibling_subdomain_is_refused (
 			"content-type": subroutine.api.sessions.FORM_ENCODING,
 			"origin": SIBLING,
 		},
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		follow_redirects=False,
 	)
 
@@ -1280,7 +1317,7 @@ def test_an_origin_the_operator_named_may_write_with_a_session (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": NAMED},
 	)
 
@@ -1298,7 +1335,7 @@ def test_an_origin_the_operator_did_not_name_still_cannot (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": SIBLING},
 	)
 
@@ -1326,7 +1363,7 @@ def test_a_wildcard_gives_the_defence_up_entirely (
 		application,
 		"POST",
 		f"/v1/users/{setup.user.username}/signout",
-		cookies={subroutine.api.security.SESSION_COOKIE: held},
+		cookies={subroutine.api.security.HOST_SESSION_COOKIE: held},
 		headers={"origin": SIBLING},
 	)
 
