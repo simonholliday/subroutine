@@ -60,3 +60,7 @@ reviews
 # *Subroutine itself* goes to strangers who share nothing, and the marker would name a
 # workspace and a project that exist on no machine but ours (`SR#219`).
 .subroutine
+
+# This checkout's own agent credential, written by 'subroutine agent create --here'. A rule
+# in a personal ignore file covers one machine; this one covers every clone (`SR#3309`).
+.claude/settings.local.json
