@@ -316,9 +316,16 @@ the credential never passes through this conversation.
 - **Ask for a reload, and write nothing until it has happened.** This session may already act as
   the agent in its shell while its tools go on as before: two names at once, which is the split
   this exists to end. Ask them to reload the window or start a new session there, and in the new
-  one check that `subroutine_whoami` and `subroutine whoami` both name the agent.
-- **It needs the program on this machine**, so a session reaching an instance by address, with
-  `subroutine-remote`, cannot do it. Its tools act as whatever token that plugin was given.
+  one check that `subroutine whoami` names the agent - and `subroutine_whoami` too, where these
+  tools come from the `subroutine` plugin.
+- **Under `subroutine-remote` it reaches the shell only, so say so before asking.** That plugin
+  starts no process: the editor presents the one token it was given, in every project, and no
+  reload changes it. `subroutine_whoami`'s version line then names a plugin and no program. The
+  shell becomes the agent and these tools stay as they were, so tell the person that half their
+  work here would still be recorded as before; the `subroutine` plugin is the one that takes a
+  credential per project.
+- **It needs the program on this machine.** Without it there is no shell to give a name to and
+  nothing to run here.
 
 **Never set `SUBROUTINE_TOKEN_<CONNECTION>` any other way.** It is read *before* the token a
 plugin sets for itself, and an MCP server inherits the environment its editor started in, so a

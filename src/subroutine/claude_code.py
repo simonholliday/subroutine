@@ -1,10 +1,14 @@
 """Hand an agent's credential to the Claude Code sessions started in one directory - `#3286`.
 
 Claude Code reads an ``env`` block from ``.claude/settings.local.json`` in the directory a session
-starts in, and gives it to everything that session starts: the agent's shell and the plugin's
-server alike. So one entry naming a connection's variable makes both halves of an agent act as
-that project's own account, while every other directory goes on as it was (``docs/connecting.md``,
-*A different agent in each project*, and decision ``#337``).
+starts in, and gives it to everything that session starts: the agent's shell and the
+``subroutine`` plugin's server alike. So one entry naming a connection's variable makes both
+halves of an agent act as that project's own account, while every other directory goes on as it
+was (``docs/connecting.md``, *A different agent in each project*, and decision ``#337``).
+
+**Under ``subroutine-remote`` it reaches the shell only** (`#3407`). That plugin starts no
+process: the editor makes its requests itself, with the one token the plugin was given for every
+project, so nothing in a project's settings is ever read on the way.
 
 **Everything a person used to do by hand is done here, because each step was a place to go
 wrong** (`#3247`, Simon's run on nuc14). The variable's name was copied from the page's example,

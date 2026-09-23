@@ -2394,8 +2394,8 @@ def agent_create (
 	here: bool = typer.Option(
 		False,
 		"--here",
-		help="Give it to the Claude Code sessions started in this directory, and print nothing "
-		"secret.",
+		help="Give it to the Claude Code sessions started in this directory - their shell, and "
+		"the 'subroutine' plugin's tools - and print nothing secret.",
 	),
 ) -> None:
 	"""Give an agent an identity of its own, and say how to hand it over.
@@ -2423,11 +2423,13 @@ def agent_create (
 	you: half its work is correctly attributed, so a spot check finds its name and concludes the
 	setup worked.
 
-	'--here' covers both halves for one project. Run it in the directory Claude Code is opened
-	in: it writes the credential into that directory's .claude/settings.local.json, under this
-	connection's variable, makes the repository ignore that file, and prints nothing secret - so
-	an agent can run it for you without ever seeing the credential. A session started there
-	afterwards acts as the agent.
+	'--here' covers both halves for one project, where the 'subroutine' plugin runs the tools.
+	Run it in the directory Claude Code is opened in: it writes the credential into that
+	directory's .claude/settings.local.json, under this connection's variable, makes the
+	repository ignore that file, and prints nothing secret - so an agent can run it for you
+	without ever seeing the credential. A session started there afterwards acts as the agent.
+	Under 'subroutine-remote' it covers the shell only: that plugin's tools present its one
+	token in every project.
 
 	'--store' covers both halves for every agent on this machine instead. It records the
 	credential beside yours rather than in place of it, and 'subroutine' then acts as the agent
@@ -2603,7 +2605,15 @@ def agent_create (
 		_say(
 			f"one already open may act as {minted.username} in its shell and as before in its tools."
 		)
-		_say(f"Then 'subroutine whoami' and 'subroutine_whoami' both name {minted.username}.")
+		# **Which tools that reaches is the plugin's to say** (`#3407`, measured on hpz2g9). The
+		# 'subroutine' plugin starts a process, which inherits the file; 'subroutine-remote'
+		# starts none, and its editor presents the plugin's one token in every project. So the
+		# shell is promised and the tools are promised only where they can follow.
+		_say(
+			f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
+		)
+		_say("where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the")
+		_say("tools keep that plugin's own token, which is the same in every project.")
 
 	elif written is None:
 		_say("Nothing here will use it yet. For one project on this machine, it goes in")

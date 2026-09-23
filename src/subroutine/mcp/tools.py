@@ -1720,8 +1720,24 @@ def _whoami (
 	# writes the credential where this project's sessions read it and prints nothing, so an
 	# agent can run it for them. Anybody else gets a credential made by an administrator and
 	# handed over, which prints.
+	#
+	# **And '--here' reaches these tools only where a process was started for them** (`#3407`).
+	# 'subroutine-remote' starts none, so the project's settings never reach its token: offered
+	# plainly there, the command names the shell and leaves every write here as it was.
 	if kind == "person":
-		if subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
+		if (
+			subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
+			and caller.through_remote
+		):
+			lines.append(
+				f"What you write here is recorded as {me.user.username}'s. {me.user.username} can "
+				"run 'subroutine agent create <name> --workspace <workspace> --here' in this "
+				"project's directory, but that names its shell and not these tools: they come "
+				"through 'subroutine-remote', which presents one token in every project. The "
+				"'subroutine' plugin takes one per project."
+			)
+
+		elif subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
 			lines.append(
 				f"What you write here is recorded as {me.user.username}'s. For a name of your own "
 				f"in this project, {me.user.username} can run 'subroutine agent create <name> "

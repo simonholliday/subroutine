@@ -3634,6 +3634,57 @@ def test_the_agent_create_hint_names_whoever_may_run_it (
 	assert "--here" not in said[member.username], said
 
 
+def test_the_here_hint_says_it_cannot_reach_subroutine_remotes_tools (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`#3407`, measured on hpz2g9: '--here' named the shell, and these tools stayed as before.
+
+	'subroutine-remote' starts no process, so the project's settings never reach the token its
+	editor presents. The hint is told which plugin by the caller: a plugin with no program is the
+	remote one, and the 'subroutine' plugin's relay names both.
+	"""
+
+	setup = subroutine.domain.bootstrap.initialise(
+		session, username=f"si-{uuid.uuid4().hex[:8]}", instance_name="Test"
+	)
+	_row, issued = subroutine.domain.authentication.issue_token(
+		session, user=setup.user, title="whoami", workspace_id=setup.workspace.id
+	)
+	session.flush()
+
+	said: dict[str, str] = {}
+	callers = {
+		"remote": subroutine.installations.Caller(plugin="0.9.4"),
+		"stdio": subroutine.installations.Caller(program="0.9.4", plugin="0.9.4"),
+	}
+
+	for shape, caller in callers.items():
+		client = subroutine.clients.local.Client(
+			subroutine.connections.Connection(name="local"),
+			subroutine.config.Settings(dev_mode=True),
+			session_factory=api_support.factory_for(session),
+			token=issued.value.get_secret_value(),
+		)
+
+		with client:
+			server = subroutine.mcp.protocol.Server(
+				subroutine.mcp.tools.catalogue(client, caller=caller), name="subroutine", version="0"
+			)
+			text, failed = _called(server, "subroutine_whoami")
+
+		assert not failed, text
+
+		said[shape] = text
+
+	limit = "that names its shell and not these tools"
+
+	assert "--here" in said["remote"], said
+	assert limit in said["remote"], said
+	assert "'subroutine-remote'" in said["remote"], said
+	assert limit not in said["stdio"], said
+	assert "then start a new session there" in said["stdio"], said
+
+
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
 	"""`#2789`. The terminal's line, through the tools an agent actually asks with.
 

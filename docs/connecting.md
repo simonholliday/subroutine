@@ -283,9 +283,11 @@ sets up for a server; and the right to make accounts there, which `subroutine wh
 `instance:user_create`. Without that, [somebody who has it makes the
 agent](#if-somebody-else-makes-the-agent).
 
-It works whether the work is on this machine or on a server you reach as a connection. **It does
-not reach `subroutine-remote`**, whose token is a plugin setting - and a plugin's settings apply
-to every project at once, which is why this uses the project's own settings instead.
+It works whether the work is on this machine or on a server you reach as a connection. **With
+`subroutine-remote` it reaches only the shell.** That plugin starts nothing: the editor sends the
+plugin's token itself, and a plugin's settings apply to every project at once, so its tools go on
+as that token whatever the project says. The `subroutine` plugin runs the program, which reads the
+project's own settings - which is why this uses them.
 
 ### Ask your agent
 
@@ -320,7 +322,9 @@ Account parent: jo.
 Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by you.
 Reload the window, or start a new Claude Code session there, before anything else:
 one already open may act as web in its shell and as before in its tools.
-Then 'subroutine whoami' and 'subroutine_whoami' both name web.
+Then 'subroutine whoami' names web, and 'subroutine_whoami' does too
+where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the
+tools keep that plugin's own token, which is the same in every project.
 ```
 
 - **`web`** is what the agent is called. Naming it after its project keeps the pair obvious.
@@ -329,9 +333,9 @@ Then 'subroutine whoami' and 'subroutine_whoami' both name web.
 - **`--here`** does the rest. It writes the credential into this directory's
   `.claude/settings.local.json`, under the variable Subroutine reads for this connection. Claude
   Code gives that file's `env` to everything it starts in the project - the agent's shell as well
-  as the plugin's server - so one line covers both of the ways an agent reaches an instance, and
-  [an agent that can also run a shell](hosting.md#an-agent-that-can-also-run-a-shell) is why both
-  matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
+  as the `subroutine` plugin's server - so one line covers both of the ways an agent reaches an
+  instance, and [an agent that can also run a shell](hosting.md#an-agent-that-can-also-run-a-shell)
+  is why both matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
   one, and prints nothing secret. **If it cannot finish, it refuses before anything is made** - a
   settings file that is not valid JSON, say, or one the repository already tracks.
 - **`Account parent`** is who answers for the agent: whoever ran the command, which here is you.
@@ -351,7 +355,7 @@ session already open may take the file up in its shell straight away while its t
 what they started with, so until the reload it is two people at once - and in an editor, a new
 conversation may not be a new session. Then ask the agent to run `subroutine whoami` in its
 shell, and to call `subroutine_whoami` through its tools. **Both must name the project's agent**,
-on their first line:
+on their first line - the tools only where they come from the `subroutine` plugin:
 
 ```console
 $ subroutine whoami
@@ -375,7 +379,9 @@ local  sqlite:///…/subroutine.db  SUBROUTINE_TOKEN_LOCAL  in use, default
 Anything else in that column means the session never received it: it was opened in another
 directory than the one holding `.claude/`, or it has not been reloaded since the file was written.
 **If the shell names the agent and the tools do not**, the tools are still running with what they
-started with, and reloading the window restarts them.
+started with, and reloading the window restarts them. **If a reload changes nothing**, the tools are
+`subroutine-remote`'s: `subroutine_whoami`'s version line names a plugin and no program, and that
+plugin presents one token in every project, as above.
 
 **Then ask the same in a session anywhere else** - your home directory will do. It should name
 you, or this machine's `--store` agent: the credential stays where it was put. Whoever it names is

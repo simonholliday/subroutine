@@ -188,7 +188,8 @@ you will need a fresh terminal.
 **Give each project's agent an account of its own** - ask your agent to, or run
 `subroutine agent create web --workspace acme --here` in the project's directory - and every
 change it makes carries its name and a credential narrower than yours, rather than being filed
-as you. On one laptop with one person this does not matter; the moment there are two agents it
+as you. With the `subroutine-remote` plugin that covers the agent's shell and not its tools,
+whose token is the plugin's, the same in every project. On one laptop with one person this does not matter; the moment there are two agents it
 does.
 
 **Sign in from anywhere else** with `subroutine login link`, which prints a link that works once

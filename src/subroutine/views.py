@@ -6299,7 +6299,8 @@ def plugin_behind (me: Me, *, program: str | None, plugin: str | None) -> str | 
 	if plugin is None or news is None or not news.checking:
 		return None
 
-	name = "subroutine-remote" if program is None else "subroutine"
+	caller = subroutine.installations.Caller(program=program, plugin=plugin)
+	name = "subroutine-remote" if caller.through_remote else "subroutine"
 	newest = news.plugins.get(name)
 	running = subroutine.installations.ordered(plugin)
 	published = None if newest is None else subroutine.installations.ordered(newest)

@@ -179,6 +179,18 @@ class Caller (typing.NamedTuple):
 
 		return self.program is not None or self.plugin is not None
 
+	@property
+	def through_remote (self) -> bool:
+		"""Whether the caller is ``subroutine-remote``: a plugin that named no program beside it.
+
+		**That plugin starts nothing**, so the editor posts to the instance itself, with the one
+		token the plugin was given for every project - which is why a project's own settings
+		cannot reach these tools (`#3407`). The ``subroutine`` plugin runs the program, and its
+		relay says so.
+		"""
+
+		return self.plugin is not None and self.program is None
+
 
 #: A caller that named neither of its installations — which is every caller before `SR#839`'s
 #: reading half shipped, and every caller one release behind after it.

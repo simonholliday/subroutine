@@ -3202,6 +3202,12 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 	assert "before anything else" in made, (
 		"a session already open is split until it reloads, so the reload comes first (#3310)"
 	)
+	assert "Then 'subroutine whoami' names web, and 'subroutine_whoami' does too" in made
+	assert "where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the" in made, (
+		"the tools follow only where a process was started for them, and 'subroutine-remote' "
+		"starts none - promising both halves there is #3407"
+	)
+	assert "both name" not in made
 	assert stat.S_IMODE(settings.stat().st_mode) == 0o600
 
 	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)

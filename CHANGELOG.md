@@ -22,7 +22,9 @@ upgrade involves.
   ignore that file - adding the line to `.gitignore` if it needs one - and prints nothing
   secret, so your agent can run it for you without ever seeing the credential. If it could not
   finish, it refuses before anything is made. Reload the window straight afterwards: a session
-  already open may act as the new agent in its shell before its tools catch up. [A different
+  already open may act as the new agent in its shell before its tools catch up. **With
+  `subroutine-remote` it names the shell only**: that plugin's tools present the one token it
+  was given, in every project, and `agent create` and `subroutine_whoami` both say so. [A different
   agent in each project](docs/connecting.md#a-different-agent-in-each-project) is built around
   it now.
 
