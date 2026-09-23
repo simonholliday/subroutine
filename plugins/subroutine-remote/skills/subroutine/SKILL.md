@@ -322,8 +322,18 @@ the credential never passes through this conversation.
   starts no process: the editor presents the one token it was given, in every project, and no
   reload changes it. `subroutine_whoami`'s version line then names a plugin and no program. The
   shell becomes the agent and these tools stay as they were, so tell the person that half their
-  work here would still be recorded as before; the `subroutine` plugin is the one that takes a
-  credential per project.
+  work here would still be recorded as before, and that switching this project to the
+  `subroutine` plugin fixes it. **The switch is theirs to run**, since it changes which tools
+  this editor loads:
+  - once per machine, `claude plugin install subroutine@subroutine` and then
+    `claude plugin disable subroutine@subroutine`, so every other project keeps
+    `subroutine-remote`;
+  - in this directory, `claude plugin enable subroutine@subroutine --scope local` and
+    `claude plugin disable subroutine-remote@subroutine --scope local`, then a reload.
+
+  `--scope local` installs nothing, so the plugin is still updated once per machine. It runs
+  `uvx`, so the machine needs uv, and with its options blank it uses the machine's default
+  connection, which has to be the one `--here` was run against.
 - **It needs the program on this machine.** Without it there is no shell to give a name to and
   nothing to run here.
 

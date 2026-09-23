@@ -2429,7 +2429,8 @@ def agent_create (
 	repository ignore that file, and prints nothing secret - so an agent can run it for you
 	without ever seeing the credential. A session started there afterwards acts as the agent.
 	Under 'subroutine-remote' it covers the shell only: that plugin's tools present its one
-	token in every project.
+	token in every project, until the directory is switched to the 'subroutine' plugin, which
+	it says how to do.
 
 	'--store' covers both halves for every agent on this machine instead. It records the
 	credential beside yours rather than in place of it, and 'subroutine' then acts as the agent
@@ -2609,11 +2610,20 @@ def agent_create (
 		# 'subroutine' plugin starts a process, which inherits the file; 'subroutine-remote'
 		# starts none, and its editor presents the plugin's one token in every project. So the
 		# shell is promised and the tools are promised only where they can follow.
+		#
+		# **And where they cannot, the switch is named rather than made** (`#3454`, measured on
+		# hpz2g4). Claude Code's own commands move one directory to the 'subroutine' plugin, and
+		# with '--scope local' they install nothing, so updating stays once per machine. Nothing
+		# here writes those settings: whether the plugin is installed is not ours to see, and
+		# switching 'subroutine-remote' off without it would leave the project with no tools.
 		_say(
 			f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
 		)
-		_say("where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the")
-		_say("tools keep that plugin's own token, which is the same in every project.")
+		_say("where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs")
+		_say("them, switch this directory to 'subroutine', then reload:")
+		_say("  claude plugin enable subroutine@subroutine --scope local")
+		_say("  claude plugin disable subroutine-remote@subroutine --scope local")
+		_say("That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.")
 
 	elif written is None:
 		_say("Nothing here will use it yet. For one project on this machine, it goes in")

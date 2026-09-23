@@ -156,6 +156,87 @@ def test_the_marketplace_points_at_every_plugin_that_is_here () -> None:
 	}, "the marketplace and the plugins directory disagree about what ships"
 
 
+#: A ``claude plugin`` command that names a plugin, the way a reader copies one to run it.
+_PLUGIN_COMMAND = re.compile(
+	r"\bclaude plugin (?:install|enable|disable|update|uninstall) ([a-z0-9][a-z0-9-]*@[a-z0-9-]+)"
+)
+
+#: Where such a command reaches a reader: what the program prints, and every published page.
+_WHERE_COMMANDS_ARE_READ = ("src", "plugins", "docs", "README.md", "CHANGELOG.md")
+
+
+def _plugin_commands (root: pathlib.Path) -> dict[str, set[str]]:
+	"""Return every ``plugin@marketplace`` a ``claude plugin`` command names, by file under ``root``.
+
+	**Takes the tree**, so a synthetic one can show the scan finds what it is for (`#405`).
+	"""
+
+	named: dict[str, set[str]] = {}
+
+	for place in _WHERE_COMMANDS_ARE_READ:
+		start = root / place
+		files = [start] if start.is_file() else sorted(start.rglob("*"))
+
+		for path in files:
+			if path.suffix not in {".py", ".md", ".json"} or not path.is_file():
+				continue
+
+			found = set(_PLUGIN_COMMAND.findall(path.read_text(encoding="utf-8")))
+
+			if found:
+				named[path.relative_to(root).as_posix()] = found
+
+	return named
+
+
+def _published_plugins (marketplace: pathlib.Path) -> set[str]:
+	"""Return each plugin the marketplace lists, as the ``plugin@marketplace`` Claude Code takes."""
+
+	listing = _read(marketplace)
+
+	return {f"{entry['name']}@{listing['name']}" for entry in listing["plugins"]}
+
+
+def test_every_plugin_command_we_print_names_a_plugin_we_publish () -> None:
+	"""`#3454`: the fix for `#3407` is two ``claude plugin`` commands, printed for a person to run.
+
+	A command naming a plugin that is not in the marketplace fails on the reader's machine, after
+	they were told it was the fix - and a rename of either plugin would make every copy of it
+	that. Nothing else reads these strings: they are prose to this repository.
+
+	**The floor names the files**, so a scan that stopped reading one fails here rather than
+	passing on fewer - the ``subroutine_whoami`` hint had to be split one literal per command
+	before this could see it.
+	"""
+
+	named = _plugin_commands(ROOT)
+	published = _published_plugins(MARKETPLACE)
+	unknown = {path: ids - published for path, ids in named.items() if ids - published}
+
+	assert not unknown, f"these name a plugin the marketplace does not list: {unknown}"
+	assert {
+		"src/subroutine/cli/main.py",
+		"src/subroutine/mcp/tools.py",
+		"docs/connecting.md",
+		"plugins/subroutine/skills/subroutine/SKILL.md",
+		"plugins/subroutine-remote/skills/subroutine/SKILL.md",
+	} <= set(named), f"the scan read fewer files than carry the switch: {sorted(named)}"
+
+
+def test_the_plugin_command_scan_finds_a_plugin_nobody_publishes (tmp_path: pathlib.Path) -> None:
+	"""The guard above, fed the defect it exists for through its own entry point."""
+
+	(tmp_path / "README.md").write_text(
+		"Run `claude plugin enable subroutine-local@subroutine --scope local` here.\n",
+		encoding="utf-8",
+	)
+
+	named = _plugin_commands(tmp_path)
+
+	assert named == {"README.md": {"subroutine-local@subroutine"}}
+	assert "subroutine-local@subroutine" not in _published_plugins(MARKETPLACE)
+
+
 def test_the_remote_plugin_reaches_a_server_and_installs_nothing () -> None:
 	"""`#540`, and every assertion here is the difference from the local plugin.
 

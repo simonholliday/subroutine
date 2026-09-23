@@ -3203,11 +3203,17 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 		"a session already open is split until it reloads, so the reload comes first (#3310)"
 	)
 	assert "Then 'subroutine whoami' names web, and 'subroutine_whoami' does too" in made
-	assert "where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the" in made, (
+	assert "where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs" in made, (
 		"the tools follow only where a process was started for them, and 'subroutine-remote' "
 		"starts none - promising both halves there is #3407"
 	)
 	assert "both name" not in made
+
+	# **And the switch that closes the gap, in Claude Code's own words** (`#3454`). '--scope
+	# local' is the half that matters: without it, 'enable' and 'disable' change every project
+	# on the machine rather than this one.
+	assert "  claude plugin enable subroutine@subroutine --scope local" in made
+	assert "  claude plugin disable subroutine-remote@subroutine --scope local" in made
 	assert stat.S_IMODE(settings.stat().st_mode) == 0o600
 
 	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)

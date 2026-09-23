@@ -24,9 +24,10 @@ upgrade involves.
   finish, it refuses before anything is made. Reload the window straight afterwards: a session
   already open may act as the new agent in its shell before its tools catch up. **With
   `subroutine-remote` it names the shell only**: that plugin's tools present the one token it
-  was given, in every project, and `agent create` and `subroutine_whoami` both say so. [A different
-  agent in each project](docs/connecting.md#a-different-agent-in-each-project) is built around
-  it now.
+  was given, in every project. `agent create` and `subroutine_whoami` both say so, and name the
+  two `claude plugin ... --scope local` commands that switch one project to the `subroutine`
+  plugin, whose tools take the agent too. [A different agent in each
+  project](docs/connecting.md#a-different-agent-in-each-project) is built around it now.
 
 - **Your agent offers it.** An agent that finds itself working as you in a project offers to
   give the project an agent of its own, and `subroutine_whoami` names the command. The offer is

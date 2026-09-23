@@ -1729,12 +1729,20 @@ def _whoami (
 			subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
 			and caller.through_remote
 		):
+			# **The switch that closes the gap is named with it** (`#3454`): Claude Code's own
+			# commands, with '--scope local' so nothing is installed per project.
 			lines.append(
 				f"What you write here is recorded as {me.user.username}'s. {me.user.username} can "
 				"run 'subroutine agent create <name> --workspace <workspace> --here' in this "
 				"project's directory, but that names its shell and not these tools: they come "
-				"through 'subroutine-remote', which presents one token in every project. The "
-				"'subroutine' plugin takes one per project."
+				"through 'subroutine-remote', which presents one token in every project. For "
+				"these tools too, switch that directory to the 'subroutine' plugin, installed on "
+				"this machine and left disabled elsewhere: "
+				# One literal per command, so `tests/test_plugin.py` reads each one whole.
+				"'claude plugin enable subroutine@subroutine --scope local' and "
+				"'claude plugin disable subroutine-remote@subroutine --scope local', then "
+				"reload. That plugin runs uvx, and with its options blank uses this machine's "
+				"default connection."
 			)
 
 		elif subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:

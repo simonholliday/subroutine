@@ -287,7 +287,8 @@ It works whether the work is on this machine or on a server you reach as a conne
 `subroutine-remote` it reaches only the shell.** That plugin starts nothing: the editor sends the
 plugin's token itself, and a plugin's settings apply to every project at once, so its tools go on
 as that token whatever the project says. The `subroutine` plugin runs the program, which reads the
-project's own settings - which is why this uses them.
+project's own settings - which is why this uses them, and why [switching the project to
+it](#with-subroutine-remote) gives the tools the agent too.
 
 ### Ask your agent
 
@@ -323,8 +324,11 @@ Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readab
 Reload the window, or start a new Claude Code session there, before anything else:
 one already open may act as web in its shell and as before in its tools.
 Then 'subroutine whoami' names web, and 'subroutine_whoami' does too
-where the 'subroutine' plugin runs the tools. Under 'subroutine-remote' the
-tools keep that plugin's own token, which is the same in every project.
+where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs
+them, switch this directory to 'subroutine', then reload:
+  claude plugin enable subroutine@subroutine --scope local
+  claude plugin disable subroutine-remote@subroutine --scope local
+That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.
 ```
 
 - **`web`** is what the agent is called. Naming it after its project keeps the pair obvious.
@@ -347,6 +351,35 @@ tools keep that plugin's own token, which is the same in every project.
 
 **Run it again to replace a credential that was lost or seen.** It gives the agent a new one, names
 the one it replaced, and says how to revoke that.
+
+### With subroutine-remote
+
+**`subroutine-remote` cannot take a project's credential, so switch the project to the
+`subroutine` plugin, which can.** Claude Code's own commands do it.
+
+**Once on the machine**, install the `subroutine` plugin and turn it off, so every other project
+keeps `subroutine-remote`:
+
+```console
+$ claude plugin install subroutine@subroutine
+$ claude plugin disable subroutine@subroutine
+```
+
+**Then in the project's directory**, with `agent create --here` before or after:
+
+```console
+$ claude plugin enable subroutine@subroutine --scope local
+$ claude plugin disable subroutine-remote@subroutine --scope local
+```
+
+Then reload the window. `--scope local` writes both choices into the project's
+`.claude/settings.local.json` and installs nothing, so `claude plugin update subroutine@subroutine`
+still updates the plugin once for the whole machine.
+
+**The `subroutine` plugin needs uv**, since it starts the program with `uvx` - [An agent, on the
+machine holding the work](#an-agent-on-the-machine-holding-the-work) has the rest. With its
+options left blank it uses this machine's default connection, so run `--here` against that one:
+`subroutine connections` says which it is.
 
 ### Check it
 
@@ -381,7 +414,8 @@ directory than the one holding `.claude/`, or it has not been reloaded since the
 **If the shell names the agent and the tools do not**, the tools are still running with what they
 started with, and reloading the window restarts them. **If a reload changes nothing**, the tools are
 `subroutine-remote`'s: `subroutine_whoami`'s version line names a plugin and no program, and that
-plugin presents one token in every project, as above.
+plugin presents one token in every project. [Switching the project to the `subroutine`
+plugin](#with-subroutine-remote) is the fix.
 
 **Then ask the same in a session anywhere else** - your home directory will do. It should name
 you, or this machine's `--store` agent: the credential stays where it was put. Whoever it names is
@@ -456,6 +490,8 @@ connection something else, add a line for that name as well, as in step 2 above.
 
 - **Remove the `env` entry and start a new session.** That project goes back to acting as you, or
   as this machine's agent.
+- **If you switched plugins**, remove the `enabledPlugins` entries from the same file, and the
+  project goes back to the plugins the rest of the machine uses.
 - **`subroutine token list`** shows each credential's prefix, whose it is and when it was last
   used, and **`subroutine token revoke <prefix>`** stops one working everywhere at once.
 

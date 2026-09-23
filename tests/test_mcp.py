@@ -3684,6 +3684,17 @@ def test_the_here_hint_says_it_cannot_reach_subroutine_remotes_tools (
 	assert limit not in said["stdio"], said
 	assert "then start a new session there" in said["stdio"], said
 
+	# **The switch that closes the gap is named with it, and only to the caller it helps**
+	# (`#3454`). Scoped to the project, because an unscoped 'enable' changes every project.
+	switch = (
+		"'claude plugin enable subroutine@subroutine --scope local'",
+		"'claude plugin disable subroutine-remote@subroutine --scope local'",
+	)
+
+	for command in switch:
+		assert command in said["remote"], said
+		assert command not in said["stdio"], said
+
 
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:
 	"""`#2789`. The terminal's line, through the tools an agent actually asks with.
