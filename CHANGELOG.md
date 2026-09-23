@@ -14,7 +14,18 @@ upgrade involves.
 
 ## Unreleased
 
+> **This release changes the database schema**, to `58c81c09d101`.
+>
+> Install it, then run `subroutine db upgrade`. That reports both versions, takes a
+> verified backup, migrates and checks the result - in that order. Stop the service
+> first if you are running one; expect it to be down for the length of the migration.
+
 ### Added
+
+- **Every workspace is given a milestone type and two new links**: `includes`, for what counts
+  toward a milestone, and `precedes`, for an order that holds nothing up - *Precedes* at one
+  end, *Follows* at the other. A workspace that already has a type or a link under one of
+  those names keeps its own.
 
 - **`subroutine agent create <name> --here` gives one project's Claude Code sessions an agent of
   their own, in one command.** Run in the project's directory, it writes the credential into

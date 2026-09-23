@@ -508,8 +508,9 @@ def _refuse_a_category_that_is_not_one (category: str) -> str:
 				hint=(
 					"The category is what the program concludes from the relation; the key is "
 					"yours to name. 'gating' holds work up, 'ordering' says which comes first "
-					"without holding anything up, 'governing' says one binds the other, and "
-					"'describing' says only that they are connected."
+					"without holding anything up, 'counting' says one counts toward the other's "
+					"progress, 'governing' says one binds the other, and 'describing' says only "
+					"that they are connected."
 				),
 			)
 		],

@@ -124,7 +124,7 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# is the one place the count lives — a second copy here rotted the day `#925` added one.
 		source="https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz",
 		notice="phosphor.LICENSE",
-		digest="sha256:a4b9cb64160e0ed7aa82a88d0b3c1bbda5d3d8cc8768f44c5a2f35d35485250b",
+		digest="sha256:6707cdf4f4068a63a2f66f0177dc1a7453fadec645a11cd147e4fe001b0e3d8f",
 	),
 	Vendored(
 		# **The app's mark** (`#2864`), and the one file here that is not code. Simon chose it for

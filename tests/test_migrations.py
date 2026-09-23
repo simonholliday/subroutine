@@ -2024,3 +2024,298 @@ def test_renaming_the_spike_type_moves_no_task (migrated_url: str) -> None:
 
 	finally:
 		engine.dispose()
+
+
+#: The revision below the one that made a milestone a kind of task, so going back to it is what
+#: takes the milestone type, ``includes`` and the seeded ``precedes`` away again.
+_BEFORE_MILESTONES = "cfeea5d4dd35"
+
+
+def _a_seedable_workspace (
+	connection: sqlalchemy.Connection, slug: str
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+	"""Write the least a seed migration needs to find a workspace: a status and a task type.
+
+	Returned as the workspace, the status and the type, which are what a project and a task
+	written afterwards have to point at.
+	"""
+
+	workspace = subroutine.db.types.new_uuid()
+	status = subroutine.db.types.new_uuid()
+	kind = subroutine.db.types.new_uuid()
+
+	_insert(connection, "workspace", {"id": workspace, "slug": slug, "title": slug.title()})
+	_insert(
+		connection,
+		"status",
+		{
+			"id": status,
+			"workspace_id": workspace,
+			"entity_type": "task",
+			"key": "open",
+			"label": "Open",
+		},
+	)
+	_insert(
+		connection,
+		"item_type",
+		{
+			"id": kind,
+			"workspace_id": workspace,
+			"entity_type": "task",
+			"key": "task",
+			"label": "Task",
+			"category": "work",
+			"position": 1000,
+		},
+	)
+
+	return workspace, status, kind
+
+
+def _vocabulary (
+	engine: sqlalchemy.engine.Engine, table_name: str
+) -> list[tuple[typing.Any, ...]]:
+	"""Return a vocabulary table's rows as ``(workspace, key, words, category, is_system)``."""
+
+	table = subroutine.db.base.Base.metadata.tables[table_name]
+	words = table.c.title if "title" in table.c else table.c.label
+
+	with engine.begin() as connection:
+		return [
+			tuple(row)
+			for row in connection.execute(
+				sqlalchemy.select(
+					table.c.workspace_id,
+					table.c.key,
+					words,
+					table.c.category,
+					table.c.is_system,
+				)
+			)
+		]
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+def test_the_milestone_seeds_reach_each_workspace_and_leave_its_own_rows_alone (
+	migrated_url: str,
+) -> None:
+	"""`SR#3393`: three rows for every workspace, and a key a workspace chose stays its own.
+
+	The instance this was written on had made ``precedes`` for itself, so one workspace here has
+	one too, in its own words. The migration must neither add a second nor rewrite the first,
+	while the other workspace gets the seeded row - and going back takes away only what the
+	migration added, which is what ``is_system`` marks.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_MILESTONES)
+
+		with engine.begin() as connection:
+			own, _status, _kind = _a_seedable_workspace(connection, "own")
+			plain, _status, _kind = _a_seedable_workspace(connection, "plain")
+			_insert(
+				connection,
+				"link_type",
+				{
+					"id": subroutine.db.types.new_uuid(),
+					"workspace_id": own,
+					"key": "precedes",
+					"title": "Comes before",
+					"inverse_title": "Comes after",
+					"category": "ordering",
+					"is_symmetric": False,
+					"is_system": False,
+				},
+			)
+
+		subroutine.db.migrate.upgrade(migrated_url)
+
+		links = _vocabulary(engine, "link_type")
+		kinds = _vocabulary(engine, "item_type")
+
+		assert [row for row in links if row[:2] == (own, "precedes")] == [
+			(own, "precedes", "Comes before", "ordering", False)
+		], "the workspace's own precedes was rewritten, or a second one was added beside it"
+		assert (plain, "precedes", "Precedes", "ordering", True) in links
+
+		for workspace in (own, plain):
+			assert (workspace, "includes", "Includes", "counting", True) in links
+			assert (workspace, "milestone", "Milestone", "target", True) in kinds
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_MILESTONES)
+
+		links = _vocabulary(engine, "link_type")
+		kinds = _vocabulary(engine, "item_type")
+
+		assert (own, "precedes", "Comes before", "ordering", False) in links, (
+			"going back took a row the migration never added"
+		)
+		assert not [
+			row for row in links if row[1] == "includes" or row[:2] == (plain, "precedes")
+		]
+		assert not [row for row in kinds if row[1] == "milestone"]
+
+	finally:
+		engine.dispose()
+
+
+#: Each way something can still depend on what the milestone migration added, and the words its
+#: refusal uses for it - so each case is shown to be refused for its own reason.
+_MILESTONE_USES = {
+	"a task typed milestone": "1 task(s) are 'milestone'",
+	"an includes link": "1 link(s) use includes or precedes",
+	"a type of a workspace's own in target": "1 type(s) and 0 link type(s) of a workspace's own",
+	"a link type of a workspace's own in counting": (
+		"0 type(s) and 1 link type(s) of a workspace's own"
+	),
+}
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+@pytest.mark.parametrize("use", sorted(_MILESTONE_USES))
+def test_going_back_below_milestones_refuses_while_anything_uses_them (
+	migrated_url: str, use: str
+) -> None:
+	"""`SR#1689`'s rule, for `SR#3393`: count first, refuse, and delete nothing.
+
+	A task typed ``milestone`` and a link drawn with ``includes`` use the rows the downgrade
+	deletes. A type or a link type a workspace made for itself in one of the two new categories
+	is not the migration's to delete, but narrowing the CHECK would leave it outside what the
+	column admits - so all four refuse, on both backends, since the finding `SR#1689` was named
+	for is that the two disagreed.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with engine.begin() as connection:
+			workspace, status, kind = _a_seedable_workspace(connection, "w")
+			milestone = subroutine.db.types.new_uuid()
+			includes = subroutine.db.types.new_uuid()
+			project = subroutine.db.types.new_uuid()
+
+			_insert(
+				connection,
+				"item_type",
+				{
+					"id": milestone,
+					"workspace_id": workspace,
+					"entity_type": "task",
+					"key": "milestone",
+					"label": "Milestone",
+					"category": "target",
+					"position": 2000,
+					"is_system": True,
+				},
+			)
+			_insert(
+				connection,
+				"link_type",
+				{
+					"id": includes,
+					"workspace_id": workspace,
+					"key": "includes",
+					"title": "Includes",
+					"inverse_title": "Included in",
+					"category": "counting",
+					"is_symmetric": False,
+					"is_system": True,
+				},
+			)
+			_insert(
+				connection,
+				"project",
+				{
+					"id": project,
+					"workspace_id": workspace,
+					"key": "p",
+					"title": "P",
+					"status_id": status,
+				},
+			)
+
+			tasks = []
+
+			for ref, typed in ((1, milestone), (2, kind)):
+				task = subroutine.db.types.new_uuid()
+				tasks.append(task)
+				_insert(
+					connection,
+					"task",
+					{
+						"id": task,
+						"workspace_id": workspace,
+						"project_id": project,
+						"type_id": typed if use == "a task typed milestone" else kind,
+						"status_id": status,
+						"ref": ref,
+						"title": f"Task {ref}",
+					},
+				)
+
+			if use == "an includes link":
+				_insert(
+					connection,
+					"link",
+					{
+						"id": subroutine.db.types.new_uuid(),
+						"workspace_id": workspace,
+						"source_type": "task",
+						"source_id": tasks[0],
+						"target_type": "task",
+						"target_id": tasks[1],
+						"link_type_id": includes,
+					},
+				)
+
+			if use == "a type of a workspace's own in target":
+				_insert(
+					connection,
+					"item_type",
+					{
+						"id": subroutine.db.types.new_uuid(),
+						"workspace_id": workspace,
+						"entity_type": "task",
+						"key": "release",
+						"label": "Release",
+						"category": "target",
+						"position": 3000,
+						"is_system": False,
+					},
+				)
+
+			if use == "a link type of a workspace's own in counting":
+				_insert(
+					connection,
+					"link_type",
+					{
+						"id": subroutine.db.types.new_uuid(),
+						"workspace_id": workspace,
+						"key": "delivers",
+						"title": "Delivers",
+						"inverse_title": "Delivered by",
+						"category": "counting",
+						"is_symmetric": False,
+						"is_system": False,
+					},
+				)
+
+		with pytest.raises(Exception) as refused:
+			subroutine.db.migrate.downgrade(migrated_url, _BEFORE_MILESTONES)
+
+		assert _MILESTONE_USES[use] in str(refused.value), (
+			f"refused, but not for {use}: {refused.value}"
+		)
+
+		assert (workspace, "milestone", "Milestone", "target", True) in _vocabulary(
+			engine, "item_type"
+		), "the type was deleted anyway"
+		assert (workspace, "includes", "Includes", "counting", True) in _vocabulary(
+			engine, "link_type"
+		), "the link type was deleted anyway"
+
+	finally:
+		engine.dispose()

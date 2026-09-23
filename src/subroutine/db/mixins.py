@@ -49,12 +49,18 @@ STATUS_CATEGORIES = TASK_STATUS_CATEGORIES + DOCUMENT_STATUS_CATEGORIES
 #: **Do not pad this to five.** The count is whatever has a meaning that earns it; four is not
 #: :data:`TASK_STATUS_CATEGORIES`'s four arriving late.
 #:
+#: **The fifth arrived on 2026-09-23, and earned its place the same way** (decision `#3391`).
+#: ``target`` is a milestone: never offered as work, whether or not anything is in it yet, and
+#: dated by a deadline that is a commitment rather than something that happens to you - so it
+#: may go overdue, where an ``occasion`` may not. A workspace may put its own ``release`` under
+#: it and inherit all of that.
+#:
 #: **It answers one question and says so.** Not whether a document binds the reader
 #: (``links.GOVERNING``, a category on the *link*) and not whether one is true when written
 #: (``documents.IN_FORCE_WHEN_WRITTEN``). Those are different partitions of the same six
 #: document types, overlapping in two members and differing in two, and a field serving all
 #: three would serve none.
-TASK_TYPE_CATEGORIES = ("work", "defect", "question", "occasion")
+TASK_TYPE_CATEGORIES = ("work", "defect", "question", "occasion", "target")
 DOCUMENT_TYPE_CATEGORIES = ("decision", "reference", "record")
 ITEM_TYPE_CATEGORIES = TASK_TYPE_CATEGORIES + DOCUMENT_TYPE_CATEGORIES
 
@@ -68,9 +74,15 @@ ITEM_TYPE_CATEGORIES = TASK_TYPE_CATEGORIES + DOCUMENT_TYPE_CATEGORIES
 #: set it reads — `readiness` takes ``{gating}``, the ring refusal ``{gating, ordering}``, and
 #: *Read first* ``{governing}`` — so the sets stay visible instead of being inferred.
 #:
-#: ``ordering`` is seeded on nothing, deliberately: it is what a workspace's own *precedes*
-#: would be, and whether every workspace gets one is a separate question (`#1151`).
-LINK_TYPE_CATEGORIES = ("gating", "ordering", "governing", "describing")
+#: ``ordering`` was seeded on nothing until decision `#3391` answered `#1151`: every workspace
+#: is given *precedes* now, at seed set 4.
+#:
+#: **``counting`` is what a milestone's ``includes`` is** (decision `#3391`): the source counts
+#: the target toward its own progress. It sits after ``ordering`` because that is how much it
+#: binds - it says what has to be done before a milestone is reached, and never what anybody may
+#: start - and `#1535` orders an item's links by exactly that. Which rules read it is declared
+#: at each rule, like the sets above.
+LINK_TYPE_CATEGORIES = ("gating", "ordering", "counting", "governing", "describing")
 
 #: Entities that can carry a status, a type, a comment or a link.
 STATUS_ENTITY_TYPES = ("task", "project", "document")

@@ -70,6 +70,7 @@ export const TYPE_ICONS = {
 	chore: "broom",
 	question: "question",
 	event: "calendar-dots",
+	milestone: "flag",
 	note: "note",
 	spec: "file-text",
 	design: "compass-tool",
@@ -102,6 +103,9 @@ export const CATEGORY_ICONS = {
 	   that adds `holiday` under `occasion` through `#1129` gets what `event` carries, and reads
 	   as *this is something that happens, and I do not know more*. */
 	occasion: "calendar-dots",
+	/* The same rule one kind along (decision `#3391`): a workspace that adds `release` under
+	   `target` gets the flag a `milestone` carries, and reads as *this is something aimed at*. */
+	target: "flag",
 	decision: "gavel",
 	reference: "file-text",
 	record: "note",

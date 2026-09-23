@@ -251,9 +251,8 @@ EVENT_TYPES = (
 #: implementing a specification point back at it, and how a bug points back at the failing
 #: check that found it (docs/design.md §5.7).
 #: The category on each is decision `#1157`'s table, and it is what every rule about a relation
-#: reads — never the key, which a workspace may rename. **Nothing is seeded `ordering`**: that is
-#: what a workspace's own *precedes* would be, asserting a sequence that holds nothing up, and
-#: whether every workspace should be given one is `#1151`.
+#: reads — never the key, which a workspace may rename. **Nothing here is seeded `ordering`**:
+#: *precedes* arrives at seed set 4, below, since decision `#3391` answered `#1151`.
 LINK_TYPES = (
 	LinkTypeSeed("blocks", "Blocks", "Blocked by", "gating"),
 	LinkTypeSeed("relates_to", "Relates to", "Relates to", "describing", is_symmetric=True),
@@ -300,6 +299,30 @@ SUPERSEDES_LINK = (
 	LinkTypeSeed("supersedes", "Supersedes", "Superseded by", "governing"),
 )
 
+#: What decision `#3391` adds, at seed version 4: a milestone, what counts toward one, and the
+#: planned order between items.
+#:
+#: **A type rather than an entity, for `event`'s reason.** A milestone needs a ref, a project,
+#: comments, links, a description and a date, and every one of those is already a task's. What
+#: makes it a milestone is ``target``, the category readiness reads so that one is never offered
+#: as work, empty or not.
+MILESTONE_TYPES = (
+	ItemTypeSeed("task", "milestone", "Milestone", "target"),
+)
+
+#: **``includes`` runs from the milestone to the work**, so filling one is a single call with the
+#: work listed after it, and the milestone reads *Includes* where each item reads *Included in*.
+#: ``counting`` is what the milestone's progress reads, and it never holds anything up.
+#:
+#: **``precedes`` is the relation `#1151` asked about**: planned order that holds nothing up. A
+#: workspace here had made one for itself and used it across six projects before it was seeded.
+#: Between two milestones it says one is planned after the other, where ``blocks`` says one
+#: cannot be reached before the other is.
+MILESTONE_LINKS = (
+	LinkTypeSeed("includes", "Includes", "Included in", "counting"),
+	LinkTypeSeed("precedes", "Precedes", "Follows", "ordering"),
+)
+
 #: Keyed by the release that introduced them. To add a status in a later version, add a
 #: new key here holding only the new rows — never edit an existing set, because a
 #: workspace already past that number will not look at it again, and moving a row between
@@ -328,6 +351,10 @@ SEED_SETS: dict[int, SeedSet] = {
 	# writes the other, which is `#84`'s rule — a status inferred from a graph edge is a write
 	# nobody made.
 	3: SeedSet(statuses=SUPERSEDED_STATUS, link_types=SUPERSEDES_LINK),
+	# **Decision `#3391`, built by `#3393`.** A milestone, what counts toward one, and the order
+	# between items that holds nothing up. The categories they need are admitted by the
+	# migration that carries them.
+	4: SeedSet(item_types=MILESTONE_TYPES, link_types=MILESTONE_LINKS),
 }
 
 #: The version a freshly seeded workspace ends up at. Derived rather than declared, so
