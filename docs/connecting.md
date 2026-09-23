@@ -376,6 +376,21 @@ Then reload the window. `--scope local` writes both choices into the project's
 `.claude/settings.local.json` and installs nothing, so `claude plugin update subroutine@subroutine`
 still updates the plugin once for the whole machine.
 
+**Or move the whole machine to it**, which is simpler when most projects will have an agent of
+their own: every project then works the way the rest of this section describes, with nothing to
+switch per project.
+
+```console
+$ claude plugin install subroutine@subroutine
+$ claude plugin disable subroutine-remote@subroutine
+```
+
+**The catch is every project without an agent of its own.** Its tools stop presenting the token
+you gave `subroutine-remote`, and present the `subroutine` plugin's own `token` option instead -
+or, with that left blank, the program's credential for the connection, which is this machine's
+`--store` agent where there is one. Give the option a token for the same account to keep those
+projects as they were, and ask `subroutine_whoami` in one of them afterwards.
+
 **The `subroutine` plugin needs uv**, since it starts the program with `uvx` - [An agent, on the
 machine holding the work](#an-agent-on-the-machine-holding-the-work) has the rest. With its
 options left blank it uses this machine's default connection, so run `--here` against that one:
@@ -491,7 +506,9 @@ connection something else, add a line for that name as well, as in step 2 above.
 - **Remove the `env` entry and start a new session.** That project goes back to acting as you, or
   as this machine's agent.
 - **If you switched plugins**, remove the `enabledPlugins` entries from the same file, and the
-  project goes back to the plugins the rest of the machine uses.
+  project goes back to the plugins the rest of the machine uses. A whole machine goes back with
+  `claude plugin enable subroutine-remote@subroutine` and
+  `claude plugin disable subroutine@subroutine`.
 - **`subroutine token list`** shows each credential's prefix, whose it is and when it was last
   used, and **`subroutine token revoke <prefix>`** stops one working everywhere at once.
 
