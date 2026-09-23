@@ -2590,8 +2590,15 @@ def agent_create (
 				f"'subroutine token revoke {placed.replaced}'."
 			)
 
-		_say("Start a new Claude Code session there, or reload the window. In it,")
-		_say(f"'subroutine whoami' and 'subroutine_whoami' both name {minted.username}.")
+		# **Before anything else, and why** (`#3310`, measured on `#3309`). Claude Code can hand a
+		# running session's shell the new file straight away while its tools keep the credential
+		# they started with, so a session already open is two names at once until it reloads -
+		# whether this ran inside that session or in a terminal beside it.
+		_say("Reload the window, or start a new Claude Code session there, before anything else:")
+		_say(
+			f"one already open may act as {minted.username} in its shell and as before in its tools."
+		)
+		_say(f"Then 'subroutine whoami' and 'subroutine_whoami' both name {minted.username}.")
 
 	elif written is None:
 		_say("Nothing here will use it yet. For one project on this machine, it goes in")

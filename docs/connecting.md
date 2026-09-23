@@ -306,8 +306,9 @@ Created service account web, with the contributor role.
 Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read)
 
 Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by you.
-Start a new Claude Code session there, or reload the window. In it,
-'subroutine whoami' and 'subroutine_whoami' both name web.
+Reload the window, or start a new Claude Code session there, before anything else:
+one already open may act as web in its shell and as before in its tools.
+Then 'subroutine whoami' and 'subroutine_whoami' both name web.
 ```
 
 - **`web`** is what the agent is called. Naming it after its project keeps the pair obvious.
@@ -332,10 +333,12 @@ the one it replaced, and says how to revoke that.
 
 ### Check it
 
-A session reads its settings when it starts, so one already open keeps the identity it began
-with. **Start a new one there, or reload the window** - in an editor, a new conversation may not be
-a new session. Then ask the agent to run `subroutine whoami` in its shell, and to call
-`subroutine_whoami` through its tools. **Both must name the project's agent**, on their first line:
+**Reload the window, or start a new session there, before the agent does anything else.** A
+session already open may take the file up in its shell straight away while its tools go on with
+what they started with, so until the reload it is two people at once - and in an editor, a new
+conversation may not be a new session. Then ask the agent to run `subroutine whoami` in its
+shell, and to call `subroutine_whoami` through its tools. **Both must name the project's agent**,
+on their first line:
 
 ```console
 $ subroutine whoami
@@ -356,10 +359,10 @@ $ subroutine connections
 local  sqlite:///…/subroutine.db  SUBROUTINE_TOKEN_LOCAL  in use, default
 ```
 
-Anything else in that column means the session never received it: it started before the file was
-written, or it was opened in another directory. **If the shell names the new credential and the
-tools an older one**, the plugin's server has outlived the session, and reloading the window
-restarts it.
+Anything else in that column means the session never received it: it was opened in another
+directory than the one holding `.claude/`, or it has not been reloaded since the file was written.
+**If the shell names the agent and the tools do not**, the tools are still running with what they
+started with, and reloading the window restarts them.
 
 **Then ask the same in a session anywhere else** - your home directory will do. It should name
 you, or this machine's `--store` agent: the credential stays where it was put. Whoever it names is

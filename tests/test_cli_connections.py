@@ -3125,6 +3125,9 @@ def test_here_gives_the_directory_its_agent_without_printing_the_credential (
 	assert "sr_" not in made
 	assert f"Written to {settings} as SUBROUTINE_TOKEN_LOCAL, readable only by you." in made
 	assert "Checked, by presenting it: web (agent)" in made
+	assert "before anything else" in made, (
+		"a session already open is split until it reloads, so the reload comes first (#3310)"
+	)
 	assert stat.S_IMODE(settings.stat().st_mode) == 0o600
 
 	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)

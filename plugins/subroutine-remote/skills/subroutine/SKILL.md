@@ -306,9 +306,10 @@ the credential never passes through this conversation.
   is nothing here for you to run.
 - **Say what changed**: the settings file, and `.gitignore` if it gained a line. Committing that is
   theirs.
-- **It cannot take effect in this session**, which started before the file existed. Ask them to
-  reload the window or start a new session there, and in the new one check that
-  `subroutine_whoami` and `subroutine whoami` both name the agent.
+- **Ask for a reload, and write nothing until it has happened.** This session may already act as
+  the agent in its shell while its tools go on as before: two names at once, which is the split
+  this exists to end. Ask them to reload the window or start a new session there, and in the new
+  one check that `subroutine_whoami` and `subroutine whoami` both name the agent.
 - **It needs the program on this machine**, so a session reaching an instance by address, with
   `subroutine-remote`, cannot do it. Its tools act as whatever token that plugin was given.
 

@@ -21,8 +21,10 @@ upgrade involves.
   `.claude/settings.local.json` under the variable for your connection, makes the repository
   ignore that file - adding the line to `.gitignore` if it needs one - and prints nothing
   secret, so your agent can run it for you without ever seeing the credential. If it could not
-  finish, it refuses before anything is made. [A different agent in each
-  project](docs/connecting.md#a-different-agent-in-each-project) is built around it now.
+  finish, it refuses before anything is made. Reload the window straight afterwards: a session
+  already open may act as the new agent in its shell before its tools catch up. [A different
+  agent in each project](docs/connecting.md#a-different-agent-in-each-project) is built around
+  it now.
 
 - **Your agent offers it.** An agent that finds itself working as you in a project offers to
   give the project an agent of its own, and `subroutine_whoami` names the command. The offer is
