@@ -1182,7 +1182,12 @@ def test_the_skill_does_not_teach_around_a_gap_silently () -> None:
 	# tool can: over a served instance they run on the server (`#539`), which has never seen the
 	# file on the caller's machine — the same reason `whoami` is here, and nothing belongs in
 	# `NOT_IN_MCP`, which lists routes, because there is no route to a file nobody sends.
-	assert len(commands) <= 8, (
+	# **Raised to 9 for `#3348`, and it is `agent`'s argument one step on.** `user` is named for
+	# `user transfer`, which `agent create` now prints when an agent has made the agent, and the
+	# skill says to pass it to the person rather than run it, because only a person may take an
+	# agent on. Nothing is being routed around: `transfer_agent` is in `NOT_IN_MCP` already, since
+	# the service refuses it from every agent on every surface.
+	assert len(commands) <= 9, (
 		f"the skill sends an agent to the CLI for {sorted(commands)}. Each is something MCP "
 		f"cannot do; if that is right, say so in NOT_IN_MCP and raise this number deliberately"
 	)

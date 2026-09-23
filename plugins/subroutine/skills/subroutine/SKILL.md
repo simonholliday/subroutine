@@ -300,10 +300,17 @@ the repository ignore that file. **It prints nothing secret**, which is what mak
 the credential never passes through this conversation.
 
 - **Ask first.** It makes an account on the instance and writes into the checkout, and both are
-  the person's to agree to.
+  the person's to agree to. **Mentioning the feature is not a yes**: in Claude Code's auto mode,
+  running it without a plain yes in the conversation is refused as a permission grant. Answer a
+  refusal by asking, never by running it another way.
 - **Only where they may.** `subroutine_whoami` offers the person this command when they may make
   accounts. Where it says an administrator can make one instead, the person asks one, and there
   is nothing here for you to run.
+- **Say whose it will be.** The new agent answers to whoever runs the command. If
+  `subroutine_whoami` names you, an agent, rather than the person, it will answer to you, and a
+  question it hands back will reach you before them: say so when you ask. `agent create` then
+  prints the `subroutine user transfer` command that makes the person its parent. Pass it on,
+  because only a person may run it.
 - **Say what changed**: the settings file, and `.gitignore` if it gained a line. Committing that is
   theirs.
 - **Ask for a reload, and write nothing until it has happened.** This session may already act as

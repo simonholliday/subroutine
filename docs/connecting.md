@@ -294,6 +294,17 @@ plugin's skill offers it anyway, the first time it finds itself working as you. 
 command below, says what it changed, and asks you to reload the window. The credential never
 passes through its conversation, because the command prints nothing secret.
 
+**If the session already acts as an agent** - this machine's, from `agent create --store`, say -
+the new agent answers to that one, and a question it hands back reaches it before you. That can
+only happen where the agent may make accounts. `agent create` then says so, and prints the one
+command that makes you the parent instead, which only a person can run:
+
+```console
+Account parent: claude. Answers to jo.
+A question it hands back goes to claude first. To take it on,
+jo runs 'subroutine user transfer web --to jo' - an agent cannot.
+```
+
 ### Or run it yourself
 
 In the project's directory - the one you open Claude Code in:
@@ -304,6 +315,7 @@ Added .claude/settings.local.json to …/web/.gitignore, so git keeps the creden
 Created service account web, with the contributor role.
 
 Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read)
+Account parent: jo.
 
 Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by you.
 Reload the window, or start a new Claude Code session there, before anything else:
@@ -322,6 +334,7 @@ Then 'subroutine whoami' and 'subroutine_whoami' both name web.
   matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
   one, and prints nothing secret. **If it cannot finish, it refuses before anything is made** - a
   settings file that is not valid JSON, say, or one the repository already tracks.
+- **`Account parent`** is who answers for the agent: whoever ran the command, which here is you.
 - **As written, the agent can do what its account's role allows anywhere in that workspace.** To
   keep it to its own project, add `--profile worker --project web`; to let it read a neighbour and
   change only its own, `--profile collaborator --project web --project api --write web`. [Saying
@@ -410,6 +423,10 @@ prints. Then do by hand what `--here` does, in the project's directory:
    credential.
 
 Then check it as above.
+
+**It answers to whoever made it**, which the *Account parent* line in what they sent you names.
+For it to answer to you, they run `subroutine user transfer web --to <you>` - only a person who
+may make accounts can.
 
 ### A checkout more than one machine opens
 

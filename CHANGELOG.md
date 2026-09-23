@@ -33,6 +33,12 @@ upgrade involves.
 
 ### Changed
 
+- **`agent create` says whom the new agent answers to**, which is whoever ran it. When that is
+  another agent - your own, giving a project its agent - it also prints the one command that
+  makes you the parent instead, `subroutine user transfer <name> --to <you>`, which only a
+  person can run. The plugin's skill says the same, and that mentioning the feature to your
+  agent is not a yes.
+
 - **`agent create` without a hand-over names the variable to put its credential under**, for a
   project on the machine it ran on, rather than leaving you to work it out. A name that is not
   your connection's is ignored without a word.

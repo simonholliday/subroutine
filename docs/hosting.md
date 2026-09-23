@@ -1000,6 +1000,7 @@ who did what if the screen is ever used to write, and turning it off does not lo
   That is the only time the credential is shown. Nothing recovers it afterwards.
 
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
+  Account parent: laurence.
 
   Nothing here will use it yet. For one project on this machine, it goes in
   its .claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL - '--here' does that for you.
@@ -1008,6 +1009,10 @@ who did what if the screen is ever used to write, and turning it off does not lo
 ```
 
 The secret is the one thing masked on this page. Everything else is what the command printed.
+
+**The agent answers to whoever ran the command** - `laurence` here. For it to answer to somebody
+else, `subroutine user transfer claude --to keanu` hands it over; only a person who may make
+accounts can run that.
 
 **Add `--store` and the second half is done too**, which is what you want on the machine the
 agent runs on:

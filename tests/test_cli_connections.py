@@ -1818,6 +1818,73 @@ def test_one_command_sets_an_agent_up_and_what_it_records_works (
 	assert "Rotate the certificates" in run("list").output
 
 
+def test_agent_create_says_whom_the_agent_answers_to (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#3348`. Whoever runs it becomes the agent's parent, and the command says who that is.
+
+	For a person that is the whole of it: the person is the parent and answers for it, so there
+	is nothing to hand over and nothing more to say.
+	"""
+
+	run("init", "--username", "jo", "--workspace", "Acme")
+
+	made = run("agent", "create", "web").output
+
+	assert "Account parent: jo." in made, made
+	assert "Answers to" not in made, "the parent is the person, so saying it twice is noise"
+	assert "user transfer" not in made, "there is nothing to hand over"
+
+
+def test_an_agent_made_by_an_agent_says_how_its_person_takes_it_on (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3348`: the printed command is the remedy, so it is run as printed - by both of them.
+
+	An agent that may make accounts becomes the parent of every agent it makes (decision
+	`#473`), so a question the new one hands back reaches it before any person (`#2700` §3).
+	Twice on 2026-09-23 a session acting as such an agent gave a project its agent, and only
+	``whoami`` afterwards showed it. The output names the parent and the command that makes
+	the person at the end of the chain the parent instead. It also says an agent cannot run
+	that command, which is a claim too, so it is checked.
+	"""
+
+	run("init", "--username", "jo", "--workspace", "Acme")
+
+	issued = run("user", "create", "claude", "--agent", "--superuser", "--terminal").output
+	run("user", "add", "claude", "--workspace", "acme", "--role", "member")
+	monkeypatch.setenv(
+		"SUBROUTINE_TOKEN", next(word for word in issued.split() if word.startswith("sr_"))
+	)
+
+	made = run("agent", "create", "web", "--workspace", "acme").output
+
+	assert "Account parent: claude. Answers to jo." in made, made
+	assert "A question it hands back goes to claude first." in made
+
+	command = "subroutine user transfer web --to jo"
+
+	assert f"jo runs '{command}' - an agent cannot." in made, made
+
+	# As the line says, the agent cannot take this step for the person.
+	refused = run(*command.split()[1:], expect=1).output
+
+	assert "An agent cannot decide" in refused, refused
+
+	# And the person can, exactly as printed.
+	web = next(word for word in made.split() if word.startswith("sr_"))
+	monkeypatch.delenv("SUBROUTINE_TOKEN")
+
+	run(*command.split()[1:])
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", web)
+
+	answer = run("whoami").output
+
+	assert "Account parent: jo." in answer, answer
+	assert "Answers to" not in answer
+
+
 def test_setting_an_agent_up_reaches_a_served_instance (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:
@@ -1827,6 +1894,13 @@ def test_setting_an_agent_up_reaches_a_served_instance (
 
 	assert "Created service account claude" in made
 	assert "claude (agent)" in made
+
+	# **Over the wire too** (`#3348`): the parent comes back in `/v1/me`, and a field a body left
+	# out would read as nothing to say rather than as a failure. It is checked against the
+	# operator the closing line names, which is asked for separately, before anything is minted.
+	operator = made.split("its shell acts as ")[1].split(",")[0]
+
+	assert f"Account parent: {operator}." in made, made
 
 	# **This asserted `SUBROUTINE_TOKEN_WORK=` until `#1449`.** The command's answer used to be
 	# an environment line for somebody to set by hand, and on the commonest setup — an agent

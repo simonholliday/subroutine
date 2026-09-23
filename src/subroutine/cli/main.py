@@ -2441,6 +2441,10 @@ def agent_create (
 
 	The credential is checked by being presented, not by being described: what it can actually
 	do is read back from the instance before this command claims anything.
+
+	It says whom the agent answers to, which is whoever ran it. When that is another agent, it
+	prints the one command that hands the new one to the person that agent answers to, which
+	only a person may run.
 	"""
 
 	shaped = _shaped_by_profile(
@@ -2511,7 +2515,7 @@ def agent_create (
 			_fail(error)
 
 		connection = client.connection
-		checked = _what_the_credential_can_do(client, minted.token)
+		presented = _presented(client, minted.token)
 
 	variable = subroutine.credentials.variable_for(connection.name)
 
@@ -2554,9 +2558,10 @@ def agent_create (
 				f"stop it working with 'subroutine token revoke {minted.prefix}'.",
 			)
 
-	if checked is not None:
+	if presented is not None:
 		_say("")
-		_say(f"Checked, by presenting it: {checked}")
+		_say(f"Checked, by presenting it: {_what_the_credential_can_do(presented)}")
+		_say_whom_it_answers_to(presented.user)
 
 	# **The sentence that stops this looking finished when it is not.** Until the credential is
 	# recorded, the agent's shell keeps resolving whatever the command line resolves — normally
@@ -2626,19 +2631,20 @@ def _shown_once (secret: str) -> None:
 	_say("That is the only time the credential is shown. Nothing recovers it afterwards.")
 
 
-def _what_the_credential_can_do (
+def _presented (
 	client: subroutine.clients.base.Client, secret: str
-) -> str | None:
-	"""Present a freshly minted credential and describe what the instance says it may do.
+) -> subroutine.views.Me | None:
+	"""Present a freshly minted credential, and return what the instance says about it.
 
 	**Checked rather than described.** A report assembled from what was *asked for* agrees with
 	itself whatever the instance decided — and the interesting failures are exactly the ones
 	where those differ: a scope that names a permission the owner's role does not carry, a
 	workspace pin on a workspace the account was never added to. Presenting the credential is
-	the only version of this check worth printing.
+	the only version of this check worth printing, and whom the agent answers to is read from
+	the same answer (`#3348`).
 
 	``None`` when the check itself could not be made, which is reported as silence rather than
-	as a claim: the credential exists either way and the secret is on screen.
+	as a claim: the credential exists either way.
 	"""
 
 	try:
@@ -2648,10 +2654,14 @@ def _what_the_credential_can_do (
 		with subroutine.clients.opening.for_connection(
 			client.connection, roster, settings, token=secret
 		) as presented:
-			answer = presented.me()
+			return presented.me()
 
 	except subroutine.errors.SubroutineError:
 		return None
+
+
+def _what_the_credential_can_do (answer: subroutine.views.Me) -> str:
+	"""Describe what the instance said a freshly presented credential may do."""
 
 	credential = answer.credential
 	kind = "agent" if answer.user.is_service_account else "person"
@@ -2683,6 +2693,42 @@ def _what_the_credential_can_do (
 	writes = f", writing only in {', '.join(changing)}" if changing else ""
 
 	return f"{answer.user.username} ({kind}), in {where}{within}{writes}"
+
+
+def _say_whom_it_answers_to (user: subroutine.views.Caller) -> None:
+	"""Say whom a new agent answers to, and how a person takes it on from an agent — `#3348`.
+
+	**Whoever runs the command becomes the parent** (decision `#473`), and nothing said so. An
+	agent that gave a project its agent - which the skill's offer has it do - was that agent's
+	parent unannounced, so a question the new one handed back went to it before any person
+	(decision `#2700` §3). Twice on 2026-09-23, and both times only ``whoami`` found it.
+
+	**Read off the credential just presented**, like the check above it, rather than assumed
+	from whoever ran this: the parent is what the instance recorded, which for an agent that
+	already existed and was only given a new credential is whoever made it in the first place.
+
+	**The command, not a description of it**, because the example is what gets copied
+	(`#3286`). It names the person at the end of the chain, and says an agent cannot run it:
+	``user transfer`` refuses one by name, and an agent reading this would otherwise try.
+	"""
+
+	said = subroutine.views.accountable_in_words(user)
+
+	if said is None:
+		return
+
+	_say(said)
+
+	# **Only where the parent is not the person at the end of the chain**, which is exactly where
+	# `accountable_in_words` adds its second sentence: an agent made by an agent.
+	if user.answers_to is None or user.answers_to == user.account_parent:
+		return
+
+	_say(f"A question it hands back goes to {user.account_parent} first. To take it on,")
+	_say(
+		f"{user.answers_to} runs 'subroutine user transfer {user.username} --to "
+		f"{user.answers_to}' - an agent cannot."
+	)
 
 
 @login_app.command("link")
