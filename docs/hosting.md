@@ -1001,7 +1001,9 @@ who did what if the screen is ever used to write, and turning it off does not lo
 
   Checked, by presenting it: claude (agent), in projects (task:read, task:write), and only within web
 
-  Nothing here will use it yet - '--store' is what records it on this machine.
+  Nothing here will use it yet. For one project on this machine, it goes in
+  its .claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL - '--here' does that for you.
+  '--store' would give it to every agent on this machine instead.
   Until then its shell acts as laurence, and nothing above bounds what it does there.
 ```
 
@@ -1155,8 +1157,8 @@ The result is an agent that is itself half the time and you the other half. That
 plainly acting as you, because it is partial: check the event log and the agent's own name is
 there, on the half that went through its tools.
 
-**`--store` settles it for every agent on this machine**, and a project's own settings can
-settle it for one project - [A different agent in each
+**`--store` settles it for every agent on this machine**, and `--here`, run in a project's
+directory, settles it for that project alone - [A different agent in each
 project](connecting.md#a-different-agent-in-each-project). Credentials are looked for in this
 order:
 
@@ -1192,7 +1194,8 @@ did. Remove the agent's token and the mechanism is gone, completely.
 project.** An editor extension has no command to prefix, and a shell profile reaches *your*
 terminal rather than the agent's - but Claude Code reads an `env` block from a project's own
 settings and gives it to everything it starts there, which is how one checkout gets an agent of
-its own while the rest of the machine keeps this one. [A different agent in each
+its own while the rest of the machine keeps this one. `agent create --here` writes that
+block for you, and [A different agent in each
 project](connecting.md#a-different-agent-in-each-project) is the whole of it.
 
 **Check it rather than assuming it**, from inside the agent's own shell:

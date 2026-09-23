@@ -1716,15 +1716,24 @@ def _whoami (
 	# **An agent on a person's credential is where a new installation starts** (`#1620`), and
 	# this is where it shows: everything written through these tools is recorded as the
 	# person's, where the case for handing work over rests on an agent being somebody of its
-	# own. Making the account prints a credential, so it is named rather than done, and named
-	# to whoever may run it.
+	# own. Named to whoever may run it, and **'--here' only to somebody who may** (`#3286`): it
+	# writes the credential where this project's sessions read it and prints nothing, so an
+	# agent can run it for them. Anybody else gets a credential made by an administrator and
+	# handed over, which prints.
 	if kind == "person":
-		may = subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions
-		lines.append(
-			f"What you write here is recorded as {me.user.username}'s. For a name of your own, "
-			f"{me.user.username if may else 'an administrator here'} can run 'subroutine agent "
-			"create <name>', which makes the account and says how to hand it over."
-		)
+		if subroutine.permissions.INSTANCE_USER_CREATE in me.instance_permissions:
+			lines.append(
+				f"What you write here is recorded as {me.user.username}'s. For a name of your own "
+				f"in this project, {me.user.username} can run 'subroutine agent create <name> "
+				"--workspace <workspace> --here' in its directory, then start a new session there."
+			)
+
+		else:
+			lines.append(
+				f"What you write here is recorded as {me.user.username}'s. For a name of your own, "
+				"an administrator here can run 'subroutine agent create <name>' and hand you the "
+				"credential it prints."
+			)
 
 	if credential is not None and credential.narrows:
 		lines.append(

@@ -17,8 +17,10 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import time
@@ -37,6 +39,7 @@ import instance_templates
 import subroutine
 import subroutine.api.app
 import subroutine.auth
+import subroutine.claude_code
 import subroutine.cli.main
 import subroutine.cli.output
 import subroutine.cli.personal
@@ -3042,6 +3045,358 @@ def test_whoami_names_a_credentials_write_set (
 	answer = run("whoami").output
 
 	assert "Narrowed to writing in api." in answer
+
+
+#: ``--here`` asks git what a repository ignores, so these need the program; CI always has it.
+requires_git = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+
+
+def _checkout (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch, *, repository: bool = True
+) -> pathlib.Path:
+	"""Make a project directory to run ``agent create --here`` in, and stand in it.
+
+	**Git runs with nobody's own configuration**, the suite's included. The machine this was
+	written on has ``**/.claude/settings.local.json`` in a personal ignore file, which is the rule
+	that made Superconductor's check pass for the wrong reason (`#3246`) - and would make every
+	test here pass for the same one. ``GIT_DIR`` and its neighbours go too, so an arrangement can
+	never reach this repository's own index.
+	"""
+
+	for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"):
+		monkeypatch.delenv(name, raising=False)
+
+	monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+	monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	checkout = tmp_path / "web"
+	checkout.mkdir()
+
+	if repository:
+		_git(checkout, "init", "--quiet")
+
+	monkeypatch.chdir(checkout)
+
+	return checkout
+
+
+def _git (directory: pathlib.Path, *arguments: str) -> str:
+	"""Run git in ``directory`` to arrange or inspect a test, and return what it printed."""
+
+	return subprocess.run(
+		["git", *arguments], cwd=directory, capture_output=True, text=True, check=True
+	).stdout
+
+
+def _settings_of (checkout: pathlib.Path) -> dict[str, typing.Any]:
+	"""Return what ``--here`` left in a checkout's Claude Code settings."""
+
+	held: dict[str, typing.Any] = json.loads(
+		(checkout / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+	)
+
+	return held
+
+
+@requires_git
+def test_here_gives_the_directory_its_agent_without_printing_the_credential (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#3286`: one command in the project's directory, and the secret never on screen.
+
+	**Asserted by presenting what was written**, not by reading what was said. The output names
+	a variable; only the instance answering as the agent says the variable was the right one,
+	with the right value in it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("project", "create", "web", "Website")
+	checkout = _checkout(tmp_path, monkeypatch)
+
+	made = run(
+		"agent", "create", "web", "--profile", "worker", "--project", "web", "--here"
+	).output
+	settings = checkout / ".claude" / "settings.local.json"
+	secret = _settings_of(checkout)["env"]["SUBROUTINE_TOKEN_LOCAL"]
+
+	assert secret not in made, "written, never printed"
+	assert "sr_" not in made
+	assert f"Written to {settings} as SUBROUTINE_TOKEN_LOCAL, readable only by you." in made
+	assert "Checked, by presenting it: web (agent)" in made
+	assert stat.S_IMODE(settings.stat().st_mode) == 0o600
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", secret)
+
+	assert "web (agent), via token 'web agent'" in run("whoami").output, (
+		"and the instance answers as it"
+	)
+
+
+@requires_git
+def test_here_makes_the_repository_ignore_the_settings_file (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Added rather than asked for (Simon, 2026-09-23), on a line of its own, and checked.
+
+	The existing file ends without a newline, which is the case an append gets wrong.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	gitignore = checkout / ".gitignore"
+	gitignore.write_text("node_modules/", encoding="utf-8")
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert gitignore.read_text(encoding="utf-8") == "node_modules/\n.claude/settings.local.json\n"
+	assert f"Added .claude/settings.local.json to {gitignore}" in made
+	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
+		".gitignore:2:"
+	)
+
+
+@requires_git
+def test_here_leaves_a_repository_that_already_ignores_the_file_alone (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A rule of the repository's own that covers the file is enough, however it is spelled."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".gitignore").write_text(".claude/\n", encoding="utf-8")
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert (checkout / ".gitignore").read_text(encoding="utf-8") == ".claude/\n"
+	assert "Added" not in made
+
+
+@requires_git
+def test_a_personal_ignore_file_does_not_count_for_the_repository (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#3246`'s first finding, as a test: the check that passed for the wrong reason.
+
+	A rule in a person's own ignore file protects that machine and no other, and the checkout on
+	a shared drive is opened from more than one. So the repository gets a rule of its own even
+	though git already reports the file ignored.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	personal = tmp_path / "personal-ignore"
+	personal.write_text("**/.claude/settings.local.json\n", encoding="utf-8")
+	(tmp_path / "gitconfig").write_text(f"[core]\n\texcludesFile = {personal}\n", encoding="utf-8")
+
+	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
+		str(personal)
+	), "the arrangement: git reports the file ignored, by the personal rule"
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert "Added .claude/settings.local.json" in made
+	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
+		".gitignore:"
+	)
+
+
+def _settings_that_do_not_parse (checkout: pathlib.Path) -> None:
+	"""Leave a settings file that is not JSON."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text("{ not json", encoding="utf-8")
+
+
+def _settings_already_in_the_repository (checkout: pathlib.Path) -> None:
+	"""Leave a settings file the repository tracks, which no ignore rule can take back."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text("{}\n", encoding="utf-8")
+	_git(checkout, "add", ".claude/settings.local.json")
+
+
+def _a_rule_nearer_the_file_that_un_ignores_it (checkout: pathlib.Path) -> None:
+	"""Leave a ``!`` rule that outranks anything the top-level ``.gitignore`` can say."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / ".gitignore").write_text("!settings.local.json\n", encoding="utf-8")
+
+
+def _nothing (checkout: pathlib.Path) -> None:
+	"""Leave the checkout as it is."""
+
+
+@requires_git
+@pytest.mark.parametrize(
+	("arrange", "also", "refused"),
+	[
+		pytest.param(_settings_that_do_not_parse, (), "is not valid JSON", id="unparseable"),
+		pytest.param(
+			_settings_already_in_the_repository, (), "is already in the repository", id="tracked"
+		),
+		pytest.param(
+			_a_rule_nearer_the_file_that_un_ignores_it,
+			(),
+			"another rule un-ignores it",
+			id="un-ignored",
+		),
+		pytest.param(_nothing, ("--store",), "two different places", id="both-hand-overs"),
+	],
+)
+def test_here_refuses_before_minting_what_it_could_not_finish (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	arrange: typing.Callable[[pathlib.Path], None],
+	also: tuple[str, ...],
+	refused: str,
+) -> None:
+	"""A credential minted and then stranded is a live secret nobody can recover.
+
+	**And with ``--here`` nobody would even have seen it**, because the secret is printed only
+	when the write fails. So each of these is refused while nothing exists: the listing of
+	credentials afterwards is the proof, not the wording of the refusal.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	arrange(checkout)
+
+	said = run("agent", "create", "web", "--here", *also, expect=1).output
+
+	assert refused in said, said
+	assert "sr_" not in said
+	assert "web agent" not in run("token", "list").output, "nothing was minted"
+
+
+@requires_git
+def test_here_keeps_what_the_settings_file_already_holds (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The file is Claude Code's and carries choices of the person's, so one line is added."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text(
+		json.dumps({"permissions": {"allow": ["Bash(ls)"]}, "env": {"EDITOR": "nano"}}),
+		encoding="utf-8",
+	)
+
+	run("agent", "create", "web", "--here")
+	held = _settings_of(checkout)
+
+	assert held["permissions"] == {"allow": ["Bash(ls)"]}
+	assert held["env"]["EDITOR"] == "nano"
+	assert subroutine.auth.parse_token(held["env"]["SUBROUTINE_TOKEN_LOCAL"]) is not None
+
+
+@requires_git
+def test_here_names_the_credential_it_replaces (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The one before goes on working until revoked, so the command says which one it was.
+
+	**By prefix, because the two share a title** - Simon's run met exactly that, with two
+	credentials called *superconductor agent* and only the prefix to tell them apart (`#3247`).
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	run("agent", "create", "web", "--here")
+	first = _settings_of(checkout)["env"]["SUBROUTINE_TOKEN_LOCAL"]
+	parsed = subroutine.auth.parse_token(first)
+
+	assert parsed is not None
+
+	again = run("agent", "create", "web", "--here").output
+
+	assert (
+		f"It replaces credential {parsed[0]}…, which works until "
+		f"'subroutine token revoke {parsed[0]}'."
+	) in again
+	assert _settings_of(checkout)["env"]["SUBROUTINE_TOKEN_LOCAL"] != first
+
+
+def test_here_outside_a_repository_needs_no_ignore_rule (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""No repository, nothing to commit the file to - so nothing to ignore, and nothing said."""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch, repository=False)
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert (checkout / ".claude" / "settings.local.json").is_file()
+	assert not (checkout / ".gitignore").exists()
+	assert "Added" not in made
+
+
+@requires_git
+def test_here_shows_the_credential_when_its_write_fails (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The one moment ``--here`` prints the secret: it exists, and the file could not take it.
+
+	Without this the credential would be live, unrecorded and unseen, which is the stranding
+	every check before the mint exists to prevent - arriving after it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	_checkout(tmp_path, monkeypatch)
+
+	def refused (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Fail the way a full disk or a read-only mount would."""
+
+		raise PermissionError(13, "Permission denied")
+
+	monkeypatch.setattr(subroutine.claude_code, "write", refused)
+
+	said = run("agent", "create", "web", "--here", expect=1).output
+
+	assert "sr_" in said, "shown this once, since the file could not take it"
+	assert "Permission denied" in said
+	assert "as SUBROUTINE_TOKEN_LOCAL" in said
+	assert "subroutine token revoke" in said
+
+
+def test_agent_create_without_a_hand_over_names_the_variable_to_use (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`#3247`'s finding: the page's example was copied in place of its rule.
+
+	The program is the one place that knows what this connection's variable is called, so a
+	credential printed for somebody to place by hand comes with the name it goes under.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+
+	made = run("agent", "create", "plain").output
+
+	assert ".claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL" in made
+	assert "For one project on this machine" in made, (
+		"the variable is this machine's name for the connection, and an administrator minting "
+		"for somebody else must not hand over the server's name as theirs"
+	)
+	assert "'--here'" in made
+	assert "'--store'" in made
 
 
 def test_every_surface_that_prints_a_version_says_how_to_find_out_if_it_is_old (

@@ -265,106 +265,154 @@ separate moments and only the first one reports, so the second is worth checking
 instance* field takes the name of a connection you have already set up, and the section above is
 how you set one up.
 
-**If you work in several projects**, each project's agent can be somebody of its own while
-the rest of the machine keeps this one - [A different agent in each
-project](#a-different-agent-in-each-project) is how.
+**One command gives each project's agent a name of its own**, instead of yours - [A different
+agent in each project](#a-different-agent-in-each-project).
 
 ## A different agent in each project
 
-**You work in several repositories, and you want each one's agent to be somebody of its own** -
-so that work done in `web` is recorded as the web agent's, is kept to that project, and can be
-revoked without touching the rest - while an agent anywhere else on the machine carries on as
-the one you already have.
+**Give each repository you work in an agent of its own**, so that work done in `web` is recorded
+as the web agent's, is kept to that project, and can be revoked without touching the rest.
 
-**It is an exception, not a second setup.** The machine keeps its general agent. A project that
-names a credential of its own overrides it inside that project, and nowhere else.
+**Until you do, an agent works as you.** Everything it files, closes and comments on is recorded
+under your name - or under this machine's agent, if one was recorded with `agent create --store`.
 
-**What it needs:** Claude Code, and the `subroutine` plugin from [An agent, on the machine
-holding the work](#an-agent-on-the-machine-holding-the-work). It works whether the work is on
-this machine or on a server you reach as a connection. **It does not reach
-`subroutine-remote`**, whose token is a plugin setting - and a plugin's settings apply to every
-project at once, which is why this uses the project's own settings instead.
+**What it needs:** Claude Code and the `subroutine` plugin from [An agent, on the machine holding
+the work](#an-agent-on-the-machine-holding-the-work); the `subroutine` program, reaching the
+instance as you, which [Your terminal here, your work there](#your-terminal-here-your-work-there)
+sets up for a server; and the right to make accounts there, which `subroutine whoami` lists as
+`instance:user_create`. Without that, [somebody who has it makes the
+agent](#if-somebody-else-makes-the-agent).
 
-### 1. Make an agent for each project
+It works whether the work is on this machine or on a server you reach as a connection. **It does
+not reach `subroutine-remote`**, whose token is a plugin setting - and a plugin's settings apply
+to every project at once, which is why this uses the project's own settings instead.
 
-One command per project:
+### Ask your agent
+
+In a Claude Code session in the project, ask for it: *give this project an agent of its own*. The
+plugin's skill offers it anyway, the first time it finds itself working as you. The agent runs the
+command below, says what it changed, and asks you to reload the window. The credential never
+passes through its conversation, because the command prints nothing secret.
+
+### Or run it yourself
+
+In the project's directory - the one you open Claude Code in:
 
 ```console
-$ subroutine agent create web --profile worker --project web
-$ subroutine agent create api --profile worker --project api
+$ subroutine agent create web --workspace acme --here
+Added .claude/settings.local.json to …/web/.gitignore, so git keeps the credential out of the repository. Commit that.
+Created service account web, with the contributor role.
+
+Checked, by presenting it: web (agent), in acme (comment:read, comment:write, project:read, task:read, task:write, workspace:read)
+
+Written to …/web/.claude/settings.local.json as SUBROUTINE_TOKEN_LOCAL, readable only by you.
+Start a new Claude Code session there, or reload the window. In it,
+'subroutine whoami' and 'subroutine_whoami' both name web.
 ```
 
-`worker` gives each agent its project and everything filed under it, and nothing else. An agent
-that reads a neighbouring project for context and changes only its own is `--profile
-collaborator --project web --project api --write web`. [Saying what the credential is
-for](hosting.md#saying-what-the-credential-is-for) has all four profiles, and `--title` names the
-credential if `web agent` is not what you want to read later.
+- **`web`** is what the agent is called. Naming it after its project keeps the pair obvious.
+- **`--workspace`** is the workspace the project is in - `whoami` lists yours - and pins the
+  credential to it. It goes after `create`, spelled out in full.
+- **`--here`** does the rest. It writes the credential into this directory's
+  `.claude/settings.local.json`, under the variable Subroutine reads for this connection. Claude
+  Code gives that file's `env` to everything it starts in the project - the agent's shell as well
+  as the plugin's server - so one line covers both of the ways an agent reaches an instance, and
+  [an agent that can also run a shell](hosting.md#an-agent-that-can-also-run-a-shell) is why both
+  matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
+  one, and prints nothing secret. **If it cannot finish, it refuses before anything is made** - a
+  settings file that is not valid JSON, say, or one the repository already tracks.
+- **As written, the agent can do what its account's role allows anywhere in that workspace.** To
+  keep it to its own project, add `--profile worker --project web`; to let it read a neighbour and
+  change only its own, `--profile collaborator --project web --project api --write web`. [Saying
+  what the credential is for](hosting.md#saying-what-the-credential-is-for) has all four profiles,
+  and `--title` names the credential if `web agent` is not what you want to read later.
 
-**Leave `--store` off.** It records a credential as *this machine's* agent, and a connection has
-one of those - so it would replace your general agent everywhere, where this adds an exception
-in one place.
+**Run it again to replace a credential that was lost or seen.** It gives the agent a new one, names
+the one it replaced, and says how to revoke that.
 
-Each command prints its credential once. Keep it for the next step, and put it nowhere else.
+### Check it
 
-### 2. Put the credential in that project's local settings
-
-In the project's own directory, add an `env` block to `.claude/settings.local.json`, creating
-the file if there is none:
-
-```json
-{
-  "env": {
-    "SUBROUTINE_TOKEN_LOCAL": "sr_…"
-  }
-}
-```
-
-**The name after `SUBROUTINE_TOKEN_` is the connection's**, upper-cased, with anything that is
-not a letter or a digit as an underscore. The instance on this machine is `local`; a server you
-added as `work` makes it `SUBROUTINE_TOKEN_WORK`. `subroutine connections` lists the names.
-
-**Why that file.** Claude Code gives every `env` entry to everything it starts in that project -
-the agent's shell as well as the plugin's server - so one line covers both of the ways an agent
-reaches an instance, and [an agent that can also run a
-shell](hosting.md#an-agent-that-can-also-run-a-shell) is why both matter. It is the half of a
-project's settings meant for this machine alone. **Check that the repository ignores it before
-you save a credential there** - `git check-ignore .claude/settings.local.json` prints the path
-when it does, and nothing when it does not.
-
-**Why that variable, rather than `SUBROUTINE_TOKEN`.** A variable naming the connection is the
-first place a credential is looked for, so it wins over the plugin's own token field and over an
-agent stored on this machine. And it applies to that connection alone, so a second instance you
-reach from the same project keeps its own credential.
-
-### 3. Start a new session there, and check
-
-A session reads its environment when it starts, so one already open in that project keeps the
-identity it began with. Start a new one, or reload the window.
-
-**You know it worked** when the agent's shell, in that project, names the project's agent:
+A session reads its settings when it starts, so one already open keeps the identity it began
+with. **Start a new one there, or reload the window** - in an editor, a new conversation may not be
+a new session. Then ask the agent to run `subroutine whoami` in its shell, and to call
+`subroutine_whoami` through its tools. **Both must name the project's agent**, on their first line:
 
 ```console
 $ subroutine whoami
-web (agent), via token 'web agent' (ea4adf49…).
-Account parent: si.
-Narrowed to projects web.
+web (agent), via token 'web agent' (11117b8a…).
+Account parent: jo.
+Narrowed to workspace 'acme'.
 ```
 
-and `subroutine_whoami`, asked through the agent's tools, names it too. **Then ask the same in a
-session in any other project**: it should name your general agent. The pair is the check -
-either answer alone can be right for the wrong reason.
+**Both, because they are separate.** The shell and the plugin's server each find a credential on
+their own. One right and the other wrong puts half the agent's work under another name - and a
+spot check that finds the right name in one place calls that a success.
 
-**If it does not**, run `subroutine connections` from the agent's shell in that project. It says
-where each connection's credential came from, and the project's variable is named there when it
-arrived:
+**If either names somebody else**, ask the agent to run `subroutine connections` in that session.
+The project's variable is named there when it arrived:
 
 ```console
 $ subroutine connections
 local  sqlite:///…/subroutine.db  SUBROUTINE_TOKEN_LOCAL  in use, default
 ```
 
-Anything else in that column means the session never got the variable: it started before the
-file was saved, or the file is not in the directory the session was opened in.
+Anything else in that column means the session never received it: it started before the file was
+written, or it was opened in another directory. **If the shell names the new credential and the
+tools an older one**, the plugin's server has outlived the session, and reloading the window
+restarts it.
+
+**Then ask the same in a session anywhere else** - your home directory will do. It should name
+you, or this machine's `--store` agent: the credential stays where it was put. Whoever it names is
+who the agent is in every project you have not set up this way.
+
+### If somebody else makes the agent
+
+Without `instance:user_create`, ask whoever runs the instance to run `subroutine agent create web
+--workspace acme` - without `--here`, since the credential has to travel - and to send you what it
+prints. Then do by hand what `--here` does, in the project's directory:
+
+1. **Make the repository ignore the file.** Add `.claude/settings.local.json` to its `.gitignore`
+   and commit that. `git check-ignore -v .claude/settings.local.json` then prints a line beginning
+   `.gitignore`. A rule anywhere else - `.git/info/exclude`, or a file in your home directory -
+   protects this clone or this machine, and not the repository.
+
+2. **Write the file.** Run `mkdir -p .claude`, then open `.claude/settings.local.json` in an
+   editor. If it is new, this is its whole content, with both placeholders replaced; if it holds
+   settings already, add the `env` entry beside them:
+
+   ```json
+   {
+     "env": {
+       "SUBROUTINE_TOKEN_<CONNECTION>": "sr_…"
+     }
+   }
+   ```
+
+   `<CONNECTION>` is **your** name for the connection, as `subroutine connections` lists it,
+   upper-cased, with anything that is not a letter or a digit as an underscore: `work` makes
+   `SUBROUTINE_TOKEN_WORK`, and `my-work` makes `SUBROUTINE_TOKEN_MY_WORK`. **Any other name is
+   ignored without a word** - the one in the administrator's output included, which is named for
+   their machine. Use an editor rather than a command, which would keep the credential in your
+   shell's history.
+
+3. **Check it, and keep it private**, without printing it:
+
+   ```console
+   $ python3 -m json.tool .claude/settings.local.json > /dev/null && echo valid
+   valid
+   $ chmod 600 .claude/settings.local.json
+   ```
+
+   A network drive may ignore `chmod`, and then anybody who can read the checkout can read the
+   credential.
+
+Then check it as above.
+
+### A checkout more than one machine opens
+
+On a shared drive, every machine that opens the checkout reads the same file, and `--here` names
+the variable after **this** machine's name for the connection. Where another machine calls the
+connection something else, add a line for that name as well, as in step 2 above.
 
 ### What it does not do
 
@@ -378,9 +426,12 @@ file was saved, or the file is not in the directory the session was opened in.
 - **Only what Claude Code starts in that project reads the file.** A terminal or a scheduled job
   it did not start, and `subroutine-remote`, go on as before.
 
-**To undo it**, remove the `env` entry and start a new session: that project is back to the
-general agent. `subroutine token revoke <prefix>` stops the credential working anywhere, and
-`subroutine token list` shows the prefix.
+### To undo it
+
+- **Remove the `env` entry and start a new session.** That project goes back to acting as you, or
+  as this machine's agent.
+- **`subroutine token list`** shows each credential's prefix, whose it is and when it was last
+  used, and **`subroutine token revoke <prefix>`** stops one working everywhere at once.
 
 ## An agent, with nothing installed
 

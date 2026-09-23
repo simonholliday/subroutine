@@ -30,6 +30,7 @@ import typer
 
 import subroutine
 import subroutine.auth
+import subroutine.claude_code
 import subroutine.cli.output
 import subroutine.cli.personal
 import subroutine.cli.topics
@@ -2390,10 +2391,18 @@ def agent_create (
 	store: bool = typer.Option(
 		False, "--store", help="Record it on this machine as this connection's agent."
 	),
+	here: bool = typer.Option(
+		False,
+		"--here",
+		help="Give it to the Claude Code sessions started in this directory, and print nothing "
+		"secret.",
+	),
 ) -> None:
 	"""Give an agent an identity of its own, and say how to hand it over.
 
 	Examples:
+
+	  subroutine agent create web --workspace acme --here
 
 	  subroutine agent create claude --profile worker --project WEB
 
@@ -2414,11 +2423,16 @@ def agent_create (
 	you: half its work is correctly attributed, so a spot check finds its name and concludes the
 	setup worked.
 
-	'--store' covers both halves for every agent on this machine. It records the credential
-	beside yours rather than in place of it, and 'subroutine' then acts as the agent in a process
-	the agent started and as you everywhere else - including in 'git' hooks, which are the
-	highest-volume writer here. For one project's agent instead, leave '--store' off and give
-	the credential to that project's own settings, as docs/connecting.md shows.
+	'--here' covers both halves for one project. Run it in the directory Claude Code is opened
+	in: it writes the credential into that directory's .claude/settings.local.json, under this
+	connection's variable, makes the repository ignore that file, and prints nothing secret - so
+	an agent can run it for you without ever seeing the credential. A session started there
+	afterwards acts as the agent.
+
+	'--store' covers both halves for every agent on this machine instead. It records the
+	credential beside yours rather than in place of it, and 'subroutine' then acts as the agent
+	in a process the agent started and as you everywhere else - including in 'git' hooks, which
+	are the highest-volume writer here.
 
 	'--profile' says what the agent is *for*, and expands into the flags below it. 'worker'
 	owns one project; 'collaborator' reads several and writes one of them; 'observer' reports
@@ -2440,11 +2454,30 @@ def agent_create (
 			"For example: subroutine agent create claude --project WEB",
 		)
 
+	# **Two hand-overs are two decisions** (`#3286`). The machine's agent and one directory's
+	# are different names on the record, so a credential given to both would leave which one
+	# acted a guess.
+	if store and here:
+		_stop(
+			"'--store' and '--here' hand the credential to two different places.",
+			"'--store' gives it to every agent on this machine, and '--here' to the Claude Code "
+			"sessions started in this directory. Choose one.",
+		)
+
 	# Checked *before* anything is issued, for the reason `token create` records: a credential
 	# minted and then stranded by an unparseable file is a live token whose secret can never be
 	# recovered.
 	if store:
 		_refuse_unusable_credentials_file(wanted)
+
+	handover: subroutine.claude_code.Handover | None = None
+
+	if here:
+		try:
+			handover = subroutine.claude_code.prepare(pathlib.Path.cwd())
+
+		except subroutine.errors.SubroutineError as error:
+			_fail(error)
 
 	with _administering() as client:
 		try:
@@ -2452,6 +2485,18 @@ def agent_create (
 			# comparison the closing sentence needs, and asking afterwards would report the
 			# same thing while being one step further from the truth.
 			operator = client.me()
+
+			# **The ignore rule goes in before the credential exists** (Simon, 2026-09-23), and
+			# is said at once, so that a refusal of the mint below cannot leave it unsaid.
+			if handover is not None:
+				ignoring = subroutine.claude_code.ensure_ignored(handover)
+
+				if ignoring is not None:
+					_say(
+						f"Added {handover.missing_rule} to {ignoring}, so git keeps the "
+						"credential out of the repository. Commit that."
+					)
+
 			minted = client.issue_token(
 				service_account=wanted,
 				title=title.strip() or f"{wanted} agent",
@@ -2468,19 +2513,21 @@ def agent_create (
 		connection = client.connection
 		checked = _what_the_credential_can_do(client, minted.token)
 
+	variable = subroutine.credentials.variable_for(connection.name)
+
 	if minted.account_created:
 		_say(
 			f"Created service account {minted.username}, with the "
 			f"{subroutine.domain.tokens.SERVICE_ACCOUNT_ROLE} role."
 		)
 
-	_say("")
-	_say(f"  {minted.token}")
-	_say("")
-	_say("That is the only time the credential is shown. Nothing recovers it afterwards.")
-
 	# **Printed before it is stored**, which is `token create`'s rule and matters more here: if
 	# the write fails now, the secret is at least on screen and can be put somewhere by hand.
+	# **'--here' prints it only when its own write fails** (Simon, 2026-09-23), because the point
+	# of that flag is that the secret never passes through whoever ran it - an agent included.
+	if handover is None:
+		_shown_once(minted.token)
+
 	written: pathlib.Path | None = None
 
 	if store:
@@ -2492,6 +2539,21 @@ def agent_create (
 		except subroutine.errors.SubroutineError as error:
 			_fail(error)
 
+	placed: subroutine.claude_code.Written | None = None
+
+	if handover is not None:
+		try:
+			placed = subroutine.claude_code.write(handover, variable, minted.token)
+
+		except OSError as error:
+			_shown_once(minted.token)
+			_stop(
+				f"The credential could not be written to {handover.settings}: "
+				f"{error.strerror or error}.",
+				f"Put it in that file by hand as {variable}, as docs/connecting.md shows, or "
+				f"stop it working with 'subroutine token revoke {minted.prefix}'.",
+			)
+
 	if checked is not None:
 		_say("")
 		_say(f"Checked, by presenting it: {checked}")
@@ -2501,12 +2563,40 @@ def agent_create (
 	# the operator's own, which on this machine is the *unbounded* one. Naming who that is makes
 	# the gap concrete rather than theoretical.
 	#
-	# **Two short lines rather than one long one**, because `_say` wraps at the terminal's width
-	# and a sentence that lands differently on every machine cannot be quoted in documentation.
+	# **Short lines rather than long ones**, because `_say` wraps at the terminal's width and a
+	# sentence that lands differently on every machine cannot be quoted in documentation.
+	#
+	# **And the variable is named, not described** (`#3286`). The page's example was copied in
+	# place of its rule, and a name that is not the connection's is ignored without a word - so
+	# the one place that knows the name says it. **For this machine**, because it is this
+	# machine's name for the connection: an administrator minting on the server for somebody
+	# else would otherwise hand over the server's name for it, typically `local`.
 	_say("")
 
-	if written is None:
-		_say("Nothing here will use it yet - '--store' is what records it on this machine.")
+	if placed is not None:
+		_say(
+			f"Written to {placed.path} as {variable}, "
+			+ (
+				"readable only by you."
+				if placed.private
+				else "though this drive does not keep file permissions, so anybody who can "
+				"read the directory can read it."
+			)
+		)
+
+		if placed.replaced is not None:
+			_say(
+				f"It replaces credential {placed.replaced}…, which works until "
+				f"'subroutine token revoke {placed.replaced}'."
+			)
+
+		_say("Start a new Claude Code session there, or reload the window. In it,")
+		_say(f"'subroutine whoami' and 'subroutine_whoami' both name {minted.username}.")
+
+	elif written is None:
+		_say("Nothing here will use it yet. For one project on this machine, it goes in")
+		_say(f"its .claude/settings.local.json as {variable} - '--here' does that for you.")
+		_say("'--store' would give it to every agent on this machine instead.")
 		_say(
 			f"Until then its shell acts as {operator.user.username}, and nothing above bounds "
 			f"what it does there."
@@ -2518,6 +2608,15 @@ def agent_create (
 			f"'subroutine' here acts as {minted.username} wherever {connection.agent_variable} "
 			f"is set, and as {operator.user.username} otherwise."
 		)
+
+
+def _shown_once (secret: str) -> None:
+	"""Print a freshly minted credential, the one time it is ever shown."""
+
+	_say("")
+	_say(f"  {secret}")
+	_say("")
+	_say("That is the only time the credential is shown. Nothing recovers it afterwards.")
 
 
 def _what_the_credential_can_do (

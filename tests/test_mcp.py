@@ -3564,8 +3564,9 @@ def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
 
 	Everything it writes is then recorded as the person's, where the case for handing work over
 	rests on an agent being somebody of its own. ``whoami`` is the moment somebody is already
-	asking who they are, so it names the command - which is the person's to run, because it
-	prints a credential.
+	asking who they are, so it names the command - with ``--here`` since `#3286`, which writes
+	the credential where this project's sessions read it and prints nothing, so an agent can
+	run it for a person who may.
 	"""
 
 	whoami, failed = _called(bound, "subroutine_whoami")
@@ -3573,6 +3574,7 @@ def test_a_person_on_these_tools_is_told_how_an_agent_gets_a_name_of_its_own (
 	assert not failed, whoami
 	assert "(person)" in whoami, whoami
 	assert "subroutine agent create <name>" in whoami, whoami
+	assert "--here" in whoami, whoami
 
 
 def test_the_agent_create_hint_names_whoever_may_run_it (
@@ -3619,11 +3621,17 @@ def test_the_agent_create_hint_names_whoever_may_run_it (
 
 		said[person.username] = text
 
-	command = "can run 'subroutine agent create <name>'"
+	command = "can run 'subroutine agent create <name>"
 
 	assert f"{setup.user.username} {command}" in said[setup.user.username], said
 	assert f"an administrator here {command}" in said[member.username], said
 	assert f"{member.username} {command}" not in said[member.username], said
+
+	# **'--here' only for whoever may make the account** (`#3286`). It runs as the person and
+	# refuses a member, so offering it to one would send their agent at a command that cannot
+	# work; a member's credential is made by an administrator and handed over instead.
+	assert "--here" in said[setup.user.username], said
+	assert "--here" not in said[member.username], said
 
 
 def test_an_agents_whoami_names_its_account_parent (session: sqlalchemy.orm.Session) -> None:

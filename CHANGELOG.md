@@ -12,6 +12,29 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **`subroutine agent create <name> --here` gives one project's Claude Code sessions an agent of
+  their own, in one command.** Run in the project's directory, it writes the credential into
+  `.claude/settings.local.json` under the variable for your connection, makes the repository
+  ignore that file - adding the line to `.gitignore` if it needs one - and prints nothing
+  secret, so your agent can run it for you without ever seeing the credential. If it could not
+  finish, it refuses before anything is made. [A different agent in each
+  project](docs/connecting.md#a-different-agent-in-each-project) is built around it now.
+
+- **Your agent offers it.** An agent that finds itself working as you in a project offers to
+  give the project an agent of its own, and `subroutine_whoami` names the command. The offer is
+  in the plugin's skill, so refresh the plugin to get it: `claude plugin marketplace update
+  subroutine`, then `claude plugin update subroutine@subroutine`.
+
+### Changed
+
+- **`agent create` without a hand-over names the variable to put its credential under**, for a
+  project on the machine it ran on, rather than leaving you to work it out. A name that is not
+  your connection's is ignored without a word.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

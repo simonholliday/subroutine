@@ -161,6 +161,10 @@ setup interview is how a tool loses the person who just installed it.
    already uses. One line naming the project key is enough. Without it the next session does
    not know adoption happened, and adopts again.
 
+9. **Offer the project an agent of its own, if `subroutine_whoami` names a person.** Until it
+   has one, everything you file here is recorded as theirs. It is one command and a reload of
+   the window, and *An agent of this project's own*, below, says when it is yours to run.
+
 ## Working day to day
 
 **Open by asking what changed.** Your context is a snapshot and it does not decay — nothing
@@ -212,7 +216,8 @@ Four answers are worth acting on:
 
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
-  they would otherwise supervise, and it is silent when it is wrong.
+  they would otherwise supervise, and it is silent when it is wrong. Then offer the remedy,
+  which is one command you can run for them: *An agent of this project's own*, below.
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
@@ -281,19 +286,43 @@ is meant to be where is a fact about how that machine was set up. So name both a
 which surface each came from, and leave the judgement to the person: they cannot act on a split
 nobody has told them about, and you are the only one positioned to see it.
 
-**Do not offer `SUBROUTINE_TOKEN_<CONNECTION>` as the remedy, and do not set it.** It is read
-*before* the token a plugin sets for itself, and an MCP server inherits the environment its
-editor started in — so exporting it does not reconcile two identities, it replaces the agent's
-credential with whatever that variable holds. Where the shell holds a person's token, that
-silently makes the agent that person, with everything they are allowed to do. Both `whoami`
-calls then agree, which reads exactly like the fix having worked.
+**An agent of this project's own is the remedy, and with the person's yes it is yours to run.**
+In the directory this session was opened in:
 
-**The remedy to name is `subroutine agent create <name> --store`, and it is the person's to
-run** — it prints a credential, which is not something to do on their behalf. It records the
-agent's token beside theirs rather than in place of it, and `subroutine` then resolves the
-agent's in a process an agent started and theirs everywhere else, including in `git` hooks,
-which no editor setting reaches. Where an agent already has an identity through its tools and
-only the shell is wrong, that one command is the whole of it.
+```
+subroutine agent create <name> --workspace <workspace> --here
+```
+
+Name the agent after the project, and name the workspace the project is in, after `create`. It
+makes the agent an account, writes its credential into this directory's
+`.claude/settings.local.json` under the variable Subroutine reads for this connection, and makes
+the repository ignore that file. **It prints nothing secret**, which is what makes it yours to run:
+the credential never passes through this conversation.
+
+- **Ask first.** It makes an account on the instance and writes into the checkout, and both are
+  the person's to agree to.
+- **Only where they may.** `subroutine_whoami` offers the person this command when they may make
+  accounts. Where it says an administrator can make one instead, the person asks one, and there
+  is nothing here for you to run.
+- **Say what changed**: the settings file, and `.gitignore` if it gained a line. Committing that is
+  theirs.
+- **It cannot take effect in this session**, which started before the file existed. Ask them to
+  reload the window or start a new session there, and in the new one check that
+  `subroutine_whoami` and `subroutine whoami` both name the agent.
+- **It needs the program on this machine**, so a session reaching an instance by address, with
+  `subroutine-remote`, cannot do it. Its tools act as whatever token that plugin was given.
+
+**Never set `SUBROUTINE_TOKEN_<CONNECTION>` any other way.** It is read *before* the token a
+plugin sets for itself, and an MCP server inherits the environment its editor started in, so a
+person's token there silently makes the agent that person, with everything they are allowed to
+do. Both `whoami` calls then agree, which reads exactly like the fix having worked. `--here` puts
+the agent's own credential there, which is the one thing that variable should ever hold.
+
+**`subroutine agent create <name> --store` is the other remedy, for every agent on the machine at
+once, and it is the person's to run** - it prints a credential, which is not something to do on
+their behalf. It records the agent's token beside theirs rather than in place of it, and
+`subroutine` then resolves the agent's in a process an agent started and theirs everywhere else,
+including in `git` hooks, which no editor setting reaches.
 
 **Never read a credential to find out what is stored** — not `credentials.toml`, not a `.env`,
 not a variable holding a token. Not to list its keys, not to check that a token is there, not to

@@ -185,10 +185,11 @@ them, and none is needed on day one.
 same job. If the shell cannot find `subroutine` afterwards, `uv tool update-shell` fixes it, and
 you will need a fresh terminal.
 
-**Give each agent an account of its own** - `subroutine agent create --store` - and every
+**Give each project's agent an account of its own** - ask your agent to, or run
+`subroutine agent create web --workspace acme --here` in the project's directory - and every
 change it makes carries its name and a credential narrower than yours, rather than being filed
-as you. On
-one laptop with one person this does not matter; the moment there are two agents it does.
+as you. On one laptop with one person this does not matter; the moment there are two agents it
+does.
 
 **Sign in from anywhere else** with `subroutine login link`, which prints a link that works once
 and lasts half an hour. Put the instance on a machine your team can reach and the same browser

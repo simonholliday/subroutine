@@ -1626,15 +1626,29 @@ def _resolved (words: list[str]) -> tuple[typing.Any, list[str], list[str]]:
 	``show 42``, ``token revoke a1b2c3d4`` — is told from a mistyped command: the first
 	resolves to a leaf that takes arguments, the second leaves a group holding a word it does
 	not know.
+
+	**A group's own options are stepped over, with their values.** ``subroutine -w acme project
+	list`` is how the program's own refusal says to name a workspace, and a walk that stopped at
+	the first option left ``acme`` looking like a subcommand nobody declared - so the form the
+	program recommends was the one form no page could print.
 	"""
 
 	command: typing.Any = typer.main.get_command(subroutine.cli.main.app)
 	path = ["subroutine"]
 	rest = list(words)
 
-	while rest and not rest[0].startswith("-"):
-		if not hasattr(command, "get_command"):
-			break
+	while rest and hasattr(command, "get_command"):
+		if rest[0].startswith("-"):
+			width = _option_width(command, rest[0])
+
+			# An option the group does not declare stops the walk here, so the flag check reads
+			# it against this group and reports it.
+			if width is None:
+				break
+
+			del rest[:width]
+
+			continue
 
 		child = command.get_command(
 			click.Context(command, info_name=" ".join(path)), rest[0]
@@ -1647,6 +1661,31 @@ def _resolved (words: list[str]) -> tuple[typing.Any, list[str], list[str]]:
 		path.append(rest.pop(0))
 
 	return command, path, rest
+
+
+def _option_width (command: typing.Any, word: str) -> int | None:
+	"""Return how many words one of this command's own options takes up, or ``None`` if none.
+
+	``--workspace=acme`` is one word and ``--workspace acme`` is two; a flag is one either way.
+	"""
+
+	name, equals, _value = word.partition("=")
+
+	for parameter in command.params:
+		spellings = {
+			*(getattr(parameter, "opts", ()) or ()),
+			*(getattr(parameter, "secondary_opts", ()) or ()),
+		}
+
+		if name not in spellings:
+			continue
+
+		if equals or getattr(parameter, "is_flag", False) or getattr(parameter, "count", False):
+			return 1
+
+		return 1 + int(getattr(parameter, "nargs", 1))
+
+	return None
 
 
 def _declared_options (command: typing.Any) -> set[str]:
@@ -1817,6 +1856,42 @@ def test_the_scan_reports_a_subcommand_that_does_not_exist (
 	assert path == ["subroutine", "db"], "it stopped at the group"
 	assert rest == ["backupz"]
 	assert command.list_commands(click.Context(command)), "which is a group, so this is wrong"
+
+
+def test_the_scan_steps_over_a_groups_own_option (tmp_path: pathlib.Path) -> None:
+	"""``subroutine -w acme project list`` is the program's own advice, and a page may print it.
+
+	The walk stopped at the first option until a page named a workspace the way the refusal
+	says to, and ``acme`` was read as a subcommand. Stepping over an option must not become
+	stepping over anything with a hyphen in front, so a misspelt command behind a real option,
+	and a misspelt option itself, are both still left where the two checks above find them.
+	"""
+
+	found = _invocations(
+		[
+			_page(
+				tmp_path,
+				"subroutine -w acme project list",
+				"subroutine --workspace=acme project list",
+				"subroutine -w acme projectz list",
+				"subroutine --wrkspace acme project list",
+			)
+		]
+	)
+
+	assert len(found) == 4
+
+	walked = [_resolved(invocation.words) for invocation in found]
+
+	assert [path for _command, path, _rest in walked[:2]] == [
+		["subroutine", "project", "list"],
+		["subroutine", "project", "list"],
+	], "both spellings reach the command"
+	assert walked[2][1:] == (["subroutine"], ["projectz", "list"]), (
+		"a misspelt command behind a real option is left for the command check"
+	)
+	assert walked[3][2][:1] == ["--wrkspace"], "and a misspelt option is left for the flag check"
+	assert "--wrkspace" not in _declared_options(walked[3][0])
 
 
 def test_the_scan_leaves_a_correct_line_alone (tmp_path: pathlib.Path) -> None:
