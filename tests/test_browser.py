@@ -2971,6 +2971,15 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	**Read for fat**: one page and every move the claim names. `SR#3566`, landed beside it, added
 	no test: the note's link is asked of the write that
 	`test_a_refused_write_leaves_what_was_typed_where_it_was` already lands.
+
+	**46 to 47, for `SR#3568`, found while building the raise above.** The same `App` state, in
+	the edit form: left open on one item it stayed open on the next, and **Save** wrote what was
+	typed on the first onto the second. The move is the browser's own Back, a `popstate` that
+	`tests/dom.js` does not have, between two items this harness can only tell apart through a
+	route on the page. Against the code before it, the form was still open on the second item.
+
+	**Read for fat**: one move and three assertions, each a way the typing could reach the wrong
+	item: the form left open, the form reopened still holding it, and a write.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -2978,11 +2987,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 46, (
+	assert len(tests) <= 47, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 46."
+		f"read every raise in this docstring as a set: it has moved 17 to 47."
 	)
 
 
@@ -6160,5 +6169,67 @@ def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
 	_until(page, lambda: not disclosed())
 
 	assert not disclosed(), "the browser's Back left the add form open on the page before"
+
+	page.close()
+
+
+def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typing.Any) -> None:
+	"""`SR#3568`: an edit form left open on one item wrote what was typed there onto the next.
+
+	Found while fixing `SR#3567`, and it is the same mechanism: whether the edit form is open was
+	`App`'s state, so it stayed open when Back stepped to another item, still holding the title
+	typed for the first, and **Save** sent it to the second with that item's own version. It
+	closes on a new page now, as a reload would draw it (Simon, 2026-09-24).
+
+	**The harness answers every item as `CARD`**, so the second item is served by a route on this
+	page alone, and the two differ where the claim needs them to: their number and their title.
+	"""
+
+	opened, written, *_ = running
+	page = opened(f"/projects/{CARD['project_path']}/{CARD['ref']}")
+
+	def nine (route: typing.Any) -> None:
+		"""Answer #9 as an item of its own, and leave every other request to the fixture."""
+
+		asked = route.request.url.split("://", 1)[-1].split("/", 1)[-1].split("?", 1)[0]
+
+		if asked != "v1/tasks/9":
+			route.fallback()
+
+			return
+
+		route.fulfill(
+			status=200, content_type="application/json",
+			body=json.dumps({**CARD, "ref": 9, "title": "Still going"}),
+		)
+
+	def showing (title: str) -> None:
+		"""Wait until the open item's heading is ``title``, so the next step acts on that item."""
+
+		_until(page, lambda: page.inner_text(".detail h2") == title)
+
+	page.route("**/v1/tasks/9*", nine)
+	page.click(".detail a[href$='/9']")
+	showing("Still going")
+	page.click(".detail button.edit")
+	page.fill(".detail form.editing input[name=title]", "Typed on nine")
+	written.clear()
+
+	page.go_back()
+	page.wait_for_url(f"**/{CARD['ref']}*", timeout=10_000)
+	_until(page, lambda: page.locator(".detail form.editing").count() == 0)
+
+	assert page.locator(".detail form.editing").count() == 0, (
+		"the edit form opened on #9 is still open on #42 holding what was typed there, so Save "
+		"would write it onto #42"
+	)
+
+	showing(CARD["title"])
+	page.click(".detail button.edit")
+
+	assert page.input_value(".detail form.editing input[name=title]") == CARD["title"], (
+		"the edit form opened again on #42 holds what was typed on #9"
+	)
+	assert not written, f"moving between the two items wrote something: {written}"
 
 	page.close()

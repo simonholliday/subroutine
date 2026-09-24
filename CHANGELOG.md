@@ -140,6 +140,11 @@ upgrade involves.
   A new page now starts with the box alone. Switching the view or narrowing the list where you
   are keeps it as you left it.
 
+- **Moving to another item in the browser closes an edit form left open.** It used to follow
+  you to the next item with what you had typed still in it, and **Save** then wrote that onto
+  the item now showing. A new page draws the form closed, and what was typed and not saved is
+  dropped, as a reload drops it.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

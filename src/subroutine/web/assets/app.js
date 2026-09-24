@@ -416,6 +416,12 @@ export function App () {
 		and the query only arranges and selects. So switching the view or narrowing the listing
 		leaves the form as the reader left it.
 
+		**And the edit form, where it mattered more** (`#3568`). Left open on one item it stayed
+		open on the next, still holding what was typed, and **Save** wrote that onto the item now
+		showing, with a version check that passed because the version was that item's own. It
+		closes on a new page as a reload would draw it, and what was typed and not saved goes with
+		it, as it would with a reload (Simon, 2026-09-24).
+
 		Asked after every address `go` writes and every one the browser steps back or forward to. A
 		ref rather than state, for `latestRepeat`'s reason: what reads it is what writes it, and it
 		is never rendered.
@@ -435,6 +441,8 @@ export function App () {
 		   rather than shown under an empty box, which is `readRepeat`'s own rule. */
 		latestRepeat.current = "";
 		setReading(null);
+		setEditing(false);
+		setConflict(null);
 	}, []);
 
 	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
