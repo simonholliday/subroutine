@@ -20,6 +20,7 @@ wrong implementation of this endpoint:
 
 import datetime
 import json
+import pathlib
 import typing
 
 import httpx
@@ -31,6 +32,7 @@ import conftest
 import subroutine.api.app
 import subroutine.api.mcp
 import subroutine.api.security
+import subroutine.auth
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -545,6 +547,194 @@ def test_a_local_session_is_narrowed_by_the_credential_it_was_given (
 
 	assert "claudebot" in said, f"the session was not the credential's principal: {said}"
 	assert "task:read" in said, f"the narrowing was not in force: {said}"
+
+
+# --- When the plugin's token field empties (`#3517`) -----------------------------------------
+
+#: Our own plugin, whose manifest names it: what ``CLAUDE_PLUGIN_ROOT`` points at when it starts
+#: ``subroutine mcp``.
+OURS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"
+
+#: The words the notice opens with, and the ones it must carry.
+NOTICE = "The Subroutine plugin's token field held"
+
+LISTING = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+
+
+def _asking (name: str, **arguments: typing.Any) -> str:
+	"""Return one raw ``tools/call`` line."""
+
+	return json.dumps(
+		{
+			"jsonrpc": "2.0",
+			"id": 2,
+			"method": "tools/call",
+			"params": {"name": name, "arguments": arguments},
+		}
+	)
+
+
+def _a_session (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, *, by_the_plugin: bool = True
+) -> typing.Callable[[str], dict[str, typing.Any] | None]:
+	"""Start one ``subroutine mcp`` session onto this world, and return what answers it.
+
+	**One adapter for the whole session**, unlike :func:`_through_the_adapter`, because what is
+	said depends on what the session has said already. It asks for the tool list first, as an
+	editor does, which is how the adapter learns which tools only read.
+	"""
+
+	monkeypatch.setattr(subroutine.api.app, "create_app", lambda **kwargs: world.application)
+
+	if by_the_plugin:
+		monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(OURS))
+
+	else:
+		monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
+
+	local = subroutine.connections.Connection(name="local")
+	answer = subroutine.mcp.relay.answering(
+		local,
+		subroutine.connections.Roster(connections=(local,), default="local"),
+		subroutine.config.Settings(dev_mode=True),
+	)
+
+	assert answer(LISTING) is not None
+
+	return answer
+
+
+def _everything_said (answered: dict[str, typing.Any] | None) -> str:
+	"""Return everything one tool call's answer says."""
+
+	assert answered is not None, "the adapter answered nothing"
+
+	return "\n".join(item.get("text", "") for item in answered["result"]["content"])
+
+
+def _an_agents_token (world: test_api_tasks.World) -> str:
+	"""Issue a service account's token, as somebody would paste into the plugin's field."""
+
+	issued = world.call(
+		"POST", "/v1/tokens", json={"title": "the plugin's", "service_account": "claudebot"}
+	)
+
+	assert issued.status_code == 201, issued.text
+
+	return str(issued.json()["token"])
+
+
+def test_the_tools_say_so_when_the_plugins_token_field_has_emptied (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3517`, decided by Simon: said on ``subroutine_whoami``, and on the first write, once.
+
+	`#3496` measured what empties the field: signing out of Claude Code, uninstalling the plugin
+	and removing its marketplace. The tools then act as whoever this machine holds for the
+	connection - the person here - and on nuc14 about sixty writes went out that way before
+	anybody looked (`#3244`).
+	"""
+
+	token = _an_agents_token(world)
+	parsed = subroutine.auth.parse_token(token)
+
+	assert parsed is not None
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+	before = _a_session(world, monkeypatch)
+	said = _everything_said(before(_asking("subroutine_whoami")))
+
+	assert said.startswith("claudebot"), said
+	assert NOTICE not in said, "a field holding a token was reported as empty"
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	after = _a_session(world, monkeypatch)
+	who = _everything_said(after(_asking("subroutine_whoami")))
+
+	assert not who.startswith("claudebot"), "the field is empty and the session is still the agent"
+	assert f"{NOTICE} a token ({parsed[0]}…)" in who
+
+	for words in (
+		"sign out of Claude Code",
+		"uninstall the plugin",
+		"remove its marketplace",
+		"/plugin",
+		"--here",
+	):
+		assert words in who, f"the notice does not say {words!r}"
+
+	assert NOTICE not in _everything_said(after(_asking("subroutine_list"))), "a read carried the notice"
+	assert NOTICE in _everything_said(after(_asking("subroutine_add", text="Buy milk"))), (
+		"the first write did not carry the notice"
+	)
+	assert NOTICE not in _everything_said(after(_asking("subroutine_add", text="Buy eggs"))), (
+		"every write carried the notice, where the first one was to"
+	)
+	assert NOTICE in _everything_said(after(_asking("subroutine_whoami"))), (
+		"who the session is stopped saying so, though it is still true"
+	)
+
+	later = _a_session(world, monkeypatch)
+
+	assert NOTICE not in _everything_said(later(_asking("subroutine_whoami"))), (
+		"a notice a write had already carried was given again"
+	)
+
+
+def test_a_token_field_that_was_always_empty_says_nothing (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Blank is the recommended setup, so only a change is worth a sentence."""
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	session = _a_session(world, monkeypatch)
+
+	assert NOTICE not in _everything_said(session(_asking("subroutine_whoami")))
+	assert NOTICE not in _everything_said(session(_asking("subroutine_add", text="Buy milk")))
+
+
+def test_a_project_with_an_agent_of_its_own_is_not_told_and_the_next_one_is (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""Where ``--here``'s variable answers, the field changes nothing, so nothing is said or kept."""
+
+	token = _an_agents_token(world)
+	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+	_a_session(world, monkeypatch)
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", token)
+	here = _a_session(world, monkeypatch)
+
+	assert NOTICE not in _everything_said(here(_asking("subroutine_add", text="Buy milk")))
+
+	monkeypatch.delenv("SUBROUTINE_TOKEN_LOCAL")
+	elsewhere = _a_session(world, monkeypatch)
+
+	assert NOTICE in _everything_said(elsewhere(_asking("subroutine_whoami"))), (
+		"a project with its own agent used up the notice another project needed"
+	)
+
+
+def test_what_is_kept_about_the_field_is_a_prefix_and_only_for_the_plugin (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The state names the token by its public prefix, and a session the plugin did not start keeps none."""
+
+	token = _an_agents_token(world)
+	kept = subroutine.config.state_home() / subroutine.mcp.relay.FIELD_STATE
+	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+
+	_a_session(world, monkeypatch, by_the_plugin=False)
+
+	assert not kept.exists(), "a process the plugin did not start recorded the plugin's field"
+
+	_a_session(world, monkeypatch)
+	parsed = subroutine.auth.parse_token(token)
+
+	assert parsed is not None
+	assert json.loads(kept.read_text(encoding="utf-8")) == {"local": parsed[0]}
+	assert parsed[1] not in kept.read_text(encoding="utf-8")
 
 
 def test_the_adapter_names_the_connection_the_caller_typed (

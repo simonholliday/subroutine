@@ -68,6 +68,12 @@ upgrade involves.
   in the plugin's skill, so refresh the plugin to get it: `claude plugin marketplace update
   subroutine`, then `claude plugin update subroutine@subroutine`.
 
+- **The `subroutine` plugin's tools say so when its token field has been emptied**, rather than
+  going on as somebody else without a word. Claude Code empties that field when you sign out of
+  Claude Code, uninstall the plugin or remove its marketplace. The next time the tools start,
+  `subroutine_whoami` and the answer to their first write say who they act as now, and how to
+  put the token back. A field that was always empty is never mentioned.
+
 ### Changed
 
 - **`agent create` says whom the new agent answers to**, which is whoever ran it. When that is
@@ -93,6 +99,11 @@ upgrade involves.
   through lost what they held. Each is now written beside the old file and renamed over it, so
   you find the old file or the new one, whole. One you keep elsewhere and link into place stays
   linked.
+
+- **The `subroutine` plugin's token field is used whichever instance the plugin names.** Pointed
+  at a connection other than this machine's default, the plugin's token was skipped, and its
+  tools acted as whoever `credentials.toml` held for that connection - usually you. A token you
+  export in a shell still goes only to your default connection.
 
 ## 0.9.0 — 2026-09-22
 

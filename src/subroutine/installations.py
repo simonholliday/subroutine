@@ -94,23 +94,38 @@ def plugin () -> str | None:
 	confident nonsense the day the layout changes.
 	"""
 
+	version = _manifest().get("version")
+
+	return version if isinstance(version, str) else None
+
+
+def started_by (name: str) -> bool:
+	"""Report whether the plugin called ``name`` started this process, by its own manifest.
+
+	The name is read from the manifest under ``CLAUDE_PLUGIN_ROOT``, for :func:`plugin`'s reason:
+	a directory name is the editor's cache layout and not a promise to us. `#3522` needs to know
+	which plugin it was, because only the ``subroutine`` plugin passes its token field to this
+	program, and so only there does ``SUBROUTINE_TOKEN`` mean that field.
+	"""
+
+	return _manifest().get("name") == name
+
+
+def _manifest () -> dict[str, typing.Any]:
+	"""Return the manifest of the plugin that started this process, or nothing at all."""
+
 	root = os.environ.get(PLUGIN_ROOT)
 
 	if not root:
-		return None
+		return {}
 
 	try:
 		manifest = json.loads((pathlib.Path(root) / MANIFEST).read_text(encoding="utf-8"))
 
 	except (OSError, ValueError):
-		return None
+		return {}
 
-	if not isinstance(manifest, dict):
-		return None
-
-	version = manifest.get("version")
-
-	return version if isinstance(version, str) else None
+	return manifest if isinstance(manifest, dict) else {}
 
 
 #: What a caller says about itself, so an instance can tell a stale one from a current one.

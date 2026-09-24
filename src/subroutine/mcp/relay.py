@@ -21,9 +21,17 @@ Two ways to reach "there", and they differ only in how the request travels:
 **The message is forwarded without being parsed.** A malformed one has to be refused by the far
 end, or this adapter becomes the second implementation it exists to remove — the shape `#530`
 is about, one layer up.
+
+**One thing is added on the way back, and only on this machine's say-so** (`#3517`). This
+process is the one the ``subroutine`` plugin starts, so it is the only place that sees the
+plugin's token field, and it says when that field has emptied since the tools last started.
+It reads a message to decide where to say it, and never refuses one for how it reads.
 """
 
+import contextlib
 import json
+import os
+import pathlib
 import re
 import shutil
 import typing
@@ -33,6 +41,7 @@ import sqlalchemy.orm
 
 import subroutine
 import subroutine.api.inprocess
+import subroutine.auth
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
@@ -51,6 +60,41 @@ PATH = "/mcp"
 #: sentence fails the test that drives this rather than silently leaving the wrong label.
 _THE_LABEL = re.compile(r"(on connection ')([^']*)(')")
 
+#: The plugin that passes its *Agent token* field to this program as ``SUBROUTINE_TOKEN``
+#: (`#3522`). Its ``.mcp.json`` sets the variable in the server's own environment, empty or not,
+#: so in a process that plugin started, the variable is the field and nothing inherited.
+PLUGIN = "subroutine"
+
+#: Where this machine keeps, per connection, whether the plugin's token field held a token
+#: when its tools last started (`#3517`). The token's public prefix is kept, never the token.
+FIELD_STATE = "plugin-token.json"
+
+#: The one tool whose whole answer is who the session is, so it carries the notice every time.
+_WHO = "subroutine_whoami"
+
+
+def credential (
+	connection: subroutine.connections.Connection,
+	roster: subroutine.connections.Roster,
+) -> subroutine.credentials.Resolved:
+	"""Find the credential this session presents, reading the plugin's field as its own (`#3522`).
+
+	``SUBROUTINE_TOKEN`` is the *default* connection's token, deliberately: a token somebody
+	exported in a shell for one instance must never be offered to another, which would hand it
+	to that instance's operator. But the ``subroutine`` plugin passes its token field as that
+	variable whichever connection its *Which instance* field names. So a plugin pointed at any
+	other connection had its token skipped, and its tools acted as whoever ``credentials.toml``
+	held there - the person, usually, and nothing said so.
+
+	**Where that plugin started this process, the variable is its field**, set in the server's own
+	environment over anything inherited, so it is read as the token of the connection the
+	session was started for. Started any other way, it keeps its meaning.
+	"""
+
+	default = connection.name if subroutine.installations.started_by(PLUGIN) else roster.default
+
+	return subroutine.credentials.resolve(connection, default_connection=default)
+
 
 def answering (
 	connection: subroutine.connections.Connection,
@@ -67,6 +111,8 @@ def answering (
 		else _over_http(connection, roster, workspace=workspace)
 	)
 	elsewhere = tuple(name for name in roster.names if name != connection.name)
+	emptied = _emptied(connection)
+	notice = None if emptied is None else _Notice(connection.name, _told(connection, emptied))
 
 	def answer (raw: str) -> dict[str, typing.Any] | None:
 		"""Forward one message and return what came back, in this machine's terms."""
@@ -144,7 +190,9 @@ def answering (
 				trouble.get("hint"),
 			)
 
-		return _in_this_machines_terms(answered, connection.label, elsewhere)
+		ours = _in_this_machines_terms(answered, connection.label, elsewhere)
+
+		return ours if notice is None else notice.added(raw, ours)
 
 	return answer
 
@@ -157,7 +205,7 @@ def _over_http (
 ) -> typing.Callable[[str], tuple[int, str]]:
 	"""Return a forwarder that posts to a served instance."""
 
-	resolved = subroutine.credentials.resolve(connection, default_connection=roster.default)
+	resolved = credential(connection, roster)
 
 	if resolved.token is None:
 		raise subroutine.errors.Unauthenticated(
@@ -253,7 +301,7 @@ def _in_process (
 	# **Resolved once, outside the closure.** A credential can come from a `token_command` —
 	# `pass show`, `gpg` — and asking per message would run it on every tool call and could
 	# prompt for a passphrase in the middle of one.
-	held = subroutine.credentials.resolve(connection, default_connection=roster.default)
+	held = credential(connection, roster)
 
 	def resolve (
 		session: sqlalchemy.orm.Session,
@@ -292,6 +340,192 @@ def _in_process (
 		return answered.status_code, answered.text
 
 	return forward
+
+
+def _emptied (connection: subroutine.connections.Connection) -> str | None:
+	"""Return the prefix the plugin's token field held last time, where it is empty now (`#3517`).
+
+	The string is empty where the field held something that was not a token. ``None`` means there
+	is nothing to say: the plugin did not start this process; its field holds a token, which is
+	kept for next time; it was empty last time too; or a project's own
+	``SUBROUTINE_TOKEN_<NAME>`` answers anyway, so the field changes nothing here.
+
+	**The case it is for, measured on `#3496`:** Claude Code empties the field when you sign out
+	of it, uninstall the plugin or remove its marketplace. The program then resolves whatever this
+	machine holds for the connection - usually the person - and on nuc14 about sixty writes went
+	out as him before anybody looked (`#3244`). A field that was always blank is the recommended
+	setup, so it is never mentioned; only a change is.
+
+	**Nothing is recorded as empty here.** :class:`_Notice` does that once a write has carried the
+	notice, so a session that ends before saying it leaves the next one to.
+	"""
+
+	if not subroutine.installations.started_by(PLUGIN):
+		return None
+
+	field = os.environ.get(subroutine.credentials.DEFAULT_VARIABLE)
+
+	if field is None:
+		return None
+
+	if field.strip():
+		parsed = subroutine.auth.parse_token(field)
+		_record(connection.name, parsed[0] if parsed is not None else "")
+
+		return None
+
+	if os.environ.get(subroutine.credentials.variable_for(connection.name)):
+		return None
+
+	return _held().get(connection.name)
+
+
+def _told (connection: subroutine.connections.Connection, prefix: str) -> str:
+	"""Say that the plugin's token field emptied, who the tools act as now, and what to do.
+
+	The ways the field empties are listed rather than one blamed, because this side sees an
+	empty field and not what was done to it.
+	"""
+
+	held = f"a token ({prefix}…)" if prefix else "a token"
+
+	return (
+		f"The Subroutine plugin's token field held {held} when these tools last started, and it "
+		f"is empty now. So they act as whoever this machine's own credentials name for "
+		f"'{connection.label}' - subroutine_whoami says who - and not as that token's account. "
+		"Claude Code empties the field when you sign out of Claude Code, uninstall the plugin or "
+		"remove its marketplace. If nobody meant to, enter the token again with /plugin in a "
+		"Claude Code terminal session, or give this project an agent of its own with "
+		"'subroutine agent create <name> --workspace <workspace> --here'."
+	)
+
+
+class _Notice:
+	"""Carry one notice on every ``subroutine_whoami`` answer, and on the first write's (`#3517`).
+
+	**Which tools write is learned, not listed**, from the ``readOnlyHint`` each tool declares in
+	the ``tools/list`` answer passing through - so this adapter still holds no catalogue. A tool
+	it has not seen declared as reading is taken to write, so a session that never asked for the
+	list is told at its first call of any kind.
+
+	**Said on a write, then recorded.** The first write's answer is where the wrong name shows
+	up, so once one has carried the notice the field is recorded as empty and the next session
+	says nothing. ``subroutine_whoami`` keeps saying it for the rest of this session, because it
+	stays true.
+	"""
+
+	def __init__ (self, connection: str, text: str) -> None:
+		"""Hold the notice for one connection's session."""
+
+		self.connection = connection
+		self.text = text
+		self.reads: set[str] = set()
+		self.written = False
+
+	def added (self, raw: str, answered: dict[str, typing.Any]) -> dict[str, typing.Any]:
+		"""Return the answer with the notice on it where it belongs."""
+
+		try:
+			asked = json.loads(raw)
+
+		except json.JSONDecodeError:
+			return answered
+
+		result = answered.get("result")
+
+		if not isinstance(asked, dict) or not isinstance(result, dict):
+			return answered
+
+		if asked.get("method") == "tools/list":
+			self._learn(result)
+
+			return answered
+
+		params = asked.get("params")
+		name = params.get("name") if isinstance(params, dict) else None
+		content = result.get("content")
+
+		if asked.get("method") != "tools/call" or not isinstance(content, list):
+			return answered
+
+		writing = name != _WHO and name not in self.reads and not result.get("isError")
+
+		if name != _WHO and not (writing and not self.written):
+			return answered
+
+		content.append({"type": "text", "text": self.text})
+
+		if writing:
+			self.written = True
+			_forget(self.connection)
+
+		return answered
+
+	def _learn (self, listed: dict[str, typing.Any]) -> None:
+		"""Remember which tools declare that they only read."""
+
+		for tool in listed.get("tools") or []:
+			if not isinstance(tool, dict):
+				continue
+
+			hints = tool.get("annotations")
+
+			if isinstance(hints, dict) and hints.get("readOnlyHint") is True:
+				self.reads.add(str(tool.get("name")))
+
+
+def _state () -> pathlib.Path:
+	"""Return where the token field's last state is kept."""
+
+	return subroutine.config.state_home() / FIELD_STATE
+
+
+def _held () -> dict[str, str]:
+	"""Return, per connection, the prefix the field held when the tools last started with one."""
+
+	try:
+		loaded = json.loads(_state().read_text(encoding="utf-8"))
+
+	except (OSError, ValueError):
+		return {}
+
+	if not isinstance(loaded, dict):
+		return {}
+
+	return {name: kept for name, kept in loaded.items() if isinstance(kept, str)}
+
+
+def _record (connection: str, prefix: str) -> None:
+	"""Keep the prefix the field holds now, for the next session to compare with."""
+
+	held = _held()
+
+	if held.get(connection) != prefix:
+		held[connection] = prefix
+		_keep(held)
+
+
+def _forget (connection: str) -> None:
+	"""Record that the field is empty now, so the next session does not say it again."""
+
+	held = _held()
+
+	if held.pop(connection, None) is not None:
+		_keep(held)
+
+
+def _keep (held: dict[str, str]) -> None:
+	"""Write the field's state, and say nothing where this machine will not take it.
+
+	A notice is worth less than the session it rides on, so a state directory that cannot be
+	written costs the notice and never a tool call.
+	"""
+
+	path = _state()
+
+	with contextlib.suppress(OSError):
+		path.parent.mkdir(parents=True, exist_ok=True)
+		subroutine.config.write_private(path, json.dumps(held, indent=2, sort_keys=True) + "\n")
 
 
 def _asking_for (workspace: str | None) -> dict[str, str] | None:

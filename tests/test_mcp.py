@@ -41,6 +41,7 @@ import subroutine.clients.opening
 import subroutine.config
 import subroutine.connections
 import subroutine.context
+import subroutine.credentials
 import subroutine.db.models.activity
 import subroutine.db.models.identity
 import subroutine.db.models.project
@@ -5308,6 +5309,99 @@ def test_the_binding_does_not_follow_subroutine_use (
 	)
 
 	assert handed == ["local"], "the binding follows default_connection, not 'subroutine use'"
+
+
+def _a_plugin (tmp_path: pathlib.Path, name: str) -> pathlib.Path:
+	"""Return a plugin root whose manifest names ``name``, as the editor's cache holds one."""
+
+	root = tmp_path / "plugins" / name
+	(root / ".claude-plugin").mkdir(parents=True)
+	(root / ".claude-plugin" / "plugin.json").write_text(
+		json.dumps({"name": name, "version": "0.9.5"}), encoding="utf-8"
+	)
+
+	return root
+
+
+@pytest.fixture
+def two_instances (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> subroutine.connections.Roster:
+	"""A machine whose default is ``home``, with ``work`` beside it and a person's token for each."""
+
+	monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+	monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
+
+	subroutine.credentials.store("home", "sr_aaaaaaaa_person")
+	subroutine.credentials.store("work", "sr_bbbbbbbb_person")
+
+	return _roster("local", "home", "work", default="home")
+
+
+def test_the_plugins_token_field_is_the_token_of_the_connection_it_names (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`#3522`: a *Which instance* other than the default skipped the plugin's token field.
+
+	The plugin passes its field as ``SUBROUTINE_TOKEN``, which is the default connection's token,
+	so pointed at any other connection its tools acted as the person ``credentials.toml`` held
+	there, and nothing said so. Started by the plugin, the variable is the field, and belongs to
+	the connection the session was started for.
+	"""
+
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, "sr_cccccccc_the_field")
+
+	for name in ("home", "work"):
+		held = subroutine.mcp.relay.credential(two_instances.require(name), two_instances)
+
+		assert held.token == "sr_cccccccc_the_field", f"{name} answered from {held.source}"
+
+
+def test_a_projects_own_variable_still_answers_before_the_plugins_field (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``SUBROUTINE_TOKEN_<NAME>``, which is how ``--here`` hands a project its agent, still wins."""
+
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, "sr_cccccccc_the_field")
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", "sr_dddddddd_the_project")
+
+	held = subroutine.mcp.relay.credential(two_instances.require("work"), two_instances)
+
+	assert held.token == "sr_dddddddd_the_project"
+
+
+def test_an_exported_token_is_never_offered_to_another_instance (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Started by anything but the ``subroutine`` plugin, ``SUBROUTINE_TOKEN`` stays the default's.
+
+	A token exported in a shell for one instance, presented to another, is handed to that
+	instance's operator. That is why the variable is bound to the default connection at all, and
+	`#3522` must not undo it for a process our plugin did not start.
+	"""
+
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, "sr_eeeeeeee_exported")
+
+	for root in (None, _a_plugin(tmp_path, "someone-else")):
+		if root is None:
+			monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
+
+		else:
+			monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(root))
+
+		work = subroutine.mcp.relay.credential(two_instances.require("work"), two_instances)
+		home = subroutine.mcp.relay.credential(two_instances.require("home"), two_instances)
+
+		assert work.token == "sr_bbbbbbbb_person", f"offered to work, started by {root}"
+		assert home.token == "sr_eeeeeeee_exported"
 
 
 def test_search_is_a_verb_of_its_own (bound: subroutine.mcp.protocol.Server) -> None:
