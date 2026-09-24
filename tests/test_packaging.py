@@ -1006,3 +1006,27 @@ def test_every_job_says_how_long_it_may_take () -> None:
 		f"the right one — measure what the job takes first, because a job that has grown to an "
 		f"hour has a second problem."
 	)
+
+
+def test_the_release_gate_is_allowed_what_ci_is () -> None:
+	"""`SR#3565`: the release's test job may take exactly as long as CI's.
+
+	**A rule `release.yml` states and nothing held.** Its comment keeps the job "at the number CI
+	uses", and the two parted when CI's moved from 25 to 40 on 2026-08-31: the release's stayed
+	at 25 and reached 81% of it on v0.9.0, so a tag was likelier to publish nothing than any push
+	was to time out. The release runs one leg of the same suite, so the ceiling on a leg is the
+	ceiling on it.
+	"""
+
+	jobs = _jobs()
+	ci, release = jobs.get("ci.yml:test"), jobs.get("release.yml:test")
+
+	assert ci is not None and release is not None, (
+		f"expected a `test` job in ci.yml and in release.yml, and found {sorted(jobs)}"
+	)
+
+	assert int(release["timeout-minutes"]) == int(ci["timeout-minutes"]), (
+		f"release.yml's test job may take {release['timeout-minutes']} minutes and ci.yml's "
+		f"{ci['timeout-minutes']}: the release runs one leg of the same suite, and its comment "
+		f"keeps it at the number CI uses"
+	)

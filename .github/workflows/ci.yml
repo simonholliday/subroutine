@@ -144,10 +144,17 @@ jobs:
     # regression; it reports nothing at all, and costs 25 minutes to say so.
     #
     # **What it does not fix is why the suite takes 23 minutes on two cores**, which is
-    # `SR#1725`: nobody has run `--durations` on a CI-shaped machine, and splitting the job by
-    # backend would roughly halve each. The local gate cannot see any of it — eight cores, one
+    # `SR#1725`: nobody has run `--durations` on a CI-shaped machine. Splitting the job by
+    # backend buys less than it looks, since only 36% of the suite is backend-parameterised
+    # (measured 2026-09-01, `SR#2065`). The local gate cannot see any of it — eight cores, one
     # interpreter, ten minutes — so `gh run list` after a push is the only instrument.
-    timeout-minutes: 40
+    #
+    # **Raised to 50 on 2026-09-24, on Simon's decision** (`SR#3565`). Python 3.12 ran 31.2 to
+    # 36.0 minutes over the twelve green runs before it, past 80% of 40 on ten of them, and
+    # `SR#2065`'s cut to the suite's most expensive file moved it by less than the runs vary.
+    # `release.yml`'s `test` job runs one leg of the same suite and is held to this number by
+    # `tests/test_packaging.py`.
+    timeout-minutes: 50
 
     strategy:
       fail-fast: false
