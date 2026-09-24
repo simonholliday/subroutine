@@ -748,9 +748,15 @@ and asks first — which a tool call cannot do here yet. The refusal names the c
   this matters: one measured project needed 37 links, which is 37 round trips one at a time.
   Every number is read before any link is written, so a bad one leaves nothing half-made.
 
-  **A link joins tasks and documents, never projects.** So a milestone that has to follow
-  another is an item blocked by the work it stands for, and a feature is a parent task: a plan
-  laid out as projects is a set of folders, with no way to say that one comes after another.
+  **A link joins tasks and documents, never projects**, so a plan laid out as projects is a set
+  of folders with no way to say that one comes after another. **A feature is a parent task, and
+  a milestone is an item of the `milestone` type** - a release, a phase - which is never offered
+  as work. What counts toward one is an `includes` link from the milestone:
+  `subroutine_link(ref=12, type="includes", other=[43, 44])`. Between two milestones, `blocks`
+  says one cannot be reached before the other, and `precedes` gives a planned order that holds
+  nothing up. Its date is a deadline, so write it with `by`. `show` counts what it includes, its
+  row says *included done* once all of it is, and completing it stays a person's decision.
+  `subroutine explain milestones` says the rest.
 
 - **Waiting on something outside the system is a deferral with a reason**:
   `subroutine_update(ref=42, defer="now+7d")` and a comment saying what you are waiting for.

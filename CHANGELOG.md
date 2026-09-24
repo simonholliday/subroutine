@@ -48,7 +48,7 @@ upgrade involves.
 - **`subroutine explain milestones` says how milestones work**: features, milestones, and the
   difference between `includes`, `blocks` and `precedes`. The `link` help's example is
   `includes` now, where it used to teach a roadmap as things blocking one item. The plugin's
-  skill still teaches that older model, until the plugin's next update.
+  skill teaches the same, from this plugin update on.
 
 - **`subroutine agent create <name> --here` gives one project's Claude Code sessions an agent of
   their own, in one command.** Run in the project's directory, it writes the credential into
