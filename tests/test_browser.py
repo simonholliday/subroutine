@@ -2961,6 +2961,16 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 	say each saved part reached the address and the fourth says the view's *name* did not, which
 	is the half that fails if somebody ever reaches for the shorter `?view=my-bugs`. The
 	conversion either side of the click is pure and carries six tests in `tests/test_web.py`.
+
+	**45 to 46, for `SR#3567`, and it is that wiring shape again, with the browser's own Back in
+	it.** Whether the add form is open is `App`'s state, which `tests/dom.js` cannot execute
+	(`SR#640`), and the claim is about moving between pages: a link the page draws, a view link
+	and a `popstate` from Back, none of which the shim has. Against the old code it failed at
+	the first move, and three near misses of the fix each failed at their own assertion.
+
+	**Read for fat**: one page and every move the claim names. `SR#3566`, landed beside it, added
+	no test: the note's link is asked of the write that
+	`test_a_refused_write_leaves_what_was_typed_where_it_was` already lands.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -2968,11 +2978,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 45, (
+	assert len(tests) <= 46, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 45."
+		f"read every raise in this docstring as a set: it has moved 17 to 46."
 	)
 
 
@@ -6082,3 +6092,73 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# **And the name of the view is nowhere in it**, which is the half `SR#649` is actually
 	# about: the address says what is showing, not which saved thing it came from.
 	assert "my-bugs" not in where, f"the address names the view rather than what it shows: {where}"
+
+
+def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:
+	"""`SR#3567`, Simon: *A new page should always load without the "more" content visible.*
+
+	The disclosure and the kind of thing it writes were `App`'s state, and the app never reloads
+	between pages, so both followed the reader onto every page after. **A page is its path**,
+	which is decision `#649`'s line, and each way the path moves is asked about: a link the page
+	draws, and the browser's own Back. A change of view at the same place is the same page
+	arranged, so it keeps what the reader opened.
+
+	**Each check waits for the new page first.** Between two pages there is a moment with no
+	form at all, and a form that is closed cannot be told from one that is not there yet.
+	"""
+
+	opened, *_ = running
+	page = opened("/projects?view=list")
+	page.wait_for_selector(".rows li a.mark", timeout=10_000)
+
+	def disclosed () -> bool:
+		"""Say whether the add form's own fields are open, once there is a form to ask."""
+
+		page.wait_for_selector(".adding .more", timeout=10_000)
+
+		return bool(page.get_attribute(".adding .more", "aria-expanded") == "true")
+
+	def open_for_a_document () -> None:
+		"""Open the form and set it to write a document: the state a reader leaves behind."""
+
+		page.click(".adding .more")
+		page.wait_for_selector(".adding .kind select", timeout=10_000)
+		page.select_option(".adding .kind select", "document")
+		_until(page, lambda: page.inner_text(".adding button[type=submit]") == "Write")
+
+	open_for_a_document()
+
+	elsewhere = page.get_attribute(".rows li a.mark", "href")
+	page.click(".rows li a.mark")
+	page.wait_for_url(f"**{elsewhere}*", timeout=10_000)
+	page.wait_for_selector(".rows li", timeout=10_000)
+	_until(page, lambda: not disclosed())
+
+	assert not disclosed(), f"moving to {elsewhere} by a link left the add form open"
+	assert page.inner_text(".adding button[type=submit]") == "Add", (
+		"the form closed and still writes a document, with the control that says so hidden"
+	)
+
+	open_for_a_document()
+	page.click(".views a[href*='view=board']")
+	page.wait_for_selector(".board", timeout=10_000)
+
+	assert disclosed(), (
+		"a change of view closed the form, and a view is the same page arranged, not another one"
+	)
+
+	# Back to the list at the same place, which is the same page, and back again to the first.
+	page.go_back()
+	page.wait_for_url(f"**{elsewhere}?view=list*", timeout=10_000)
+	page.wait_for_selector(".rows li", timeout=10_000)
+
+	assert disclosed(), "stepping back to another view of the same place closed the form"
+
+	page.go_back()
+	page.wait_for_url("**/projects?view=list", timeout=10_000)
+	page.wait_for_selector(".rows li", timeout=10_000)
+	_until(page, lambda: not disclosed())
+
+	assert not disclosed(), "the browser's Back left the add form open on the page before"
+
+	page.close()

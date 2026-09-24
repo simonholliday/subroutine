@@ -135,6 +135,11 @@ upgrade involves.
   new item's number and title in plain text, so going to it meant finding it in the list. The
   number and title now open it.
 
+- **Moving to another page in the browser closes the add form's *More*.** Opened once, its
+  extra fields stayed open on every page after, still writing a document if you had chosen one.
+  A new page now starts with the box alone. Switching the view or narrowing the list where you
+  are keeps it as you left it.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

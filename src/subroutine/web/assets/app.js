@@ -406,6 +406,37 @@ export function App () {
 		setOpen(next);
 	}, []);
 
+	/*
+		**The path the page was last drawn for, so that a new page draws its forms fresh** (`#3567`,
+		Simon: *a new page should always load without the "more" content visible*).
+
+		The app never reloads between pages, so what the add form had open followed the reader onto
+		every page after it: the disclosure, the kind of thing it writes, a preview and a repeat's
+		reading. **A page is its path**, which is decision `#649`'s line: the path decides the place,
+		and the query only arranges and selects. So switching the view or narrowing the listing
+		leaves the form as the reader left it.
+
+		Asked after every address `go` writes and every one the browser steps back or forward to. A
+		ref rather than state, for `latestRepeat`'s reason: what reads it is what writes it, and it
+		is never rendered.
+	*/
+	const drawnFor = useRef(typeof window === "undefined" ? "" : window.location.pathname);
+
+	const turned = useCallback(() => {
+		const path = window.location.pathname;
+
+		if (path === drawnFor.current) return;
+
+		drawnFor.current = path;
+		setExpanded(false);
+		setWriting(false);
+		setPreviewing(null);
+		/* The phrase first, so an answer still in flight for the last page's repeat is dropped
+		   rather than shown under an empty box, which is `readRepeat`'s own rule. */
+		latestRepeat.current = "";
+		setReading(null);
+	}, []);
+
 	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
 		/*
 			**Every address this app writes goes through here**, carrying the arrangement and the
@@ -420,7 +451,8 @@ export function App () {
 		if (window.location.pathname + window.location.search === wanted) return;
 
 		window.history[replace ? "replaceState" : "pushState"]({}, "", wanted);
-	}, [showing]);
+		turned();
+	}, [showing, turned]);
 
 	const readAgenda = useCallback(async (slug = null, key = null) => {
 		/* What to ask for and how to group it are both pure and checked (`agendaRequest`,
@@ -1487,6 +1519,8 @@ export function App () {
 		if (!ready || error || !workspace) return undefined;
 
 		const arrive = () => {
+			turned();
+
 			const asked = parseAddress(window.location.pathname);
 			const narrowed = (asked && asked.project) ?? null;
 
@@ -1610,7 +1644,7 @@ export function App () {
 
 		return () => window.removeEventListener("popstate", arrive);
 	}, [ready, error, workspace, project, agenda, everywhere, me, enter, load, nowOpen, nowShowing,
-		readAgenda, show]);
+		readAgenda, show, turned]);
 
 
 	useEffect(() => {
