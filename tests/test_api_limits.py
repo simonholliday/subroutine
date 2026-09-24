@@ -148,6 +148,24 @@ def test_guessing_is_limited_however_the_prefix_is_varied (
 	assert seen[4:] == [429, 429], "a fresh prefix must not buy a fresh allowance"
 
 
+def test_an_empty_token_spends_the_same_allowance (session: sqlalchemy.orm.Session) -> None:
+	"""An empty token is refused by name (`#3513`), and still counted against its address.
+
+	It is refused with a plain `Unauthenticated` rather than the domain's `AuthenticationError`,
+	so this holds that the limiter counts what both share rather than the narrower of the two.
+	"""
+
+	world = test_api_tasks._world(session)
+	_limited(world, rate_limit_failures_per_minute=2)
+
+	seen = [
+		world.call("GET", "/v1/tasks", headers={"authorization": "Bearer "}).status_code
+		for _ in range(3)
+	]
+
+	assert seen == [401, 401, 429]
+
+
 def test_a_working_credential_is_not_held_back_by_somebody_elses_failures (
 	session: sqlalchemy.orm.Session,
 ) -> None:

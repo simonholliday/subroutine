@@ -80,6 +80,14 @@ upgrade involves.
   project on the machine it ran on, rather than leaving you to work it out. A name that is not
   your connection's is ignored without a word.
 
+### Fixed
+
+- **An instance says so when a request carries no token**, rather than telling you your token may
+  be mistyped, revoked or expired. `subroutine-remote` sends an empty one once Claude Code has
+  emptied its token field - which signing out of Claude Code, uninstalling the plugin and
+  removing its marketplace all do - and the refusal now names that field and says to enter the
+  token again with `/plugin`.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

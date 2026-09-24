@@ -669,16 +669,97 @@ def test_a_calendar_credential_cannot_be_used_as_a_bearer_token (setup: Setup) -
 
 @pytest.mark.parametrize(
 	"presented",
-	["", "nonsense", "sr_short_x", "sr_XYZNOTHEX_secret", "sr_deadbeef_wrongsecret"],
+	["nonsense", "sr_short_x", "sr_XYZNOTHEX_secret", "sr_deadbeef_wrongsecret"],
 )
 def test_an_unusable_token_is_refused (setup: Setup, presented: str) -> None:
-	"""Every reason reads identically from outside, on purpose (docs/design.md §7.4)."""
+	"""Every reason reads identically from outside, on purpose (docs/design.md §7.4).
+
+	An empty token is not one of them: it guesses at nothing, and it is named below (`#3513`).
+	"""
 
 	response = api_support.call(
 		setup.application, "GET", "/v1/me", headers={"authorization": f"Bearer {presented}"}
 	)
 
 	assert response.status_code == 401
+
+
+#: What `subroutine-remote` sends once Claude Code has emptied its token field, in the spellings a
+#: client could produce - `#3513`.
+EMPTY = ["Bearer", "Bearer ", "Bearer   ", "bearer "]
+
+#: The headers each of our plugins sends: `subroutine-remote` names itself and no program, and
+#: the `subroutine` plugin's relay names both.
+FROM_REMOTE = {"subroutine-plugin": "0.9.5"}
+FROM_THE_PROGRAM = {"subroutine-plugin": "0.9.5", "subroutine-program": "0.9.5"}
+
+
+@pytest.mark.parametrize("header", EMPTY)
+@pytest.mark.parametrize(("method", "path"), [("GET", "/v1/me"), ("POST", "/mcp")])
+def test_an_empty_token_is_named_as_no_token (
+	setup: Setup, header: str, method: str, path: str
+) -> None:
+	"""Nothing after ``Bearer`` is refused as nothing sent, not as a token that failed a check.
+
+	The refusal a wrong token gets lists every reason on purpose (the test below), so it tells a
+	guesser nothing. Given an empty header it tells somebody their token is mistyped, revoked or
+	expired, none of which is so - and on `subroutine-remote` Claude Code shows them that sentence.
+	"""
+
+	response = api_support.call(
+		setup.application, method, path, headers={"authorization": header}, json={}
+	)
+	body = response.json()
+
+	assert response.status_code == 401
+	assert body["code"] == "unauthenticated"
+	assert body["detail"].startswith("No token came with this request")
+	assert "mistyped" not in body["detail"]
+	assert "subroutine token create" in body["hint"]
+	assert "subroutine-remote" not in body["hint"], "a caller that named no plugin was told about one"
+
+
+@pytest.mark.parametrize("header", EMPTY)
+def test_an_empty_token_from_subroutine_remote_names_its_field (setup: Setup, header: str) -> None:
+	"""Where the request came from `subroutine-remote`, the hint names the field and what empties it.
+
+	`#3496` measured what empties it: signing out of Claude Code, uninstalling the plugin, and
+	removing its marketplace. An update does not, so the hint does not say it does.
+	"""
+
+	body = api_support.call(
+		setup.application,
+		"POST",
+		"/mcp",
+		headers={"authorization": header, **FROM_REMOTE},
+		json={},
+	).json()
+
+	assert body["detail"].startswith("No token came with this request")
+	assert body["hint"].startswith("subroutine-remote's token field is empty.")
+
+	for said in ("sign out", "uninstall the plugin", "remove its marketplace", "/plugin"):
+		assert said in body["hint"], f"the hint does not say {said!r}"
+
+	assert "update" not in body["hint"]
+
+
+def test_an_empty_token_from_the_program_is_not_blamed_on_the_remote_plugin (
+	setup: Setup,
+) -> None:
+	"""A caller that names a program is not `subroutine-remote`, whatever plugin it names."""
+
+	body = api_support.call(
+		setup.application,
+		"POST",
+		"/mcp",
+		headers={"authorization": "Bearer ", **FROM_THE_PROGRAM},
+		json={},
+	).json()
+
+	assert body["detail"].startswith("No token came with this request")
+	assert "subroutine-remote" not in body["hint"]
+	assert "subroutine token create" in body["hint"]
 
 
 def test_a_revoked_token_stops_working (

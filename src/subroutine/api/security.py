@@ -33,6 +33,7 @@ import subroutine.config
 import subroutine.domain.authentication
 import subroutine.domain.sessions
 import subroutine.errors
+import subroutine.installations
 
 #: The one authentication scheme this API accepts. Compared case-insensitively, as
 #: RFC 9110 requires; presented in its canonical form in ``WWW-Authenticate``.
@@ -115,6 +116,18 @@ def from_bearer_token (
 			if scheme
 			else "The Authorization header could not be read.",
 			hint=f"Send 'Authorization: {BEARER_SCHEME} sr_…'.",
+		)
+
+	# **Nothing after the scheme is not a guess at anybody's token**, so it is named rather than
+	# given the refusal every wrong one gets (`#3513`). That refusal lists every reason on purpose,
+	# so that a guesser learns nothing; an empty header holds nothing to learn. It is also what
+	# `subroutine-remote` sends once Claude Code has emptied its token field, and there the
+	# reasons the usual refusal lists are all untrue and the real one is missing.
+	if not credential.strip():
+		raise subroutine.errors.Unauthenticated(
+			f"No token came with this request: the Authorization header says {BEARER_SCHEME} "
+			"and nothing after it.",
+			hint=_where_an_empty_token_comes_from(request),
 		)
 
 	# A calendar feed's credential is deliberately not a token: separate table, separate
@@ -737,3 +750,26 @@ def _how_to_authenticate (request: starlette.requests.Request) -> str:
 		f"Send 'Authorization: {BEARER_SCHEME} sr_…'. Create a token with "
 		f"'subroutine token create'."
 	)
+
+
+def _where_an_empty_token_comes_from (request: starlette.requests.Request) -> str:
+	"""Return what to do about an empty token, naming the field it came from where that is known.
+
+	**Only for a caller that names a plugin and no program**, which is `subroutine-remote`: the
+	editor sends that plugin's token field itself, so an emptied field arrives as ``Bearer`` and
+	nothing after it. The `subroutine` plugin's relay refuses before it would send an empty one.
+
+	The hint says what empties the field as the ways it happens rather than as the cause, because
+	the instance sees an empty header and not what was done on the caller's machine (`#3496`
+	measured all three).
+	"""
+
+	if subroutine.installations.said_by(request.headers).through_remote:
+		return (
+			"subroutine-remote's token field is empty. Claude Code empties it when you sign out of "
+			"Claude Code, uninstall the plugin or remove its marketplace. Enter the token again "
+			"with /plugin in a Claude Code terminal session, or ask for a new one if you no longer "
+			"have it."
+		)
+
+	return _how_to_authenticate(request)
