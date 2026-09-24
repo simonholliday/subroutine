@@ -1,6 +1,6 @@
 {
   "name": "subroutine-remote",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects. Connects this session to a Subroutine instance somebody else runs — an address and a token, and nothing to install. It is a Claude Code plugin, so it runs wherever those run — but the two fields it needs are filled in with '/plugin', which the VS Code extension does not offer, so setting it up wants a terminal once even if you never use one again. A hosted surface that adds servers as connectors instead — claude.ai, and the apps that offer an 'Add custom connector' dialog — cannot use it: a connector authenticates with OAuth, which Subroutine does not offer yet, so there is nowhere to put the token you were given. Use 'subroutine' instead if your work lives on this machine.",
   "author": {
     "name": "Simon Holliday",
@@ -24,7 +24,7 @@
     "token": {
       "type": "string",
       "title": "Your token",
-      "description": "The credential you were given for that instance, starting 'sr_'. Paste the token on its own — not the word 'Bearer' in front of it. It says who you are, so what you file is attributed to you rather than to whoever set the server up, and it decides what you are allowed to do. Your editor stores this, not Subroutine, and where it puts it depends on the editor and the machine — on Windows it is a file under your home directory. Treat it as you would any password there. If a call comes back saying the token was rejected, ask for a new one rather than editing this: they expire and they can be revoked.",
+      "description": "The credential you were given for that instance, starting 'sr_'. Paste the token on its own — not the word 'Bearer' in front of it. It says who you are, so what you file is attributed to you rather than to whoever set the server up, and it decides what you are allowed to do. Claude Code keeps this, not Subroutine, beside its own sign-in - on Linux and Windows, in a file in your home directory - and deletes it when you sign out of Claude Code, uninstall this plugin or remove its marketplace, so keep a copy where you keep your passwords. If calls that worked start being refused, enter it here again first; if it is still refused, ask for a new one: tokens expire and can be revoked.",
       "sensitive": true,
       "default": ""
     }

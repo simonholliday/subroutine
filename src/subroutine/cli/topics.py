@@ -475,6 +475,13 @@ server it needs nothing installed at all. That is a longer story than
 a terminal needs, and it is written up in docs/connecting.md in the
 project's repository.
 
+Where a token is kept decides what can take it away. 'connections add'
+keeps it in credentials.toml, which only you change. A token typed into
+a Claude Code plugin's field is kept by Claude Code, which deletes it
+when you sign out of Claude Code, uninstall the plugin or remove its
+marketplace. An agent's own credential is safest in its project, put
+there by 'subroutine agent create <name> --here'.
+
 And somebody who wants none of this can use the web interface, which
 needs nothing installed and no token. Whoever runs the instance hands
 them a sign-in link:

@@ -1,6 +1,6 @@
 {
   "name": "subroutine",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "A self-hosted, agent-native task and decision tracker for people and coding agents working on complex projects. Wires this session to a Subroutine instance and carries the working practice for using it well. Nothing to install first: it starts Subroutine through 'uvx', which fetches and caches it on first use — so you need uv on your machine (astral.sh/uv) and nothing else. If you have already run 'uv tool install subroutine', that copy is used instead. It starts a program on your own machine, so it works in Claude Code and the desktop apps and not on the web.",
   "author": {
     "name": "Simon Holliday",
@@ -30,7 +30,7 @@
     "token": {
       "type": "string",
       "title": "Agent token (optional)",
-      "description": "A token for this plugin's tools alone, for when an agent here should have less access than you do. Usually leave it empty, and give each project an agent of its own instead: 'subroutine agent create <name> --workspace <workspace> --here', run in the project's directory, puts the agent's credential in that project's own settings, where the tools and the commands the agent runs both find it. 'subroutine agent create <name> --store' does the same for every project on this machine at once. A token entered here reaches the tools only, so an agent that also runs commands would be itself half the time and you the other half, silently. Leave it empty with nothing set up to act as you. Your editor stores this, not Subroutine, and where it puts it depends on the editor and the machine - on Linux and Windows it is a file under your home directory. Treat it as you would any password there.",
+      "description": "A token for this plugin's tools alone, for when an agent here should have less access than you do. Usually leave it empty, and give each project an agent of its own instead: 'subroutine agent create <name> --workspace <workspace> --here', run in the project's directory, puts the agent's credential in that project's own settings, where the tools and the commands the agent runs both find it. 'subroutine agent create <name> --store' does the same for every project on this machine at once. A token entered here reaches the tools only, so an agent that also runs commands would be itself half the time and you the other half, silently. Leave it empty with nothing set up to act as you. Claude Code keeps this, not Subroutine, beside its own sign-in - on Linux and Windows, in a file in your home directory - and deletes it when you sign out of Claude Code, uninstall this plugin or remove its marketplace, after which the tools act as whoever this machine's own credentials name. Treat it as you would any password there.",
       "sensitive": true,
       "default": ""
     }

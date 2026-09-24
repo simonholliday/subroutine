@@ -19,6 +19,10 @@ whoever is standing the server up, and if that is also you, read it first.
 | On a public server | Claude on the web | [Claude on the web](#claude-on-the-web) |
 | Anywhere | Your calendar application | [Your work in your calendar](#your-work-in-your-calendar) |
 
+**Wherever a token is involved, [Where your token is
+kept](#where-your-token-is-kept-and-what-removes-it) compares the places it can live**, and what
+can take it away - which, for a token in a plugin's field, includes signing out of Claude Code.
+
 **Two of these can be true at once and that is normal.** Your own list on this laptop and your
 team's on a server is one arrangement, not two - `subroutine agenda` asks every instance you can
 reach and merges the answers, so the dentist and the stand-up land in one list. Reading spans
@@ -128,6 +132,62 @@ Three things, and the third is often forgotten:
 
 Nothing else. There is no account to create on your side, no key to exchange, and no
 configuration file you have to write by hand.
+
+## Where your token is kept, and what removes it
+
+**A token can be kept in seven places, and they differ in what reads it and in what can take it
+away.** The sections below set most of them up. This one compares them, so that the choice is
+made on purpose rather than by whichever section you read first.
+
+| Kept in | Put there by | Read by | Removed by | Choose it for |
+| --- | --- | --- | --- | --- |
+| `credentials.toml`, in Subroutine's configuration directory | `subroutine connections add`, or `--store` on `token create` and `agent create` | the terminal, and the `subroutine` plugin's tools | only you, by editing the file | yourself at a terminal, and one agent for the whole machine |
+| A project's `.claude/settings.local.json` | `subroutine agent create <name> --here` | everything Claude Code starts in that project: the agent's shell and the `subroutine` plugin's tools | deleting the file, or `git clean -x` in that checkout | an agent of that project's own |
+| `SUBROUTINE_TOKEN_<CONNECTION>` in the environment | you: a shell profile, a CI secret, a container | whatever is started with it | whatever set that environment up | scripts, CI and containers |
+| A password manager, through `token_command` | `subroutine connections add --token-command` | the terminal, and the `subroutine` plugin's tools | your password manager | a token you already keep in one |
+| The `subroutine` plugin's *Agent token* field | `/plugin`, in a Claude Code terminal session | that plugin's tools only | **Claude Code**, in three ways, below | little: leave it empty |
+| `subroutine-remote`'s *Your token* field | `/plugin`, in a Claude Code terminal session | that plugin's tools only | **Claude Code**, in the same three ways | a machine with nothing of Subroutine installed |
+| Claude Code's own list of servers, in `~/.claude.json` | `claude mcp add --transport http … --header "Authorization: Bearer sr_…"`, as [hosting.md](hosting.md) gives it | that one server's tools | `claude mcp remove`; signing out leaves it | a client without the plugin, where plain text in that file and the token in your shell's history are acceptable |
+
+**Claude Code keeps a plugin's token field, not Subroutine**, beside its own sign-in - on Linux
+and Windows, in a file in your home directory, `.claude/.credentials.json`. And Claude Code
+deletes it:
+
+- **when you sign out of Claude Code** - `/logout`, `claude auth logout`, or signing out in
+  your editor. That removes every plugin's token at once, and signing in again does not bring
+  any of them back;
+- **when you uninstall the plugin**, even with `--keep-data`;
+- **when you remove the plugin's marketplace**, for every plugin in it.
+
+**Updating the plugin keeps it.** We checked every release from 0.8.29 to 0.9.5, on four
+versions of Claude Code, and the token was there after each update and was sent as before.
+
+**What an emptied field looks like depends on the plugin.** `subroutine-remote` sends no token,
+so every call is refused and Claude Code reports *Server rejected the configured Authorization
+header (HTTP 401)*, followed by the instance's own sentence - on a current instance, *No token
+came with this request*. Enter the same token again with `/plugin` in a Claude Code terminal
+session. Ask for a new one only if you no longer have it. **The `subroutine` plugin goes on
+working**, as whoever this machine's own credentials name for the connection, which may be you
+rather than the agent the token belonged to. It says so, in `subroutine_whoami` and in the
+answer to its first write, the first time it starts after the field was emptied.
+
+**So keep an agent's identity out of the plugin's field.** Give each project an agent of its own
+with `--here` ([A different agent in each project](#a-different-agent-in-each-project)), or the
+whole machine one with `agent create --store`. Neither place is touched by anything Claude
+Code does to its plugins or to your sign-in, and both reach the agent's shell as well as its
+tools, where the field reaches the tools alone.
+
+**With `subroutine-remote` the field is the only place that plugin reads.** Keep the token
+where you keep your passwords, so that entering it again is a paste rather than a request. If
+this machine can have [uv](https://docs.astral.sh/uv/getting-started/installation/), the
+`subroutine` plugin reaching the instance as a connection is sturdier: [Your terminal here,
+your work there](#your-terminal-here-your-work-there) stores the token in `credentials.toml`,
+and [With subroutine-remote](#with-subroutine-remote) is how to switch.
+
+**Nothing shows you a plugin's field.** Claude Code leaves a token field out of `/config`,
+whether it is set or not. `claude mcp list` says whether each server connected, and
+`subroutine_whoami` says who the tools are. Those two answer the question without anybody
+reading a credential.
 
 ## Just this machine
 
@@ -555,7 +615,8 @@ yourself. In `~/.claude/settings.json`:
 in plain text, which is the same trade as `credentials.toml` and worth a deliberate decision
 rather than a discovery. And this is where the values *land* rather than a documented
 interface, so `/plugin` is the route that will keep working. Verified on Linux with the
-editor reading a plugin configured exactly this way.
+editor reading a plugin configured exactly this way. A token written there also survives
+signing out of Claude Code, which one entered with `/plugin` does not.
 
 **Then reload the window, or start a new session.** MCP servers are attached when a session
 begins, so one that was already open when you configured the plugin keeps the tool list it
@@ -573,10 +634,12 @@ is the part somebody else hands you.
 package, no configuration file of ours.
 
 **Your editor connects from *this* machine**, so an instance on your own network or behind a
-VPN is as reachable as a public one. Your editor stores the token, not Subroutine, and where it
-puts it depends on the editor and the machine - on Windows it is a file under your home
-directory. Treat it as you would any password there; if it is exposed, ask for a new one rather
-than moving this one somewhere safer.
+VPN is as reachable as a public one. Claude Code keeps the token, not Subroutine, beside its
+own sign-in - on Linux and Windows, in a file in your home directory. **It deletes the token
+when you sign out of Claude Code**, uninstall the plugin or remove its marketplace, so keep a
+copy where you keep your passwords - [Where your token is
+kept](#where-your-token-is-kept-and-what-removes-it) has the rest. Treat it as you would any
+password; if it is exposed, ask for a new one rather than moving this one somewhere safer.
 
 **If your token reaches more than one workspace, the address has to say which one.** A token
 pinned to one workspace needs nothing here, however many the instance holds - whoever issues it
@@ -598,8 +661,10 @@ and the workspaces it reaches.
 
 **If it does not:** an empty address is *not* an error. The plugin sits idle and this session
 simply has no Subroutine tools, so it can be installed before anybody has told you where to
-point it. A wrong token or a wrong address both report clearly in the editor; a token is not
-something to edit around, so ask for a new one rather than guessing.
+point it. A wrong token or a wrong address both report clearly in the editor. **A token that
+worked and is now refused may have been emptied rather than revoked** - signing out of Claude
+Code does that, above - so enter it again first, and ask for a new one only if that is refused
+too.
 
 **This one is tested in Claude Code and nowhere else.** The transport is different from the
 section above - this one needs nothing installed - but the same caution applies to where it

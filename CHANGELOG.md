@@ -86,6 +86,14 @@ upgrade involves.
   project on the machine it ran on, rather than leaving you to work it out. A name that is not
   your connection's is ignored without a word.
 
+- **Every page that takes a token says where it is kept and what removes it.** A token typed
+  into a Claude Code plugin's field is kept by Claude Code, which deletes it when you sign out of
+  Claude Code, uninstall the plugin or remove its marketplace; updating the plugin keeps it.
+  [Where your token is kept](docs/connecting.md#where-your-token-is-kept-and-what-removes-it)
+  compares the seven places a token can live, and the plugins' own fields and
+  `subroutine explain connecting` say the same. `subroutine-remote`'s field no longer tells you
+  to ask for a new token when one is refused: enter it again first.
+
 ### Fixed
 
 - **An instance says so when a request carries no token**, rather than telling you your token may
@@ -107,7 +115,10 @@ upgrade involves.
 - **The `subroutine` plugin's token field is used whichever instance the plugin names.** Pointed
   at a connection other than this machine's default, the plugin's token was skipped, and its
   tools acted as whoever `credentials.toml` held for that connection - usually you. A token you
-  export in a shell still goes only to your default connection.
+  export in a shell still goes only to your default connection. **If you pointed the plugin at
+  another instance and left a token for your default one in its field**, that token is now sent
+  to the instance the plugin names, which refuses it: put that instance's token in the field, or
+  empty it.
 
 ## 0.9.0 — 2026-09-22
 

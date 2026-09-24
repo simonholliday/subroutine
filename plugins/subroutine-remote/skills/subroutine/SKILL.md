@@ -47,7 +47,11 @@ now, and this session predates now".
 names the actual fault — a token the server rejected, an address with no MCP endpoint on it, a
 server that did not answer — and quotes the instance's own words back. That sentence is written
 for the person who has to fix it. Do not translate it into a guess, and do not offer any of the
-installation advice below: there is nothing to install.
+installation advice below: there is nothing to install. **A token that worked and is now
+refused may have been emptied rather than revoked**: Claude Code empties a plugin's token field
+when the person signs out of Claude Code, uninstalls the plugin or removes its marketplace. So
+the remedy to name first is entering the same token again with `/plugin` in a Claude Code
+terminal session, and a new token only if that is refused too or they no longer have it.
 
 **With `subroutine`, the failure is silent and needs that command to see at all.** Installing a
 plugin and starting its server are separate moments and only the first one reports, so "not
@@ -217,7 +221,11 @@ Four answers are worth acting on:
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
   they would otherwise supervise, and it is silent when it is wrong. Then offer the remedy,
-  which is one command you can run for them: *An agent of this project's own*, below.
+  which is one command you can run for them: *An agent of this project's own*, below. **If this
+  session was the agent before and is the person now**, the plugin's token field may have been
+  emptied: Claude Code empties it when the person signs out of Claude Code, uninstalls the
+  plugin or removes its marketplace. Say that too. Entering the token again brings the agent
+  back, and an agent of this project's own is out of that field's reach.
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".
