@@ -156,6 +156,44 @@ def test_the_marketplace_points_at_every_plugin_that_is_here () -> None:
 	}, "the marketplace and the plugins directory disagree about what ships"
 
 
+#: **The names Claude Code keeps a person's plugin settings under**, and whether each is kept as a
+#: secret - `#3516`. It stores an option as ``pluginConfigs["<plugin>@<marketplace>"]`` in
+#: ``settings.json``, or, where the option is ``sensitive``, as ``pluginSecrets[...]`` in the
+#: Keychain or ``~/.claude/.credentials.json`` (measured on Claude Code 2.1.281 for `#3496`).
+#:
+#: **So renaming the marketplace, either plugin or any option strands what people entered.**
+#: Nothing errors: the value stays under the old name and the new one reads as empty, which is
+#: `#3496`'s two failures again - `subroutine-remote` refused with a 401, and the `subroutine`
+#: plugin's tools silently acting as whoever the machine's own credentials name. Changing
+#: ``sensitive`` moves where the next value is saved. A change here needs a changelog entry
+#: telling people what to enter again, and this register changed in the same commit.
+STORED_UNDER: dict[str, dict[str, bool]] = {
+	"subroutine": {"connection": False, "workspace": False, "token": True},
+	"subroutine-remote": {"url": False, "token": True},
+}
+
+#: The marketplace's name, the other half of every key above.
+STORED_IN_MARKETPLACE = "subroutine"
+
+
+def test_the_names_plugin_settings_are_stored_under_stay_put () -> None:
+	"""The marketplace, both plugins and every option keep the names people's values sit under."""
+
+	marketplace = _read(MARKETPLACE)
+
+	assert marketplace["name"] == STORED_IN_MARKETPLACE
+	assert {entry["name"] for entry in marketplace["plugins"]} == set(STORED_UNDER)
+
+	for manifest in MANIFESTS:
+		declared = _read(manifest)
+		options = declared.get("userConfig", {})
+
+		assert declared["name"] in STORED_UNDER, f"{declared['name']} is not in the register"
+		assert {key: option.get("sensitive") is True for key, option in options.items()} == (
+			STORED_UNDER[declared["name"]]
+		), f"{declared['name']}'s options moved; see STORED_UNDER for what that strands"
+
+
 #: A ``claude plugin`` command that names a plugin, the way a reader copies one to run it.
 _PLUGIN_COMMAND = re.compile(
 	r"\bclaude plugin (?:install|enable|disable|update|uninstall) ([a-z0-9][a-z0-9-]*@[a-z0-9-]+)"
