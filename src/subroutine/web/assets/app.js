@@ -2054,7 +2054,19 @@ export function App () {
 				? documentRequest({ ...values, title: values.text }, null, workspace)
 				: addRequest(values, workspace));
 
-			setNote({ text: `Added #${made.ref} ${made.title}.`, tone: "good" });
+			/* **The number and title are a way to what was just made** (`#3566`), opened the way a
+			   row opens one and in the workspace it was written to. */
+			setNote({
+				text: `Added #${made.ref} ${made.title}.`,
+				link: {
+					label: `#${made.ref} ${made.title}`,
+					href: addressOf(made, workspace),
+					go: () => show(
+						{ ref: made.ref, kind: asDocument ? "document" : "task" }, { slug: workspace },
+					),
+				},
+				tone: "good",
+			});
 
 			/* **Refresh what is on screen** (`#652`). Reloading the listing from the agenda
 			   would report success over a page that does not change — and a new task with no
@@ -2076,7 +2088,7 @@ export function App () {
 		} finally {
 			setBusy(false);
 		}
-	}, [agenda, everywhere, load, me, project, readAgenda, workspace]);
+	}, [agenda, everywhere, load, me, project, readAgenda, show, workspace]);
 
 	const saving = useCallback(async (values, appliesTo) => {
 		/*

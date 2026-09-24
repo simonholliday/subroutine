@@ -31,12 +31,18 @@ export function Note ({ note, onUndo, onDismiss }) {
 		to do about it is what this already is — `undo` is exactly that shape — so a release
 		notice is one more label rather than a modal, which is the house rule for news and the
 		one thing this item asked not to build.
+
+		**`link` makes the words that name an item a way to it** (`#3566`, Simon: *"#27 Test
+		item." should be a link so I can go straight to my new item*). The sentence stays whole in
+		`text` and the link is laid over the part of it `link.label` names, so the note says the
+		same words with or without one. Pressed, it goes through `followed`, as a row's own link
+		does, so a middle click still opens a tab.
 	*/
 	if (!note) return null;
 
 	return html`
 		<div class=${`note ${note.tone}`} role=${note.tone === "bad" ? "alert" : "status"}>
-			<span class="said">${note.text}</span>
+			<span class="said">${said(note)}</span>
 			${note.undo && html`<button class="undo action" onClick=${onUndo}>Undo</button>`}
 			${note.act && html`
 				<button class="undo action" onClick=${note.act.go}>${note.act.label}</button>
@@ -45,6 +51,17 @@ export function Note ({ note, onUndo, onDismiss }) {
 				aria-label="Dismiss this message">×</button>
 		</div>
 	`;
+}
+
+function said ({ text, link }) {
+	/* A note's words, with the part that names something drawn as a link to it (`#3566`). */
+	const at = link ? text.indexOf(link.label) : -1;
+
+	if (at < 0) return text;
+
+	return html`${text.slice(0, at)}<a href=${link.href}
+		onClick=${(event) => followed(event, link.go)}
+		>${link.label}</a>${text.slice(at + link.label.length)}`;
 }
 
 /* The three states a reader can be in. `system` is the default and is the absence of a

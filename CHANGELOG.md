@@ -131,6 +131,10 @@ upgrade involves.
   `March 14, 2028` - and a year written once at the end of a span is both days', so *from 2
   October to 12 October 2027* is in 2027. A written date with no year is still the next one.
 
+- **After you add something in the browser, the note saying so links to it.** It named the
+  new item's number and title in plain text, so going to it meant finding it in the list. The
+  number and title now open it.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

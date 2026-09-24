@@ -3640,10 +3640,16 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 	typing costs most. The instance's real refusal, with the hint ``comments`` sends: a comment
 	too long is evidence that belongs in a finding document, and the page drops every other hint
 	because most of them name a terminal command.
+
+	**And the note a landed write leaves is a way to what it made** (`SR#3566`, Simon: *"#27
+	Test item." should be a link so I can go straight to my new item*). Asked of the write this
+	test already lands rather than in a second test opening the same page: the words whole,
+	because the link is laid over part of them, then its address, then a click that reads the
+	item in place, which only a browser can make.
 	"""
 
 	opened, written, refusing, roster, *rest = running
-	refused_with = rest[-2]
+	reads, refused_with = rest[1], rest[-2]
 	page = opened("/projects")
 
 	refusing[0] = 403
@@ -3667,6 +3673,30 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 
 	assert page.input_value(".adding input[name=text]") == "", (
 		"a write that landed has to clear the box, or the next capture starts with this one"
+	)
+
+	# The harness answers every write with `CARD`, so that is what the page was told it made.
+	made = f"#{CARD['ref']} {CARD['title']}"
+	address = f"/projects/{CARD['project_path']}/{CARD['ref']}"
+	link = page.locator(".note.good a")
+
+	assert page.inner_text(".note.good .said") == f"Added {made}.", (
+		"the link took words out of the note, or put some in"
+	)
+	assert link.count() == 1, "the note names what was made and is not a way to it"
+	assert link.inner_text() == made, f"the link says {link.inner_text()!r}, not {made!r}"
+	assert link.get_attribute("href") == address, (
+		f"the link points at {link.get_attribute('href')!r} rather than {address}, so a middle "
+		f"click or a copied link goes somewhere else"
+	)
+
+	reads.clear()
+	link.click()
+	page.wait_for_url(f"**{address}*", timeout=10_000)
+	page.wait_for_selector(".detail", timeout=10_000)
+
+	assert any(path.startswith(f"v1/tasks/{CARD['ref']}") for path in reads), (
+		f"the address moved and the item was never read, so the page did not open it: {reads}"
 	)
 
 	page.close()
