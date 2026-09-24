@@ -88,6 +88,12 @@ upgrade involves.
   removing its marketplace all do - and the refusal now names that field and says to enter the
   token again with `/plugin`.
 
+- **Saving a token or a setting can no longer leave `credentials.toml` or `config.toml` empty.**
+  Both were cut to nothing and then written, so a full disk or a killed process part way
+  through lost what they held. Each is now written beside the old file and renamed over it, so
+  you find the old file or the new one, whole. One you keep elsewhere and link into place stays
+  linked.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

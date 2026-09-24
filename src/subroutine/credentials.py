@@ -11,7 +11,7 @@ Two files, on the SSH model, because they have different lifetimes and different
 ===================================================  ======  =====================================
 
 **Both are 0600, and this table said ``config.toml`` was 0644 and held no secrets until `#831`.**
-Neither half was true: :func:`subroutine.config._write_private` has written 0600 deliberately
+Neither half was true: :func:`subroutine.config.write_private` has written 0600 deliberately
 since `#205`, and ``ensure_secret_key`` puts ``secret_key`` in there, which ``init`` always does.
 The correct sentence already existed in ``docs/hosting.md`` — *"it is not ``secret_key``, which
 is the only thing in ``config.toml`` that looks like a credential"* — so this was two places
@@ -39,7 +39,6 @@ subprocess gets ``pass``, ``gpg``, ``secret-tool``, 1Password and anything else 
 already chosen — which is what ``ssh`` does too, and why ``ssh`` works the same everywhere.
 """
 
-import contextlib
 import dataclasses
 import os
 import pathlib
@@ -462,14 +461,11 @@ def store (name: str, token: str, *, agent: bool = False) -> pathlib.Path:
 		if entry.agent_token:
 			lines.append(f'agent_token = "{_escaped(entry.agent_token)}"')
 
-	# Created 0600 *before* anything is written, so the secret is never briefly readable by
-	# anyone else. Writing and then tightening leaves a window, and it is exactly the kind of
-	# window that is invisible on a single-user laptop and real on a shared server.
-	with contextlib.suppress(OSError):
-		path.touch(mode=0o600, exist_ok=True)
-		path.chmod(0o600)
-
-	path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+	# Replaced whole rather than truncated and written, so a full disk or a killed process
+	# cannot empty it (`#3514`), and 0600 before a byte of it exists, so the secret is never
+	# briefly readable by anyone else. `subroutine.config.write_private` keeps both rules for this
+	# file and `config.toml` alike.
+	subroutine.config.write_private(path, "\n".join(lines) + "\n")
 
 	return path
 

@@ -7,6 +7,8 @@ two files and an environment, and every refusal in it is a refusal about text.
 import os
 import pathlib
 import stat
+import subprocess
+import sys
 import typing
 
 import pytest
@@ -450,6 +452,116 @@ def test_the_credentials_file_is_private (config_home: pathlib.Path) -> None:
 
 	assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
 	assert subroutine.credentials.permission_warning() is None
+
+
+def _stopped_by_a_full_disk (limit: int, statement: str) -> subprocess.CompletedProcess[str]:
+	"""Run ``statement`` in a child whose files may not grow past ``limit`` bytes.
+
+	``RLIMIT_FSIZE`` stops a write part way through, exactly where a full disk would, and it is
+	set after the imports so that nothing but the write under test meets it. ``SIGXFSZ`` is
+	ignored so the write fails with ``EFBIG`` rather than killing the child.
+	"""
+
+	pytest.importorskip("resource")
+
+	script = (
+		"import resource, signal\n"
+		"import subroutine.config, subroutine.credentials\n"
+		"signal.signal(signal.SIGXFSZ, signal.SIG_IGN)\n"
+		f"resource.setrlimit(resource.RLIMIT_FSIZE, ({limit}, {limit}))\n"
+		"try:\n"
+		f"    {statement}\n"
+		"except OSError as error:\n"
+		"    print('stopped', error.errno)\n"
+	)
+
+	return subprocess.run(
+		[sys.executable, "-c", script], capture_output=True, text=True, timeout=60, check=False
+	)
+
+
+def test_a_token_stopped_part_way_leaves_the_stored_ones_whole (
+	config_home: pathlib.Path,
+) -> None:
+	"""A full disk while a token is added must not cost the tokens already there (`#3514`).
+
+	The file was truncated and then written, so a write stopped part way left the start of the
+	new file and nothing else: every connection sorting after the cut lost its token, and the
+	rest of the file would not parse.
+	"""
+
+	subroutine.credentials.store("work", "sr_one")
+	subroutine.credentials.store("side", "sr_two")
+	path = subroutine.credentials.credentials_file_path()
+	before = path.read_bytes()
+
+	child = _stopped_by_a_full_disk(
+		len(before), "subroutine.credentials.store('middle', 'sr_' + 'x' * 8192)"
+	)
+
+	assert "stopped" in child.stdout, child.stderr
+	assert path.read_bytes() == before
+	assert sorted(entry.name for entry in config_home.iterdir()) == ["credentials.toml"], (
+		"the new file the stopped write began was left behind"
+	)
+
+
+def test_a_setting_stopped_part_way_leaves_the_configuration_whole (
+	config_home: pathlib.Path,
+) -> None:
+	"""``config.toml`` is written the same way, and holds the connection each token belongs to."""
+
+	written(config_home, '[connections.work]\nurl = "https://tasks.example.com"\n')
+	subroutine.config.store_setting("default_connection", "work")
+	path = config_home / "config.toml"
+	before = path.read_bytes()
+
+	child = _stopped_by_a_full_disk(
+		len(before),
+		"subroutine.config.store_setting('public_url', 'https://tasks.example.com/' + 'x' * 8192)",
+	)
+
+	assert "stopped" in child.stdout, child.stderr
+	assert path.read_bytes() == before
+
+
+def test_storing_a_token_leaves_nothing_else_behind (config_home: pathlib.Path) -> None:
+	"""The new file is renamed over the old one, so nothing is left beside it, and it is 0600."""
+
+	subroutine.credentials.store("work", "sr_one")
+	path = subroutine.credentials.store("work", "sr_two")
+
+	assert sorted(entry.name for entry in config_home.iterdir()) == ["credentials.toml"]
+	assert stat.S_IMODE(path.stat().st_mode) & (stat.S_IRWXG | stat.S_IRWXO) == 0
+	assert subroutine.credentials.read_file() == {
+		"work": subroutine.credentials.Stored(token="sr_two"),
+	}
+
+
+def test_a_linked_credentials_file_stays_linked (
+	config_home: pathlib.Path, tmp_path: pathlib.Path
+) -> None:
+	"""Kept elsewhere and linked into place, the file is written where the link points.
+
+	Renaming a new file over the link itself would put a plain file in its place, and whatever
+	kept the real one - a dotfiles repository, say - would stop seeing changes without a word.
+	"""
+
+	kept = tmp_path / "dotfiles" / "credentials.toml"
+	kept.parent.mkdir()
+	kept.write_text('[work]\ntoken = "sr_one"\n', encoding="utf-8")
+	config_home.mkdir(parents=True, exist_ok=True)
+	link = config_home / "credentials.toml"
+	link.symlink_to(kept)
+
+	subroutine.credentials.store("side", "sr_two")
+
+	assert link.is_symlink()
+	assert subroutine.credentials.read_file() == {
+		"work": subroutine.credentials.Stored(token="sr_one"),
+		"side": subroutine.credentials.Stored(token="sr_two"),
+	}
+	assert "sr_two" in kept.read_text(encoding="utf-8")
 
 
 def test_a_world_readable_credentials_file_is_warned_about (

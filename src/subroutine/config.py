@@ -1083,7 +1083,7 @@ def store_setting (name: str, value: str) -> pathlib.Path:
 	line = f"{name} = {_toml_string(value)}"
 
 	if not path.exists():
-		_write_private(path, f"# Subroutine configuration. See 'subroutine config show'.\n{line}\n")
+		write_private(path, f"# Subroutine configuration. See 'subroutine config show'.\n{line}\n")
 
 		return path
 
@@ -1114,7 +1114,7 @@ def store_setting (name: str, value: str) -> pathlib.Path:
 
 		lines.insert(insert_at, line)
 
-	_write_private(path, "\n".join(lines) + "\n")
+	write_private(path, "\n".join(lines) + "\n")
 
 	return path
 
@@ -1158,7 +1158,7 @@ def store_table (header: str, values: dict[str, str | bool]) -> pathlib.Path:
 	lines.append(f"[{header}]")
 	lines.extend(f"{name} = {_toml_value(values[name])}" for name in values)
 
-	_write_private(path, "\n".join(lines) + "\n")
+	write_private(path, "\n".join(lines) + "\n")
 
 	return path
 
@@ -1194,27 +1194,74 @@ def _toml_string (value: str) -> str:
 	return f'"{escaped}"'
 
 
-def _write_private (path: pathlib.Path, text: str) -> None:
-	"""Write the configuration file, keeping it readable only by its owner.
+def write_private (path: pathlib.Path, text: str) -> None:
+	"""Write a file only its owner can read, replacing the old one whole or not at all.
 
-	**Created owner-only rather than created and then tightened** (`#205`). This wrote the file
-	and chmodded it afterwards, so on a fresh install the signing key existed at whatever the
-	umask happened to be for the window in between — on a shared machine, readable by every
-	other account for exactly as long as it took the next statement to run. The mode belongs on
-	the ``open``, where there is no window at all.
+	``config.toml`` and ``credentials.toml`` are both written here, so both keep these rules.
 
+	**A new file and a rename, never a truncating write** (`#3514`). Both files were opened with
+	``O_TRUNC`` and then written, so a full disk, a killed process or a power cut between the two
+	left one empty or cut short: every stored token gone, or the connection a token belongs to,
+	at the moment somebody was adding one. Now the text goes into a new file beside the old one,
+	reaches the disk, and is renamed over it, so whatever reads it next finds the whole old file
+	or the whole new one. It is how ``claude_code.write`` puts a token into a project's settings,
+	and on the CIFS share this project is developed on, the truncating write is also the one
+	that hangs (`#2433`).
+
+	**Created owner-only rather than created and then tightened** (`#205`). An earlier version
+	wrote the file and chmodded it afterwards, so on a fresh install the signing key existed at
+	whatever the umask allowed for the window in between. ``mkstemp`` makes the new file ``0600``
+	before a byte is in it, so no other account can read it, not even before the rename. The
+	mode is reasserted afterwards, because some filesystems ignore the one asked for.
 	``keep_private`` on the database has the same shape and no choice, because SQLite and
-	Alembic create that file. Here it was avoidable.
+	Alembic create that file.
 
-	The permissions are reasserted on every write, not only on creation: the signing key can be
-	added to a file the user made earlier to set a port or a database URL, and that file will
-	have been created with their default umask.
+	**A symbolic link is followed, and kept.** Somebody who keeps ``config.toml`` in a dotfiles
+	repository links it into place, and renaming over the link would put a plain file where it
+	was: their repository would stop seeing changes, without a word. So the new file is written
+	beside the file the link names, and replaces that.
+
+	**A directory that will not take a new file gets the old write.** Being allowed to change a
+	file in a directory you may not add to is rare, and refusing to save a setting there would be
+	worse than saving it the way this did before.
 	"""
 
-	# Some filesystems — the CIFS share this project is developed on among them — do not carry
-	# POSIX modes, and `O_CREAT`'s mode argument is simply ignored there. Refusing to write the
-	# config over that would be worse than writing it without the tightened permissions, which
-	# is why the chmod below is suppressed rather than required.
+	target = pathlib.Path(os.path.realpath(path))
+
+	try:
+		descriptor, staged = tempfile.mkstemp(
+			dir=target.parent, prefix=f".{target.name}.", suffix=".new"
+		)
+
+	except PermissionError:
+		_write_in_place(target, text)
+
+		return
+
+	try:
+		with open(descriptor, "w", encoding="utf-8") as handle:
+			handle.write(text)
+			handle.flush()
+			os.fsync(handle.fileno())
+
+		os.replace(staged, target)
+
+	except BaseException:
+		with contextlib.suppress(OSError):
+			os.unlink(staged)
+
+		raise
+
+	# Some filesystems - the CIFS share this project is developed on among them - do not carry
+	# POSIX modes. Refusing to save over that would be worse than saving without the tightened
+	# permissions, which is why this is suppressed rather than required.
+	with contextlib.suppress(OSError):
+		target.chmod(0o600)
+
+
+def _write_in_place (path: pathlib.Path, text: str) -> None:
+	"""Truncate a file and write it, for a directory that will not take a new file."""
+
 	descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 
 	with open(descriptor, "w", encoding="utf-8") as handle:
