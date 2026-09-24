@@ -29,6 +29,7 @@ import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.db.seed
+import subroutine.domain.filtering
 import subroutine.domain.milestones
 
 #: What may never appear in a published help string, and why each one matters.
@@ -1373,3 +1374,30 @@ def test_show_help_says_its_tree_walks_what_a_milestone_includes () -> None:
 	missing = [key for key in counting if not re.search(rf"\b{key}\b", said)]
 
 	assert not missing, f"show --help does not say its tree walks {missing}: {said}"
+
+
+def test_list_help_shows_how_to_narrow_by_status_category () -> None:
+	"""`SR#713`: the filter narrowed tasks and documents alike, and nothing showed it.
+
+	Simon decided on 2026-09-24 to show it rather than add a flag: ``--filter status_category.eq=``
+	already reaches both kinds, so a ``--status-category`` would be a second spelling to keep in
+	step with the first. **The example is asked of the registry for both kinds**, because reaching
+	both is the reason it answers the item. The option's own help is checked by
+	:func:`test_every_filter_the_help_offers_is_one_the_registry_accepts`, and a command's
+	examples by nothing else.
+	"""
+
+	rendered = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["list", "--help"]).output
+	said = re.sub(r"\s+", " ", rendered)
+	shown = re.search(r"subroutine list --filter (status_category)\.([a-z]+)=[a-z]+", said)
+
+	assert shown is not None, f"list --help does not show how to narrow by status category: {said}"
+
+	name, operator = shown.groups()
+
+	for kind in ("task", "document"):
+		field = subroutine.domain.filtering.filters(kind).get(name)
+
+		assert field is not None and operator in field.operators, (
+			f"list --help offers '{name}.{operator}=', which a {kind} listing does not accept"
+		)

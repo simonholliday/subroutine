@@ -9568,6 +9568,8 @@ def register (
 		  subroutine list --filter created_at.gte=yesterday
 
 		  subroutine list --filter completed_at.gte=2026-08-02 --filter completed_at.lt=today
+
+		  subroutine list --filter status_category.eq=done
 		"""
 
 		_refuse_words(program, words, looking_for)
