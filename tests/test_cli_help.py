@@ -29,6 +29,7 @@ import subroutine.cli.main
 import subroutine.cli.personal
 import subroutine.cli.topics
 import subroutine.db.seed
+import subroutine.domain.milestones
 
 #: What may never appear in a published help string, and why each one matters.
 #:
@@ -1344,3 +1345,31 @@ def test_the_project_key_help_teaches_the_rule_the_product_has () -> None:
 	assert "sixteen" not in said.lower() and "A to Z" not in said, (
 		f"the replaced rule is still being taught: {said}"
 	)
+
+
+def test_show_help_says_its_tree_walks_what_a_milestone_includes () -> None:
+	"""`SR#3540`. The help described a milestone by `SR#84`'s model after `SR#3391` replaced it.
+
+	It said a milestone is *an item whose blockers are its parts*, so a reader who took it at its
+	word would link work to a milestone with `blocks` and hold that work up - the thing `SR#3391`
+	exists to stop. `SR#3397` taught the new model on a list of surfaces and this one was not on
+	it, while the walk underneath (`links.beneath`) already followed what a milestone includes.
+
+	**The relation is read from the seed rather than written here**, as the milestones topic's
+	own test reads it, so the help is held to whatever a workspace is given to count toward one.
+	"""
+
+	rendered = typer.testing.CliRunner().invoke(subroutine.cli.main.app, ["show", "--help"]).output
+	# Typer wraps to the terminal width, so a sentence is read as words rather than lines.
+	said = re.sub(r"\s+", " ", rendered)
+	counting = [
+		one.key
+		for one in subroutine.db.seed.SEEDED_LINK_TYPES
+		if one.category == subroutine.domain.milestones.COUNTING
+	]
+
+	assert counting, "nothing seeded counts toward a milestone, so the seed has changed under this"
+
+	missing = [key for key in counting if not re.search(rf"\b{key}\b", said)]
+
+	assert not missing, f"show --help does not say its tree walks {missing}: {said}"

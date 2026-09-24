@@ -9835,8 +9835,8 @@ def register (
 		  subroutine show 42 --tree
 
 		'--tree' walks what has to happen before this can, indented by how deep it sits. On a
-		milestone that is its contents, since a milestone is an item whose blockers are its
-		parts - so it is how you read a plan without opening every item in it.
+		milestone it walks what the milestone includes, and what that waits for - so it is how
+		you read a plan without opening every item in it.
 		"""
 
 		# One address resolved in one context, so there is nothing to combine (`#327`).
