@@ -109,15 +109,19 @@ MONTHS: dict[str, int] = {
 #: A written calendar date, either way round: ``1 september``, ``1 Sep``, ``Sept 1``, ``14
 #: March``. An optional ordinal suffix, because ``1st september`` is what a person types.
 #:
-#: **No year, deliberately.** A year makes it an ISO date's job — `2027-03-14` is unambiguous and
-#: is what somebody writes when the year matters. What this spelling is *for* is the case a year
-#: makes worse: a bill in September, a birthday in March, where the reader means the next one.
+#: **And an optional year after it** (`#3316`): ``14 March 2028``, ``March 14, 2028``. This said
+#: *no year, deliberately*, on the argument that somebody who means a year writes ``2028-03-14``.
+#: People write the year in words exactly when a date is a year or more away, and stopping before
+#: it read *by 31 March 2028* as the next 31 March, a year early, with ``2028`` left in the title:
+#: a date set from the wreckage, which §6.13 rule 1 forbids. With no year it is still the next
+#: one, which is what the spelling is for - a bill in September, a birthday in March. Four
+#: digits, so a time of day, which needs a colon or ``am``, is never read as one.
 _WRITTEN_DATE = re.compile(
 	r"^(?:"
 	r"(?P<day_first>\d{1,2})(?:st|nd|rd|th)?\s+(?P<month_after>[a-z]+)"
 	r"|"
 	r"(?P<month_first>[a-z]+)\s+(?P<day_after>\d{1,2})(?:st|nd|rd|th)?"
-	r")$"
+	r")(?:,?\s+(?P<year>\d{4}))?$"
 )
 
 
@@ -204,7 +208,11 @@ def written_date (written: str, *, today: datetime.date) -> datetime.date | None
 	because both are ordinary English and a grammar that took one would be right for whichever
 	half of its readers happened to match it.
 
-	**The soonest such date counting today, exactly as a weekday is.** "By 1 September" said in
+	**With a year after it, that year's** (`#3316`), exactly as an ISO date's: ``14 March 2028``
+	is the writer saying which one, so nothing is counted, and a day that year has not got -
+	``29 February 2027`` - is not a date rather than the leap day after it.
+
+	**Otherwise the soonest such date counting today, exactly as a weekday is.** "By 1 September" said in
 	October means next year's, and the alternative — a date in the past, silently — is the
 	answer nobody wants: a deadline that has already gone renders as overdue the moment it is
 	set, which reads as a defect rather than as a year having been assumed.
@@ -219,19 +227,19 @@ def written_date (written: str, *, today: datetime.date) -> datetime.date | None
 	rather than a request.
 	"""
 
-	found = _WRITTEN_DATE.match(written.strip().lower())
+	parts = _written_parts(written)
 
-	if found is None:
+	if parts is None:
 		return None
 
-	name = found.group("month_after") or found.group("month_first")
-	number = found.group("day_first") or found.group("day_after")
+	day, month, written_year = parts
 
-	if name not in MONTHS:
-		return None
+	if written_year is not None:
+		try:
+			return datetime.date(written_year, month, day)
 
-	month = MONTHS[name]
-	day = int(number)
+		except ValueError:
+			return None
 
 	# **Eight years, and the number is the leap day rather than caution.** Every other date is
 	# found in this year or the next; the 29th of February is a real date in a leap year and not
@@ -249,6 +257,61 @@ def written_date (written: str, *, today: datetime.date) -> datetime.date | None
 			return candidate
 
 	return None
+
+
+def latest_written_date (written: str, *, until: datetime.date) -> datetime.date | None:
+	"""Return the latest day a written date with no year names on or before ``until``.
+
+	**For a year written once, at the end of a span** (`#3316`). *From 2 October to 12 October
+	2027* means the 2 October of 2027, as *2-12 October 2027* does, where counting the start
+	forward from today would open the span a year early - so the start is counted back from the
+	end instead.
+
+	``None`` for anything else: a phrase that is not a written date, one that carries a year of
+	its own, or a day no year in reach has got. The caller then keeps the day it already read.
+	"""
+
+	parts = _written_parts(written)
+
+	if parts is None or parts[2] is not None:
+		return None
+
+	day, month, _year = parts
+
+	# Back as far as :func:`written_date` looks forward, for the 29 February it was widened for.
+	for year in range(until.year, until.year - _LEAP_SEARCH - 1, -1):
+		try:
+			candidate = datetime.date(year, month, day)
+
+		except ValueError:
+			continue
+
+		if candidate <= until:
+			return candidate
+
+	return None
+
+
+def _written_parts (written: str) -> tuple[int, int, int | None] | None:
+	"""Return a written date's day, month and year, or ``None`` if it is not one.
+
+	The year is ``None`` where none was written, which is the difference both callers act on.
+	"""
+
+	found = _WRITTEN_DATE.match(written.strip().lower())
+
+	if found is None:
+		return None
+
+	name = found.group("month_after") or found.group("month_first")
+	number = found.group("day_first") or found.group("day_after")
+
+	if name not in MONTHS:
+		return None
+
+	year = found.group("year")
+
+	return int(number), MONTHS[name], None if year is None else int(year)
 
 
 def _soonest (name: str, *, today: datetime.date) -> datetime.date:

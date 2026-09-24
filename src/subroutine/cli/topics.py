@@ -111,7 +111,7 @@ grammars.relative_dates.
                  - either way round, with or without the 'st'
                  - the soonest such date, counting today, so one written
                    in October means next year's
-                 - no year: write 2027-03-14 when the year matters
+                 - with a year after it, that year's: 14 March 2028
                  - as a deadline beside a start in a captured line, a
                    weekday or a written date counts from the start, so
                    'on 20 July by 5 August' is due the same year

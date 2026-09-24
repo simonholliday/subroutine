@@ -444,3 +444,75 @@ def test_the_leap_day_is_found_across_a_century_that_is_not_a_leap_year () -> No
 		"29 february", today=datetime.date(2096, 3, 1)
 	) == datetime.date(2104, 2, 29)
 
+
+@pytest.mark.parametrize(
+	("written", "expected"),
+	[
+		("31 march 2028", datetime.date(2028, 3, 31)),
+		("March 31, 2028", datetime.date(2028, 3, 31)),
+		("31st March 2028", datetime.date(2028, 3, 31)),
+		("Mar 31 2028", datetime.date(2028, 3, 31)),
+		# **The year counting would have found, written anyway**: still read, so it leaves the
+		# title with its date rather than staying behind in it.
+		("15 january 2027", datetime.date(2027, 1, 15)),
+		# **A year already gone is taken as written**, as an ISO date is: the writer said which.
+		("1 january 2026", datetime.date(2026, 1, 1)),
+		# **A weekday is checked against the year written**, not against the next such date.
+		("friday 31 march 2028", datetime.date(2028, 3, 31)),
+		("Friday, March 31, 2028", datetime.date(2028, 3, 31)),
+		("wednesday 31 march 2028", None),
+		# **A day that year has not got is not a date**, and never the leap day after it.
+		("29 february 2028", datetime.date(2028, 2, 29)),
+		("29 february 2027", None),
+		# A year is four digits and a whole word.
+		("31 march 20280", None),
+		("31 march 0000", None),
+	],
+)
+def test_a_written_date_with_its_year_is_that_day_in_that_year (
+	written: str, expected: datetime.date | None
+) -> None:
+	"""`SR#3316`: *by 31 March 2028* was due on 31 March 2027, with ``2028`` left in the title.
+
+	A year after a written date was never read, so the day and month were counted to the next
+	one and the year stayed behind as a word. That was right only when the year written happened
+	to be the one counting found, and a year early, silently, whenever it was not - which is the
+	range a milestone is dated in.
+	"""
+
+	assert subroutine.domain.dates.day_named(
+		written, today=datetime.date(2026, 8, 24)
+	) == expected
+
+
+@pytest.mark.parametrize(
+	("written", "until", "expected"),
+	[
+		("2 october", (2027, 10, 12), (2027, 10, 2)),
+		("12 October", (2027, 10, 12), (2027, 10, 12)),
+		# **Over a new year**: the latest 30 December before the 3 January is the year before's.
+		("30 December", (2028, 1, 3), (2027, 12, 30)),
+		# **Backwards within one month comes back a year early**, which the span's own check refuses.
+		("13 october", (2027, 10, 12), (2026, 10, 13)),
+		# **A leap day is looked for as far back as it is looked for forward.**
+		("29 february", (2027, 3, 3), (2024, 2, 29)),
+		# Not a written date with no year, so the caller keeps the day it read.
+		("2 october 2027", (2027, 10, 12), None),
+		("friday", (2027, 10, 12), None),
+		("2027-10-02", (2027, 10, 12), None),
+	],
+)
+def test_a_written_date_is_counted_back_from_the_end_of_a_span (
+	written: str, until: tuple[int, int, int], expected: tuple[int, int, int] | None
+) -> None:
+	"""`SR#3316`: a year written once, at the end of a span, is both days'.
+
+	*From 2 October to 12 October 2027* means the 2 October of 2027. Counted forward from today,
+	as a start is, it opened the span a year early; counted back from the end, it is the latest
+	such day on or before it.
+	"""
+
+	found = subroutine.domain.dates.latest_written_date(written, until=datetime.date(*until))
+
+	assert found == (None if expected is None else datetime.date(*expected))
+

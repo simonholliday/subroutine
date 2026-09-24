@@ -120,6 +120,12 @@ upgrade involves.
   to the instance the plugin names, which refuses it: put that instance's token in the field, or
   empty it.
 
+- **A date written with its year is read in that year.** *by 31 March 2028* was due on 31 March
+  2027, the next one, with `2028` left in the title, and a start, a span and a date typed at the
+  command line did the same. The year is now read with the date it follows - `14 March 2028` or
+  `March 14, 2028` - and a year written once at the end of a span is both days', so *from 2
+  October to 12 October 2027* is in 2027. A written date with no year is still the next one.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

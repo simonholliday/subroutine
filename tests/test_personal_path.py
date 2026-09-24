@@ -11469,6 +11469,33 @@ def test_a_deadline_nothing_reads_is_still_refused (
 	assert json.loads(run("show", "1", "--json").output)["item"]["due_at"] is None
 
 
+def test_a_date_written_with_its_year_reaches_the_item_in_that_year (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3316` at the command line: from a captured line, and from ``update --due``.
+
+	**Both are read at the terminal**, by ``dates.day_named`` - quick capture, and ``--due`` since
+	`SR#2856` - so a fix in the grammar is only a fix where the create stores what it read. This
+	drives each to the stored deadline, which the capture suite cannot reach by construction.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	run("add", "Ship the beta by 31 March 2028")
+	run("add", "Ship the release")
+	run("update", "2", "--due", "March 31, 2028")
+
+	zone = subroutine.config.system_timezone()
+
+	for number, title in (("1", "Ship the beta"), ("2", "Ship the release")):
+		stored = json.loads(run("show", number, "--json").output)["item"]
+		due = datetime.datetime.fromisoformat(stored["due_at"]).astimezone(
+			subroutine.domain.dates.zone(zone, "due")
+		)
+
+		assert stored["title"] == title, stored
+		assert (due.date(), stored["due_is_all_day"]) == (datetime.date(2028, 3, 31), True), stored
+
+
 @pytest.mark.parametrize("word", sorted(subroutine.domain.dates.WHOLE_DAY_KEYWORDS))
 def test_a_deadline_the_instance_reads_still_goes_to_it_as_written (
 	run: typing.Callable[..., typer.testing.Result], word: str,

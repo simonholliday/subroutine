@@ -2236,6 +2236,86 @@ def test_the_end_of_a_span_is_resolved_from_its_start () -> None:
 
 
 @pytest.mark.parametrize(
+	("line", "title", "field", "expected"),
+	[
+		("Ship the beta by 31 March 2028", "Ship the beta", "due", datetime.date(2028, 3, 31)),
+		("Ship the beta by March 31, 2028", "Ship the beta", "due", datetime.date(2028, 3, 31)),
+		("Ship the beta by 31st March 2028", "Ship the beta", "due", datetime.date(2028, 3, 31)),
+		# **The year counting would have found anyway** still leaves the title with its date.
+		("Ship the beta by 15 January 2027", "Ship the beta", "due", datetime.date(2027, 1, 15)),
+		("Anna's birthday on 14 March 2028", "Anna's birthday", "starts_at",
+			datetime.date(2028, 3, 14)),
+		# **The weekday agrees with the year written**, where the next 31 March is a Wednesday.
+		("Ship the beta on Friday 31 March 2028", "Ship the beta", "starts_at",
+			datetime.date(2028, 3, 31)),
+		("Wait for the audit from 1 June 2027", "Wait for the audit", "snooze",
+			datetime.date(2027, 6, 1)),
+		# **A time goes with the date it follows**, year and all.
+		("Standup on 14 March 2028 at 9am", "Standup", "starts_at",
+			datetime.datetime(2028, 3, 14, 9, 0)),
+		# **A year already gone is taken as written**, as an ISO date is.
+		("File the return by 31 January 2026", "File the return", "due",
+			datetime.date(2026, 1, 31)),
+		# **A day that year has not got is handed on whole**, exactly as *31 February* is, for the
+		# create to refuse by name - and never dated to the leap day after it.
+		("Ship the beta by 29 February 2027", "Ship the beta", "due", "29 February 2027"),
+	],
+)
+def test_a_written_year_is_read_with_the_date_it_follows (
+	line: str, title: str, field: str, expected: object
+) -> None:
+	"""`SR#3316`: *by 31 March 2028* was due on 31 March 2027, with ``2028`` left in the title.
+
+	§6.13 rule 1's forbidden outcome: a word stayed behind and a field was set from the wreckage.
+	It was right only when the year written was the one counting found, and a year early,
+	silently, whenever it was not - which is the range a milestone is dated in.
+	"""
+
+	read = _parse(line)
+
+	assert read.title == title, f"the year was left in the title: {read.title!r}"
+	assert getattr(read, field) == expected, f"{line!r} set {field}={getattr(read, field)!r}"
+	assert read.unparsed == (), read.unparsed
+
+
+@pytest.mark.parametrize(
+	("text", "start", "end"),
+	[
+		("Holiday in Dawlish 2-12 October 2027", (2027, 10, 2), (2027, 10, 12)),
+		("Holiday in Dawlish October 2-12, 2027", (2027, 10, 2), (2027, 10, 12)),
+		("Holiday in Dawlish from 2 to 12 October 2027", (2027, 10, 2), (2027, 10, 12)),
+		("Holiday in Dawlish from 2 October 2027 to 12 October 2027", (2027, 10, 2), (2027, 10, 12)),
+		("Holiday in Dawlish 30 September 2027 - 2 October 2027", (2027, 9, 30), (2027, 10, 2)),
+		# **Written once, at the end, for both days**, as the month is in *2-12 October*.
+		("Holiday in Dawlish from 2 October to 12 October 2027", (2027, 10, 2), (2027, 10, 12)),
+		("Holiday in Dawlish 30 September-2 October 2027", (2027, 9, 30), (2027, 10, 2)),
+		("Holiday in Dawlish from 28 December to 3 January 2028", (2027, 12, 28), (2028, 1, 3)),
+		# **Written at the start**, and the end counted from it as it always was.
+		("Holiday in Dawlish from 28 December 2027 to 3 January", (2027, 12, 28), (2028, 1, 3)),
+	],
+)
+def test_a_year_written_in_a_span_dates_both_days (
+	text: str, start: tuple[int, int, int], end: tuple[int, int, int]
+) -> None:
+	"""`SR#3316`, for spans: the year written after a span's dates was left in the title.
+
+	*2-12 October 2027* read as this October with ``2027`` behind in the title, and *from 2
+	October 2027 to 12 October 2027* fell apart altogether - into a defer to this October, with
+	*2027 to 12 October 2027* left as words. A year written once, at the end, belongs to both
+	days, as the month does.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == "Holiday in Dawlish", captured
+	assert (captured.starts_at, captured.ends_at) == (
+		datetime.date(*start), datetime.date(*end)
+	), captured
+	assert captured.snooze is None, "a span was read as the defer its first word also is"
+	assert captured.unparsed == (), captured.unparsed
+
+
+@pytest.mark.parametrize(
 	("text", "start", "due"),
 	[
 		# **The case this was filed on** (`SR#1239`): said on 30 July, *20 July* has gone, so the
@@ -2409,6 +2489,10 @@ def test_a_bare_from_is_still_a_defer () -> None:
 		# order or its end, so neither refusal of a start nothing can read was reached.
 		"Holiday in Dawlish from 31 to 31 November",
 		"Holiday in Dawlish from 31 November to 2 December",
+		# **A year written once, at the end** (`SR#3316`): counted back from it, a start later in
+		# the end's own month lands a year early, which is a span running backwards.
+		"Holiday in Dawlish from 13 October to 12 October 2027",
+		"Holiday in Dawlish 12-2 October 2027",
 	],
 )
 def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None:

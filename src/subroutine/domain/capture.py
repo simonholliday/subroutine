@@ -134,6 +134,11 @@ _KEYWORD_ALTERNATION = "|".join(
 _MONTH_ALTERNATION = "|".join(
 	sorted(subroutine.domain.dates.MONTHS, key=len, reverse=True)
 )
+#: A year after a written date - ``14 March 2028``, ``March 14, 2028`` (`#3316`). Optional
+#: wherever a written date is, because a phrase that stopped short of it counted the day and
+#: month to the next one, a year early, and left the year in the title. A whole word of four
+#: digits, so ``20280`` and a time of day are never one.
+_WRITTEN_YEAR = r"(?:,?\s+\d{4}(?![\w']))?"
 
 #: One date phrase. Ordered longest-form-first, because Python's alternation takes the
 #: first branch that matches rather than the longest.
@@ -157,8 +162,11 @@ _PHRASE = (
 	#: this whole grammar's rule is that an unreadable phrase stays in the title and says so.
 	#: It is also what stops *"the September release"* being eaten: there is no preposition in
 	#: front of it, and `_PHRASE` is only ever reached through one.
-	rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION})"
-	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?"
+	#:
+	#: **And the year after it, where one is written** (`#3316`), so the year leaves the title with
+	#: the day it belongs to, and decides which one that is.
+	rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION}){_WRITTEN_YEAR}"
+	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?{_WRITTEN_YEAR}"
 	#: **A weekday in front of a written date, consumed as one phrase** (`#2116`). *on Friday
 	#: 18th September* is ordinary English and both halves name the same day, so reading only
 	#: the first left the row dated a week early with the right date still in the title.
@@ -172,7 +180,9 @@ _PHRASE = (
 	#: ``dates.day_named`` is what decides whether the pair agree; a phrase that matches here
 	#: and disagrees there is left in the title, exactly as an unreadable one is.
 	rf"|(?:{_WEEKDAY_ALTERNATION}),?\s+\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTH_ALTERNATION})"
+	rf"{_WRITTEN_YEAR}"
 	rf"|(?:{_WEEKDAY_ALTERNATION}),?\s+(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}(?:st|nd|rd|th)?"
+	rf"{_WRITTEN_YEAR}"
 	rf"|(?:{_WEEKDAY_ALTERNATION})"
 	r")"
 )
@@ -183,10 +193,11 @@ _SPAN_JOINT = rf"(?:\s+(?P<word>{'|'.join(SPAN_WORDS)})\s+|\s*[-\u2013\u2014]\s*
 _ORDINAL = r"(?:st|nd|rd|th)?"
 
 #: A calendar date written out, either way round, or an ISO day — the two forms that name a day
-#: without needing a preposition in front to be believed.
+#: without needing a preposition in front to be believed. A written one may carry its year
+#: (`#3316`).
 _WRITTEN_DAY = (
-	rf"(?:\d{{1,2}}{_ORDINAL}\s+(?:{_MONTH_ALTERNATION})"
-	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}{_ORDINAL}"
+	rf"(?:\d{{1,2}}{_ORDINAL}\s+(?:{_MONTH_ALTERNATION}){_WRITTEN_YEAR}"
+	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}{_ORDINAL}{_WRITTEN_YEAR}"
 	r"|\d{4}-\d{2}-\d{2}(?![T ]?\d))"
 )
 
@@ -200,14 +211,15 @@ _WORDED_SPAN = re.compile(
 
 #: ``2-12 October``, ``from 2 to 12 October``, ``October 2-12``: two days of one month with the
 #: month written once. **Without an opening word only a dash joins them**, because *pages 2 to
-#: 12 October* is not somebody's holiday and *2-12 October* nearly always is.
+#: 12 October* is not somebody's holiday and *2-12 October* nearly always is. A year written
+#: after it is both days', as the month is (`#3316`): ``2-12 October 2027``.
 _DAYS_OF_A_MONTH = re.compile(
 	rf"{_STARTS_A_WORD}(?:(?P<opening>{'|'.join(SPAN_OPENING_WORDS)})\s+)?(?:"
 	rf"(?P<first>\d{{1,2}}){_ORDINAL}{_SPAN_JOINT}(?P<last>\d{{1,2}}){_ORDINAL}"
 	rf"\s+(?P<month>{_MONTH_ALTERNATION})"
 	rf"|(?P<month_first>{_MONTH_ALTERNATION})\s+(?P<first_after>\d{{1,2}}){_ORDINAL}"
 	rf"{_SPAN_JOINT.replace('(?P<word>', '(?P<word_after>')}(?P<last_after>\d{{1,2}}){_ORDINAL}"
-	r")(?![\w'])",
+	r")(?:,?\s+(?P<year>\d{4}))?(?![\w'])",
 	re.IGNORECASE,
 )
 
@@ -1785,18 +1797,21 @@ def _span_days (
 		month = groups.get("month") or groups.get("month_first") or ""
 		first = int(groups.get("first") or groups.get("first_after") or 0)
 		last = int(groups.get("last") or groups.get("last_after") or 0)
+		# One year for both days, written once after the month as the month is (`#3316`).
+		year = f" {groups['year']}" if groups.get("year") else ""
 
 		if first > last:
 			return None
 
-		start = subroutine.domain.dates.written_date(f"{first} {month}", today=today)
+		start = subroutine.domain.dates.written_date(f"{first} {month}{year}", today=today)
 
 		if start is None:
 			return None
 
-		end = subroutine.domain.dates.written_date(f"{last} {month}", today=start)
+		end = subroutine.domain.dates.written_date(f"{last} {month}{year}", today=start)
 
-		# Neither side of this form can carry a year, so the end's is always counted.
+		# Checked as a counted end whether or not a year was written: with one, both days are in
+		# that month of that year and in order, which those checks always pass.
 		if end is None or not _a_real_span(start, end, counted=True):
 			return None
 
@@ -1819,6 +1834,18 @@ def _span_days (
 	reach = min(_FAR_ENOUGH_BACK, (start - datetime.date.min).days)
 	earlier = start - datetime.timedelta(days=reach)
 	counted = _span_day(phrase, today=earlier, now=now, timezone=timezone) != end
+
+	# **A year written once, at the end, is both days'** (`#3316`). *From 2 October to 12 October
+	# 2027* means the 2 October of 2027, as *2-12 October 2027* does, and counting the start
+	# forward from today opened the span a year early. So a start written with no year is
+	# counted back from the end instead - the latest such day on or before it - and held to the
+	# slips a counted day is, since it was counted too: *13 October to 12 October 2027* is a span
+	# running backwards, not a year of holiday.
+	if not counted:
+		opening = subroutine.domain.dates.latest_written_date(groups.get("start") or "", until=end)
+
+		if opening is not None:
+			return (opening, end) if _a_real_span(opening, end, counted=True) else None
 
 	return (start, end) if _a_real_span(start, end, counted=counted) else None
 
