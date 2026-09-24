@@ -775,10 +775,10 @@ def _links_for (entity_type: str) -> typing.Any:
 		The links above answer one level; this walks them, so a plan of twenty-eight items and
 		forty-two links can be read in one call rather than reconstructed from twenty-eight.
 
-		Prerequisites rather than dependents, which is what a milestone's contents are: an item
-		whose blockers are its parts. Only the sequencing link types are followed - *relates
-		to* and *documents* order nothing, and a tree drawn through them would put a decision
-		under a phase as though the phase were waiting on it.
+		Prerequisites rather than dependents: what blocks an item, and for a milestone what it
+		includes as well, since both have to happen before it is reached. Only those links are
+		followed - *relates to* and *documents* order nothing, and a tree drawn through them
+		would put a decision under a phase as though the phase were waiting on it.
 
 		Flat, with a `depth` per row, because the shape is a graph rather than a tree: an item
 		reached twice is drawn once and says `stopped: "again"` the second time, and one left

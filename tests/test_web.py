@@ -2782,6 +2782,61 @@ def test_the_agenda_counts_the_milestones_it_has_no_section_for (tmp_path: pathl
 	assert "1 milestone with no date" in one and "milestones" not in one, one
 
 
+def test_a_milestone_s_page_counts_what_it_includes (tmp_path: pathlib.Path) -> None:
+	"""`SR#3395`: the browser's count for a milestone, as the terminal and an agent have it.
+
+	**What runs out of it and nothing else.** The milestone below also has a blocker, which must
+	not reach its count, and an ordinary task with the same links goes on counting its blockers.
+	"""
+
+	milestone = {"ref": 12, "title": "Launch", "status": "open", "kind": "task",
+		"type": "milestone", "type_category": "target"}
+	links = [
+		{"id": "l-1", "link_type": "includes", "link_category": "counting", "label": "Includes",
+			"direction": "outgoing",
+			"other": {"entity_type": "task", "ref": 43, "title": "Write the docs", "is_complete": True}},
+		{"id": "l-2", "link_type": "includes", "link_category": "counting", "label": "Includes",
+			"direction": "outgoing",
+			"other": {"entity_type": "task", "ref": 44, "title": "Record the demo",
+				"is_complete": False}},
+		{"id": "l-3", "link_type": "blocks", "link_category": "gating", "label": "Blocked by",
+			"direction": "incoming",
+			"other": {"entity_type": "task", "ref": 45, "title": "Book the venue", "is_complete": False}},
+	]
+	shared = {"comments": [], "workspace": "projects", "members": [], "links": links,
+		"vocabulary": {"link_types": [{"key": "includes", "title": "Includes"}]}}
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "item": milestone}})["Detail"]
+
+	assert "(1 of 2 included done)" in shown, shown
+	assert "blockers done" not in shown, shown
+
+	ordinary = {**milestone, "type": "task", "type_category": "work"}
+	plain = _rendered(tmp_path, {"Detail": {**shared, "item": ordinary}})["Detail"]
+
+	assert "(0 of 1 blockers done)" in plain, plain
+
+
+def test_a_row_says_when_all_a_milestone_includes_is_done (tmp_path: pathlib.Path) -> None:
+	"""`SR#3395`: *Included done* on a milestone's row, which is the question put to a person.
+
+	**Absent otherwise**, because a mark on every row says nothing (§12.2a).
+	"""
+
+	item = {"ref": 12, "kind": "task", "title": "Launch", "workspace": "projects",
+		"status": "open", "status_is_default": True}
+
+	marked = _rendered(
+		tmp_path, {"Row": {"item": {**item, "included_done": True}, "workspace": "projects"}}
+	)["Row"]
+
+	assert "Included done" in marked, marked
+
+	plain = _rendered(tmp_path, {"Row": {"item": item, "workspace": "projects"}})["Row"]
+
+	assert "Included done" not in plain, plain
+
+
 def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -2907,6 +2962,11 @@ def test_the_browser_and_the_terminal_call_a_blocker_the_same_thing () -> None:
 		# words — which is why the status chip's silencing had to learn that a key's underscore
 		# and a mark's space are the same gap.
 		("WAITING_MARK", subroutine.views.WAITING_MARK),
+		# **`SR#3501`.** The constant's comment said this test compared it, and the register had
+		# never listed it, so a rewording on either side would have passed.
+		("SUB_TASKS_DONE_MARK", subroutine.views.SUB_TASKS_DONE_MARK),
+		# And its counterpart for a milestone (`SR#3395`), in the word Simon chose.
+		("INCLUDED_DONE_MARK", subroutine.views.INCLUDED_DONE_MARK),
 	):
 		assert word.lower() in shown, (
 			f"`views.{name}` is {word!r} and the browser's `marks` says none of {sorted(shown)}. "

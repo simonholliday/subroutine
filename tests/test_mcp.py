@@ -1022,6 +1022,47 @@ def test_an_agent_can_say_what_blocks_what (
 	assert "Write the client" in _called(bound, "subroutine_list", ready=True)[0]
 
 
+def test_an_agent_reading_a_milestone_is_told_how_much_of_it_is_done (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3395`: the terminal's count on the surface an agent reads, and the mark on its list.
+
+	A milestone counts what it includes (decision `SR#3391`), so the line an agent reads says
+	*included done*; when all of it is done, its listing row carries the mark that asks a person
+	whether it has been reached.
+	"""
+
+	made, failed = _called(bound, "subroutine_add", text="Ship the release", type="milestone")
+
+	assert not failed, made
+
+	milestone = int(made.split()[1].lstrip("#"))
+	first = _added(bound, "Write the client")
+	second = _added(bound, "Build the endpoint")
+
+	linked, failed = _called(
+		bound, "subroutine_link", ref=milestone, type="includes", other=[first, second]
+	)
+
+	assert not failed, linked
+	assert "0 of 2 included done" in _called(bound, "subroutine_show", ref=milestone)[0]
+
+	for part in (first, second):
+		done, failed = _called(bound, "subroutine_done", ref=part)
+
+		assert not failed, done
+
+	shown = _called(bound, "subroutine_show", ref=milestone)[0]
+
+	assert "2 of 2 included done" in shown, shown
+	assert "blockers done" not in shown, shown
+
+	listed = _called(bound, "subroutine_list")[0]
+	row = next(line for line in listed.splitlines() if "Ship the release" in line)
+
+	assert subroutine.views.INCLUDED_DONE_MARK in row, row
+
+
 def test_an_agent_reading_an_item_is_told_how_many_blockers_are_left (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

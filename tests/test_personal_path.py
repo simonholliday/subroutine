@@ -6383,6 +6383,76 @@ def test_show_counts_the_blockers_that_are_done (
 	assert "The milestone" in run("list", "--ready").output, "the two now agree"
 
 
+def test_show_counts_what_a_milestone_includes (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3395`, decision `SR#3391`: a milestone's progress is what it includes.
+
+	``show`` has counted blockers since `SR#210`, which was `SR#84`'s model of a milestone. A
+	milestone counts the links running out of it to its work now, and anything else goes on
+	counting its blockers, so a blocker on the milestone itself is left out of its count. **When
+	all of it is done a listing says so**, and the milestone stays open.
+	"""
+
+	run("init")
+	run("add", "The launch", "--type", "milestone")
+	run("add", "Write the docs")
+	run("add", "Record the demo")
+	run("add", "Book the venue")
+	run("link", "1", "includes", "2")
+	run("link", "1", "includes", "3")
+	run("link", "4", "blocks", "1")
+
+	shown = run("show", "1").output
+
+	assert "Links  (0 of 2 included done)" in shown, shown
+	assert "blockers done" not in shown, f"a milestone counted its blockers too:\n{shown}"
+
+	run("done", "2")
+
+	assert "Links  (1 of 2 included done)" in run("show", "1").output
+
+	run("done", "3")
+
+	assert "Links  (2 of 2 included done)" in run("show", "1").output
+
+	listed = run("list").output
+	row = next(line for line in listed.splitlines() if "The launch" in line)
+
+	assert "included done" in row, f"nothing on the listing asks whether it is reached:\n{listed}"
+
+
+def test_a_milestone_s_plan_is_what_it_includes_and_what_that_waits_for (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3395`: ``show --tree`` follows ``includes`` down from a milestone.
+
+	**What has to happen before a milestone is reached is what it includes**, and before a piece
+	of work can start it is what blocks it, so a roadmap reads as its phases, each phase as its
+	work, and each piece of work as what it waits for. **Never upwards**: the tree of a piece of
+	work does not draw the milestone it counts toward, as though it waited for it.
+	"""
+
+	run("init")
+	run("add", "The roadmap", "--type", "milestone")
+	run("add", "Phase one", "--type", "milestone")
+	run("add", "Write the docs")
+	run("add", "Choose a host")
+	run("link", "1", "includes", "2")
+	run("link", "2", "includes", "3")
+	run("link", "4", "blocks", "3")
+
+	walked = json.loads(run("show", "1", "--tree", "--json").output)["tree"]
+
+	assert [(one["item"]["title"], one["depth"]) for one in walked] == [
+		("Phase one", 1), ("Write the docs", 2), ("Choose a host", 3)
+	], walked
+
+	below = json.loads(run("show", "3", "--tree", "--json").output)["tree"]
+
+	assert [one["item"]["title"] for one in below] == ["Choose a host"], below
+
+
 def test_show_counts_only_blockers_and_not_every_link (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

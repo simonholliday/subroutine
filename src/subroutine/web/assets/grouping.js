@@ -464,6 +464,29 @@ export function blockersDone (links) {
 	return `  (${done} of ${held.length} blockers done)`;
 }
 
+export function includedDone (links) {
+	/*
+		How much of a milestone is done — `#3395`, decision `#3391`. `blockersDone`'s rule, for
+		the link that counts toward a milestone: what runs *out* of it, since `includes` goes from
+		the milestone to the work. `cli/personal` and an agent's `show` count the same links.
+
+		**Nothing at all when it includes nothing**, for `blockersDone`'s reason.
+	*/
+	const included = (links || []).filter(
+		(link) =>
+			link.link_category === "counting"
+			&& link.direction === "outgoing"
+			/* In the trash is out of the count, as it is for a blocker (`#1403`). */
+			&& !(link.other || {}).deleted_at
+	);
+
+	if (included.length === 0) return "";
+
+	const done = included.filter((link) => link.other && link.other.is_complete).length;
+
+	return `  (${done} of ${included.length} included done)`;
+}
+
 export function withinAllowance (rows, revealed, allowance = LINKS_SHOWN) {
 	/*
 		The rows of a section that are drawn, which is the front of the list or all of it.

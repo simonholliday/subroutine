@@ -62,6 +62,7 @@ import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.filtering
 import subroutine.domain.grammar
+import subroutine.domain.milestones
 import subroutine.domain.ordering
 import subroutine.domain.palette
 import subroutine.domain.projects
@@ -960,6 +961,7 @@ class Columns:
 	state: int = 0
 	blocked: int = 0
 	sub_tasks_done: int = 0
+	included_done: int = 0
 	priority: int = 0
 	estimate: int = 0
 	matched: int = 0
@@ -1024,6 +1026,7 @@ class Columns:
 			state=_column(_state_cell(item) for _name, item in rows),
 			blocked=_column(_blocked_cell(item) for _name, item in rows),
 			sub_tasks_done=_column(_sub_tasks_cell(item) for _name, item in rows),
+			included_done=_column(_included_cell(item) for _name, item in rows),
 			priority=_column(_priority_cell(item) for _name, item in rows),
 			estimate=_column(_estimate_cell(item) for _name, item in rows),
 			assignee=_column(
@@ -1148,6 +1151,25 @@ def _sub_tasks_cell (item: Item) -> str:
 		return ""
 
 	return SUB_TASKS_DONE_MARK if item.sub_tasks_done else ""
+
+
+#: Marks a milestone whose included work is all done — `#3395`, and a column of its own for
+#: :data:`SUB_TASKS_DONE_MARK`'s reason: one column would print whichever won. Dropped when no
+#: row on the page carries it, so a list with no milestones never shows it.
+INCLUDED_DONE_MARK = subroutine.views.INCLUDED_DONE_MARK
+
+
+def _included_cell (item: Item) -> str:
+	"""Return the marker for a milestone whose included work is all done, or nothing — `#3395`.
+
+	:func:`_sub_tasks_cell`'s question, put for a milestone (decision `#3391`): nothing completes
+	one automatically, so when all of it is done the row says so and a person decides.
+	"""
+
+	if not isinstance(item, subroutine.views.Task):
+		return ""
+
+	return INCLUDED_DONE_MARK if item.included_done else ""
 
 
 def _blocked_cell (item: Item) -> str:
@@ -12061,6 +12083,9 @@ def _item_line (
 	if columns.sub_tasks_done:
 		line.append(f"{_sub_tasks_cell(item):<{columns.sub_tasks_done}}  ", style=DETAIL)
 
+	if columns.included_done:
+		line.append(f"{_included_cell(item):<{columns.included_done}}  ", style=DETAIL)
+
 	if columns.priority:
 		line.append(f"{_priority_cell(item):<{columns.priority}}  ", style=DETAIL)
 
@@ -13019,6 +13044,21 @@ def _render_item (
 		done = sum(1 for link in blockers if link.other.is_complete)
 		rollup = f"  ({done} of {len(blockers)} blockers done)" if blockers else ""
 
+		# **A milestone counts what it includes instead** (`#3395`, decision `#3391`): the link
+		# running out of it to the work. Anything else goes on counting its blockers, so a release
+		# closed under `#84`'s model reads as it always did.
+		if item.type_category == subroutine.domain.readiness.TARGET:
+			included = [
+				link
+				for link in links
+				if link.link_category == subroutine.domain.milestones.COUNTING
+				and link.direction == "outgoing"
+				# In the trash is out of the count, for `#1403`'s reason above.
+				and link.other.deleted_at is None
+			]
+			done = sum(1 for link in included if link.other.is_complete)
+			rollup = f"  ({done} of {len(included)} included done)" if included else ""
+
 		console.print("")
 		console.print(rich.text.Text(f"Links{rollup}", style=HEADING))
 
@@ -13855,6 +13895,7 @@ def _as_json (
 		# only the first would learn what the item does to others and not that nothing is left
 		# to do about it.
 		"sub_tasks_done": task.sub_tasks_done,
+		"included_done": task.included_done,
 		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
 		# own is work whose context is one field away, and the number is what a script types
 		# back.

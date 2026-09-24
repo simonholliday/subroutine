@@ -185,7 +185,10 @@ export const TASK_FIELDS = [
 	"ref", "title", "due_at", "due_is_all_day", "starts_at", "starts_is_all_day",
 	/* Where a span ends (`#2888`), which `when` writes after the start. */
 	"ends_at",
-	"blocked", "sub_tasks_done", "project_key",
+	"blocked", "sub_tasks_done",
+	/* A milestone whose included work is all done (`#3395`), which `marks` draws. */
+	"included_done",
+	"project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest
 	   ancestor's, or its workspace's. Resolved on the server, so what arrives is a palette name

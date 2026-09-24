@@ -32,6 +32,7 @@ import subroutine.domain.events
 import subroutine.domain.hierarchy
 import subroutine.domain.instances
 import subroutine.domain.mentions
+import subroutine.domain.milestones
 import subroutine.domain.ordering
 import subroutine.domain.patch
 import subroutine.domain.readiness
@@ -1535,6 +1536,11 @@ def update (
 			due_at=task.due_at if deadline is subroutine.domain.patch.UNSET else deadline.instant,
 			named="type" if deadline is subroutine.domain.patch.UNSET else "due",
 		)
+
+	# **Only a milestone includes, by every route** (`#3395`, decision `#3391`). A link from
+	# anything else is refused where links are made, and a type change is the other way in.
+	if item_type is not subroutine.domain.patch.UNSET:
+		subroutine.domain.milestones.refuse_to_stop_including(session, task, becoming=item_type)
 
 	# **The move is validated here and applied below, like every other field**, even though
 	# it writes more than one row. From a caller's side "this is in the wrong project" is a

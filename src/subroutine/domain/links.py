@@ -36,6 +36,7 @@ import subroutine.domain.authorization
 import subroutine.domain.documents
 import subroutine.domain.events
 import subroutine.domain.hierarchy
+import subroutine.domain.milestones
 import subroutine.domain.readiness
 import subroutine.domain.refs
 import subroutine.domain.scoping
@@ -238,11 +239,11 @@ class End:
 	#: sticks is having one of them.
 	row: "subroutine.db.models.work.Task | subroutine.db.models.work.Document | None" = None
 
-	#: Whether the thing at this end is finished (`#210`). Carried because a link is how
-	#: `#84` models a milestone — "an item whose blockers are its contents" — and a list of
-	#: contents that cannot say which are done is a list nobody can read a milestone off. Every
-	#: end used to arrive without it, so ``subroutine show 85`` reported forty-eight completed
-	#: blockers as forty-eight outstanding ones.
+	#: Whether the thing at this end is finished (`#210`). Carried because a milestone is read
+	#: off its links — what it includes since decision `#3391`, and its blockers under `#84`
+	#: before that — and a list of contents that cannot say which are done is a list nobody can
+	#: read a milestone off. Every end used to arrive without it, so ``subroutine show 85``
+	#: reported forty-eight completed blockers as forty-eight outstanding ones.
 	#:
 	#: **Only a task can be finished.** ``readiness.unblocked`` says so and this agrees: a
 	#: document has no state that could finish, so an end that is one is never complete rather
@@ -362,6 +363,9 @@ def create (
 	for end in (source, target):
 		_permitted(session, actor, workspace_id, end)
 
+	_refuse_what_cannot_count(
+		session, source=source, target=target, link_type=link_type, acted_on=acted_on
+	)
 	_refuse_a_loop(
 		session,
 		workspace_id=workspace_id,
@@ -490,6 +494,70 @@ def create (
 	return link
 
 
+def _refuse_what_cannot_count (
+	session: sqlalchemy.orm.Session,
+	*,
+	source: End,
+	target: End,
+	link_type: subroutine.db.models.vocabulary.LinkType,
+	acted_on: End | None,
+) -> None:
+	"""Refuse an ``includes`` that does not run from a milestone to work — decision `#3391`.
+
+	**Only a milestone includes, and it includes only tasks.** Another milestone is a task, so a
+	phase can sit inside a roadmap; a document never finishes, so counting one toward a milestone
+	would hold its progress short for ever. Several milestones may include one piece of work, in
+	any project of the workspace, and that needs nothing here.
+
+	**The field named is one the caller sent.** An ``includes`` can be made from either end,
+	since *Included in* is its other label, so the end in the wrong is the ``target`` when it is
+	the far one and the relation itself when it is the item the caller is standing on.
+	"""
+
+	if link_type.category != subroutine.domain.milestones.COUNTING:
+		return
+
+	near = acted_on or source
+
+	def named (end: End) -> str:
+		"""Return the field of the request that names this end."""
+
+		return (
+			"link_type"
+			if (end.entity_type, end.id) == (near.entity_type, near.id)
+			else "target"
+		)
+
+	here = subroutine.domain.refs.format_ref(source.ref)
+	there = subroutine.domain.refs.format_ref(target.ref)
+
+	if source.entity_type != "task" or not subroutine.domain.milestones.is_one(session, source.id):
+		raise subroutine.errors.ValidationError(
+			f"{here} is not a milestone, so it cannot include anything.",
+			hint="Make it a milestone first, or join the two with another link.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=named(source),
+					code="invalid_field_value",
+					message=f"Only a milestone includes other work, and {here} is not one.",
+				)
+			],
+		)
+
+	if target.entity_type != "task":
+		raise subroutine.errors.ValidationError(
+			f"{there} is a document, and a milestone includes only work that can be finished.",
+			hint="Join the document to it with a relation that describes it instead.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=named(target),
+					code="invalid_field_value",
+					message=f"{there} is a document, which is never finished.",
+				)
+			],
+		)
+
+
 def _refuse_a_loop (
 	session: sqlalchemy.orm.Session,
 	*,
@@ -511,6 +579,10 @@ def _refuse_a_loop (
 	:data:`SUPERSEDING`. ``relates_to`` and ``documents`` describe a pair rather than ordering
 	it, and a ring of those says nothing false.
 
+	**And ``includes``** (decision `#3391`), which orders nothing and still cannot come back to
+	where it started: a milestone inside itself, however many phases it takes, is a count that
+	includes its own total.
+
 	**Not task to task, since `SR#2285`.** It was, and the reason given was
 	:mod:`subroutine.domain.readiness`'s — a document has no state that could finish — which is
 	an argument about *gating* and not about contradiction. Superseding is between documents by
@@ -519,7 +591,11 @@ def _refuse_a_loop (
 	whatever readiness makes of it.
 	"""
 
-	if link_type.category not in SEQUENCING and link_type.key != SUPERSEDING:
+	if (
+		link_type.category not in SEQUENCING
+		and link_type.category != subroutine.domain.milestones.COUNTING
+		and link_type.key != SUPERSEDING
+	):
 		return
 
 	chain = _chain_reaching(
@@ -543,9 +619,18 @@ def _refuse_a_loop (
 	# (`#1158`). It said "cannot block", which is true of `gating` and of nothing else — the rule
 	# moved off the key with `#1157` and the wording did not. The relation's own title is quoted
 	# beside it, so this reads correctly whatever a workspace calls the thing.
+	#
+	# **An ``includes`` asserts no order** (decision `#3391`), so it gets the sentence that is true
+	# of it instead.
+	said = (
+		f"{here} cannot include {there}, because {there} already includes {here}."
+		if link_type.category == subroutine.domain.milestones.COUNTING
+		else f"{here} cannot come before {there} under {link_type.title!r}, "
+		f"because {there} already comes before {here}."
+	)
+
 	raise subroutine.errors.Conflict(
-		f"{here} cannot come before {there} under {link_type.title!r}, "
-		f"because {there} already comes before {here}.",
+		said,
 		code="cycle_detected",
 		errors=[
 			subroutine.errors.FieldError(
@@ -586,6 +671,14 @@ def _why_a_ring_is_wrong (
 		return (
 			"Then none of them would be the current one. Withdraw a link in that chain - "
 			"superseding runs one way, from the replacement to what it replaces."
+		)
+
+	# **And a milestone inside itself** (decision `#3391`): nothing is held up and nothing is out
+	# of order, but its count would include its own total.
+	if link_type.category == subroutine.domain.milestones.COUNTING:
+		return (
+			"A milestone cannot be inside itself, however many steps it takes to come back. "
+			"Withdraw a link in that chain."
 		)
 
 	wrong = (
@@ -1006,15 +1099,15 @@ def beneath (
 	measured it verified their plan by *reasoning* instead, which is the part worth worrying
 	about.
 
-	**Prerequisites, not dependents**, which is `#84`'s model read the way somebody asks it: a
-	milestone is an item whose blockers are its contents, so walking *what blocks this* renders
-	a roadmap as its phases and a task as what must happen before it. The other direction is a
+	**Prerequisites, not dependents**: what has to happen before this can. For a task that is
+	what blocks it; for a milestone it is what it includes as well (decision `#3391`), so a
+	roadmap renders as its phases and each phase as its work. The other direction is a
 	different question — *what am I holding up* — and ``show`` already answers it one level
 	deep for both.
 
-	**Only the sequencing types** (:data:`SEQUENCING`), because *relates to* and *documents* do
-	not order anything: a tree drawn through them would put a decision document under a phase
-	as though the phase were waiting on it.
+	**Only the sequencing types** (:data:`SEQUENCING`) **and ``includes``**, because *relates
+	to* and *documents* do not order anything: a tree drawn through them would put a decision
+	document under a phase as though the phase were waiting on it.
 
 	**One query per level, not one per node**, which is :func:`_blocks_reaching`'s measured
 	shape — a plan six deep costs six statements however wide it is. Flat with a ``depth``
@@ -1053,15 +1146,23 @@ def beneath (
 		for edge in links:
 			if edge.category in SEQUENCING and edge.target.id in under:
 				under[edge.target.id].append(edge.source)
+			# **And what a milestone includes, from the milestone down** (decision `#3391`). That
+			# link runs from the milestone to the work, the other way round from `blocks`, so here
+			# the milestone is the source. Standing at the work instead would draw its milestone
+			# under it, as though the work were waiting for the milestone.
+			elif (
+				edge.category == subroutine.domain.milestones.COUNTING
+				and edge.source.id in under
+			):
+				under[edge.source.id].append(edge.target)
 
 		frontier = []
 
 		for one, ends in under.items():
 			# **The two keys of the reading order a tree can use, and only those two**
-			# (`#1535`) — its first and its last. Every edge walked here is
-			# :data:`SEQUENCING` by the filter above, so the category and the label cannot
-			# separate two siblings, and a tree has no vantage point to take a direction
-			# from — the walk fixes that, always downwards.
+			# (`#1535`) — its first and its last. The others need a vantage point to take a
+			# direction and a relation from, and a tree has none: the walk fixes the direction,
+			# always downwards, and every edge it follows is sequencing or an ``includes``.
 			#
 			# **This changes which appearance of a repeated item is its first** — `#1410`'s
 			# ``again`` is a property of a drawing rather than of an item, so re-ordering

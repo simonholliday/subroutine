@@ -346,6 +346,12 @@ DERIVED: dict[str, str] = {
 		"a *child* completes, or when somebody adds a child to a parent that had none. Make it "
 		"true or false by finishing the sub-tasks, which is the act it reports."
 	),
+	"included_done": (
+		"Whether a milestone's included work is all finished and the milestone is not "
+		"(`SR#3395`), read off its `includes` links rather than stored - `sub_tasks_done`'s "
+		"reasoning, for a milestone. Make it true or false by finishing the work it includes, "
+		"which is the act it reports."
+	),
 	"blocked_by": (
 		"Which unfinished tasks hold this one up, read off the same `blocks` links as "
 		"`blocked` above (`SR#1287`) — and narrowed to the ones this caller may see, which is "

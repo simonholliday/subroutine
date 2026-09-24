@@ -2742,6 +2742,178 @@ def test_ready_never_offers_a_milestone_whether_or_not_anything_is_in_it (world:
 	assert release in everything and placeholder in everything
 
 
+def _milestone (world: World, title: str) -> dict[str, typing.Any]:
+	"""File a milestone, and return it."""
+
+	made = world.call("POST", "/v1/tasks", json={"title": title, "type": "milestone"})
+
+	assert made.status_code == 201, made.text
+
+	return typing.cast(dict[str, typing.Any], made.json())
+
+
+def _link_from (
+	world: World, near: int, far: int, link_type: str, **body: typing.Any
+) -> typing.Any:
+	"""Ask for a link from one task to another item, and return the answer as it came."""
+
+	return world.call(
+		"POST",
+		f"/v1/tasks/{near}/links",
+		json={"target": far, "target_type": "task", "link_type": link_type, **body},
+	)
+
+
+def _included_done (world: World, ref: int) -> bool:
+	"""Read one task back and say whether it reports all it includes as done."""
+
+	read = world.call("GET", f"/v1/tasks/{ref}")
+
+	assert read.status_code == 200, read.text
+
+	return bool(read.json()["included_done"])
+
+
+def test_a_milestone_counts_what_it_includes_and_says_when_all_of_it_is_done (
+	world: World,
+) -> None:
+	"""`SR#3395`, decision `SR#3391`: progress is derived, and completion stays an act.
+
+	**`SR#1615`'s question, put for a milestone.** When everything a milestone includes is done it
+	says so, as a parent whose sub-tasks are all done does, and it is not completed on anybody's
+	behalf: that would be a write nobody made, crediting whoever closed the last piece with a
+	decision they did not take.
+
+	**An empty milestone is not marked**, which is the placeholder a year out: nothing in it is
+	unfinished, and asking a person whether it has been reached the day it was made is noise.
+
+	**And the work stays offered.** Readiness never reads ``includes``, so being counted toward
+	a milestone neither hides a piece of work nor marks it as holding anything up.
+	"""
+
+	placeholder = _milestone(world, "A year out")
+	launch = _milestone(world, "Launch")
+	docs = world.call("POST", "/v1/tasks", json={"title": "Write the docs"}).json()
+	demo = world.call("POST", "/v1/tasks", json={"title": "Record the demo"}).json()
+
+	for part in (docs, demo):
+		included = _link_from(world, launch["ref"], part["ref"], "includes")
+
+		assert included.status_code == 201, included.text
+
+	assert not _included_done(world, placeholder["ref"]), "an empty milestone was marked done"
+
+	offered = _ready_refs(world)
+
+	assert docs["ref"] in offered and demo["ref"] in offered, (
+		"work was hidden for being included, and readiness must never read includes"
+	)
+	assert not world.call("GET", f"/v1/tasks/{docs['ref']}").json()["blocking"], (
+		"included work was marked as holding something up"
+	)
+	assert not _included_done(world, launch["ref"]), "nothing is finished yet"
+
+	world.call("POST", f"/v1/tasks/{docs['ref']}/complete", json={})
+
+	assert not _included_done(world, launch["ref"]), "one of two is not all of it"
+
+	world.call("POST", f"/v1/tasks/{demo['ref']}/complete", json={})
+
+	assert _included_done(world, launch["ref"]), (
+		"everything the milestone includes is finished and nothing says so"
+	)
+	assert not world.call("GET", f"/v1/tasks/{launch['ref']}").json()["is_complete"], (
+		"the milestone completed itself, which is the write decision SR#3391 refuses to make"
+	)
+
+
+def test_only_a_milestone_includes_and_only_work_is_included (world: World) -> None:
+	"""`SR#3395`, decision `SR#3391`: the relation's two rules, each refused by name.
+
+	**The field named is one the caller sent.** The same refusal names the relation when the
+	caller is standing on the item in the wrong, and the ``target`` when that item is the far end
+	of a link made as *Included in*.
+	"""
+
+	plain = world.call("POST", "/v1/tasks", json={"title": "An ordinary task"}).json()
+	part = world.call("POST", "/v1/tasks", json={"title": "Some work"}).json()
+	launch = _milestone(world, "Launch")
+	plan = world.call("POST", "/v1/documents", json={"title": "The plan"}).json()
+
+	from_it = _link_from(world, plain["ref"], part["ref"], "includes")
+
+	assert from_it.status_code == 422, from_it.text
+	assert [error["field"] for error in from_it.json()["errors"]] == ["link_type"], from_it.text
+	assert "not a milestone" in from_it.json()["detail"], from_it.text
+
+	into_it = _link_from(world, part["ref"], plain["ref"], "includes", direction="incoming")
+
+	assert into_it.status_code == 422, into_it.text
+	assert [error["field"] for error in into_it.json()["errors"]] == ["target"], into_it.text
+
+	document = _link_from(world, launch["ref"], plan["ref"], "includes", target_type="document")
+
+	assert document.status_code == 422, document.text
+	assert [error["field"] for error in document.json()["errors"]] == ["target"], document.text
+	assert "is a document" in document.json()["detail"], document.text
+
+	# **And nothing was written** by any of the three.
+	for ref in (plain["ref"], part["ref"], launch["ref"]):
+		assert world.call("GET", f"/v1/tasks/{ref}/links").json()["items"] == [], ref
+
+
+def test_a_ring_of_includes_is_refused_because_a_milestone_cannot_be_inside_itself (
+	world: World,
+) -> None:
+	"""`SR#3395`, decision `SR#3391`: a loop of inclusions is refused, as a ring of order is.
+
+	``includes`` asserts no order, so the ring refusal's sentence about *coming before* would be
+	false of it. What is wrong is that a milestone's count would include its own total, and the
+	chain is named because the caller is looking at one link and the answer is about the others.
+	"""
+
+	roadmap = _milestone(world, "The roadmap")
+	phase = _milestone(world, "Phase one")
+	step = _milestone(world, "Step one")
+
+	assert _link_from(world, roadmap["ref"], phase["ref"], "includes").status_code == 201
+	assert _link_from(world, phase["ref"], step["ref"], "includes").status_code == 201
+
+	closing = _link_from(world, step["ref"], roadmap["ref"], "includes")
+
+	assert closing.status_code == 409, closing.text
+	assert closing.json()["code"] == "cycle_detected"
+	assert "cannot include" in closing.json()["detail"], closing.text
+	assert "cannot be inside itself" in closing.json()["hint"], closing.text
+	assert closing.json()["errors"][0]["message"].count("\u2192") == 2, "the chain, not the ends"
+
+
+def test_a_milestone_that_includes_work_cannot_stop_being_one (world: World) -> None:
+	"""`SR#3395`: only a milestone includes, by every route, which is `SR#1246`'s lesson.
+
+	A link from anything but a milestone is refused where links are made, and retyping one
+	afterwards is the other way to the same state: the work still linked and no rule reading it.
+	**Refused rather than cleared**, and a milestone that includes nothing is retyped freely.
+	"""
+
+	launch = _milestone(world, "Launch")
+	part = world.call("POST", "/v1/tasks", json={"title": "Some work"}).json()
+
+	assert _link_from(world, launch["ref"], part["ref"], "includes").status_code == 201
+
+	retyped = world.call("PATCH", f"/v1/tasks/{launch['ref']}", json={"type": "feature"})
+
+	assert retyped.status_code == 422, retyped.text
+	assert [error["field"] for error in retyped.json()["errors"]] == ["type"], retyped.text
+	assert "withdraw what it includes" in retyped.text.lower(), retyped.text
+	assert world.call("GET", f"/v1/tasks/{launch['ref']}").json()["type"] == "milestone"
+
+	empty = _milestone(world, "Not really a milestone")
+	freed = world.call("PATCH", f"/v1/tasks/{empty['ref']}", json={"type": "feature"})
+
+	assert freed.status_code == 200, freed.text
+
+
 def test_an_event_cannot_be_given_a_deadline_by_any_route (world: World) -> None:
 	"""`SR#1246`: decision `SR#1235` says an event is never due, and nothing made that true.
 

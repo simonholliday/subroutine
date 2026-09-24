@@ -40,6 +40,7 @@ import subroutine.domain.capture
 import subroutine.domain.dates
 import subroutine.domain.documents
 import subroutine.domain.filtering
+import subroutine.domain.milestones
 import subroutine.domain.ordering
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
@@ -2767,6 +2768,11 @@ def _line (
 		if item.sub_tasks_done:
 			cells.append(subroutine.views.SUB_TASKS_DONE_MARK)
 
+		# **And its counterpart for a milestone** (`#3395`): everything it includes is done, and
+		# whether it has been reached is a person's decision rather than this listing's.
+		if item.included_done:
+			cells.append(subroutine.views.INCLUDED_DONE_MARK)
+
 		# **And what is holding it up, on the one section that resolves it** (`#1287`). The
 		# mark above says *that*; this says *what*, and only the agenda's `blocked_by_others`
 		# rows carry it — every other listing here is null and prints nothing, which is
@@ -3284,11 +3290,25 @@ def _shown (
 			and link.other.deleted_at is None
 		]
 		finished = sum(1 for link in blockers if link.other.is_complete)
+		rollup = f"{finished} of {len(blockers)} blockers done" if blockers else ""
+
+		# **A milestone counts what it includes instead** (`#3395`), which is the terminal's rule:
+		# the links running out of it to the work, less any in the trash.
+		if found.type_category == subroutine.domain.readiness.TARGET:
+			included = [
+				link
+				for link in links
+				if link.link_category == subroutine.domain.milestones.COUNTING
+				and link.direction == "outgoing"
+				and link.other.deleted_at is None
+			]
+			finished = sum(1 for link in included if link.other.is_complete)
+			rollup = f"{finished} of {len(included)} included done" if included else ""
 
 		parts.append("")
 
-		if blockers:
-			parts.append(f"{finished} of {len(blockers)} blockers done")
+		if rollup:
+			parts.append(rollup)
 
 		parts.extend(
 			f"{link.label}  #{link.other.ref}  {link.other.title}"

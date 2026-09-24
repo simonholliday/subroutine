@@ -22,6 +22,7 @@ import subroutine.cli.topics
 import subroutine.db.models.vocabulary
 import subroutine.domain.capture
 import subroutine.domain.dates
+import subroutine.domain.milestones
 import subroutine.domain.palette
 import subroutine.domain.settings
 import subroutine.domain.workspaces
@@ -111,11 +112,19 @@ def test_every_link_type_it_publishes_can_actually_be_used (
 	body = world.call("GET", "/v1/meta").json()
 	one = world.call("POST", "/v1/tasks", json={"title": "One"}).json()
 	two = world.call("POST", "/v1/tasks", json={"title": "Two"}).json()
+	# **What counts toward a milestone runs from one** (`SR#3395`, decision `SR#3391`), so a
+	# relation of that category is used from a milestone, the one place it can be. Refused from
+	# anything else by design, which is not the same thing as published and unusable.
+	milestone = world.call(
+		"POST", "/v1/tasks", json={"title": "Three", "type": "milestone"}
+	).json()
 
 	for link_type in body["link_types"]:
+		counts = link_type["category"] == subroutine.domain.milestones.COUNTING
+		source = milestone if counts else one
 		response = world.call(
 			"POST",
-			f"/v1/tasks/{one['ref']}/links",
+			f"/v1/tasks/{source['ref']}/links",
 			json={"target": two["ref"], "link_type": link_type["key"]},
 		)
 

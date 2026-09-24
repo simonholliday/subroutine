@@ -35,6 +35,15 @@ upgrade involves.
   `undated_milestones_total` is new on the agenda response and is optional, so an older client
   is unaffected.
 
+- **A milestone counts what it includes**: an `includes` link from the milestone to its work,
+  as in `subroutine link 12 includes 43`. Its `show` reads *Links (3 of 5 included done)* on
+  the terminal, in the browser and to an agent, and `show --tree` walks what it includes and
+  what that waits for. When all of it is done the milestone is marked *included done* on
+  every listing, and completing it stays yours. Only a milestone includes, and it includes
+  only tasks - another milestone among them, so a phase can sit inside a roadmap. A loop of
+  them is refused, and so is retyping a milestone that includes work. `included_done` is new
+  on a task and is optional, so an older client is unaffected.
+
 - **`subroutine agent create <name> --here` gives one project's Claude Code sessions an agent of
   their own, in one command.** Run in the project's directory, it writes the credential into
   `.claude/settings.local.json` under the variable for your connection, makes the repository

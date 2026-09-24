@@ -52,7 +52,8 @@ import {
 } from "./forms.js";
 import {
 	CLOSED_BY_DEFAULT, NOT_SHOWN, agendaBuckets, blockersDone, choicesIn, collapsedColumns,
-	columns, counted, followed, opens, partsDone, rememberChoices, withinAllowance,
+	columns, counted, followed, includedDone, opens, partsDone, rememberChoices,
+	withinAllowance,
 } from "./grouping.js";
 import {
 	CATEGORY_ICONS, Icon, KIND_ICONS, MARK_ICONS, TYPE_ICONS, UNKNOWN_ICON, WAITING_STATUS,
@@ -3957,6 +3958,7 @@ export {
 	columns,
 	counted,
 	followed,
+	includedDone,
 	opens,
 	partsDone,
 	rememberChoices,

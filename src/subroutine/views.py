@@ -58,6 +58,7 @@ import subroutine.domain.grammar
 import subroutine.domain.instances
 import subroutine.domain.journal
 import subroutine.domain.links
+import subroutine.domain.milestones
 import subroutine.domain.projects
 import subroutine.domain.readiness
 import subroutine.domain.recurrence
@@ -274,6 +275,7 @@ class LinkEnd(pydantic.BaseModel):
 	blocked: bool = False
 	blocking: bool = False
 	sub_tasks_done: bool = False
+	included_done: bool = False
 
 	#: How many documents are filed under this end — `#2208`. Here because `marks` reads it and
 	#: an end renders through `marks`, which is what `test_a_links_far_end_carries_every_field`
@@ -756,6 +758,17 @@ class Task(pydantic.BaseModel):
 	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
 	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
 	sub_tasks_done: bool = False
+
+	#: Whether this is a milestone whose included work is all finished, and it is not — `#3395`.
+	#:
+	#: **:attr:`sub_tasks_done`'s question, put for a milestone** (decision `#3391`). Progress is
+	#: derived and completion stays an act, so when everything a milestone includes is done the
+	#: milestone says so and a person decides. The word is the link's own, which Simon chose on
+	#: 2026-09-24 as ``sub_tasks_done`` takes its section's.
+	#:
+	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
+	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
+	included_done: bool = False
 
 	#: What is actually holding this up — `#1287`, Simon's decision of 2026-08-27, and **the
 	#: argued exception to the rule stated two fields above rather than a hole in it.**
@@ -1605,8 +1618,8 @@ class Beneath(pydantic.BaseModel):
 	wire and a recursive renderer on three surfaces to say the same thing; a flat list in
 	reading order is a loop everywhere, and the indentation is a multiplication.
 
-	The rows are what has to happen *first*, which is the milestone model read the way somebody asks
-	it: a milestone is an item whose blockers are its contents.
+	The rows are what has to happen *first*: what blocks an item, and for a milestone what it
+	includes as well, since both have to happen before it is reached.
 	"""
 
 	depth: int
@@ -3142,6 +3155,16 @@ WAITING_MARK = "needs input"
 #: **The browser capitalises it and carries the only other copy**, as the three above do.
 SUB_TASKS_DONE_MARK = "sub-tasks done"
 
+#: What a listing calls a milestone whose included work is all done — `#3395`, and the word
+#: Simon chose on 2026-09-24.
+#:
+#: :data:`SUB_TASKS_DONE_MARK`'s reasoning, put for a milestone: the fact rather than the
+#: consequence, in the relation's own word, since every surface labels the link *Includes* from
+#: one end and *Included in* from the other.
+#:
+#: **The browser capitalises it and carries the only other copy**, as the four above do.
+INCLUDED_DONE_MARK = "included done"
+
 
 #: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
 #:
@@ -3476,6 +3499,12 @@ class Vocabulary:
 		# three days while being false. The guard measured `agenda.build` and stopped; every one
 		# of this constructor's loads was outside it. It counts the render now.
 		self.finished_underneath = subroutine.domain.readiness.finished_underneath_among(
+			session, wanted, now=now
+		)
+		# **A fourth, for a milestone** (`#3395`): the same question put of what it includes
+		# rather than of what is filed under it. One statement for the page whatever is on it,
+		# which `AGENDA_STATEMENTS` counts.
+		self.included_done = subroutine.domain.milestones.included_done_among(
 			session, wanted, now=now
 		)
 
@@ -3852,6 +3881,7 @@ def task (
 		blocked=row.id in vocabulary.blocked,
 		blocking=row.id in vocabulary.blocking,
 		sub_tasks_done=row.id in vocabulary.finished_underneath,
+		included_done=row.id in vocabulary.included_done,
 		blocked_by=blocked_by,
 		blocks_others=blocks_others,
 		revisions=revisions,

@@ -14,7 +14,9 @@ import { accumulated, refusal } from "./answers.js";
 import { Facts, Prose } from "./chrome.js";
 import { completable } from "./dates.js";
 import { Editing } from "./forms.js";
-import { Held, blockersDone, followed, opens, partsDone, withinAllowance } from "./grouping.js";
+import {
+	Held, blockersDone, followed, includedDone, opens, partsDone, withinAllowance,
+} from "./grouping.js";
 import { Icon, marks, moment, when } from "./marks.js";
 import { notOffered, offered } from "./places.js";
 import { authorOf, linkChoices, written } from "./requests.js";
@@ -485,7 +487,11 @@ export function Detail ({
 				     has answered *how many are left* since `#210` while this page made a reader
 				     open each one. Its rule is copied deliberately: incoming `blocks` only,
 				     because a *relates to* has nothing to be N of. */ null}
-				<h3>Links${blockersDone(links)}</h3>
+				${/* **A milestone counts what it includes instead** (`#3395`, decision `#3391`),
+				     as the terminal and an agent do. */ null}
+				<h3>Links${
+					item.type_category === "target" ? includedDone(links) : blockersDone(links)
+				}</h3>
 				${/* **`links` beside `linked`, so the two lists on this page are separable.**
 				     `Parts` is drawn in the same format on purpose (`#1218`), which leaves
 				     `.linked li` meaning *a row in either list* — and an assertion about one of

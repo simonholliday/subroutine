@@ -402,6 +402,15 @@ export function marks (
 		states.push({ text: "Sub-tasks done", family: "state" });
 	}
 	/*
+		**`Included done`, the same question put for a milestone** — `#3395`, and the word Simon
+		chose on 2026-09-24. Everything a milestone includes is finished and whether it has been
+		reached is a person's decision (decision `#3391`): the fact rather than the consequence,
+		and no tone, for the reasons above.
+	*/
+	if (item.included_done) {
+		states.push({ text: "Included done", family: "state" });
+	}
+	/*
 		**That other documents are filed under this one** — `#2208`. Simon filed thirteen
 		instrument specifications under one parent on 2026-09-07, which took that project's top
 		level from 21 documents to 9; **nothing on any row said where the other twelve had
