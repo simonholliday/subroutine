@@ -744,6 +744,26 @@ def test_an_empty_token_from_subroutine_remote_names_its_field (setup: Setup, he
 	assert "update" not in body["hint"]
 
 
+def test_what_to_do_is_inside_what_claude_code_shows_of_the_refusal (setup: Setup) -> None:
+	"""Claude Code shows the first 500 characters of a refusal, whitespace collapsed (`#3534`).
+
+	Measured with `subroutine-remote` signed out: with the hint last, the cut fell inside
+	``request_id``, so the person read what went wrong and never what to do about it.
+	"""
+
+	answered = api_support.call(
+		setup.application,
+		"POST",
+		"/mcp",
+		headers={"authorization": "Bearer ", **FROM_REMOTE},
+		json={},
+	)
+	shown = " ".join(answered.text.split())[:500]
+
+	assert "No token came with this request" in shown
+	assert "Enter the token again with /plugin" in shown, f"cut before the remedy: {shown}"
+
+
 def test_an_empty_token_from_the_program_is_not_blamed_on_the_remote_plugin (
 	setup: Setup,
 ) -> None:

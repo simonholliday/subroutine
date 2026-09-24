@@ -138,6 +138,16 @@ def test_a_problem_document_has_the_rfc_9457_shape () -> None:
 	]
 
 
+def test_the_hint_follows_the_detail_so_a_short_view_shows_both () -> None:
+	"""A client that shows only the start of an answer shows what to do as well (`#3534`)."""
+
+	error = subroutine.errors.NotFound("Gone.", hint="Look elsewhere.")
+	document = subroutine.errors.problem_document(error, instance="/v1/tasks", request_id="01J8X")
+	members = list(document)
+
+	assert members.index("hint") == members.index("detail") + 1
+
+
 def test_optional_members_are_absent_rather_than_null () -> None:
 	"""A caller checking ``"hint" in document`` should not be misled by a null."""
 

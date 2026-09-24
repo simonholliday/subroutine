@@ -94,6 +94,10 @@ upgrade involves.
   removing its marketplace all do - and the refusal now names that field and says to enter the
   token again with `/plugin`.
 
+- **A refusal says what to do straight after what went wrong.** Claude Code shows the first 500
+  characters of a refusal from an HTTP plugin, and the hint came last, so it was cut off. It now
+  follows the detail.
+
 - **Saving a token or a setting can no longer leave `credentials.toml` or `config.toml` empty.**
   Both were cut to nothing and then written, so a full disk or a killed process part way
   through lost what they held. Each is now written beside the old file and renamed over it, so

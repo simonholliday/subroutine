@@ -555,17 +555,22 @@ def problem_document (
 		"title": entry.title,
 		"status": entry.status,
 		"detail": error.detail,
-		"code": error.code,
 	}
+
+	# **The hint straight after the detail, because some readers see only the start** (`#3534`).
+	# Claude Code shows the first 500 characters of a refusal from an HTTP plugin, and with the
+	# hint last it cut off inside `request_id` - so a person was told what went wrong and never
+	# what to do. Key order means nothing to a parser, so nothing that reads this changes.
+	if error.hint is not None:
+		document["hint"] = error.hint
+
+	document["code"] = error.code
 
 	if instance is not None:
 		document["instance"] = instance
 
 	if request_id is not None:
 		document["request_id"] = request_id
-
-	if error.hint is not None:
-		document["hint"] = error.hint
 
 	if error.errors:
 		document["errors"] = [field.as_dict() for field in error.errors]
