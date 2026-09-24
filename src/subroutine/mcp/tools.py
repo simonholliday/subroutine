@@ -4343,10 +4343,10 @@ def _linked (
 	numbers.
 	"""
 
-	# **Both sides take several** (`#1352`), because a plan is written from both ends: *these
-	# six make up the roadmap* is six things blocking one, and *this has to happen before those
-	# three* is one blocking three. Both at once means every one of the first joined to every
-	# one of the second, which is the only thing it could mean.
+	# **Both sides take several** (`#1352`), because a plan is written from both ends: *this
+	# milestone includes those six* is one link out to six (decision `#3391`), and *these three
+	# have to happen first* is three blocking one. Both at once means every one of the first
+	# joined to every one of the second, which is the only thing it could mean.
 	refs = _refs(arguments, field="ref")
 	workspace = _text(arguments, "workspace")
 	others = _refs(arguments, field="other")

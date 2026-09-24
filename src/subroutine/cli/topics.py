@@ -570,6 +570,54 @@ One hand-back is no reason to stop: carry on with something else. Two
 in a row are, because they say the work is not clear enough to do, and
 that is for the person to put right.""",
 	),
+	# **`#3397`, on Simon's decision of 2026-09-24.** The program's own channel is current with
+	# whatever program is installed, where the plugin's skill reaches a session through a cache
+	# that lags (`#499`) and is held for `#3496`'s update besides (`#3510`). So this is where an
+	# agent with a shell learns decision `#3391` first.
+	Topic(
+		name="milestones",
+		summary="Features, milestones and the three links that plan work.",
+		body="""A feature is a parent task: its sub-tasks are its parts, all in one
+project, and it cannot be started while any of them is unfinished.
+
+A milestone is an item of the 'milestone' type - a release, a phase, a
+launch. It is what work counts toward, never work itself, so nothing
+offers one as the next thing to start: not 'list --ready', not an
+agent's next work, and not the agenda's Next.
+
+Its date is a deadline, so write it with 'by'. It can go overdue:
+
+  subroutine add "Ship 1.0 by 2026-10-01" --type milestone
+
+What counts toward it is an 'includes' link, from the milestone to the
+work. It includes tasks - another milestone among them, so a phase can
+sit inside a roadmap - and never a document, which is never finished.
+One piece of work may count toward several milestones.
+
+  subroutine link 12 includes 43,44,45
+
+Three links plan work, and they say different things:
+
+  includes   12 includes 43     43 counts toward milestone 12
+  blocks     12 blocks 13       12 has to be finished or reached first
+  precedes   12 precedes 13     12 is planned first; nothing waits
+
+Only 'blocks' holds anything up, so work counted toward a milestone
+is still offered as ready.
+
+'show' counts what a milestone includes, as 'Links (3 of 5 included
+done)', its row on every listing says the same, and 'show --tree'
+walks what it includes and what that waits for.
+
+Nothing completes a milestone by itself. When all of it is done its row
+says 'included done', and whether it has been reached is yours to
+decide: 'subroutine done 12'. A milestone with no date is on no day of
+the agenda, which counts how many there are instead.
+
+A roadmap is the milestones in date order:
+
+  subroutine list --type milestone --order due_at""",
+	),
 )
 
 _BY_NAME = {topic.name: topic for topic in TOPICS}

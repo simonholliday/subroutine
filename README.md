@@ -223,7 +223,7 @@ specified and not built - named here because a tool that overstates itself waste
 | Reminders - *two weeks before my sister's birthday*, asked once and carried by your calendar | **Built** |
 | `blocks` dependencies, and `--ready` to filter by them | **Built** |
 | A fixed meaning on every relation, so the words are yours to rename | **Built** |
-| Milestones - an item whose blockers are its contents | **Built** |
+| Milestones - never offered as work, counting what they include, and read in date order as a roadmap | **Built** |
 | Comments (what happened) and documents (what you concluded) | **Built** |
 | A dead end recorded as a document, so an idea is only tried once | **Built** |
 | *Read first* - which written conclusions govern this particular item | **Built** |

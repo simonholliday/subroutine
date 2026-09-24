@@ -44,6 +44,7 @@ import subroutine.context
 import subroutine.db.models.project
 import subroutine.db.models.saved
 import subroutine.db.models.work
+import subroutine.db.seed
 import subroutine.db.types
 import subroutine.directory
 import subroutine.domain.capture
@@ -51,6 +52,9 @@ import subroutine.domain.comments
 import subroutine.domain.dates
 import subroutine.domain.durations
 import subroutine.domain.events
+import subroutine.domain.links
+import subroutine.domain.milestones
+import subroutine.domain.readiness
 import subroutine.domain.schedule
 import subroutine.domain.settings
 import subroutine.domain.text
@@ -2805,6 +2809,31 @@ def test_no_topic_names_a_command_that_does_not_exist () -> None:
 	assert any(
 		re.search(r"\bsubroutine\s+[a-z]", topic.body) for topic in subroutine.cli.topics.TOPICS
 	), "no topic names a command at all — has this stopped reaching them?"
+
+
+def test_the_milestones_topic_names_every_seeded_relation_that_plans_work () -> None:
+	"""`SR#3397`: the topic compares the relations that plan work, so one seeded later belongs in it.
+
+	**Derived from the seed rather than listed.** What makes a relation plan work is its category
+	(decision `SR#1157`) - one that holds work up, one that orders it, one that counts toward a
+	milestone - so a relation seeded into any of those is asked about the day it exists, rather
+	than on the day somebody reads the topic and finds it missing.
+	"""
+
+	planning = {
+		subroutine.domain.readiness.GATING,
+		subroutine.domain.links.ORDERING,
+		subroutine.domain.milestones.COUNTING,
+	}
+	seeded = [one.key for one in subroutine.db.seed.SEEDED_LINK_TYPES if one.category in planning]
+	topic = subroutine.cli.topics.find("milestones")
+
+	assert topic is not None, "there is no milestones topic"
+	assert len(seeded) >= 3, f"only {seeded} plan work, so the seed has changed underneath this"
+
+	missing = [key for key in seeded if not re.search(rf"\b{key}\b", topic.body)]
+
+	assert not missing, f"the milestones topic does not explain {missing}"
 
 
 def test_the_help_topics_are_generated_from_the_parsers (

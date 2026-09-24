@@ -7409,14 +7409,19 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 
 		  subroutine link 7 documents 42
 
+		  subroutine link 12 includes 43,44,45
+
 		'blocks' is the one that changes what you see: 'subroutine list --ready' leaves out
 		anything blocked by unfinished work, so this is how that filter learns anything.
 
 		'documents' is the one that says a decision governs a piece of work, so that whoever
 		picks #42 up can be shown what they have to read before starting it.
 
-		Those are the five a new workspace is given. A workspace can rename them or add its
-		own, and naming one this workspace does not have lists the ones it does.
+		'includes' is the one that says what counts toward a milestone, from the milestone to
+		the work. 'subroutine explain milestones' says how the three that plan work differ.
+
+		A new workspace is given the ones listed under 'relation' below. A workspace can rename
+		them or add its own, and naming one this workspace does not have lists the ones it does.
 
 		Each is stored with an underscore, which is how the API and the agent tools name it:
 		derives-from and derives_from are the same relation, and either works here.
@@ -7426,10 +7431,10 @@ def _register_links (app: typer.Typer, program: Program) -> None:
 		one of the second - which is what 'each of these blocks each of those' says and is the
 		only thing it could say.
 
-		Both sides matter because a plan is written from both ends: 'these six make up the
-		roadmap' is six things blocking one, and 'this has to happen before those three' is one
-		blocking three. Laying out a plan is the moment this is most heavily used, and it is
-		the moment one link per command costs most.
+		Both sides matter because a plan is written from both ends: 'this milestone includes
+		those six' is one link out to six, and 'these three have to happen first' is three
+		blocking one. Laying out a plan is the moment this is most heavily used, and it is the
+		moment one link per command costs most.
 		"""
 
 		wanted = _relation_key(_asked(relation, "How are they related?"))
