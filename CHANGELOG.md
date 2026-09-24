@@ -145,6 +145,12 @@ upgrade involves.
   the item now showing. A new page draws the form closed, and what was typed and not saved is
   dropped, as a reload drops it.
 
+- **When a list stops at its limit, the command it suggests keeps everything you narrowed it
+  by.** It repeated only `--order`, `--project` and `--deferred`, so following it after
+  `--type`, `--status`, `--filter` or any other narrowing listed open work of every kind, and a
+  saved view's suggestion ran `list` rather than the view. It now repeats the command as you
+  typed it, with a larger limit.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

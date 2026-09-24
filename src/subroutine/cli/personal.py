@@ -4239,6 +4239,68 @@ def _unqualified (
 	)
 
 
+def _again (context: typer.Context | None, limit: int) -> str:
+	"""Return the command that printed a listing, asking for twice as many (`#3548`).
+
+	**Read back from what was typed, never listed by hand.** The hint named three options while
+	the command grew fifteen, so following it after ``--type bug`` or a ``--filter`` listed open
+	work of every kind - the widening its own comment warned about. Every level of the command
+	line is walked, the program's own options too, so ``--profile`` and ``--connection`` go on
+	naming the instance the list came from, and a saved view's hint runs the view.
+
+	**Only what was typed.** A value from the environment is still there when the next command
+	runs, and a default needs no saying. Without a context - a caller that is not a command - it
+	is the bare command, which is all this ever said about a list nobody narrowed.
+	"""
+
+	if context is None:
+		return f"subroutine list --limit {limit * 2}"
+
+	walked = []
+	level: typing.Any = context
+
+	while level is not None:
+		walked.append(level)
+		level = level.parent
+
+	words = ["subroutine"]
+
+	for level in reversed(walked):
+		if level.parent is not None:
+			words.append(level.info_name)
+
+		for parameter in level.command.params:
+			words.extend(_typed(level, parameter))
+
+	return " ".join([*words, "--limit", str(limit * 2)])
+
+
+def _typed (level: typing.Any, parameter: typing.Any) -> list[str]:
+	"""Return one parameter as it was typed on the command line, or nothing if it was not.
+
+	**The long spelling of an option**, so ``-c work`` comes back as ``--connection work``: the
+	hint is read by somebody deciding what to type next, and the long form says what it does.
+	"""
+
+	source = level.get_parameter_source(parameter.name)
+
+	if parameter.name == "limit" or source is None or source.name != "COMMANDLINE":
+		return []
+
+	value = level.params.get(parameter.name)
+	values = list(value) if isinstance(value, (list, tuple)) else [value]
+
+	if parameter.param_type_name == "argument":
+		return [shlex.quote(str(one)) for one in values]
+
+	name = max(parameter.opts, key=len)
+
+	if getattr(parameter, "is_flag", False):
+		return [name] if value else []
+
+	return [part for one in values for part in (name, shlex.quote(str(one)))]
+
+
 def _listed (
 	program: Program,
 	*,
@@ -4261,6 +4323,7 @@ def _listed (
 	tag: str | None = None,
 	filters: subroutine.domain.filtering.Terms | None = None,
 	workspace: str | None = None,
+	context: typer.Context | None = None,
 ) -> None:
 	"""Print the list. Registered twice — three times, with ``search`` — from one body.
 
@@ -4460,27 +4523,13 @@ def _listed (
 			# nothing at all and simply stopped. Phrased as an instruction rather than a
 			# bare "there are more", because the reader's next question is how to see them.
 			#
-			# **It repeats the narrowing it was given.** A suggestion that dropped
-			# `--project` or `--order` would widen the list while claiming to extend it,
-			# and the reader would blame the flag rather than the advice.
-			repeated = (
-				f"subroutine search {shlex.quote(q)} --limit {limit * 2}"
-				if q
-				else f"subroutine list --limit {limit * 2}"
-			)
-
-			if order:
-				repeated += f" --order {order}"
-
-			if project:
-				repeated += f" --project {project}"
-
-			if deferred:
-				repeated += " --deferred"
-
-			program.console.print(
-				rich.text.Text(f"      …and more. '{repeated}' to see further.", style=DETAIL)
-			)
+			# **It repeats the command as it was typed** (`#3548`). A suggestion that dropped
+			# a narrowing would widen the list while claiming to extend it, and the reader would
+			# blame the flag rather than the advice - which three hand-picked options did once
+			# `--type`, `--status` and `--filter` existed beside them.
+			program.console.print(rich.text.Text(
+				f"      …and more. '{_again(context, limit)}' to see further.", style=DETAIL
+			))
 
 		_say_parked(gathered, console=program.console, hidden=hiding)
 
@@ -4867,6 +4916,7 @@ def _shown_list (
 	kind: typing.Sequence[str] | None,
 	tag: typing.Sequence[str] | None,
 	dated: typing.Sequence[str] | None,
+	context: typer.Context | None = None,
 ) -> None:
 	"""Print the list, for ``list`` and for its hidden synonym ``ls``.
 
@@ -4906,6 +4956,7 @@ def _shown_list (
 		type=_only_once(program, "--type", kind),
 		tag=_only_once(program, "--tag", tag),
 		filters=_filters(program, dated),
+		context=context,
 	)
 
 
@@ -4923,6 +4974,7 @@ def _searched (
 	connection: str,
 	deferred: bool,
 	dated: typing.Sequence[str] | None,
+	context: typer.Context | None = None,
 ) -> None:
 	"""Print what matches, by any of the words.
 
@@ -4943,6 +4995,7 @@ def _searched (
 		deferred=deferred,
 		q=_asked(terms, "What are you looking for?"),
 		filters=_filters(program, dated),
+		context=context,
 	)
 
 
@@ -8071,6 +8124,7 @@ def _view_run (
 	connection: str,
 	deferred: bool,
 	dated: typing.Sequence[str] | None,
+	context: typer.Context | None = None,
 ) -> None:
 	"""Print the work a saved view selects, and say what of it a terminal cannot draw.
 
@@ -8125,6 +8179,7 @@ def _view_run (
 		q=found.q,
 		filters=_filters(program, dated),
 		workspace=workspace,
+		context=context,
 	)
 
 
@@ -8292,6 +8347,7 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 
 	@view_app.command("run")
 	def view_run (
+		context: typer.Context,
 		key: str = typer.Argument("", help="Which view, by its name."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
@@ -8340,6 +8396,7 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 			connection=connection,
 			deferred=deferred,
 			dated=dated,
+			context=context,
 		)
 
 	@view_app.command("save")
@@ -9512,6 +9569,7 @@ def register (
 	# hidden rather than removed: a synonym in the help is a second thing to choose between.
 	@app.command("list", cls=_Listing)
 	def list_items (
+		context: typer.Context,
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
 		merged: bool = typer.Option(
@@ -9581,11 +9639,12 @@ def register (
 			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
 			order=order, project=project, connection=connection, deferred=deferred,
 			ready=ready, to_act_on=to_act_on, trash=trash, assignee=assignee, claimed_by=claimed_by,
-			status=status, kind=kind, tag=tag, dated=dated,
+			status=status, kind=kind, tag=tag, dated=dated, context=context,
 		)
 
 	@app.command()
 	def search (
+		context: typer.Context,
 		terms: str = typer.Argument("", help="What to look for. See 'explain searching'."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
@@ -9646,6 +9705,7 @@ def register (
 			connection=connection,
 			deferred=deferred,
 			dated=dated,
+			context=context,
 		)
 
 	@app.command()
@@ -9757,63 +9817,15 @@ def register (
 			strict=strict,
 		)
 
-	@app.command("ls", hidden=True, cls=_Listing)
-	def list_tasks (
-		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
-		json_output: bool = typer.Option(False, "--json", help="Print the list as JSON."),
-		merged: bool = typer.Option(
-			False, "--merged", help="One list rather than a group per connection."
-		),
-		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
-		),
-		order: str = typer.Option(
-			"", "--order", help="Sort by, e.g. '-priority_score' or 'due_at,-importance'."
-		),
-		project: list[str] | None = PROJECT_OPTION,
-		connection: str = typer.Option(
-			"", "--connection", help="Only this connection, by name."
-		),
-		deferred: bool = typer.Option(
-			False, "--deferred", help="Include what you have deferred until a later date."
-		),
-		ready: bool = READY_OPTION,
-		to_act_on: bool = TO_ACT_ON_OPTION,
-		trash: bool = typer.Option(
-			False, "--trash", help="Show what you have deleted, instead of the list."
-		),
-		assignee: list[str] | None = ASSIGNEE_OPTION,
-		claimed_by: list[str] | None = CLAIMED_BY_OPTION,
-		status: list[str] | None = STATUS_OPTION,
-		kind: list[str] | None = TYPE_OPTION,
-		tag: list[str] | None = TAG_OPTION,
-		dated: list[str] | None = typer.Option(
-			None,
-			"--filter",
-			help=FILTER_OPTION_HELP,
-		),
-		words: list[str] | None = typer.Argument(
-			None, hidden=True, metavar="", help="Not a filter - see 'subroutine search'."
-		),
-		looking_for: str = typer.Option(
-			"", "-q", "--search", hidden=True, help="Not a filter - see 'subroutine search'."
-		),
-	) -> None:
-		"""The short name for 'subroutine list'. Both do the same thing.
-
-		Examples:
-
-		  subroutine ls
-		"""
-
-		_refuse_words(program, words, looking_for)
-
-		_shown_list(
-			program, limit=limit, json_output=json_output, merged=merged, strict=strict,
-			order=order, project=project, connection=connection, deferred=deferred,
-			ready=ready, to_act_on=to_act_on, trash=trash, assignee=assignee, claimed_by=claimed_by,
-			status=status, kind=kind, tag=tag, dated=dated,
-		)
+	# **`ls` is `list` registered a second time** (`#3548`), hidden, with its own help. It was a
+	# copy of `list`'s options and body, so an option added to one and not the other would have
+	# made the synonym quietly narrower, and the copy was lines this closure pays for: taking it
+	# out paid for `list` and `search` taking the context their hint is read back from.
+	app.command("ls", hidden=True, cls=_Listing, help=(
+		"The short name for 'subroutine list'. Both do the same thing.\n\n"
+		"Examples:\n\n"
+		"  subroutine ls"
+	))(list_items)
 
 	@app.command()
 	def show (

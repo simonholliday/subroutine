@@ -3632,6 +3632,127 @@ def test_the_list_says_when_it_did_not_show_everything (
 	assert "--limit 10" in listed.output, "the remedy, not just the fact"
 
 
+def test_the_more_hint_keeps_the_narrowing_it_was_given (run: typing.Any) -> None:
+	"""`SR#3548`, found checking `SR#713`: the hint dropped ``--type`` and ``--filter``.
+
+	Following it listed open work of every kind, which is the widening the hint's own comment
+	named, and every narrowing added after the first three did the same.
+	"""
+
+	run("init")
+
+	for number in range(1, 4):
+		run("add", f"Bug number {number}", "--type", "bug")
+
+	run("add", "Not a bug")
+
+	listed = run("list", "--type", "bug", "--limit", "1").output
+
+	assert "…and more" in listed, listed
+	assert "'subroutine list --type bug --limit 2'" in listed, listed
+
+
+#: Parameters that can be typed on the listing commands and never reach the hint, each with the
+#: reason. `SR#405`'s rule is held by the test after the guard: an entry naming a parameter that
+#: is gone fails, so the list cannot outlive what it excuses.
+NEVER_REPEATED: dict[tuple[str, str], str] = {
+	("", "version"): "prints the version and exits, so nothing is listed",
+	("list", "words"): "refused before anything is listed: a list is narrowed, not searched",
+	("list", "looking_for"): "refused before anything is listed, for the same reason",
+	("ls", "words"): "the same refusal, since `ls` is `list`",
+	("ls", "looking_for"): "the same refusal, since `ls` is `list`",
+}
+
+#: What to type for a parameter that takes a value, where any word would not do.
+TYPED_AS = {"dated": "created_at.gte=yesterday", "limit": "5"}
+
+
+def _every_parameter (label: str, command: typing.Any) -> tuple[list[str], list[str]]:
+	"""Return a command line giving every parameter of one command, and what each must come back as."""
+
+	typed: list[str] = []
+	wanted: list[str] = []
+
+	for parameter in command.params:
+		if (label, parameter.name) in NEVER_REPEATED:
+			continue
+
+		# A value of its own at each level, so the program's `--connection` and the command's
+		# cannot stand in for each other.
+		value = TYPED_AS.get(parameter.name, f"{parameter.name}-{label.replace(' ', '-') or 'program'}")
+		name = max(parameter.opts, key=len)
+
+		if parameter.param_type_name == "argument":
+			typed.append(value)
+			wanted.append(value)
+		elif getattr(parameter, "is_flag", False):
+			typed.append(name)
+			wanted.append(name)
+		else:
+			typed.extend([name, value])
+			wanted.append(f"{name} {shlex.quote(value)}" if parameter.name != "limit" else "--limit 10")
+
+	return typed, wanted
+
+
+def test_the_more_hint_repeats_everything_typed (
+	home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3548`: following the hint lists more of the same, never something wider.
+
+	**Asked of every parameter the four listing commands and the program declare**, parsed by
+	the commands themselves, so an option added later is asked about without being named here:
+	a hand-kept list of three is what fell behind. The commands' bodies are stood in for at the
+	helpers they call, which is where the context arrives, so nothing is listed and no instance
+	is needed.
+	"""
+
+	root: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+	caught: list[typing.Any] = []
+
+	def recorder (*_: typing.Any, context: typing.Any = None, **__: typing.Any) -> None:
+		"""Keep the context a command handed down, and list nothing."""
+
+		caught.append(context)
+
+	for helper in ("_shown_list", "_searched", "_view_run"):
+		monkeypatch.setattr(subroutine.cli.personal, helper, recorder)
+
+	for path in (("list",), ("ls",), ("search",), ("view", "run")):
+		typed, wanted = _every_parameter("", root)
+		command = root
+
+		for depth, word in enumerate(path):
+			command = command.commands[word]
+			more, expected = _every_parameter(" ".join(path[: depth + 1]), command)
+			typed.extend([word, *more])
+			wanted.extend(expected)
+
+		caught.clear()
+		result = typer.testing.CliRunner().invoke(subroutine.cli.main.app, typed)
+
+		assert result.exit_code == 0 and caught, f"{typed} did not reach the listing: {result.output}"
+
+		again = subroutine.cli.personal._again(caught[-1], 5)
+		missing = [one for one in wanted if one not in again]
+
+		assert not missing, f"'{' '.join(path)}' was given {missing} and its hint drops them: {again}"
+		assert f" {' '.join(path)} " in again and again.endswith("--limit 10"), again
+
+
+def test_every_parameter_the_hint_skips_still_exists () -> None:
+	"""`SR#405` for :data:`NEVER_REPEATED`: an excuse outliving its parameter is a stale one."""
+
+	root: typing.Any = typer.main.get_command(subroutine.cli.main.app)
+
+	for (label, name), reason in NEVER_REPEATED.items():
+		command = root.commands[label] if label else root
+
+		assert name in {parameter.name for parameter in command.params}, (
+			f"NEVER_REPEATED excuses '{label} {name}' ({reason}), and there is no such parameter"
+		)
+
+
 def test_a_search_says_which_of_its_terms_was_not_understood (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -9925,7 +10046,12 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: line count could not see either - a four-line helper fits under any ceiling, and one came
 #: back while the item sat open - so
 #: :func:`test_nothing_is_defined_in_the_closure_but_the_commands_it_registers` asks the tree.
-REGISTER_CEILING = 1_482
+#:
+#: **1,482 	 1,437 on 2026-09-24 (`SR#3548`), and it paid for three commands at once.** `list`,
+#: `search` and `view run` took the context their `…and more` hint is read back from, and `ls`
+#: stopped being a copy of `list`'s options and body and became `list` registered a second
+#: time. Fifty-odd lines of a copy that could drift out, three lines of options in.
+REGISTER_CEILING = 1_437
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
