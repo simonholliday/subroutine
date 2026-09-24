@@ -154,6 +154,11 @@ upgrade involves.
   the item now showing. A new page draws the form closed, and what was typed and not saved is
   dropped, as a reload drops it.
 
+- **Moving to another item in the browser can no longer bring back the one you left.** A
+  background read of it still under way when you moved could land after the new item had been
+  drawn, and put the old one back on screen under the new item's address, where **Save** and
+  every other control acted on it.
+
 - **When a list stops at its limit, the command it suggests keeps everything you narrowed it
   by.** It repeated only `--order`, `--project` and `--deferred`, so following it after
   `--type`, `--status`, `--filter` or any other narrowing listed open work of every kind, and a

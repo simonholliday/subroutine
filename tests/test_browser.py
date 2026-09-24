@@ -6189,15 +6189,40 @@ def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typin
 	typed for the first, and **Save** sent it to the second with that item's own version. It
 	closes on a new page now, as a reload would draw it (Simon, 2026-09-24).
 
+	**And the item left behind stays behind** (`SR#3577`, the cold review's H-1). Closing the form
+	let go of the news it had stood off from, so the item being left was read again while the next
+	one was, and whichever answer landed second was drawn: the item left behind, under the new
+	address, with **Save** writing to it. A background read still in flight when the reader moves
+	raced the same way with no form open. Both are driven here - news while the form is open, and a
+	read of #9 held back until #42 has been drawn - and **Save** is pressed at the end, because what
+	it writes to is the whole of the harm.
+
 	**The harness answers every item as `CARD`**, so the second item is served by a route on this
 	page alone, and the two differ where the claim needs them to: their number and their title.
+	**Its change feed answers nothing**, so the news is a route of this page's too, and a tab hidden
+	and brought back is what makes the page ask for it at once rather than five seconds later.
 	"""
 
-	opened, written, *_ = running
+	opened, written, _refusing, _roster, _missing, reads, *_ = running
 	page = opened(f"/projects/{CARD['project_path']}/{CARD['ref']}")
+	#: Every read of #9 itself, and the ones being held back rather than answered.
+	nines: list[str] = []
+	held: list[typing.Any] = []
+	holding = [False]
+	#: What the change feed answers, and every time the page asked it.
+	news: list[typing.Any] = [EMPTY]
+	polled: list[str] = []
+
+	def answer (route: typing.Any) -> None:
+		"""Answer one read of #9 as an item of its own."""
+
+		route.fulfill(
+			status=200, content_type="application/json",
+			body=json.dumps({**CARD, "ref": 9, "title": "Still going"}),
+		)
 
 	def nine (route: typing.Any) -> None:
-		"""Answer #9 as an item of its own, and leave every other request to the fixture."""
+		"""Answer #9, or hold it back, and leave every other request to the fixture."""
 
 		asked = route.request.url.split("://", 1)[-1].split("/", 1)[-1].split("?", 1)[0]
 
@@ -6206,10 +6231,53 @@ def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typin
 
 			return
 
-		route.fulfill(
-			status=200, content_type="application/json",
-			body=json.dumps({**CARD, "ref": 9, "title": "Still going"}),
+		nines.append(route.request.url)
+
+		if holding[0]:
+			held.append(route)
+
+			return
+
+		answer(route)
+
+	def changes (route: typing.Any) -> None:
+		"""Answer the change feed with whatever news this test has given it."""
+
+		polled.append(route.request.url)
+		route.fulfill(status=200, content_type="application/json", body=json.dumps(news[0]))
+
+	def settled () -> None:
+		"""Let the page finish what it set off: two frames, so an effect run after a paint has run."""
+
+		page.evaluate(
+			"() => new Promise((done) => requestAnimationFrame(() => setTimeout(() => "
+			"requestAnimationFrame(() => setTimeout(done)))))"
 		)
+
+	def told (seq: int) -> None:
+		"""Give the page one new event, and wait until it has asked for it.
+
+		**A link event, on an item this page does not show**, because that is all H-1 needed: the page
+		re-reads the open item on any link event, not knowing which end of it the reader is on.
+		"""
+
+		news[0] = {
+			"items": [{"seq": seq, "item_ref": 1, "workspace_id": None, "entity_type": "link"}],
+			"page": EMPTY["page"],
+		}
+		asked = len(polled)
+
+		for state in ("hidden", "visible"):
+			page.evaluate(
+				"(state) => { Object.defineProperty(document, 'visibilityState', "
+				"{ value: state, configurable: true }); "
+				"document.dispatchEvent(new Event('visibilitychange')); }",
+				state,
+			)
+			settled()
+
+		_until(page, lambda: len(polled) > asked)
+		settled()
 
 	def showing (title: str) -> None:
 		"""Wait until the open item's heading is ``title``, so the next step acts on that item."""
@@ -6217,28 +6285,73 @@ def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typin
 		_until(page, lambda: page.inner_text(".detail h2") == title)
 
 	page.route("**/v1/tasks/9*", nine)
+	page.route("**/v1/changes*", changes)
 	page.click(".detail a[href$='/9']")
 	showing("Still going")
 	page.click(".detail button.edit")
 	page.fill(".detail form.editing input[name=title]", "Typed on nine")
+	told(7)
 	written.clear()
+	before = len(nines)
 
 	page.go_back()
 	page.wait_for_url(f"**/{CARD['ref']}*", timeout=10_000)
 	_until(page, lambda: page.locator(".detail form.editing").count() == 0)
+	showing(CARD["title"])
+	settled()
 
 	assert page.locator(".detail form.editing").count() == 0, (
 		"the edit form opened on #9 is still open on #42 holding what was typed there, so Save "
 		"would write it onto #42"
 	)
+	assert len(nines) == before, (
+		"#9 was read again after the reader had left it, for news that arrived while its form was "
+		"open - racing #42's read, so whichever landed second was drawn under #42's address"
+	)
 
+	# **The second way in: a read already in flight when the reader moves.** No form is open, and
+	# #9's answer is held until #42 has been drawn, which is the order that put #9 back on screen.
+	page.click(".detail a[href$='/9']")
+	showing("Still going")
+	holding[0] = True
+	told(8)
+	_until(page, lambda: len(held) == 1)
+
+	assert len(held) == 1, "news of a link did not make the page read the open item again"
+
+	page.go_back()
+	page.wait_for_url(f"**/{CARD['ref']}*", timeout=10_000)
 	showing(CARD["title"])
+	settled()
+	holding[0] = False
+	listed = len(reads)
+	answer(held.pop())
+	# **What the poll reads next is the sign that its read of #9 has been dealt with**: it awaits
+	# that read, then reloads what is under the item.
+	_until(
+		page,
+		lambda: any(one.split("?")[0] in ("v1/agenda", "v1/tasks") for one in reads[listed:]),
+	)
+	settled()
+
+	assert page.inner_text(".detail h2") == CARD["title"], (
+		"#9's read, landing after #42 had been drawn, put #9 back on screen under #42's address"
+	)
+
 	page.click(".detail button.edit")
 
 	assert page.input_value(".detail form.editing input[name=title]") == CARD["title"], (
 		"the edit form opened again on #42 holds what was typed on #9"
 	)
 	assert not written, f"moving between the two items wrote something: {written}"
+
+	page.fill(".detail form.editing input[name=title]", "Typed on forty-two")
+	page.click(".detail form.editing button[type='submit']")
+	_until(page, lambda: bool(written))
+
+	assert [(method, path) for method, path, *_ in written] == [("PATCH", f"v1/tasks/{CARD['ref']}")], (
+		f"Save on #42's page wrote somewhere else: {written}"
+	)
 
 	page.close()
 

@@ -443,6 +443,10 @@ export function App () {
 		setReading(null);
 		setEditing(false);
 		setConflict(null);
+		/* **And the news the form stood off from goes with it** (`#3577`). It was about the item
+		   being left, and the new page reads its own item fresh; re-reading the old one only
+		   raced it onto the new page. */
+		missed.current = false;
 	}, []);
 
 	const go = useCallback((path, { replace = false, arranged = showing } = {}) => {
@@ -1082,8 +1086,18 @@ export function App () {
 		try {
 			const found = await fetched(reading.item.ref, reading.item.kind, reading.slug);
 
+			/* **Only while it is still the item open** (`#3577`). Moving to another page does not
+			   wait for this read, so an answer landing after the next item has been drawn put the
+			   item left behind back on screen, under the new address and with every control on the
+			   page acting on it. `nowOpen` replaces `held` whenever an item opens or closes, so a
+			   holder that has changed is the whole question. */
+			if (held.current !== reading) return;
+
 			if (found) nowOpen({ ...found, slug: reading.slug });
 		} catch (failure) {
+			/* The same for a refusal: *no longer there* would be about a page the reader left. */
+			if (held.current !== reading) return;
+
 			if (failure.status === 404) {
 				setNote({
 					text: `#${reading.item.ref} is no longer there. What is on screen is the `
