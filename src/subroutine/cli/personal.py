@@ -9215,6 +9215,26 @@ def _register_workspace (app: typer.Typer, program: Program) -> None:
 		_workspace_restored(program, slug=slug)
 
 
+class _Listing(typer.core.TyperCommand):
+	"""``list``, with its catch-all argument kept out of the usage line.
+
+	The argument exists only to intercept ``subroutine list some words`` and point at
+	``search`` (`#282`). Click renders a positional in the usage line whether or not it is
+	``hidden``, so without this the help reads ``list [OPTIONS] [words]...`` — advertising
+	the very thing the argument refuses, which would trade one confusion for a worse one.
+	A ``metavar=""`` alone leaves ``[]`` behind, hence filtering rather than naming.
+
+	**At module level since `#943`.** It needs nothing from ``register``'s closure, and a class
+	defined there was one of the last two definitions in it that Typer does not register.
+	"""
+
+	def collect_usage_pieces (self, ctx: typing.Any) -> list[str]:
+		"""Return the usage pieces, dropping the placeholder left by a hidden argument."""
+
+		return [
+			piece for piece in super().collect_usage_pieces(ctx) if piece.strip("[]. ")
+		]
+
 
 def register (
 	app: typer.Typer,
@@ -9484,23 +9504,6 @@ def register (
 		program.say("agent uses - so the command does too.")
 
 		raise typer.Exit(2)
-
-	class _Listing(typer.core.TyperCommand):
-		"""``list``, with its catch-all argument kept out of the usage line.
-
-		The argument exists only to intercept ``subroutine list some words`` and point at
-		``search`` (`#282`). Click renders a positional in the usage line whether or not it is
-		``hidden``, so without this the help reads ``list [OPTIONS] [words]...`` — advertising
-		the very thing the argument refuses, which would trade one confusion for a worse one.
-		A ``metavar=""`` alone leaves ``[]`` behind, hence filtering rather than naming.
-		"""
-
-		def collect_usage_pieces (self, ctx: typing.Any) -> list[str]:
-			"""Return the usage pieces, dropping the placeholder left by a hidden argument."""
-
-			return [
-				piece for piece in super().collect_usage_pieces(ctx) if piece.strip("[]. ")
-			]
 
 	# **Registered twice, and `list` is the one the help shows.** Simon's preference, and the
 	# right way round: a real word teaches itself, where `ls` only reads as "list" to somebody
@@ -10712,12 +10715,9 @@ def register (
 		say("")
 		_suggest(console, "subroutine list", "everything this machine can now reach")
 
-	def show_today () -> list[str]:
-		"""Print today's agenda, as a bare ``subroutine`` does, and return what goes under it."""
-
-		return _show_today(program, workspace=selected.workspace)
-
-	return show_today, selected
+	# **Handed back bound rather than defined here** (`#943`): the bare invocation reads the
+	# workspace when it runs, after `-w` has set it, which a partial over ``selected`` does too.
+	return functools.partial(_show_today, program, selected), selected
 
 
 def _named_changes (program: Program, **given: typing.Any) -> dict[str, typing.Any]:
@@ -10933,7 +10933,7 @@ def _changed (
 		)
 
 
-def _show_today (program: Program, *, workspace: str | None) -> list[str]:
+def _show_today (program: Program, selected: Selected) -> list[str]:
 	"""Print today's agenda, as a bare ``subroutine`` invocation does (§12.2a).
 
 	**It reaches :func:`_agenda` rather than the Typer command**, and that is a fix rather than
@@ -10949,13 +10949,17 @@ def _show_today (program: Program, *, workspace: str | None) -> list[str]:
 	**It returns the line that goes under the agenda when this program is behind** (`#2224`),
 	for the caller to print below the signpost, because the notice is the bare invocation's
 	alone.
+
+	**``register`` hands it back as a partial over its program and its selection** (`#943`), so
+	the workspace is read here, when the bare invocation runs and ``-w`` has set it, rather than
+	by a function defined inside the closure to do the same.
 	"""
 
 	return _agenda(
 		program,
 		json_output=False,
 		strict=False,
-		workspace=workspace,
+		workspace=selected.workspace,
 		days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
 		behind=True,
 	)

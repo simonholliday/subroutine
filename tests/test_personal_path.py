@@ -9918,7 +9918,14 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: **Trimming the new option instead was the available shortcut and is the wrong move**: it
 #: buys one option and leaves the next one at the same wall, which is the ratchet being worked
 #: around rather than paid.
-REGISTER_CEILING = 1_500
+#:
+#: **1,500 	 1,482 on 2026-09-24, and `SR#943` closes on it.** The last two definitions in
+#: the closure that Typer does not register left it: ``_Listing``, the class ``list`` is
+#: registered with, and ``show_today``, now a ``functools.partial`` over ``_show_today``. A
+#: line count could not see either - a four-line helper fits under any ceiling, and one came
+#: back while the item sat open - so
+#: :func:`test_nothing_is_defined_in_the_closure_but_the_commands_it_registers` asks the tree.
+REGISTER_CEILING = 1_482
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
@@ -9997,6 +10004,83 @@ def test_the_personal_command_closure_only_ever_shrinks () -> None:
 		f"{MODULE_LEVEL_FLOOR}. Something moved back into the closure, or this scan has "
 		"stopped reading the tree."
 	)
+
+
+def _unregistered_in_register (source: str | None = None) -> tuple[list[str], int]:
+	"""Return what ``register`` defines that Typer does not register, and how many it does.
+
+	**A definition with no decorator is a body in the closure**, reachable only through the
+	command that uses it: a plain function, or a class, whose methods are the same thing again.
+	A command or a group carries the decorator that registers it, which is why that is the line.
+	Takes the source as an argument (`SR#405`), so a synthetic offender reaches the real walk.
+	"""
+
+	text = source
+
+	if text is None:
+		text = pathlib.Path(subroutine.cli.personal.__file__).read_text(encoding="utf-8")
+
+	found = next(
+		node
+		for node in ast.parse(text).body
+		if isinstance(node, ast.FunctionDef) and node.name == "register"
+	)
+	nested = [
+		node
+		for node in ast.walk(found)
+		if node is not found
+		and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+	]
+	unregistered = [
+		f"{node.name} (line {node.lineno})"
+		for node in nested
+		if isinstance(node, ast.ClassDef) or not node.decorator_list
+	]
+
+	return unregistered, len(nested) - len(unregistered)
+
+
+def test_nothing_is_defined_in_the_closure_but_the_commands_it_registers () -> None:
+	"""`SR#943`, closed: the last two definitions that were not commands left ``register``.
+
+	``show_today`` was a closure handed back to the bare invocation, and ``_Listing`` a class that
+	``list`` is registered with. Neither needed anything the closure holds but ``program`` and
+	``selected``. **The line count above could not see them**, since a four-line helper fits under
+	any ceiling, and one of them came back while the item sat open. So this asks the tree: every
+	definition left in ``register`` carries the decorator that registers it.
+	"""
+
+	unregistered, commands = _unregistered_in_register()
+
+	assert commands > 20, f"the walk found {commands} commands, too few to be reading register"
+	assert not unregistered, (
+		f"register defines {', '.join(unregistered)}, which Typer does not register. A body belongs "
+		"in a module-level function the command calls, where a test can reach it."
+	)
+
+
+def test_that_walk_finds_what_the_closure_defines_and_does_not_register () -> None:
+	"""`SR#405`: the walk above, fed a closure holding one of each through its own entry point."""
+
+	source = (
+		"def register (app):\n"
+		"\t@app.command()\n"
+		"\tdef listed () -> None:\n"
+		"\t\tdef inner () -> None:\n"
+		"\t\t\tpass\n"
+		"\tclass Kind:\n"
+		"\t\tdef method (self) -> None:\n"
+		"\t\t\tpass\n"
+		"\tdef helper () -> None:\n"
+		"\t\tpass\n"
+	)
+
+	unregistered, commands = _unregistered_in_register(source)
+
+	assert commands == 1, commands
+	assert sorted(name.split(" ")[0] for name in unregistered) == [
+		"Kind", "helper", "inner", "method",
+	], unregistered
 
 
 def test_the_helpers_that_left_the_closure_can_be_called_directly () -> None:
