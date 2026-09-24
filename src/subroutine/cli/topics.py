@@ -42,6 +42,26 @@ def _wrapped (items: typing.Sequence[str], *, indent: int) -> str:
 	return f"\n{' ' * indent}".join(lines)
 
 
+#: Where the dates topic's ``(api)`` marks begin, so that a row the program builds puts its mark
+#: in the column the written rows do.
+_MARK_COLUMN = 63
+
+
+def _marked (items: typing.Sequence[str], *, indent: int) -> str:
+	"""Return a list wrapped as :func:`_wrapped` does, with ``(api)`` ending its first line.
+
+	**Wrapped short enough to leave the mark its column** (`#3542`). The row wrote its padding
+	after the whole list, so when the list grew onto a second line the mark followed it, to
+	column 114 against every other row's 68 - in a terminal, and in the agent guide, which inlines
+	this topic.
+	"""
+
+	lines = textwrap.wrap(", ".join(items), width=_MARK_COLUMN - indent - 1)
+	lines[0] = f"{lines[0]:<{_MARK_COLUMN - indent}}(api)"
+
+	return f"\n{' ' * indent}".join(lines)
+
+
 def _dates_body () -> str:
 	"""Build the dates topic, reading the vocabulary from the parser that enforces it.
 
@@ -73,7 +93,7 @@ def _dates_body () -> str:
 		tuple(named[number].title() for number in sorted(named)), indent=17
 	)
 
-	keywords = _wrapped(subroutine.domain.dates.KEYWORDS, indent=17)
+	keywords = _marked(subroutine.domain.dates.KEYWORDS, indent=17)
 
 	return f"""Four date fields, kept apart on purpose.
 
@@ -119,7 +139,7 @@ grammars.relative_dates.
   a date         2026-08-01                                    (api)
   a time         2026-08-01T17:00:00Z                          (api)
                  - not to 'plan', which takes a day
-  an expression  {keywords}                                    (api)
+  an expression  {keywords}
                  with offsets: now+7d, end_of_week-1d, today+1w
                  - in a captured line 'now' needs an offset, so 'by now'
                    and 'from now on' are left as words

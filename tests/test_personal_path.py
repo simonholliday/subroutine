@@ -2836,6 +2836,28 @@ def test_the_milestones_topic_names_every_seeded_relation_that_plans_work () -> 
 	assert not missing, f"the milestones topic does not explain {missing}"
 
 
+def test_every_api_mark_in_the_dates_topic_lines_up () -> None:
+	"""`SR#3542`: the expressions' ``(api)`` mark ended at column 114, and every other at 68.
+
+	The row's padding was written after a list generated from the parser, and the list grew onto a
+	second line, so the mark followed it past the edge of an eighty-column terminal - and into the
+	agent guide, which inlines this topic. **Asked of the page rather than the source**, because the
+	list's length is not fixed and a row the program builds is the one that can drift.
+	"""
+
+	topic = subroutine.cli.topics.find("dates")
+
+	assert topic is not None, "there is no dates topic"
+
+	marked = [line for line in topic.body.splitlines() if line.rstrip().endswith("(api)")]
+	ends = {len(line.rstrip()) for line in marked}
+
+	assert len(marked) >= 4, f"only {len(marked)} rows carry the mark:\n{topic.body}"
+	assert len(ends) == 1, (
+		f"the (api) marks end in columns {sorted(ends)}, where they should share one:\n{topic.body}"
+	)
+
+
 def test_the_help_topics_are_generated_from_the_parsers (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
