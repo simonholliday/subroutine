@@ -791,10 +791,14 @@ def registry_markdown () -> str:
 		# **The heading is a published address, not a label** (`#2327`). ``ERROR_TYPE_BASE``
 		# links every problem document ever emitted to ``#<code>`` on this page, so renaming a
 		# heading breaks links already in people's logs. ``scripts/errors_page.py`` writes it.
+		#
+		# **Written as code** (`#3058`), because it is one: a heading of prose begins with a
+		# capital and a code does not. The address is unchanged, since a renderer builds the
+		# anchor from the heading's text and the backticks are markup rather than text.
 		lines.extend(
 			[
 				"",
-				f"## {entry.code}",
+				f"## `{entry.code}`",
 				"",
 				f"**{entry.title}** - HTTP {entry.status}.",
 				"",

@@ -8,6 +8,7 @@ the class reporting a failure cannot disagree with the status its code claims.
 
 import importlib.util
 import pathlib
+import re
 import types
 
 import pytest
@@ -326,3 +327,27 @@ def test_a_field_error_cannot_carry_a_code_nobody_publishes () -> None:
 	)
 
 	subroutine.errors.FieldError(field="link", code="missing_field", message="needed")
+
+
+def test_every_problem_type_lands_on_a_heading_of_its_own () -> None:
+	"""`SR#3058`: the headings became code, and each is still the address a problem links to.
+
+	**A published address** (`#2327`): every problem document ever sent links to ``#<code>`` on
+	this page. A renderer builds a heading's anchor from its text, and backticks are markup, so
+	the anchor is read here the same way - lower case, punctuation but ``-`` and ``_`` dropped,
+	spaces as hyphens - rather than trusted to have survived the change.
+	"""
+
+	page = DOCUMENTED_REGISTRY.read_text(encoding="utf-8")
+	anchors = {
+		re.sub(r"[^\w\- ]", "", heading.replace("`", "")).strip().lower().replace(" ", "-")
+		for heading in re.findall(r"^#+ (.+)$", page, re.M)
+	}
+	lost = sorted(
+		entry.code
+		for entry in subroutine.errors.REGISTRY.values()
+		if entry.type_uri.rsplit("#", 1)[-1] not in anchors
+	)
+
+	assert anchors, "no headings were read, so this is checking nothing"
+	assert not lost, f"these problem types link to a heading the page does not have: {lost}"
