@@ -2701,6 +2701,47 @@ def test_ready_excludes_an_event_because_nobody_can_be_offered_one (world: World
 	assert birthday in everything
 
 
+def test_ready_never_offers_a_milestone_whether_or_not_anything_is_in_it (world: World) -> None:
+	"""`SR#3394`, decision `SR#3391`: a milestone is what work counts toward, never work.
+
+	Offering one as the next thing to start hands somebody a heading rather than a job. **An empty
+	one included**, which is the case Simon raised: a placeholder a year out holds nothing, so a
+	rule that read a milestone's contents would offer it for the whole year.
+
+	**The ordinary task with the same deadline is asserted to stay**, for the event test's reason:
+	what makes something a milestone is its type, never its date.
+	"""
+
+	release = world.call(
+		"POST", "/v1/tasks", json={"title": "Release 2.0", "type": "milestone", "due": "2099-03-14"}
+	).json()["ref"]
+	placeholder = world.call(
+		"POST", "/v1/tasks", json={"title": "A year out", "type": "milestone"}
+	).json()["ref"]
+	chore = world.call(
+		"POST", "/v1/tasks", json={"title": "Renew the certificate", "due": "2099-03-14"}
+	).json()["ref"]
+
+	listed = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?ready=true&limit=50").json()["items"]
+	]
+
+	assert release not in listed, "a milestone with a date is offered as work somebody could start"
+	assert placeholder not in listed, "an empty milestone with no date is offered as work"
+	assert chore in listed, (
+		"an ordinary task with the same deadline was excluded too, so the rule is reading the "
+		"date rather than the type"
+	)
+
+	# **And both are still there when nobody has asked about readiness**: the category decides
+	# what can be started, never what exists.
+	everything = [
+		item["ref"] for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]
+	]
+
+	assert release in everything and placeholder in everything
+
+
 def test_an_event_cannot_be_given_a_deadline_by_any_route (world: World) -> None:
 	"""`SR#1246`: decision `SR#1235` says an event is never due, and nothing made that true.
 

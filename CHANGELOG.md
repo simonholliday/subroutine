@@ -27,6 +27,14 @@ upgrade involves.
   end, *Follows* at the other. A workspace that already has a type or a link under one of
   those names keeps its own.
 
+- **A milestone is never offered as work**, whether or not anything is in it yet: `--ready`
+  and an agent's next work leave it out. The agenda shows one by its date - under *Today*,
+  *Overdue* or the look-ahead, where a missed one is late - and never under *Next*, nor as work
+  somebody else is holding up, and the terminal's closing tip never suggests ticking one off.
+  One with no date is counted on the line that says what the day is not showing.
+  `undated_milestones_total` is new on the agenda response and is optional, so an older client
+  is unaffected.
+
 - **`subroutine agent create <name> --here` gives one project's Claude Code sessions an agent of
   their own, in one command.** Run in the project's directory, it writes the credential into
   `.claude/settings.local.json` under the variable for your connection, makes the repository

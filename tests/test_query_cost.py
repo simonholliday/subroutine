@@ -1075,9 +1075,13 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 #: read from the other end of the same links, and like that one it is one question for the
 #: whole page and none when the page is empty.
 #:
+#: **Thirty-seven since `SR#3394`**, one more count for the build: the milestones with no date.
+#: A milestone is never under *Next* (decision `SR#3391`), so one with no date has no section and
+#: is counted for `#649`'s reason like the six before it - one statement whatever the page.
+#:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
-AGENDA_STATEMENTS = 36
+AGENDA_STATEMENTS = 37
 
 
 #: How many statements one page of the journal asks, whatever its size — `SR#2728`.

@@ -525,6 +525,12 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 		starts=datetime.date(2026, 3, 14),
 		starts_is_all_day=True,
 	)
+	# **The seventh, represented like the rest** (`SR#3394`). A milestone is never under *Next*,
+	# so one with no date is in no section and is counted instead. **And a second in the project
+	# nobody is running**, which is that count's rather than this one's: counted by both, the sum
+	# below is one over, and counted by neither it is one under.
+	world.task("Open the shop", type_key="milestone")
+	world.task("Reopen the kiosk", type_key="milestone", project=asleep)
 
 	# **The second cap, represented for the first one's reason** (`SR#1285`). Two rows more
 	# than the limit, so the cap bites and the arithmetic has to account for what it hid — a
@@ -573,6 +579,7 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 			+ agenda.deferred_total
 			+ agenda.paused_total
 			+ agenda.passed_total
+			+ agenda.undated_milestones_total
 			# **The sixth, and this guard is what demanded it exist** (`SR#1265`, decision
 			# `SR#1267` §1). The assignee narrowing landed in `_scoped` and seven readable
 			# rows left the page with nothing saying so — 15 accounted against 22 listed,
@@ -592,7 +599,9 @@ def test_the_agenda_accounts_for_every_row_the_listing_at_that_scope_holds (
 		# **And each count is non-zero**, so the equality above cannot be satisfied by a scan
 		# that reads nothing. `unscheduled_limit=1` forces the cap to bite on two undated rows.
 		assert agenda.deferred_total == 2, (zone, agenda.deferred_total)
-		assert agenda.paused_total == 1, (zone, agenda.paused_total)
+		# The undated task and the milestone in the project nobody is running (`SR#3394`).
+		assert agenda.paused_total == 2, (zone, agenda.paused_total)
+		assert agenda.undated_milestones_total == 1, (zone, agenda.undated_milestones_total)
 		assert agenda.later_total == 1, (zone, agenda.later_total)
 		assert agenda.passed_total == 1, (zone, agenda.passed_total)
 		assert agenda.unscheduled_total > len(agenda.unscheduled), (
@@ -741,6 +750,81 @@ def test_a_task_with_no_dates_at_all_appears_in_unscheduled (
 
 	assert _titles(agenda.unscheduled) == ["Buy milk"]
 	assert agenda.unscheduled_total == 1
+
+
+def test_a_milestone_is_on_the_agenda_by_its_date_and_never_offered_as_work (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3394`, decision `SR#3391`: a milestone's date is a commitment, and it is never work.
+
+	**So it keeps every section its date earns** — overdue, today, the look-ahead — where an event
+	does not, because a missed milestone is late in a way a birthday never is. **And it never
+	reaches *Next***, the pile a reader picks the next job out of: one with no date is in no
+	section and is counted instead, because a listing at this scope still shows it (`SR#649`).
+
+	**An ordinary undated task is asserted to stay under *Next***, which is what makes this
+	falsifiable the other way: a rule written against the dates would empty the pile.
+	"""
+
+	world = World(session)
+
+	world.task("Release 1", type_key="milestone", due=datetime.date(2026, 7, 27))
+	world.task("Beta", type_key="milestone", due=TODAY)
+	world.task("Launch", type_key="milestone", due=datetime.date(2026, 8, 2))
+	world.task("A year out", type_key="milestone")
+	world.task("Buy milk")
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert _titles(agenda.overdue) == ["Release 1"], f"Overdue holds {_titles(agenda.overdue)}"
+	assert _titles(agenda.today) == ["Beta"], f"Today holds {_titles(agenda.today)}"
+	assert _titles(agenda.upcoming) == ["Launch"], f"the week holds {_titles(agenda.upcoming)}"
+	assert _titles(agenda.unscheduled) == ["Buy milk"], (
+		f"Next holds {_titles(agenda.unscheduled)}: a milestone is offered as the next job, or "
+		f"an ordinary undated task went with it"
+	)
+	assert agenda.unscheduled_total == 1, agenda.unscheduled_total
+	assert agenda.undated_milestones_total == 1, (
+		f"{agenda.undated_milestones_total} counted as milestones with no date, and the one with "
+		f"none is in no section, so the count is all that says it exists"
+	)
+
+
+def test_a_milestone_somebody_else_holds_up_is_not_work_waiting_on_them (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3394`: *Waiting on somebody else* holds the reader's work, and a milestone is not work.
+
+	**The ordinary task held up by the same item is asserted to stay**, so the rule reads the
+	milestone's type rather than the blocker. The milestone is dated inside the look-ahead, so it
+	has a section to go on to, and it is asserted to be there rather than merely gone.
+
+	**A question the reader parked on somebody else stays, milestone or not.** That is the
+	section's other half (`SR#1432`), and there the question is what is being waited on.
+	"""
+
+	world = World(session)
+	other = _somebody_else(world)
+
+	theirs = world.task("Sign off the budget")
+	theirs.assignee_id = other.id
+	launch = world.task("Launch", type_key="milestone", due=datetime.date(2026, 8, 2))
+	flyers = world.task("Print the flyers")
+	_blocks(world, theirs, launch)
+	_blocks(world, theirs, flyers)
+
+	asked = world.task("Is the opening still on", type_key="milestone")
+	_waiting(world, asked, on=other.id)
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert sorted(_titles(agenda.blocked_by_others)) == [
+		"Is the opening still on", "Print the flyers"
+	], f"Waiting on somebody else holds {_titles(agenda.blocked_by_others)}"
+	assert _titles(agenda.upcoming) == ["Launch"], (
+		f"the held-up milestone did not go on to the section its date earns: "
+		f"{_titles(agenda.upcoming)}"
+	)
 
 
 def test_a_task_due_in_four_days_appears_in_the_look_ahead (

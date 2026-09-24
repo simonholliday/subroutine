@@ -269,6 +269,8 @@ export function App () {
 	/* How much more somebody else is sitting on than this page drew (`#1285`). */
 	const [heldUp, setHeldUp] = useState(0);
 	const [later, setLater] = useState(0);
+	/* Milestones with no date, which the agenda counts rather than offers (`#3394`). */
+	const [milestones, setMilestones] = useState(0);
 	/* What the day is holding back that somebody chose to hold back — `#1215`. */
 	const [deferred, setDeferred] = useState(0);
 	const [paused, setPaused] = useState(0);
@@ -441,6 +443,8 @@ export function App () {
 			),
 		);
 		setLater(answered.later_total || 0);
+		/* Defaulted on the wire like the rest (`#345`), so an older instance reads zero. */
+		setMilestones(answered.undated_milestones_total || 0);
 		/* **Both defaulted on the wire** (`#345`, `#482`), so a page served by an instance that
 		   predates them reads zero and draws one line fewer rather than refusing. */
 		setDeferred(answered.deferred_total || 0);
@@ -3573,7 +3577,7 @@ export function App () {
 					onAssign=${mayWriteThere ? (row, who) => assign(row, who, openIn) : null} />`
 				: agenda !== null
 					? html`<${Agenda} buckets=${agenda} more=${unscheduled} heldUp=${heldUp}
-						later=${later}
+						later=${later} milestones=${milestones}
 						deferred=${deferred} paused=${paused} gone=${gone} theirs=${theirs}
 						onAdd=${mayWrite ? add : null} busy=${busy} workspace=${workspace} adding=${adding}
 						${/* **The list the fallback chooses from** — `SR#1544`. The note under

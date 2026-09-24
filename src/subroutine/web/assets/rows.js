@@ -428,6 +428,8 @@ export function Row ({
 
 export function Agenda ({
 	buckets, more, heldUp = 0, later = 0, deferred = 0, paused = 0, gone = 0, theirs = 0,
+	/* Milestones with no date, which have no section to be drawn in (`#3394`). */
+	milestones = 0,
 	workspace, onAdd, onOpen,
 	onComplete, busy,
 	adding,
@@ -533,6 +535,13 @@ export function Agenda ({
 		{ count: deferred, said: `${deferred} deferred until later` },
 		{ count: paused, said: `${paused} in projects nobody is running` },
 		{ count: later, said: `${later} dated further out` },
+		/* **Its undated counterpart** — `#3394`, Simon's decision of 2026-09-24. A milestone is
+		   never offered as work, so it is not under *Next*, and one with no date has no section
+		   here while a list at this scope still draws it. */
+		{
+			count: milestones,
+			said: `${milestones} milestone${milestones === 1 ? "" : "s"} with no date`,
+		},
 		/* **The fifth, and the only one nobody chose** — decision `#1235` §3. A list at this
 		   scope still shows a passed event, because it is not *completed*, so the difference
 		   between the two views is said rather than left to be found. */

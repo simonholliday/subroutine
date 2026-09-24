@@ -3016,6 +3016,14 @@ class Agenda(pydantic.BaseModel):
 	#: an instance one release behind sends no such key and must keep working.
 	later_total: int = 0
 
+	#: How many milestones this agenda does not show because they have no date (`#3394`,
+	#: decision `#3391`). A milestone is never offered as work, so it is never in ``unscheduled``;
+	#: it is on the agenda by its date, and one with none has no section. A listing at the same
+	#: scope still shows it, so the difference is said rather than left to be noticed.
+	#:
+	#: **Defaulted for :attr:`later_total`'s reason.**
+	undated_milestones_total: int = 0
+
 	#: How much work this agenda holds back because somebody deferred it past the end of the
 	#: day being shown (§6.5).
 	#:

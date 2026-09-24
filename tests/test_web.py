@@ -2765,6 +2765,23 @@ def test_the_agenda_accounts_for_what_it_is_not_showing (tmp_path: pathlib.Path)
 	)
 
 
+def test_the_agenda_counts_the_milestones_it_has_no_section_for (tmp_path: pathlib.Path) -> None:
+	"""`SR#3394`, Simon's decision of 2026-09-24: a milestone with no date is said, not offered.
+
+	A milestone is never under *Next* (decision `SR#3391`), so one with no date has no section on
+	this page while `?view=list` at the same address still draws it. **Singular and plural**,
+	because this is the one cause on the line whose phrase carries a noun.
+	"""
+
+	shown = _rendered(tmp_path, {"Agenda": {"buckets": [], "more": 0, "milestones": 2}})["Agenda"]
+
+	assert "2 not shown here" in shown and "2 milestones with no date" in shown, shown
+
+	one = _rendered(tmp_path, {"Agenda": {"buckets": [], "more": 0, "milestones": 1}})["Agenda"]
+
+	assert "1 milestone with no date" in one and "milestones" not in one, one
+
+
 def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	tmp_path: pathlib.Path,
 ) -> None:

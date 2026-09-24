@@ -295,6 +295,46 @@ def test_the_agenda_never_advises_ticking_off_somebody_s_birthday (
 	)
 
 
+def test_the_agenda_never_advises_ticking_off_a_milestone (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3394`, decision `SR#3391`: a milestone due today is a commitment, not a job.
+
+	It is on the page under *Today*, because its date can be missed. But advising ``done`` on it
+	because its day has come offers it as work, when whether it has been reached is a person's
+	decision. **Both halves, for the birthday test's reason**: the tip steps over it to the work
+	below rather than giving up.
+
+	**And one with no date is in no section**, so the page says how many there are.
+	"""
+
+	run("init")
+	run("add", "The launch by today", "--type", "milestone")
+	run("add", "Water the plants")
+	run("add", "Open the shop", "--type", "milestone")
+
+	shown = run("agenda").output
+
+	assert "The launch" in shown, f"a milestone due today is not on the agenda:\n{shown}"
+	assert "Tip: subroutine done 1" not in shown, (
+		f"the agenda advises ticking off a milestone because its day has come:\n{shown}"
+	)
+	assert "Tip: subroutine done 2" in shown, (
+		f"it gave up at the milestone instead of reading past it:\n{shown}"
+	)
+	assert "Open the shop" not in shown, f"a milestone is offered under Next:\n{shown}"
+	assert "and 1 milestone with no date" in shown, (
+		f"a milestone with no date left the page with nothing saying so:\n{shown}"
+	)
+
+	# **And the plural**, because this is the one line on the page whose phrase carries a noun.
+	run("add", "Hire the staff", "--type", "milestone")
+
+	shown = run("agenda").output
+
+	assert "and 2 milestones with no date" in shown, shown
+
+
 def test_the_agenda_never_advises_finishing_work_somebody_else_is_holding_up (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

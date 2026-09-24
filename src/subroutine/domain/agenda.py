@@ -372,9 +372,10 @@ class Agenda:
 	#: How much undated work is in a project nobody is running — `#983`, reported since `#1215`.
 	#:
 	#: **Counted after the defer and after the buckets have taken theirs**, mirroring `undated`
-	#: exactly with its running-project clause negated. Otherwise a row that is both deferred and
-	#: in a paused project would be counted twice, and the sum this exists to make true would
-	#: stop being true.
+	#: with its running-project clause negated. Otherwise a row that is both deferred and in a
+	#: paused project would be counted twice, and the sum this exists to make true would stop
+	#: being true. **Without `undated`'s milestone clause** (`#3394`), so an undated milestone in a
+	#: paused project is counted here and not in :attr:`undated_milestones_total` as well.
 	paused_total: int = 0
 
 	#: How much readable work this agenda leaves out because it belongs to somebody else —
@@ -403,6 +404,18 @@ class Agenda:
 	#: absent from the view whose whole job is *what is coming* with no sign it had been left
 	#: out.
 	later_total: int = 0
+
+	#: How many milestones this agenda does not show because they have no date — `#3394`, Simon's
+	#: decision of 2026-09-24.
+	#:
+	#: **The seventh exclusion.** A milestone is never offered as work (decision `#3391`), so it
+	#: is never under *Next*, and the sections its date would earn are the only others it can be
+	#: in. One with no date is therefore in none, while a listing at the same scope still shows
+	#: it, so the difference is said rather than left to be noticed.
+	#:
+	#: **Counted on the rows `undated` would otherwise have taken**, so it and
+	#: :attr:`paused_total` partition the undated rows rather than overlap.
+	undated_milestones_total: int = 0
 
 	@property
 	def is_empty (self) -> bool:
@@ -603,6 +616,11 @@ def build (
 		model.starts_at.is_(None),
 		model.due_at.is_(None),
 		subroutine.domain.readiness.in_a_running_project(model),
+		# **And it is not a milestone** (decision `#3391`, `#3394`). This is the pile a reader
+		# picks the next job out of, headed *Next* on every surface, and a milestone is what work
+		# counts toward rather than work. A dated one is on the page by its date; one with none is
+		# in no section and is counted instead, as `undated_milestones` below.
+		sqlalchemy.not_(subroutine.domain.readiness.is_target(model)),
 	)
 
 	# **What *late* means, written once because two buckets now read it** (`#1775`). `today`
@@ -707,7 +725,17 @@ def build (
 			until=edge("snoozed_until", on=day, reader=day_end),
 		).where(
 			sqlalchemy.or_(
-				subroutine.domain.readiness.blocked_by_somebody_else(model, now=now, ours=ours),
+				sqlalchemy.and_(
+					subroutine.domain.readiness.blocked_by_somebody_else(
+						model, now=now, ours=ours
+					),
+					# **Never a milestone held up** (decision `#3391`, `#3394`). This half is the
+					# reader's own work held up by somebody else's item, and a milestone is not
+					# work: one held up goes on to the section its date earns, or is counted where it
+					# has no date. **A question the reader parked on somebody else is the other half,
+					# and stays whatever the item is**, because there the question is what is waited on.
+					sqlalchemy.not_(subroutine.domain.readiness.is_target(model)),
+				),
 				model.id.in_(asked),
 			)
 		),
@@ -965,6 +993,24 @@ def build (
 		model.id.not_in(seen),
 	)
 
+	# **The seventh thing a day leaves out: a milestone with no date** (`#3394`, Simon's decision
+	# of 2026-09-24). A milestone is on this page by its date — under *Today*, *Overdue* or the
+	# look-ahead, or counted as further out — and never under *Next*, which offers work (decision
+	# `#3391`). One with no date has no section, and a listing at this scope still shows it, so
+	# it is counted for `#649`'s reason like the rest.
+	#
+	# **`undated` exactly, with the milestone clause the other way round**, so the two partition
+	# the undated rows of a running project. One in a paused project is `put_down`'s, which has no
+	# milestone clause, and is counted there rather than twice. Not already on the page, because a
+	# milestone somebody started or parked a question on is drawn under that section.
+	undated_milestones = base.where(
+		model.starts_at.is_(None),
+		model.due_at.is_(None),
+		subroutine.domain.readiness.in_a_running_project(model),
+		subroutine.domain.readiness.is_target(model),
+		model.id.not_in(seen),
+	)
+
 	# **The sixth exclusion, and the one that had to be counted outside the agenda's own
 	# scope** (`#1265`). Everything above narrows :func:`_scoped`, which now carries the
 	# assignee rule — so a count of what that rule hid cannot be taken from it, and asking
@@ -1047,6 +1093,9 @@ def build (
 		unscheduled_total=totals["unscheduled"],
 		blocked_by_others_total=totals["blocked_by_others"],
 		later_total=beyond or 0,
+		undated_milestones_total=session.scalar(
+			sqlalchemy.select(sqlalchemy.func.count()).select_from(undated_milestones.subquery())
+		) or 0,
 		assigned_elsewhere_total=session.scalar(
 			sqlalchemy.select(sqlalchemy.func.count()).select_from(elsewhere.subquery())
 		) or 0,

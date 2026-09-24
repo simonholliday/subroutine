@@ -15,7 +15,9 @@ next needs to skip all of them without caring which applies:
 * it is **a container** — a parent whose children are the work, which nobody starts as such
   (`#1353`);
 * it is **an occasion** — an event happens on its day rather than being done (decision
-  `#1235` §4).
+  `#1235` §4);
+* it is **a milestone** — what work counts toward rather than work itself, whether or not
+  anything is in it yet (decision `#3391`).
 
 **None of that is expressible as a priority.** ``priority_score`` is a scalar and the first
 two are a graph and a clock — folding either into the number would make the number mean two
@@ -62,6 +64,18 @@ GATING = "gating"
 #: through `#1129` inherits all three without a release.
 OCCASION = "occasion"
 
+#: The task-type category of a milestone — decision `#3391`, whose name Simon confirmed on
+#: 2026-09-23. A release, a phase, a launch: a dated target that work counts toward.
+#:
+#: **Never work, whether or not anything is in it yet.** ``--ready`` hides it, so a placeholder
+#: a year out is not offered for the whole year. **Unlike an occasion its date is a
+#: commitment**, so it can be upcoming and it can go overdue, and the agenda keeps it in the
+#: sections its date earns while taking it out of the ones that offer work.
+#:
+#: Owned here for :data:`OCCASION`'s reason, and read by category for the same one: a workspace
+#: adding ``release`` under it inherits every rule written against it.
+TARGET = "target"
+
 #: The status key that says an item is parked on a question for a person (`#1116`).
 #:
 #: **Owned here since `#1192`, which made readiness read it too.** It was declared in
@@ -97,6 +111,22 @@ def is_occasion (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
 	return sqlalchemy.exists(
 		sqlalchemy.select(kind.id)
 		.where(kind.id == model.type_id, kind.category == OCCASION)
+		.correlate(model)
+	)
+
+
+def is_target (model: type[typing.Any]) -> sqlalchemy.ColumnElement[bool]:
+	"""Return the predicate matching milestones — decision `#3391`.
+
+	:func:`is_occasion`'s shape, for its reasons: a correlated ``EXISTS`` that both planners make
+	a semi-join in a ``WHERE`` clause, over a column that is never null.
+	"""
+
+	kind = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.ItemType)
+
+	return sqlalchemy.exists(
+		sqlalchemy.select(kind.id)
+		.where(kind.id == model.type_id, kind.category == TARGET)
 		.correlate(model)
 	)
 
@@ -1319,6 +1349,11 @@ def _startable_apart_from_blocking (
 		# **The category, not the dates.** An ordinary task may carry a start and an end and is
 		# still work; what makes something an occasion is what it *is*.
 		sqlalchemy.not_(is_occasion(model)),
+		# **Nor is a milestone** (decision `#3391`). It is what work counts toward, so offering it
+		# as the next thing to start hands somebody a heading rather than a job. **Whether or not
+		# anything is in it yet**: this reads the category alone, so an empty one a year out is
+		# kept off every `--ready` until then rather than offered because it holds nothing.
+		sqlalchemy.not_(is_target(model)),
 	)
 
 

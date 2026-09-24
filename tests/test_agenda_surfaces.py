@@ -211,6 +211,9 @@ AGENT_SAYS_EACH_TOTAL = {
 	# `SR#1267` §1). An agenda is one person's; every other view of the same place answers
 	# everybody the same, so a listing beside it holds these rows and this page does not.
 	"assigned_elsewhere_total": "assigned to somebody else",
+	# **The seventh** (`SR#3394`): a milestone is never under *Next*, so one with no date is in no
+	# section. The phrase leaves out the noun, which is singular for one.
+	"undated_milestones_total": "with no date",
 }
 
 #: Which totals count a bucket that is *on the page*, and the bucket each of them caps.
@@ -475,6 +478,11 @@ def _seed (
 			due=TODAY + datetime.timedelta(days=30),
 			timezone=INSTANCE_ZONE,
 		),
+		# **A milestone with no date, which is in no section either** (`#3394`). It is never under
+		# *Next*, because a milestone is not work, so every surface has to say it is there.
+		subroutine.domain.tasks.create(
+			session, project=home, title="Open the shop", type_key="milestone"
+		),
 	]
 
 	# Written rather than left to the clock, so a tie is a property of the fixture rather than
@@ -559,6 +567,29 @@ def test_every_surface_says_how_much_dated_work_it_is_not_showing (
 
 	assert said and str(terminal) in said[0], (
 		f"an agent reads the buckets and nothing about the edge:\n{agent}"
+	)
+
+
+def test_every_surface_says_how_many_milestones_have_no_date (
+	surfaces: Surfaces, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`#3394`, Simon's decision of 2026-09-24: a milestone with no date is counted, not offered.
+
+	**The sibling of the dated count above, compared for its reason.** A milestone is never under
+	*Next* (decision `#3391`), so one with no date is in no section, and a count reaching one
+	surface of three would be `#583`'s shape again.
+	"""
+
+	with _at(monkeypatch, MOMENT):
+		asked = subroutine.cli.personal.agenda_asked(workspace=None)
+		terminal = surfaces.gathered(**asked).answers[0].value.undated_milestones_total
+		browser = _browser_answer(surfaces, tmp_path)["undated_milestones_total"]
+		agent = subroutine.mcp.tools._listed(surfaces.client, {"today": True})
+
+	assert terminal == 1, f"one milestone has no date and it is in no section: {terminal}"
+	assert browser == terminal, f"the page is told {browser} where the terminal is told {terminal}"
+	assert "1 milestone with no date. List with filter type.eq=milestone." in agent, (
+		f"an agent reads the buckets and nothing about the milestone:\n{agent}"
 	)
 
 

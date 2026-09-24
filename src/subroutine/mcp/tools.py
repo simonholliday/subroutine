@@ -2151,6 +2151,17 @@ def _listed (
 				f"List with filter due_at.gte=today, order due_at.",
 			]
 
+		# **And its undated counterpart** (`#3394`, Simon's decision of 2026-09-24). A milestone is
+		# never offered as work, so it is not under *Next*, and one with no date has no section. The
+		# way to see them names the seeded type, because no listing filters by a type's category.
+		if agenda.undated_milestones_total > 0:
+			noun = "milestone" if agenda.undated_milestones_total == 1 else "milestones"
+			rows = [
+				*rows,
+				f"{agenda.undated_milestones_total} {noun} with no date. "
+				f"List with filter type.eq=milestone.",
+			]
+
 		# **What somebody chose to put down, said here too** (`#1215`). §14.1's rule cuts both
 		# ways: an agent that cannot see the gap between this and a listing reads *nothing on
 		# today* as an empty backlog and picks up something else. Each names the way to see it,

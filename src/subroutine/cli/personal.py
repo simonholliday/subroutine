@@ -11587,6 +11587,11 @@ def _render (
 	# one answer, because §13.7 merges connections and a deadline on the work instance counts
 	# exactly as much as one on the personal list.
 	later = sum(answer.value.later_total for answer in gathered.answers)
+	# **Its undated counterpart** (`#3394`), summed for `later`'s reason. A milestone is on the
+	# page by its date and never under *Next*, so one with no date is in no section at all.
+	undated_milestones = sum(
+		answer.value.undated_milestones_total for answer in gathered.answers
+	)
 	# **The other two things a day holds back** (`#1215`, Simon's decision of 2026-08-24). The
 	# two above report a cap and a window edge; these report what somebody chose to put down —
 	# a defer, and a project nobody is running. Summed across connections for `later`'s reason.
@@ -11661,8 +11666,13 @@ def _render (
 		# measured the same way one bucket along: *Waiting on somebody else* is the heading
 		# that says nobody can finish this, and `subroutine done 1` sat directly beneath it.
 		# :data:`UNFINISHABLE` carries why the two are separate tests.
+		#
+		# **Nor a milestone** (`#3394`, decision `#3391`). One due today is on this page as a
+		# commitment, and advising `done` on it because its day has come would offer it as work.
 		if first is None and field not in UNFINISHABLE:
-			first = next((row for row in group if not _happens(row[1])), None)
+			first = next(
+				(row for row in group if not _happens(row[1]) and not _a_milestone(row[1])), None
+			)
 
 		for connection, task in group:
 			console.print(
@@ -11714,6 +11724,16 @@ def _render (
 				"      subroutine list --filter due_at.gte=today --order due_at",
 				style=DETAIL,
 			)
+		)
+
+	# **The milestones with no date** (`#3394`, Simon's decision of 2026-09-24). A milestone is
+	# never offered under *Next*, because it is not work (decision `#3391`), so without this one
+	# with no date would leave the page with nothing saying so.
+	if undated_milestones > 0:
+		noun = "milestone" if undated_milestones == 1 else "milestones"
+
+		console.print(
+			rich.text.Text(f"      and {undated_milestones} {noun} with no date", style=DETAIL)
 		)
 
 	# **What somebody chose to put down, said for the browser's reason** (`#1215`). The agenda
@@ -13508,6 +13528,18 @@ def _happens (item: Item) -> bool:
 	"""
 
 	return item.type_category == subroutine.domain.readiness.OCCASION
+
+
+def _a_milestone (item: Item) -> bool:
+	"""Report whether this is a milestone, which work counts toward and nobody works on.
+
+	Decision `#3391`, and read by the category for :func:`_happens`'s reason. Asked so that the
+	agenda's closing tip never names one (`#3394`): its day arriving is no reason to advise
+	ticking it off, when whether it has been reached is a person's decision. Completing one is
+	accepted and called *Done*, which is why this is not :func:`_happens`.
+	"""
+
+	return item.type_category == subroutine.domain.readiness.TARGET
 
 
 def _when (item: Item) -> str:
