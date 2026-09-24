@@ -7308,10 +7308,11 @@ class Listing(pydantic.BaseModel):
 	originally called ``sortable`` and ``selectable``, after what they *contain*, so a caller
 	who read one and reached for ``?select=`` earned a refusal.
 
-	**The old names are gone as of 0.9.0**, which is when they were promised to go: 0.8.1
-	published both and read either. A client of this release reads ``order`` and ``fields``
-	only, so an instance still on 0.8.0 - which sends only the old pair - is outside the range
-	it reads, by decision (Simon, 2026-09-22) and with no such instance known to be running.
+	**The old names went with the MVP release candidate**, which is when they were promised
+	to go, and the release before it published both and read either. A client of this release
+	reads ``order`` and ``fields`` only, so an instance from before the new names, which sends
+	only the old pair, is outside the range it reads - by decision (Simon, 2026-09-22), with no
+	such instance known to be running.
 	"""
 
 	path: str
