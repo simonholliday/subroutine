@@ -409,6 +409,14 @@ export function marks (
 	*/
 	if (item.included_done) {
 		states.push({ text: "Included done", family: "state" });
+	} else if (item.included_count) {
+		/* **Until then, how far it has got** — `#3396`, so a roadmap reads down a list rather than
+		   one milestone at a time. `views.included_progress` is the terminal's copy of these
+		   words. */
+		states.push({
+			text: `${item.included_done_count} of ${item.included_count} included done`,
+			family: "state",
+		});
 	}
 	/*
 		**That other documents are filed under this one** — `#2208`. Simon filed thirteen

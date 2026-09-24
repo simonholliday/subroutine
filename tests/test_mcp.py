@@ -1047,10 +1047,19 @@ def test_an_agent_reading_a_milestone_is_told_how_much_of_it_is_done (
 	assert not failed, linked
 	assert "0 of 2 included done" in _called(bound, "subroutine_show", ref=milestone)[0]
 
-	for part in (first, second):
-		done, failed = _called(bound, "subroutine_done", ref=part)
+	done, failed = _called(bound, "subroutine_done", ref=first)
 
-		assert not failed, done
+	assert not failed, done
+
+	# **The row says how far it has got** (`SR#3396`), in the terminal's words.
+	listed = _called(bound, "subroutine_list")[0]
+	row = next(line for line in listed.splitlines() if "Ship the release" in line)
+
+	assert "1 of 2 included done" in row, row
+
+	done, failed = _called(bound, "subroutine_done", ref=second)
+
+	assert not failed, done
 
 	shown = _called(bound, "subroutine_show", ref=milestone)[0]
 
@@ -1061,6 +1070,7 @@ def test_an_agent_reading_a_milestone_is_told_how_much_of_it_is_done (
 	row = next(line for line in listed.splitlines() if "Ship the release" in line)
 
 	assert subroutine.views.INCLUDED_DONE_MARK in row, row
+	assert "of 2 included done" not in row, f"the count did not give way to the mark:\n{row}"
 
 
 def test_an_agent_reading_an_item_is_told_how_many_blockers_are_left (

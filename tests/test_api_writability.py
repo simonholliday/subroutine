@@ -352,6 +352,14 @@ DERIVED: dict[str, str] = {
 		"reasoning, for a milestone. Make it true or false by finishing the work it includes, "
 		"which is the act it reports."
 	),
+	"included_count": (
+		"How many pieces of work a milestone includes (`SR#3396`), counted from its `includes` "
+		"links on every read rather than stored. Change it by linking or withdrawing a link."
+	),
+	"included_done_count": (
+		"How many of the pieces a milestone includes are finished (`SR#3396`), counted on every "
+		"read rather than stored. Change it by finishing the work, which is the act it reports."
+	),
 	"blocked_by": (
 		"Which unfinished tasks hold this one up, read off the same `blocks` links as "
 		"`blocked` above (`SR#1287`) — and narrowed to the ones this caller may see, which is "

@@ -2827,6 +2827,58 @@ def test_a_milestone_counts_what_it_includes_and_says_when_all_of_it_is_done (
 	)
 
 
+def test_a_milestone_s_row_says_how_much_of_it_is_done (world: World) -> None:
+	"""`SR#3396`: *2 of 5 included done* on a row, derived on every read and never stored.
+
+	**The item and a listing row say the same**, and a row that includes nothing reads nought of
+	nought, which no surface draws. **A deleted part leaves the count**, as it leaves ``show``'s,
+	so the milestone can still reach all of it.
+	"""
+
+	launch = _milestone(world, "Launch")
+	parts = [
+		world.call("POST", "/v1/tasks", json={"title": f"Part {number}"}).json()
+		for number in range(3)
+	]
+
+	for part in parts:
+		assert _link_from(world, launch["ref"], part["ref"], "includes").status_code == 201
+
+	world.call("POST", f"/v1/tasks/{parts[0]['ref']}/complete", json={})
+
+	read = world.call("GET", f"/v1/tasks/{launch['ref']}").json()
+
+	assert (read["included_count"], read["included_done_count"]) == (3, 1), read
+	assert not read["included_done"], read
+
+	listed = {
+		item["ref"]: item for item in world.call("GET", "/v1/tasks?limit=50").json()["items"]
+	}
+
+	assert (
+		listed[launch["ref"]]["included_count"], listed[launch["ref"]]["included_done_count"]
+	) == (3, 1), listed[launch["ref"]]
+	assert (
+		listed[parts[1]["ref"]]["included_count"], listed[parts[1]["ref"]]["included_done_count"]
+	) == (0, 0), "an ordinary row reports something included"
+
+	world.call("DELETE", f"/v1/tasks/{parts[2]['ref']}")
+	world.call("POST", f"/v1/tasks/{parts[1]['ref']}/complete", json={})
+
+	read = world.call("GET", f"/v1/tasks/{launch['ref']}").json()
+
+	assert (read["included_count"], read["included_done_count"]) == (2, 2), read
+	assert read["included_done"], "all of what is left is done and nothing says so"
+
+	# **And once somebody completes the milestone the question has been answered**, so the mark
+	# goes, whatever its work says.
+	world.call("POST", f"/v1/tasks/{launch['ref']}/complete", json={})
+
+	read = world.call("GET", f"/v1/tasks/{launch['ref']}").json()
+
+	assert not read["included_done"], "a completed milestone goes on asking to be decided"
+
+
 def test_only_a_milestone_includes_and_only_work_is_included (world: World) -> None:
 	"""`SR#3395`, decision `SR#3391`: the relation's two rules, each refused by name.
 

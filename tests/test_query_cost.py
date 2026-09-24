@@ -85,6 +85,14 @@ import test_api_tasks
 #: present — it was already 5.4 seconds at 200.
 TASKS = 2_000
 
+#: Which of the fixture's rows is a milestone, including the two rows after it — `SR#3396`.
+#:
+#: **Three, because that row is on the agenda's page.** It is overdue, a root, holds nothing,
+#: and is nobody else's, where row 0 is assigned away by :data:`BLOCKED_IN`'s loop. The count
+#: of what a milestone includes is asked only when a page holds one, so a fixture without one
+#: would measure a page that never asks it.
+MILESTONE = 3
+
 #: One task in this many blocks another.
 #:
 #: **Not decoration.** ``readiness.unblocked`` is a correlated ``EXISTS`` over the link table
@@ -558,9 +566,14 @@ def _fill (engine: sqlalchemy.engine.Engine) -> None:
 		for index in range(0, len(rows) - 1, BLOCKED_IN):
 			rows[index]["assignee_id"] = held_by.id
 
+		# **And a milestone on the agenda's page, including two pieces of work** (`SR#3396`), for
+		# the blockers' reason above: its count is asked only when a page holds one.
+		rows[MILESTONE]["type_id"] = _kind(session, setup, "milestone").id
+
 		session.execute(sqlalchemy.insert(subroutine.db.models.work.Task), rows)
 		session.execute(
-			sqlalchemy.insert(subroutine.db.models.work.Link), list(_links(session, setup, rows))
+			sqlalchemy.insert(subroutine.db.models.work.Link),
+			[*_links(session, setup, rows), *_included(session, setup, rows)],
 		)
 		session.execute(
 			sqlalchemy.insert(subroutine.db.models.activity.Comment),
@@ -684,6 +697,46 @@ def _prose (number: int) -> str:
 	return " ".join(
 		VOCABULARY[(number + position) % len(VOCABULARY)] for position in range(PROSE_WORDS)
 	)
+
+
+def _kind (
+	session: sqlalchemy.orm.Session, setup: subroutine.domain.bootstrap.Bootstrap, key: str
+) -> subroutine.db.models.vocabulary.ItemType:
+	"""Return one of the workspace's seeded item types, by key."""
+
+	return session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.ItemType).where(
+			subroutine.db.models.vocabulary.ItemType.workspace_id == setup.workspace.id,
+			subroutine.db.models.vocabulary.ItemType.key == key,
+		)
+	).one()
+
+
+def _included (
+	session: sqlalchemy.orm.Session,
+	setup: subroutine.domain.bootstrap.Bootstrap,
+	rows: typing.Sequence[dict[str, typing.Any]],
+) -> typing.Iterator[dict[str, typing.Any]]:
+	"""Return the ``includes`` edges from the :data:`MILESTONE` row to the two rows after it."""
+
+	kind = session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.LinkType).where(
+			subroutine.db.models.vocabulary.LinkType.workspace_id == setup.workspace.id,
+			subroutine.db.models.vocabulary.LinkType.key == "includes",
+		)
+	).one()
+
+	for offset in (1, 2):
+		yield {
+			"id": uuid.uuid4(),
+			"workspace_id": setup.workspace.id,
+			"source_type": "task",
+			"source_id": rows[MILESTONE]["id"],
+			"target_type": "task",
+			"target_id": rows[MILESTONE + offset]["id"],
+			"link_type_id": kind.id,
+			"created_by": setup.user.id,
+		}
 
 
 def _links (
@@ -1079,13 +1132,78 @@ def test_every_published_ordering_costs_about_what_an_unordered_page_costs (
 #: A milestone is never under *Next* (decision `SR#3391`), so one with no date has no section and
 #: is counted for `#649`'s reason like the six before it - one statement whatever the page.
 #:
-#: **Thirty-eight since `SR#3395`**, one more for the render: whether each milestone on the page
-#: has all it includes done, a fourth scan of `blocked_among`'s shape. One statement for the
-#: page, and none on an empty one.
+#: **Thirty-eight since `SR#3395`**, one more for the render: how much of what each milestone on
+#: the page includes is done. **Since `SR#3396` it is asked only of a page that holds a
+#: milestone**, so this fixture carries one (:data:`MILESTONE`) and the test asserts it is on
+#: the page; a page of ordinary work asks thirty-seven.
 #:
 #: **This is the guard the ratio was a proxy for**, and unlike the ratio it is a fact about the
 #: code rather than about the machine it ran on.
 AGENDA_STATEMENTS = 38
+
+
+def test_a_page_with_no_milestone_asks_nothing_about_milestones (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3396`, and `SR#2210`'s objection answered: the count is asked only where it is drawn.
+
+	A scan run on every page to decorate the rare row is almost entirely waste, and on the
+	instance this was built on there were no milestones at all. **A milestone is known by its
+	type**, which a page has already loaded, so a page of ordinary work asks what it asked before
+	milestones existed, and a page holding one asks exactly one statement more.
+	"""
+
+	world = test_api_tasks._world(session)
+	ordinary = [
+		world.call("POST", "/v1/tasks", json={"title": f"Work {number}"}).json()
+		for number in range(3)
+	]
+	launch = world.call(
+		"POST", "/v1/tasks", json={"title": "Launch", "type": "milestone"}
+	).json()
+	task = subroutine.db.models.work.Task
+
+	def asked (made: list[dict[str, typing.Any]]) -> int:
+		"""Return how many statements rendering these rows as one page sends."""
+
+		rows = list(
+			session.scalars(
+				sqlalchemy.select(task).where(task.id.in_([uuid.UUID(one["id"]) for one in made]))
+			)
+		)
+		statements: list[str] = []
+
+		def noted (
+			conn: typing.Any,
+			cursor: typing.Any,
+			statement: str,
+			parameters: typing.Any,
+			context: typing.Any,
+			executemany: bool,
+		) -> None:
+			"""Note one statement the page sent."""
+
+			statements.append(statement)
+
+		bind = session.connection()
+		sqlalchemy.event.listen(bind, "before_cursor_execute", noted)
+
+		try:
+			subroutine.views.Vocabulary.for_tasks(session, rows)
+		finally:
+			sqlalchemy.event.remove(bind, "before_cursor_execute", noted)
+
+		assert statements, "nothing was asked, so this is checking nothing"
+
+		return len(statements)
+
+	plain = asked(ordinary)
+	holding = asked([*ordinary, launch])
+
+	assert holding == plain + 1, (
+		f"a page of ordinary work asked {plain} statements and the same page with a milestone on "
+		f"it asked {holding}: the count of what a milestone includes should be the one difference"
+	)
 
 
 #: How many statements one page of the journal asks, whatever its size — `SR#2728`.
@@ -1461,6 +1579,14 @@ def test_a_composite_view_asks_a_bounded_number_of_questions (
 	)
 
 	shown = sum(len(getattr(built, bucket)) for bucket in subroutine.domain.agenda.BUCKETS)
+
+	# **And a milestone is on it** (`SR#3396`), or the one question asked only of a page holding
+	# one goes uncounted, and the allowance below bounds a page that never asks it.
+	assert any(
+		row.type_category == subroutine.domain.readiness.TARGET
+		for bucket in subroutine.domain.agenda.BUCKETS
+		for row in getattr(built, bucket)
+	), "the fixture's milestone is not on the agenda's page"
 
 	# **The rows are asserted too, and that is what stops this passing by measuring nothing.**
 	# A build that returned an empty agenda would issue few statements and sail through — the

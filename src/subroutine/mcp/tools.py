@@ -2769,9 +2769,14 @@ def _line (
 			cells.append(subroutine.views.SUB_TASKS_DONE_MARK)
 
 		# **And its counterpart for a milestone** (`#3395`): everything it includes is done, and
-		# whether it has been reached is a person's decision rather than this listing's.
+		# whether it has been reached is a person's decision rather than this listing's. Before
+		# then, how far it has got (`#3396`), in the terminal's words.
 		if item.included_done:
 			cells.append(subroutine.views.INCLUDED_DONE_MARK)
+		elif item.included_count:
+			cells.append(
+				subroutine.views.included_progress(item.included_done_count, item.included_count)
+			)
 
 		# **And what is holding it up, on the one section that resolves it** (`#1287`). The
 		# mark above says *that*; this says *what*, and only the agenda's `blocked_by_others`
@@ -3303,7 +3308,9 @@ def _shown (
 				and link.other.deleted_at is None
 			]
 			finished = sum(1 for link in included if link.other.is_complete)
-			rollup = f"{finished} of {len(included)} included done" if included else ""
+			rollup = (
+				subroutine.views.included_progress(finished, len(included)) if included else ""
+			)
 
 		parts.append("")
 

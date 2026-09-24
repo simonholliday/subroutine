@@ -2836,6 +2836,20 @@ def test_a_row_says_when_all_a_milestone_includes_is_done (tmp_path: pathlib.Pat
 
 	assert "Included done" not in plain, plain
 
+	# **Until then, how far it has got** (`SR#3396`), and the count gives way to the mark.
+	counting = _rendered(tmp_path, {"Row": {
+		"item": {**item, "included_count": 2, "included_done_count": 1}, "workspace": "projects",
+	}})["Row"]
+
+	assert "1 of 2 included done" in counting, counting
+
+	finished = _rendered(tmp_path, {"Row": {
+		"item": {**item, "included_done": True, "included_count": 2, "included_done_count": 2},
+		"workspace": "projects",
+	}})["Row"]
+
+	assert "Included done" in finished and "of 2 included done" not in finished, finished
+
 
 def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	tmp_path: pathlib.Path,

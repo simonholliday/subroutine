@@ -276,6 +276,8 @@ class LinkEnd(pydantic.BaseModel):
 	blocking: bool = False
 	sub_tasks_done: bool = False
 	included_done: bool = False
+	included_count: int = 0
+	included_done_count: int = 0
 
 	#: How many documents are filed under this end — `#2208`. Here because `marks` reads it and
 	#: an end renders through `marks`, which is what `test_a_links_far_end_carries_every_field`
@@ -766,9 +768,19 @@ class Task(pydantic.BaseModel):
 	#: milestone says so and a person decides. The word is the link's own, which Simon chose on
 	#: 2026-09-24 as ``sub_tasks_done`` takes its section's.
 	#:
-	#: Same query shape as `blocked`: one `EXISTS` scan for the page, never one per row.
-	#: Defaulted for `#345`'s reason, and `False` honestly means "nothing says so".
+	#: Derived from the two counts below, on a milestone nobody has completed. Defaulted for
+	#: `#345`'s reason, and `False` honestly means "nothing says so".
 	included_done: bool = False
+
+	#: How many pieces of work this milestone includes, and how many of those are finished —
+	#: `#3396`, so a row reads *2 of 5 included done* and a roadmap can be read down a listing
+	#: rather than one milestone at a time.
+	#:
+	#: **Derived on every read, never stored** (Simon asked, 2026-09-24): one grouped count over
+	#: the page's milestones and their ``includes`` links, and none at all on a page with no
+	#: milestone. Zero on every other row. Defaulted for `#345`'s reason.
+	included_count: int = 0
+	included_done_count: int = 0
 
 	#: What is actually holding this up — `#1287`, Simon's decision of 2026-08-27, and **the
 	#: argued exception to the rule stated two fields above rather than a hole in it.**
@@ -3166,6 +3178,17 @@ SUB_TASKS_DONE_MARK = "sub-tasks done"
 INCLUDED_DONE_MARK = "included done"
 
 
+def included_progress (done: int, included: int) -> str:
+	"""Say how much of what a milestone includes is done, in the words every surface uses.
+
+	**One sentence for a row and for a milestone's own page** (`#3395`, `#3396`), so the terminal
+	and an agent cannot come to word one count two ways. The browser carries the only other copy,
+	in `grouping.js` and `marks.js`.
+	"""
+
+	return f"{done} of {included} included done"
+
+
 #: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
 #:
 #: **Here for `BLOCKED_MARK`'s reason**, and it earned that placement immediately: `#921` made a
@@ -3501,11 +3524,20 @@ class Vocabulary:
 		self.finished_underneath = subroutine.domain.readiness.finished_underneath_among(
 			session, wanted, now=now
 		)
-		# **A fourth, for a milestone** (`#3395`): the same question put of what it includes
-		# rather than of what is filed under it. One statement for the page whatever is on it,
-		# which `AGENDA_STATEMENTS` counts.
-		self.included_done = subroutine.domain.milestones.included_done_among(
-			session, wanted, now=now
+		# **How much of what each milestone includes is done** (`#3395`, `#3396`), one grouped
+		# count that gives a row both its *2 of 5* and its *Included done*.
+		#
+		# **Asked only when the page holds a milestone**, which is `#2210`'s objection answered. A
+		# scan run on every page to decorate the rare row is almost entirely waste, and unlike a
+		# parent a milestone is known by its type, which this page has already loaded. So a page
+		# with no milestone asks nothing, and every caller that hands over tasks hands over their
+		# types from the same rows.
+		milestones_here = any(
+			kind.get("category") == subroutine.domain.readiness.TARGET
+			for kind in self.types.values()
+		)
+		self.progress = (
+			subroutine.domain.milestones.progress_among(session, wanted) if milestones_here else {}
 		)
 
 		# **How many documents each of these holds** — `#2173`. One grouped scan for the page,
@@ -3811,6 +3843,14 @@ def revised_in_words (revisions: Revisions, *, when: str) -> str:
 	return f"revised {times}{who} on {when}"
 
 
+def _included (
+	vocabulary: Vocabulary, row: subroutine.db.models.work.Task
+) -> subroutine.domain.milestones.Progress:
+	"""Return how much of what this row includes is done, which is nothing but on a milestone."""
+
+	return vocabulary.progress.get(row.id, subroutine.domain.milestones.NOTHING)
+
+
 def task (
 	row: subroutine.db.models.work.Task,
 	vocabulary: Vocabulary,
@@ -3881,7 +3921,12 @@ def task (
 		blocked=row.id in vocabulary.blocked,
 		blocking=row.id in vocabulary.blocking,
 		sub_tasks_done=row.id in vocabulary.finished_underneath,
-		included_done=row.id in vocabulary.included_done,
+		# **A milestone somebody has completed has had the question answered** (`#3395`), so
+		# the mark stays off it however its work stands. A milestone is never an occasion, so its
+		# completion is the whole of being over.
+		included_done=_included(vocabulary, row).all_done and row.completed_at is None,
+		included_count=_included(vocabulary, row).included,
+		included_done_count=_included(vocabulary, row).done,
 		blocked_by=blocked_by,
 		blocks_others=blocks_others,
 		revisions=revisions,

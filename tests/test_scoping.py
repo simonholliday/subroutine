@@ -145,12 +145,12 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"counting only the blockers a caller can see would report an item as startable when it is "
 	"not. The alternative leaks less and lies, and what this discloses is bounded — that "
 	"something unseen blocks an item, never what",
-	"domain/milestones.py": "builds *predicates*, as domain/readiness.py does, and answers one "
-	"row set the same way: `included_done_among` narrows a page whose ids the caller already "
-	"fetched through the helper, so it can only return a subset of what it was given. Its other "
-	"two selects are one task's type by id and a count of one task's link rows, which carry no "
-	"content of their own. What a milestone includes is read without narrowing by visibility, "
-	"for readiness's reason: whether work is finished is a fact about the work",
+	"domain/milestones.py": "answers one question about a page, as domain/readiness.py's "
+	"`blocked_among` does: `progress_among` counts what each of a page's rows includes, for ids "
+	"the caller already fetched through the helper, so it reports only on rows it was given. Its "
+	"other two selects are one task's type by id and a count of one task's link rows, which "
+	"carry no content of their own. What a milestone includes is counted without narrowing by "
+	"visibility, for readiness's reason: whether work is finished is a fact about the work",
 	"domain/links.py": "resolves each end through scoping.readable_tasks/_documents and "
 	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
 	"content of their own",

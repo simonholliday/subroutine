@@ -1155,21 +1155,29 @@ def _sub_tasks_cell (item: Item) -> str:
 
 #: Marks a milestone whose included work is all done — `#3395`, and a column of its own for
 #: :data:`SUB_TASKS_DONE_MARK`'s reason: one column would print whichever won. Dropped when no
-#: row on the page carries it, so a list with no milestones never shows it.
+#: row on the page carries it, so a list with no milestones never shows it. **Until then the
+#: same column says how far it has got** (`#3396`), *2 of 5 included done*.
 INCLUDED_DONE_MARK = subroutine.views.INCLUDED_DONE_MARK
 
 
 def _included_cell (item: Item) -> str:
-	"""Return the marker for a milestone whose included work is all done, or nothing — `#3395`.
+	"""Return how much of a milestone is done, or that all of it is, or nothing — `#3395`.
 
 	:func:`_sub_tasks_cell`'s question, put for a milestone (decision `#3391`): nothing completes
-	one automatically, so when all of it is done the row says so and a person decides.
+	one automatically, so when all of it is done the row says so and a person decides. **Before
+	then it says how far it has got** (`#3396`), so a roadmap reads down a listing.
 	"""
 
 	if not isinstance(item, subroutine.views.Task):
 		return ""
 
-	return INCLUDED_DONE_MARK if item.included_done else ""
+	if item.included_done:
+		return INCLUDED_DONE_MARK
+
+	if item.included_count:
+		return subroutine.views.included_progress(item.included_done_count, item.included_count)
+
+	return ""
 
 
 def _blocked_cell (item: Item) -> str:
@@ -13057,7 +13065,9 @@ def _render_item (
 				and link.other.deleted_at is None
 			]
 			done = sum(1 for link in included if link.other.is_complete)
-			rollup = f"  ({done} of {len(included)} included done)" if included else ""
+			rollup = (
+				f"  ({subroutine.views.included_progress(done, len(included))})" if included else ""
+			)
 
 		console.print("")
 		console.print(rich.text.Text(f"Links{rollup}", style=HEADING))
@@ -13896,6 +13906,8 @@ def _as_json (
 		# to do about it.
 		"sub_tasks_done": task.sub_tasks_done,
 		"included_done": task.included_done,
+		"included_count": task.included_count,
+		"included_done_count": task.included_done_count,
 		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
 		# own is work whose context is one field away, and the number is what a script types
 		# back.

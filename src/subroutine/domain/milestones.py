@@ -1,4 +1,4 @@
-"""What counts toward a milestone, and when all of it is done — decision `#3391`.
+"""What counts toward a milestone, and how much of it is done — decision `#3391`.
 
 A milestone is an item whose type is in the ``target`` category, which
 :data:`subroutine.domain.readiness.TARGET` names because readiness is what keeps one from ever
@@ -16,7 +16,7 @@ imports neither.** ``documents`` reads ``tasks`` at import time and ``links`` im
 breaks whichever of the two is imported first.
 """
 
-import datetime
+import dataclasses
 import typing
 import uuid
 
@@ -39,6 +39,32 @@ import subroutine.errors
 COUNTING = "counting"
 
 
+@dataclasses.dataclass(frozen=True)
+class Progress:
+	"""How much of what one milestone includes is finished — `#3396`."""
+
+	#: How many pieces of work it includes that are neither withdrawn nor in the trash.
+	included: int
+
+	#: How many of those are finished.
+	done: int
+
+	@property
+	def all_done (self) -> bool:
+		"""Report whether it includes something and every piece of it is finished.
+
+		**Including nothing is not being done** — `#3395`'s placeholder a year out. Nothing in it
+		is unfinished, and asking a person whether it has been reached the day it was made is
+		noise.
+		"""
+
+		return 0 < self.included == self.done
+
+
+#: What a row that includes nothing reports — every row but a milestone's.
+NOTHING = Progress(included=0, done=0)
+
+
 def is_one (session: sqlalchemy.orm.Session, task_id: uuid.UUID) -> bool:
 	"""Report whether this task is a milestone, which its type's category decides."""
 
@@ -54,98 +80,69 @@ def is_one (session: sqlalchemy.orm.Session, task_id: uuid.UUID) -> bool:
 	return category == subroutine.domain.readiness.TARGET
 
 
-def _includes (
-	model: type[typing.Any], *, now: datetime.datetime, unfinished: bool
-) -> sqlalchemy.ColumnElement[bool]:
-	"""Return the predicate matching an item that includes live work, or unfinished live work.
-
-	**Live is :func:`subroutine.domain.readiness._live_blocks_edge`'s rule, read for this
-	relation**: the link is not withdrawn, and the work it reaches is neither in the trash nor
-	in a project that is. A piece of work somebody deleted is out of a milestone's count on every
-	surface (`#1403`'s rule for blockers), so it must be out of this question too.
-	"""
-
-	link = sqlalchemy.orm.aliased(subroutine.db.models.work.Link)
-	kind = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.LinkType)
-	part = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
-	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
-
-	narrowed = (
-		[sqlalchemy.not_(subroutine.domain.readiness.over(part, now=now))] if unfinished else []
-	)
-
-	return sqlalchemy.exists(
-		sqlalchemy.select(link.id)
-		.join(kind, kind.id == link.link_type_id)
-		.join(part, sqlalchemy.and_(part.id == link.target_id, link.target_type == "task"))
-		.join(filed_in, filed_in.id == part.project_id)
-		.where(
-			link.source_type == "task",
-			link.source_id == model.id,
-			link.deleted_at.is_(None),
-			kind.category == COUNTING,
-			part.deleted_at.is_(None),
-			filed_in.deleted_at.is_(None),
-			*narrowed,
-		)
-		.correlate(model)
-	)
-
-
-def included_done (
-	model: type[typing.Any], *, now: datetime.datetime
-) -> sqlalchemy.ColumnElement[bool]:
-	"""Return the predicate matching an unfinished milestone all of whose work is over — `#3395`.
-
-	**`#1615`'s question, put for a milestone.** Progress is derived and completion stays an
-	act (decision `#3391`, restating `#84`): a milestone never completes itself, because that is
-	a write nobody made, it credits whoever closed the last piece with a decision they did not
-	take, and it does not reverse when something is added later. So when everything it includes
-	is done, what changes is that the milestone says so, and a person decides.
-
-	**Four clauses and each is load-bearing**, as :func:`subroutine.domain.readiness.
-	every_sub_task_is_done`'s three are. It must be a milestone, because only a milestone's
-	count reads ``includes``; it must not be over, because once somebody has decided there is no
-	question left; it must include something, or an empty placeholder a year out would be
-	marked the day it was made; and nothing it includes may be unfinished.
-	"""
-
-	return sqlalchemy.and_(
-		subroutine.domain.readiness.is_target(model),
-		sqlalchemy.not_(subroutine.domain.readiness.over(model, now=now)),
-		_includes(model, now=now, unfinished=False),
-		sqlalchemy.not_(_includes(model, now=now, unfinished=True)),
-	)
-
-
-def included_done_among (
+def progress_among (
 	session: sqlalchemy.orm.Session,
 	identifiers: typing.Iterable[uuid.UUID],
-	*,
-	now: datetime.datetime,
-) -> set[uuid.UUID]:
-	"""Return which of these tasks are milestones whose included work is all done — `#3395`.
+) -> dict[uuid.UUID, Progress]:
+	"""Return how much of what each of these includes is done, in one grouped statement — `#3396`.
 
-	:func:`subroutine.domain.readiness.finished_underneath_among`'s shape, for its reason: one
-	``EXISTS`` scan for a whole page rather than a question per row, which is `#39`'s N+1.
+	**One count gives a row both of the things it says**: *2 of 5 included done* while work is
+	open, and *Included done* once all of it is (`#3395`), which is :attr:`Progress.all_done`
+	on a milestone nobody has completed. A row with no entry includes nothing, and only a
+	milestone can include anything, because :mod:`subroutine.domain.links` refuses the link from
+	anything else.
 
-	**Not narrowed by visibility**, exactly as that one is not. Whether the work a milestone
-	includes is finished is a fact about that work rather than about the reader, and counting
-	only what somebody can see would say the question is ready to be answered when it is not.
+	**Live is :func:`subroutine.domain.readiness._live_blocks_edge`'s rule, read for this
+	relation**: the link is not withdrawn, and the work it reaches is neither in the trash nor in
+	a project that is. A piece of work somebody deleted is out of a milestone's count on every
+	surface, as a deleted blocker is (`#1403`).
+
+	**Finished means completed, the column ``show`` reads**, so the count on a row and the count
+	on the milestone's own page cannot disagree about one milestone. That is narrower than
+	:func:`subroutine.domain.readiness.over`, which also calls an occasion finished once its day
+	has gone by: an event somebody counted toward a milestone stays unfinished here until
+	somebody says otherwise, which is what ``show`` has always said of it.
+
+	**Not narrowed by visibility**, as :func:`subroutine.domain.readiness.
+	finished_underneath_among` is not. Whether the work a milestone includes is finished is a
+	fact about that work rather than about the reader, and counting only what somebody can see
+	would say the question is ready to be answered when it is not.
 	"""
 
 	wanted = set(identifiers)
 
 	if not wanted:
-		return set()
+		return {}
 
-	model = subroutine.db.models.work.Task
+	link = subroutine.db.models.work.Link
+	kind = subroutine.db.models.vocabulary.LinkType
+	part = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
 
-	return set(
-		session.scalars(
-			sqlalchemy.select(model.id).where(model.id.in_(wanted), included_done(model, now=now))
+	counted = session.execute(
+		sqlalchemy.select(
+			link.source_id,
+			sqlalchemy.func.count(link.id),
+			# ``COUNT`` of a column counts the rows where it is set.
+			sqlalchemy.func.count(part.completed_at),
 		)
-	)
+		.join(kind, kind.id == link.link_type_id)
+		.join(part, sqlalchemy.and_(part.id == link.target_id, link.target_type == "task"))
+		.join(filed_in, filed_in.id == part.project_id)
+		.where(
+			link.source_type == "task",
+			link.source_id.in_(wanted),
+			link.deleted_at.is_(None),
+			kind.category == COUNTING,
+			part.deleted_at.is_(None),
+			filed_in.deleted_at.is_(None),
+		)
+		.group_by(link.source_id)
+	).tuples()
+
+	return {
+		source: Progress(included=included, done=done) for source, included, done in counted
+	}
 
 
 def refuse_to_stop_including (

@@ -186,8 +186,9 @@ export const TASK_FIELDS = [
 	/* Where a span ends (`#2888`), which `when` writes after the start. */
 	"ends_at",
 	"blocked", "sub_tasks_done",
-	/* A milestone whose included work is all done (`#3395`), which `marks` draws. */
-	"included_done",
+	/* A milestone whose included work is all done (`#3395`), and how far it has got until
+	   then (`#3396`), which `marks` draws. */
+	"included_done", "included_count", "included_done_count",
 	"project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest

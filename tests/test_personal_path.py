@@ -6412,6 +6412,11 @@ def test_show_counts_what_a_milestone_includes (
 
 	assert "Links  (1 of 2 included done)" in run("show", "1").output
 
+	# **And the row says how far it has got** (`SR#3396`), so a roadmap reads down a listing.
+	row = next(line for line in run("list").output.splitlines() if "The launch" in line)
+
+	assert "1 of 2 included done" in row, row
+
 	run("done", "3")
 
 	assert "Links  (2 of 2 included done)" in run("show", "1").output
