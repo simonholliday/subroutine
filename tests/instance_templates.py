@@ -29,7 +29,8 @@ property the suite is there to check.
   one :func:`functools.cache` in the tree derives from mounted routes.
 - **A shared ``instance.id`` cannot reach the tests that need two.**
   ``tests/test_cli_connections.py`` builds a second installation deliberately, and it does so in
-  a **subprocess** with its own environment — never through the fixture this module serves.
+  a **subprocess** with its own environment — never through the fixture this module serves. It
+  copies that one too (`SR#2065`), and gives every copy an ``instance.id`` of its own.
 
 **The whole falsification is that 479 call sites already assert what a fresh instance looks
 like.** ``tests/test_instances_template.py`` is the guard for the substitution itself: for every

@@ -47,6 +47,8 @@ import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
+import subroutine.db.models.system
+import subroutine.db.types
 import subroutine.domain.profiles
 import subroutine.domain.tokens
 import subroutine.errors
@@ -102,8 +104,8 @@ def run (
 	that safe.
 
 	**The second installation is untouched by it**, and that is what keeps the two distinct:
-	:func:`served` runs ``init`` in a *subprocess* with an environment of its own, so it never
-	reaches this fixture and mints an ``instance.id`` nothing else shares.
+	:func:`served` copies one built by ``init`` in a *subprocess* with an environment of its own,
+	so it never reaches this fixture, and gives each copy an ``instance.id`` nothing else shares.
 	"""
 
 	runner = typer.testing.CliRunner()
@@ -178,17 +180,47 @@ class Remote(typing.NamedTuple):
 	home: pathlib.Path
 
 
+class _Template(typing.NamedTuple):
+	"""A second installation built once per worker, and the token issued on it."""
+
+	root: pathlib.Path
+	token: str
+
+
+#: The second installation each worker has built, by the temporary root it was built under
+#: (`SR#2065`). Keyed rather than one slot, so a copy can never come from another run's tree.
+_TEMPLATES: dict[pathlib.Path, _Template] = {}
+
+
 @contextlib.contextmanager
-def served (tmp_path: pathlib.Path) -> typing.Iterator[Remote]:
+def served (tmp_path: pathlib.Path, *, name: str = "there") -> typing.Iterator[Remote]:
 	"""Set up a second installation, put a task in it, and serve it.
 
 	A real subprocess and a real socket. The in-process ASGI transport is enough for
 	``tests/test_transport_equivalence.py``, which is comparing two clients; it is not enough
 	here, where the questions are about ``subroutine serve`` and about what happens when a
 	server is not there.
+
+	**Copied rather than built, then given an identity of its own** (`SR#2065`). The installation
+	is built once per worker by :func:`_second_installation`, exactly as this used to build it for
+	every test, and copied in here: three interpreter starts saved per test, about fifty times a
+	run. What a fresh ``init`` gave each test for free was an ``instance.id`` nothing else shares,
+	so :func:`_its_own_instance` gives the copy one. ``name`` lets one test serve two.
 	"""
 
-	root = tmp_path / "there"
+	template = _second_installation(tmp_path.parent)
+	root = tmp_path / name
+
+	shutil.copytree(template.root, root)
+	_its_own_instance(root)
+
+	with serving(_environment_at(root)) as url:
+		yield Remote(url=url, token=template.token, home=root)
+
+
+def _environment_at (root: pathlib.Path) -> dict[str, str]:
+	"""Return the environment an installation whose files are under ``root`` runs in."""
+
 	environment = {
 		**os.environ,
 		"XDG_CONFIG_HOME": str(root / "config"),
@@ -201,8 +233,26 @@ def served (tmp_path: pathlib.Path) -> typing.Iterator[Remote]:
 		if name.startswith(("SUBROUTINE_TOKEN", "SUBROUTINE_WORKSPACE", "SUBROUTINE_CONNECTION")):
 			del environment[name]
 
+	return environment
+
+
+def _second_installation (under: pathlib.Path) -> _Template:
+	"""Return the second installation this worker copies, building it the first time (`SR#2065`).
+
+	**Built as it always was**, by ``init``, ``add`` and ``token create`` in a subprocess with an
+	environment of its own, so what is copied is a real installation rather than one assembled
+	here. Only how often changed: every test that served one paid three interpreter starts for
+	it, which was most of this file's setup time.
+	"""
+
+	if under in _TEMPLATES:
+		return _TEMPLATES[under]
+
+	root = under / "second-installation"
+	environment = _environment_at(root)
+
 	def there (*arguments: str) -> str:
-		"""Run the CLI against the other installation."""
+		"""Run the CLI against the installation being built."""
 
 		done = subprocess.run(
 			[sys.executable, "-m", "subroutine", *arguments],
@@ -224,8 +274,91 @@ def served (tmp_path: pathlib.Path) -> typing.Iterator[Remote]:
 		word for word in issued.split() if word.startswith("sr_")
 	)
 
-	with serving(environment) as url:
-		yield Remote(url=url, token=token, home=root)
+	_TEMPLATES[under] = _Template(root=root, token=token)
+
+	return _TEMPLATES[under]
+
+
+def _its_own_instance (root: pathlib.Path) -> None:
+	"""Give a copied installation an ``instance.id`` nothing else shares (`SR#2065`).
+
+	**The id is what makes it a second instance.** Every copy of one template carries the
+	template's, so two served in one test would trip ``fanout.refuse_duplicate_instances`` - or,
+	worse, not trip it and be merged as one - which is what the tests here keep apart. Rewritten
+	through the model, so the new value is stored as the program stores one.
+	"""
+
+	database = root / "data" / "subroutine" / "subroutine.db"
+
+	assert database.is_file(), f"the copied installation has no database at {database}"
+
+	engine = sqlalchemy.create_engine(f"sqlite:///{database}")
+
+	try:
+		with engine.begin() as connection:
+			changed = connection.execute(
+				sqlalchemy.update(subroutine.db.models.system.Instance).values(
+					id=subroutine.db.types.new_uuid()
+				)
+			).rowcount
+
+	finally:
+		engine.dispose()
+
+	assert changed == 1, f"rewrote {changed} instance rows in {database}, where there is one"
+
+
+def _stored_instance (root: pathlib.Path) -> str:
+	"""Return the ``instance.id`` an installation's own database holds, as the API renders it."""
+
+	engine = sqlalchemy.create_engine(f"sqlite:///{root / 'data' / 'subroutine' / 'subroutine.db'}")
+
+	try:
+		with engine.connect() as connection:
+			stored = connection.execute(
+				sqlalchemy.select(subroutine.db.models.system.Instance.id)
+			).scalar_one()
+
+	finally:
+		engine.dispose()
+
+	return str(stored)
+
+
+def _served_instance (remote: Remote) -> str:
+	"""Return the instance a served installation says it is."""
+
+	said = httpx.get(
+		f"{remote.url}/v1/meta",
+		headers={"Authorization": f"Bearer {remote.token}"},
+		timeout=STARTUP_TIMEOUT_SECONDS,
+	)
+	said.raise_for_status()
+
+	return str(said.json()["instance"]["id"])
+
+
+def test_each_second_installation_is_an_instance_of_its_own (tmp_path: pathlib.Path) -> None:
+	"""`SR#2065`: copies of one built installation are still separate instances.
+
+	**The property the copy has to keep**, and the one a fresh ``init`` gave each test for free.
+	Two copies served in one test and the template they came from must be three instances, or
+	every test here about two connections is quietly asking about one. Each copy is asked over
+	the API, which is where a client learns what it is talking to.
+	"""
+
+	with served(tmp_path, name="one") as one, served(tmp_path, name="other") as other:
+		served_as = [_served_instance(one), _served_instance(other)]
+
+	template = _stored_instance(_TEMPLATES[tmp_path.parent].root)
+
+	assert served_as == [_stored_instance(one.home), _stored_instance(other.home)], (
+		"a copy serves an instance other than the one its own database holds"
+	)
+	assert len({*served_as, template}) == 3, (
+		f"two copies and their template name {len({*served_as, template})} instances: "
+		f"{served_as} from {template}"
+	)
 
 
 @contextlib.contextmanager
