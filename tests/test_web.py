@@ -926,7 +926,7 @@ def _ran (tmp_path: pathlib.Path, body: str) -> typing.Any:
 
 
 #: Every icon the app serves, and the size its name claims. `scripts/marks.py` writes them
-#: all from `web/vendor/kanban.svg`; this is what they have to be afterwards (`SR#2864`).
+#: all from `web/vendor/waypoints.svg`; this is what they have to be afterwards (`SR#2864`).
 _MARKS = {
 	"favicon.svg": None, "favicon-inverted.svg": None,
 	"favicon-on-black.svg": None, "favicon-on-white.svg": None,
@@ -951,12 +951,19 @@ def test_every_icon_is_the_vendored_mark_at_the_size_its_name_claims () -> None:
 
 	**This does not re-render anything.** A test that regenerated its subject would pass
 	whatever the renderer did that day, and would need a browser to say anything at all.
+
+	**Every element, whole, and not only its paths** (`SR#3571`). This read path data alone,
+	which was all of `kanban`; `waypoints` is four circles joined by three paths, and a set drawn
+	from its paths alone - the links with no points to join - passed it.
 	"""
 
-	drawn = (subroutine.web.vendored.DIRECTORY / "kanban.svg").read_text(encoding="utf-8")
-	shapes = re.findall(r'<path\s+d="([^"]+)"', drawn)
+	drawn = (subroutine.web.vendored.DIRECTORY / "waypoints.svg").read_text(encoding="utf-8")
+	shapes = [
+		re.sub(r"\s+", " ", one)
+		for one in re.findall(r"<(?:path|circle|ellipse|line|polyline|polygon|rect)\b[^>]*?/>", drawn)
+	]
 
-	assert len(shapes) == 3, f"the vendored mark is not the drawing this was written for: {drawn}"
+	assert len(shapes) == 7, f"the vendored mark is not the drawing this was written for: {drawn}"
 
 	for name, size in _MARKS.items():
 		body, kind = subroutine.api.web.FILES[name]

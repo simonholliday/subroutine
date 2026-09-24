@@ -1,9 +1,10 @@
 # Subroutine's mark, and every file drawn from it
 
-**The mark is Lucide's `kanban`**, which Simon chose for Subroutine on 2026-09-17 among the marks
-he picked for each product (`#2861` in the site's project, `#2864` here). It lives in exactly one
-place — `src/subroutine/web/vendor/kanban.svg`, vendored with its ISC licence and recorded in
-`web/vendored.py` like everything else here we did not write.
+**The mark is Lucide's `waypoints`**, which Simon chose on 2026-09-24 in place of `kanban`
+(`#3571`): *it better represents connections and less the conventional, traditional board
+approach.* It lives in exactly one place - `src/subroutine/web/vendor/waypoints.svg`, vendored
+with its ISC licence and recorded in `web/vendored.py` like everything else here we did not
+write.
 
 **Everything in this directory whose name begins `favicon`, `apple-touch-icon` or `icon-` is drawn
 from that file** by `scripts/marks.py`, with the Chromium the browser tests already use:
@@ -18,6 +19,11 @@ each SVG, and each raster's header declaring the size its name claims — rather
 them, because a test that regenerates its subject passes whatever the renderer does that day.
 
 ## What it replaced
+
+**`kanban` served from 2026-09-17 to 2026-09-24**, chosen among the marks Simon picked for each
+product (`#2861` in the site's project, `#2864` here). It was three bars, all paths, which is why
+`scripts/marks.py` read paths alone until `waypoints` - four circles and three links - needed
+every element.
 
 **Simon designed and exported the previous set on 2026-08-25** — a jagged S with the top-right
 point drawn as an AI sparkle — and it served until this one. On adopting the branding he said:
@@ -43,8 +49,8 @@ in the tree; the history has it.
 | `icon-192-on-black.png`, `icon-512-on-black.png`, `icon-512-on-white.png` | what the manifest names (`#1681`) |
 
 **Each raster is drawn at its own size** rather than scaled down from one large one, which is what
-keeps a 16px mark legible: a three-bar glyph at 16 has a bar a pixel and a third wide, and
-resampling a 512 loses it.
+keeps a 16px mark legible: at 16 a two-unit stroke is a pixel and a third wide, and resampling
+a 512 loses it.
 
 **A tile carries its own background** and the transparent files do not, so the tiled ones hold up
 on any tab bar while the plain ones need the surface's colour to be known.

@@ -127,11 +127,11 @@ CATALOGUE: tuple[Vendored, ...] = (
 		digest="sha256:6707cdf4f4068a63a2f66f0177dc1a7453fadec645a11cd147e4fe001b0e3d8f",
 	),
 	Vendored(
-		# **The app's mark** (`#2864`), and the one file here that is not code. Simon chose it for
-		# Subroutine on 2026-09-17 from the set the other products draw theirs from, and
-		# `scripts/marks.py` draws every icon this app serves from this file - so the shape is
-		# written down once and `assets/favicon.md` says what is made of it.
-		filename="kanban.svg",
+		# **The app's mark** (`#2864`), and the one file here that is not code. Simon chose
+		# `waypoints` on 2026-09-24 in place of `kanban` (`#3571`), and `scripts/marks.py` draws
+		# every icon this app serves from this file - so the shape is written down once and
+		# `assets/favicon.md` says what is made of it.
+		filename="waypoints.svg",
 		package="lucide-static",
 		version="1.47.0",
 		licence="ISC",
@@ -140,7 +140,7 @@ CATALOGUE: tuple[Vendored, ...] = (
 		# some of Lucide's are derived from (`#1940`). This is not one of those, and the licence
 		# travels whole anyway.
 		notice="lucide.LICENSE",
-		digest="sha256:0048f2a541eb657e0557146d3cf070c8e513901a2dc67e2fb9e07d429071a0f3",
+		digest="sha256:0665e8ec7cc61aff63efde8f8987ff58af6955a07f002ea14b70600af746323e",
 	),
 	Vendored(
 		# **The face headings are set in** (`#2865`), in three weights: this one, the 500 below it

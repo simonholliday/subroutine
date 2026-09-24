@@ -1,6 +1,6 @@
 """Draw every icon this app serves, from the one vendored mark — `#2864`.
 
-**The mark is `web/vendor/kanban.svg`** and everything else is derived from it: four SVGs, the
+**The mark is `web/vendor/waypoints.svg`** and everything else is derived from it: four SVGs, the
 rasters a tab bar and a home screen ask for, and the three `.ico` files. So the mark is defined
 in exactly one place, as `assets/favicon.md` has always claimed of its own set, and changing it
 is replacing that file and running this.
@@ -26,7 +26,11 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "src" / "subroutine" / "web" / "assets"
-MARK = ROOT / "src" / "subroutine" / "web" / "vendor" / "kanban.svg"
+MARK = ROOT / "src" / "subroutine" / "web" / "vendor" / "waypoints.svg"
+
+#: What a Lucide drawing is made of. The first version read paths alone, which was the whole
+#: of `kanban`, and `waypoints` is four circles joined by three paths (`#3571`).
+SHAPES = ("path", "circle", "ellipse", "line", "polyline", "polygon", "rect")
 
 #: What the mark is drawn in, on a tile and on nothing. Black and white only, as the set has
 #: always been: a favicon has no page to take a colour from (`#2340`, and the site's `#2861`).
@@ -39,25 +43,27 @@ WHITE = "#ffffff"
 ON_A_TILE = 0.78
 
 
-def _paths () -> list[str]:
-	"""Return the mark's path data, in order, from the vendored file.
+def _shapes () -> list[str]:
+	"""Return the mark's drawing, one element per entry and in order, from the vendored file.
 
 	Read rather than copied, so this script holds no drawing of its own — the point of the
-	vendored file is that it is the one place the shape lives.
+	vendored file is that it is the one place the shape lives. **Every kind of element, whole**
+	(`#3571`): read as paths alone, `waypoints` came out as its three links with no points for
+	them to join, and nothing that checked the paths could tell.
 	"""
 
-	found = re.findall(r'<path\s+d="([^"]+)"\s*/>', MARK.read_text(encoding="utf-8"))
+	found = re.findall(rf"<(?:{'|'.join(SHAPES)})\b[^>]*?/>", MARK.read_text(encoding="utf-8"))
 
 	if not found:
-		raise SystemExit(f"{MARK} holds no paths, so there is nothing to draw")
+		raise SystemExit(f"{MARK} holds nothing to draw")
 
-	return found
+	return [re.sub(r"\s+", " ", one) for one in found]
 
 
 def _drawn (ink: str, tile: str | None) -> str:
 	"""Return one SVG of the mark, in ``ink``, on ``tile`` or on nothing."""
 
-	strokes = "\n".join(f'\t\t<path d="{one}" />' for one in _paths())
+	strokes = "\n".join(f"\t\t{one}" for one in _shapes())
 	inset = round(24 * (1 - ON_A_TILE) / 2, 2)
 	scaled = (
 		f'\t<g transform="translate({inset} {inset}) scale({ON_A_TILE})">\n{strokes}\n\t</g>'

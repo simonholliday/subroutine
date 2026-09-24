@@ -1,7 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 	<g>
-		<path d="M5 3v14" />
-		<path d="M12 3v8" />
-		<path d="M19 3v18" />
+		<path d="m10.586 5.414-5.172 5.172" />
+		<path d="m18.586 13.414-5.172 5.172" />
+		<path d="M6 12h12" />
+		<circle cx="12" cy="20" r="2" />
+		<circle cx="12" cy="4" r="2" />
+		<circle cx="20" cy="12" r="2" />
+		<circle cx="4" cy="12" r="2" />
 	</g>
 </svg>

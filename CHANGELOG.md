@@ -99,6 +99,10 @@ upgrade involves.
   empty cell in a compact listing - no due date, no priority, a workspace with no timezone - is
   a hyphen.
 
+- **Subroutine's mark is Lucide's *waypoints***, in the browser's tab, on a home screen and
+  beside the name at the top of every page, where it was *kanban*: points joined up, rather
+  than a board.
+
 ### Fixed
 
 - **An instance says so when a request carries no token**, rather than telling you your token may
