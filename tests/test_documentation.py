@@ -3139,17 +3139,6 @@ def test_a_page_held_to_the_house_style_carries_no_em_dash () -> None:
 		)
 
 
-#: **Where the program draws an em dash as a value rather than as punctuation** (`#2819`). Each is
-#: an empty cell - no due date, no timezone, neither axis of a priority, no date - and all four wait
-#: on one decision: what an empty cell shows once the dash goes. Pinned per file rather than as a
-#: total, so a new dash in one of these files is refused rather than absorbed by the others, and
-#: each entry goes - and this register with them - when that is answered.
-EMPTY_CELL_GLYPHS = {
-	"cli/personal.py": 1,
-	"views.py": 3,
-}
-
-
 def _dashes_the_program_prints (
 	root: pathlib.Path = ROOT / "src" / "subroutine",
 ) -> tuple[list[str], collections.Counter[str], int]:
@@ -3241,10 +3230,12 @@ def test_what_the_program_prints_carries_no_em_dash () -> None:
 	assert not offenders, (
 		"the program prints an em dash, and the house dash is a spaced hyphen: " + ", ".join(offenders)
 	)
-	assert dict(glyphs) == EMPTY_CELL_GLYPHS, (
-		f"the em dashes drawn as an empty cell have changed: {dict(glyphs)} against "
-		f"{EMPTY_CELL_GLYPHS}. One added is a breach of the house style; one gone means the register "
-		f"above is stale and its entry should go"
+	# **An empty cell is a bare hyphen** (Simon, 2026-09-24): the columns around it already space
+	# it, so it lines up with every other cell in its column. The four that were an em dash waited
+	# on that answer in a register here, which went with them.
+	assert not glyphs, (
+		f"the program draws an em dash as a value in {dict(glyphs)}. An empty cell is a bare "
+		f"hyphen, which the columns around it space"
 	)
 
 

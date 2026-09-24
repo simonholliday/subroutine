@@ -1148,7 +1148,7 @@ class Task(pydantic.BaseModel):
 			subroutine.domain.refs.format_ref(self.ref),
 			f"[{self.status}]",
 			_priority_cell(self.importance, self.urgency),
-			"—" if self.due_at is None else _day_cell(self.due_at, self.timezone),
+			"-" if self.due_at is None else _day_cell(self.due_at, self.timezone),
 			"" if self.starts_at is None else f"→{_day_cell(self.starts_at, self.timezone)}",
 			subroutine.domain.text.truncated(self.title),
 			principal_named(
@@ -1923,7 +1923,7 @@ class Workspace(pydantic.BaseModel):
 
 		return (
 			self.slug,
-			self.timezone or "—",
+			self.timezone or "-",
 			subroutine.domain.text.truncated(self.title),
 		)
 
@@ -3365,7 +3365,7 @@ def _priority_cell (importance: int | None, urgency: int | None) -> str:
 	"""
 
 	if importance is None and urgency is None:
-		return "—"
+		return "-"
 
 	return f"I{importance or '-'}/U{urgency or '-'}"
 

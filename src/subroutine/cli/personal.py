@@ -13714,7 +13714,7 @@ def _render_date (instant: datetime.datetime | None, timezone: str | None) -> st
 	"""Render an instant the way a person reads a date."""
 
 	if instant is None:
-		return "—"
+		return "-"
 
 	# Through the same function as a calendar date, so an instant and a day cannot come to
 	# disagree about when a year is worth printing — one rule, one place. The conversion is

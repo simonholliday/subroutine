@@ -94,6 +94,11 @@ upgrade involves.
   `subroutine explain connecting` say the same. `subroutine-remote`'s field no longer tells you
   to ask for a new token when one is refused: enter it again first.
 
+- **Nothing the program prints carries an em dash.** Command output, help, refusals, the API's
+  route and schema descriptions and the agent tools' descriptions use a spaced hyphen, and an
+  empty cell in a compact listing - no due date, no priority, a workspace with no timezone - is
+  a hyphen.
+
 ### Fixed
 
 - **An instance says so when a request carries no token**, rather than telling you your token may

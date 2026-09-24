@@ -171,7 +171,7 @@ def test_compact_says_when_a_priority_was_not_assessed (world: test_api_tasks.Wo
 
 	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
 
-	assert "—" in next(line for line in lines if "Nothing assessed" in line)
+	assert next(line for line in lines if "Nothing assessed" in line).split()[2] == "-"
 	assert "I4/U-" in next(line for line in lines if "changes endpoint" in line)
 
 
@@ -220,8 +220,8 @@ def test_the_plan_column_costs_nothing_on_a_page_with_no_plans (
 
 	assert all("→" not in line for line in lines)
 	assert lines == [
-		"#3  [open]  —      —           Nothing assessed about this one",
-		"#2  [open]  I4/U-  —           Add /v1/changes endpoint",
+		"#3  [open]  -      -           Nothing assessed about this one",
+		"#2  [open]  I4/U-  -           Add /v1/changes endpoint",
 		"#1  [open]  I4/U5  2026-08-01  Fix token prefix collision",
 	]
 
@@ -267,8 +267,8 @@ def test_the_assignee_column_costs_nothing_when_nobody_is_assigned (
 	lines = world.call("GET", "/v1/tasks?format=compact").json()["items"]
 
 	assert lines == [
-		"#3  [open]  —      —           Nothing assessed about this one",
-		"#2  [open]  I4/U-  —           Add /v1/changes endpoint",
+		"#3  [open]  -      -           Nothing assessed about this one",
+		"#2  [open]  I4/U-  -           Add /v1/changes endpoint",
 		"#1  [open]  I4/U5  2026-08-01  Fix token prefix collision",
 	]
 
