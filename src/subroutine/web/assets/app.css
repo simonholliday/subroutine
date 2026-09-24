@@ -941,8 +941,7 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 
 /* **The way to a place's settings, an anchor drawn as the control it is** - `.narrowed a.widen`'s
    treatment, since both are a way somewhere offered beside a statement about the page. */
-.place-settings,
-.place-journal {
+.place-settings {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--space-3);
@@ -954,10 +953,8 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); }
 	text-decoration: none;
 }
 
-.place-settings:hover,
-.place-journal:hover { color: var(--ink); border-color: var(--ink-soft); }
-.place-settings:focus-visible,
-.place-journal:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.place-settings:hover { color: var(--ink); border-color: var(--ink-soft); }
+.place-settings:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 
 /*
 	**The views saved here, under the place they belong to** - `#3096`, Simon's choice of where.

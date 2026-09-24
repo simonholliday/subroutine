@@ -103,6 +103,11 @@ upgrade involves.
   beside the name at the top of every page, where it was *kanban*: points joined up, rather
   than a board.
 
+- **The journal is a tab beside Agenda, List and Board** in the browser, on a workspace's pages
+  and on the journal itself, which now draws those tabs and the search too, so you can go from
+  a workspace's journal straight to its list or board. Choosing another workspace there opens
+  that workspace's journal rather than its agenda. An item's button reads *Item journal*.
+
 ### Fixed
 
 - **An instance says so when a request carries no token**, rather than telling you your token may

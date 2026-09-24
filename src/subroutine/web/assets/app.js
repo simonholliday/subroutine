@@ -2739,10 +2739,35 @@ export function App () {
 
 		if (place === null) return home();
 
+		/* **On the journal, a workspace opens its journal** (`#3573`, Simon's). The dropdown there
+		   lists workspaces alone, because a journal is a workspace's, and choosing one opened its
+		   agenda. By a load, as the journal's tabs leave. */
+		if (area === JOURNAL && !place.project) {
+			window.location.assign(journalAddress({ workspace: place.workspace, ref: null }));
+
+			return undefined;
+		}
+
 		return place.project
 			? narrow(address)
 			: chooseWorkspace(place.workspace);
-	}, [chooseWorkspace, home, narrow]);
+	}, [area, chooseWorkspace, home, narrow]);
+
+	const searchFromJournal = useCallback((text) => {
+		/*
+			**A search from the journal leaves it by a load** (`#3573`), for the reason the tabs
+			beside it do. It loads the list of results `chooseSearch` would have written, where an
+			item whose number was typed comes first (`#823`).
+		*/
+		const asked = text.trim();
+		const place = journalPlace(journalPageOf(window.location.pathname));
+
+		if (asked === "" || !place) return;
+
+		window.location.assign(
+			withShowing(listingAddress(place), { view: "list", selection: { q: asked } }),
+		);
+	}, []);
 
 	const chooseSearch = useCallback(async (text) => {
 		/*
@@ -3225,6 +3250,20 @@ export function App () {
 		: null;
 
 	/*
+		**The tabs, and the journal draws them too** (`#3573`, Simon's). A journal is a workspace's,
+		so on its page the row is that workspace's - *agenda*, *list* and *board*, and *journal* in
+		force - where it used to draw none and was a page left only by Back. **From the journal each
+		tab is a plain link**, as the dropdown's choice is there, so leaving it is a load of an
+		address rather than a walk through state the journal page does not keep, which is where
+		`#2628`'s faults were. An item's journal draws the row too, with no tab in force.
+	*/
+	const onJournal = area === JOURNAL;
+	const tabbed = onJournal && settled ? settled : here;
+	const atJournal = onJournal && !(journalPageOf(
+		typeof window === "undefined" ? "" : window.location.pathname,
+	) || {}).ref;
+
+	/*
 		**The one question the render asks of the selection**, named once.
 
 		Everything below that used to ask `view === "done"` is really asking this: *is this page
@@ -3385,18 +3424,28 @@ export function App () {
 				`/?view=list` for a backlog nothing implements. A control that led somewhere the
 				app cannot go is worse than no control.
 			*/ null}
-			${!here.agenda && html`
+			${!tabbed.agenda && html`
 				<div class="within">
-					<${Seeking} busy=${busy} onSearch=${chooseSearch}
+					<${Seeking} busy=${busy} onSearch=${onJournal ? searchFromJournal : chooseSearch}
 						asked=${showing.selection.q || ""} />
 					<nav class="views" aria-label="Which view">
-						${chips(listingAddress(here), showing).map((chip) => html`
-							<a key=${chip.name} class=${chip.chosen ? "chosen" : ""}
+						${chips(listingAddress(tabbed), showing).map((chip) => html`
+							<a key=${chip.name} class=${chip.chosen && !onJournal ? "chosen" : ""}
 								href=${chip.href}
-								aria-current=${chip.chosen ? "true" : undefined}
-								onClick=${(event) => followed(event, () => chooseView(chip.showing))}
+								aria-current=${chip.chosen && !onJournal ? "true" : undefined}
+								onClick=${onJournal
+									? undefined
+									: (event) => followed(event, () => chooseView(chip.showing))}
 								>${chip.name}</a>
 						`)}
+						${/* **A tab, and never a view** (`#3573`): a link in this row, so `VIEWS` stays
+						     three arrangements of work and nothing can ask a board of the journal. A
+						     workspace's only, since a project has no journal. */ null}
+						${!tabbed.project && html`
+							<a key="journal" class=${atJournal ? "chosen" : ""}
+								href=${journalAddress({ workspace: tabbed.workspace, ref: null })}
+								aria-current=${atJournal ? "true" : undefined}>journal</a>
+						`}
 					</nav>
 				</div>
 			`}
@@ -3439,9 +3488,6 @@ export function App () {
 						workspace, project, workspaces: me ? me.workspaces : [], projects: filable,
 					})}
 					showing=${showing} onGo=${goTo}
-					${/* **A workspace's journal, and no project's** (`#2731`, Simon: *workspace
-					     only*). */ null}
-					journal=${project ? null : journalAddress({ workspace, ref: null })}
 					settings=${settingsHere(
 						me, vocabulary && vocabulary.settings, { workspace, project },
 					)} />

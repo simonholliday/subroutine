@@ -440,10 +440,6 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 			{"label": "Web UI", "address": "/projects/subroutine/ui"},
 		],
 		"settings": "/settings/project/projects/subroutine/ui",
-		# **And its journal** (`#2731`). `App` offers one only for a workspace; the component
-		# draws whatever it is handed, and a sample that handed nothing would leave the link and
-		# its style drawn by nothing.
-		"journal": "/projects/-/journal",
 	},
 	# **The saved views, with the form open** - `#3096`. Open because the form is the riskier
 	# markup and the one a fallback would swallow: a name box, a shared checkbox and the

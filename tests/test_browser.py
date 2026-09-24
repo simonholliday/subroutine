@@ -2980,6 +2980,14 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	**Read for fat**: one move and three assertions, each a way the typing could reach the wrong
 	item: the form left open, the form reopened still holding it, and a write.
+
+	**47 to 48, for `SR#3573`, and it is navigation this file already takes.** The journal page
+	became one of the tabs, and whether the row is drawn, which tab is in force and where a tab
+	or the dropdown lands are questions about a masthead drawn from `App`'s state and about real
+	loads of addresses, neither of which `tests/dom.js` has.
+
+	**Read for fat**: one page per claim - a workspace's row, a project's without the tab, the
+	journal's own row - then its two ways out, and the item's button.
 	"""
 
 	source = pathlib.Path(__file__).read_text(encoding="utf-8")
@@ -2987,11 +2995,11 @@ def test_this_file_stays_the_size_of_its_argument () -> None:
 
 	assert len(tests) > 1, "no tests were found, so this is checking nothing"
 
-	assert len(tests) <= 47, (
+	assert len(tests) <= 48, (
 		f"this file holds {len(tests)} tests: {tests}. Seventeen answering what only a browser "
 		f"can is the agreed scope; past this it is a second suite, and the fast one is the one "
 		f"that stops being run. Raising it is a decision — read the addition for fat first, and "
-		f"read every raise in this docstring as a set: it has moved 17 to 47."
+		f"read every raise in this docstring as a set: it has moved 17 to 48."
 	)
 
 
@@ -6233,3 +6241,67 @@ def test_an_edit_form_does_not_follow_the_reader_to_another_item (running: typin
 	assert not written, f"moving between the two items wrote something: {written}"
 
 	page.close()
+
+
+def test_the_journal_is_a_tab_and_keeps_its_workspace (running: typing.Any) -> None:
+	"""`SR#3573`, Simon: from a workspace's journal there was no way to its agenda, list or board.
+
+	The journal page drew none of those tabs, and choosing another workspace in its dropdown
+	opened that workspace's agenda. **Journal is a tab beside them now**, on a workspace's pages
+	and on the journal page, where it is the one in force, and the dropdown there keeps the
+	reader on a journal. **Not on a project's page**, which has no journal.
+	"""
+
+	opened, *_ = running
+
+	def tabs (page: typing.Any) -> dict[str, tuple[str | None, str | None]]:
+		"""Return each tab's name, and where it goes and whether it is the one in force."""
+
+		page.wait_for_selector(".views a", timeout=10_000)
+
+		return {
+			(one.text_content() or "").strip(): (one.get_attribute("href"), one.get_attribute("aria-current"))
+			for one in page.query_selector_all(".views a")
+		}
+
+	listing = opened("/projects?view=list")
+	drawn = tabs(listing)
+
+	assert drawn.get("journal", (None,))[0] == "/projects/-/journal", f"a workspace's tabs: {drawn}"
+	assert listing.locator(".place-journal").count() == 0, "the heading kept a second way in"
+
+	listing.close()
+
+	narrowed = opened("/projects/subroutine?view=list")
+
+	assert "journal" not in tabs(narrowed), "a project's tabs offer a journal it does not have"
+
+	narrowed.close()
+
+	page = opened("/projects/-/journal")
+	drawn = tabs(page)
+
+	assert drawn.get("journal") == ("/projects/-/journal", "true"), f"the journal's tabs: {drawn}"
+	assert drawn.get("list", (None,))[0] == "/projects?view=list", f"the journal's tabs: {drawn}"
+	assert [name for name, (_, current) in drawn.items() if current == "true"] == ["journal"], (
+		f"the journal's page marks another tab as in force: {drawn}"
+	)
+
+	page.click(".views a[href='/projects?view=list']")
+	page.wait_for_url("**/projects?view=list", timeout=10_000)
+	page.wait_for_selector(".rows li", timeout=10_000)
+
+	page.go_back()
+	page.wait_for_url("**/projects/-/journal", timeout=10_000)
+	page.wait_for_selector("select[aria-label='Where to look']", timeout=10_000)
+	page.select_option("select[aria-label='Where to look']", "/personal")
+	page.wait_for_url("**/personal/-/journal", timeout=10_000)
+
+	page.close()
+
+	item = opened("/projects/subroutine/ui/42")
+	item.wait_for_selector(".detail .item-journal", timeout=10_000)
+
+	assert (item.text_content(".detail .item-journal") or "").strip() == "Item journal"
+
+	item.close()
