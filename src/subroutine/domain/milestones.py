@@ -26,8 +26,10 @@ import sqlalchemy.orm
 import subroutine.db.models.project
 import subroutine.db.models.vocabulary
 import subroutine.db.models.work
+import subroutine.domain.authentication
 import subroutine.domain.readiness
 import subroutine.domain.refs
+import subroutine.domain.scoping
 import subroutine.errors
 
 #: The link-type category of ``includes`` — decision `#3391`, whose name Simon confirmed on
@@ -41,13 +43,28 @@ COUNTING = "counting"
 
 @dataclasses.dataclass(frozen=True)
 class Progress:
-	"""How much of what one milestone includes is finished — `#3396`."""
+	"""How much of what one milestone includes is finished — `#3396` — as one reader sees it.
 
-	#: How many pieces of work it includes that are neither withdrawn nor in the trash.
+	**The two counts are the reader's, and the two flags are the milestone's** (Simon, 2026-09-25,
+	`#3597`). A count narrowed to what somebody can see keeps a row and the milestone's own page
+	saying the same, and discloses nothing; whether it includes more, and whether all of it is
+	done, are facts about the work - so an outsider is never told *all done* while something they
+	cannot see is open, which is the false completion readiness refuses for a hidden blocker.
+	**Never how much is unseen**: that is the bound readiness draws, *that* and never *how many*.
+	"""
+
+	#: How many pieces of work it includes, of those this reader can see, that are neither
+	#: withdrawn nor in the trash.
 	included: int
 
 	#: How many of those are finished.
 	done: int
+
+	#: Whether it includes work this reader cannot see - never how much.
+	unseen: bool = False
+
+	#: Whether every piece of it is finished, seen or not, and there is at least one.
+	finished: bool = False
 
 	@property
 	def all_done (self) -> bool:
@@ -56,9 +73,10 @@ class Progress:
 		**Including nothing is not being done** — `#3395`'s placeholder a year out. Nothing in it
 		is unfinished, and asking a person whether it has been reached the day it was made is
 		noise.
+		**Asked of all of it**, seen or not (`#3597`), since it is what puts *close it?* to a person.
 		"""
 
-		return 0 < self.included == self.done
+		return self.finished
 
 
 #: What a row that includes nothing reports — every row but a milestone's.
@@ -83,6 +101,8 @@ def is_one (session: sqlalchemy.orm.Session, task_id: uuid.UUID) -> bool:
 def progress_among (
 	session: sqlalchemy.orm.Session,
 	identifiers: typing.Iterable[uuid.UUID],
+	*,
+	reader: subroutine.domain.authentication.Principal | None,
 ) -> dict[uuid.UUID, Progress]:
 	"""Return how much of what each of these includes is done, in one grouped statement — `#3396`.
 
@@ -103,10 +123,12 @@ def progress_among (
 	has gone by: an event somebody counted toward a milestone stays unfinished here until
 	somebody says otherwise, which is what ``show`` has always said of it.
 
-	**Not narrowed by visibility**, as :func:`subroutine.domain.readiness.
-	finished_underneath_among` is not. Whether the work a milestone includes is finished is a
-	fact about that work rather than about the reader, and counting only what somebody can see
-	would say the question is ready to be answered when it is not.
+	**Counted as ``reader`` sees it, and flagged as the milestone is** (Simon, 2026-09-25,
+	`#3597`) - see :class:`Progress`. The counts go through ``scoping.task_seen_by``, which is
+	the rule every listing narrows by, so a row counts exactly the work its Links heading lists.
+	Whether all of it is done is counted without narrowing, for readiness's reason: it is a fact
+	about the work, and a count narrowed to one reader would say the question is ready to be
+	answered when it is not. ``None`` is nobody reading, and counts everything as seen.
 	"""
 
 	wanted = set(identifiers)
@@ -117,7 +139,10 @@ def progress_among (
 	link = subroutine.db.models.work.Link
 	kind = subroutine.db.models.vocabulary.LinkType
 	part = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
-	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+	# **The table itself rather than an alias**, because ``task_seen_by`` is written over it, as
+	# every listing's narrowing is. Nothing else in the statement joins a project.
+	filed_in = subroutine.db.models.project.Project
+	seen = sqlalchemy.true() if reader is None else subroutine.domain.scoping.task_seen_by(reader)
 	holder = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
 	typed = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.ItemType)
 
@@ -127,6 +152,10 @@ def progress_among (
 			sqlalchemy.func.count(link.id),
 			# ``COUNT`` of a column counts the rows where it is set.
 			sqlalchemy.func.count(part.completed_at),
+			# And the same two of what this reader can see: a ``CASE`` with no ``ELSE`` is null, and
+			# null is what ``COUNT`` skips.
+			sqlalchemy.func.count(sqlalchemy.case((seen, link.id))),
+			sqlalchemy.func.count(sqlalchemy.case((seen, part.completed_at))),
 		)
 		.join(kind, kind.id == link.link_type_id)
 		.join(part, sqlalchemy.and_(part.id == link.target_id, link.target_type == "task"))
@@ -149,7 +178,13 @@ def progress_among (
 	).tuples()
 
 	return {
-		source: Progress(included=included, done=done) for source, included, done in counted
+		source: Progress(
+			included=seen_included,
+			done=seen_done,
+			unseen=included > seen_included,
+			finished=0 < included == done,
+		)
+		for source, included, done, seen_included, seen_done in counted
 	}
 
 

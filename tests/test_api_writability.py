@@ -360,6 +360,11 @@ DERIVED: dict[str, str] = {
 		"How many of the pieces a milestone includes are finished (`SR#3396`), counted on every "
 		"read rather than stored. Change it by finishing the work, which is the act it reports."
 	),
+	"included_unseen": (
+		"Whether a milestone includes work its reader cannot see (`SR#3597`), read off its "
+		"`includes` links and the reader's narrowing on every read rather than stored. It changes "
+		"with who is reading, which no write could set."
+	),
 	"blocked_by": (
 		"Which unfinished tasks hold this one up, read off the same `blocks` links as "
 		"`blocked` above (`SR#1287`) — and narrowed to the ones this caller may see, which is "

@@ -397,7 +397,7 @@ class Client:
 				),
 			)
 
-			return subroutine.views.agenda(session, built)
+			return subroutine.views.agenda(session, actor, built)
 
 	def count_tasks (
 		self, *, workspace: str | None = None, project: str | None = None
@@ -845,7 +845,7 @@ class Client:
 					.limit(size + 1)
 				)
 			)
-			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+			vocabulary = subroutine.views.Vocabulary.for_tasks(session, actor, rows)
 
 			# **One more row than asked for, and the extra is the answer to "is that all?"** (`#1037`).
 			#
@@ -875,7 +875,7 @@ class Client:
 
 			return subroutine.views.task(
 				row,
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
@@ -1598,6 +1598,7 @@ class Client:
 
 			return subroutine.views.links(
 				session,
+				actor,
 				subroutine.domain.links.around(
 					session,
 					actor,
@@ -1623,6 +1624,7 @@ class Client:
 
 			return subroutine.views.beneath(
 				session,
+				actor,
 				subroutine.domain.links.beneath(
 					session,
 					actor,
@@ -1644,6 +1646,7 @@ class Client:
 
 			return subroutine.views.governing(
 				session,
+				actor,
 				subroutine.domain.links.governing(
 					session,
 					actor,
@@ -1726,6 +1729,7 @@ class Client:
 
 			return subroutine.views.proposals(
 				session,
+				actor,
 				subroutine.domain.links.proposals(
 					session,
 					actor,
@@ -1797,7 +1801,7 @@ class Client:
 				session, actor, workspace_id=chosen.id, entity_type=entity_type, identifier=near.id
 			):
 				if related.id == created.id:
-					return subroutine.views.links(session, [related])[0]
+					return subroutine.views.links(session, actor, [related])[0]
 
 			raise subroutine.errors.InternalError(
 				"The link was created but cannot be read back."
@@ -3251,7 +3255,7 @@ class Client:
 			return subroutine.clients.base.Captured(
 				task=subroutine.views.task(
 					row,
-					subroutine.views.Vocabulary.for_tasks(session, [row]),
+					subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 					revisions=subroutine.views.revisions_seen(
 						session, entity_type="task", row=row
 					),
@@ -3386,7 +3390,7 @@ class Client:
 
 			return subroutine.views.task(
 				row,
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
@@ -3526,7 +3530,7 @@ class Client:
 
 			return subroutine.views.task(
 				row,
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
@@ -3561,7 +3565,7 @@ class Client:
 
 			return subroutine.views.task(
 				acted(session, row, actor=actor),
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				# **Here too, though this is the one render that asks for no `revisions`**
 				# (`#3075`). The HTTP side answers a trash through `_rendered` like every
 				# other single-item response, so leaving it out would be a field one
@@ -3585,7 +3589,7 @@ class Client:
 
 			return subroutine.views.task(
 				held,
-				subroutine.views.Vocabulary.for_tasks(session, [held]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [held]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=held
 				),
@@ -3605,7 +3609,7 @@ class Client:
 
 			return subroutine.views.task(
 				freed,
-				subroutine.views.Vocabulary.for_tasks(session, [freed]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [freed]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=freed
 				),
@@ -3635,7 +3639,7 @@ class Client:
 
 			return subroutine.views.task(
 				finished,
-				subroutine.views.Vocabulary.for_tasks(session, [finished]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [finished]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=finished
 				),
@@ -3754,7 +3758,7 @@ class Client:
 
 			return subroutine.views.task(
 				row,
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),
@@ -3803,7 +3807,7 @@ class Client:
 
 			return subroutine.views.task(
 				row,
-				subroutine.views.Vocabulary.for_tasks(session, [row]),
+				subroutine.views.Vocabulary.for_tasks(session, actor, [row]),
 				revisions=subroutine.views.revisions_seen(
 					session, entity_type="task", row=row
 				),

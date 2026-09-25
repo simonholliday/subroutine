@@ -672,14 +672,14 @@ def test_a_claimed_task_reports_the_holder_by_name (session: sqlalchemy.orm.Sess
 	_workspace, project, owner = _place(session)
 	task = _task(session, project)
 
-	before = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, [task]))
+	before = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, owner, [task]))
 
 	assert before.claimed_by is None, "an unclaimed task named a holder"
 
 	subroutine.domain.claims.claim(session, task, actor=owner)
 	session.flush()
 
-	after = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, [task]))
+	after = subroutine.views.task(task, subroutine.views.Vocabulary.for_tasks(session, owner, [task]))
 
 	assert after.claimed_by == owner.user.username, (
 		f"a claimed task reports {after.claimed_by!r} rather than the username that took it"

@@ -409,12 +409,17 @@ export function marks (
 	*/
 	if (item.included_done) {
 		states.push({ text: "Included done", family: "state" });
-	} else if (item.included_count) {
+	} else if (item.included_count || item.included_unseen) {
 		/* **Until then, how far it has got** — `#3396`, so a roadmap reads down a list rather than
 		   one milestone at a time. `views.included_progress` is the terminal's copy of these
-		   words. */
+		   words. **Counted as its reader sees it, and saying when there is more** (`#3597`): the
+		   counts are the reader's, so without the second half *1 of 1* would read as finished to
+		   somebody who cannot see the piece still open. */
 		states.push({
-			text: `${item.included_done_count} of ${item.included_count} included done`,
+			text: item.included_count
+				? `${item.included_done_count} of ${item.included_count} included done${
+					item.included_unseen ? ", and more you cannot see" : ""}`
+				: "Includes work you cannot see",
 			family: "state",
 		});
 	}

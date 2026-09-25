@@ -12,6 +12,7 @@ rather than forbidden, and a token's project scope narrows a listing exactly as 
 a write.
 """
 
+import functools
 import typing
 import uuid
 
@@ -310,7 +311,7 @@ def create (
 			**structured,
 		)
 
-		return _rendered(session, created)
+		return _rendered(session, actor, created)
 
 	if not body.title:
 		raise subroutine.errors.ValidationError(
@@ -334,7 +335,7 @@ def create (
 		**structured,
 	)
 
-	return _rendered(session, created)
+	return _rendered(session, actor, created)
 
 
 # ``response_model`` rather than a return annotation, because a shaped response is not a
@@ -862,7 +863,7 @@ def read (
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 
 	return subroutine.api.shaping.single(
-		_rendered(session, _resolve(session, actor, workspace, id_or_ref)), shape
+		_rendered(session, actor, _resolve(session, actor, workspace, id_or_ref)), shape
 	)
 
 
@@ -947,7 +948,7 @@ def change (
 			session, actor, workspace, body.project
 		)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		updated = subroutine.domain.tasks.update(
 			session,
 			task,
@@ -963,7 +964,7 @@ def change (
 			**changes,
 		)
 
-	return _rendered(session, updated)
+	return _rendered(session, actor, updated)
 
 
 @router.post("/{id_or_ref}/complete", summary="Mark a task finished")
@@ -979,7 +980,7 @@ def complete (
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		finished = subroutine.domain.tasks.complete(
 			session,
 			task,
@@ -987,7 +988,7 @@ def complete (
 			actor=actor,
 		)
 
-	return _rendered(session, finished)
+	return _rendered(session, actor, finished)
 
 
 
@@ -1008,7 +1009,7 @@ def skip (
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		skipped = subroutine.domain.tasks.skip(
 			session,
 			task,
@@ -1016,7 +1017,7 @@ def skip (
 			actor=actor,
 		)
 
-	return _rendered(session, skipped)
+	return _rendered(session, actor, skipped)
 
 
 #: How many occurrences one request will compute. A rule with no end runs for ever, so a
@@ -1249,7 +1250,7 @@ def take (
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		held = subroutine.domain.claims.claim(
 			session,
 			task,
@@ -1259,7 +1260,7 @@ def take (
 			actor=actor,
 		)
 
-	return _rendered(session, held)
+	return _rendered(session, actor, held)
 
 
 @router.post("/{id_or_ref}/release", summary="Give a task back")
@@ -1282,7 +1283,7 @@ def give_back (
 
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		freed = subroutine.domain.claims.release(
 			session,
 			task,
@@ -1290,7 +1291,7 @@ def give_back (
 			actor=actor,
 		)
 
-	return _rendered(session, freed)
+	return _rendered(session, actor, freed)
 
 
 class Move(subroutine.api.schemas.RequestModel):
@@ -1355,7 +1356,7 @@ def move (
 	# forbidden — which is §7.3a, and the reason this is not a bare id lookup.
 	parent = None if body.parent is None else _resolve(session, actor, workspace, body.parent)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		subroutine.domain.tasks.move(
 			session,
 			task,
@@ -1365,7 +1366,7 @@ def move (
 			actor=actor,
 		)
 
-	return _rendered(session, task)
+	return _rendered(session, actor, task)
 
 
 @router.post("/{id_or_ref}/restore", summary="Take a task out of the trash")
@@ -1394,7 +1395,7 @@ def unremove (
 	# the whole of what this endpoint needed from it.
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		back = subroutine.domain.tasks.restore(
 			session,
 			task,
@@ -1402,7 +1403,7 @@ def unremove (
 			actor=actor,
 		)
 
-	return _rendered(session, back)
+	return _rendered(session, actor, back)
 
 
 @router.delete("/{id_or_ref}", summary="Move a task to the trash")
@@ -1423,7 +1424,7 @@ def remove (
 	workspace = subroutine.domain.selection.workspace(session, actor, requested=workspace_id)
 	task = _resolve(session, actor, workspace, id_or_ref)
 
-	with subroutine.api.concurrency.reporting(lambda: _rendered(session, task)):
+	with subroutine.api.concurrency.reporting(lambda: _rendered(session, actor, task)):
 		removed = subroutine.domain.tasks.delete(
 			session,
 			task,
@@ -1431,7 +1432,7 @@ def remove (
 			actor=actor,
 		)
 
-	return _rendered(session, removed)
+	return _rendered(session, actor, removed)
 
 
 def _resolve (
@@ -1520,7 +1521,7 @@ def _page (
 			limit=group_limit,
 			include_total=include_total,
 			shape=shape,
-			render=_for_a_group,
+			render=functools.partial(_for_a_group, reader=actor),
 			collection="tasks",
 			held_back=held_back,
 			unread=unread,
@@ -1558,7 +1559,7 @@ def _page (
 	has_more = len(rows) > size
 	rows = rows[:size]
 
-	vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, actor, rows)
 
 	# Three queries for the whole page, not one per row — `links.edges` gathers every end
 	# these links reach before looking any of them up. The point of the parameter is to
@@ -1566,6 +1567,7 @@ def _page (
 	links = (
 		subroutine.views.edges(
 			session,
+			actor,
 			subroutine.domain.links.edges(
 				session,
 				actor,
@@ -1604,7 +1606,10 @@ def _page (
 
 
 def _for_a_group (
-	session: sqlalchemy.orm.Session, rows: typing.Sequence[typing.Any]
+	session: sqlalchemy.orm.Session,
+	rows: typing.Sequence[typing.Any],
+	*,
+	reader: subroutine.domain.authentication.Principal,
 ) -> list[typing.Any]:
 	"""Render one group's rows, loading the vocabulary they name once for the whole group.
 
@@ -1614,13 +1619,15 @@ def _for_a_group (
 	answer would have been identical.
 	"""
 
-	vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, reader, rows)
 
 	return [subroutine.views.task(row, vocabulary) for row in rows]
 
 
 def _rendered (
-	session: sqlalchemy.orm.Session, row: subroutine.db.models.work.Task
+	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal,
+	row: subroutine.db.models.work.Task,
 ) -> subroutine.views.Task:
 	"""Render one task, loading the vocabulary it names.
 
@@ -1638,7 +1645,7 @@ def _rendered (
 
 	return subroutine.views.task(
 		row,
-		subroutine.views.Vocabulary.for_tasks(session, [row]),
+		subroutine.views.Vocabulary.for_tasks(session, reader, [row]),
 		revisions=subroutine.views.revisions_seen(
 			session, entity_type="task", row=row
 		),

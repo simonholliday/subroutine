@@ -403,11 +403,7 @@ def readable_tasks (
 	statement = (
 		sqlalchemy.select(task)
 		.join(project, project.id == task.project_id)
-		.where(
-			task.workspace_id.in_(workspace_ids),
-			subroutine.domain.authorization.visible_projects(principal),
-			within_project_scope(principal),
-		)
+		.where(task.workspace_id.in_(workspace_ids), task_seen_by(principal))
 	)
 
 	if not include_deleted_projects:
@@ -428,6 +424,32 @@ def readable_tasks (
 		statement = statement.where(task.is_template.is_(False))
 
 	return statement
+
+
+def task_seen_by (
+	principal: subroutine.domain.authentication.Principal,
+) -> sqlalchemy.ColumnElement[bool]:
+	"""Return what makes a task one this principal may see, over ``task`` and ``project`` joined.
+
+	**The half of :func:`readable_tasks` that is about the reader rather than the listing**
+	(`#3597`), so the two cannot come to disagree. A milestone's count asks it of the work it
+	includes: that work is in the milestone's own workspace, which the reader already reached, so
+	what is left is whether each piece is filed where this reader may look.
+
+	**Nothing, for a credential that may not read tasks at all.** :func:`readable_tasks` refuses
+	such a caller before this is asked; a count answers it instead, since *none of it* is the
+	honest answer to how much of the work a reader can see.
+	"""
+
+	if subroutine.domain.authorization.outside_token_scope(
+		principal, subroutine.permissions.TASK_READ
+	):
+		return sqlalchemy.false()
+
+	return sqlalchemy.and_(
+		subroutine.domain.authorization.visible_projects(principal),
+		within_project_scope(principal),
+	)
 
 
 def the_other_kind (

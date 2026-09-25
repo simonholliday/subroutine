@@ -184,7 +184,7 @@ def test_the_day_a_row_is_scheduled_on_is_the_same_answer_in_all_three_spellings
 		# ``None`` in silence and orders a whole section by the other date.
 		off_the_view = subroutine.domain.ordering.VIEW_READERS[
 			subroutine.domain.ordering.SCHEDULED_FOR
-		](subroutine.views.task(row, subroutine.views.Vocabulary.for_tasks(session, [row])))
+		](subroutine.views.task(row, subroutine.views.Vocabulary.for_tasks(session, None, [row])))
 
 		assert in_sql == off_the_row == off_the_view, (
 			f"{row.title!r}: the database says {in_sql}, a loaded row says {off_the_row} and a "
@@ -1632,7 +1632,7 @@ def test_a_row_names_the_work_of_somebody_else_it_is_holding_up (
 		f"only a live item assigned to another person is named: {built.blocks_others}"
 	)
 
-	rendered = subroutine.views.agenda(world.session, built)
+	rendered = subroutine.views.agenda(world.session, world.principal, built)
 	rows = [
 		row for bucket in subroutine.views.AGENDA_BUCKETS for row in getattr(rendered, bucket)
 	]

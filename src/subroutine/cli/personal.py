@@ -1174,8 +1174,11 @@ def _included_cell (item: Item) -> str:
 	if item.included_done:
 		return INCLUDED_DONE_MARK
 
-	if item.included_count:
-		return subroutine.views.included_progress(item.included_done_count, item.included_count)
+	# **Counted as its reader sees it, and saying when there is more** (`#3597`).
+	if item.included_count or item.included_unseen:
+		return subroutine.views.included_progress(
+			item.included_done_count, item.included_count, unseen=item.included_unseen
+		)
 
 	return ""
 
@@ -13145,9 +13148,11 @@ def _render_item (
 				and link.other.deleted_at is None
 			]
 			done = sum(1 for link in included if link.other.is_complete)
-			rollup = (
-				f"  ({subroutine.views.included_progress(done, len(included))})" if included else ""
-			)
+			# **And that it includes more than these** (`#3597`): the links are the ones this reader
+			# can see, which is what the row counts too, so the heading says there is more to it.
+			unseen = isinstance(item, subroutine.views.Task) and item.included_unseen
+			said = subroutine.views.included_progress(done, len(included), unseen=unseen)
+			rollup = f"  ({said})" if included or unseen else ""
 
 		console.print("")
 		console.print(rich.text.Text(f"Links{rollup}", style=HEADING))
@@ -13988,6 +13993,7 @@ def _as_json (
 		"included_done": task.included_done,
 		"included_count": task.included_count,
 		"included_done_count": task.included_done_count,
+		"included_unseen": task.included_unseen,
 		# **What it is part of**, which the terminal shows as `↳ #12`. A sub-task read on its
 		# own is work whose context is one field away, and the number is what a script types
 		# back.

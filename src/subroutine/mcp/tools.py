@@ -2773,9 +2773,11 @@ def _line (
 		# then, how far it has got (`#3396`), in the terminal's words.
 		if item.included_done:
 			cells.append(subroutine.views.INCLUDED_DONE_MARK)
-		elif item.included_count:
+		elif item.included_count or item.included_unseen:
 			cells.append(
-				subroutine.views.included_progress(item.included_done_count, item.included_count)
+				subroutine.views.included_progress(
+					item.included_done_count, item.included_count, unseen=item.included_unseen
+				)
 			)
 
 		# **And what is holding it up, on the one section that resolves it** (`#1287`). The
@@ -3308,8 +3310,12 @@ def _shown (
 				and link.other.deleted_at is None
 			]
 			finished = sum(1 for link in included if link.other.is_complete)
+			# And that it includes more than these, which are the ones this reader can see (`#3597`).
+			unseen = isinstance(found, subroutine.views.Task) and found.included_unseen
 			rollup = (
-				subroutine.views.included_progress(finished, len(included)) if included else ""
+				subroutine.views.included_progress(finished, len(included), unseen=unseen)
+				if included or unseen
+				else ""
 			)
 
 		parts.append("")

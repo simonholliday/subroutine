@@ -157,8 +157,10 @@ REACHES_DIRECTLY: dict[str, str] = {
 	"`blocked_among` does: `progress_among` counts what each of a page's rows includes, for ids "
 	"the caller already fetched through the helper, so it reports only on rows it was given. Its "
 	"other two selects are one task's type by id and a count of one task's link rows, which "
-	"carry no content of their own. What a milestone includes is counted without narrowing by "
-	"visibility, for readiness's reason: whether work is finished is a fact about the work",
+	"carry no content of their own. What a milestone includes is counted twice: as its reader "
+	"sees it, through scoping.task_seen_by, which is every listing's own narrowing (SR#3597); and "
+	"whether all of it is done, without narrowing, for readiness's reason - a fact about the work, "
+	"reported as that and never as how much",
 	"domain/links.py": "resolves each end through scoping.readable_tasks/_documents and "
 	"drops an end the caller cannot see; the direct select finds link rows, which carry no "
 	"content of their own",

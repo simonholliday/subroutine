@@ -116,7 +116,7 @@ def read (
 		project=narrowing,
 	)
 
-	return subroutine.views.agenda(session, built)
+	return subroutine.views.agenda(session, actor, built)
 
 
 def _within (

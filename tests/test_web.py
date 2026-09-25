@@ -2871,6 +2871,43 @@ def test_a_row_says_when_all_a_milestone_includes_is_done (tmp_path: pathlib.Pat
 	assert "Included done" in finished and "of 2 included done" not in finished, finished
 
 
+def test_a_milestone_says_it_includes_more_than_its_reader_can_see (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#3597`: the counts are the reader's, so the row and the page say when there is more.
+
+	Never how much. Without it *1 of 1 included done* read as finished to somebody who cannot
+	see the piece still open, and a milestone whose work is all out of their sight says only that.
+	"""
+
+	item = {"ref": 12, "kind": "task", "title": "Launch", "workspace": "projects",
+		"status": "open", "status_is_default": True}
+
+	some = _rendered(tmp_path, {"Row": {"item": {**item, "included_count": 1,
+		"included_done_count": 1, "included_unseen": True}, "workspace": "projects"}})["Row"]
+
+	assert "1 of 1 included done, and more you cannot see" in some, some
+
+	none = _rendered(tmp_path, {"Row": {"item": {**item, "included_unseen": True},
+		"workspace": "projects"}})["Row"]
+
+	assert "Includes work you cannot see" in none, none
+
+	milestone = {"ref": 12, "title": "Launch", "status": "open", "kind": "task",
+		"type": "milestone", "type_category": "target", "included_unseen": True}
+	links = [
+		{"id": "l-1", "link_type": "includes", "link_category": "counting", "label": "Includes",
+			"direction": "outgoing",
+			"other": {"entity_type": "task", "ref": 43, "title": "Write the docs", "is_complete": True}},
+	]
+	shared = {"comments": [], "workspace": "projects", "members": [], "links": links,
+		"vocabulary": {"link_types": [{"key": "includes", "title": "Includes"}]}}
+
+	shown = _rendered(tmp_path, {"Detail": {**shared, "item": milestone}})["Detail"]
+
+	assert "(1 of 1 included done, and more you cannot see)" in shown, shown
+
+
 def test_a_scoped_agenda_strips_the_place_its_address_already_names (
 	tmp_path: pathlib.Path,
 ) -> None:

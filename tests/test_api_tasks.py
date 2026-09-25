@@ -2991,6 +2991,69 @@ def test_a_ring_of_includes_is_refused_because_a_milestone_cannot_be_inside_itse
 	assert closing.json()["errors"][0]["message"].count("\u2192") == 2, "the chain, not the ends"
 
 
+def test_a_milestone_counts_what_its_reader_can_see_and_says_there_is_more (
+	session: sqlalchemy.orm.Session, world: World
+) -> None:
+	"""`SR#3597`, Simon's decision of 2026-09-25: the count is the reader's, the flags the work's.
+
+	A milestone in an open project includes a piece its reader can see and one in a private
+	project they cannot. The row and the milestone's own read count only the first, say that there
+	is more, and never how much - and *all of it done* stays about both, so finishing the piece
+	they can see does not tell them the milestone is finished.
+	"""
+
+	made = world.call(
+		"POST", "/v1/projects", json={"key": "vault", "title": "Vault", "visibility": "private"}
+	)
+
+	assert made.status_code == 201, made.text
+
+	launch = _milestone(world, "Launch")
+	seen = world.call("POST", "/v1/tasks", json={"title": "Write the docs"}).json()
+	hidden = world.call(
+		"POST", "/v1/tasks", json={"title": "Sign the contract", "project": "vault"}
+	).json()
+
+	for part in (seen, hidden):
+		assert _link_from(world, launch["ref"], part["ref"], "includes").status_code == 201
+
+	other = subroutine.domain.users.create(session, username=f"trinity-{uuid.uuid4().hex[:8]}")
+	subroutine.domain.workspaces.add_member(session, world.workspace, other, role_key="member")
+	_row, issued = subroutine.domain.authentication.issue_token(session, user=other, title="t")
+	session.flush()
+
+	outsider = world._replace(user=other, secret=issued.value.get_secret_value())
+
+	def read (who: World) -> tuple[typing.Any, ...]:
+		"""Return what one reader is told about the milestone, on its row and its own read."""
+
+		listed = who.call("GET", "/v1/tasks?limit=50").json()["items"]
+		row = next(one for one in listed if one["ref"] == launch["ref"])
+		own = who.call("GET", f"/v1/tasks/{launch['ref']}").json()
+		said = [
+			(one["included_count"], one["included_done_count"], one["included_unseen"],
+				one["included_done"])
+			for one in (row, own)
+		]
+
+		assert said[0] == said[1], f"the row and the milestone's own read disagree: {said}"
+
+		return said[0]
+
+	assert read(world) == (2, 0, False, False), "the owner sees all of it"
+	assert read(outsider) == (1, 0, True, False), "the outsider is told how much is hidden"
+
+	assert world.call("POST", f"/v1/tasks/{seen['ref']}/complete").status_code == 200
+
+	assert read(outsider) == (1, 1, True, False), (
+		"finishing what the outsider can see told them the milestone was finished"
+	)
+
+	assert world.call("POST", f"/v1/tasks/{hidden['ref']}/complete").status_code == 200
+
+	assert read(outsider) == (1, 1, True, True), "all of it is done, and that is the work's fact"
+
+
 def test_a_ring_through_two_relations_of_one_kind_is_refused (world: World) -> None:
 	"""`SR#3593`: the ring check walked one relation, so a ring through two was accepted.
 

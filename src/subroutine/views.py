@@ -278,6 +278,7 @@ class LinkEnd(pydantic.BaseModel):
 	included_done: bool = False
 	included_count: int = 0
 	included_done_count: int = 0
+	included_unseen: bool = False
 
 	#: How many documents are filed under this end — `#2208`. Here because `marks` reads it and
 	#: an end renders through `marks`, which is what `test_a_links_far_end_carries_every_field`
@@ -779,8 +780,18 @@ class Task(pydantic.BaseModel):
 	#: **Derived on every read, never stored** (Simon asked, 2026-09-24): one grouped count over
 	#: the page's milestones and their ``includes`` links, and none at all on a page with no
 	#: milestone. Zero on every other row. Defaulted for `#345`'s reason.
+	#:
+	#: **Of the work its reader can see** (Simon, 2026-09-25, `#3597`), so a row and the
+	#: milestone's own Links heading count the same links, and an outsider is told nothing about
+	#: work in a project they cannot see. :attr:`included_done` stays about all of it.
 	included_count: int = 0
 	included_done_count: int = 0
+
+	#: Whether this milestone includes work its reader cannot see — `#3597`. **That, and never how
+	#: much**, which is readiness's bound for a hidden blocker: the counts beside it are the
+	#: reader's, so without this *1 of 1 included done* would read as finished to somebody who
+	#: cannot see the piece still open. Derived with the counts; false on every other row.
+	included_unseen: bool = False
 
 	#: What is actually holding this up — `#1287`, Simon's decision of 2026-08-27, and **the
 	#: argued exception to the rule stated two fields above rather than a hole in it.**
@@ -3178,15 +3189,24 @@ SUB_TASKS_DONE_MARK = "sub-tasks done"
 INCLUDED_DONE_MARK = "included done"
 
 
-def included_progress (done: int, included: int) -> str:
+def included_progress (done: int, included: int, *, unseen: bool = False) -> str:
 	"""Say how much of what a milestone includes is done, in the words every surface uses.
 
 	**One sentence for a row and for a milestone's own page** (`#3395`, `#3396`), so the terminal
 	and an agent cannot come to word one count two ways. The browser carries the only other copy,
 	in `grouping.js` and `marks.js`.
+
+	**And that more is included than the reader can see** (`#3597`): the counts are theirs, and
+	this is what stops *1 of 1* reading as finished. Where they can see none of it, that is all
+	there is to say.
 	"""
 
-	return f"{done} of {included} included done"
+	if unseen and not included:
+		return "includes work you cannot see"
+
+	counted = f"{done} of {included} included done"
+
+	return f"{counted}, and more you cannot see" if unseen else counted
 
 
 #: What a rendering calls the row a repeat is stored on, as opposed to one of its occurrences.
@@ -3417,6 +3437,11 @@ class Vocabulary:
 		#: page says it reads neither: the walk costs statements on any page naming a project,
 		#: and the journal names projects on every page and draws no colour.
 		project_settings: bool = True,
+		#: Who the page is for — `#3597`, since a milestone counts only the work its reader can see.
+		#: ``None`` is nobody reading, which counts all of it: right for a page that renders no tasks,
+		#: which is every caller that builds one of these directly rather than through
+		#: :meth:`for_tasks` or :meth:`for_link_ends`, where it has to be said.
+		reader: subroutine.domain.authentication.Principal | None = None,
 	) -> None:
 		"""Load the vocabulary rows these ids refer to."""
 
@@ -3537,7 +3562,9 @@ class Vocabulary:
 			for kind in self.types.values()
 		)
 		self.progress = (
-			subroutine.domain.milestones.progress_among(session, wanted) if milestones_here else {}
+			subroutine.domain.milestones.progress_among(session, wanted, reader=reader)
+			if milestones_here
+			else {}
 		)
 
 		# **How many documents each of these holds** — `#2173`. One grouped scan for the page,
@@ -3617,9 +3644,12 @@ class Vocabulary:
 
 	@classmethod
 	def for_tasks (
-		cls, session: sqlalchemy.orm.Session, tasks: typing.Sequence[subroutine.db.models.work.Task]
+		cls,
+		session: sqlalchemy.orm.Session,
+		reader: subroutine.domain.authentication.Principal | None,
+		tasks: typing.Sequence[subroutine.db.models.work.Task],
 	) -> "Vocabulary":
-		"""Load everything a page of tasks needs to be rendered."""
+		"""Load everything a page of tasks needs to be rendered, for ``reader`` — `#3597`."""
 
 		return cls(
 			session,
@@ -3641,6 +3671,7 @@ class Vocabulary:
 				| {task.claimed_by_id for task in tasks if task.claimed_by_id}
 				| {task.assigned_by_id for task in tasks if task.assigned_by_id}
 			),
+			reader=reader,
 		)
 
 	@classmethod
@@ -3686,6 +3717,7 @@ class Vocabulary:
 	def for_link_ends (
 		cls,
 		session: sqlalchemy.orm.Session,
+		reader: subroutine.domain.authentication.Principal | None,
 		ends: typing.Sequence[subroutine.domain.links.End],
 	) -> "Vocabulary":
 		"""Load everything the far ends of a set of links need to be rendered — `#970`.
@@ -3724,6 +3756,7 @@ class Vocabulary:
 				{row.assignee_id for row in tasks if row.assignee_id}
 				| {row.claimed_by_id for row in tasks if row.claimed_by_id}
 			),
+			reader=reader,
 		)
 
 
@@ -3927,6 +3960,7 @@ def task (
 		included_done=_included(vocabulary, row).all_done and row.completed_at is None,
 		included_count=_included(vocabulary, row).included,
 		included_done_count=_included(vocabulary, row).done,
+		included_unseen=_included(vocabulary, row).unseen,
 		blocked_by=blocked_by,
 		blocks_others=blocks_others,
 		revisions=revisions,
@@ -4520,6 +4554,7 @@ def link (related: subroutine.domain.links.Related, vocabulary: Vocabulary) -> L
 
 def links (
 	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
 	related: typing.Sequence[subroutine.domain.links.Related],
 ) -> list[Link]:
 	"""Render one item's links, with a single vocabulary across every end they reach.
@@ -4530,13 +4565,14 @@ def links (
 	the one surface built to save a reader from opening five items.
 	"""
 
-	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in related])
+	vocabulary = Vocabulary.for_link_ends(session, reader, [one.other for one in related])
 
 	return [link(one, vocabulary) for one in related]
 
 
 def beneath (
 	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
 	found: typing.Sequence[subroutine.domain.links.Beneath],
 ) -> list[Beneath]:
 	"""Render a dependency walk, with one vocabulary across every item in it — `#1358`.
@@ -4546,7 +4582,7 @@ def beneath (
 	a reader from opening thirty items.
 	"""
 
-	vocabulary = Vocabulary.for_link_ends(session, [one.end for one in found])
+	vocabulary = Vocabulary.for_link_ends(session, reader, [one.end for one in found])
 
 	return [
 		Beneath(depth=one.depth, item=_end(one.end, vocabulary), stopped=one.stopped)
@@ -4575,6 +4611,7 @@ def verification (
 
 def governing (
 	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
 	found: typing.Sequence[subroutine.domain.links.Governs],
 ) -> list[Governing]:
 	"""Render what governs one item, with a single vocabulary across every end.
@@ -4586,6 +4623,7 @@ def governing (
 
 	vocabulary = Vocabulary.for_link_ends(
 		session,
+		reader,
 		[one.document for one in found]
 		+ [one.inherited_from for one in found if one.inherited_from is not None],
 	)
@@ -4618,11 +4656,12 @@ def proposal (
 
 def proposals (
 	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
 	found: typing.Sequence[subroutine.domain.links.Proposed],
 ) -> list[Proposal]:
 	"""Render one item's proposed links, with a single vocabulary across every end."""
 
-	vocabulary = Vocabulary.for_link_ends(session, [one.other for one in found])
+	vocabulary = Vocabulary.for_link_ends(session, reader, [one.other for one in found])
 
 	return [proposal(one, vocabulary) for one in found]
 
@@ -4657,6 +4696,7 @@ def suggestions_offered (proposed: typing.Sequence[Proposal]) -> list[Proposal]:
 
 def edges (
 	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
 	found: typing.Sequence[subroutine.domain.links.Edge],
 ) -> list[Edge]:
 	"""Render a page's links, with a single vocabulary across every end they reach.
@@ -4667,7 +4707,7 @@ def edges (
 	"""
 
 	vocabulary = Vocabulary.for_link_ends(
-		session, [end for one in found for end in (one.source, one.target)]
+		session, reader, [end for one in found for end in (one.source, one.target)]
 	)
 
 	return [edge(one, vocabulary) for one in found]
@@ -5308,7 +5348,9 @@ def _blocking_others (
 
 
 def agenda (
-	session: sqlalchemy.orm.Session, built: subroutine.domain.agenda.Agenda
+	session: sqlalchemy.orm.Session,
+	reader: subroutine.domain.authentication.Principal | None,
+	built: subroutine.domain.agenda.Agenda,
 ) -> Agenda:
 	"""Render a built agenda, loading the vocabulary for every bucket at once.
 
@@ -5337,7 +5379,7 @@ def agenda (
 		for group in (*built.blockers.values(), *built.blocks_others.values())
 		for row in group
 	]
-	vocabulary = Vocabulary.for_tasks(session, everything + holding)
+	vocabulary = Vocabulary.for_tasks(session, reader, everything + holding)
 	rendered: dict[str, typing.Any] = {
 		bucket: [
 			task(

@@ -635,7 +635,9 @@ is still offered as ready.
 
 'show' counts what a milestone includes, as 'Links (3 of 5 included
 done)', its row on every listing says the same, and 'show --tree'
-walks what it includes and what that waits for.
+walks what it includes and what that waits for. Both count only the
+work you can see; where there is more, they say 'and more you cannot
+see', and never how much.
 
 Nothing completes a milestone by itself. When all of it is done its row
 says 'included done', and whether it has been reached is yours to

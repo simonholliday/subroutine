@@ -464,13 +464,15 @@ export function blockersDone (links) {
 	return `  (${done} of ${held.length} blockers done)`;
 }
 
-export function includedDone (links) {
+export function includedDone (links, unseen) {
 	/*
 		How much of a milestone is done — `#3395`, decision `#3391`. `blockersDone`'s rule, for
 		the link that counts toward a milestone: what runs *out* of it, since `includes` goes from
 		the milestone to the work. `cli/personal` and an agent's `show` count the same links.
 
-		**Nothing at all when it includes nothing**, for `blockersDone`'s reason.
+		**Nothing at all when it includes nothing**, for `blockersDone`'s reason. **And that it
+		includes more than these** (`#3597`), which are the links its reader can see: `unseen` is the
+		item's own `included_unseen`, and never says how much.
 	*/
 	const included = (links || []).filter(
 		(link) =>
@@ -480,11 +482,12 @@ export function includedDone (links) {
 			&& !(link.other || {}).deleted_at
 	);
 
-	if (included.length === 0) return "";
+	if (included.length === 0) return unseen ? "  (includes work you cannot see)" : "";
 
 	const done = included.filter((link) => link.other && link.other.is_complete).length;
 
-	return `  (${done} of ${included.length} included done)`;
+	return `  (${done} of ${included.length} included done${
+		unseen ? ", and more you cannot see" : ""})`;
 }
 
 export function withinAllowance (rows, revealed, allowance = LINKS_SHOWN) {

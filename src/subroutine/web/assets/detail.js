@@ -491,7 +491,9 @@ export function Detail ({
 				${/* **A milestone counts what it includes instead** (`#3395`, decision `#3391`),
 				     as the terminal and an agent do. */ null}
 				<h3>Links${
-					item.type_category === "target" ? includedDone(links) : blockersDone(links)
+					item.type_category === "target"
+						? includedDone(links, item.included_unseen)
+						: blockersDone(links)
 				}</h3>
 				${/* **`links` beside `linked`, so the two lists on this page are separable.**
 				     `Parts` is drawn in the same format on purpose (`#1218`), which leaves

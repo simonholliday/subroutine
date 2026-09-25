@@ -1021,7 +1021,7 @@ def test_an_occurrence_reports_how_it_is_measured_and_not_only_how_often (
 	first = _repeating(session, recurrence="every 3 days", recurrence_anchor="completion")
 
 	shown = subroutine.views.task(
-		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+		first, subroutine.views.Vocabulary.for_tasks(session, None, [first])
 	)
 
 	assert shown.recurrence_rule == "FREQ=DAILY;INTERVAL=3"
@@ -1046,7 +1046,7 @@ def test_a_stopped_series_stops_saying_it_repeats (
 	first = _repeating(session, recurrence="every month on the 30th")
 
 	shown = subroutine.views.task(
-		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+		first, subroutine.views.Vocabulary.for_tasks(session, None, [first])
 	)
 
 	assert shown.recurrence_rule == "FREQ=MONTHLY;BYMONTHDAY=30", "the state this moves off"
@@ -1054,7 +1054,7 @@ def test_a_stopped_series_stops_saying_it_repeats (
 	subroutine.domain.tasks.update(session, first, recurrence=None, now=NOW)
 
 	stopped = subroutine.views.task(
-		first, subroutine.views.Vocabulary.for_tasks(session, [first])
+		first, subroutine.views.Vocabulary.for_tasks(session, None, [first])
 	)
 
 	assert stopped.recurrence_rule is None
@@ -1089,7 +1089,7 @@ def test_an_exhausted_series_stops_saying_it_repeats_too (
 	assert template.completed_at is not None, "the series ran out, so the template closed"
 
 	spent = subroutine.views.task(
-		second, subroutine.views.Vocabulary.for_tasks(session, [second])
+		second, subroutine.views.Vocabulary.for_tasks(session, None, [second])
 	)
 
 	assert spent.recurrence_rule is None
@@ -1925,7 +1925,7 @@ def test_an_occurrence_says_which_repeat_it_came_from (
 			connection="local",
 			workspace="here",
 			item=subroutine.views.task(
-				made, subroutine.views.Vocabulary.for_tasks(session, [made])
+				made, subroutine.views.Vocabulary.for_tasks(session, None, [made])
 			),
 		)
 	)
@@ -1948,7 +1948,7 @@ def test_an_occurrence_says_which_repeat_it_came_from (
 			connection="local",
 			workspace="here",
 			item=subroutine.views.task(
-				series, subroutine.views.Vocabulary.for_tasks(session, [series])
+				series, subroutine.views.Vocabulary.for_tasks(session, None, [series])
 			),
 		)
 	)

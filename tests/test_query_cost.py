@@ -830,7 +830,7 @@ def _marks (context: Context) -> typing.Any:
 
 	rows = context.session.execute(_base(context).limit(PAGE)).unique().scalars().all()
 
-	return subroutine.views.Vocabulary.for_tasks(context.session, rows)
+	return subroutine.views.Vocabulary.for_tasks(context.session, context.principal, rows)
 
 
 def _ready (context: Context) -> typing.Any:
@@ -937,7 +937,7 @@ def _agenda (context: Context) -> typing.Any:
 		horizon_days=subroutine.domain.agenda.DEFAULT_HORIZON_DAYS,
 	)
 
-	return subroutine.views.agenda(context.session, built)
+	return subroutine.views.agenda(context.session, context.principal, built)
 
 
 def _measured (
@@ -1189,7 +1189,7 @@ def test_a_page_with_no_milestone_asks_nothing_about_milestones (
 		sqlalchemy.event.listen(bind, "before_cursor_execute", noted)
 
 		try:
-			subroutine.views.Vocabulary.for_tasks(session, rows)
+			subroutine.views.Vocabulary.for_tasks(session, None, rows)
 		finally:
 			sqlalchemy.event.remove(bind, "before_cursor_execute", noted)
 

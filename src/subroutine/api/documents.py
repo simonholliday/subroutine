@@ -485,6 +485,7 @@ def listing (
 	links = (
 		subroutine.views.edges(
 			session,
+			actor,
 			subroutine.domain.links.edges(
 				session,
 				actor,
@@ -744,6 +745,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		found = subroutine.views.links(
 			session,
+			actor,
 			subroutine.domain.links.around(
 				session,
 				actor,
@@ -791,6 +793,7 @@ def _links_for (entity_type: str) -> typing.Any:
 
 		found = subroutine.views.beneath(
 			session,
+			actor,
 			subroutine.domain.links.beneath(
 				session,
 				actor,
@@ -851,7 +854,7 @@ def _links_for (entity_type: str) -> typing.Any:
 			session, actor, workspace_id=workspace.id, entity_type=entity_type, identifier=near.id
 		):
 			if related.id == created.id:
-				return subroutine.views.links(session, [related])[0]
+				return subroutine.views.links(session, actor, [related])[0]
 
 		raise subroutine.errors.InternalError("The link was created but cannot be read back.")
 
@@ -988,6 +991,7 @@ def _governing_for (entity_type: str) -> typing.Any:
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 		found = subroutine.views.governing(
 			session,
+			actor,
 			subroutine.domain.links.governing(
 				session,
 				actor,
@@ -1034,6 +1038,7 @@ def _proposed_links_for (entity_type: str) -> typing.Any:
 		near = _near(session, actor, workspace, entity_type, id_or_ref)
 		found = subroutine.views.proposals(
 			session,
+			actor,
 			subroutine.domain.links.proposals(
 				session,
 				actor,

@@ -2571,7 +2571,7 @@ def test_a_page_of_tasks_costs_the_same_number_of_queries_however_many_projects 
 		sqlalchemy.event.listen(session.get_bind(), "before_cursor_execute", count)
 
 		try:
-			vocabulary = subroutine.views.Vocabulary.for_tasks(session, rows)
+			vocabulary = subroutine.views.Vocabulary.for_tasks(session, None, rows)
 
 			for row in rows:
 				subroutine.views.task(row, vocabulary)
@@ -2585,7 +2585,7 @@ def test_a_page_of_tasks_costs_the_same_number_of_queries_however_many_projects 
 		"a page costs more queries than a single row, so something is loaded per row"
 	)
 
-	vocabulary = subroutine.views.Vocabulary.for_tasks(session, many)
+	vocabulary = subroutine.views.Vocabulary.for_tasks(session, None, many)
 	addresses = {subroutine.views.task(row, vocabulary).project_path for row in many}
 
 	assert "substation/level0/level1/level2/level3/level4" in addresses, (

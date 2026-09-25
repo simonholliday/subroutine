@@ -187,8 +187,9 @@ export const TASK_FIELDS = [
 	"ends_at",
 	"blocked", "sub_tasks_done",
 	/* A milestone whose included work is all done (`#3395`), and how far it has got until
-	   then (`#3396`), which `marks` draws. */
-	"included_done", "included_count", "included_done_count",
+	   then (`#3396`), which `marks` draws - and whether it includes more than its reader can
+	   see (`#3597`), without which *1 of 1* would read as finished. */
+	"included_done", "included_count", "included_done_count", "included_unseen",
 	"project_key",
 	"project_path",
 	/* **The colour in force for this row's project** (`#1027`) — its own, the nearest

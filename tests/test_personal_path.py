@@ -12177,6 +12177,60 @@ def test_a_plan_whose_end_names_its_year_counts_its_start_back_as_capture_does (
 	assert "20 December 2027 is a Monday" in " ".join(wrong.output.split()), wrong.output
 
 
+def _leave_the_project (key: str) -> None:
+	"""Take this instance's account out of one project, as if it had never been asked in."""
+
+	import sqlalchemy
+	import sqlalchemy.orm
+
+	import subroutine.config
+	import subroutine.db.models.project
+	import subroutine.db.session
+
+	engine = subroutine.db.session.create_engine(subroutine.config.load_settings().database_url)
+
+	try:
+		with sqlalchemy.orm.Session(engine) as session:
+			model = subroutine.db.models.project.Project
+			member = subroutine.db.models.project.ProjectMember
+			project = session.scalars(sqlalchemy.select(model).where(model.key == key)).one()
+			session.execute(sqlalchemy.delete(member).where(member.project_id == project.id))
+			session.commit()
+
+	finally:
+		engine.dispose()
+
+
+def test_a_milestone_says_it_includes_more_than_you_can_see (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3597` in the terminal: the list's column, ``show``'s heading and its JSON agree.
+
+	Each counts only the work this account can see, and says that there is more - never how much.
+	"""
+
+	run("init")
+	run("project", "create", "vault", "Vault", "--private")
+	run("add", "Launch", "--type", "milestone")
+	run("add", "Write the docs")
+	run("add", "Sign the contract +vault")
+	run("link", "1", "includes", "2,3")
+
+	_leave_the_project("vault")
+
+	said = "0 of 1 included done, and more you cannot see"
+
+	assert said in " ".join(run("list").output.split()), run("list").output
+
+	shown = run("show", "1").output
+
+	assert f"Links ({said})" in " ".join(shown.split()), shown
+
+	item = json.loads(run("show", "1", "--json").output)["item"]
+
+	assert (item["included_count"], item["included_unseen"]) == (1, True), item
+
+
 def test_planning_a_span_on_a_timed_item_refuses_without_advising_the_impossible (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

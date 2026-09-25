@@ -70,6 +70,12 @@ upgrade involves.
   A workspace that had renamed either made the downgrade fail on a database constraint, rather than
   complete or refuse in its own words.
 
+- **A milestone counts only the work you can see, and says when it includes more.** Its row
+  counted work in projects you cannot see - how many pieces, and how many were done - while its
+  own page counted only what you could. Both now count what you can see, and add *and more you
+  cannot see* where there is more, never how much. *Included done* still means all of it, seen or
+  not, so finishing what you can see does not tell you the milestone is finished.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

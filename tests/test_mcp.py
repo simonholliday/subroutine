@@ -1023,6 +1023,55 @@ def test_an_agent_can_say_what_blocks_what (
 	assert "Write the client" in _called(bound, "subroutine_list", ready=True)[0]
 
 
+def test_an_agent_is_told_a_milestone_includes_more_than_it_can_see (
+	bound: subroutine.mcp.protocol.Server, session: sqlalchemy.orm.Session
+) -> None:
+	"""`SR#3597` through the tools: the list's mark and the page's heading both say so.
+
+	The reader here leaves a private project after the milestone takes a piece of it, which is
+	what a member outside that project always was.
+	"""
+
+	made, failed = _called(bound, "subroutine_project", key="vault", title="Vault", private=True)
+
+	assert not failed, made
+
+	launch = _added(bound, "Launch")
+	seen = _added(bound, "Write the docs")
+	hidden = _added(bound, "Sign the contract +vault")
+
+	assert not _called(bound, "subroutine_update", ref=launch, type="milestone")[1]
+	assert not _called(
+		bound, "subroutine_link", ref=launch, type="includes", other=[seen, hidden]
+	)[1]
+
+	vault = session.scalars(
+		sqlalchemy.select(subroutine.db.models.project.Project).where(
+			subroutine.db.models.project.Project.key == "vault"
+		)
+	).one()
+	session.execute(
+		sqlalchemy.delete(subroutine.db.models.project.ProjectMember).where(
+			subroutine.db.models.project.ProjectMember.project_id == vault.id
+		)
+	)
+	session.flush()
+
+	shown, failed = _called(bound, "subroutine_show", ref=launch)
+
+	assert not failed, shown
+	# **The heading over its links, on a line of its own**: the row at the top says the same, so a
+	# check of the whole answer would pass with either one alone.
+	assert "0 of 1 included done, and more you cannot see" in [
+		line.strip() for line in shown.splitlines()
+	], shown
+
+	listed, failed = _called(bound, "subroutine_list")
+
+	assert not failed, listed
+	assert "0 of 1 included done, and more you cannot see" in listed, listed
+
+
 def test_an_agent_reading_a_milestone_is_told_how_much_of_it_is_done (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:
