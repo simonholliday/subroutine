@@ -119,6 +119,24 @@ upgrade involves.
   failure of the disk did. A settings file that is a link out of the repository is refused by
   saying where it leads.
 
+- **A search for an item's parent answers in the agent's tools and the browser.** `parent:12`
+  is asked of tasks and documents both, and each refused the other kind's number, so the search
+  failed whichever kind the number named - and on a project's page read as the project having
+  gone. The terminal already answered it. A number that names nothing is still refused.
+
+- **Moving a document and revising it in one call does both.** The move put the document's
+  version up, and the revision was then refused as somebody else's change - the call's own - and
+  answered that nothing had changed. The browser's edit form did the same when its Parent box
+  changed. A version given with such a call is now checked on the move, before anything is
+  written.
+
+- **A refusal after part of an act says what had already been done.** Several links made in one
+  call, a reason given to `done`, `skip`, `plan`, `defer` or `update`, and `user create` with
+  `--browser` or `--terminal` are each more than one request, and a busy database on a later one
+  said *this request changed nothing* while the earlier ones stood - so a reason was lost, or a
+  sign-in link made and never shown. The refusal now names what stands, and the command that
+  finishes the rest.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

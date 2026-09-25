@@ -1841,8 +1841,13 @@ class Client(typing.Protocol):
 		parent: int | None,
 		entity_type: str = "task",
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Put an item under another one, or at the top level — item ``#44``.
+
+		``expected_version`` refuses the move if the item has been saved since that version was
+		read (§8.9), as every other write here does - `#3592`: a move followed by a revision
+		has to be checked on the move, or the revision is refused for the caller's own move.
 
 		``parent`` is a ref, and ``None`` means top-level. **Required rather than defaulted**,
 		for ``move_project``'s reason: null is a real answer here and cannot double as "not

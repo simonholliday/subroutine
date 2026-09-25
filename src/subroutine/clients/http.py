@@ -1858,6 +1858,7 @@ class Client:
 		parent: int | None,
 		entity_type: str = "task",
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Put an item under another one, or at the top level."""
 
@@ -1868,8 +1869,12 @@ class Client:
 			f"/v1/{_plural(entity_type)}/{ref}/move",
 			# **Sent whatever it is, including null**, exactly as `move_project` sends it: the
 			# endpoint refuses a body naming no parent at all, so "move to the top" has to be
-			# said rather than implied, and `_given` would drop it.
-			json={"parent": None if parent is None else str(parent)},
+			# said rather than implied, and `_given` would drop it. The version is sent only when
+			# asked for, since ``None`` means the caller did not ask (§8.9).
+			json={
+				"parent": None if parent is None else str(parent),
+				**_given(expected_version=expected_version),
+			},
 			params=_given(workspace_id=workspace),
 		)
 

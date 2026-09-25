@@ -410,6 +410,76 @@ export function unpacked (answers, wanted) {
 	return { rows, cut: grouped ? cut : null, more, unread };
 }
 
+/* What a collection answers when it does not keep the ref it was asked about — `#3592`. Frozen,
+   because every forgiven half shares it. */
+const NOTHING_KEPT = Object.freeze({
+	items: Object.freeze([]),
+	page: Object.freeze({ has_more: false, next_cursor: null }),
+});
+
+export function namesTheOtherKind (failure) {
+	/*
+		Whether a refusal is one collection declining a ref the other keeps — `#3592`.
+
+		**Read off the field, as the server's own fan-out reads it**: a 404 naming `id_or_ref` is
+		`parent:1` put to the documents when #1 is a task, or to the tasks when it is a document.
+	*/
+	return Boolean(failure && failure.status === 404 && failure.body
+		&& (failure.body.errors || []).some((one) => one.field === "id_or_ref"));
+}
+
+export function forgiven (settled) {
+	/*
+		A listing's answers, forgiving a collection for not keeping a ref — `#3592`, and the
+		terminal's rule since `#3137`.
+
+		**Sent to both, and each refuses the other kind's ref by name**, which is right for a caller
+		asking one collection and, beside the other, is one half with nothing to add. This failed on
+		either refusal, so no search naming a task's parent answered at all, and on a project's page
+		the documents' 404 read as the project having gone.
+
+		**Only a ref, and only while another collection answered.** A ref that names nothing is
+		refused by all of them, and the first refusal is the answer; anything else is thrown as it
+		came.
+	*/
+	const failed = settled.filter((one) => one.status === "rejected").map((one) => one.reason);
+	const unforgiven = failed.find((reason) => !namesTheOtherKind(reason));
+
+	if (unforgiven) throw unforgiven;
+	if (failed.length && failed.length === settled.length) throw failed[0];
+
+	return settled.map((one) => (one.status === "fulfilled" ? one.value : NOTHING_KEPT));
+}
+
+export function aboutTheProject (failure) {
+	/*
+		Whether a 404 is about the project a page names — `#3592`. Every 404 on a project's page read
+		as *There is no project called … here any more*, including a search for a parent that
+		neither collection keeps.
+
+		**`query.project` is the field the instance names**, since a page sends its project as a
+		parameter and the API says which part of the request it means. Measured, and it is why the
+		test reads a refusal the application really sent: the first version of this asked for
+		`project`, which no answer carries, and would have ended the fallback without a word.
+	*/
+	return Boolean(failure && failure.status === 404 && failure.body
+		&& (failure.body.errors || []).some((one) => ["query.project", "project"].includes(one.field)));
+}
+
+export function unsaved (item, base, failure) {
+	/*
+		What the edit form says when its save is refused — `#3592`.
+
+		**A move that went through stands**, so the note says so rather than that nothing was
+		saved: the form moves an item and then saves it, and a refusal of the save is about the save
+		alone. `base` is what the save was checked against, which is the form's own item unless a
+		move answered with another.
+	*/
+	return base !== item
+		? `#${item.ref} was moved, and the rest was not saved. ${failure.message}`
+		: `#${item.ref} was not saved. ${failure.message}`;
+}
+
 
 export function accumulated (held, arriving, { appending, collections, ordering }) {
 	/*

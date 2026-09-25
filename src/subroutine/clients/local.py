@@ -3495,6 +3495,7 @@ class Client:
 		parent: int | None,
 		entity_type: str = "task",
 		workspace: str | None = None,
+		expected_version: int | None = None,
 	) -> subroutine.views.Task | subroutine.views.Document:
 		"""Put an item under another one, or at the top level."""
 
@@ -3513,7 +3514,12 @@ class Client:
 
 			if entity_type == "document":
 				subroutine.domain.documents.move(
-					session, row, parent=under, actor=actor, settings=self.settings
+					session,
+					row,
+					parent=under,
+					actor=actor,
+					settings=self.settings,
+					expected_version=expected_version,
 				)
 
 				return subroutine.views.document(
@@ -3525,7 +3531,12 @@ class Client:
 				)
 
 			subroutine.domain.tasks.move(
-				session, row, parent=under, actor=actor, settings=self.settings
+				session,
+				row,
+				parent=under,
+				actor=actor,
+				settings=self.settings,
+				expected_version=expected_version,
 			)
 
 			return subroutine.views.task(

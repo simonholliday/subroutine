@@ -13559,6 +13559,41 @@ def test_a_view_runs_in_the_workspace_it_was_saved_in (
 	assert "at home" not in worded, f"the view reached a workspace it was not saved in: {worded}"
 
 
+def test_a_reason_refused_after_the_act_says_the_act_stands (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3592`: ``done --because`` finishes the item, then writes why, as two requests.
+
+	A busy database on the second said *this request changed nothing*, the reason was lost, and a
+	retry said *Already done*. **The command it suggests is run**, since a reason is prose and a
+	shell is where it breaks.
+	"""
+
+	run("init")
+	run("add", "Pay the gas bill")
+
+	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse as a busy database does, whatever was asked."""
+
+		raise subroutine.errors.DatabaseBusy(
+			"The database was busy: another connection was writing to it."
+		)
+
+	remarking = subroutine.clients.local.Client.remark
+	monkeypatch.setattr(subroutine.clients.local.Client, "remark", busy)
+
+	said = " ".join(run("done", "1", "--because", "paid it by phone", expect=1).output.split())
+
+	assert "Done: Pay the gas bill, and the reason was not saved." in said, said
+	assert "subroutine comment 1 'Done - paid it by phone'" in said, said
+	assert "Already done" in run("done", "1").output, "the act stands"
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "remark", remarking)
+	run("comment", "1", "Done - paid it by phone")
+
+	assert "Done - paid it by phone" in run("show", "1").output
+
+
 def test_an_account_made_and_not_joined_says_how_to_finish (
 	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -517,6 +517,27 @@ class ServiceUnavailable(SubroutineError):
 	CODE = "service_unavailable"
 
 
+def after_saving (done: str, refused: SubroutineError, *, hint: str) -> SubroutineError:
+	"""Return ``refused``, opening with what earlier requests had already saved - `#3592`.
+
+	**A refusal is about one request**, and a busy database's says so in as many words - *this
+	request changed nothing* - which a caller reads as true of everything it asked for. Where an
+	act is several requests and a later one is refused, what the earlier ones saved comes first,
+	and the rest is the refusal as it came: its kind, its code and its fields.
+
+	**The hint is replaced rather than kept**, because *try it again* would now repeat what was
+	saved.
+	"""
+
+	return type(refused)(
+		f"{done} {refused.detail}",
+		code=refused.code,
+		errors=refused.errors,
+		hint=hint,
+		extensions=refused.extensions,
+	)
+
+
 def no_instance_yet () -> "ServiceUnavailable":
 	"""Return the refusal for a machine where nobody has run ``init`` yet (`#165`, `#698`).
 

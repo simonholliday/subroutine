@@ -31,8 +31,8 @@ import {
 	withShowing, widened,
 } from "./address.js";
 import {
-	Boundary, accumulated, inOrder, mergeOrder, newestFirst, notChanged, refusal, sunkOrder,
-	unpacked, unrenderable,
+	Boundary, aboutTheProject, accumulated, forgiven, inOrder, mergeOrder, newestFirst, notChanged,
+	refusal, sunkOrder, unpacked, unrenderable, unsaved,
 } from "./answers.js";
 import {
 	Facts, Foot, Note, Place, Prose, SavedViews, THEMES, Theme, Wordmark, You, applyTheme,
@@ -529,7 +529,9 @@ export function App () {
 		let answers;
 
 		try {
-			answers = await Promise.all(wanted.map(sent));
+			/* **Settled rather than raced** (`#3592`): a collection declining the other's ref is
+			   forgiven by `forgiven`, which is pure and checked, where `Promise.all` threw on it. */
+			answers = forgiven(await Promise.allSettled(wanted.map(sent)));
 		} catch (failure) {
 			/*
 				**A project named in an address may not be there any more, and that is the case
@@ -542,7 +544,7 @@ export function App () {
 				out loud. Only for the filter: a 404 with no project asked for is a different
 				fact and belongs to the caller.
 			*/
-			if (failure.status !== 404 || !key) throw failure;
+			if (!key || !aboutTheProject(failure)) throw failure;
 
 			setNote({ text: `There is no project called ${key} here any more. `
 				+ `Showing the whole workspace.`, tone: "bad" });
@@ -2161,6 +2163,10 @@ export function App () {
 		setBusy(true);
 		setConflict(null);
 
+		/* What the save is checked against: the form's item, or the one a move answered with. Out
+		   here rather than inside the attempt, so a refusal can tell whether a move went through. */
+		let base = open.item;
+
 		try {
 			/* **The item's own workspace** — `#1040`. This is the widest of the seven: a save
 			   carries the title, the description, the dates and the status, so against the
@@ -2191,13 +2197,18 @@ export function App () {
 
 			const asked = movingTo(values, open.item);
 
+			/* **The save is checked against the move's version** (`#3592`). The move put the version
+			   up and the save then sent the form's, so a reader who changed the parent was told
+			   *Somebody else saved this* about their own move. */
 			if (asked !== undefined) {
-				await sent(moveRequest(open.item, asked, open.item.kind, openIn));
+				const moved = await sent(moveRequest(open.item, asked, open.item.kind, openIn));
+
+				base = { ...open.item, version: moved.version };
 			}
 
 			const saved = await sent(open.item.kind === "document"
-				? documentRequest(values, open.item, openIn)
-				: updateRequest(values, open.item, openIn, appliesTo));
+				? documentRequest(values, base, openIn)
+				: updateRequest(values, base, openIn, appliesTo));
 
 			setNote({ text: `#${saved.ref} saved.`, tone: "good" });
 			setEditing(false);
@@ -2213,7 +2224,8 @@ export function App () {
 				return;
 			}
 
-			setNote({ text: `#${open.item.ref} was not saved. ${failure.message}`, tone: "bad" });
+			/* **A move that went through stands** (`#3592`), and `unsaved` says so. */
+			setNote({ text: unsaved(open.item, base, failure), tone: "bad" });
 		} finally {
 			setBusy(false);
 		}
@@ -3974,15 +3986,19 @@ export {
 	HORIZON_DAYS,
 } from "./settings.js";
 export {
+	aboutTheProject,
 	accumulated,
+	forgiven,
 	inOrder,
 	mergeOrder,
+	namesTheOtherKind,
 	newestFirst,
 	notChanged,
 	refusal,
 	sunkOrder,
 	unpacked,
 	unrenderable,
+	unsaved,
 } from "./answers.js";
 export {
 	Facts,

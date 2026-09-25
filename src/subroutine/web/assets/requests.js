@@ -1137,11 +1137,15 @@ export function moveRequest (item, parent, kind, slug) {
 		**`null` is a real value here and is why this is a body** (§8.3). *No parent* and
 		*unchanged* have to be distinguishable: `POST /v1/projects/{key}/move` learned that the
 		expensive way, where an omitted parent read as *move to root* and flattened subtrees.
+
+		**Checked against the version the form was opened on** (`#3592`), as a save is: the move
+		is the first of two writes, and a form somebody else has saved over is refused before
+		either.
 	*/
 	return {
 		path: scoped(`/${kind === "document" ? "documents" : "tasks"}/${item.ref}/move`, slug),
 		method: "POST",
-		body: { parent: parent === null ? null : String(parent) },
+		body: { parent: parent === null ? null : String(parent), expected_version: item.version },
 	};
 }
 

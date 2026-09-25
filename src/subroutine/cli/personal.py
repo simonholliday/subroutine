@@ -1891,7 +1891,7 @@ def _handed_over (
 	browser: bool,
 	terminal: bool,
 	workspace: str | None,
-) -> list[str]:
+) -> tuple[list[str], tuple[str, str] | None]:
 	"""Mint whatever was asked for and return what to say about it — item `#587`.
 
 	**Decision 4: the two are additive rather than exclusive**, and a real person forced it.
@@ -1902,15 +1902,28 @@ def _handed_over (
 	**Minted inside the caller's open connection, and printed outside it.** A secret that
 	exists and was never shown cannot be recovered — only a hash is kept (§7.4) — so nothing
 	here is allowed to fail between the mint and the line that carries it.
+
+	**A mint refused is returned beside what was said, never raised** (`#3592`). The account
+	exists by now, and a link minted before a refused credential has to reach the screen: raised,
+	it was lost with the refusal, and the refusal's *this request changed nothing* read as true of
+	the whole command.
 	"""
 
 	if not (browser or terminal):
-		return _what_is_still_needed(username)
+		return _what_is_still_needed(username), None
 
 	said: list[str] = []
 
 	if browser:
-		link = where.client.create_login_link(username=username)
+		try:
+			link = where.client.create_login_link(username=username)
+
+		except subroutine.errors.SubroutineError as refused:
+			return said, (
+				f"The sign-in link could not be made: {refused.detail}",
+				f"Make one with 'subroutine login link --username {username}'.",
+			)
+
 		said.append("")
 		said.extend(
 			subroutine.cli.output.sign_in_lines(
@@ -1935,9 +1948,19 @@ def _handed_over (
 		#
 		# A superuser has no workspace, and passing ``None`` correctly leaves the credential
 		# reaching all of them.
-		minted = where.client.issue_token(
-			username=username, title=f"{username} at the terminal", workspace=workspace
-		)
+		try:
+			minted = where.client.issue_token(
+				username=username, title=f"{username} at the terminal", workspace=workspace
+			)
+
+		except subroutine.errors.SubroutineError as refused:
+			pinned = f" --workspace {workspace}" if workspace else ""
+
+			return said, (
+				f"The credential for the terminal could not be made: {refused.detail}",
+				f"Make one with 'subroutine token create --username {username}{pinned}'.",
+			)
+
 		said.extend(
 			_terminal_handover(
 				minted.token,
@@ -1947,7 +1970,7 @@ def _handed_over (
 			)
 		)
 
-	return said
+	return said, None
 
 def _kept (held: int) -> str:
 	"""Say how many items survive a rename, with the verb and the possessive agreeing.
@@ -2752,7 +2775,7 @@ def _finished (program: Program, *, which: str, because: str) -> None:
 		# the place nobody re-reads, and a birthday carried "Done — ..." on its record for ever.
 		outcome = "Done" if achieved else "Marked as past"
 
-		_because(client, located, because, what=outcome)
+		_because(world, client, located, because, what=outcome)
 
 		program.say(_acted(world, dataclasses.replace(located, item=finished), outcome))
 		_suggest(program.console, "subroutine agenda")
@@ -2776,7 +2799,7 @@ def _skipped (program: Program, *, which: str, because: str) -> None:
 		client = _require_connection(program, world, located.connection)
 		skipped = client.skip(ref=task.ref, workspace=located.workspace)
 
-		_because(client, located, because, what="Skipped")
+		_because(world, client, located, because, what="Skipped")
 
 		program.say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
 		_suggest(program.console, "subroutine agenda")
@@ -2854,7 +2877,7 @@ def _planned (
 			)
 		)
 
-		_because(client, located, because, what=planned)
+		_because(world, client, located, because, what=planned)
 
 		program.say(_acted(world, dataclasses.replace(located, item=changed), planned))
 		_suggest(program.console, "subroutine agenda")
@@ -2896,7 +2919,7 @@ def _hidden (
 
 		deferred = f"Deferred until {_when_rendered(changed)}"
 
-		_because(client, located, because, what=deferred)
+		_because(world, client, located, because, what=deferred)
 
 		program.say(_acted(world, dataclasses.replace(located, item=changed), deferred))
 		_suggest(program.console, "subroutine agenda")
@@ -8858,7 +8881,7 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 					f"{role.strip() or ONBOARDING_ROLE} --workspace {joining}'.",
 				)
 
-			handed = _handed_over(
+			handed, unmade = _handed_over(
 				where,
 				world.settings,
 				created.username,
@@ -8869,6 +8892,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		if json_output:
 			program.say(json.dumps(created.model_dump(mode="json"), indent=2))
+
+			if unmade is not None:
+				program.stop(*unmade)
 
 			return
 
@@ -8884,6 +8910,11 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		for line in handed:
 			program.say(line)
+
+		# **What was made above stands, so the refusal comes after it** (`#3592`): the account, its
+		# membership and any link already shown are all there, and only the step named was not.
+		if unmade is not None:
+			program.stop(*unmade)
 
 	@user_app.command("list")
 	def user_list (
@@ -11010,7 +11041,7 @@ def _changed (
 		)
 		now = dataclasses.replace(located, item=changed)
 
-		_because(client, located, because, what="Changed")
+		_because(world, client, located, because, what="Changed")
 
 		if as_json:
 			program.say(json.dumps(_as_json(world, now.connection, now.item), indent=2))
@@ -12037,7 +12068,12 @@ def _suggest (
 
 
 def _because (
-	client: subroutine.clients.base.Client, located: Located, reason: str, *, what: str
+	world: World,
+	client: subroutine.clients.base.Client,
+	located: Located,
+	reason: str,
+	*,
+	what: str,
 ) -> None:
 	"""Record why an act was taken, as a comment on the item it was taken against.
 
@@ -12058,17 +12094,41 @@ def _because (
 	Written **after** the act, so a reason that cannot be recorded never claims a defer that
 	did not happen. Nothing is written when nobody gave a reason: an empty record entry would
 	timestamp a claim that something was said.
+
+	**And a reason refused after the act says the act stands** (`#3592`). A busy database's
+	*this request changed nothing* was true of the reason and read as true of the act, and a
+	retry then said *Already done* with the reason gone.
 	"""
 
 	if not reason.strip():
 		return
 
-	client.remark(
-		ref=located.ref,
-		body=f"{what} - {reason.strip()}",
-		entity_type=located.entity_type,
-		workspace=located.workspace,
-	)
+	body = f"{what} - {reason.strip()}"
+
+	try:
+		client.remark(
+			ref=located.ref,
+			body=body,
+			entity_type=located.entity_type,
+			workspace=located.workspace,
+		)
+
+	except subroutine.errors.SubroutineError as refused:
+		address = (
+			subroutine.domain.refs.format_address(
+				located.ref,
+				workspace=located.workspace,
+				connection=located.connection if world.qualifies_connection else None,
+			)
+			if world.qualifies_workspace or world.qualifies_connection
+			else str(located.ref)
+		)
+
+		raise subroutine.errors.after_saving(
+			f"{_acted(world, located, what)}, and the reason was not saved.",
+			refused,
+			hint=f"Add it with: subroutine comment {shlex.quote(address)} {shlex.quote(body)}",
+		) from refused
 
 
 def _waiting_on (item: Item) -> list[rich.text.Text]:

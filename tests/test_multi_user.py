@@ -691,6 +691,41 @@ def test_a_way_in_is_produced_in_the_same_command (
 	assert said.count("That is the only time it is shown") == 2
 
 
+def test_a_way_in_refused_after_the_account_still_shows_what_was_made (
+	run: typing.Callable[..., typer.testing.Result], monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3592`: the account, then a sign-in link, then a credential - three requests.
+
+	A refusal of the credential was raised past the link already minted, which was then never
+	shown, and read as the whole command having done nothing while the account was there.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	def busy (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
+		"""Refuse as a busy database does, whatever was asked."""
+
+		raise subroutine.errors.DatabaseBusy(
+			"The database was busy: another connection was writing to it."
+		)
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "issue_token", busy)
+
+	said = " ".join(run("user", "create", "tim", "--browser", "--terminal", expect=1).output.split())
+
+	assert "Created tim" in said, said
+	assert "/signin?link=" in said, "the link minted before the refusal was never shown"
+	assert "The credential for the terminal could not be made" in said, said
+	assert "subroutine token create --username tim --workspace acme" in said, said
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "create_login_link", busy)
+
+	linkless = " ".join(run("user", "create", "tom", "--browser", expect=1).output.split())
+
+	assert "Created tom" in linkless, linkless
+	assert "subroutine login link --username tom" in linkless, linkless
+
+
 def test_a_machine_identity_is_refused_a_browser_before_anything_is_written (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

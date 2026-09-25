@@ -66,6 +66,7 @@ import subroutine.domain.workspaces
 import subroutine.errors
 import subroutine.views
 import subroutine.web.vendored
+import test_api_tasks
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ASSETS = subroutine.api.web.ASSETS
@@ -9072,12 +9073,15 @@ def test_a_project_that_is_gone_does_not_take_the_page_with_it () -> None:
 	The filter is dropped, the workspace is read instead, and the reason is said out loud —
 	which is the difference between a link that ages and one that dies.
 
-	Source-level, for `SR#640`'s reason: the branch is inside `App`.
+	Source-level, for `SR#640`'s reason: the branch is inside `App`. **Only a 404 about the
+	project** since `SR#3592`, where a search for a parent neither collection keeps read as the
+	project having gone; `aboutTheProject` is driven against the refusal the instance really sends
+	by ``test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other``.
 	"""
 
 	app = _without_comments(_our_source())
 
-	assert "failure.status !== 404 || !key" in app, (
+	assert "!key || !aboutTheProject(failure)" in app, (
 		"a project that no longer exists no longer falls back to the workspace"
 	)
 	assert "any more" in app, "the reader is no longer told why the list widened"
@@ -11254,6 +11258,25 @@ def _views (
 					argument.slug, argument.key, argument.after, argument.selection
 				)
 			: name === "unpacked" ? app.unpacked(argument.answers, argument.wanted)
+			: name === "forgiven" ? (() => {{
+				const settled = argument.map((one) => (one.answer
+					? {{ status: "fulfilled", value: one.answer }}
+					: {{ status: "rejected", reason: app.refusal(one.status, one.problem) }}));
+
+				try {{
+					return {{ answers: app.forgiven(settled) }};
+				}} catch (thrown) {{
+					return {{ thrown: thrown.message, status: thrown.status }};
+				}}
+			}})()
+			: name === "aboutTheProject"
+				? app.aboutTheProject(app.refusal(argument.status, argument.problem))
+			: name === "unsaved"
+				? app.unsaved(
+					argument.item,
+					argument.moved ? {{ ...argument.item, version: argument.moved }} : argument.item,
+					app.refusal(argument.status, argument.problem),
+				)
 			: name === "columns" ? app.columns(argument)
 			: name === "mergedEntries" ? app.mergedEntries(argument.held, argument.arriving)
 			/* The day headings are the reader's locale's (`SR#2252`), so what is compared is which
@@ -20665,6 +20688,93 @@ def test_a_project_s_saved_agenda_is_drawn_on_that_project (tmp_path: pathlib.Pa
 	# **Drawn on the project, where every other view is drawn at its workspace** (`#3144`).
 	assert [place["project"] for place in applied] == ["web", None, None, None], applied
 	assert all(place["workspace"] == "acme" and not place["agenda"] for place in applied), applied
+
+
+def test_a_collection_that_does_not_keep_a_ref_is_forgiven_by_the_other (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3592`: ``parent:1`` is sent to both collections, and #1 is a task.
+
+	``Promise.all`` threw on the documents' refusal, so the search answered nothing, and on a
+	project's page the 404 read as *There is no project called … here any more*.
+
+	**Refusals the instance really sent**, read off the application rather than written here: a
+	synthetic one is how `SR#757`'s reader passed while the wire between them was missing.
+	"""
+
+	world = test_api_tasks._world(session)
+	parent = world.call("POST", "/v1/tasks", json={"title": "Plan the release"}).json()["ref"]
+	declined = world.call("GET", "/v1/documents", params={"q": f"parent:{parent}"})
+	elsewhere = world.call("GET", "/v1/tasks", params={"project": "nowhere"})
+
+	assert declined.status_code == 404, declined.text
+	assert elsewhere.status_code == 404, elsewhere.text
+
+	page = {"items": [{"ref": parent + 1, "title": "Write the changelog"}], "page": {"has_more": False}}
+	kept, both, other, gone, not_gone = _views(tmp_path, [
+		("forgiven", [{"answer": page}, {"status": 404, "problem": declined.json()}]),
+		("forgiven", [
+			{"status": 404, "problem": declined.json()},
+			{"status": 404, "problem": declined.json()},
+		]),
+		("forgiven", [{"answer": page}, {"status": 404, "problem": elsewhere.json()}]),
+		("aboutTheProject", {"status": 404, "problem": elsewhere.json()}),
+		("aboutTheProject", {"status": 404, "problem": declined.json()}),
+	])
+
+	assert kept == {"answers": [page, {"items": [], "page": {"has_more": False, "next_cursor": None}}]}
+	assert both["status"] == 404, "a ref neither collection keeps is refused, not answered as empty"
+	assert other["status"] == 404, "a refusal about anything but a ref is thrown as it came"
+	assert gone is True, "a project that has gone is still read as gone"
+	assert not_gone is False, "a ref the documents declined was read as the project having gone"
+
+
+def test_a_move_is_checked_against_the_version_the_form_was_opened_on (
+	session: sqlalchemy.orm.Session, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3592`: the edit form moves an item and then saves it, as two writes.
+
+	The save sent the version the form was opened on, which the move had just put up, so a
+	reader who changed the parent was told *Somebody else saved this* about their own move. The
+	move carries that version now, so a form somebody else has saved over is refused before
+	either write. **The body is the builder's own, sent to the application**, so the field it
+	names is one the route reads rather than one this test agrees with.
+	"""
+
+	world = test_api_tasks._world(session)
+	opened = world.call("POST", "/v1/tasks", json={"title": "Plan the release"}).json()
+	saved = world.call(
+		"PATCH", f"/v1/tasks/{opened['ref']}", json={"title": "Plan the next release"}
+	).json()
+	stale, current = _built(tmp_path, [
+		("moveRequest", [opened, None, "task", "acme"]),
+		("moveRequest", [saved, None, "task", "acme"]),
+	])
+
+	assert stale["body"] == {"parent": None, "expected_version": opened["version"]}, stale
+
+	refused = world.call("POST", f"/v1/tasks/{opened['ref']}/move", json=stale["body"])
+	moved = world.call("POST", f"/v1/tasks/{opened['ref']}/move", json=current["body"])
+
+	assert refused.status_code == 409, refused.text
+	assert moved.status_code == 200, moved.text
+
+	# **And the save after it is sent the move's version**, source-level for `SR#640`'s reason:
+	# the two writes are composed inside `App`, where nothing but the source can be asked.
+	source = _without_comments(_our_source())
+
+	assert "base = { ...open.item, version: moved.version };" in source
+	assert "unsaved(open.item, base, failure)" in source, "a refused save no longer asks"
+
+	# **A refused save after a move says the move stands**, and one with no move says nothing did.
+	problem = {"detail": "The database was busy: another connection was writing to it."}
+	after_a_move, alone = _views(tmp_path, [
+		("unsaved", {"item": opened, "moved": 2, "status": 503, "problem": problem}),
+		("unsaved", {"item": opened, "moved": None, "status": 503, "problem": problem}),
+	])
+
+	assert after_a_move.startswith(f"#{opened['ref']} was moved, and the rest"), after_a_move
+	assert alone.startswith(f"#{opened['ref']} was not saved."), alone
 
 
 def test_a_name_in_a_saved_view_is_read_back_as_that_name (tmp_path: pathlib.Path) -> None:

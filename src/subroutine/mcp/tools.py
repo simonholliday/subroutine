@@ -2247,7 +2247,7 @@ def _listed (
 	# **Only when the other kind will be asked.** With documents left out a task's refusal is
 	# the whole answer, and swallowing it would say *Nothing open* about a word nobody has.
 	documents_asked = not ready and _asks_only_of_documents(filters)
-	refused: subroutine.errors.ValidationError | None = None
+	refused: subroutine.errors.SubroutineError | None = None
 
 	try:
 		tasks = client.tasks(
@@ -2267,6 +2267,17 @@ def _listed (
 			raise
 
 		refused = unknown
+		tasks = subroutine.clients.base.Listing()
+
+	# **A ref names one kind, and the other refuses it by name** (`#3592`): ``parent:5`` where #5
+	# is a document is the documents' question, and the tasks' refusal is one half with nothing
+	# to add - the terminal's ``_listing`` has forgiven it since `#3137`. A ref naming nothing is
+	# refused by both, and the documents' handler below raises this one.
+	except subroutine.errors.NotFound as absent:
+		if not documents_asked or not subroutine.clients.base.names_what_another_place_keeps(absent):
+			raise
+
+		refused = absent
 		tasks = subroutine.clients.base.Listing()
 
 	# **`limit` bounds the answer, not each kind**, which is what the caller's budget means —
@@ -2307,6 +2318,18 @@ def _listed (
 			# **Both kinds refusing is what makes it a typo**, and the task's refusal is the one
 			# said, for the terminal's reason: somebody writing ``type:`` means a task's type far
 			# more often than a document's.
+			if refused is not None:
+				raise refused from None
+
+			documents = subroutine.clients.base.Listing()
+
+		# **And a task's ref, which the documents refuse by name** (`#3592`): ``parent:1`` where #1
+		# is a task answered *#1 is a task, not a document* as the whole reply, and threw away the
+		# children the tasks had just returned.
+		except subroutine.errors.NotFound as absent:
+			if not subroutine.clients.base.names_what_another_place_keeps(absent):
+				raise
+
 			if refused is not None:
 				raise refused from None
 
@@ -3888,12 +3911,22 @@ def _wrote (
 	#
 	# **`_ref` and not `int()`**, so `#7` is read the way every listing prints it — the sigil
 	# is published on this argument by `A_REF` and a guard drives every one of them with it.
+	#
+	# **Checked on the move, and the revision against the move's version** (`#3592`, and `#1696`'s
+	# rule for a call made of two writes). The move put the version up and the revision then
+	# presented the caller's, so it was refused as a conflict with the caller's own move - and the
+	# answer said *nothing was changed* about a document it had just moved. A version nobody
+	# asked about is still not asked about.
+	guarding = _version(arguments)
+	moved = None
+
 	if arguments.get("parent") is not None:
-		client.move(
+		moved = client.move(
 			ref=_ref(arguments),
 			parent=_ref(arguments, field="parent"),
 			entity_type="document",
 			workspace=workspace,
+			expected_version=guarding,
 		)
 
 	def said (name: str) -> typing.Any:
@@ -3905,33 +3938,47 @@ def _wrote (
 
 	tags = _words(arguments, "tags")
 
-	revised = client.update_document(
-		ref=_ref(arguments),
-		title=said("title"),
-		body=said("body"),
-		type=said("type"),
-		# **Both halves, because one without the other leaves the complaint standing**
-		# (`#1188`). Offering ``status`` only at creation would let an agent choose but never
-		# correct — and the case the item was filed from is exactly a correction: something
-		# written as a draft that turns out to bind the next session. `#506` made
-		# ``status_key`` reachable from a client for this reason and only one caller used it.
-		status=said("status"),
-		project=said("project"),
-		tags=subroutine.clients.base.UNSET if tags is None else tags,
-		workspace=workspace,
-		# **The one surface where a lost update takes a whole document** (`#842`, §8.9).
-		# A revision is a whole-body replace, so what is lost is not a field — it is every
-		# paragraph the other writer added, with no record that they existed. The browser
-		# has sent this since `#761` and said in its own comment that *it matters more here
-		# than on a task*; this surface is the one where the other writer is not in the
-		# room and nothing is visible afterwards, which is what `#598` and `#705` are about.
-		#
-		# **Opt-in, and that is not a weakness here** (§8.9): ``None`` means *did not ask*,
-		# never *asked and passed*. An agent that read the document has the version in the
-		# same answer and loses nothing by sending it; one that did not is writing a
-		# document it never read, which is a different mistake.
-		expected_version=_version(arguments),
-	)
+	try:
+		revised = client.update_document(
+			ref=_ref(arguments),
+			title=said("title"),
+			body=said("body"),
+			type=said("type"),
+			# **Both halves, because one without the other leaves the complaint standing**
+			# (`#1188`). Offering ``status`` only at creation would let an agent choose but never
+			# correct — and the case the item was filed from is exactly a correction: something
+			# written as a draft that turns out to bind the next session. `#506` made
+			# ``status_key`` reachable from a client for this reason and only one caller used it.
+			status=said("status"),
+			project=said("project"),
+			tags=subroutine.clients.base.UNSET if tags is None else tags,
+			workspace=workspace,
+			# **The one surface where a lost update takes a whole document** (`#842`, §8.9).
+			# A revision is a whole-body replace, so what is lost is not a field — it is every
+			# paragraph the other writer added, with no record that they existed. The browser
+			# has sent this since `#761` and said in its own comment that *it matters more here
+			# than on a task*; this surface is the one where the other writer is not in the
+			# room and nothing is visible afterwards, which is what `#598` and `#705` are about.
+			#
+			# **Opt-in, and that is not a weakness here** (§8.9): ``None`` means *did not ask*,
+			# never *asked and passed*. An agent that read the document has the version in the
+			# same answer and loses nothing by sending it; one that did not is writing a
+			# document it never read, which is a different mistake.
+			expected_version=guarding if moved is None or guarding is None else moved.version,
+		)
+
+	# **The move stands, so a refusal of the revision says so** (`#3592`). It is about the
+	# revision alone, and read as the whole call's it would send somebody to move it again.
+	except subroutine.errors.SubroutineError as refused:
+		if moved is None:
+			raise
+
+		raise subroutine.errors.after_saving(
+			f"#{moved.ref} was put under #{_ref(arguments, field='parent')} first, and the rest "
+			"was not saved.",
+			refused,
+			hint="The move stands: send the rest again without 'parent'.",
+		) from refused
 
 	# **A revision consults no marker, deliberately.** Omitted means unchanged (§8.3), so a
 	# document keeps the project it was filed under; letting the checkout speak here would move
@@ -4416,43 +4463,79 @@ def _linked (
 		# **One line each rather than a count**, even at twenty (`#1352`). The confusable thing
 		# is direction, and a count cannot disconfirm it — *made 20 links* reads identically
 		# whichever way round they went.
-		return "\n".join(
-			_said(
-				client.link(
-					ref=ref,
-					link_type=link_type,
-					target=one,
-					entity_type=kind,
-					target_type=other_kind,
-					workspace=workspace,
-				),
-				ref=ref,
-			)
-			for ref, kind in zip(refs, kinds_near, strict=True)
-			for one, other_kind in zip(others, kinds, strict=True)
-		)
+		#
+		# **One request per link, so a refusal says what was made before it** (`#3592`). A busy
+		# database's *this request changed nothing* read as true of the call, while the links
+		# made before it stood.
+		made: list[str] = []
 
-	said = []
+		for ref, kind in zip(refs, kinds_near, strict=True):
+			for one, other_kind in zip(others, kinds, strict=True):
+				try:
+					joined = client.link(
+						ref=ref,
+						link_type=link_type,
+						target=one,
+						entity_type=kind,
+						target_type=other_kind,
+						workspace=workspace,
+					)
+
+				except subroutine.errors.SubroutineError as refused:
+					if not made:
+						raise
+
+					raise _after_some(made, len(refs) * len(others), refused) from refused
+
+				made.append(_said(joined, ref=ref))
+
+		return "\n".join(made)
+
+	# **Every pair is found before any is withdrawn** (`#3592`): one not joined, met after the
+	# first had gone, was refused as though nothing had been.
+	withdrawing = []
 
 	for ref, kind in zip(refs, kinds_near, strict=True):
+		held = client.links(ref=ref, entity_type=kind, workspace=workspace)
+
 		for one in others:
-			joins = [
-				found
-				for found in client.links(ref=ref, entity_type=kind, workspace=workspace)
-				if found.other.ref == one
-			]
+			joins = [found for found in held if found.other.ref == one]
 
 			if not joins:
 				raise LookupError(f"#{ref} is not joined to #{one}.")
 
+			withdrawing.append((ref, kind, one, joins))
+
+	said: list[str] = []
+
+	for ref, kind, one, joins in withdrawing:
+		try:
 			for join in joins:
 				client.unlink(
 					ref=ref, link_id=str(join.id), entity_type=kind, workspace=workspace
 				)
 
-			said.append(f"Withdrew the link between #{ref} and #{one}.")
+		except subroutine.errors.SubroutineError as refused:
+			if not said:
+				raise
+
+			raise _after_some(said, len(withdrawing), refused) from refused
+
+		said.append(f"Withdrew the link between #{ref} and #{one}.")
 
 	return "\n".join(said)
+
+
+def _after_some (
+	done: list[str], asked: int, refused: subroutine.errors.SubroutineError
+) -> subroutine.errors.SubroutineError:
+	"""Return the refusal of a link after others in the same call were saved - `#3592`."""
+
+	return subroutine.errors.after_saving(
+		f"{len(done)} of {asked} went through first:\n" + "\n".join(done) + "\nThen:",
+		refused,
+		hint="Those stand. Ask again for the rest.",
+	)
 
 
 def _projected (

@@ -530,6 +530,182 @@ def test_a_refusal_reaches_the_agent_with_its_remedy_attached (
 	assert "friday" in answered, answered
 
 
+def _documented (server: subroutine.mcp.protocol.Server, **arguments: typing.Any) -> int:
+	"""Write a document and return the ref it was given."""
+
+	written, failed = _called(server, "subroutine_document", **arguments)
+
+	assert not failed, written
+
+	numbered = re.search(r"#(\d+)", written)
+
+	assert numbered is not None, written
+
+	return int(numbered.group(1))
+
+
+def test_a_parent_of_either_kind_is_asked_for_in_one_search (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3592`: ``parent:<ref>`` failed in the agent's tools unless the ref named nothing.
+
+	Both collections are asked, and each refuses the other kind's ref by name, so a task's
+	children were thrown away with the documents' refusal - *#1 is a task, not a document* as
+	the whole answer - and a document's sections with the tasks'. The terminal has forgiven one
+	half since `SR#3137`.
+	"""
+
+	above = _added(bound, "Plan the release")
+	child, failed = _called(bound, "subroutine_add", text="Write the changelog", parent=above)
+
+	assert not failed, child
+
+	notes = _documented(bound, title="The release notes", body="Because.")
+	_documented(bound, title="What changed", body="Much.", parent=notes)
+
+	children, failed = _called(bound, "subroutine_search", q=f"parent:{above}")
+
+	assert not failed, children
+	assert "Write the changelog" in children, children
+
+	sections, failed = _called(bound, "subroutine_search", q=f"parent:{notes}")
+
+	assert not failed, sections
+	assert "What changed" in sections, sections
+
+	# **A ref that names nothing is still refused**, by name, rather than answered as empty.
+	nowhere, failed = _called(bound, "subroutine_search", q=f"parent:{notes + 1000}")
+
+	assert failed, nowhere
+	assert str(notes + 1000) in nowhere, nowhere
+
+
+def test_a_document_moved_and_revised_in_one_call_is_both (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3592`: the move put the version up, and the revision was then refused for it.
+
+	``subroutine_document(ref, parent=…, body=…, expected_version=1)`` moved the document, then
+	presented version 1 to a revision of version 2 - a conflict with its own move - and answered
+	*Nothing was changed* about a document it had just moved.
+	"""
+
+	notes = _documented(bound, title="The release notes", body="Because.")
+	changed = _documented(bound, title="What changed", body="Much.")
+
+	revised, failed = _called(
+		bound,
+		"subroutine_document",
+		ref=changed,
+		parent=notes,
+		body="Much more.",
+		expected_version=1,
+	)
+
+	assert not failed, revised
+	assert "Much more." in _called(bound, "subroutine_show", ref=changed)[0]
+	assert "What changed" in _called(bound, "subroutine_search", q=f"parent:{notes}")[0]
+
+	# **And a stale version refuses the move itself**, before anything is written.
+	stale = _documented(bound, title="What was fixed", body="Little.")
+
+	assert not _called(bound, "subroutine_document", ref=stale, body="Less.")[1]
+
+	refused, failed = _called(
+		bound,
+		"subroutine_document",
+		ref=stale,
+		parent=notes,
+		body="Other.",
+		expected_version=1,
+	)
+
+	assert failed, refused
+	assert "What was fixed" not in _called(bound, "subroutine_search", q=f"parent:{notes}")[0]
+	assert "Less." in _called(bound, "subroutine_show", ref=stale)[0]
+
+
+def test_links_made_before_a_refusal_are_named_by_it (
+	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3592`: several links are a request each, and a busy refusal spoke for all of them.
+
+	*This request changed nothing* is true of the refused link and was read as true of the call,
+	while the first link stood. Both directions, since withdrawing is a request per link too.
+	"""
+
+	blocker = _added(bound, "Fix the build")
+	first = _added(bound, "Cut the tag")
+	second = _added(bound, "Publish the release")
+	linking = subroutine.clients.local.Client.link
+	unlinking = subroutine.clients.local.Client.unlink
+	asked: list[str] = []
+
+	def busy_the_second_time (original: typing.Any) -> typing.Any:
+		"""Return a stand-in for ``original`` that refuses as a busy database, on its second call."""
+
+		def stand_in (self: typing.Any, **keywords: typing.Any) -> typing.Any:
+			"""Refuse the second call, and let every other one through."""
+
+			asked.append(original.__name__)
+
+			if asked.count(original.__name__) == 2:
+				raise subroutine.errors.DatabaseBusy(
+					"The database was busy: another connection was writing to it."
+				)
+
+			return original(self, **keywords)
+
+		return stand_in
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "link", busy_the_second_time(linking))
+
+	made, failed = _called(
+		bound, "subroutine_link", ref=blocker, type="blocks", other=[first, second]
+	)
+
+	assert failed, made
+	assert "1 of 2 went through first" in made, made
+	assert f"#{first}" in made, made
+
+	monkeypatch.setattr(subroutine.clients.local.Client, "link", linking)
+	assert not _called(bound, "subroutine_link", ref=blocker, type="blocks", other=second)[1]
+	monkeypatch.setattr(subroutine.clients.local.Client, "unlink", busy_the_second_time(unlinking))
+
+	withdrawn, failed = _called(
+		bound, "subroutine_link", ref=blocker, other=[first, second], remove=True
+	)
+
+	assert failed, withdrawn
+	assert "1 of 2 went through first" in withdrawn, withdrawn
+	assert f"Withdrew the link between #{blocker} and #{first}" in withdrawn, withdrawn
+
+
+def test_links_are_all_found_before_any_is_withdrawn (
+	bound: subroutine.mcp.protocol.Server,
+) -> None:
+	"""`SR#3592`: a pair that was never joined, met after the first was withdrawn.
+
+	It was refused as though nothing had been done, and the first link was gone.
+	"""
+
+	blocker = _added(bound, "Fix the build")
+	first = _added(bound, "Cut the tag")
+	second = _added(bound, "Publish the release")
+
+	assert not _called(bound, "subroutine_link", ref=blocker, type="blocks", other=first)[1]
+
+	refused, failed = _called(
+		bound, "subroutine_link", ref=blocker, other=[first, second], remove=True
+	)
+
+	assert failed, refused
+	assert f"is not joined to #{second}" in refused, refused
+	assert f"#{first}" in _called(bound, "subroutine_show", ref=blocker)[0], (
+		"the first link was withdrawn before the second was found missing"
+	)
+
+
 def test_an_update_that_was_half_saved_says_which_half (
 	bound: subroutine.mcp.protocol.Server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
