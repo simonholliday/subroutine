@@ -108,6 +108,11 @@ VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?$")
 #: changelog's own preamble already describes the file this way.
 UNRELEASED = re.compile(r"^##\s+Unreleased\b.*$", re.IGNORECASE | re.MULTILINE)
 
+#: The README, whose *It runs on itself* gives figures about this project's own tracker, and the
+#: words that date them (`#3607`). Read by the dry run, which says when they were measured.
+README = ROOT / "README.md"
+MEASURED = re.compile(r"At\s+the\s+time\s+of\s+writing\s+\(([^)]+)\)")
+
 
 def main (argv: list[str] | None = None) -> int:
 	"""Write ``version`` into every place a release names itself, then commit and tag it."""
@@ -176,6 +181,7 @@ def main (argv: list[str] | None = None) -> int:
 
 		print(f"  commit {len(changing)}, then tag v{version}"
 		      + (f" — {unchanged} {already} what this release wants" if unchanged else ""))
+		print(_when_measured())
 
 		return 0
 
@@ -257,6 +263,29 @@ def _gate () -> str | None:
 		"    git revert --no-edit HEAD\n"
 		f"    python scripts/release.py {_git('log', '-1', '--format=%s').removeprefix('Release ')}\n\n"
 		"  A skipped version number is cheap; a tag with nothing behind it is not."
+	)
+
+
+def _when_measured () -> str:
+	"""Say when the README's figures were measured, for whoever is about to tag (`#3607`).
+
+	**Before every tag** (Simon, 2026-09-25): *It runs on itself* is dated, and a release is when
+	somebody reads it fresh. Said in the dry run because every release starts with one, and said
+	rather than refused, because a stale count is prose and no reason to stop a release. **A
+	README that dates nothing is said too**, since silence would read exactly like no reminder.
+	"""
+
+	found = MEASURED.search(README.read_text(encoding="utf-8")) if README.is_file() else None
+
+	if found is None:
+		return (
+			"Before you tag: README.md does not say when its figures were measured. "
+			"scripts/readme_counts.py measures them."
+		)
+
+	return (
+		f"Before you tag: README.md's figures were measured on {' '.join(found.group(1).split())}. "
+		"scripts/readme_counts.py measures them again."
 	)
 
 

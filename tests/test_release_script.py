@@ -608,6 +608,40 @@ def test_a_dry_run_says_what_the_record_would_gain (
 	assert not (repository / "docs" / "releases.json").exists()
 
 
+def test_a_dry_run_says_when_the_readme_figures_were_measured (
+	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
+) -> None:
+	"""`#3607`: they are refreshed before every tag, so the dry run a tag begins with dates them.
+
+	Read however the paragraph happens to wrap, since a README is rewrapped whenever it is edited.
+	"""
+
+	(repository / "README.md").write_text(
+		"It is not the only thing in there. At the time of writing (21st\nSeptember 2026) the "
+		"workspace holds a great deal.\n",
+		encoding="utf-8",
+	)
+	_git(repository, "add", "README.md")
+	_git(repository, "commit", "-q", "-m", "A README with dated figures")
+
+	done = cut("0.1.1", "--dry-run")
+
+	assert done.returncode == 0, done.stderr
+	assert "measured on 21st September 2026." in done.stdout, done.stdout
+	assert "scripts/readme_counts.py" in done.stdout, done.stdout
+
+
+def test_a_dry_run_says_so_when_the_readme_dates_nothing (
+	cut: typing.Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+	"""`#3607`: this fixture has no README at all, and silence would read like no reminder."""
+
+	done = cut("0.1.1", "--dry-run")
+
+	assert done.returncode == 0, done.stderr
+	assert "README.md does not say when its figures were measured" in done.stdout, done.stdout
+
+
 def test_the_uvx_pin_moves_to_the_series_being_released (
 	repository: pathlib.Path, cut: typing.Callable[..., subprocess.CompletedProcess[str]]
 ) -> None:
