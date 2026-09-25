@@ -2755,6 +2755,30 @@ def _finished (program: Program, *, which: str, because: str) -> None:
 		_suggest(program.console, "subroutine agenda")
 
 
+def _skipped (program: Program, *, which: str, because: str) -> None:
+	"""Let one of a repeating task go by, and bring the next: ``skip``'s body.
+
+	**Out here for :func:`_finished`'s reason, and called the same way**: the command reads the
+	reason before calling this, as ``done`` does, so a refused ``--because -`` refuses before the
+	occurrence has gone (`#3587`). Read after the skip, it left the occurrence skipped, with no
+	reason and no line saying so.
+	"""
+
+	with program.opened() as world:
+		located, task = _a_task(program,
+			world,
+			_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
+			verb="skip",
+		)
+		client = _require_connection(program, world, located.connection)
+		skipped = client.skip(ref=task.ref, workspace=located.workspace)
+
+		_because(client, located, because, what="Skipped")
+
+		program.say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
+		_suggest(program.console, "subroutine agenda")
+
+
 def _planned (
 	program: Program,
 	*,
@@ -10042,19 +10066,7 @@ def register (
 		  subroutine skip 42 --because "away that week"
 		"""
 
-		with program.opened() as world:
-			located, task = _a_task(program,
-				world,
-				_asked(which, "Which one? (a number like 42 - a shell eats '#42')"),
-				verb="skip",
-			)
-			client = _require_connection(program, world, located.connection)
-			skipped = client.skip(ref=task.ref, workspace=located.workspace)
-
-			_because(client, located, _reason(program, because), what="Skipped")
-
-			say(_acted(world, dataclasses.replace(located, item=skipped), "Skipped"))
-			_suggest(console, "subroutine agenda")
+		_skipped(program, which=which, because=_reason(program, because))
 
 	@app.command()
 	def plan (
@@ -11265,7 +11277,20 @@ def _text_or_standard_input (program: "Program", value: str, flag: str) -> str:
 			f"'{flag} \"the text\"'.",
 		)
 
-	return sys.stdin.read()
+	piped = sys.stdin.read()
+
+	# **An empty pipe is refused as a terminal is** (`#3587`). An agent's shell has no terminal, so
+	# the refusal above never reached the caller `#3166` was written for: `-` read nothing, and a
+	# description was cleared or a reason dropped without a word. Every caller reads this before
+	# it writes, so the refusal comes before anything has changed.
+	if not piped.strip():
+		program.stop(
+			f"'{flag} -' means read what is piped in, and the pipe was empty.",
+			f"Pipe the text in - 'cat notes.md | subroutine … {flag} -' - or pass it as "
+			f"'{flag} \"the text\"'.",
+		)
+
+	return piped
 
 
 def _described (program: "Program", given: str) -> str | None:

@@ -172,6 +172,12 @@ upgrade involves.
   token variable holding only spaces is now refused by name, rather than skipped for whatever
   else this machine holds.
 
+- **A hyphen with nothing piped in is refused, rather than read as nothing.** `--description -`
+  and `--because -` read an empty pipe as empty text, so in a shell with no terminal - which is
+  where an agent works - a project's or a workspace's description was cleared, a reason was
+  dropped, and `skip` let the occurrence go before refusing. Each is refused now, before
+  anything is written.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

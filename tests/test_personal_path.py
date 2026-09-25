@@ -5842,6 +5842,46 @@ def test_a_hyphen_with_nothing_piped_says_so_instead_of_hanging (
 	assert "Findings" not in run("list").output
 
 
+def test_a_hyphen_with_an_empty_pipe_is_refused_before_anything_changes (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3587`: with no terminal, ``-`` read an empty pipe as nothing, and wrote it.
+
+	An agent's shell has no terminal, so the refusal the test above drives never reached the caller
+	`SR#3166` was written for: a project's or a workspace's description was cleared, a reason
+	dropped, and `skip` let the occurrence go before it refused. **Each is refused now, before
+	anything is written**, for an empty pipe and for one holding only a line break.
+	"""
+
+	run("init")
+	run("add", "Water the plants", "--repeat", "every tuesday")
+	run("add", "Fix the boiler", "--description", "Keep this text.")
+	run("project", "create", "web", "Website", "--description", "Keep this text.")
+	run("workspace", "create", "zion", "Zion", "--description", "The last city.")
+	run("use", "projects")
+	run("doc", "create", "Findings", "--body", "Keep this body.")
+	stored = _stored_prose()
+	listed = run("list", "--json").output
+
+	for command in (
+		("project", "update", "web", "--description", "-"),
+		("workspace", "update", "zion", "--description", "-"),
+		("update", "3", "--description", "-"),
+		("done", "3", "--because", "-"),
+		("skip", "2", "--because", "-"),
+		("doc", "edit", "4", "--title", "Retitled", "--body", "-"),
+	):
+		for piped in ("", "\n"):
+			refused = run(*command, input=piped, expect=1)
+
+			assert "the pipe was empty" in refused.output, (command, piped, refused.output)
+
+	assert _stored_prose() == stored, "an empty pipe changed a description or recorded a reason"
+	assert run("list", "--json").output == listed, (
+		"an empty pipe changed, finished or skipped something"
+	)
+
+
 def test_writing_a_document_needs_no_type_or_project (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:
@@ -10062,18 +10102,22 @@ def test_an_assignee_filter_returns_no_documents_at_all (
 #: buys one option and leaves the next one at the same wall, which is the ratchet being worked
 #: around rather than paid.
 #:
-#: **1,500 	 1,482 on 2026-09-24, and `SR#943` closes on it.** The last two definitions in
+#: **1,500 → 1,482 on 2026-09-24, and `SR#943` closes on it.** The last two definitions in
 #: the closure that Typer does not register left it: ``_Listing``, the class ``list`` is
 #: registered with, and ``show_today``, now a ``functools.partial`` over ``_show_today``. A
 #: line count could not see either - a four-line helper fits under any ceiling, and one came
 #: back while the item sat open - so
 #: :func:`test_nothing_is_defined_in_the_closure_but_the_commands_it_registers` asks the tree.
 #:
-#: **1,482 	 1,437 on 2026-09-24 (`SR#3548`), and it paid for three commands at once.** `list`,
+#: **1,482 → 1,437 on 2026-09-24 (`SR#3548`), and it paid for three commands at once.** `list`,
 #: `search` and `view run` took the context their `…and more` hint is read back from, and `ls`
 #: stopped being a copy of `list`'s options and body and became `list` registered a second
 #: time. Fifty-odd lines of a copy that could drift out, three lines of options in.
-REGISTER_CEILING = 1_437
+#:
+#: **1,437 → 1,425 on 2026-09-24 (`SR#3587`).** ``skip``'s body left as :func:`_skipped`, as
+#: ``done``'s left as :func:`_finished`, so its reason is read before the occurrence goes: read
+#: after, a refused ``--because -`` left it skipped with no reason and no line saying so.
+REGISTER_CEILING = 1_425
 
 #: The floor that stops the ceiling above being met by a scanner that read nothing. Both
 #: numbers move together as stages land: lines out of ``register`` become functions here.
