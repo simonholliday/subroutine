@@ -51,6 +51,25 @@ upgrade involves.
   not be read as a range, the em dash form set a start at the first time and left the second in
   the title without a word. It is now left whole and reported, as the hyphen's always was.
 
+- **An item's history and the change feed say what an unlink removed.** Both said *unlinked it
+  from something*, in the terminal and in the agent tools, while the journal beside them named
+  the other item.
+
+- **A loop through two relations is refused, as a loop through one always was.** *X blocks Y*
+  followed by *Y precedes X* was accepted, and so were two milestones that each counted the other,
+  through `includes` and a relation of a workspace's own in the same category. A loop that holds
+  no work up is now called a sequence that cannot come back to where it started, not work that
+  can never begin.
+
+- **A link type cannot move into or out of the gating or counting category under its links.**
+  Moving `blocks` to counting made every task that blocked something read as including work, and
+  moving `includes` to gating held every milestone's work off `--ready`. While links use a relation
+  such a move is now refused, saying how many; any other move still goes through.
+
+- **Downgrading the database below 0.9.7 finds the milestone type and `includes` under any name.**
+  A workspace that had renamed either made the downgrade fail on a database constraint, rather than
+  complete or refuse in its own words.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

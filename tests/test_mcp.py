@@ -8642,6 +8642,67 @@ def test_a_link_event_missing_its_ends_says_the_honest_thing_instead () -> None:
 	assert subroutine.views.happened(event(None)) == "linked it to something"
 
 
+def test_an_unlink_is_phrased_from_what_it_removed () -> None:
+	"""`SR#3591`: an unlink records its ends under ``from``, and this read ``to`` alone.
+
+	`SR#3131` gave a deletion its ends in the shape every other delete uses, so every unlink since
+	has been readable - and every surface reading through here still said it was unlinked from
+	something. One written before then holds nothing, and still falls back.
+	"""
+
+	def unlinked (changes: dict[str, typing.Any] | None) -> subroutine.views.Event:
+		"""Return an unlink event carrying this payload."""
+
+		return subroutine.views.Event(
+			seq=1,
+			id=uuid.uuid4(),
+			entity_type="link",
+			entity_id=uuid.uuid4(),
+			workspace_id=uuid.uuid4(),
+			subject_type="task",
+			subject_id=uuid.uuid4(),
+			action="deleted",
+			changes=changes,
+			actor_user_id=None,
+			actor_token_id=None,
+			created_at=subroutine.db.types.utcnow(),
+		)
+
+	removed = {
+		"link_type": {"from": "blocks", "to": None},
+		"source": {"from": 7, "to": None},
+		"target": {"from": 9, "to": None},
+	}
+
+	assert subroutine.views.happened(unlinked(removed)) == "unlinked #7 blocks #9"
+	assert subroutine.views.happened(unlinked(None)) == "unlinked it from something"
+
+
+def test_an_unlink_names_what_it_removed_in_the_history_and_the_feed (
+	bound: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3591` through the tools: the item's history and the feed name both ends.
+
+	Driven, because the rule above is only as good as the payload it is handed, and the payload
+	is the domain's to write.
+	"""
+
+	monkeypatch.setattr(subroutine.domain.events, "WATERMARK", datetime.timedelta(0))
+
+	first = _added(bound, "Build the endpoint")
+	second = _added(bound, "Write the client")
+
+	assert not _called(bound, "subroutine_link", ref=first, type="blocks", other=second)[1]
+	assert not _called(bound, "subroutine_link", ref=first, other=second, remove=True)[1]
+
+	history = _called(bound, "subroutine_show", ref=first, history=True)[0]
+	feed = _called(bound, "subroutine_changes")[0]
+
+	for surface, said in (("history", history), ("feed", feed)):
+		assert f"unlinked #{first} blocks #{second}" in said, (surface, said)
+		assert "unlinked it from something" not in said, (surface, said)
+
+
 def test_a_change_an_agent_reads_is_named_in_the_readers_words (
 	bound: subroutine.mcp.protocol.Server,
 ) -> None:

@@ -5115,9 +5115,14 @@ def _a_link (event: Event) -> str | None:
 	"""
 
 	changes = event.changes or {}
-	relation = (changes.get("link_type") or {}).get("to")
-	source = (changes.get("source") or {}).get("to")
-	target = (changes.get("target") or {}).get("to")
+	# **A deletion's ends are under ``from``** (`#3591`), as every delete's values are since
+	# `#3131`. Reading ``to`` alone left every unlink saying *unlinked it from something* on the
+	# four readers that come through here - an item's history and the change feed, in the
+	# terminal and in the agent tools - while the journal beside them named the far end.
+	side = "from" if event.action == "deleted" else "to"
+	relation = (changes.get("link_type") or {}).get(side)
+	source = (changes.get("source") or {}).get(side)
+	target = (changes.get("target") or {}).get(side)
 
 	if relation is None or source is None or target is None:
 		return None
@@ -5155,7 +5160,8 @@ def a_link_from_this_side (entry: JournalEntry) -> str | None:
 	those events were not backfilled (`#52`), because inventing a far end from today's links
 	would be a claim about the past the data does not support. So every unlink already in a
 	history still degrades to *unlinked it from something* - the degradation `#302` asks of
-	:func:`_a_link`, one surface along.
+	:func:`_a_link`, one surface along, which reads a fresh unlink's ends as this does since
+	`#3591`.
 	"""
 
 	if entry.entity_type != "link":

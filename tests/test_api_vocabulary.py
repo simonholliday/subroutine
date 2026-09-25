@@ -390,6 +390,73 @@ def test_renaming_a_link_type_leaves_readiness_and_the_labels_agreeing (
 	)
 
 
+def test_a_link_type_cannot_move_into_or_out_of_gating_or_counting_under_its_links (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3596`: the rules of those two are checked where a link is made, and never again.
+
+	Moving ``blocks`` into ``counting`` answered 200 and made every task that blocked something
+	one that included work; moving ``includes`` into ``gating`` held each milestone's work off
+	``?ready=true``. **Any other move still goes through with links in place**, because decision
+	`SR#1157`'s remedy for a workspace's own ``precedes`` is moving it from ``describing`` to
+	``ordering``, links and all - and a relation with no links moves anywhere.
+	"""
+
+	kinds = {one["key"]: one for one in world.call("GET", "/v1/link-types").json()["items"]}
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Draft the plan"}).json()
+	second = world.call("POST", "/v1/tasks", json={"title": "Agree the plan"}).json()
+	launch = test_api_tasks._milestone(world, "Launch")
+
+	for near, far, key in (
+		(first["ref"], second["ref"], "blocks"),
+		(launch["ref"], second["ref"], "includes"),
+		(first["ref"], second["ref"], "relates_to"),
+	):
+		made = test_api_tasks._link_from(world, near, far, key)
+
+		assert made.status_code == 201, made.text
+
+	for key, becoming in (("blocks", "counting"), ("includes", "gating"), ("blocks", "describing")):
+		moved = world.call(
+			"PATCH", f"/v1/link-types/{kinds[key]['id']}", json={"category": becoming}
+		)
+
+		assert moved.status_code == 409, (key, becoming, moved.text)
+		assert moved.json()["code"] == "in_use", moved.text
+		assert "joins 1 link" in moved.json()["detail"], moved.text
+
+	after = {one["key"]: one for one in world.call("GET", "/v1/link-types").json()["items"]}
+
+	assert (after["blocks"]["category"], after["includes"]["category"]) == ("gating", "counting")
+
+	# **The remedy `SR#1157` names**, with a link in place, and a relation nothing uses.
+	relating = world.call(
+		"PATCH", f"/v1/link-types/{kinds['relates_to']['id']}", json={"category": "ordering"}
+	)
+
+	assert relating.status_code == 200, relating.text
+
+	made = world.call(
+		"POST",
+		"/v1/link-types",
+		json={
+			"key": "mitigates",
+			"title": "Mitigates",
+			"inverse_title": "Mitigated by",
+			"category": "describing",
+		},
+	)
+
+	assert made.status_code == 201, made.text
+
+	unused = world.call(
+		"PATCH", f"/v1/link-types/{made.json()['id']}", json={"category": "gating"}
+	)
+
+	assert unused.status_code == 200, unused.text
+
+
 def test_a_link_category_outside_the_vocabulary_is_refused_by_name (
 	world: test_api_tasks.World,
 ) -> None:

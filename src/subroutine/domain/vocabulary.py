@@ -51,7 +51,9 @@ import subroutine.db.models.vocabulary
 import subroutine.db.models.work
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.milestones
 import subroutine.domain.patch
+import subroutine.domain.readiness
 import subroutine.domain.settings
 import subroutine.domain.tags
 import subroutine.domain.text
@@ -603,13 +605,74 @@ def update_link_type (
 	# **Changeable, where a status category is not**, and the asymmetry is the point. A status
 	# category decides how every row already stored reads; this decides what the program
 	# concludes from an edge, and a workspace whose own relation came out of `#1157`'s migration
-	# as `describing` has to be able to say what it actually is.
+	# as `describing` has to be able to say what it actually is. **Except into or out of the two
+	# categories whose rules are checked where a link is made** (`#3596`) - see
+	# :func:`_refuse_a_move_the_links_were_not_made_for`.
 	if category is not subroutine.domain.patch.UNSET:
-		kind.category = _refuse_a_category_that_is_not_one(category)
+		becoming = _refuse_a_category_that_is_not_one(category)
+
+		_refuse_a_move_the_links_were_not_made_for(session, kind, becoming=becoming)
+
+		kind.category = becoming
 
 	session.flush()
 
 	return kind
+
+
+#: The link categories whose rules are checked where a link is made, and nowhere after - `#3596`.
+#: ``gating`` holds work up and refuses a ring of itself; ``counting`` is drawn only from a
+#: milestone and counts toward it.
+_CHECKED_WHEN_LINKED = frozenset(
+	{subroutine.domain.readiness.GATING, subroutine.domain.milestones.COUNTING}
+)
+
+
+def _refuse_a_move_the_links_were_not_made_for (
+	session: sqlalchemy.orm.Session,
+	kind: subroutine.db.models.vocabulary.LinkType,
+	*,
+	becoming: str,
+) -> None:
+	"""Refuse moving a relation into or out of gating or counting while links use it - `#3596`.
+
+	**The rules of those two are checked where a link is made**: only a milestone includes,
+	nothing includes itself, and no ring of ``blocks`` holds its own work up. A move re-reads
+	every link the relation already joins by rules none of them was checked against. Moving
+	``blocks`` into ``counting`` answered 200 and turned every task that blocked something into
+	one that included work, so retyping it was refused as *a milestone*; moving ``includes`` into
+	``gating`` held every milestone's own work off ``--ready``.
+
+	**Any other move is allowed while links exist, and has to be**: `#1157`'s own remedy for a
+	workspace's ``precedes`` is moving it from ``describing`` to ``ordering``, links and all.
+	"""
+
+	if becoming == kind.category:
+		return
+
+	if kind.category not in _CHECKED_WHEN_LINKED and becoming not in _CHECKED_WHEN_LINKED:
+		return
+
+	link = subroutine.db.models.work.Link
+	joined = session.scalar(
+		sqlalchemy.select(sqlalchemy.func.count(link.id)).where(
+			link.link_type_id == kind.id, link.deleted_at.is_(None)
+		)
+	) or 0
+
+	if not joined:
+		return
+
+	noun = "link" if joined == 1 else "links"
+
+	raise subroutine.errors.InUse(
+		f"{kind.title!r} joins {joined} {noun}, so it cannot move from {kind.category!r} to "
+		f"{becoming!r}.",
+		hint=(
+			"Each of those links was made under the rules of the category it has now. Make a new "
+			"relation in the category you want, or remove these links first."
+		),
+	)
 
 
 def delete_link_type (

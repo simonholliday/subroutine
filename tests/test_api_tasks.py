@@ -2991,6 +2991,113 @@ def test_a_ring_of_includes_is_refused_because_a_milestone_cannot_be_inside_itse
 	assert closing.json()["errors"][0]["message"].count("\u2192") == 2, "the chain, not the ends"
 
 
+def test_a_ring_through_two_relations_of_one_kind_is_refused (world: World) -> None:
+	"""`SR#3593`: the ring check walked one relation, so a ring through two was accepted.
+
+	**Order**, which decision `SR#1157` reads as one question for both sequencing categories -
+	anything that gates also orders: *X blocks Y* and then *Y precedes X* says each comes first.
+	Nothing is held up, since ``precedes`` never gates, so the refusal says so rather than that
+	neither could be started. **And counting**: a workspace's own relation in ``counting`` beside
+	``includes`` made each milestone count the other, and the tree drew one under the other under
+	the first.
+	"""
+
+	first = world.call("POST", "/v1/tasks", json={"title": "Draft the plan"}).json()
+	second = world.call("POST", "/v1/tasks", json={"title": "Agree the plan"}).json()
+
+	assert _link_from(world, first["ref"], second["ref"], "blocks").status_code == 201
+
+	ordered = _link_from(world, second["ref"], first["ref"], "precedes")
+
+	assert ordered.status_code == 409, ordered.text
+	assert ordered.json()["code"] == "cycle_detected"
+	assert "A sequence cannot come back to where it started" in ordered.json()["hint"], ordered.text
+	assert "Neither could ever be started" not in ordered.json()["hint"], ordered.text
+
+	# **And closed by ``blocks``**, where the new link gates and the way back does not: still no
+	# work is held up, so the sentence is still about order.
+	third = world.call("POST", "/v1/tasks", json={"title": "Book the room"}).json()
+	fourth = world.call("POST", "/v1/tasks", json={"title": "Send the invites"}).json()
+
+	assert _link_from(world, third["ref"], fourth["ref"], "precedes").status_code == 201
+
+	gated = _link_from(world, fourth["ref"], third["ref"], "blocks")
+
+	assert gated.status_code == 409, gated.text
+	assert "A sequence cannot come back to where it started" in gated.json()["hint"], gated.text
+
+	made = world.call(
+		"POST",
+		"/v1/link-types",
+		json={
+			"key": "delivers",
+			"title": "Delivers",
+			"inverse_title": "Delivered by",
+			"category": "counting",
+		},
+	)
+
+	assert made.status_code == 201, made.text
+
+	launch = _milestone(world, "Launch")
+	beta = _milestone(world, "Beta")
+
+	assert _link_from(world, launch["ref"], beta["ref"], "includes").status_code == 201
+
+	counted = _link_from(world, beta["ref"], launch["ref"], "delivers")
+
+	assert counted.status_code == 409, counted.text
+	assert counted.json()["code"] == "cycle_detected"
+	assert "cannot be inside itself" in counted.json()["hint"], counted.text
+
+
+def test_an_ordinary_task_left_with_an_includes_link_is_neither_counted_nor_held (
+	world: World,
+) -> None:
+	"""`SR#3596`: the milestone rules asked what a link was and never what the task was.
+
+	Only a milestone can include, and every route to an ordinary task including work is refused
+	now. One that got there anyway - here by retyping under the refusal, in the database - showed
+	a count on its row that its own page did not, and could not be retyped again, being told it
+	was a milestone.
+	"""
+
+	launch = _milestone(world, "Launch")
+	# **A milestone on the page as well**, since a page with none counts nothing at all.
+	_milestone(world, "Beta")
+	part = world.call("POST", "/v1/tasks", json={"title": "Write the docs"}).json()
+
+	assert _link_from(world, launch["ref"], part["ref"], "includes").status_code == 201
+
+	row = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.work.Task).where(
+			subroutine.db.models.work.Task.workspace_id == world.workspace.id,
+			subroutine.db.models.work.Task.ref == launch["ref"],
+		)
+	).one()
+	plain = world.session.scalars(
+		sqlalchemy.select(subroutine.db.models.vocabulary.ItemType).where(
+			subroutine.db.models.vocabulary.ItemType.workspace_id == world.workspace.id,
+			subroutine.db.models.vocabulary.ItemType.entity_type == "task",
+			subroutine.db.models.vocabulary.ItemType.key == "task",
+		)
+	).one()
+	row.type_id = plain.id
+	world.session.flush()
+
+	listed = world.call("GET", "/v1/tasks?limit=50")
+
+	assert listed.status_code == 200, listed.text
+
+	row_read = next(one for one in listed.json()["items"] if one["ref"] == launch["ref"])
+
+	assert (row_read["included_count"], row_read["included_done"]) == (0, False), row_read
+
+	retyped = world.call("PATCH", f"/v1/tasks/{launch['ref']}", json={"type": "feature"})
+
+	assert retyped.status_code == 200, retyped.text
+
+
 def test_a_milestone_that_includes_work_cannot_stop_being_one (world: World) -> None:
 	"""`SR#3395`: only a milestone includes, by every route, which is `SR#1246`'s lesson.
 

@@ -598,16 +598,29 @@ def _refuse_a_loop (
 	):
 		return
 
+	kin = _kin(session, link_type, workspace_id=workspace_id)
 	chain = _chain_reaching(
 		session,
 		workspace_id=workspace_id,
 		start=(target.entity_type, target.id),
 		looking_for=(source.entity_type, source.id),
-		link_type_id=link_type.id,
+		link_type_ids=list(kin),
 	)
 
 	if chain is None:
 		return
+
+	# **Held up only if every link back gates too** (`#3593`): *X blocks Y* beside *Y precedes X*
+	# is a sequence that contradicts itself and holds nothing, since ``precedes`` never gates.
+	stuck = link_type.category == subroutine.domain.readiness.GATING and _chain_reaching(
+		session,
+		workspace_id=workspace_id,
+		start=(target.entity_type, target.id),
+		looking_for=(source.entity_type, source.id),
+		link_type_ids=[
+			one for one, category in kin.items() if category == subroutine.domain.readiness.GATING
+		],
+	) is not None
 
 	written = " → ".join(
 		subroutine.domain.refs.format_ref(ref) for ref in _refs_for(session, chain)
@@ -639,7 +652,44 @@ def _refuse_a_loop (
 				message=f"The chain that comes back is {written}.",
 			)
 		],
-		hint=_why_a_ring_is_wrong(session, link_type, workspace_id=workspace_id),
+		hint=_why_a_ring_is_wrong(session, link_type, workspace_id=workspace_id, stuck=stuck),
+	)
+
+
+def _kin (
+	session: sqlalchemy.orm.Session,
+	link_type: subroutine.db.models.vocabulary.LinkType,
+	*,
+	workspace_id: uuid.UUID,
+) -> dict[uuid.UUID, str]:
+	"""Return the relations a ring through this one may run through, and their categories.
+
+	**Every relation of its kind, not only itself** (`#3593`). A ring is wrong because of what
+	each link in it asserts, not because of which relation asserts it: *#1 includes #2* beside
+	*#2 delivers #1*, a relation of the workspace's own in ``counting``, makes each milestone
+	count the other, and *X blocks Y* beside *Y precedes X* says each comes first. Decision
+	`#1157` already reads the two sequencing categories as one question - anything that gates
+	also orders - so they are walked together. The counting ones are walked together, and
+	superseding, named by its key, on its own.
+	"""
+
+	if link_type.category in SEQUENCING:
+		categories = SEQUENCING
+
+	elif link_type.category == subroutine.domain.milestones.COUNTING:
+		categories = frozenset({subroutine.domain.milestones.COUNTING})
+
+	else:
+		return {link_type.id: link_type.category}
+
+	model = subroutine.db.models.vocabulary.LinkType
+
+	return dict(
+		session.execute(
+			sqlalchemy.select(model.id, model.category).where(
+				model.workspace_id == workspace_id, model.category.in_(categories)
+			)
+		).tuples().all()
 	)
 
 
@@ -648,6 +698,7 @@ def _why_a_ring_is_wrong (
 	link_type: subroutine.db.models.vocabulary.LinkType,
 	*,
 	workspace_id: uuid.UUID,
+	stuck: bool,
 ) -> str:
 	"""Say what is actually wrong with this ring, and what to do instead.
 
@@ -681,9 +732,11 @@ def _why_a_ring_is_wrong (
 			"Withdraw a link in that chain."
 		)
 
+	# **Only a ring that gates all the way round holds work up** (`#3593`). A ring through
+	# ``precedes`` asserts an order that cannot be true and stops nothing from being started.
 	wrong = (
 		"Neither could ever be started."
-		if link_type.category == subroutine.domain.readiness.GATING
+		if stuck
 		else "A sequence cannot come back to where it started."
 	)
 
@@ -717,9 +770,9 @@ def _chain_reaching (
 	workspace_id: uuid.UUID,
 	start: _Node,
 	looking_for: _Node,
-	link_type_id: uuid.UUID,
+	link_type_ids: typing.Sequence[uuid.UUID],
 ) -> list[_Node] | None:
-	"""Return the chain of live links of one type from one item to another, or ``None``.
+	"""Return the chain of live links of these types from one item to another, or ``None``.
 
 	Breadth-first, **one query per level rather than one per node**, so a chain three deep
 	costs three statements however wide it is. Measured on this instance's own backlog when
@@ -745,7 +798,7 @@ def _chain_reaching (
 				model.source_type, model.source_id, model.target_type, model.target_id
 			).where(
 				model.workspace_id == workspace_id,
-				model.link_type_id == link_type_id,
+				model.link_type_id.in_(link_type_ids),
 				model.source_id.in_([identifier for _, identifier in frontier]),
 				model.deleted_at.is_(None),
 			)
@@ -881,7 +934,8 @@ def remove (
 		action=subroutine.domain.events.EventAction.DELETED,
 		# **What was removed, in the shape every other delete uses** (`#3131`): the value under
 		# ``from`` and ``to`` null, which is what :func:`subroutine.views.a_link_from_this_side`
-		# reads for a deletion and what ``views._a_link`` already expects. Until this, an unlink
+		# and ``views._a_link`` read for a deletion - the second since `#3591`, having read ``to``
+		# alone until then and said nothing of what an unlink removed. Until this, an unlink
 		# was an event that said something was removed and never said what — so *why is this no
 		# longer under that milestone* was a question the record could not answer, about the one
 		# relationship a person undoes and later wonders about.

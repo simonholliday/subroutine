@@ -2319,3 +2319,115 @@ def test_going_back_below_milestones_refuses_while_anything_uses_them (
 
 	finally:
 		engine.dispose()
+
+
+@pytest.mark.parametrize("migrated_url", ["sqlite", "postgresql"], indirect=True)
+@pytest.mark.parametrize("used", [False, True], ids=["unused", "used"])
+def test_going_back_below_milestones_finds_what_it_added_under_any_name (
+	migrated_url: str, used: bool
+) -> None:
+	"""`SR#3593`: the downgrade found the rows it added by key, and a workspace may rename them.
+
+	With ``includes`` renamed it passed over the row, narrowed the category's CHECK over it and
+	failed on the constraint - used or not - rather than refusing in its own words or completing.
+	The system flag and the category find ``includes`` and ``milestone`` whatever they are called.
+	"""
+
+	engine = subroutine.db.session.create_engine(migrated_url)
+
+	try:
+		with engine.begin() as connection:
+			workspace, status, kind = _a_seedable_workspace(connection, "w")
+			goal = subroutine.db.types.new_uuid()
+			contains = subroutine.db.types.new_uuid()
+			project = subroutine.db.types.new_uuid()
+
+			_insert(
+				connection,
+				"item_type",
+				{
+					"id": goal,
+					"workspace_id": workspace,
+					"entity_type": "task",
+					"key": "goal",
+					"label": "Goal",
+					"category": "target",
+					"position": 2000,
+					"is_system": True,
+				},
+			)
+			_insert(
+				connection,
+				"link_type",
+				{
+					"id": contains,
+					"workspace_id": workspace,
+					"key": "contains",
+					"title": "Contains",
+					"inverse_title": "Contained in",
+					"category": "counting",
+					"is_symmetric": False,
+					"is_system": True,
+				},
+			)
+			_insert(
+				connection,
+				"project",
+				{"id": project, "workspace_id": workspace, "key": "p", "title": "P", "status_id": status},
+			)
+
+			tasks = []
+
+			for ref in (1, 2):
+				task = subroutine.db.types.new_uuid()
+				tasks.append(task)
+				_insert(
+					connection,
+					"task",
+					{
+						"id": task,
+						"workspace_id": workspace,
+						"project_id": project,
+						"type_id": goal if used and ref == 1 else kind,
+						"status_id": status,
+						"ref": ref,
+						"title": f"Task {ref}",
+					},
+				)
+
+			if used:
+				_insert(
+					connection,
+					"link",
+					{
+						"id": subroutine.db.types.new_uuid(),
+						"workspace_id": workspace,
+						"source_type": "task",
+						"source_id": tasks[0],
+						"target_type": "task",
+						"target_id": tasks[1],
+						"link_type_id": contains,
+					},
+				)
+
+		if used:
+			with pytest.raises(Exception) as refused:
+				subroutine.db.migrate.downgrade(migrated_url, _BEFORE_MILESTONES)
+
+			for words in ("1 task(s) are 'milestone'", "1 link(s) use"):
+				assert words in str(refused.value), f"not refused in its own words: {refused.value}"
+
+			assert (workspace, "contains", "Contains", "counting", True) in _vocabulary(
+				engine, "link_type"
+			), "the link type was deleted anyway"
+
+			return
+
+		subroutine.db.migrate.downgrade(migrated_url, _BEFORE_MILESTONES)
+
+		assert not [row for row in _vocabulary(engine, "link_type") if row[1] == "contains"]
+		assert not [row for row in _vocabulary(engine, "item_type") if row[1] == "goal"]
+
+	finally:
+		engine.dispose()
+

@@ -137,9 +137,10 @@ REGISTRY: dict[str, ErrorDefinition] = {
 			409,
 			"Still in use",
 			"The thing being removed is still referenced - a status some tasks are in, a "
-			"link type some links use. The message says how many, so the caller can move "
-			"them rather than guess. Removing a *tag* is deliberately not this: taking a "
-			"label off the things it is on is what deleting a label means.",
+			"link type some links use - or a link type is being moved into or out of a "
+			"category whose rules its links were made under. The message says how many, so "
+			"the caller can move them rather than guess. Removing a *tag* is deliberately not "
+			"this: taking a label off the things it is on is what deleting a label means.",
 		),
 		_define(
 			"cycle_detected",

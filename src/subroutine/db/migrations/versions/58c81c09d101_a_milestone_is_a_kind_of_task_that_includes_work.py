@@ -249,11 +249,16 @@ def downgrade () -> None:
 
     connection = op.get_bind()
 
+    # **Found by what they are, not by what they are called** (`SR#3593`). A workspace may rename
+    # the seeded type and relations, and a renamed `includes` was passed over - the CHECK was then
+    # narrowed over it, and the downgrade failed on the constraint rather than refusing in its own
+    # words. The category marks `milestone` and `includes` whatever their keys; a renamed
+    # `precedes` is left behind, which is harmless, since `ordering` stays in the column.
     types = list(
         connection.scalars(
             sqlalchemy.select(item_type.c.id).where(
                 item_type.c.entity_type == 'task',
-                item_type.c.key == MILESTONE['key'],
+                item_type.c.category == TYPE_CATEGORY,
                 item_type.c.is_system.is_(True),
             )
         )
@@ -262,7 +267,8 @@ def downgrade () -> None:
     edges = list(
         connection.scalars(
             sqlalchemy.select(link_type.c.id).where(
-                link_type.c.key.in_(keys), link_type.c.is_system.is_(True)
+                sqlalchemy.or_(link_type.c.category == LINK_CATEGORY, link_type.c.key.in_(keys)),
+                link_type.c.is_system.is_(True),
             )
         )
     )

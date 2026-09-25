@@ -118,6 +118,8 @@ def progress_among (
 	kind = subroutine.db.models.vocabulary.LinkType
 	part = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
 	filed_in = sqlalchemy.orm.aliased(subroutine.db.models.project.Project)
+	holder = sqlalchemy.orm.aliased(subroutine.db.models.work.Task)
+	typed = sqlalchemy.orm.aliased(subroutine.db.models.vocabulary.ItemType)
 
 	counted = session.execute(
 		sqlalchemy.select(
@@ -129,11 +131,17 @@ def progress_among (
 		.join(kind, kind.id == link.link_type_id)
 		.join(part, sqlalchemy.and_(part.id == link.target_id, link.target_type == "task"))
 		.join(filed_in, filed_in.id == part.project_id)
+		# **Only a milestone's count** (`#3596`): a counting link from anything else is refused where
+		# links are made, and one that got there another way gave an ordinary row a count its own
+		# page did not show.
+		.join(holder, holder.id == link.source_id)
+		.join(typed, typed.id == holder.type_id)
 		.where(
 			link.source_type == "task",
 			link.source_id.in_(wanted),
 			link.deleted_at.is_(None),
 			kind.category == COUNTING,
+			typed.category == subroutine.domain.readiness.TARGET,
 			part.deleted_at.is_(None),
 			filed_in.deleted_at.is_(None),
 		)
@@ -164,6 +172,12 @@ def refuse_to_stop_including (
 	"""
 
 	if becoming.category == subroutine.domain.readiness.TARGET:
+		return
+
+	# **Asked of a milestone only** (`#3596`): a task that is not one has nothing to stop being,
+	# and counting its links refused an ordinary task's retype as *a milestone* once a relation
+	# it used had been moved into ``counting``.
+	if not is_one(session, task.id):
 		return
 
 	link = subroutine.db.models.work.Link
