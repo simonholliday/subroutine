@@ -901,7 +901,7 @@ _ORDERABLE: dict[str, Property] = {
 		orderable=True,
 		because=(
 			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
-			" -  `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+			"- `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
 		),
 	),
 }
@@ -1297,7 +1297,7 @@ DOCUMENT_PROPERTIES: dict[str, Property] = {
 		orderable=True,
 		because=(
 			"`q` already matches the title, and `title:foo` is a filter wearing search syntax "
-			" -  `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
+			"- `#1801` §8, and the grammar gives it for nothing once `#1806` lands."
 		),
 	),
 	"ref": Property(

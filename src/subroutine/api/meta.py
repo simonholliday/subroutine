@@ -550,7 +550,7 @@ def guide_text () -> str:
 		"does not touch the commented-on item's `updated_at` at all. `?touched_by.eq=<username>` "
 		"narrows it to one person, and the two are one question rather than two, so they match "
 		"the same events. Claiming and releasing do not count - that is bookkeeping, not work "
-		" -  and work you finished in the period is included, since finishing something is the "
+		"- and work you finished in the period is included, since finishing something is the "
 		"clearest case of having worked on it. `include_completed=false` beside it narrows to "
 		"what is still in flight.",
 		"",

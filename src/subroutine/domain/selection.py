@@ -498,7 +498,7 @@ def task (
 			# to believe documents were immutable and stopped filing them at all.
 			raise subroutine.errors.NotFound(
 				f"{subroutine.domain.refs.format_ref(instead.ref)} is a document, not a task "
-				f" -  {instead.title}",
+				f"- {instead.title}",
 				errors=[
 					subroutine.errors.FieldError(
 						field="id_or_ref",
@@ -572,7 +572,7 @@ def document (
 			# Having looked, it can say which.
 			raise subroutine.errors.NotFound(
 				f"{subroutine.domain.refs.format_ref(instead.ref)} is a task, not a document "
-				f" -  {instead.title}",
+				f"- {instead.title}",
 				errors=[
 					subroutine.errors.FieldError(
 						field="id_or_ref",

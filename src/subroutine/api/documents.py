@@ -102,8 +102,8 @@ class Update(subroutine.api.schemas.RequestModel):
 	Omitted is unchanged; null clears.
 
 	**Superseding is a link, not a field here** (`SR#1684`). ``POST /v1/tasks/{ref}/links`` and
-	the document equivalent take a ``supersedes`` link, which is the same mechanism a task uses
-	 -  where this was a column only a document had, and which no surface ever rendered.
+	the document equivalent take a ``supersedes`` link, which is the same mechanism a task uses,
+	where this was a column only a document had, and which no surface ever rendered.
 	"""
 
 	title: str | None = None

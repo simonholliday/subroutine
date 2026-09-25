@@ -3263,6 +3263,70 @@ def test_the_scan_of_what_the_program_prints_can_fire (tmp_path: pathlib.Path) -
 	assert dict(glyphs) == {"loud.py": 1}, glyphs
 
 
+#: A hyphen with a space on one side and two on the other, or one opening a line with two after
+#: it, which Markdown reads as a bullet: what the dash sweep left where a string had been split
+#: before its dash (`SR#3594`).
+DOUBLED_BESIDE_A_HYPHEN = re.compile(r"[^\s] {2,}- |[^\s\-] - {2,}[^\s]|(?:^|\n)[ \t]+- {2,}\S")
+
+
+def _doubled_beside_a_hyphen (
+	root: pathlib.Path = ROOT / "src" / "subroutine",
+) -> tuple[list[str], int]:
+	"""Return every string under ``root`` doubling a space beside a hyphen, and how many were read.
+
+	**Docstrings included**, unlike the em-dash scan above: a response model's docstring is its
+	published schema description, and one of these opened a line of it with a hyphen, which then
+	renders as a bullet. **Read after the parser has joined a split string**, which is the point:
+	the defect was two strings, each of them fine on its own.
+	"""
+
+	offenders: list[str] = []
+	read = 0
+
+	for path in sorted(root.rglob("*.py")):
+		if "migrations" in path.parts:
+			continue
+
+		for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+			if isinstance(node, ast.Constant) and isinstance(node.value, str):
+				read += 1
+
+				if DOUBLED_BESIDE_A_HYPHEN.search(node.value):
+					offenders.append(f"{path.relative_to(root)}:{node.lineno}")
+
+	return offenders, read
+
+
+def test_no_string_doubles_a_space_beside_a_hyphen () -> None:
+	"""`SR#3594`: the dash sweep turned a string split before its dash into one reading ``" -  "``.
+
+	Six carried it: a refusal the agent tools print, the agent guide, a filter's reason given
+	twice, and a published schema description whose line then opened with a hyphen.
+	"""
+
+	offenders, read = _doubled_beside_a_hyphen()
+
+	assert read > 5000, f"the scan read {read} strings, which is too few to be the program"
+	assert not offenders, "a doubled space beside a hyphen: " + ", ".join(offenders)
+
+
+def test_the_doubled_space_scan_can_fire (tmp_path: pathlib.Path) -> None:
+	"""`SR#405`: each shape the sweep left, fed to the scan through its own entry point."""
+
+	(tmp_path / "loud.py").write_text(
+		'said = "a task " "-  its title"\n'
+		'shown = f"a task " f" -  {said}"\n'
+		'def quiet ():\n'
+		'\t"""A line that\n\t -  opens with a hyphen."""\n'
+		'fine = "a task - its title"\n',
+		encoding="utf-8",
+	)
+
+	offenders, _read = _doubled_beside_a_hyphen(tmp_path)
+
+	assert offenders == ["loud.py:1", "loud.py:2", "loud.py:4"], offenders
+
+
 def test_what_the_api_publishes_carries_no_em_dash () -> None:
 	"""`#2819`. A route, parameter or schema description is published, so it uses the house dash.
 
