@@ -143,6 +143,54 @@ def variable_for (name: str) -> str:
 	return f"{DEFAULT_VARIABLE}_{_UNSAFE.sub('_', name).upper()}"
 
 
+def _held_in (name: str, *, blank_is_unset: bool = False) -> str | None:
+	"""Return what one variable holds, with the whitespace around it gone, or ``None``.
+
+	**Stripped, because a token pasted with a space or a line break at either end is still that
+	token** (`#3584`). Sent as it was set, httpx refused the header and quoted it whole into the
+	error an agent reads, which then blamed the network.
+
+	**A variable holding only whitespace is refused by name**, unless ``blank_is_unset``. Read as
+	unset, a project's own ``SUBROUTINE_TOKEN_<NAME>`` would fall through to what
+	``credentials.toml`` holds - the person, usually - with nothing said, which is the change of
+	hands `#3517` exists to report. The plugin's field is the exception: Claude Code empties it
+	when you sign out, and `#3517`'s notice is what speaks for that.
+	"""
+
+	value = os.environ.get(name)
+
+	if not value:
+		return None
+
+	if value.strip():
+		return value.strip()
+
+	if blank_is_unset:
+		return None
+
+	raise subroutine.errors.Unauthenticated(
+		f"{name} is set, but holds only spaces or line breaks rather than a token.",
+		hint=f"Set {name} to the token again, or remove it.",
+	)
+
+
+def unsendable (name: str) -> subroutine.errors.Unauthenticated:
+	"""Return the refusal for a request no header could carry, quoting none of it (`#3584`).
+
+	httpx names a header it cannot send by its value, and the value is the credential. So both
+	the program's client and the plugin's relay quoted it, secret and all, into the sentence an
+	agent reads - as *could not be reached*, when nothing had been sent and the network had nothing
+	to do with it.
+	"""
+
+	return subroutine.errors.Unauthenticated(
+		f"Nothing was sent to {name}: a header of the request holds a character no header can "
+		"carry.",
+		hint="If the token was pasted with a line break or a space inside it, set it again, copied "
+		"whole.",
+	)
+
+
 def resolve (
 	connection: subroutine.connections.Connection,
 	*,
@@ -178,7 +226,7 @@ def resolve (
 	and only the caller knows whether it is a problem.
 	"""
 
-	specific = os.environ.get(variable_for(connection.name))
+	specific = _held_in(variable_for(connection.name))
 
 	if specific:
 		return Resolved(token=specific, source=variable_for(connection.name))
@@ -188,13 +236,13 @@ def resolve (
 	# connection whenever `local` is turned off. The bare `SUBROUTINE_TOKEN` would then have
 	# been offered to the local database instead of to the remote it was set for.
 	if connection.name == default_connection:
-		general = os.environ.get(DEFAULT_VARIABLE)
+		general = _held_in(DEFAULT_VARIABLE, blank_is_unset=True)
 
 		if general:
 			return Resolved(token=general, source=DEFAULT_VARIABLE)
 
 	if connection.token_env is not None:
-		named = os.environ.get(connection.token_env)
+		named = _held_in(connection.token_env)
 
 		if named:
 			return Resolved(token=named, source=f"{connection.token_env} (token_env)")

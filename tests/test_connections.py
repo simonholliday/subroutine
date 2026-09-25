@@ -4,8 +4,10 @@ docs/design.md §13.7 and §12.3a. Nothing here opens a database or a socket: a 
 two files and an environment, and every refusal in it is a refusal about text.
 """
 
+import json
 import os
 import pathlib
+import socket
 import stat
 import subprocess
 import sys
@@ -13,10 +15,12 @@ import typing
 
 import pytest
 
+import subroutine.clients.http
 import subroutine.config
 import subroutine.connections
 import subroutine.credentials
 import subroutine.errors
+import subroutine.mcp.relay
 
 
 @pytest.fixture
@@ -360,6 +364,107 @@ def test_token_env_naming_an_unset_variable_is_reported (config_home: pathlib.Pa
 		subroutine.credentials.resolve(connection(token_env="NOT_SET_ANYWHERE"), default_connection="local")
 
 	assert "NOT_SET_ANYWHERE" in raised.value.detail
+
+
+def test_a_token_is_read_without_the_whitespace_around_it (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3584`: a token pasted with a space or a line break at either end is still the token.
+
+	Sent as it was set, httpx refused the header and quoted it whole into an error an agent reads,
+	one that blamed the network. Every variable a token is read from is stripped.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", " sr_from_here\n")
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, "sr_default ")
+	monkeypatch.setenv("WORK_TASKS_TOKEN", "\tsr_named ")
+
+	assert subroutine.credentials.resolve(
+		connection(), default_connection="local"
+	).token == "sr_from_here"
+	assert subroutine.credentials.resolve(
+		connection(name="home"), default_connection="home"
+	).token == "sr_default"
+	assert subroutine.credentials.resolve(
+		connection(name="other", token_env="WORK_TASKS_TOKEN"), default_connection="local"
+	).token == "sr_named"
+
+
+def test_a_variable_holding_only_whitespace_is_refused_by_name (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3584`: a connection's own variable holding only whitespace is refused, never skipped.
+
+	Skipped, it fell through to what ``credentials.toml`` holds - the person, usually - with nothing
+	said, which is the change of hands `SR#3517` exists to report. **The plugin's field is the
+	exception**: Claude Code empties it on a sign-out and `SR#3517`'s notice speaks for that, so
+	the bare variable holding only whitespace reads as empty.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", "  \n")
+
+	with pytest.raises(subroutine.errors.Unauthenticated) as raised:
+		subroutine.credentials.resolve(connection(), default_connection="local")
+
+	assert "SUBROUTINE_TOKEN_WORK" in raised.value.detail
+
+	monkeypatch.setenv("WORK_TASKS_TOKEN", " ")
+
+	with pytest.raises(subroutine.errors.Unauthenticated) as named:
+		subroutine.credentials.resolve(
+			connection(name="other", token_env="WORK_TASKS_TOKEN"), default_connection="local"
+		)
+
+	assert "WORK_TASKS_TOKEN" in named.value.detail
+
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, " ")
+
+	assert not subroutine.credentials.resolve(
+		connection(name="home"), default_connection="home"
+	).found
+
+
+def test_a_token_no_header_can_carry_is_refused_without_being_quoted (
+	config_home: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3584`, and the half stripping cannot reach: a line break *inside* a token.
+
+	httpx names a header it cannot send by its value, and both the program's client and the
+	plugin's relay quoted that error into the sentence an agent reads, secret and all, as *could not
+	be reached*. Driven through the real httpx, against a socket on this machine that listens and
+	answers nothing: the header is refused before a byte is sent.
+	"""
+
+	secret = "sr_aaaaaaaa_se\ncret"
+	listener = socket.socket()
+	listener.bind(("127.0.0.1", 0))
+	listener.listen()
+
+	try:
+		there = connection(url=f"http://127.0.0.1:{listener.getsockname()[1]}")
+
+		with (
+			subroutine.clients.http.Client(there, token=secret) as client,
+			pytest.raises(subroutine.errors.Unauthenticated) as raised,
+		):
+			client.me()
+
+		monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", secret)
+		answered = subroutine.mcp.relay.answering(
+			there,
+			subroutine.connections.Roster(connections=(there,), default="work"),
+			subroutine.config.Settings(dev_mode=True),
+		)('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
+
+	finally:
+		listener.close()
+
+	said = [raised.value.detail, raised.value.hint or "", json.dumps(answered)]
+
+	assert not [one for one in said if "cret" in one or "sr_aaaaaaaa" in one], (
+		f"the token was quoted into what the caller reads: {said}"
+	)
+	assert "Nothing was sent" in said[0] and "Nothing was sent" in said[2], said
 
 
 def test_token_command_takes_the_first_line (config_home: pathlib.Path) -> None:

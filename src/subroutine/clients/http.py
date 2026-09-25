@@ -2471,6 +2471,11 @@ class Client:
 				"that instance is simply slow.",
 			) from None
 
+		except httpx.LocalProtocolError:
+			# **Never quoted** (`#3584`): httpx names a header it cannot send by its value, and the
+			# value is the token.
+			raise subroutine.credentials.unsendable(self.connection.name) from None
+
 		except httpx.HTTPError as error:
 			raise subroutine.errors.ServiceUnavailable(
 				f"{self.connection.name} could not be reached at {self.connection.url}: "

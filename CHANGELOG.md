@@ -165,6 +165,12 @@ upgrade involves.
   saved view's suggestion ran `list` rather than the view. It now repeats the command as you
   typed it, with a larger limit.
 
+- **A token set with a space or a line break at either end is read without it, and a token that
+  cannot be sent is never quoted back.** It was sent as it was set, refused, and quoted whole into
+  an error that blamed the network - the secret, in the text an agent reads. A connection's own
+  token variable holding only spaces is now refused by name, rather than skipped for whatever
+  else this machine holds.
+
 ## 0.9.0 — 2026-09-22
 
 **0.9.0 is the release candidate for the first ready version of Subroutine.** Everything

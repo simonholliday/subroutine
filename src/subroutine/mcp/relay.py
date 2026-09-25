@@ -252,6 +252,11 @@ def _over_http (
 				PATH, params=_asking_for(workspace), content=raw.encode("utf-8")
 			)
 
+		except httpx.LocalProtocolError:
+			# **Never quoted** (`#3584`), for the client's reason: httpx names the header by its value,
+			# and the value is the token.
+			raise subroutine.credentials.unsendable(connection.name) from None
+
 		except httpx.HTTPError as failure:
 			# Every message goes through here, so a server that goes away mid-session must
 			# produce an answer rather than a traceback: the client is blocked on this one.
@@ -369,7 +374,7 @@ def _emptied (connection: subroutine.connections.Connection) -> str | None:
 		return None
 
 	if field.strip():
-		parsed = subroutine.auth.parse_token(field)
+		parsed = subroutine.auth.parse_token(field.strip())
 		_record(connection.name, parsed[0] if parsed is not None else "")
 
 		return None
