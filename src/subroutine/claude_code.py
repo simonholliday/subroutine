@@ -28,7 +28,6 @@ import dataclasses
 import json
 import os
 import pathlib
-import re
 import shutil
 import stat
 import subprocess
@@ -50,11 +49,6 @@ GIT_TIMEOUT_SECONDS = 10.0
 #: ``GIT_DIR`` left behind by a hook or a script would answer it about another checkout
 #: entirely - the shape that once staged a test's file into this repository's own index.
 _ELSEWHERE = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
-
-#: One line of ``git check-ignore -v``: where the rule is, its line, the rule, a tab, the path.
-#: The source is read only as far as the first ``:<digits>:``, so a rule holding a colon survives.
-_MATCH = re.compile(r"^(?P<source>.+?):(?P<line>\d+):(?P<rule>.*)\t")
-
 
 @dataclasses.dataclass(frozen=True)
 class Handover:
@@ -194,9 +188,14 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 	environment[variable] = token
 	held["env"] = environment
 
-	handover.settings.parent.mkdir(parents=True, exist_ok=True)
+	# **Through a link, never over it** (`#3583`). :func:`prepare` asked git about the file a link
+	# points at, since that is what a commit would carry; replacing the link with a file of its own
+	# put the token at a path git had not been asked about - and, where the link was committed,
+	# into the next `git commit -a`.
+	destination = handover.settings.resolve()
+	destination.parent.mkdir(parents=True, exist_ok=True)
 	descriptor, staged = tempfile.mkstemp(
-		dir=handover.settings.parent, prefix=".settings.local.", suffix=".json"
+		dir=destination.parent, prefix=".settings.local.", suffix=".json"
 	)
 
 	try:
@@ -204,7 +203,7 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 			json.dump(held, handle, indent=2, ensure_ascii=False)
 			handle.write("\n")
 
-		os.replace(staged, handover.settings)
+		os.replace(staged, destination)
 
 	except BaseException:
 		with contextlib.suppress(OSError):
@@ -212,7 +211,7 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 
 		raise
 
-	mode = stat.S_IMODE(handover.settings.stat().st_mode)
+	mode = stat.S_IMODE(destination.stat().st_mode)
 	parsed = subroutine.auth.parse_token(before) if isinstance(before, str) else None
 
 	return Written(
@@ -337,27 +336,37 @@ def _ignored_by (repository: pathlib.Path, relative: str) -> bool:
 	- which is how Superconductor's check passed for the wrong reason (`#3246`).
 	"""
 
-	answered = _git(repository, "check-ignore", "-v", "--", relative)
+	# **Asked with ``--stdin -z`` and read field by field** (`#3583`). Otherwise git quotes a path
+	# holding anything but plain ASCII - ``"/home/you/caf\303\251/..."`` - and a quoted path is not
+	# absolute, so a person's own ignore file under an accented home directory counted as the
+	# repository's own. ``-z`` alone is refused: git takes it only with ``--stdin``.
+	answered = _git(repository, "check-ignore", "-v", "-z", "--stdin", given=f"{relative}\0")
 
 	if answered.returncode not in (0, 1):
 		raise _unanswered(repository, answered)
 
-	matched = _MATCH.match(answered.stdout)
+	# The source, its line, the rule and the path, each ended by a NUL, or nothing at all.
+	fields = answered.stdout.split("\0")
 
-	if matched is None:
+	if len(fields) < 4 or not fields[0]:
 		return False
 
-	source = matched["source"]
+	source, rule = fields[0], fields[2]
 
 	return not (
-		matched["rule"].startswith("!")
+		rule.startswith("!")
 		or pathlib.PurePath(source).is_absolute()
 		or source.startswith(("~", ".git/"))
 	)
 
 
-def _git (directory: pathlib.Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-	"""Ask ``git`` one question about ``directory``, in a language its answers can be read in."""
+def _git (
+	directory: pathlib.Path, *arguments: str, given: str | None = None
+) -> subprocess.CompletedProcess[str]:
+	"""Ask ``git`` one question about ``directory``, in a language its answers can be read in.
+
+	``given`` is written to its standard input, for a question asked with ``--stdin``.
+	"""
 
 	environment = {name: value for name, value in os.environ.items() if name not in _ELSEWHERE}
 	environment["LC_ALL"] = "C"
@@ -367,6 +376,7 @@ def _git (directory: pathlib.Path, *arguments: str) -> subprocess.CompletedProce
 			["git", *arguments],
 			cwd=directory,
 			env=environment,
+			input=given,
 			capture_output=True,
 			text=True,
 			timeout=GIT_TIMEOUT_SECONDS,

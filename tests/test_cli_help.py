@@ -799,6 +799,7 @@ NOT_OUR_OPTIONS = {
 	"claude_code.py::--cached": "git's, in the hint for taking a file back out of a repository",
 	"claude_code.py::--error-unmatch": "git's, passed to it",
 	"claude_code.py::--show-toplevel": "git's, passed to it",
+	"claude_code.py::--stdin": "git's, passed to it with -z, so the ignore rule's source is not quoted",
 	"db/backup.py::--data-only": "pg_restore's, passed to it",
 	"db/backup.py::--dbname": "psql's, passed to it",
 	"db/backup.py::--exit-on-error": "pg_restore's, passed to it",

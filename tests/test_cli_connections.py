@@ -3400,27 +3400,34 @@ def test_here_leaves_a_repository_that_already_ignores_the_file_alone (
 
 
 @requires_git
+@pytest.mark.parametrize("folder", ["personal", "jos\u00e9"], ids=["plain", "quoted"])
 def test_a_personal_ignore_file_does_not_count_for_the_repository (
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,
 	monkeypatch: pytest.MonkeyPatch,
+	folder: str,
 ) -> None:
 	"""`#3246`'s first finding, as a test: the check that passed for the wrong reason.
 
 	A rule in a person's own ignore file protects that machine and no other, and the checkout on
 	a shared drive is opened from more than one. So the repository gets a rule of its own even
 	though git already reports the file ignored.
+
+	**Wherever that file lives** (`SR#3583`). Git quotes a path holding anything but plain ASCII, and
+	a quoted path is not absolute, so a personal ignore file under an accented home directory was
+	read as the repository's own and no line was added.
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
 	checkout = _checkout(tmp_path, monkeypatch)
-	personal = tmp_path / "personal-ignore"
+	personal = tmp_path / folder / "ignore"
+	personal.parent.mkdir()
 	personal.write_text("**/.claude/settings.local.json\n", encoding="utf-8")
 	(tmp_path / "gitconfig").write_text(f"[core]\n\texcludesFile = {personal}\n", encoding="utf-8")
 
-	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
-		str(personal)
-	), "the arrangement: git reports the file ignored, by the personal rule"
+	assert _git(checkout, "check-ignore", "--", ".claude/settings.local.json").strip() == (
+		".claude/settings.local.json"
+	), "the arrangement: git reports the file ignored, and by the personal rule, there being no other"
 
 	made = run("agent", "create", "web", "--here").output
 
@@ -3428,6 +3435,51 @@ def test_a_personal_ignore_file_does_not_count_for_the_repository (
 	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
 		".gitignore:"
 	)
+
+
+@requires_git
+@pytest.mark.parametrize("committed", [True, False], ids=["committed", "untracked"])
+def test_here_writes_through_a_settings_file_that_is_a_link (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	committed: bool,
+) -> None:
+	"""`SR#3583`: a settings file that is a link stays one, and the token goes where git was asked.
+
+	The checks asked git about the file a link points at, and the write then replaced the link with
+	a file of its own, at a path git had not been asked about. A committed link became a plain file
+	holding the token, which `git commit -a` took; an untracked one was staged by `git add -A`.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / "local").mkdir()
+	(checkout / "local" / "settings.json").write_text("{}\n", encoding="utf-8")
+	(checkout / ".claude").mkdir()
+	link = checkout / ".claude" / "settings.local.json"
+	link.symlink_to(pathlib.Path("..") / "local" / "settings.json")
+
+	if committed:
+		(checkout / ".gitignore").write_text("local/\n", encoding="utf-8")
+		_git(checkout, "add", ".gitignore", ".claude/settings.local.json")
+		_git(
+			checkout, "-c", "user.name=t", "-c", "user.email=t@example.com",
+			"commit", "--quiet", "-m", "A settings file that is a link",
+		)
+
+	run("agent", "create", "web", "--here")
+
+	assert link.is_symlink(), "the link was replaced by a file of its own"
+	assert "SUBROUTINE_TOKEN" in (checkout / "local" / "settings.json").read_text(encoding="utf-8")
+
+	_git(checkout, "add", "-A")
+	carried = [
+		path for path in _git(checkout, "diff", "--cached", "--name-only").split()
+		if "sr_" in _git(checkout, "show", f":{path}")
+	]
+
+	assert not carried, f"git would commit the token in {carried}"
 
 
 def _settings_that_do_not_parse (checkout: pathlib.Path) -> None:

@@ -1204,9 +1204,9 @@ def write_private (path: pathlib.Path, text: str) -> None:
 	left one empty or cut short: every stored token gone, or the connection a token belongs to,
 	at the moment somebody was adding one. Now the text goes into a new file beside the old one,
 	reaches the disk, and is renamed over it, so whatever reads it next finds the whole old file
-	or the whole new one. It is how ``claude_code.write`` puts a token into a project's settings,
-	and on the CIFS share this project is developed on, the truncating write is also the one
-	that hangs (`#2433`).
+	or the whole new one. ``claude_code.write`` takes the same shape for a project's settings, in
+	code of its own rather than by calling this (`#3583`). On the CIFS share this project is
+	developed on, the truncating write is also the one that hangs (`#2433`).
 
 	**Created owner-only rather than created and then tightened** (`#205`). An earlier version
 	wrote the file and chmodded it afterwards, so on a fresh install the signing key existed at
