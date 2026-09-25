@@ -12,6 +12,18 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Added
+
+- **A workspace can send what happens in it to music software, over OSC** - a short message each
+  time an item is filed, finished or commented on, or a milestone closed, which software such as
+  Subsequence can answer with a sound. Most people will never need it: nothing is sent until a
+  workspace's administrator says where to send, in the last section of the workspace's settings
+  page. Every event goes as it happens and nothing waits for it, titles go only if you turn them
+  on, and nothing goes from a private project. [docs/osc.md](docs/osc.md) has the addresses and
+  what each message carries.
+
 ## 0.9.7 — 2026-09-25
 
 > **This release changes the database schema**, to `58c81c09d101`.

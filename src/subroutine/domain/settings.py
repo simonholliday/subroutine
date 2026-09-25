@@ -62,6 +62,7 @@ import subroutine.domain.authorization
 import subroutine.domain.hierarchy
 import subroutine.domain.palette
 import subroutine.errors
+import subroutine.osc
 import subroutine.permissions
 
 #: A project's own settings, then those of each ancestor, then the workspace's. Most specific
@@ -205,6 +206,118 @@ SOME_STATUS_KEYS = Kind(
 )
 
 
+def _a_destination (value: typing.Any, key: str) -> str:
+	"""Read a value that must say where to send: a machine and a port (`#2722`)."""
+
+	if not isinstance(value, str):
+		raise subroutine.errors.ValidationError(
+			f"{key} is where to send, written as text, not {type(value).__name__}.",
+			errors=[_somewhere(key, "Where to send is written as text.")],
+		)
+
+	try:
+		subroutine.osc.destination(value)
+
+	except ValueError as refused:
+		raise subroutine.errors.ValidationError(
+			f"{key} is not somewhere to send: {refused}", errors=[_somewhere(key, str(refused))]
+		) from None
+
+	return value.strip()
+
+
+def _somewhere (key: str, message: str) -> subroutine.errors.FieldError:
+	"""Say what a destination looks like, for either way of getting one wrong."""
+
+	return subroutine.errors.FieldError(
+		field=key,
+		code="invalid_field_value",
+		message=message,
+		hint=(
+			"A machine's name or IP address and a port, such as studio.local:9000 or "
+			"192.168.0.20:9000."
+		),
+	)
+
+
+#: Where to send, as a machine and a port - ``studio.local:9000`` (`#2722`).
+A_DESTINATION = Kind(
+	key="destination",
+	check=_a_destination,
+	describes="a machine's name or IP address and a port, such as studio.local:9000",
+)
+
+
+def _a_switch (value: typing.Any, key: str) -> bool:
+	"""Read a value that must be on or off."""
+
+	if not isinstance(value, bool):
+		raise subroutine.errors.ValidationError(
+			f"{key} is on or off, not {type(value).__name__}.",
+			errors=[
+				subroutine.errors.FieldError(
+					field=key,
+					code="invalid_field_value",
+					message="This is on or off.",
+					hint="true or false.",
+				)
+			],
+		)
+
+	return value
+
+
+#: On or off.
+A_SWITCH = Kind(key="switch", check=_a_switch, describes="true or false")
+
+
+class Section (typing.NamedTuple):
+	"""Settings drawn together under a heading that says what they are for - `#2722`.
+
+	**For settings most people will never need**, which is the case that made it (Simon,
+	2026-09-25): *most users will have no idea what OSC is, and we don't want to confuse them.* A
+	section explains itself in words that need no search and links to more; one drawn
+	:attr:`apart` comes last on its page, after a separator, so nobody meets it among the
+	ordinary settings. Published in ``/v1/meta`` beside the settings, so a page draws it without a
+	copy of its words.
+	"""
+
+	key: str
+
+	#: What the section is, as its heading.
+	title: str
+
+	#: What it is for, in words a person who has never heard of it can follow.
+	explains: str
+
+	#: Where to read more: the words of a link, and where it goes. ``None`` where there is nowhere.
+	further: tuple[str, str] | None = None
+
+	#: Drawn last on its page, after a separator.
+	apart: bool = False
+
+
+#: Sending what happens in a workspace to music software - design `#2721`.
+OSC = Section(
+	key="osc",
+	title="Sending events to music software (OSC)",
+	explains=(
+		"Most workspaces never need this. If you make music with software that listens for OSC, "
+		"such as Subsequence, Subroutine can send it a short message whenever something happens in "
+		"this workspace - an item filed, finished or commented on, a milestone closed - so the "
+		"music can answer with a sound or a change of pattern. OSC, short for Open Sound Control, "
+		"is a common way for music programs to talk to each other over a network. Nothing is sent "
+		"until the address below is filled in, and if nothing is listening, nothing here slows down "
+		"or goes wrong."
+	),
+	further=("What is OSC?", "https://en.wikipedia.org/wiki/Open_Sound_Control"),
+	apart=True,
+)
+
+#: Every section a setting may be drawn in, by key.
+SECTIONS: dict[str, Section] = {OSC.key: OSC}
+
+
 class Setting (typing.NamedTuple):
 	"""One thing an installation may configure, and everything anybody needs to know about it.
 
@@ -273,6 +386,9 @@ class Setting (typing.NamedTuple):
 	verify: (
 		typing.Callable[[sqlalchemy.orm.Session, uuid.UUID, typing.Any], None] | None
 	) = None
+
+	#: The :class:`Section` it is drawn in, by key, or ``None`` for its page's ordinary list.
+	section: str | None = None
 
 
 #: What a workspace or a project may be marked with, and the first entry in this registry.
@@ -364,10 +480,44 @@ HIDDEN_STATUSES = Setting(
 	verify=_these_statuses_exist,
 )
 
+#: Where a workspace's events are sent over OSC, and the first setting that sends anything
+#: anywhere - design `#2721`, item `#2722`. **Unset, which is the default, sends nothing.**
+#:
+#: **A workspace's administrator's to set** (Simon, 2026-09-25: *the admin user for Subroutine
+#: would configure a URL*). It sends the workspace's activity to a machine on the network, which
+#: is a capability rather than an appearance - the case :attr:`Setting.permission` is for.
+OSC_SEND_TO = Setting(
+	key="osc.send_to",
+	scopes=(WORKSPACE,),
+	kind=A_DESTINATION,
+	default=None,
+	summary="Where to send them: a music computer's name or IP address and port, such as "
+	"studio.local:9000.",
+	read_by="src/subroutine/domain/sounds.py",
+	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
+	section=OSC.key,
+)
+
+#: Whether each message carries the item's title (Simon's decision 6 on `#2721`). **Off unless an
+#: administrator turns it on**, because OSC is not encrypted and anyone on the network can read it.
+OSC_TITLES = Setting(
+	key="osc.titles",
+	scopes=(WORKSPACE,),
+	kind=A_SWITCH,
+	default=False,
+	summary="Include each item's title. Off by default, because anyone on the same network could "
+	"read it.",
+	read_by="src/subroutine/domain/sounds.py",
+	permission={WORKSPACE: subroutine.permissions.WORKSPACE_ADMIN},
+	section=OSC.key,
+)
+
 #: Every setting this build recognises, by key.
 SETTINGS: dict[str, Setting] = {
 	COLOUR.key: COLOUR,
 	HIDDEN_STATUSES.key: HIDDEN_STATUSES,
+	OSC_SEND_TO.key: OSC_SEND_TO,
+	OSC_TITLES.key: OSC_TITLES,
 }
 
 

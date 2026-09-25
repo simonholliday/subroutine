@@ -309,10 +309,12 @@ If you have been handed an address and a token and want to get to work, that is 
 - **[docs/hosting.md](https://github.com/simonholliday/subroutine/blob/main/docs/hosting.md)** - running it as a service, end to end.
 - **[docs/errors.md](https://github.com/simonholliday/subroutine/blob/main/docs/errors.md)** - every error code the API can return, generated from
   the registry the code uses.
+- **[docs/osc.md](https://github.com/simonholliday/subroutine/blob/main/docs/osc.md)** - sending what happens in a workspace to music
+  software, which most people will never need.
 - **[CHANGELOG.md](https://github.com/simonholliday/subroutine/blob/main/CHANGELOG.md)** - what changed, and which releases need a database
   migration.
 
-These four are moving to the guide, which is why the links above point at the repository rather
+These five are moving to the guide, which is why the links above point at the repository rather
 than at the site.
 
 ## A few commands worth knowing

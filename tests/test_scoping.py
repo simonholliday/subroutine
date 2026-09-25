@@ -78,6 +78,14 @@ REACHES_DIRECTLY: dict[str, str] = {
 	# applied. No column but `id` and `is_template` is read, and nothing it reads is reported.
 	"domain/journal.py": "excludes events about a repeat's rule-bearing row by id, an anti-join "
 	"that can only remove rows from a feed `scoping.visible_events` has already narrowed",
+	# **What a write has just touched, and the projects above it, read by their keys** (`SR#2722`).
+	# Nothing here is a listing and nothing is answered to a reader: the events a commit records are
+	# described for the OSC destination the workspace's administrator set, and each project's
+	# ancestors are read to *leave out* anything private. There is no viewer to narrow by, and
+	# skipping an ancestor nobody could see would miss exactly the private one.
+	"domain/sounds.py": "describes the events a commit records, reading their rows and each "
+	"project's ancestors by key to leave out anything private; it lists nothing and answers no "
+	"reader",
 	# **The task is handed in, never looked up** (`#1121`). Both functions here take a `Task`
 	# somebody else resolved through `readable_tasks`, and `record` authorizes against its
 	# workspace and project before writing — so the narrowing has happened one caller up, which

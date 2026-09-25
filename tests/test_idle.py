@@ -67,6 +67,16 @@ EXCUSED = {
 		"and only where an operator has set 'check' under [releases]. An instance nobody is "
 		"using is never asked, so it never asks."
 	),
+	# **The OSC sender** (`SR#2722`): a thread that exists only once something has been sent.
+	("subroutine/osc.py", "threading.Thread"): (
+		"The OSC sender: started by the first message a write hands it, and a write hands it one "
+		"only in a workspace whose administrator has said where to send. An instance nobody is "
+		"using records nothing, so it never starts."
+	),
+	("subroutine/osc.py", "while True"): (
+		"The OSC sender's loop, which blocks on its queue: it waits without using the CPU, and "
+		"wakes only when a write has handed it something to send."
+	),
 }
 
 

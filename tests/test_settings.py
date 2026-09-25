@@ -558,6 +558,27 @@ def test_every_setting_is_reachable_from_the_scope_registry () -> None:
 	)
 
 
+def test_every_section_a_setting_is_drawn_in_is_declared () -> None:
+	"""`#2722`: a setting naming a section nobody declared would be drawn under no heading."""
+
+	missing = {
+		setting.key: setting.section
+		for setting in subroutine.domain.settings.SETTINGS.values()
+		if setting.section is not None and setting.section not in subroutine.domain.settings.SECTIONS
+	}
+
+	assert not missing, f"these settings name a section nothing declares: {missing}"
+
+
+def test_every_section_holds_a_setting () -> None:
+	"""And the other way: a section holding nothing explains nothing, and is an inert entry."""
+
+	held = {setting.section for setting in subroutine.domain.settings.SETTINGS.values()}
+	empty = sorted(set(subroutine.domain.settings.SECTIONS) - held)
+
+	assert not empty, f"these sections hold no setting: {empty}"
+
+
 def test_a_write_keeps_the_keys_it_was_not_told_about () -> None:
 	"""`#1030`. The property standing between setting a colour and re-seeding every workspace.
 

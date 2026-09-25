@@ -28,6 +28,7 @@ import subroutine.db.models.work
 import subroutine.db.types
 import subroutine.domain.authentication
 import subroutine.domain.scoping
+import subroutine.domain.sounds
 import subroutine.errors
 
 
@@ -117,6 +118,9 @@ def record (
 		changes=None if changes is None else jsonable(changes),
 	)
 	session.add(event)
+	# **Every event, whatever wrote it**, for a workspace that sends what happens in it over OSC
+	# (`#2722`) - composed as the transaction commits, and dropped if it rolls back.
+	session.info.setdefault(subroutine.domain.sounds.PENDING, []).append(event)
 
 	return event
 

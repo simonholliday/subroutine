@@ -233,6 +233,8 @@ export function Timezone ({
 const CONTROLS = {
 	colour: ColourChoice,
 	status_keys: StatusChoice,
+	destination: DestinationChoice,
+	switch: SwitchChoice,
 };
 
 export const CONTROLLED_KINDS = Object.keys(CONTROLS);
@@ -275,6 +277,10 @@ export function valueSaid (setting, value, statuses = []) {
 
 		return named.length > 0 ? `Not offered: ${named.join(", ")}.` : "Every status is offered.";
 	}
+
+	if (setting.kind === "destination") return value ? `Sent to ${value}.` : "Not set, so nothing is sent.";
+
+	if (setting.kind === "switch") return value ? "On." : "Off.";
 
 	return value === null || value === undefined ? "Not set." : String(value);
 }
@@ -448,23 +454,84 @@ function SettingRow ({
 
 
 function settingRows ({
-	scope, slug, registry = [], statuses = [], inForce, may = [], onChoose, busy = false,
+	scope, slug, registry = [], sections = [], statuses = [], inForce, may = [], onChoose,
+	busy = false,
 }) {
 	/*
 		Every setting the registry offers at one scope, as rows — the body a workspace's page and
 		a project's page share, so the two cannot come to draw one setting differently.
+
+		**Less what a section apart holds** (`#2722`), which `settingsApart` draws last instead.
 	*/
-	const held = new Set(may || []);
-	const stated = new Map((inForce.settings || []).map((one) => [one.key, one]));
 	const offered = (registry || []).filter((one) => (one.scopes || []).includes(scope));
 
 	if (offered.length === 0) return html`<p class="empty">This ${scope} has nothing to configure.</p>`;
 
-	return offered.map((setting) => html`
+	const apart = new Set(apartSections(sections, registry, scope)
+		.flatMap((one) => one.settings.map((setting) => setting.key)));
+
+	return rowsOf(offered.filter((one) => !apart.has(one.key)), {
+		scope, slug, statuses, inForce, may, onChoose, busy,
+	});
+}
+
+
+function rowsOf (settings, { scope, slug, statuses = [], inForce, may = [], onChoose, busy = false }) {
+	/*
+		Some settings at one scope, as rows — the one way both a page's list and a section apart
+		draw them.
+	*/
+	const held = new Set(may || []);
+	const stated = new Map((inForce.settings || []).map((one) => [one.key, one]));
+
+	return settings.map((setting) => html`
 		<${SettingRow} key=${setting.key} setting=${setting} scope=${scope} slug=${slug}
 			stated=${stated.get(setting.key)} statuses=${statuses}
 			may=${held.has((setting.permission || {})[scope])}
 			onChoose=${onChoose} busy=${busy} />
+	`);
+}
+
+
+export function apartSections (sections, registry, scope) {
+	/*
+		The sections a page draws last, after a separator, each with the settings it holds at one
+		scope — `#2722`, for settings most people will never need (Simon, 2026-09-25: *most users
+		will have no idea what OSC is, and we don't want to confuse them*).
+
+		**The instance's own**, published in `/v1/meta` beside the settings, so no section's words
+		are copied into this file. A section holding nothing at this scope is not drawn at all.
+	*/
+	return (sections || [])
+		.filter((section) => section.apart)
+		.map((section) => ({
+			section,
+			settings: (registry || []).filter((one) => one.section === section.key
+				&& (one.scopes || []).includes(scope)),
+		}))
+		.filter((one) => one.settings.length > 0);
+}
+
+
+function settingsApart ({ scope, registry = [], sections = [], ...rows }) {
+	/*
+		Each section apart, last on its page: a separator, what the section is for, and its rows.
+
+		**Explained where it is met**, in the instance's own words and with a link to more, so a
+		reader who has never heard of the thing learns enough to leave it alone without searching
+		for the word — and a musician, enough to use it.
+	*/
+	return apartSections(sections, registry, scope).map(({ section, settings }) => html`
+		<hr class="setting-apart" key=${`${section.key}-apart`} />
+		<section class="setting-section" key=${section.key}>
+			<h3>${section.title}</h3>
+			<p class="setting-explains">${section.explains}</p>
+			${section.further_url
+				? html`<p class="hint"><a href=${section.further_url} rel="noopener noreferrer"
+						target="_blank">${section.further_label || section.further_url}</a></p>`
+				: null}
+			${rowsOf(settings, { scope, ...rows })}
+		</section>
 	`);
 }
 
@@ -502,8 +569,8 @@ function ProjectPages ({ slug, projects = [], more = false }) {
 
 
 export function WorkspaceSettings ({
-	workspace = null, registry = [], statuses = [], inForce = null, may = [], onChoose,
-	busy = false, projects = null, more = false,
+	workspace = null, registry = [], sections = [], statuses = [], inForce = null, may = [],
+	onChoose, busy = false, projects = null, more = false,
 }) {
 	/*
 		A workspace's settings page — `#1447`, design `#2110` §3 to §5.
@@ -526,19 +593,23 @@ export function WorkspaceSettings ({
 		<section class="setting-page">
 			<h3>${workspace.title || workspace.slug}</h3>
 			${settingRows({
-				scope: "workspace", slug: workspace.slug, registry, statuses, inForce, may, onChoose,
-				busy,
+				scope: "workspace", slug: workspace.slug, registry, sections, statuses, inForce, may,
+				onChoose, busy,
 			})}
 			${projects && projects.length > 0
 				? html`<${ProjectPages} slug=${workspace.slug} projects=${projects} more=${more} />`
 				: null}
+			${settingsApart({
+				scope: "workspace", slug: workspace.slug, registry, sections, statuses, inForce, may,
+				onChoose, busy,
+			})}
 		</section>
 	`;
 }
 
 
 export function ProjectSettings ({
-	workspace = null, project = null, title = null, registry = [], statuses = [],
+	workspace = null, project = null, title = null, registry = [], sections = [], statuses = [],
 	inForce = null, may = [], onChoose, busy = false,
 }) {
 	/*
@@ -566,8 +637,12 @@ export function ProjectSettings ({
 				What this project does not set, it inherits — from the nearest project above it that
 				does, and then from the workspace.</p>
 			${settingRows({
-				scope: "project", slug: workspace.slug, registry, statuses, inForce, may, onChoose,
-				busy,
+				scope: "project", slug: workspace.slug, registry, sections, statuses, inForce, may,
+				onChoose, busy,
+			})}
+			${settingsApart({
+				scope: "project", slug: workspace.slug, registry, sections, statuses, inForce, may,
+				onChoose, busy,
 			})}
 		</section>
 	`;
@@ -722,6 +797,56 @@ export function ColourChoice ({
 }
 
 
+export function DestinationChoice ({
+	setting, value = null, onChoose, onTakeBack = null, busy = false,
+}) {
+	/*
+		Say where to send, or empty it to send nothing — `#2722`.
+
+		**A box to type in**, because a destination is written: a machine's name or address and a
+		port. What it takes is said in the registry's own words, `setting.accepts`, so this holds no
+		copy of the rule the instance checks. **Empty clears it**, which is the default: nothing sent.
+		Uncontrolled, for `ColourChoice`'s reason (`#2621`).
+	*/
+	return html`
+		<form class="setting-choice" onSubmit=${(event) => {
+			event.preventDefault();
+
+			onChoose(setting.key, String(new FormData(event.target).get("value") || "").trim() || null);
+		}}>
+			<label class="setting-field">
+				<span>Send to</span>
+				<input type="text" name="value" defaultValue=${value || ""} autocomplete="off"
+					spellcheck="false" disabled=${busy} />
+			</label>
+			<p class="hint">${setting.accepts}. Empty sends nothing.</p>
+			${acts(onTakeBack, busy)}
+		</form>
+	`;
+}
+
+
+export function SwitchChoice ({ setting, value = false, onChoose, onTakeBack = null, busy = false }) {
+	/*
+		Turn a setting on or off — `#2722`. A tick box and Save, like every control here, so a change
+		is one deliberate press rather than a click that saves itself. Uncontrolled (`#2621`).
+	*/
+	return html`
+		<form class="setting-choice" onSubmit=${(event) => {
+			event.preventDefault();
+
+			onChoose(setting.key, new FormData(event.target).get("value") === "on");
+		}}>
+			<label class="setting-option">
+				<input type="checkbox" name="value" defaultChecked=${Boolean(value)} disabled=${busy} />
+				<span>On</span>
+			</label>
+			${acts(onTakeBack, busy)}
+		</form>
+	`;
+}
+
+
 export function StatusChoice ({
 	setting, value = [], statuses = [], inherits = false, onChoose, onTakeBack = null,
 	busy = false,
@@ -847,6 +972,7 @@ export function Settings ({
 	const called = { workspace: "workspace", project: "project", instance: "installation" };
 	const shared = {
 		registry: meta.settings || [],
+		sections: meta.setting_sections || [],
 		statuses: hideableStatuses(meta),
 		inForce: current ? current.inForce : null,
 		/* **This project's own answer where it has one** (`#2111`) — `allowedIn`'s rule, so this

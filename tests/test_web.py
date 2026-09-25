@@ -108,6 +108,12 @@ TEST_ONLY: tuple[subroutine.web.vendored.Vendored, ...] = (
 REGISTRY = [one.model_dump(mode="json") for one in subroutine.views.published_settings()]
 COLOUR_SETTING = next(one for one in REGISTRY if one["kind"] == "colour")
 STATUSES_SETTING = next(one for one in REGISTRY if one["kind"] == "status_keys")
+SEND_TO_SETTING = next(one for one in REGISTRY if one["kind"] == "destination")
+TITLES_SETTING = next(one for one in REGISTRY if one["kind"] == "switch")
+#: The sections a setting may be drawn in, as ``/v1/meta`` publishes them (`#2722`), and the one
+#: the OSC settings are drawn in, apart at the foot of a workspace's page.
+SECTIONS = [one.model_dump(mode="json") for one in subroutine.views.published_sections()]
+APART = next(one for one in SECTIONS if one["key"] == SEND_TO_SETTING["section"])
 SOME_STATUSES = [{"key": "open", "label": "Open"}, {"key": "blocked", "label": "Blocked"}]
 
 #: A workspace's projects as `projectsRequest` answers them: in tree order, with a depth and a key
@@ -608,6 +614,9 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	"WorkspaceSettings": {
 		"workspace": {"slug": "projects", "title": "Projects", "permissions": ["workspace:admin"]},
 		"registry": REGISTRY,
+		# **The OSC settings are drawn in their section, last and apart** (`#2722`), and the sample
+		# says where to send, so both of that section's controls are drawn too.
+		"sections": SECTIONS,
 		"statuses": SOME_STATUSES,
 		"inForce": {
 			"scope": "workspace",
@@ -619,6 +628,10 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 				{
 					"key": STATUSES_SETTING["key"], "value": [], "default": [],
 					"set_here": False, "inherited_from": None,
+				},
+				{
+					"key": SEND_TO_SETTING["key"], "value": "studio.local:9000", "default": None,
+					"set_here": True, "inherited_from": None,
 				},
 			],
 		},
@@ -634,6 +647,7 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 		"project": "subroutine/ui",
 		"title": "Web UI",
 		"registry": REGISTRY,
+		"sections": SECTIONS,
 		"statuses": SOME_STATUSES,
 		"inForce": {
 			"scope": "project",
@@ -660,6 +674,9 @@ SAMPLES: dict[str, dict[str, typing.Any]] = {
 	},
 	"ColourChoice": {"setting": COLOUR_SETTING, "value": "teal"},
 	"StatusChoice": {"setting": STATUSES_SETTING, "value": ["blocked"], "statuses": SOME_STATUSES},
+	# `#2722`'s two: a destination already set, so the box is drawn holding it, and titles on.
+	"DestinationChoice": {"setting": SEND_TO_SETTING, "value": "studio.local:9000"},
+	"SwitchChoice": {"setting": TITLES_SETTING, "value": True},
 	# **A usable credential, so the act it carries is drawn.** The spent branch is reached
 	# through `Holdings` below, which holds one of each — a component gets one sample and this
 	# is the branch with a control in it.
@@ -18384,7 +18401,7 @@ def test_a_place_heading_leads_to_its_settings_and_the_menu_is_on_every_page (
 	merged agenda too, which names no place and so has no place's settings to offer.
 	"""
 
-	registry = {"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}}}
+	registry = {"/meta": {"settings": REGISTRY, "setting_sections": SECTIONS, "statuses": {"task": SOME_STATUSES}}}
 
 	writer = _driven(
 		tmp_path, pathname="/projects/subroutine/ui", answers=registry,
@@ -19221,6 +19238,76 @@ def test_a_reader_without_the_verb_sees_the_values_and_no_controls (tmp_path: pa
 	assert "needs the workspace:admin permission" in refused, refused[:400]
 
 
+def test_a_section_most_people_never_need_comes_last_and_set_apart (tmp_path: pathlib.Path) -> None:
+	"""`#2722`, Simon's: *always the last item on the page - perhaps even with a visual separator*.
+
+	**After the projects list as well**, which is the last part of the page anybody else drew, and
+	with one rule between them: nothing of the section above it, and nothing of anything else
+	below the section's own rows.
+	"""
+
+	markup = _markup(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+	projects = markup.find("setting-projects")
+	rule = markup.find('class="setting-apart"')
+	heading = markup.find(APART["title"])
+	send_to = markup.find("Where to send them")
+
+	assert 0 <= projects < rule < heading < send_to, (projects, rule, heading, send_to)
+	assert markup.count('class="setting-apart"') == 1, "the section was set apart more than once"
+	assert markup.rfind("setting-row") > send_to, "the section's own rows were not the page's last"
+
+
+def test_a_section_apart_says_what_it_is_for_and_where_to_read_more (tmp_path: pathlib.Path) -> None:
+	"""`#2722`: *it should explain what it is, without the user needing to Google "OSC"* (Simon).
+
+	**In the instance's words**, drawn as published, so this page never holds a copy of them;
+	and those words spell the name out and open by saying most people can leave it alone.
+	"""
+
+	shown = _rendered(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+	markup = _markup(tmp_path, {"WorkspaceSettings": SAMPLES["WorkspaceSettings"]})[
+		"WorkspaceSettings"
+	]
+
+	assert APART["explains"].startswith("Most workspaces never need this.")
+	assert "Open Sound Control" in APART["explains"], "the name is not spelled out"
+	assert APART["explains"] in shown, shown[-900:]
+	assert f'href="{APART["further_url"]}"' in markup, "the link to more was not drawn"
+	assert 'rel="noopener noreferrer"' in markup and 'target="_blank"' in markup
+	assert APART["further_label"] in shown
+
+
+def test_the_osc_settings_say_what_they_hold_to_a_reader_who_may_not_change_them (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Where it sends, or that nothing is sent, and whether titles go - in words, not controls."""
+
+	told = _rendered(tmp_path, {"WorkspaceSettings": {**SAMPLES["WorkspaceSettings"], "may": []}})[
+		"WorkspaceSettings"
+	]
+	unset = _rendered(tmp_path, {"WorkspaceSettings": {
+		**SAMPLES["WorkspaceSettings"],
+		"may": [],
+		"inForce": {"scope": "workspace", "settings": []},
+	}})["WorkspaceSettings"]
+
+	assert "Sent to studio.local:9000." in told, told[-600:]
+	assert "Off." in told, "whether titles are sent was not said"
+	assert "Not set, so nothing is sent." in unset, unset[-600:]
+
+
+def test_a_page_with_nothing_apart_to_say_draws_no_rule_for_it (tmp_path: pathlib.Path) -> None:
+	"""A project's page offers no OSC setting, so no separator and no heading are drawn for one."""
+
+	markup = _markup(tmp_path, {"ProjectSettings": SAMPLES["ProjectSettings"]})["ProjectSettings"]
+
+	assert "setting-apart" not in markup and APART["title"] not in markup, markup[-600:]
+
+
 def test_where_a_value_came_from_is_said_in_words (tmp_path: pathlib.Path) -> None:
 	"""`#2110` §4's provenance, drawn: set here, inherited from a workspace or a project, or not."""
 
@@ -19303,7 +19390,7 @@ def test_opening_a_workspaces_settings_asks_for_its_vocabulary_and_what_is_in_fo
 		permissions=("task:write", "workspace:admin"),
 		answers={
 			"/settings": SAMPLES["WorkspaceSettings"]["inForce"],
-			"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+			"/meta": {"settings": REGISTRY, "setting_sections": SECTIONS, "statuses": {"task": SOME_STATUSES}},
 		},
 	)
 	reads = [one["path"] for one in driven["asked"] if one["method"] == "GET"]
@@ -19561,7 +19648,7 @@ def test_opening_a_projects_settings_asks_for_what_is_in_force_there (
 		permissions=("task:write", "project:write"),
 		answers={
 			"/settings": SAMPLES["ProjectSettings"]["inForce"],
-			"/meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+			"/meta": {"settings": REGISTRY, "setting_sections": SECTIONS, "statuses": {"task": SOME_STATUSES}},
 		},
 	)
 	reads = [one["path"] for one in driven["asked"] if one["method"] == "GET"]
@@ -19738,7 +19825,7 @@ def test_a_project_page_is_gated_on_the_projects_own_answer (tmp_path: pathlib.P
 	page = {"scope": "project", "slug": "projects", "project": "subroutine/ui"}
 	configured = {
 		"key": "/settings/project/projects/subroutine/ui",
-		"meta": {"settings": REGISTRY, "statuses": {"task": SOME_STATUSES}},
+		"meta": {"settings": REGISTRY, "setting_sections": SECTIONS, "statuses": {"task": SOME_STATUSES}},
 		"inForce": SAMPLES["ProjectSettings"]["inForce"],
 		"projects": SOME_PROJECTS,
 	}

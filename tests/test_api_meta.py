@@ -324,6 +324,31 @@ def test_every_setting_the_registry_declares_is_published (world: test_api_tasks
 			), key
 
 
+def test_every_section_is_published_beside_the_settings_it_holds (
+	world: test_api_tasks.World,
+) -> None:
+	"""`#2722`: a settings page draws a section apart from ``/v1/meta`` alone, so the section and
+	the settings naming it arrive together, and in the registry's own words.
+	"""
+
+	for asked in ("/v1/meta", f"/v1/meta?workspace_id={world.workspace.slug}"):
+		body = world.call("GET", asked).json()
+		sections = {one["key"]: one for one in body["setting_sections"]}
+
+		assert set(sections) == set(subroutine.domain.settings.SECTIONS), (asked, sections)
+
+		for key, declared in subroutine.domain.settings.SECTIONS.items():
+			one = sections[key]
+
+			assert (one["title"], one["explains"], one["apart"]) == (
+				declared.title, declared.explains, declared.apart
+			), key
+			assert (one["further_label"], one["further_url"]) == (declared.further or (None, None)), key
+
+		for one in body["settings"]:
+			assert one["section"] == subroutine.domain.settings.SETTINGS[one["key"]].section, one["key"]
+
+
 def test_a_published_setting_names_the_verb_the_service_enforces_at_each_scope (
 	world: test_api_tasks.World,
 ) -> None:

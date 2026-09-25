@@ -7385,6 +7385,33 @@ class Setting(pydantic.BaseModel):
 	#: what.
 	permission: dict[str, str]
 
+	#: The section it is drawn in, by key, or null for its page's ordinary list (`#2722`).
+	section: str | None = None
+
+
+class SettingSection(pydantic.BaseModel):
+	"""Settings drawn together under a heading that says what they are for.
+
+	For settings most people will never need: the section explains itself, links to more, and
+	one drawn apart comes last on its page, after a separator. Published so a page draws it
+	without a copy of its words.
+	"""
+
+	key: str
+
+	#: What the section is, as its heading.
+	title: str
+
+	#: What it is for, in words a person who has never heard of it can follow.
+	explains: str
+
+	#: Where to read more - the words of a link and where it goes - or null for both.
+	further_label: str | None = None
+	further_url: str | None = None
+
+	#: Drawn last on its page, after a separator.
+	apart: bool = False
+
 
 class Meta(pydantic.BaseModel):
 	"""Everything needed to construct a valid request against *this* installation."""
@@ -7494,6 +7521,10 @@ class Meta(pydantic.BaseModel):
 	#: instance older than this field sends no such key and must keep working.
 	settings: list[Setting] = pydantic.Field(default_factory=list)
 
+	#: The sections a setting may be drawn in, which ``settings`` name by key (`#2722`). Defaulted,
+	#: for the same reason as everything added here after this model shipped.
+	setting_sections: list[SettingSection] = pydantic.Field(default_factory=list)
+
 
 def published_settings () -> list[Setting]:
 	"""Return every setting the registry declares, as ``/v1/meta`` publishes it — `#2365`.
@@ -7521,8 +7552,25 @@ def published_settings () -> list[Setting]:
 				scope: subroutine.domain.settings.permission_for(found, scope=scope)
 				for scope in found.scopes
 			},
+			section=found.section,
 		)
 		for found in subroutine.domain.settings.SETTINGS.values()
+	]
+
+
+def published_sections () -> list[SettingSection]:
+	"""Return every section a setting may be drawn in, as ``/v1/meta`` publishes it - `#2722`."""
+
+	return [
+		SettingSection(
+			key=found.key,
+			title=found.title,
+			explains=found.explains,
+			further_label=None if found.further is None else found.further[0],
+			further_url=None if found.further is None else found.further[1],
+			apart=found.apart,
+		)
+		for found in subroutine.domain.settings.SECTIONS.values()
 	]
 
 

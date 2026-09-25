@@ -800,6 +800,11 @@ META = {
 	# the page draws the controls an instance would. Absent, a settings page drew none, and no
 	# test here could drive one.
 	"settings": [one.model_dump(mode="json") for one in subroutine.views.published_settings()],
+	# **And the sections they are drawn in** (`SR#2722`), which the instance publishes beside them;
+	# absent, a setting meant for a section apart was drawn among the ordinary ones.
+	"setting_sections": [
+		one.model_dump(mode="json") for one in subroutine.views.published_sections()
+	],
 }
 
 #: What a workspace's settings page reads - `SR#2621`. A colour and three hidden statuses set
@@ -3791,6 +3796,18 @@ def test_a_refused_write_leaves_what_was_typed_where_it_was (running: typing.Any
 		f"the save was not what was stored plus what was ticked, so it changed what it never drew: "
 		f"{sent}"
 	)
+
+	# **And what most people will never need comes last, behind a rule a reader can see**
+	# (`SR#2722`, Simon: *perhaps even with a visual separator to distinguish*). Only a browser can
+	# say the rule is drawn: the stylesheet decides that, and the text harness keeps no styles.
+	rule = settings.locator("hr.setting-apart")
+	drawn = rule.evaluate(
+		"line => getComputedStyle(line).borderTopStyle + ' ' + getComputedStyle(line).borderTopWidth"
+	)
+
+	assert rule.count() == 1 and rule.is_visible(), "the section apart has no rule a reader can see"
+	assert drawn.startswith("double"), f"the rule is drawn as {drawn}, not set apart from the rest"
+	assert "Sending events to music software" in settings.locator(".setting-page > *").last.inner_text()
 
 	settings.close()
 
