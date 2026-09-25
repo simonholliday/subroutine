@@ -722,6 +722,13 @@ def session (
 	connection = engine.connect()
 	transaction = connection.begin()
 
+	# **SQLite has to be told** (`#3608`). pysqlite sends no BEGIN for the line above - it opens a
+	# transaction only before a statement that changes data - so the session's first SAVEPOINT
+	# would be the outermost transaction SQLite knew of, and a commit inside a test, which
+	# releases it, would reach the file for every test after it. PostgreSQL begins for itself.
+	if engine.dialect.name == "sqlite":
+		connection.exec_driver_sql("BEGIN")
+
 	# `create_savepoint` keeps the session from taking ownership of the outer
 	# transaction, so a commit inside a service under test is contained and the rollback
 	# below still discards everything.

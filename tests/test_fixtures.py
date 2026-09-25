@@ -21,6 +21,7 @@ import pytest
 import rich.console
 import sqlalchemy
 import sqlalchemy.engine
+import sqlalchemy.orm
 import typer.rich_utils
 import typer.testing
 
@@ -28,6 +29,7 @@ import conftest
 import subroutine.cli.main
 import subroutine.cli.output
 import subroutine.connections
+import subroutine.domain.users
 import subroutine.installations
 import test_browser
 
@@ -755,3 +757,26 @@ def test_a_database_under_a_retired_prefix_is_still_found () -> None:
 			connection.execute(sqlalchemy.text(f'DROP DATABASE IF EXISTS "{name}"'))
 
 		admin.dispose()
+
+
+def test_a_commit_inside_a_test_goes_no_further_on_any_backend (
+	session: sqlalchemy.orm.Session, engine: sqlalchemy.engine.Engine
+) -> None:
+	"""`#3608`: the ``session`` fixture says a commit inside a test is contained, and on SQLite it
+	was not.
+
+	**Asked from outside the test**, through a connection of the engine's own, because that is
+	where an escaped row shows: every later test in the run can see it, and the engine's teardown
+	fails on it when the tables are dropped.
+	"""
+
+	name = f"contained-{uuid.uuid4().hex[:8]}"
+	subroutine.domain.users.create(session, username=name)
+	session.commit()
+
+	with engine.connect() as outside:
+		seen = outside.execute(
+			sqlalchemy.text('SELECT count(*) FROM "user" WHERE username = :name'), {"name": name}
+		).scalar_one()
+
+	assert seen == 0, f"a commit inside a test reached the {engine.dialect.name} database"
