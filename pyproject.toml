@@ -58,7 +58,11 @@ dependencies = [
 	"pydantic-settings>=2.3",
 	"python-dateutil>=2.9",
 	"rich>=13.7",
-	"sqlalchemy>=2.0.30",
+	# **Below 2.1 until the code and its types are moved to it** (`#3604`, Simon 2026-09-25).
+	# 2.1.0 arrived on 2026-09-24 and failed every test job and the type check the same night:
+	# it deprecates `Result.tuples()`, which eighteen modules here call, and its typing disagrees
+	# with 2.0's, so one mypy run cannot pass both. `#3605` is the move.
+	"sqlalchemy>=2.0.30,<2.1",
 	# **Declared even though FastAPI brings it** (`#927`'s M-46). 19 modules here import
 	# it directly — every route class, every request and response type, the whole of
 	# `api/problems` — so it is a dependency of this program whatever else happens to pull it

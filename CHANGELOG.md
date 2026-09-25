@@ -78,6 +78,10 @@ upgrade involves.
 
 ### Changed
 
+- **SQLAlchemy stays on 2.0 for now.** Version 2.1 came out on 24 September and Subroutine is not
+  yet tested against it, so this release asks for a version below 2.1. An installation made since
+  then, which will have 2.1, is moved back to 2.0 when you upgrade.
+
 - **`agent create` says whom the new agent answers to**, which is whoever ran it. When that is
   another agent - your own, giving a project its agent - it also prints the one command that
   makes you the parent instead, `subroutine user transfer <name> --to <you>`, which only a
