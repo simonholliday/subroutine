@@ -3649,7 +3649,29 @@ def test_the_more_hint_keeps_the_narrowing_it_was_given (run: typing.Any) -> Non
 	listed = run("list", "--type", "bug", "--limit", "1").output
 
 	assert "…and more" in listed, listed
-	assert "'subroutine list --type bug --limit 2'" in listed, listed
+	assert "Run this to see further: subroutine list --type bug --limit 2" in listed, listed
+
+
+def test_the_more_hint_can_be_pasted_as_it_stands (run: typing.Any) -> None:
+	"""`SR#3590`: the hint wrapped its command in quotes, so a value quoted inside it broke the paste.
+
+	*'subroutine search 'Bug two' --limit 4'* is what `search` printed, and `SR#3548` then repeated
+	every value typed, so any value holding a space did the same. The command is last on its line
+	now and unquoted, and splitting it the way a shell does gives back what was typed.
+	"""
+
+	run("init")
+
+	for number in range(1, 4):
+		run("add", f"Bug two {number}")
+
+	listed = run("search", "Bug two", "--limit", "1").output
+	hint = next((line for line in listed.splitlines() if "to see further" in line), "")
+
+	assert hint, listed
+	assert shlex.split(hint.split("to see further: ", 1)[-1]) == [
+		"subroutine", "search", "Bug two", "--limit", "2",
+	], hint
 
 
 #: Parameters that can be typed on the listing commands and never reach the hint, each with the

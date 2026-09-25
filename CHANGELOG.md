@@ -163,7 +163,8 @@ upgrade involves.
   by.** It repeated only `--order`, `--project` and `--deferred`, so following it after
   `--type`, `--status`, `--filter` or any other narrowing listed open work of every kind, and a
   saved view's suggestion ran `list` rather than the view. It now repeats the command as you
-  typed it, with a larger limit.
+  typed it, with a larger limit, and last on its line without quotes around it, so it can be
+  pasted as it stands.
 
 - **A token set with a space or a line break at either end is read without it, and a token that
   cannot be sent is never quoted back.** It was sent as it was set, refused, and quoted whole into

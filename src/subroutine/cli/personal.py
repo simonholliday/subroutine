@@ -4527,8 +4527,11 @@ def _listed (
 			# a narrowing would widen the list while claiming to extend it, and the reader would
 			# blame the flag rather than the advice - which three hand-picked options did once
 			# `--type`, `--status` and `--filter` existed beside them.
+			#
+			# **Last on its line and unquoted** (`#3590`), so it can be copied as it stands. Wrapped in
+			# quotes of its own, a value quoted inside it - *'Bug two'* - broke the paste.
 			program.console.print(rich.text.Text(
-				f"      …and more. '{_again(context, limit)}' to see further.", style=DETAIL
+				f"      …and more. Run this to see further: {_again(context, limit)}", style=DETAIL
 			))
 
 		_say_parked(gathered, console=program.console, hidden=hiding)
