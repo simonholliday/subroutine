@@ -1169,7 +1169,9 @@ order:
 
 1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment - the connection name upper-cased, with
    anything that is not a letter or a digit as an underscore
-2. `SUBROUTINE_TOKEN`, for the default connection only
+2. `SUBROUTINE_TOKEN`, for the default connection only - except in a server the `subroutine`
+   plugin started, where it is the plugin's token field and belongs to whichever connection the
+   plugin names
 3. whatever the connection's own `token_env` or `token_command` names
 4. `credentials.toml` - the **agent's** token where one is stored and this is an agent's
    process, and yours otherwise

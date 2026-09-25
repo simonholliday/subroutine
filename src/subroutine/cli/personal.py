@@ -8378,11 +8378,14 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 		key: str = typer.Argument("", help="Which view, by its name."),
 		limit: int = typer.Option(DEFAULT_LIST_LIMIT, "--limit", help="How many to show."),
 		json_output: bool = typer.Option(False, "--json", help="Print the results as JSON."),
+		# **Accepted and not offered** (`#3595`): a view runs on the one connection it was saved on,
+		# so there is nothing to merge and nowhere else to reach. Kept so a script passing either
+		# still runs.
 		merged: bool = typer.Option(
-			False, "--merged", help="One list rather than a group per connection."
+			False, "--merged", hidden=True, help="Nothing, for a view: it runs on one connection."
 		),
 		strict: bool = typer.Option(
-			False, "--strict", help="Stop if any connection cannot be reached."
+			False, "--strict", hidden=True, help="Nothing, for a view: it runs on one connection."
 		),
 		order: str = typer.Option(
 			"", "--order", help="Sort by this instead of the order the view saved."
@@ -8515,6 +8518,9 @@ def _register_views (app: typer.Typer, program: Program) -> None:
 		Examples:
 
 		  subroutine view forget my-bugs
+
+		A workspace's administrator may also forget a shared view somebody else saved - one whose
+		author has left, say - though nobody may change a view they did not save.
 
 		There is no trash for a view, unlike a task: it records nothing that happened, and
 		one left behind would hold its name against whoever wants it next.

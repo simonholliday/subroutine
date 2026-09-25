@@ -12,7 +12,7 @@ following one lands on the section describing it.
 | Code | HTTP | Title | Meaning |
 | --- | --- | --- | --- |
 | `cursor_expired` | 410 | Cursor expired | A change-feed cursor names a point older than the events this instance still holds, so the gap between there and now cannot be reported. The client resyncs from the beginning rather than being handed a page that silently omits everything pruned in between. |
-| `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another. |
+| `cycle_detected` | 409 | Cycle detected | The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another - or would make a milestone include itself. |
 | `database_busy` | 503 | Busy | Another connection held the database and this request was refused - sometimes at once and sometimes after waiting, which is why the terminal says how long its attempt took. Distinct from 'request_timed_out', which is a statement this instance stopped waiting for, and from 'service_unavailable', which says the instance cannot serve anything yet: this instance is serving and this database is working, and it was busy at that moment. The request that met it changed nothing, and trying again is the remedy; a caller that made several requests says which of them went through. |
 | `duplicate_key` | 409 | Already exists | Something with that identifying value is already here - a project key, a username, a tag name, or a document that has already been superseded. |
 | `forbidden` | 403 | Not permitted | The credential is valid but does not permit this. Where the refusal turns on a permission the caller lacks, that permission is named so they can ask for a token carrying it - but several do not: a token pinned to another workspace, a caller who is not a member, and a project scope narrower than the project reached are each about reach rather than about a verb. |
@@ -44,7 +44,7 @@ A change-feed cursor names a point older than the events this instance still hol
 
 **Cycle detected** - HTTP 409.
 
-The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another.
+The change would make something its own ancestor, in a project tree, a task hierarchy, or a chain of links that say which of a pair comes first - the blocking ones, and the one that says a document replaces another - or would make a milestone include itself.
 
 ## `database_busy`
 

@@ -186,7 +186,7 @@ same job. If the shell cannot find `subroutine` afterwards, `uv tool update-shel
 you will need a fresh terminal.
 
 **Give each project's agent an account of its own** - ask your agent to, or run
-`subroutine agent create web --workspace acme --here` in the project's directory - and every
+`subroutine agent create web --workspace projects --here` in the project's directory - and every
 change it makes carries its name and a credential narrower than yours, rather than being filed
 as you. With the `subroutine-remote` plugin that covers the agent's shell and not its tools,
 until the project is switched to the `subroutine` plugin. On one laptop with one person this
@@ -201,8 +201,8 @@ page is how everybody else sees the work.
 # Reference
 
 Everything above is the argument. The rest of this page is the detail, and where a program can
-check it, it is checked rather than remembered: a row in the table below marked built that
-`GET /v1/meta` calls unbuilt fails the build before anybody reads it.
+check it, it is checked rather than remembered: a row in the table below marked built that the
+agent guide, `GET /v1/docs/agent`, calls unbuilt fails the build before anybody reads it.
 
 ## What is built, and what is planned
 

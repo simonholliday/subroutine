@@ -393,7 +393,7 @@ class Agenda:
 	#: morning.
 	#:
 	#: **Counted on the scope before the assignee rule, and nothing else is** — every other
-	#: total here is computed on rows that already survived it, so the six partition rather than
+	#: total here is computed on rows that already survived it, so the seven partition rather than
 	#: overlap. A row of somebody else's that is *also* deferred is counted once, here.
 	assigned_elsewhere_total: int = 0
 

@@ -376,8 +376,9 @@ queue a team works from, and anybody here can run it by name:
 
   subroutine view save "Team queue" --q "urgency>=4" --shared
 
-Only the person who saved a view can change or remove it, shared or
-not.
+Only the person who saved a view can change it. A workspace's
+administrator may also forget a shared one somebody else saved, such as
+one whose author has left.
 
 WHAT A TERMINAL DOES WITH THE ARRANGEMENT
 
@@ -605,7 +606,7 @@ that is for the person to put right.""",
 		name="milestones",
 		summary="Features, milestones and the three links that plan work.",
 		body="""A feature is a parent task: its sub-tasks are its parts, all in one
-project, and it cannot be started while any of them is unfinished.
+project, and 'list --ready' leaves it out while any of them is unfinished.
 
 A milestone is an item of the 'milestone' type - a release, a phase, a
 launch. It is what work counts toward, never work itself, so nothing

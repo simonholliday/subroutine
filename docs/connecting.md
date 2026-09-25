@@ -400,8 +400,10 @@ That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.
   as the `subroutine` plugin's server - so one line covers both of the ways an agent reaches an
   instance, and [an agent that can also run a shell](hosting.md#an-agent-that-can-also-run-a-shell)
   is why both matter. It makes the repository ignore the file, adding the line to `.gitignore` if it needs
-  one, and prints nothing secret. **If it cannot finish, it refuses before anything is made** - a
-  settings file that is not valid JSON, say, or one the repository already tracks.
+  one, and prints nothing secret. **If it cannot finish, it refuses before a credential is made** -
+  a settings file that is not valid JSON, say, or one the repository already tracks - leaving at
+  most the line it added to `.gitignore`. If the settings file cannot be written once the
+  credential exists, it shows you the credential rather than lose it.
 - **`Account parent`** is who answers for the agent: whoever ran the command, which here is you.
 - **As written, the agent can do what its account's role allows anywhere in that workspace.** To
   keep it to its own project, add `--profile worker --project web`; to let it read a neighbour and

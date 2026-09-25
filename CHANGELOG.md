@@ -55,7 +55,9 @@ upgrade involves.
   `.claude/settings.local.json` under the variable for your connection, makes the repository
   ignore that file - adding the line to `.gitignore` if it needs one - and prints nothing
   secret, so your agent can run it for you without ever seeing the credential. If it could not
-  finish, it refuses before anything is made. Reload the window straight afterwards: a session
+  finish, it refuses before a credential is made, leaving at most the line it added to
+  `.gitignore`, and if the settings file cannot be written afterwards it shows you the credential
+  rather than lose it. Reload the window straight afterwards: a session
   already open may act as the new agent in its shell before its tools catch up. **With
   `subroutine-remote` it names the shell only**: that plugin's tools present the one token it
   was given, in every project. `agent create` and `subroutine_whoami` both say so, and name the
@@ -102,6 +104,10 @@ upgrade involves.
 - **Subroutine's mark is Lucide's *waypoints***, in the browser's tab, on a home screen and
   beside the name at the top of every page, where it was *kanban*: points joined up, rather
   than a board.
+
+- **`view run` no longer offers `--merged` and `--strict`**, which did nothing for a view: it runs
+  on the one connection it was saved on. Both are still accepted, so a script that passes either
+  goes on working.
 
 - **The journal is a tab beside Agenda, List and Board** in the browser, on a workspace's pages
   and on the journal itself, which now draws those tabs and the search too, so you can go from
