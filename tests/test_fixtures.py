@@ -28,6 +28,7 @@ import typer.testing
 import conftest
 import subroutine.cli.main
 import subroutine.cli.output
+import subroutine.config
 import subroutine.connections
 import subroutine.domain.users
 import subroutine.installations
@@ -104,6 +105,39 @@ def test_the_editors_agent_variable_does_not_reach_a_test () -> None:
 	need clearing, after ``CLAUDE_PLUGIN_ROOT`` and the colour settings.
 	"""
 
+	assert subroutine.connections.DEFAULT_AGENT_WHEN not in os.environ
+
+
+def test_undoing_every_patch_leaves_a_test_off_the_machines_configuration (
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3601`: ``monkeypatch.undo()`` put a reviewer's probe on this machine's configuration.
+
+	The suite's isolation was patches and nothing else, so undoing a test's own undid the suite's
+	too, and two authenticated requests reached a served instance. **Undone here on purpose**,
+	and nothing is asked of any instance: only where the configuration would be read from, and
+	which of the product's variables are left. Names only, never a value.
+	"""
+
+	monkeypatch.undo()
+
+	root = conftest.ISOLATED.get("root")
+
+	assert root is not None, "nothing isolated this process before its tests ran"
+
+	for home in (
+		subroutine.config.config_home(),
+		subroutine.config.data_home(),
+		subroutine.config.state_home(),
+	):
+		assert home.is_relative_to(root), f"{home} is outside {root}"
+
+	left = [
+		name for name in os.environ
+		if name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_")
+	]
+
+	assert not left, f"these reach a test that undoes its patches: {left}"
 	assert subroutine.connections.DEFAULT_AGENT_WHEN not in os.environ
 
 

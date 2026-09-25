@@ -7,10 +7,13 @@ contention. A test that runs only on SQLite is a test that agrees with itself.
 """
 
 import datetime
+import functools
 import os
 import pathlib
 import re
+import shutil
 import sys
+import tempfile
 import typing
 import uuid
 
@@ -559,6 +562,34 @@ def said_about (dropped: dict[str, int], unreadable: list[str]) -> str:
 #: all under this project's ``-q``.
 _SWEPT: dict[str, str] = {}
 
+#: Where :func:`pytest_configure` pointed this process's configuration - `#3601`.
+ISOLATED: dict[str, pathlib.Path] = {}
+
+
+def _isolate_the_process (config: pytest.Config) -> None:
+	"""Point this process at an empty configuration before any test runs - `#3601`.
+
+	**Beneath the per-test isolation, never instead of it.** :func:`_no_inherited_installation`
+	patches through ``monkeypatch``, so a test that calls ``undo()`` reverts those patches along
+	with its own and is back on the machine's configuration: a reviewer's probe did exactly that,
+	and sent two authenticated requests to a served instance with a real credential. Set in
+	``os.environ`` once per process, every worker included, ``undo()`` comes back to this.
+	"""
+
+	root = pathlib.Path(tempfile.mkdtemp(prefix="subroutine-run-"))
+	config.add_cleanup(functools.partial(shutil.rmtree, root, ignore_errors=True))
+	ISOLATED["root"] = root
+
+	for variable in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
+		os.environ[variable] = str(root / variable.lower())
+
+	for name in list(os.environ):
+		if name in (
+			subroutine.installations.PLUGIN_ROOT,
+			subroutine.connections.DEFAULT_AGENT_WHEN,
+		) or (name.startswith("SUBROUTINE_") and not name.startswith("SUBROUTINE_TEST_")):
+			del os.environ[name]
+
 
 def pytest_configure (config: pytest.Config) -> None:
 	"""Sweep what earlier runs left behind — `#1667`.
@@ -569,7 +600,12 @@ def pytest_configure (config: pytest.Config) -> None:
 	**Once per run, not once per worker.** Under ``-n auto`` every worker imports this file, so
 	eight processes would race to drop the same names and report eight different numbers;
 	``workerinput`` is what xdist puts on a worker's config and on nothing else.
+
+	**Isolated first, in every process** (`#3601`), since a worker runs tests as surely as a
+	run without workers does.
 	"""
+
+	_isolate_the_process(config)
 
 	if hasattr(config, "workerinput"):
 		return
