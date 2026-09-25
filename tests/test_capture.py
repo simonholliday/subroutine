@@ -2120,11 +2120,28 @@ _WHEN = (
 	" from 0005-01-02 to 0005-01-05",
 	" from 9999-12-30 to 9999-12-31",
 	" tomorrow at 2pm",
+	# The cold review of 2026-09-24's lines (`SR#3580`-`SR#3582`, `SR#3629`): offsets, a start
+	# with its own time, days no calendar has, a start counted back, an em dash, and the three
+	# ways a line asked for a day after the calendar's last.
+	" from 2026-10-02T09:00-05:00",
+	" from 2026-10-02 09:00-05:00",
+	" on 2026-10-02T09:00-05:00",
+	" on 2026-10-02 09:00-10:00",
+	" on 29 February 2027 at 9am",
+	" on 31 April",
+	" on 2026-02-30 at 9am",
+	" from 3 November to 2026-10-30",
+	" from Friday 2 October to Tuesday 12 October 2027",
+	" on monday 12:30\u20141:30",
+	" on 9999-12-31 at 11pm til 1am",
+	" from 9999-12-31 9pm to 1am",
+	" from 9999-12-31 to 31 December",
 )
 _DUE = (
-	"", " by friday", " by 2 October", " by today", " by 2026-10-01", " by friday 17:00", " by 31 April"
+	"", " by friday", " by 2 October", " by today", " by 2026-10-01", " by friday 17:00", " by 31 April",
+	" by 29 February 2027", " by tuesday", " by next tuesday",
 )
-_DEFER = ("", " from friday", " from 2026-10-01", " from 2026-10-01T09:00")
+_DEFER = ("", " from friday", " from 2026-10-01", " from 2026-10-01T09:00", " from 9999-12-31")
 _ZONES = (LONDON, "America/Los_Angeles", "Pacific/Auckland")
 
 
@@ -2380,9 +2397,6 @@ def test_the_end_of_a_span_is_resolved_from_its_start () -> None:
 		("File the return by 31 January 2025", "File the return", "due",
 			datetime.date(2025, 1, 31)),
 		("Renew the lease by 1 June 2076", "Renew the lease", "due", datetime.date(2076, 6, 1)),
-		# **A day that year has not got is handed on whole**, exactly as *31 February* is, for the
-		# create to refuse by name - and never dated to the leap day after it.
-		("Ship the beta by 29 February 2027", "Ship the beta", "due", "29 February 2027"),
 	],
 )
 def test_a_written_year_is_read_with_the_date_it_follows (
@@ -2458,6 +2472,19 @@ def test_four_digits_that_are_not_a_year_stay_in_the_title_and_are_reported (
 		("Holiday in Dawlish from 28 December to 3 January 2028", (2027, 12, 28), (2028, 1, 3)),
 		# **Written at the start**, and the end counted from it as it always was.
 		("Holiday in Dawlish from 28 December 2027 to 3 January", (2027, 12, 28), (2028, 1, 3)),
+		# **Counted back no further than eleven months** (`SR#3580`, Simon's rule of 2026-09-25):
+		# one under way on the day it is said, one over the new year, and the last day the limit
+		# allows.
+		("Holiday in Dawlish from 1 July to 2026-07-31", (2026, 7, 1), (2026, 7, 31)),
+		("Holiday in Dawlish from 28 December to 3 January 2027", (2026, 12, 28), (2027, 1, 3)),
+		("Holiday in Dawlish from 30 November to 2026-10-30", (2025, 11, 30), (2026, 10, 30)),
+		# **And a weekday in front that falls in the end's year** (`SR#3580`), which was refused
+		# because the start was read from today first, where 2 October is a Friday.
+		(
+			"Holiday in Dawlish from Saturday 2 October to Tuesday 12 October 2027",
+			(2027, 10, 2),
+			(2027, 10, 12),
+		),
 	],
 )
 def test_a_year_written_in_a_span_dates_both_days (
@@ -2659,6 +2686,16 @@ def test_a_bare_from_is_still_a_defer () -> None:
 		# the end's own month lands a year early, which is a span running backwards.
 		"Holiday in Dawlish from 13 October to 12 October 2027",
 		"Holiday in Dawlish 12-2 October 2027",
+		# **A start counted back further than eleven months** (`SR#3580`, Simon's rule of
+		# 2026-09-25): the item's own line, a trip written backwards that was stored as one begun
+		# eleven months before; two of nearly a year; and the first day past the limit.
+		"Holiday in Dawlish from 3 November to 2026-10-30",
+		"Holiday in Dawlish from 1 March to 2027-02-28",
+		"Holiday in Dawlish from 1 September to 31 August 2027",
+		"Holiday in Dawlish from 29 November to 2026-10-30",
+		# **And a weekday that does not fall in the end's year** (`SR#3580`): 2 October 2027 is a
+		# Saturday, so this named 2026 by its weekday and 2027 by its year, and took 2026 silently.
+		"Holiday in Dawlish from Friday 2 October to Tuesday 12 October 2027",
 	],
 )
 def test_a_span_that_cannot_be_read_is_said_and_sets_nothing (text: str) -> None:
@@ -2800,3 +2837,211 @@ def test_a_time_on_a_span_of_days_goes_back_into_the_title () -> None:
 	assert captured.starts_is_all_day is True, captured
 	assert "9am" in captured.title, captured
 	assert captured.unparsed, captured
+
+
+@pytest.mark.parametrize(
+	("text", "snooze"),
+	[
+		# **The item's own line** (`SR#3581`): nine o'clock five hours west was read as an
+		# appointment running to five the next morning, with the defer and the offset both lost.
+		("Workshop from 2026-10-02T09:00-05:00", "2026-10-02T09:00-05:00"),
+		# And every other offset, each read all along - one rule for all of them now.
+		("Workshop from 2026-10-02T09:00+05:00", "2026-10-02T09:00+05:00"),
+		("Workshop from 2026-10-02T09:00-0500", "2026-10-02T09:00-0500"),
+		("Workshop from 2026-10-02T09:00Z", "2026-10-02T09:00Z"),
+		("Workshop from 2026-10-02T09:00:00-05:00", "2026-10-02T09:00:00-05:00"),
+		# **A space makes one moment only where nothing else could be meant**: with its seconds,
+		# or with an offset no range could be.
+		("Workshop from 2026-10-02 09:00:00-05:00", "2026-10-02 09:00:00-05:00"),
+		("Workshop from 2026-10-02 09:00+05:00", "2026-10-02 09:00+05:00"),
+	],
+)
+def test_an_iso_time_keeps_its_utc_offset (text: str, snooze: str) -> None:
+	"""`SR#3581`: a negative offset with a colon was read as the end of an appointment.
+
+	`SR#3157` let an ISO day carry its first time after a ``T``, and the appointment pattern then
+	took the offset's hyphen for its joint - the one spelling of an offset that looks like a range.
+	It is a line an agent writes.
+	"""
+
+	captured = _parse(text)
+
+	assert (captured.title, captured.snooze) == ("Workshop", snooze), captured
+	assert (captured.starts_at, captured.ends_at) == (None, None), captured
+	assert captured.unparsed == (), captured.unparsed
+
+
+@pytest.mark.parametrize(
+	("text", "written"),
+	[
+		# **With a space, the day is a day like any other** (`SR#3581`), so a time and a dash after
+		# it read as they do after *2 October*. The review read this line as an offset; the reading
+		# it has now is the one every spelling of that day shares, overnight shift included.
+		("Workshop from 2026-10-02 09:00-05:00", "Workshop from 2 October 09:00-05:00"),
+		("Night shift from 2026-10-02 22:00-02:00", "Night shift from 2 October 22:00-02:00"),
+		# **And beside ``on``** (`SR#3629`), where the whole of it was taken for a time and an
+		# offset and then cut to its day.
+		("Standup on 2026-10-02 09:00-10:00", "Standup on 2 October 09:00-10:00"),
+		("Standup on 2026-10-02 09:00", "Standup on 2 October 09:00"),
+	],
+)
+def test_an_iso_day_written_with_a_space_takes_a_time_as_any_day_does (
+	text: str, written: str
+) -> None:
+	"""`SR#3581` and `SR#3629`: one day written two ways is one reading."""
+
+	iso, spelled = _parse(text), _parse(written)
+
+	assert iso.starts_at is not None, iso
+	assert (iso.title, iso.starts_at, iso.ends_at, iso.starts_is_all_day) == (
+		spelled.title, spelled.starts_at, spelled.ends_at, spelled.starts_is_all_day
+	), (iso, spelled)
+	assert iso.unparsed == spelled.unparsed == (), (iso.unparsed, spelled.unparsed)
+
+
+@pytest.mark.parametrize(
+	("text", "starts_at"),
+	[
+		# **The item's own lines** (`SR#3629`): each was cut to its day and stored all-day, with the
+		# time and the offset gone from the title and nothing said.
+		("Workshop on 2026-10-02T09:00", "2026-10-02T09:00"),
+		("Workshop on 2026-10-02T09:00-05:00", "2026-10-02T09:00-05:00"),
+		("Workshop on 2026-10-02T09:00Z", "2026-10-02T09:00Z"),
+		("Workshop on 2026-10-02 09:00:00-05:00", "2026-10-02 09:00:00-05:00"),
+	],
+)
+def test_a_start_written_with_its_time_keeps_it (text: str, starts_at: str) -> None:
+	"""`SR#3629`: a deadline and a defer kept a time written in ISO, and a start threw it away.
+
+	Kept as written, as theirs are, for the create to read where the writer is - which
+	``tests/test_api_tasks.py`` drives through to the instant stored.
+	"""
+
+	captured = _parse(text)
+
+	assert (captured.title, captured.starts_at) == ("Workshop", starts_at), captured
+	assert captured.starts_is_all_day is not True, "a start with a time was marked all-day"
+	assert captured.unparsed == (), captured.unparsed
+
+
+def test_a_clock_beside_a_start_that_has_one_is_said () -> None:
+	"""`SR#3629`: the start already names nine o'clock, so ten is put nowhere, and said."""
+
+	captured = _parse("Workshop on 2026-10-02T09:00 at 10am")
+
+	assert captured.starts_at == "2026-10-02T09:00", captured
+	assert captured.unparsed == ("at 10am",), captured.unparsed
+	assert "at 10am" in captured.title, captured
+
+
+@pytest.mark.parametrize(
+	("text", "left"),
+	[
+		# **A day that year has not got** (`SR#3582`), handed on whole for the create to refuse -
+		# so a typo refused the whole line, the product's first way in, as `SR#2883` found of a
+		# span - and raised from inside the capture where it set a start.
+		("Ship the beta by 29 February 2027", "29 February 2027"),
+		("Ship the beta on 29 February 2027", "29 February 2027"),
+		("Ship the beta from 29 February 2027", "29 February 2027"),
+		# **And a day no year has**, handed on the same way for longer.
+		("Ship the beta by 31 April", "31 April"),
+		("Ship the beta on 31 April", "31 April"),
+	],
+)
+def test_a_written_date_no_calendar_has_is_reported_and_sets_nothing (
+	text: str, left: str
+) -> None:
+	"""`SR#3582`: a date written out is this grammar's own, and one naming no day is said.
+
+	A weekday contradicting its date (`SR#2116`) and a span with a day its month has not got
+	(`SR#2883`) were read this way already; a single date was the one still handed on.
+	"""
+
+	captured = _parse(text)
+
+	assert captured.title == text, captured
+	assert (captured.due, captured.starts_at, captured.snooze) == (None, None, None), captured
+	assert captured.unparsed == (left,), captured.unparsed
+
+	said = subroutine.domain.capture.explain(captured.unparsed) or ""
+
+	assert "the calendar has no such day" in said, said
+	assert "a time is read" not in said, f"a date was explained as a time: {said}"
+
+
+def test_a_time_beside_a_date_that_names_no_day_is_not_put_on_today () -> None:
+	"""`SR#3582`: reporting the date alone would have filed a start of today at nine.
+
+	A time beside no date is today's, and this one was written beside a date - one the grammar
+	could not read, which is a day named all the same, as a bare weekday is.
+	"""
+
+	captured = _parse("Standup on 31 April at 9am")
+
+	assert (captured.starts_at, captured.due, captured.snooze) == (None, None, None), captured
+	assert captured.title == "Standup on 31 April at 9am", captured
+	assert captured.unparsed == ("31 April", "at 9am"), captured.unparsed
+
+
+def test_an_em_dash_between_two_times_is_read_as_a_hyphen_is () -> None:
+	"""`SR#3582`: *on monday 12:30\u20141:30* set a start at 12:30 and left the rest in the title.
+
+	A single time declines to take half of a range, so a range the grammar cannot read is said
+	whole - and the class naming the dashes a range is joined by had the hyphen and the en dash.
+	"""
+
+	hyphen = _parse("Lunch on monday 12:30-1:30")
+
+	for dash in ("\u2013", "\u2014"):
+		read = _parse(f"Lunch on monday 12:30{dash}1:30")
+
+		assert (read.starts_at, read.ends_at, read.starts_is_all_day) == (
+			hyphen.starts_at, hyphen.ends_at, hyphen.starts_is_all_day
+		), (dash, read)
+		assert read.title == hyphen.title.replace("-", dash), (dash, read)
+		assert read.unparsed == hyphen.unparsed, (dash, read)
+
+
+@pytest.mark.parametrize(
+	("text", "read"),
+	[
+		# **A weekday counted from the calendar's last day** (`SR#3582`): no Tuesday follows it, so
+		# the deadline keeps the reading it had from today, as a written date's always did.
+		(
+			"Workshop from 9999-12-31 by tuesday",
+			{"snooze": "9999-12-31", "due": datetime.date(2026, 8, 4)},
+		),
+		(
+			"Workshop on 9999-12-31 by next tuesday",
+			{"starts_at": datetime.date(9999, 12, 31), "due": datetime.date(2026, 8, 4)},
+		),
+		# **A range to the next morning, which the calendar has not got**: the day stands, and the
+		# times are given back and said.
+		(
+			"Workshop on 9999-12-31 at 11pm til 1am",
+			{"starts_at": datetime.date(9999, 12, 31), "unparsed": ("at 11pm til 1am",)},
+		),
+		# And the forms that cannot stand at all, kept whole and said.
+		("Workshop from 9999-12-31 9pm to 1am", {"unparsed": ("from 9999-12-31 9pm to 1am",)}),
+		("Workshop from 9999-12-31 to saturday", {"unparsed": ("from 9999-12-31 to saturday",)}),
+		# **A span on the last day there is**, whose anniversary is past the calendar too.
+		(
+			"Holiday from 9999-12-31 to 31 December",
+			{"starts_at": datetime.date(9999, 12, 31), "ends_at": datetime.date(9999, 12, 31)},
+		),
+	],
+)
+def test_a_line_at_the_end_of_the_calendar_is_read_rather_than_raised (
+	text: str, read: dict[str, object]
+) -> None:
+	"""`SR#3582`: each of these raised from inside the capture, and filing one was a 500.
+
+	Absurd and typeable, as `SR#3157`'s first year was: a weekday, an anniversary and a next
+	morning each asked for a day after 31 December 9999.
+	"""
+
+	captured = _parse(text)
+
+	for field, expected in read.items():
+		assert getattr(captured, field) == expected, (field, captured)
+

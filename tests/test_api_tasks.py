@@ -126,6 +126,57 @@ def test_an_appointment_beside_a_deadline_is_filed (world: World) -> None:
 	assert body["due_at"][:10] >= body["starts_at"][:10], body
 
 
+@pytest.mark.parametrize(
+	("text", "starts_at", "ends_at"),
+	[
+		# **The item's own line** (`SR#3629`): cut to its day and stored all-day, with the time and
+		# the offset gone and nothing said. Nine o'clock five hours west is two in the afternoon.
+		("Workshop on 2026-10-02T09:00-05:00", "2026-10-02T14:00:00Z", None),
+		# With no offset, nine where the writer is - London, an hour ahead of UTC in October.
+		("Workshop on 2026-10-02T09:00", "2026-10-02T08:00:00Z", None),
+		# **And a range after a day written with a space** (`SR#3581`), read as after any other day.
+		("Standup on 2026-10-02 09:00-10:00", "2026-10-02T08:00:00Z", "2026-10-02T09:00:00Z"),
+	],
+)
+def test_a_start_written_with_its_time_is_stored_at_that_time (
+	session: sqlalchemy.orm.Session,
+	world: World,
+	text: str,
+	starts_at: str,
+	ends_at: str | None,
+) -> None:
+	"""`SR#3629` through the create: the stored instant, which is what every reader is given."""
+
+	world.user.timezone = "Europe/London"
+	session.flush()
+
+	made = world.call("POST", "/v1/tasks", json={"text": text})
+
+	assert made.status_code == 201, made.text
+
+	body = made.json()
+
+	assert (body["starts_at"], body["ends_at"], body["starts_is_all_day"]) == (
+		starts_at, ends_at, False
+	), body
+
+
+@pytest.mark.parametrize("text", ["Leap day on 2026-02-30", "Leap day by 2026-02-30"])
+def test_an_iso_date_no_calendar_has_is_refused_as_a_field_would_be (
+	world: World, text: str
+) -> None:
+	"""`SR#3582`: *on 2026-02-30* raised from inside the capture, and *by* was refused by name.
+
+	Both are handed to the create now, as a date sent as a field is, and neither is a 500 - the
+	capture reads ISO values by handing them on, where a date written out in words is its own.
+	"""
+
+	response = world.call("POST", "/v1/tasks", json={"text": text})
+
+	assert response.status_code == 422, response.text
+	assert "2026-02-30" in response.text, response.text
+
+
 def test_a_task_with_no_project_goes_to_the_inbox (world: World) -> None:
 	"""docs/design.md §1.4 over HTTP: creating a task must not require knowing about projects."""
 

@@ -4285,6 +4285,64 @@ def test_a_day_an_agent_writes_is_read_in_the_account_s_zone (
 	)
 
 
+def test_an_agent_naming_a_start_and_an_end_is_read_as_one_span (
+	bound: subroutine.mcp.protocol.Server,
+	session: sqlalchemy.orm.Session,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3633`: this surface read ``plan`` and ``until`` apart, each from today.
+
+	So two rules the terminal has never reached the agent: `SR#1557`'s, which reads the end from
+	the start - *friday until monday* said on a Saturday was refused as ending before it began -
+	and `SR#3580`'s, which counts a start with no year back from an end that names one, and
+	refuses one counted back too far. **Read back from the row**, on a pinned Saturday.
+	"""
+
+	who = session.scalars(sqlalchemy.select(subroutine.db.models.identity.User)).all()
+	assert len(who) == 1, "the fixture's one account is what carries the zone"
+
+	who[0].timezone = "Europe/London"
+	session.flush()
+
+	# Saturday 12 December 2026, in winter, so each stored instant carries its London date.
+	monkeypatch.setattr(
+		subroutine.db.types,
+		"utcnow",
+		lambda: datetime.datetime(2026, 12, 12, 10, 0, tzinfo=datetime.UTC),
+	)
+	london = zoneinfo.ZoneInfo("Europe/London")
+
+	for plan, until, starts, ends in (
+		("friday", "monday", datetime.date(2026, 12, 18), datetime.date(2026, 12, 21)),
+		("20 December", "30 December 2027", datetime.date(2027, 12, 20), datetime.date(2027, 12, 30)),
+	):
+		ref = _added(bound, f"Away from {plan}")
+
+		changed, failed = _called(bound, "subroutine_update", ref=ref, plan=plan, until=until)
+
+		assert not failed, changed
+
+		row = session.scalars(
+			sqlalchemy.select(subroutine.db.models.work.Task).where(
+				subroutine.db.models.work.Task.ref == ref
+			)
+		).one()
+
+		assert row.starts_at is not None and row.ends_at is not None, (plan, until, changed)
+		assert (
+			row.starts_at.astimezone(london).date(), row.ends_at.astimezone(london).date()
+		) == (starts, ends), (plan, until, changed)
+
+	ref = _added(bound, "A trip written backwards")
+
+	refused, failed = _called(
+		bound, "subroutine_update", ref=ref, plan="3 January", until="30 December 2026"
+	)
+
+	assert failed, refused
+	assert "more than 11 months before it" in refused, refused
+
+
 def test_an_agent_that_has_said_no_zone_writes_a_time_where_its_account_parent_is (
 	session: sqlalchemy.orm.Session,
 ) -> None:

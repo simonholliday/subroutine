@@ -288,9 +288,14 @@ def latest_written_date (written: str, *, until: datetime.date) -> datetime.date
 
 	``None`` for anything else: a phrase that is not a written date, one that carries a year of
 	its own, or a day no year in reach has got. The caller then keeps the day it already read.
+
+	**A weekday in front is read past, not checked** (`#3580`): *Friday 2 October* is counted back
+	as *2 October* is, and whether the day found is a Friday is the caller's question, because
+	the answer is a refusal that has to say which day it found.
 	"""
 
-	parts = _written_parts(written)
+	_weekday, rest = weekday_in_front(written)
+	parts = _written_parts(rest)
 
 	if parts is None or parts[2] is not None:
 		return None
@@ -309,6 +314,63 @@ def latest_written_date (written: str, *, until: datetime.date) -> datetime.date
 			return candidate
 
 	return None
+
+
+def weekday_in_front (written: str) -> tuple[int | None, str]:
+	"""Return the weekday a phrase opens with, if it opens with one and goes on, and the rest.
+
+	*Friday 2 October* is ``(4, "2 october")``, and *2 October* is ``(None, "2 october")``. A bare
+	*friday* has nothing after it, so it is not a weekday in front of anything and comes back
+	whole: that is a day on its own, which :func:`day_named` reads.
+	"""
+
+	lowered = written.strip().lower()
+	named, _, rest = lowered.partition(" ")
+	weekday = WEEKDAYS.get(named.rstrip(","))
+
+	if weekday is None or not rest.strip():
+		return None, lowered
+
+	return weekday, rest.strip()
+
+
+def is_written_date (written: str) -> bool:
+	"""Report whether ``written`` is a calendar date written out, whether or not it names a day.
+
+	*31 April* and *29 February 2027* are written dates that no calendar has, which is the
+	difference quick capture needs to see (`#3582`): a phrase of this shape is its own grammar's,
+	and one naming no day is reported rather than handed to a reader that knows only ISO dates
+	and expressions.
+	"""
+
+	return _written_parts(written) is not None
+
+
+def names_no_year (written: str) -> bool:
+	"""Report whether ``written`` is a calendar date written out with no year of its own.
+
+	A weekday in front is allowed, as *Friday 2 October*. This is the start
+	:func:`latest_written_date` can count back from an end that names its year (`#3580`).
+	"""
+
+	_weekday, rest = weekday_in_front(written)
+	parts = _written_parts(rest)
+
+	return parts is not None and parts[2] is None
+
+
+def months_before (day: datetime.date, months: int) -> datetime.date:
+	"""Return the same day ``months`` earlier, kept to the end of a shorter month.
+
+	Eleven months before 31 October is 30 November, since November has no 31st. **No earlier
+	than the calendar's first day**, since a span near year one can ask for a month there is not.
+	"""
+
+	try:
+		return day - dateutil.relativedelta.relativedelta(months=months)
+
+	except ValueError:
+		return datetime.date.min
 
 
 def _written_parts (written: str) -> tuple[int, int, int | None] | None:
@@ -333,13 +395,24 @@ def _written_parts (written: str) -> tuple[int, int, int | None] | None:
 	return int(number), MONTHS[name], None if year is None else int(year)
 
 
-def _soonest (name: str, *, today: datetime.date) -> datetime.date:
-	"""Return the soonest date with this weekday name, counting today."""
+def _soonest (name: str, *, today: datetime.date) -> datetime.date | None:
+	"""Return the soonest date with this weekday name, counting today.
 
-	return today + datetime.timedelta(days=(WEEKDAYS[name] - today.weekday()) % 7)
+	``None`` where the calendar ends first (`#3582`): counted from 31 December 9999 there is no
+	Tuesday to come, and asking for one raised ``OverflowError`` out of quick capture - a 500 for
+	*from 9999-12-31 by tuesday*. :func:`day_named` already answers ``None`` for a day it cannot
+	name, and every caller reads that as *leave the words alone*.
+	"""
+
+	ahead = (WEEKDAYS[name] - today.weekday()) % 7
+
+	if (datetime.date.max - today).days < ahead:
+		return None
+
+	return today + datetime.timedelta(days=ahead)
 
 
-def _next_week (name: str, *, today: datetime.date) -> datetime.date:
+def _next_week (name: str, *, today: datetime.date) -> datetime.date | None:
 	"""Return the day with this name in the week after the one ``today`` falls in.
 
 	**Counted from the start of the week, not from the soonest such day**, and at the weekend
@@ -350,11 +423,17 @@ def _next_week (name: str, *, today: datetime.date) -> datetime.date:
 	Weeks begin on a Monday, which is what decides Sunday. On a Sunday "next Friday" is five
 	days away rather than twelve, because a Sunday is the end of the week a person has just
 	had rather than the start of the one they are talking about.
+
+	``None`` where the calendar ends first, as :func:`_soonest` is (`#3582`).
 	"""
 
 	monday = today - datetime.timedelta(days=today.weekday())
+	ahead = 7 + WEEKDAYS[name]
 
-	return monday + datetime.timedelta(days=7 + WEEKDAYS[name])
+	if (datetime.date.max - monday).days < ahead:
+		return None
+
+	return monday + datetime.timedelta(days=ahead)
 
 
 def resolve (

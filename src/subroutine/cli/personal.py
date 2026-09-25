@@ -2822,7 +2822,7 @@ def _planned (
 			starts=None
 			if cleared
 			else subroutine.domain.schedule.on_the_day(
-				_day(world, _asked(when, "Which day?"), at=located),
+				_starting(world, _asked(when, "Which day?"), until=until, at=located, timezone=zone),
 				keeping=task.starts_at,
 				all_day=task.starts_is_all_day,
 				timezone=zone,
@@ -2986,6 +2986,29 @@ def _until (
 			field="ends_at",
 		)
 	}
+
+
+def _starting (
+	world: World, written: str, *, until: str, at: "Located", timezone: str
+) -> datetime.date:
+	"""Read the day a plan starts, counted back from ``--until`` where that names its year.
+
+	**One rule with quick capture's** (`#3580`): *from 2 October to 12 October 2027* starts in
+	October 2027, and ``plan 1 "2 October" --until "12 October 2027"`` started a year earlier,
+	because this read the start from today before the end was looked at. The rule, and what it
+	refuses, is ``schedule.start_counted_back``; where it does not apply the day is read as
+	:func:`_day` reads any other.
+	"""
+
+	if until is not UNGIVEN and until != "":
+		opening = subroutine.domain.schedule.start_counted_back(
+			written, until, timezone=timezone, now=subroutine.db.types.utcnow()
+		)
+
+		if opening is not None:
+			return opening
+
+	return _day(world, written, at=at)
 
 
 def _day (

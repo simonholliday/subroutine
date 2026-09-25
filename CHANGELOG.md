@@ -12,6 +12,45 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+### Fixed
+
+- **A span with a year only on its end starts no more than eleven months before it.** A start
+  with no year is counted back from an end that has one, so *Trip from 3 November to 2026-10-30*
+  was stored as a trip that began on 3 November 2025. Counted back further than eleven months,
+  a span is now left in the title and reported, and giving the start its own year stores it. A
+  weekday in front has to fall in that year too: *from Friday 2 October to Tuesday 12 October
+  2027* is reported, since 2 October 2027 is a Saturday. `subroutine plan` and the agent tools
+  read a start and an end the same way, so `plan 1 "2 October" --until "12 October 2027"` is ten
+  days in 2027 rather than a year and ten days.
+
+- **The agent tools read a start and an end given together as one span**, as `subroutine plan
+  --until` does. Each was read on its own, counting from today, so *friday* until *monday* said
+  on a Saturday was refused as finishing before it started.
+
+- **An ISO time keeps its UTC offset.** *Workshop from 2026-10-02T09:00-05:00* was read as an
+  appointment from nine until five the next morning, and the deferral and the offset were both
+  lost. A time after a `T` is read with its offset. With a space in place of the `T`, the date
+  is read as any other date is, so *on 2026-10-02 09:00-10:00* is an hour from nine; write the
+  `T` to give an offset.
+
+- **A start written as an ISO time keeps its time.** *Workshop on 2026-10-02T09:00* was stored
+  as starting on 2 October with no time, and the time and any offset were dropped without a
+  word. A deadline and a deferral always kept theirs.
+
+- **A date that does not exist is reported rather than refusing the whole line.** *by 29
+  February 2027* and *on 31 April* stopped anything being added. They now stay in the title and
+  are reported, and the rest of the line is used. An ISO date that does not exist, such as
+  `2026-02-30`, is still refused by name, as it is when sent on its own.
+
+- **A line dated at the very end of the calendar is added rather than failing.** *from
+  9999-12-31 by tuesday* and a few lines like it were an error from the server.
+
+- **Two times joined by an em dash are treated as two joined by a hyphen.** Where the pair could
+  not be read as a range, the em dash form set a start at the first time and left the second in
+  the title without a word. It is now left whole and reported, as the hyphen's always was.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

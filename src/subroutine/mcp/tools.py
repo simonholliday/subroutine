@@ -4261,6 +4261,37 @@ def _day (given: typing.Any, *, field: str, timezone: str) -> datetime.date | No
 	)
 
 
+def _names_a_day (given: typing.Any) -> bool:
+	"""Say whether an argument names a day, rather than clearing one or being left out."""
+
+	return isinstance(given, str) and bool(given.strip())
+
+
+def _paired (
+	plan: str, until: str, *, timezone: str
+) -> dict[str, datetime.datetime | datetime.date | None]:
+	"""Read a start and an end named in one call as one span - `#3633`.
+
+	**As the terminal's ``plan --until`` reads them**: the start counted back from an end that
+	names its year (`#3580`), and the end counted from the start (`#1557`). Read apart, each was the
+	soonest such day counting today - so *friday until monday* said on a Saturday finished before
+	it began, and *2 October until 12 October 2027* ran for a year and ten days.
+	"""
+
+	now = subroutine.db.types.utcnow()
+	opening = subroutine.domain.schedule.start_counted_back(plan, until, timezone=timezone, now=now)
+
+	return {
+		"plan": opening if opening is not None else _day(plan, field="plan", timezone=timezone),
+		"until": subroutine.domain.schedule.interpret_written_day_only(
+			until,
+			timezone=timezone,
+			now=subroutine.domain.schedule.end_counted_from(plan, until, timezone=timezone, now=now),
+			field=_COLUMN_FOR["until"],
+		),
+	}
+
+
 def _moment (
 	given: typing.Any, *, field: str, timezone: str
 ) -> datetime.datetime | datetime.date | None:
@@ -4659,13 +4690,22 @@ def _updated (
 	if any(field in arguments for field in ("plan", "until", "defer", "due")):
 		zone = _account_zone(client, workspace)
 
-		days = {
-			field: (_moment if field == "defer" else _day)(
-				arguments[field], field=field, timezone=zone
-			)
-			for field in ("plan", "until", "defer")
-			if field in arguments
-		}
+		# **A start and an end named together are one span** (`#3633`), read as the terminal's
+		# ``plan --until`` reads them - see :func:`_paired`. Either one alone is a day as before.
+		days = (
+			_paired(arguments["plan"], arguments["until"], timezone=zone)
+			if _names_a_day(arguments.get("plan")) and _names_a_day(arguments.get("until"))
+			else {}
+		)
+		days.update(
+			{
+				field: (_moment if field == "defer" else _day)(
+					arguments[field], field=field, timezone=zone
+				)
+				for field in ("plan", "until", "defer")
+				if field in arguments and field not in days
+			}
+		)
 
 	# **A deadline travels with the ordinary fields, not through ``schedule``** (`#2984`).
 	# ``PATCH /v1/tasks`` is where a deadline is written and :meth:`schedule` has no argument

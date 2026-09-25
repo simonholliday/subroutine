@@ -12122,6 +12122,61 @@ def test_a_span_written_as_two_bare_days_is_planned_as_one_pair (
 	)
 
 
+def test_a_plan_whose_end_names_its_year_counts_its_start_back_as_capture_does (
+	run: typing.Callable[..., typer.testing.Result],
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3580`: ``plan 1 "2 October" --until "12 October 2027"`` ran a year and ten days.
+
+	Quick capture reads *from 2 October to 12 October 2027* as ten days of 2027, counting the start
+	back from an end that names its year, and this surface read its start from today before it
+	looked at the end. One rule now, ``schedule.start_counted_back``, and its refusals with it.
+
+	**Driven rather than asked**, for `SR#1557`'s reason: this surface resolves both days itself.
+	**December, and a pinned clock**, so each stored instant carries its local date and nothing
+	moves through the calendar. 10 December 2026 is a Thursday.
+	"""
+
+	monkeypatch.setattr(
+		subroutine.db.types,
+		"utcnow",
+		lambda: datetime.datetime(2026, 12, 10, 10, 0, tzinfo=datetime.UTC),
+	)
+
+	run("init")
+
+	for title in ("A visit", "A holiday", "A trip", "A weekend"):
+		run("add", title)
+
+	# Counted back: from today, the 20 December before the end is this year's, a year early.
+	run("plan", "1", "20 December", "--until", "30 December 2027")
+	# Under way: from today, 1 December is next year's, after the end, and this was refused.
+	run("plan", "2", "1 December", "--until", "31 December 2026")
+	# A weekday that falls in the end's year, where from today it does not.
+	run("plan", "4", "Monday 20 December", "--until", "30 December 2027")
+
+	for ref, starts, ends in (
+		("1", "2027-12-20", "2027-12-30"),
+		("2", "2026-12-01", "2026-12-31"),
+		("4", "2027-12-20", "2027-12-30"),
+	):
+		planned = json.loads(run("show", ref, "--json").output)["item"]
+
+		assert (planned["starts_at"][:10], planned["ends_at"][:10]) == (starts, ends), planned
+
+	# **Refused in the rule's own words**: further back than eleven months, and a weekday the
+	# end's year does not have. Each would have been refused before, for another reason.
+	far = run("plan", "3", "3 January", "--until", "30 December 2026", expect=1)
+
+	assert "3 January 2026, more than 11 months before it" in " ".join(far.output.split()), (
+		far.output
+	)
+
+	wrong = run("plan", "3", "Friday 20 December", "--until", "30 December 2027", expect=1)
+
+	assert "20 December 2027 is a Monday" in " ".join(wrong.output.split()), wrong.output
+
+
 def test_planning_a_span_on_a_timed_item_refuses_without_advising_the_impossible (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

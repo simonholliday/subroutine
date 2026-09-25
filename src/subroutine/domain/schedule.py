@@ -669,6 +669,108 @@ def end_counted_from (
 	return datetime.datetime.combine(beginning, datetime.time.min, tzinfo=zone)
 
 
+#: **How far back a start written with no year may be counted from an end that names one**
+#: (Simon, 2026-09-25, `#3580`). Further back, the words are far likelier a slip than a span of
+#: nearly a year: *from 3 November to 2026-10-30* is a trip written backwards, and counting it
+#: back stored one that had begun eleven months earlier. A slip of a few days always counts
+#: back to nearly a year, and the spans the rule is for are short - *from 1 September to
+#: 2026-09-30*, said while it is under way, or *from 28 December to 3 January 2027*.
+COUNTED_BACK_MONTHS = 11
+
+#: Far enough back that an end counted from today reads differently from there, which is how
+#: :func:`start_counted_back` tells a year written from a year counted. Nine years rather than
+#: one for the 29 February, as quick capture found first.
+_FAR_ENOUGH_BACK = datetime.timedelta(days=366 * 9)
+
+
+def start_counted_back (
+	starts: str,
+	ends: str,
+	*,
+	timezone: str,
+	now: datetime.datetime,
+) -> datetime.date | None:
+	"""Return the day a start with no year means beside an end that names one - `#3580`.
+
+	**A year written once, at the end, is both days'** (`#3316`): *from 2 October to 12 October
+	2027* starts on the 2 October of 2027, as *2-12 October 2027* does. So the start is the latest
+	such day on or before the end, where the soonest counting today would open that span a year
+	early. **One rule for every surface that reads the two together**: quick capture's *from ...
+	to ...*, and ``plan --until``, which read the same words as two different spans until this.
+
+	**Refused where it counts back further than** :data:`COUNTED_BACK_MONTHS`, and where a
+	weekday written in front does not fall on the day found: *Friday 2 October* beside *12
+	October 2027* names 2026 by its weekday and 2027 by its year, and neither is guessed. A writer
+	who meant either gives the start its year.
+
+	``None`` where the rule does not apply - a start that is not a date written out, or carries
+	its own year, or an end whose year is counted rather than written - and the caller reads the
+	start as it would on its own.
+	"""
+
+	if not subroutine.domain.dates.names_no_year(starts):
+		return None
+
+	end = _named_with_its_year(ends, timezone=timezone, now=now)
+
+	if end is None:
+		return None
+
+	found = subroutine.domain.dates.latest_written_date(starts, until=end)
+	weekday, _rest = subroutine.domain.dates.weekday_in_front(starts)
+
+	if found is None:
+		message = f"{starts!r} names no day on or before {ends!r}."
+
+	elif weekday is not None and found.weekday() != weekday:
+		message = (
+			f"{starts!r} is read in the year of {ends!r}, and {found.day} {found:%B %Y} is a "
+			f"{found:%A}."
+		)
+
+	elif found < subroutine.domain.dates.months_before(end, COUNTED_BACK_MONTHS):
+		message = (
+			f"{starts!r} is read back from {ends!r} as {found.day} {found:%B %Y}, more than "
+			f"{COUNTED_BACK_MONTHS} months before it."
+		)
+
+	else:
+		return found
+
+	raise subroutine.errors.ValidationError(
+		message,
+		code="invalid_field_value",
+		hint="Give the start its own year, if that day is the one you meant.",
+		errors=[
+			subroutine.errors.FieldError(
+				field=as_written("starts_at"), code="invalid_field_value", message=message
+			)
+		],
+	)
+
+
+def _named_with_its_year (
+	written: str, *, timezone: str, now: datetime.datetime
+) -> datetime.date | None:
+	"""Return the day ``written`` names if it names its own year, and ``None`` otherwise.
+
+	**Asked of the words by reading them twice**, from today and from nine years back: a written
+	year - *12 October 2027*, *2027-10-12* - answers the same from both, and a counted one - *12
+	October*, *friday*, *tomorrow* - does not. Anything this cannot read names nothing here.
+	"""
+
+	try:
+		day = interpret_written_day(written, timezone=timezone, now=now, field="ends_at")
+		earlier = interpret_written_day(
+			written, timezone=timezone, now=now - _FAR_ENOUGH_BACK, field="ends_at"
+		)
+
+	except (subroutine.errors.SubroutineError, OverflowError):
+		return None
+
+	return day if day is not None and day == earlier else None
+
+
 def check_span (
 	*,
 	starts_at: datetime.datetime | None,

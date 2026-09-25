@@ -152,7 +152,14 @@ _PHRASE = (
 	#: ``now+2h`` goes on working, and so does ``--due now``, which is a field rather than a sentence.
 	r"|now(?:[+-]\d+[a-zA-Z]+)+"
 	rf"|(?:{_KEYWORD_ALTERNATION})(?:[+-]\d+[a-zA-Z]+)*"
-	r"|\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?"
+	#: **An ISO day, and a time on it after a ``T``, offset and all** (`#3581`). With a space
+	#: instead the day is a day like any other, and a time after it is read as one written after
+	#: *2 October* is - so *2026-10-02 09:00-10:00* is an appointment, as it is beside every
+	#: other day, rather than nine o'clock ten hours west. A space form is one moment only where
+	#: nothing else could be meant: with its seconds, or an offset no range could be - ``Z``,
+	#: ``+05:00``, ``-0500``.
+	r"|\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?"
+	r"| \d{2}:\d{2}(?::\d{2}(?:Z|[+-]\d{2}:?\d{2})?|Z|\+\d{2}:?\d{2}|-\d{4}))?"
 	#: **A written calendar date, both ways round** (`#1210`) — ``by 1 september``,
 	#: ``due Sept 1``. Above the bare weekday because neither can match the other, and below
 	#: the ISO form because that is the unambiguous one.
@@ -296,8 +303,14 @@ _CLOCKED_SPAN = re.compile(
 #: **An ISO day may carry its first time with a ``T``** (`#3157`): *from 2026-10-02T09:00 to
 #: 17:00* is the same appointment as *from 2 October 09:00 to 17:00*, and without this it fell
 #: to the date rules as a hidden defer with *to 17:00* left in its title - `#2894` again.
+#:
+#: **And a hyphen straight after that time is its UTC offset, never a joint** (`#3581`).
+#: *from 2026-10-02T09:00-05:00* is nine o'clock five hours west, and was read as an
+#: appointment running to five the next morning, with the defer and the offset both lost. A
+#: range after a ``T`` is written with a word or a spaced dash, as `#3157`'s line is.
 _CLOCKED_DAY = re.compile(
-	rf"{_STARTS_A_WORD}from\s+(?P<day>{_PHRASE})(?:\s+(?:at\s+)?|(?<=\d)T)(?P<first>{_CLOCK})"
+	rf"{_STARTS_A_WORD}from\s+(?P<day>{_PHRASE})(?:\s+(?:at\s+)?|(?<=\d)(?P<iso>T))(?P<first>{_CLOCK})"
+	r"(?(iso)(?!-))"
 	rf"{_SPAN_JOINT.replace('(?P<word>', '(?:')}(?:at\s+)?(?P<last>{_CLOCK})"
 	rf"(?![\w'])",
 	re.IGNORECASE,
@@ -377,9 +390,11 @@ _TIME = re.compile(
 	r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<meridiem>[ap]m)"
 	r"|"
 	r"(?P<hour24>\d{1,2}):(?P<minute24>\d{2})(?!\s*[ap]m)"
-	# The en dash is written as an escape rather than typed: ruff flags the literal as
-	# confusable with a hyphen, and it is — which is the reason both are in the class.
-	r")(?!\d)(?!\s*[-\u2013]\s*\d)(?!\w)",
+	# The dashes are written as escapes rather than typed: ruff flags the literals as
+	# confusable with a hyphen, and they are — which is the reason all three are in the class.
+	# **The em dash was not** (`#3582`), so *on monday 12:30—1:30* set a start at 12:30 and left
+	# *—1:30* in the title without a word, where the hyphen's range is reported.
+	r")(?!\d)(?!\s*[-\u2013\u2014]\s*\d)(?!\w)",
 	re.IGNORECASE,
 )
 
@@ -659,10 +674,18 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		if one not in contradicted and one not in spans and one not in clocked
 		and one not in hours and _TIME_RANGE.fullmatch(one)
 	]
-	timed = [
+	# **And a date written out that names no day** (`#3582`): *29 February 2027*, *31 April*. It
+	# reached the time's sentence, which advised `at` about a line with no clock in it.
+	dateless = [
 		one for one in over
 		if one not in contradicted and one not in spans and one not in clocked
 		and one not in hours and one not in ranges
+		and subroutine.domain.dates.is_written_date(one)
+	]
+	timed = [
+		one for one in over
+		if one not in contradicted and one not in spans and one not in clocked
+		and one not in hours and one not in ranges and one not in dateless
 	]
 
 	# **Two reasons a repeat is left as written, told apart by asking the function that
@@ -701,9 +724,13 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		)
 
 	if spans:
+		# **And a first day with no year no further back than eleven months** (`#3580`), which is
+		# the one reason a span is refused whose days are in order and real.
 		clauses.append(
 			f"Left as written: {', '.join(spans)} - a span needs its first day before its "
-			f"last, and both of them days there are, so neither was set."
+			f"last, both of them days there are, and a first day written with no year no more than "
+			f"{subroutine.domain.schedule.COUNTED_BACK_MONTHS} months before a last day that names "
+			f"one, so neither was set."
 		)
 
 	if clocked:
@@ -734,6 +761,12 @@ def explain (unparsed: typing.Sequence[str]) -> str | None:
 		clauses.append(
 			f"Left as written: {', '.join(contradicted)} - the day and the date name "
 			f"different days, so neither was used. Write one or the other."
+		)
+
+	if dateless:
+		clauses.append(
+			f"Left as written: {', '.join(dateless)} - the calendar has no such day, so nothing "
+			f"was set."
 		)
 
 	if timed:
@@ -960,7 +993,10 @@ def parse (
 		until=None if clock is None else clock.until,
 		beside=None if clock is None else _beside(text, clock.span, placed, claimed),
 		today=today,
-		unread_day=bool(_UNREAD_DAY.search(_blanked(text, claimed))),
+		unread_day=(
+			bool(_UNREAD_DAY.search(_blanked(text, claimed)))
+			or _an_unread_date(text, claimed, reserved)
+		),
 		now=now,
 		timezone=timezone,
 	)
@@ -1081,11 +1117,20 @@ def _collect_dates (
 			if "starts_at" in fields:
 				continue
 
-			# Kept as a bare day so ``_apply_time`` can put a clock on it — ``on monday at
-			# 2pm`` is one fact written in two tokens, and reading the day to an instant here
-			# would leave that function combining a time with something already resolved.
-			fields["starts_at"] = _as_date(value, now=now, timezone=timezone)
-			fields["starts_is_all_day"] = True
+			# **A start written with its own time keeps it** (`#3629`), as a deadline and a defer
+			# always have: *on 2026-10-02T09:00* was cut to its day and stored all-day, with the
+			# time and any offset gone from the title and nothing said. A clock written beside it
+			# as well finds the start already timed, and is reported.
+			if isinstance(value, str) and _A_CLOCK.search(value):
+				fields["starts_at"], fields["starts_is_all_day"] = value, all_day
+
+			else:
+				# Kept as a bare day so ``_apply_time`` can put a clock on it — ``on monday at
+				# 2pm`` is one fact written in two tokens, and reading the day to an instant here
+				# would leave that function combining a time with something already resolved.
+				fields["starts_at"] = _as_date(value, now=now, timezone=timezone)
+				fields["starts_is_all_day"] = True
+
 			placed[match.span()] = "starts_at"
 
 		elif word in DEADLINE_WORDS:
@@ -1106,6 +1151,23 @@ def _collect_dates (
 		claimed.append(match.span())
 
 	return deadline
+
+
+def _an_unread_date (
+	text: str, claimed: list[tuple[int, int]], reserved: list[tuple[int, int]]
+) -> bool:
+	"""Say whether a date was written after its preposition and not read - `#3582`.
+
+	**A day the writer named, as a bare weekday is** (:data:`_UNREAD_DAY`), so a time beside no
+	date is not put on today where one was. *on 29 February 2027 at 9am* raised until the date
+	was reported; reporting it alone would have filed a start of today at nine, a date nobody
+	wrote beside the one they did.
+	"""
+
+	return any(
+		not _overlaps(match.span(), claimed) and not _overlaps(match.span(), reserved)
+		for match in _DATED.finditer(text)
+	)
 
 
 def _counted_from_when_it_begins (
@@ -1574,12 +1636,25 @@ def _written_on (
 	all, and :func:`_collect_times` declines that before it reaches here.
 	"""
 
-	fields[field] = datetime.datetime.combine(day, at)
-	fields[flag] = False
+	ending: datetime.datetime | None = None
 
 	if until is not None:
 		ending = datetime.datetime.combine(day, until)
-		fields["ends_at"] = ending if until > at else ending + datetime.timedelta(days=1)
+
+		if until <= at:
+			# **The calendar has no morning after its last day** (`#3582`), and asking for one
+			# raised out of quick capture. Nothing is written, so the times go back into the title
+			# and are said, as a range nothing else could hold is.
+			if day == datetime.date.max:
+				return False
+
+			ending += datetime.timedelta(days=1)
+
+	fields[field] = datetime.datetime.combine(day, at)
+	fields[flag] = False
+
+	if ending is not None:
+		fields["ends_at"] = ending
 
 	return True
 
@@ -1832,7 +1907,14 @@ def _clocked_day (
 	starting = datetime.datetime.combine(day, at)
 	ending = datetime.datetime.combine(day, until)
 
-	return starting, ending if until > at else ending + datetime.timedelta(days=1)
+	if until > at:
+		return starting, ending
+
+	# No morning after the calendar's last day (`#3582`), so the phrase is kept whole and said.
+	if day == datetime.date.max:
+		return None
+
+	return starting, ending + datetime.timedelta(days=1)
 
 
 def _span_days (
@@ -1878,12 +1960,35 @@ def _span_days (
 
 		return start, end
 
-	start = _span_day(groups.get("start") or "", today=today, now=now, timezone=timezone)
+	starting = groups.get("start") or ""
+	phrase = groups.get("end") or ""
+
+	# **A year written once, at the end, is both days'** (`#3316`): a start written with no year
+	# beside an end that names one is counted back from the end - and refused further back than
+	# eleven months, or where a weekday in front does not fall there (Simon, 2026-09-25, `#3580`).
+	# The rule is `schedule.start_counted_back`, which ``plan --until`` asks too, so the terminal
+	# and this grammar read the same words the same way.
+	try:
+		opening = subroutine.domain.schedule.start_counted_back(
+			starting, phrase, timezone=timezone, now=now
+		)
+
+	except subroutine.errors.ValidationError:
+		return None
+
+	if opening is not None:
+		closing = _span_day(phrase, today=opening, now=now, timezone=timezone)
+
+		if closing is None or not _a_real_span(opening, closing, counted=True):
+			return None
+
+		return opening, closing
+
+	start = _span_day(starting, today=today, now=now, timezone=timezone)
 
 	if start is None:
 		return None
 
-	phrase = groups.get("end") or ""
 	end = _span_day(phrase, today=start, now=now, timezone=timezone)
 
 	if end is None:
@@ -1895,18 +2000,6 @@ def _span_days (
 	reach = min(_FAR_ENOUGH_BACK, (start - datetime.date.min).days)
 	earlier = start - datetime.timedelta(days=reach)
 	counted = _span_day(phrase, today=earlier, now=now, timezone=timezone) != end
-
-	# **A year written once, at the end, is both days'** (`#3316`). *From 2 October to 12 October
-	# 2027* means the 2 October of 2027, as *2-12 October 2027* does, and counting the start
-	# forward from today opened the span a year early. So a start written with no year is
-	# counted back from the end instead - the latest such day on or before it - and held to the
-	# slips a counted day is, since it was counted too: *13 October to 12 October 2027* is a span
-	# running backwards, not a year of holiday.
-	if not counted:
-		opening = subroutine.domain.dates.latest_written_date(groups.get("start") or "", until=end)
-
-		if opening is not None:
-			return (opening, end) if _a_real_span(opening, end, counted=True) else None
 
 	return (start, end) if _a_real_span(start, end, counted=counted) else None
 
@@ -1950,11 +2043,20 @@ def _a_real_span (start: datetime.date, end: datetime.date, *, counted: bool) ->
 	if end.year > start.year and end.month == start.month:
 		return False
 
-	return end < _anniversary(start)
+	anniversary = _anniversary(start)
+
+	return anniversary is None or end < anniversary
 
 
-def _anniversary (day: datetime.date) -> datetime.date:
-	"""Return the same day a year later, with a 29 February kept to the last day of February."""
+def _anniversary (day: datetime.date) -> datetime.date | None:
+	"""Return the same day a year later, with a 29 February kept to the last day of February.
+
+	**``None`` where the year after has no calendar** (`#3582`): a span starting in 9999 asked
+	for year 10000, and quick capture raised. Every end there is comes before that anniversary.
+	"""
+
+	if day.year == datetime.MAXYEAR:
+		return None
 
 	try:
 		return day.replace(year=day.year + 1)
@@ -2077,6 +2179,13 @@ def _read_phrase (
 	if lowered.partition(" ")[0].rstrip(",") in subroutine.domain.dates.WEEKDAYS:
 		return None, None
 
+	# **A date written out is this grammar's own too, and one naming no day is reported**
+	# (`#3582`). *29 February 2027* and *31 April* name days no calendar has, and ``schedule``
+	# reads ISO values and expressions rather than English - so handing one on refused the whole
+	# line at the create, or raised from inside :func:`parse` where the phrase set a start.
+	if subroutine.domain.dates.is_written_date(written):
+		return None, None
+
 	# The shared vocabulary, not a copy of it (`#988`). This branch survives the move
 	# because it does two things the far end cannot: it matches case-insensitively,
 	# so `by Today` reads, and it hands on a `date` rather than a word.
@@ -2181,13 +2290,22 @@ def _mid_sentence (
 
 def _as_date (
 	value: datetime.date | str, *, now: datetime.datetime, timezone: str
-) -> datetime.date:
-	"""Return a phrase's value as a calendar date, before any clock is added to it."""
+) -> datetime.date | str:
+	"""Return a phrase's value as a calendar date, before any clock is added to it.
+
+	**Or as written, where it names no day this can read** (`#3582`): *on 2026-02-30* is handed on
+	as a deadline's value is, and the create refuses it by the field it would have set. Raising
+	here refused it from inside :func:`parse`, which is the first way in and never raises.
+	"""
 
 	if isinstance(value, datetime.date):
 		return value
 
-	return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now) or now.date()
+	try:
+		return subroutine.domain.schedule.interpret_day(value, timezone=timezone, now=now) or now.date()
+
+	except subroutine.errors.ValidationError:
+		return value
 
 
 def _overlaps (span: tuple[int, int], spans: list[tuple[int, int]]) -> bool:
