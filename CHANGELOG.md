@@ -148,6 +148,13 @@ upgrade involves.
   Four digits after a date count as its year from last year to fifty years ahead; anything else,
   such as a time written `0930` or *1500 chairs*, stays in the title and is reported.
 
+- **A range with am or pm on its start alone ends when you meant.** *Meet on friday at 9am-5:30*
+  was stored as ending at 5:30 the next morning, and *Party on friday at 11pm until 12:30* at noon
+  the next day. An end written without am or pm is now the first time after the start that a
+  clock shows it - half past five in the afternoon, and half past midnight - so *9am-9:00* runs
+  from nine to nine, and no range read this way is longer than twelve hours. An end on the 24-hour
+  clock, such as `05:30`, is read as written.
+
 - **After you add something in the browser, the note saying so links to it.** It named the
   new item's number and title in plain text, so going to it meant finding it in the list. The
   number and title now open it.

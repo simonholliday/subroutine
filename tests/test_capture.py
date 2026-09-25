@@ -1780,6 +1780,124 @@ A_RANGE = (
 		datetime.datetime(2026, 7, 31, 22, 0),
 		datetime.datetime(2026, 8, 1, 1, 30),
 	),
+	# **An end with no meridiem, after a start with one, is the next time a twelve-hour clock
+	# shows it** (Simon, 2026-09-25, `SR#3578`). The start's own half of the day, where the end
+	# is still to come in it.
+	(
+		"Standup on friday at 9am-9:15",
+		"Standup",
+		datetime.datetime(2026, 7, 31, 9, 0),
+		datetime.datetime(2026, 7, 31, 9, 15),
+	),
+	(
+		"Meet on monday at 2pm-3:30",
+		"Meet",
+		datetime.datetime(2026, 8, 3, 14, 0),
+		datetime.datetime(2026, 8, 3, 15, 30),
+	),
+	# The afternoon after a morning start: the first five ended the next morning until then, and
+	# the last was right already.
+	(
+		"Meet on friday at 9am-5:30",
+		"Meet",
+		datetime.datetime(2026, 7, 31, 9, 0),
+		datetime.datetime(2026, 7, 31, 17, 30),
+	),
+	(
+		"Class on monday at 10am-1:00",
+		"Class",
+		datetime.datetime(2026, 8, 3, 10, 0),
+		datetime.datetime(2026, 8, 3, 13, 0),
+	),
+	(
+		"Meet on friday 9am to 5:00",
+		"Meet",
+		datetime.datetime(2026, 7, 31, 9, 0),
+		datetime.datetime(2026, 7, 31, 17, 0),
+	),
+	(
+		"Workshop from monday 9am to 5:30",
+		"Workshop",
+		datetime.datetime(2026, 8, 3, 9, 0),
+		datetime.datetime(2026, 8, 3, 17, 30),
+	),
+	(
+		"Meet on friday at 10am-9:30",
+		"Meet",
+		datetime.datetime(2026, 7, 31, 10, 0),
+		datetime.datetime(2026, 7, 31, 21, 30),
+	),
+	(
+		"Lunch on friday at 11am-12:30",
+		"Lunch",
+		datetime.datetime(2026, 7, 31, 11, 0),
+		datetime.datetime(2026, 7, 31, 12, 30),
+	),
+	# The small hours after an evening start, where half past twelve is past midnight: the
+	# first four ended at noon the next day, and the last two were right already.
+	(
+		"Party on friday at 11pm until 12:30",
+		"Party",
+		datetime.datetime(2026, 7, 31, 23, 0),
+		datetime.datetime(2026, 8, 1, 0, 30),
+	),
+	(
+		"Gig on friday at 9pm-12:15",
+		"Gig",
+		datetime.datetime(2026, 7, 31, 21, 0),
+		datetime.datetime(2026, 8, 1, 0, 15),
+	),
+	(
+		"Shift on friday at 1pm-12:30",
+		"Shift",
+		datetime.datetime(2026, 7, 31, 13, 0),
+		datetime.datetime(2026, 8, 1, 0, 30),
+	),
+	(
+		"Late on friday at 11:30pm-12:00",
+		"Late",
+		datetime.datetime(2026, 7, 31, 23, 30),
+		datetime.datetime(2026, 8, 1, 0, 0),
+	),
+	(
+		"Late on friday at 11pm-1:30",
+		"Late",
+		datetime.datetime(2026, 7, 31, 23, 0),
+		datetime.datetime(2026, 8, 1, 1, 30),
+	),
+	(
+		"Shift on friday at 9pm-8:00",
+		"Shift",
+		datetime.datetime(2026, 7, 31, 21, 0),
+		datetime.datetime(2026, 8, 1, 8, 0),
+	),
+	# An end the start's own clock would make equal to it is twelve hours on, either way round:
+	# the first was not read as a range at all.
+	(
+		"Open on friday at 9am-9:00",
+		"Open",
+		datetime.datetime(2026, 7, 31, 9, 0),
+		datetime.datetime(2026, 7, 31, 21, 0),
+	),
+	(
+		"Night shift on friday at 9pm-9:00",
+		"Night shift",
+		datetime.datetime(2026, 7, 31, 21, 0),
+		datetime.datetime(2026, 8, 1, 9, 0),
+	),
+	# Both ends written, and an end on the twenty-four-hour clock, are read as written.
+	(
+		"Late on friday at 11pm-12:30am",
+		"Late",
+		datetime.datetime(2026, 7, 31, 23, 0),
+		datetime.datetime(2026, 8, 1, 0, 30),
+	),
+	(
+		"Day on friday at 9am-05:30",
+		"Day",
+		datetime.datetime(2026, 7, 31, 9, 0),
+		datetime.datetime(2026, 8, 1, 5, 30),
+	),
 )
 
 
@@ -1992,6 +2110,8 @@ _WHEN = (
 	" from 2026-10-02T09:00 to 17:00",
 	" on friday at 7:30-9:30pm",
 	" on friday at 12:30-1:30",
+	" on friday at 9am-5:30",
+	" on friday at 11pm until 12:30",
 	" at 2pm-3pm",
 	" on 2026-10-02 at 14:00-15:00",
 	" from 2 October to 12 October",

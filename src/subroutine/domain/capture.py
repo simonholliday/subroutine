@@ -1324,9 +1324,17 @@ def _range_of (first: str, last: str) -> tuple[datetime.time, datetime.time] | N
 
 	**A meridiem written once is read at both ends where it fits** (the cold review of
 	2026-09-21, `#3138`). *7:30-9:30pm* is how an evening is ordinarily written, and reading
-	each end alone stored it as 07:30 to 21:30, fourteen hours, without a word. So an end
-	written with none takes the other's where that keeps the start before the end:
-	*11:00-1:00pm* keeps its 11:00, since 23:00 would come after the end.
+	each end alone stored it as 07:30 to 21:30, fourteen hours, without a word. So a start
+	written with none takes the end's where that keeps it before the end: *11:00-1:00pm* keeps
+	its 11:00, since 23:00 would come after the end.
+
+	**An end written with none, after a start written with one, is the next time a
+	twelve-hour clock shows it** (Simon, 2026-09-25, `#3578`). Only the start's own meridiem
+	used to be tried, and where it did not fit, the end fell to the next-morning rule below:
+	*9am-5:30* was a working day ending at 05:30 the next morning, and *11pm until 12:30*
+	ended at noon. They are 17:30 and 00:30 now, *9am-9:00* is nine to nine rather than an end
+	equal to its start, and no range read this way is longer than twelve hours. An end on the
+	twenty-four-hour clock is read as written - *9am-05:30* ends the next morning.
 
 	**An end earlier than its start is the next morning only where the line says which clock
 	it is on** (Simon, 2026-09-20: *9pm til 1am*): a meridiem on the start, or a start written
@@ -1335,8 +1343,8 @@ def _range_of (first: str, last: str) -> tuple[datetime.time, datetime.time] | N
 	one on a twenty-four-hour clock, and nothing on the line says which, so it is not read: the
 	line does what it did before `#675` read ranges, and the words are reported (§6.13 rule 1).
 
-	**An end equal to its start is not a range** either, and ``None`` gives it the same
-	fallback.
+	**An end equal to its start is not a range** either - *2pm to 2pm* - and ``None`` gives it
+	the same fallback.
 	"""
 
 	one = _ONE_CLOCK.match(first.strip())
@@ -1357,10 +1365,14 @@ def _range_of (first: str, last: str) -> tuple[datetime.time, datetime.time] | N
 			at = carried
 
 	if said and _on_either_clock(other):
-		carried = _clock_at(f"{other.group('hour24')}:{other.group('minute24')}{said}")
+		# The next time a twelve-hour clock shows it: the start's own half of the day where that
+		# is still to come, and the other half where it is not.
+		written = f"{other.group('hour24')}:{other.group('minute24')}"
+		same = _clock_at(f"{written}{said}")
+		opposite = _clock_at(f"{written}{'pm' if said == 'am' else 'am'}")
 
-		if carried is not None and carried > at:
-			until = carried
+		if same is not None and opposite is not None:
+			until = same if same > at else opposite
 
 	if at == until or (until < at and _on_either_clock(one)):
 		return None
