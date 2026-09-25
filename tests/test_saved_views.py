@@ -23,6 +23,7 @@ import sqlalchemy.orm
 
 import api_support
 import subroutine.api.saved
+import subroutine.clients.http
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
@@ -469,6 +470,96 @@ def test_an_agenda_cannot_be_saved_narrowed_by_a_search_line (
 	moved = world.call("PATCH", "/v1/views/ops", json={"arrangement": "agenda", "q": None})
 
 	assert moved.status_code == 200, moved.text
+
+
+def test_a_project_s_agenda_is_saved_with_its_place_and_nothing_more (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3588`: on a project, whose page opens on its agenda, **Save** was refused.
+
+	`SR#3144` writes the place into the line, and `SR#3145` refuses an agenda any line - each right
+	alone, and together a refusal about a line the reader never typed. **A line that is the place
+	and nothing else is a place**, and the agenda is drawn for it; anything more is still a search.
+	"""
+
+	saved = world.call(
+		"POST",
+		"/v1/views",
+		json={"title": "Inbox day", "arrangement": "agenda", "q": "project:inbox"},
+	)
+
+	assert saved.status_code == 201, saved.text
+
+	for line in ("project:inbox tag:ops", "project:inbox urgent", "project:inbox,other"):
+		refused = world.call(
+			"POST",
+			"/v1/views",
+			json={"title": f"Busy {len(line)}", "arrangement": "agenda", "q": line},
+		)
+
+		assert refused.status_code == 422, (line, refused.text)
+
+
+def test_every_field_naming_a_person_reads_me_as_the_reader (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3589`: ``touched_by:me`` and ``answers_to:me`` were not seen as about the reader.
+
+	Both resolve ``me`` to whoever asks, as ``assignee:me`` does, so a view shared with either draws
+	each reader different rows - and was listed as though it drew everybody the same ones.
+	"""
+
+	for line in ("touched_by:me", "answers_to:me"):
+		assert _saved(world, title=line.replace(":", " "), q=line)["about_the_reader"] is True, line
+
+
+def test_a_credential_narrowed_to_some_projects_cannot_rewrite_a_shared_view (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3589`: refused sharing a view, and allowed to change what an already-shared one says.
+
+	Its owner shared it from a credential that may; the narrowed one then rewrote the query in front
+	of the whole workspace. **Changing a shared view is sharing what it now says.**
+	"""
+
+	_saved(world, title="Everyone's", arrangement="list", shared=True)
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Inbox only", project_scope=[inbox]
+	)
+	world.session.flush()
+	narrow = str(issued.value.get_secret_value())
+
+	for change in ({"q": "tag:ops"}, {"title": "Mine now"}):
+		rewritten = _as(world, narrow, "PATCH", "/v1/views/everyone-s", json=change)
+
+		assert rewritten.status_code == 403, (change, rewritten.text)
+
+
+@pytest.mark.parametrize("typed", ["..", "!!!", ""])
+def test_a_name_that_shapes_to_no_address_is_refused_as_typed (
+	world: test_api_tasks.World, typed: str
+) -> None:
+	"""`SR#3589`: over HTTP this was a redirect the client could not read, and here it named ``''``.
+
+	Refused before anybody is asked, in the words somebody wrote, on both clients' way in.
+	"""
+
+	with pytest.raises(subroutine.errors.ValidationError) as over_http:
+		subroutine.clients.http._view(typed)
+
+	assert repr(typed) in over_http.value.detail, over_http.value.detail
+
+	with pytest.raises(subroutine.errors.ValidationError) as here:
+		subroutine.domain.saved.by_key(
+			world.session,
+			subroutine.domain.authentication.Principal(user=world.user),
+			workspace_id=world.workspace.id,
+			key=typed,
+		)
+
+	assert repr(typed) in here.value.detail, here.value.detail
 
 
 def test_a_contributor_may_keep_a_view_and_may_not_share_one (

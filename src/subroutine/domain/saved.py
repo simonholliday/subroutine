@@ -36,6 +36,8 @@ import sqlalchemy.orm
 import subroutine.db.models.saved
 import subroutine.domain.authentication
 import subroutine.domain.authorization
+import subroutine.domain.filtering
+import subroutine.domain.grammar
 import subroutine.domain.grouping
 import subroutine.domain.ordering
 import subroutine.domain.text
@@ -81,6 +83,32 @@ def normalize_key (title: str) -> str:
 		collapsed = collapsed.replace("--", "-")
 
 	return collapsed[:MAX_KEY_LENGTH].strip("-")
+
+
+def key_named (typed: str) -> str:
+	"""Return the address a view is asked for by, refusing a name that shapes to none - `#3589`.
+
+	**Refused as it was typed.** ``..``, ``!!!`` and an empty name shape to no address at all:
+	over HTTP the empty path segment answered with a redirect the client could not read, and
+	here the refusal named ``''``, the shaped key, rather than what somebody wrote.
+	"""
+
+	wanted = normalize_key(typed)
+
+	if wanted:
+		return wanted
+
+	raise subroutine.errors.ValidationError(
+		f"{typed!r} is not a view's name.",
+		errors=[
+			subroutine.errors.FieldError(
+				field="key",
+				code="invalid_field_value",
+				message=f"{typed!r} has no letter or digit in it, so no view can be called that.",
+				hint="Ask for the list to see what the views here are called.",
+			)
+		],
+	)
 
 
 def check_title (title: str) -> str:
@@ -171,7 +199,7 @@ def check_query_beside (arrangement: str, q: str | None) -> None:
 	it is written, so neither surface has a stored view it cannot draw.
 	"""
 
-	if arrangement != AGENDA or not q:
+	if arrangement != AGENDA or not q or place_alone(q) is not None:
 		return
 
 	raise subroutine.errors.ValidationError(
@@ -186,6 +214,25 @@ def check_query_beside (arrangement: str, q: str | None) -> None:
 			)
 		],
 	)
+
+
+def place_alone (q: str | None) -> str | None:
+	"""Return the project a search line names and nothing else, or ``None`` - `#3588`.
+
+	**A place rather than a search.** A view saved inside a project carries ``project:<key>``
+	(`#3144`), and an agenda is drawn for a place: so on a project, whose page opens on its agenda,
+	**Save** sent a line the reader never typed and was refused as narrowing an agenda by one.
+	That line is the place and nothing else, and the agenda that is drawn for it is the project's.
+	"""
+
+	read = subroutine.domain.grammar.read(q, entity="task")
+
+	if read.words is not None or read.unread or len(read.parameters) != 1:
+		return None
+
+	name, value = read.parameters[0]
+
+	return value if name == f"{subroutine.domain.filtering.PROJECT}.eq" else None
 
 
 def _refuse_sharing_from_a_narrowed_credential (
@@ -365,7 +412,7 @@ def by_key (
 	distinction ``authorization.ProjectNotVisible`` already draws one entity over.
 	"""
 
-	wanted = normalize_key(key)
+	wanted = key_named(key)
 	found = session.scalars(
 		readable(session, principal, workspace_id=workspace_id).where(
 			subroutine.db.models.saved.SavedView.key == wanted
@@ -493,6 +540,14 @@ def update (
 					)
 				],
 			)
+
+	# **Changing what a shared view says is sharing what it now says** (`#3589`). A credential
+	# narrowed to some projects was refused ``shared: true`` and allowed to rewrite the query of a
+	# view its owner had shared from elsewhere, which stayed in front of the whole workspace.
+	if row.shared and shared is not False and any(
+		field in given for field in ("title", "arrangement", "q", "order", "group_by")
+	):
+		_refuse_sharing_from_a_narrowed_credential(actor)
 
 	before = _held(row)
 

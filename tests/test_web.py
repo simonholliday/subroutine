@@ -11182,6 +11182,8 @@ def _views (
 			: name === "chips" ? app.chips(argument.behind, argument.showing)
 			: name === "asSavedView" ? app.asSavedView(argument, argument.project || null)
 			: name === "asShowing" ? app.asShowing(argument)
+			: name === "placeAlone" ? app.placeAlone(argument)
+			: name === "appliedAt" ? app.appliedAt(argument.view, argument.workspace)
 			: name === "reloads" ? app.reloads(argument.before, argument.after)
 			: name === "moment" ? app.moment(argument.value, argument.now)
 			: name === "releaseMoved"
@@ -20629,6 +20631,40 @@ def test_a_saved_view_keeps_the_project_it_was_saved_in (tmp_path: pathlib.Path)
 	assert dict(read.parameters) == {"project.eq": "web"}, inside["q"]
 	assert read.words == "boiler", inside["q"]
 	assert outside["q"] == "boiler", outside["q"]
+
+
+def test_a_project_s_saved_agenda_is_drawn_on_that_project (tmp_path: pathlib.Path) -> None:
+	"""`SR#3588`: an agenda saved on a project keeps no search line, since its line is the place.
+
+	**Read as the server reads it** - one project term and nothing else is a place, and anything
+	more is a search, which a list keeps and an agenda is refused.
+	"""
+
+	lines = [
+		"project:web", "project:acme/web", "project:web urgent", "project:web,docs", "tag:ops", None,
+	]
+	places = _views(tmp_path, [("placeAlone", line) for line in lines])
+
+	assert places == ["web", "acme/web", None, None, None, None], places
+
+	for line, drawn in zip(lines, places, strict=True):
+		assert subroutine.domain.saved.place_alone(line) == drawn, (line, drawn)
+
+	[agenda, listed, *applied] = _views(tmp_path, [
+		("asShowing", {"arrangement": "agenda", "q": "project:web"}),
+		("asShowing", {"arrangement": "list", "q": "project:web"}),
+		("appliedAt", {"workspace": "acme", "view": {"arrangement": "agenda", "q": "project:web"}}),
+		("appliedAt", {"workspace": "acme", "view": {"arrangement": "list", "q": "project:web"}}),
+		("appliedAt", {"workspace": "acme", "view": {"arrangement": "agenda", "q": "tag:ops"}}),
+		("appliedAt", {"workspace": "acme", "view": {"arrangement": "agenda", "q": None}}),
+	])
+
+	assert agenda["view"] == "agenda" and "q" not in agenda["selection"], agenda
+	assert listed["selection"]["q"] == "project:web", listed
+
+	# **Drawn on the project, where every other view is drawn at its workspace** (`#3144`).
+	assert [place["project"] for place in applied] == ["web", None, None, None], applied
+	assert all(place["workspace"] == "acme" and not place["agenda"] for place in applied), applied
 
 
 def test_a_name_in_a_saved_view_is_read_back_as_that_name (tmp_path: pathlib.Path) -> None:

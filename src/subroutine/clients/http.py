@@ -2704,7 +2704,7 @@ def _view (key: str) -> str:
 	than the view.
 	"""
 
-	return _segment(subroutine.domain.saved.normalize_key(key))
+	return _segment(subroutine.domain.saved.key_named(key))
 
 
 def _address (project: str) -> str:

@@ -971,14 +971,19 @@ export function pageTitle ({
 	return (scope.length > 0 ? `${scope.join(" / ")}: ${shown}` : shown) + suffix;
 }
 
-export function atItsWorkspace (workspace) {
+export function appliedAt (view, workspace) {
 	/*
 		The place a saved view is applied at: its workspace's own level - `#3144`, Simon's
 		decision of 2026-09-22. A view's query holds the project it was saved in, so drawn
 		inside another project's path the two would narrow each other to nothing. Shaped as
 		`placeShown` answers, so `chooseView` takes either.
+
+		**Except an agenda saved in a project** (`#3588`), which is drawn on that project: its
+		line is the place and nothing else (`placeAlone`), and an agenda is drawn for a place.
 	*/
-	return { agenda: false, workspace, project: null };
+	const placed = view.arrangement === "agenda" ? placeAlone(view.q) : null;
+
+	return { agenda: false, workspace, project: placed };
 }
 
 export function placeShown (open, listing) {
@@ -1656,6 +1661,20 @@ export function asSavedView (showing, project = null) {
 	};
 }
 
+export function placeAlone (q) {
+	/*
+		The project a saved query names and nothing else, or null — `#3588`, and the server's
+		`saved.place_alone` read in this app's terms.
+
+		**A place rather than a search.** A view saved inside a project carries `project:<key>`
+		(`#3144`), and an agenda is drawn for a place: so a project's agenda is saved with that line
+		and nothing else, and is drawn on that project rather than narrowed by it.
+	*/
+	const found = /^\s*project:(\S+)\s*$/.exec(q || "");
+
+	return found && !found[1].includes(",") ? found[1] : null;
+}
+
 export function asShowing (view) {
 	/*
 		Return what a saved view expands into — `#649`, and the bound it sets on all of this.
@@ -1672,7 +1691,11 @@ export function asShowing (view) {
 	*/
 	const selection = {};
 
-	if (view.q) selection.q = view.q;
+	/* **An agenda saved in a project is drawn there rather than narrowed** (`#3588`), so the line
+	   that names the place stays behind: `placeAlone`'s place carries it instead. */
+	const placed = view.arrangement === "agenda" && placeAlone(view.q) !== null;
+
+	if (view.q && !placed) selection.q = view.q;
 	if (view.order && permits("order", view.order)) selection.order = view.order;
 	if (view.group_by && permits("group_by", view.group_by)) selection.group_by = view.group_by;
 

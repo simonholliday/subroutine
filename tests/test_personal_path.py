@@ -12231,6 +12231,32 @@ def test_a_milestone_says_it_includes_more_than_you_can_see (
 	assert (item["included_count"], item["included_unseen"]) == (1, True), item
 
 
+def test_a_rename_names_a_view_it_cannot_read_and_one_naming_the_project_in_a_path (
+	run: typing.Callable[..., typer.testing.Result],
+) -> None:
+	"""`SR#3588`: one malformed shared view stopped every rename, and a path was read by its end.
+
+	``project:web,`` has an empty entry, and reading it refused ``project rename`` on an unrelated
+	project - under ``--yes`` too - naming no view. And ``project:acme/blog`` stops working when
+	``acme`` is renamed, which the count missed because it read an address's last part only.
+	"""
+
+	run("init")
+	run("project", "create", "acme", "Acme")
+	run("project", "create", "blog", "Blog", "--parent", "acme")
+	run("project", "create", "sr", "Subroutine")
+	run("view", "save", "Typo", "--q", "project:web,", "--shared")
+	run("view", "save", "Posts", "--q", "project:acme/blog")
+
+	run("project", "rename", "sr", "sq", "--yes")
+
+	asked = run("project", "rename", "acme", "acme-co", input="n\n", expect=1).output
+	said = " ".join(asked.split())
+
+	assert "will stop finding it: posts" in said, asked
+	assert "could not be read, and may name it too: typo" in said, asked
+
+
 def test_planning_a_span_on_a_timed_item_refuses_without_advising_the_impossible (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

@@ -265,6 +265,12 @@ class Kind (typing.NamedTuple):
 	#: that ships a control nobody declared.
 	operators: frozenset[str]
 
+	#: Whether a value of this kind is a person, so that ``me`` is whoever is asking - `#3589`.
+	#: Declared on the kind rather than listed where it is read, so a field that names somebody
+	#: says so once, where it is defined. The fields that name an account by reference are
+	#: :data:`NAMES_AN_ACCOUNT`'s group, since their kind also names projects and types.
+	names_a_person: bool = False
+
 
 #: A moment: a literal, or any expression `/v1/meta` publishes under `relative_dates`.
 #:
@@ -307,6 +313,7 @@ WHO = Kind(
 	# it compiles into a correlated `EXISTS` over the event table, so *set* and *unset* would
 	# have to mean *has ever been touched by anybody*, which is true of every row that exists.
 	operators=frozenset({"eq"}),
+	names_a_person=True,
 )
 
 #: How long the work is expected to take — `#319`, and the half of that question there was no
@@ -636,6 +643,7 @@ ANSWERABLE = Kind(
 	predicate=_no_predicate_of_its_own,
 	expects="a username",
 	operators=frozenset({"eq"}),
+	names_a_person=True,
 )
 
 

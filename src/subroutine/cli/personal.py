@@ -5680,9 +5680,11 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 		# will stop finding it" is a thing somebody can weigh. The count is the reason
 		# this reads the project first rather than renaming and reporting.
 		held = where.client.count_tasks(workspace=workspace, project=key)
-		naming = _views_naming(where.client, workspace=workspace, key=key)
 
 		if not yes:
+			# **Asked only when somebody will read the answer** (`#3588`), which is not under ``--yes``.
+			naming, unreadable = _views_naming(where.client, workspace=workspace, key=key)
+
 			program.say(f"Renaming {key} to {subroutine.domain.projects.normalize_key(to)}.")
 			program.say(f"  {_kept(held)}.")
 			program.say(f"  '{key}' stops working: as an address, in '+{key}', and in any")
@@ -5692,6 +5694,12 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 				program.say(
 					f"  {len(naming)} saved view{'s' if len(naming) != 1 else ''} you can see "
 					f"will stop finding it: {', '.join(naming)}."
+				)
+
+			if unreadable:
+				program.say(
+					f"  {len(unreadable)} saved view{'s' if len(unreadable) != 1 else ''} you can see "
+					f"could not be read, and may name it too: {', '.join(unreadable)}."
 				)
 
 			if not typer.confirm("Go on?"):
@@ -5714,7 +5722,7 @@ def _project_renamed (program: Program, *, key: str, to: str, yes: bool) -> None
 
 def _views_naming (
 	client: subroutine.clients.base.Client, *, workspace: str, key: str
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
 	"""Return the saved views this caller can see whose query names a project - `#3142`.
 
 	**Counted rather than rewritten** (Simon's decision of 2026-09-22). A view's query holds a
@@ -5724,26 +5732,39 @@ def _views_naming (
 
 	**The views this caller can see**, which are theirs and the workspace's shared ones: another
 	person's private view is not theirs to know about, and not theirs to repair either.
+
+	**Returned beside the views it could not read, which are named rather than refused**
+	(`#3588`). One shared view whose query had an empty entry in it stopped every rename in its
+	workspace, naming no view, until somebody forgot it.
 	"""
 
 	wanted = subroutine.domain.projects.normalize_key(key)
 	naming = []
+	unreadable = []
 
 	for view in client.saved_views(workspace=workspace).items:
-		named = subroutine.domain.filtering.values_named(
-			subroutine.domain.grammar.read(view.q, entity="task").parameters,
-			entity="task",
-			field=subroutine.domain.filtering.PROJECT,
-		)
+		try:
+			named = subroutine.domain.filtering.values_named(
+				subroutine.domain.grammar.read(view.q, entity="task").parameters,
+				entity="task",
+				field=subroutine.domain.filtering.PROJECT,
+			)
 
-		# **The key is the last part of an address**, so ``project:acme/web`` names ``web``.
+		except subroutine.errors.SubroutineError:
+			unreadable.append(view.key)
+
+			continue
+
+		# **Any part of an address names a project** (`#3588`): ``project:acme/blog`` stops working
+		# when ``acme`` is renamed as surely as when ``blog`` is, and only its last part was asked.
 		if any(
-			subroutine.domain.projects.normalize_key(one.rsplit("/", 1)[-1]) == wanted
+			wanted
+			in {subroutine.domain.projects.normalize_key(part) for part in one.split("/")}
 			for one in named
 		):
 			naming.append(view.key)
 
-	return naming
+	return naming, unreadable
 
 
 def _instance_workspaces (program: Program, *, json_output: bool) -> None:
@@ -8205,6 +8226,18 @@ def _view_run (
 	with program.opened() as world:
 		if connection:
 			world = _only_this_connection(program, world, connection)
+			# **Read on the connection the flag names, in the workspace ``-c`` would choose there**
+			# (`#3588`). Narrowed to it, the world still said a write goes to the current connection,
+			# so the view was asked of one this had just narrowed away - and refused as unreachable.
+			world = dataclasses.replace(
+				world,
+				current=subroutine.context.resolve(
+					world.roster,
+					connection=world.roster.require(connection).name,
+					workspace=program.selected.workspace,
+					marker=world.marker,
+				),
+			)
 
 		here = world.writing_to()
 		workspace = _writing_workspace(world)

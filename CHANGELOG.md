@@ -76,6 +76,27 @@ upgrade involves.
   cannot see* where there is more, never how much. *Included done* still means all of it, seen or
   not, so finishing what you can see does not tell you the milestone is finished.
 
+- **A project's agenda can be saved as a view.** On a project, whose page opens on its agenda,
+  **Save** was refused for narrowing an agenda by a search line you never typed. The view keeps
+  the project, and opening it draws that project's agenda.
+
+- **Renaming a project no longer stops on a saved view it cannot read.** One shared view with a
+  malformed search line refused every rename in its workspace without naming the view. The rename
+  now names it in its question, and counts a view that names the project inside a path, such as
+  `project:acme/blog` when `acme` is renamed.
+
+- **`subroutine view run` with `--connection` reads the view on that connection.** It asked the
+  connection a write goes to, and said that one could not be reached.
+
+- **A view's name with no letter or digit in it is refused as you typed it.** Over HTTP it was a
+  redirect the program could not read.
+
+- **A shared view saying `touched_by:me` or `answers_to:me` is marked as drawing each reader their
+  own work**, as one saying `assignee:me` always was.
+
+- **A credential narrowed to some projects cannot change what a shared view says**, as it could
+  already not share one.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

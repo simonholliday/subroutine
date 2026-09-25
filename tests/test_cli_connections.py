@@ -4039,6 +4039,24 @@ def test_a_merged_agenda_still_refuses_when_two_connections_are_one_instance (
 	assert "work" in refused and "acme" in refused
 
 
+def test_a_saved_view_run_on_a_named_connection_is_read_there (
+	two: Remote, run: typing.Callable[..., typer.testing.Result]
+) -> None:
+	"""`SR#3588`: ``view run KEY --connection work`` asked the connection a write goes to.
+
+	Narrowed to ``work``, the command still read the view from ``local`` - which the narrowing had
+	just taken away - and said it could not be reached, while ``-c work view run`` worked. The two
+	spellings now read the same view, in the workspace ``-c`` would choose there.
+	"""
+
+	run("-c", "work", "-w", "acme", "view", "save", "Deploys", "--q", "deploy")
+
+	ran = run("-w", "acme", "view", "run", "deploys", "--connection", "work").output
+
+	assert "Fix the deploy script" in ran, ran
+	assert "Pay the gas bill" not in ran, ran
+
+
 def test_a_listing_can_be_narrowed_to_one_connection (
 	two: Remote, run: typing.Callable[..., typer.testing.Result]
 ) -> None:

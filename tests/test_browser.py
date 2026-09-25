@@ -782,6 +782,10 @@ SAVED_VIEWS: dict[str, typing.Any] = {
 	"items": [{
 		"key": "my-bugs", "title": "My bugs", "q": "type:bug", "arrangement": "board",
 		"order": None, "group_by": "status_category", "owner": "si", "shared": False,
+	}, {
+		# **A project's agenda, saved on that project** (`SR#3588`): its line is the place.
+		"key": "websites-day", "title": "Websites day", "q": "project:websites",
+		"arrangement": "agenda", "order": None, "group_by": None, "owner": "si", "shared": False,
 	}],
 	"page": {"has_more": False, "next_cursor": None, "total": None},
 }
@@ -6101,6 +6105,9 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	`?view=my-bugs` would be shorter and would fail `SR#649` three ways at once: they could not
 	see what they were looking at, could not take one part away, and the link would mean
 	something different the day the view changed.
+
+	**And the one view not applied at its workspace** (`SR#3588`): an agenda saved on a project,
+	pressed here rather than in a test of its own, since this file's size is an agreed bound.
 	"""
 
 	opened, *_ = running
@@ -6126,6 +6133,14 @@ def test_coming_back_to_a_saved_view_expands_it_into_the_address (
 	# **And the name of the view is nowhere in it**, which is the half `SR#649` is actually
 	# about: the address says what is showing, not which saved thing it came from.
 	assert "my-bugs" not in where, f"the address names the view rather than what it shows: {where}"
+
+	# **An agenda saved on a project opens that project's agenda.** Applied at the workspace's
+	# own level, as every other view is (`SR#3144`), its line would narrow the workspace's agenda,
+	# which an agenda cannot be - so the place it names is where it goes, with no search line.
+	page.click(".saved-view .inline >> text=Websites day")
+	page.wait_for_url("**/projects/websites*", timeout=10_000)
+
+	assert "q=" not in page.url, f"the place went into the address as a search: {page.url}"
 
 
 def test_a_new_page_draws_the_add_form_closed (running: typing.Any) -> None:

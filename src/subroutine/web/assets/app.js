@@ -21,12 +21,12 @@ import { html } from "./html.js";
 import {
 	AGENDA_VIEW, ANSWERED_BY, AREAS, BOARD, CANNOT_BE_SAVED, DEFAULT_VIEW, EVERYTHING, JOURNAL,
 	MAX_REF, ONLY_FINISHED, PAGE_MARK, PATH_SEPARATOR, PRODUCT, SAVED_AS_TERMS, SELECTABLE, VIEWS,
-	addressOf, agendaRequest, answers, areaOf, asSavedView, asShowing, atItsWorkspace, chips,
+	addressOf, agendaRequest, answers, appliedAt, areaOf, asSavedView, asShowing, chips,
 	chosenWorkspace,
 	encodedPath, frame, journalAddress, journalPageOf,
 	journalPlace, listingAddress, mentionHref, narrowingTo, pageTitle,
-	parseAddress, permits, placeShown, placeTrail, projectLabel, refAsked, reloads, selectionOf,
-	shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
+	parseAddress, permits, placeAlone, placeShown, placeTrail, projectLabel, refAsked, reloads,
+	selectionOf, shortVersion, settingsAddress, settingsPageOf, settingsPlace, showingOf, showsWork,
 	titlesByPath, viewOf,
 	withShowing, widened,
 } from "./address.js";
@@ -3175,8 +3175,9 @@ export function App () {
 
 		/* **At the workspace's own level** (`#3144`, Simon's decision of 2026-09-22): a view's
 		   query holds the project it was saved in, and drawn inside another project's path the
-		   two would narrow each other to nothing. */
-		return chooseView(asShowing(view), atItsWorkspace(workspace));
+		   two would narrow each other to nothing. **Except an agenda saved in a project**
+		   (`#3588`), which is drawn on that project: `appliedAt` says which. */
+		return chooseView(asShowing(view), appliedAt(view, workspace));
 	}, [chooseView, workspace]);
 
 	const saveView = useCallback(async (title, shared) => {
@@ -3934,6 +3935,7 @@ export {
 	addressOf,
 	agendaRequest,
 	answers,
+	appliedAt,
 	areaOf,
 	asSavedView,
 	asShowing,
@@ -3950,6 +3952,7 @@ export {
 	pageTitle,
 	parseAddress,
 	permits,
+	placeAlone,
 	placeShown,
 	placeTrail,
 	projectLabel,

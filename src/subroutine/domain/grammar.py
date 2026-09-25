@@ -159,7 +159,10 @@ def names_the_reader (line: str | None, *, entity: str) -> bool:
 	and labelled rather than refused.
 
 	**Only a field naming an account reads ``me`` as its reader** - ``tag:me`` is a tag called
-	*me* - so which fields those are is the registry's answer, never a list written here.
+	*me* - so which fields those are is the registry's answer, never a list written here. **Every
+	such field** (`#3589`): the account group missed ``touched_by`` and ``answers_to``, which name
+	a person through kinds of their own, so a view shared with either was marked as not about its
+	reader while drawing each reader different rows.
 	"""
 
 	comparisons = subroutine.domain.filtering.understood(
@@ -167,7 +170,10 @@ def names_the_reader (line: str | None, *, entity: str) -> bool:
 	)
 
 	return any(
-		comparison.against.group == subroutine.domain.filtering.NAMES_AN_ACCOUNT
+		(
+			comparison.against.group == subroutine.domain.filtering.NAMES_AN_ACCOUNT
+			or comparison.against.kind.names_a_person
+		)
 		and subroutine.domain.selection.CALLER
 		in subroutine.domain.filtering.values_for([comparison], comparison.field)
 		for comparison in comparisons
