@@ -102,6 +102,23 @@ upgrade involves.
   stored to the microsecond, and `created_at.is` that `created_at` takes `is`. A range is now
   suggested only for a field that takes one, and `is` on a field that always has a value says so.
 
+- **`agent create --here` works in a directory whose name a `.gitignore` line would read as a
+  pattern**, such as `#notes`, `[draft]` or `!x`. The line it adds is escaped: it was a comment, a
+  class or a negation, and the command refused, leaving the line behind. The command a refusal
+  suggests now names the file from where you are, in a form a shell runs as printed.
+
+- **`agent create --here` says when the plugin's tools will not follow.** It names the variable
+  after the connection a write goes to, and the `subroutine` plugin reaches this machine's default
+  unless its settings name another, so where the two differ the tools go on as before. It said
+  they would name the agent.
+
+- **`agent create --here` no longer leaves a new credential where git would take it, or where
+  nobody has it.** The file is staged in a directory git ignores and is on the disk before it is
+  renamed into place. A settings file that is not UTF-8, or holds text UTF-8 cannot, is refused
+  before anything is minted, and any failure after minting shows the credential, where only a
+  failure of the disk did. A settings file that is a link out of the repository is refused by
+  saying where it leads.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

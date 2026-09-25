@@ -28,6 +28,7 @@ import dataclasses
 import json
 import os
 import pathlib
+import re
 import shutil
 import stat
 import subprocess
@@ -66,6 +67,9 @@ class Handover:
 	#: The repository's top level, or ``None`` when the directory is in no repository.
 	repository: pathlib.Path | None
 
+	#: The settings file's path from that top level, as git spells it, or ``None`` outside one.
+	relative: str | None
+
 	#: The line the repository's ``.gitignore`` still needs, or ``None`` when a rule of the
 	#: repository's own already covers the file.
 	missing_rule: str | None
@@ -102,6 +106,7 @@ def prepare (directory: pathlib.Path) -> Handover:
 			settings=settings,
 			held=held,
 			repository=None,
+			relative=None,
 			missing_rule=None,
 		)
 
@@ -114,8 +119,9 @@ def prepare (directory: pathlib.Path) -> Handover:
 		raise subroutine.errors.ValidationError(
 			f"{settings} is already in the repository, so ignoring it now would not keep a "
 			"credential out of it.",
-			hint=f"Take it out of the repository first - 'git rm --cached {relative}' keeps the "
-			"file - and run this again. Nothing was created.",
+			hint=f"Take it out of the repository first - 'git rm --cached "
+			f"{_typed_from(directory, settings)}' keeps the file - and run this again. Nothing was "
+			"created.",
 		)
 
 	return Handover(
@@ -123,7 +129,8 @@ def prepare (directory: pathlib.Path) -> Handover:
 		settings=settings,
 		held=held,
 		repository=repository,
-		missing_rule=None if _ignored_by(repository, relative) else relative,
+		relative=relative,
+		missing_rule=None if _ignored_by(repository, relative) else _as_rule(relative),
 	)
 
 
@@ -137,7 +144,7 @@ def ensure_ignored (handover: Handover) -> pathlib.Path | None:
 	would still un-ignore it.
 	"""
 
-	if handover.repository is None or handover.missing_rule is None:
+	if handover.repository is None or handover.relative is None or handover.missing_rule is None:
 		return None
 
 	gitignore = handover.repository / ".gitignore"
@@ -161,12 +168,14 @@ def ensure_ignored (handover: Handover) -> pathlib.Path | None:
 	except OSError as error:
 		raise _unwritable(gitignore, handover.missing_rule, error) from None
 
-	if not _ignored_by(handover.repository, handover.missing_rule):
+	# **Asked about the file, not the line** (`#3585`): the two differ wherever the path holds a
+	# character a line reads as a pattern.
+	if not _ignored_by(handover.repository, handover.relative):
 		raise subroutine.errors.ValidationError(
 			f"Added {handover.missing_rule} to {gitignore}, and git still does not ignore it: "
 			"another rule un-ignores it.",
-			hint=f"'git check-ignore -v {handover.missing_rule}' names that rule. Nothing was "
-			"created.",
+			hint=f"'git check-ignore -v {_typed_from(handover.directory, handover.settings)}' "
+			"names that rule. Nothing was created.",
 		)
 
 	return gitignore
@@ -194,22 +203,37 @@ def write (handover: Handover, variable: str, token: str) -> Written:
 	# into the next `git commit -a`.
 	destination = handover.settings.resolve()
 	destination.parent.mkdir(parents=True, exist_ok=True)
-	descriptor, staged = tempfile.mkstemp(
-		dir=destination.parent, prefix=".settings.local.", suffix=".json"
-	)
+
+	# **Staged in a directory git ignores whole** (`#3585`), which is how pytest keeps its cache
+	# out of a repository. The file used to be staged beside the settings, under a name no rule was
+	# asked about, so a process killed before the rename left the credential where `git add -A`
+	# takes it. ``mkdtemp`` makes the directory its owner's alone before anything is in it.
+	staging = pathlib.Path(tempfile.mkdtemp(dir=destination.parent, prefix=".settings.local."))
+	staged = staging / destination.name
 
 	try:
+		with open(staging / ".gitignore", "x", encoding="utf-8") as handle:
+			handle.write("*\n")
+
+		descriptor = os.open(staged, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+
+		# **On the disk before its name moves**, as ``config.write_private`` has it, so a crash
+		# cannot leave the settings file's name on a file that is not all there.
 		with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
 			json.dump(held, handle, indent=2, ensure_ascii=False)
 			handle.write("\n")
+			handle.flush()
+			os.fsync(handle.fileno())
 
 		os.replace(staged, destination)
 
-	except BaseException:
-		with contextlib.suppress(OSError):
-			os.unlink(staged)
+	finally:
+		for leftover in (staged, staging / ".gitignore"):
+			with contextlib.suppress(OSError):
+				leftover.unlink()
 
-		raise
+		with contextlib.suppress(OSError):
+			staging.rmdir()
 
 	mode = stat.S_IMODE(destination.stat().st_mode)
 	parsed = subroutine.auth.parse_token(before) if isinstance(before, str) else None
@@ -234,6 +258,14 @@ def _held (settings: pathlib.Path) -> dict[str, typing.Any]:
 
 	except FileNotFoundError:
 		return {}
+
+	# **Named, not raised past** (`#3585`): a file in another encoding escaped every refusal here
+	# and ended the command with a traceback.
+	except UnicodeDecodeError as error:
+		raise subroutine.errors.ValidationError(
+			f"{settings} is not UTF-8 text, from byte {error.start}.",
+			hint="Save it as UTF-8, or move it aside, and run this again. Nothing was created.",
+		) from None
 
 	except OSError as error:
 		raise subroutine.errors.ValidationError(
@@ -265,6 +297,18 @@ def _held (settings: pathlib.Path) -> dict[str, typing.Any]:
 			f"The 'env' in {settings} is not an object, so a variable cannot be added to it.",
 			hint="Correct it, or move it aside, and run this again. Nothing was created.",
 		)
+
+	# **And it has to go back out as it came in** (`#3585`). JSON can spell a string no UTF-8 file
+	# can hold - ``"\ud800"``, half of one character - and finding that out while writing is finding
+	# it out after the credential exists.
+	try:
+		json.dumps(held, ensure_ascii=False).encode("utf-8")
+
+	except UnicodeEncodeError as error:
+		raise subroutine.errors.ValidationError(
+			f"{settings} holds text that could not be written back as UTF-8: {error.reason}.",
+			hint="Correct it, or move it aside, and run this again. Nothing was created.",
+		) from None
 
 	return held
 
@@ -305,14 +349,65 @@ def _repository (directory: pathlib.Path) -> pathlib.Path | None:
 def _relative (settings: pathlib.Path, repository: pathlib.Path) -> str:
 	"""Return the settings file's path from the repository's top level, as git spells it."""
 
-	try:
-		return settings.resolve().relative_to(repository.resolve()).as_posix()
+	target = settings.resolve()
 
+	try:
+		return target.relative_to(repository.resolve()).as_posix()
+
+	# **Only a link can lead outside**, since git found the directory inside (`#3585`). Refused
+	# as *not inside*, it named a file that plainly was, and not the place the credential would go.
 	except ValueError:
 		raise subroutine.errors.ValidationError(
-			f"{settings} is not inside {repository}, which git named as its repository.",
-			hint="Run this from inside the checkout. Nothing was created.",
+			f"{settings} leads to {target}, outside {repository}.",
+			hint="A rule here cannot keep a file there out of any repository it is in. Point the "
+			"link inside the checkout, or take it away, and run this again. Nothing was created.",
 		) from None
+
+
+#: What a line of ``.gitignore`` reads as a pattern rather than as itself: a backslash, and the
+#: three characters that stand for others.
+_PATTERN = re.compile(r"([\\*?\[])")
+
+
+def _as_rule (relative: str) -> str:
+	"""Return the ``.gitignore`` line that names ``relative`` and nothing else - `#3585`.
+
+	**Escaped, because a line is a pattern.** Written as it stood, a directory called ``#notes``
+	made the line a comment, ``[draft]`` a character class and ``!x`` a negation, and each was
+	then refused as un-ignored by some *other* rule - with the line left in the file.
+	"""
+
+	# **A line cannot hold a line break**, and two lines would be two rules, one of them a
+	# directory's name alone: anything else in the repository called that would be ignored too.
+	if "\n" in relative or "\r" in relative:
+		raise subroutine.errors.ValidationError(
+			f"The path {relative!r} has a line break in it, which a line of .gitignore cannot hold.",
+			hint="Run this from a directory whose path has none. Nothing was created.",
+		)
+
+	rule = _PATTERN.sub(r"\\\1", relative)
+
+	# **Git drops the spaces a line ends in**, unless each is escaped - which a file a link leads
+	# to may have in its name.
+	kept = rule.rstrip(" ")
+	rule = kept + "\\ " * (len(rule) - len(kept))
+
+	# **Only at the start does ``#`` begin a comment, and ``!`` a negation.**
+	return f"\\{rule}" if rule.startswith(("#", "!")) else rule
+
+
+def _typed_from (directory: pathlib.Path, settings: pathlib.Path) -> str:
+	"""Return the settings file's path as somebody in ``directory`` would type it - `#3585`.
+
+	**From where they are, and escaped rather than quoted.** The hints gave the path from the
+	repository's top level, which is another file to somebody in a directory beneath it, and
+	printed it bare, so a shell read ``#notes/...`` as a comment. A hint already quotes the
+	command it suggests, and a quoted path inside that would close the quotation.
+	"""
+
+	typed = os.path.relpath(settings.resolve(), directory.resolve())
+
+	return re.sub(r"([^\w@%+=:,./-])", r"\\\1", typed)
 
 
 def _tracked (repository: pathlib.Path, relative: str) -> bool:

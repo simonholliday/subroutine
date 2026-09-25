@@ -3295,6 +3295,23 @@ def _git (directory: pathlib.Path, *arguments: str) -> str:
 	).stdout
 
 
+def _ignored (checkout: pathlib.Path, relative: str) -> bool:
+	"""Report whether git ignores ``relative`` in ``checkout``, asked the way nothing can mistake.
+
+	``--stdin -z`` so a path is read as it is written, and without ``-v`` so a ``!`` rule answers
+	*not ignored* rather than naming itself.
+	"""
+
+	asked = subprocess.run(
+		["git", "check-ignore", "--stdin", "-z"],
+		cwd=checkout, input=f"{relative}\0", capture_output=True, text=True, check=False,
+	)
+
+	assert asked.returncode in (0, 1), asked.stderr
+
+	return asked.returncode == 0
+
+
 def _settings_of (checkout: pathlib.Path) -> dict[str, typing.Any]:
 	"""Return what ``--here`` left in a checkout's Claude Code settings."""
 
@@ -3504,6 +3521,32 @@ def _a_rule_nearer_the_file_that_un_ignores_it (checkout: pathlib.Path) -> None:
 	(checkout / ".claude" / ".gitignore").write_text("!settings.local.json\n", encoding="utf-8")
 
 
+def _settings_in_another_encoding (checkout: pathlib.Path) -> None:
+	"""Leave a settings file that is not UTF-8, which read as a traceback (`SR#3585`)."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_bytes(b'{"note": "caf\xe9"}\n')
+
+
+def _settings_holding_half_a_character (checkout: pathlib.Path) -> None:
+	"""Leave valid JSON that no UTF-8 file can hold, found only after minting (`SR#3585`)."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text(
+		'{"note": "\\ud800"}\n', encoding="utf-8"
+	)
+
+
+def _settings_that_lead_outside_the_checkout (checkout: pathlib.Path) -> None:
+	"""Leave a settings file that is a link out of the repository (`SR#3585`)."""
+
+	elsewhere = checkout.parent / "elsewhere"
+	elsewhere.mkdir()
+	(elsewhere / "settings.json").write_text("{}\n", encoding="utf-8")
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").symlink_to(elsewhere / "settings.json")
+
+
 def _nothing (checkout: pathlib.Path) -> None:
 	"""Leave the checkout as it is."""
 
@@ -3523,6 +3566,14 @@ def _nothing (checkout: pathlib.Path) -> None:
 			id="un-ignored",
 		),
 		pytest.param(_nothing, ("--store",), "two different places", id="both-hand-overs"),
+		pytest.param(_settings_in_another_encoding, (), "is not UTF-8 text", id="not-utf-8"),
+		pytest.param(
+			_settings_holding_half_a_character,
+			(),
+			"could not be written back as UTF-8",
+			id="half-a-character",
+		),
+		pytest.param(_settings_that_lead_outside_the_checkout, (), "leads to", id="led-outside"),
 	],
 )
 def test_here_refuses_before_minting_what_it_could_not_finish (
@@ -3622,33 +3673,224 @@ def test_here_outside_a_repository_needs_no_ignore_rule (
 
 
 @requires_git
+@pytest.mark.parametrize(
+	("failure", "reported"),
+	[
+		pytest.param(PermissionError(13, "Permission denied"), "Permission denied", id="disk"),
+		pytest.param(
+			UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogates not allowed"),
+			"surrogates not allowed",
+			id="text",
+		),
+	],
+)
 def test_here_shows_the_credential_when_its_write_fails (
 	run: typing.Callable[..., typer.testing.Result],
 	tmp_path: pathlib.Path,
 	monkeypatch: pytest.MonkeyPatch,
+	failure: Exception,
+	reported: str,
 ) -> None:
 	"""The one moment ``--here`` prints the secret: it exists, and the file could not take it.
 
 	Without this the credential would be live, unrecorded and unseen, which is the stranding
-	every check before the mint exists to prevent - arriving after it.
+	every check before the mint exists to prevent - arriving after it. **Whatever stopped the
+	write** (`SR#3585`): only a failure of the disk was caught, and one of the text's own left the
+	credential exactly that.
 	"""
 
 	run("init", "--username", "si", "--workspace", "Personal")
 	_checkout(tmp_path, monkeypatch)
 
 	def refused (*_arguments: typing.Any, **_keywords: typing.Any) -> typing.NoReturn:
-		"""Fail the way a full disk or a read-only mount would."""
+		"""Fail the way a full disk, a read-only mount or the settings' own text would."""
 
-		raise PermissionError(13, "Permission denied")
+		raise failure
 
 	monkeypatch.setattr(subroutine.claude_code, "write", refused)
 
 	said = run("agent", "create", "web", "--here", expect=1).output
 
 	assert "sr_" in said, "shown this once, since the file could not take it"
-	assert "Permission denied" in said
+	assert reported in said
 	assert "as SUBROUTINE_TOKEN_LOCAL" in said
 	assert "subroutine token revoke" in said
+
+
+@requires_git
+@pytest.mark.parametrize(
+	("relative", "decoy"),
+	[
+		pytest.param("#notes/.claude/settings.local.json", None, id="comment"),
+		pytest.param("!x/.claude/settings.local.json", None, id="negation"),
+		pytest.param(
+			"[draft]/.claude/settings.local.json", "d/.claude/settings.local.json", id="class"
+		),
+		pytest.param(
+			"a*b?/.claude/settings.local.json", "axby/.claude/settings.local.json", id="wildcards"
+		),
+		pytest.param(
+			"back\\slash/.claude/settings.local.json",
+			"backslash/.claude/settings.local.json",
+			id="backslash",
+		),
+		pytest.param("local/settings.json ", "local/settings.json", id="trailing-space"),
+	],
+)
+def test_a_rule_names_its_path_and_nothing_else (
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	relative: str,
+	decoy: str | None,
+) -> None:
+	"""`SR#3585`: the rule was the path as it stood, and a line of ``.gitignore`` is a pattern.
+
+	**Asked of git itself**, which is the only reader whose opinion of a line counts. Each path
+	holds something a line reads as more than itself, and where the unescaped line would match a
+	neighbour instead of it - or as well - the neighbour is asked about too.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch)
+	rule = subroutine.claude_code._as_rule(relative)
+	(checkout / ".gitignore").write_text(f"{rule}\n", encoding="utf-8")
+
+	assert _ignored(checkout, relative), rule
+
+	if decoy is not None:
+		assert not _ignored(checkout, decoy), f"{rule!r} also ignores {decoy!r}"
+
+
+@requires_git
+@pytest.mark.parametrize("named", ["#notes", "[draft]", "!x"])
+def test_here_works_in_a_directory_whose_name_a_rule_would_read_as_a_pattern (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	named: str,
+) -> None:
+	"""`SR#3585`: in ``#notes`` the line was a comment, in ``[draft]`` a class, in ``!x`` a negation.
+
+	Each was then refused as un-ignored by another rule, with the line left in ``.gitignore`` and
+	nothing minted.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / named).mkdir()
+	monkeypatch.chdir(checkout / named)
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert "Written to" in made, made
+	assert _ignored(checkout, f"{named}/.claude/settings.local.json")
+
+
+@requires_git
+def test_a_refusal_s_command_runs_as_printed_where_it_was_asked (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3585`: the hint gave the path from the top of the repository, and bare.
+
+	From a directory called ``#notes`` it suggested ``git check-ignore -v #notes/...``, which a
+	shell runs as that command with a comment after it - and from anywhere beneath the top, it
+	named a file that is not there. **Run as printed, where it was asked**, is the only check.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	inside = checkout / "#notes"
+	(inside / ".claude").mkdir(parents=True)
+	(inside / ".claude" / ".gitignore").write_text("!settings.local.json\n", encoding="utf-8")
+	monkeypatch.chdir(inside)
+
+	said = " ".join(run("agent", "create", "web", "--here", expect=1).output.split())
+	suggested = re.search(r"'(git check-ignore -v [^']*)'", said)
+
+	assert suggested is not None, said
+
+	shown = subprocess.run(
+		["sh", "-c", suggested.group(1)], cwd=inside, capture_output=True, text=True, check=False
+	)
+
+	assert "!settings.local.json" in shown.stdout, (suggested.group(1), shown.stderr)
+
+
+@requires_git
+def test_here_stages_the_credential_where_git_cannot_see_it (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3585`: staged beside the settings under a name no rule covered, and never synced.
+
+	A process killed between the write and the rename left the credential where ``git add -A``
+	takes it. **Asked at that moment**, by standing in for the rename: whatever is about to be
+	renamed is on the disk already, and git neither lists it nor would add it.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	synced: list[int] = []
+	seen: list[tuple[bool, str, bool]] = []
+	real_fsync, real_replace = os.fsync, os.replace
+
+	def fsync (descriptor: int) -> None:
+		"""Remember that something reached the disk, and let it."""
+
+		synced.append(descriptor)
+		real_fsync(descriptor)
+
+	def replace (source: typing.Any, destination: typing.Any) -> None:
+		"""Ask what git makes of the staged file, then rename it."""
+
+		staged = pathlib.Path(source)
+
+		if staged.name == "settings.local.json":
+			relative = staged.relative_to(checkout).as_posix()
+			listed = _git(checkout, "status", "--porcelain", "--untracked-files=all")
+			seen.append((bool(synced), listed, _ignored(checkout, relative)))
+
+		real_replace(source, destination)
+
+	monkeypatch.setattr(os, "fsync", fsync)
+	monkeypatch.setattr(os, "replace", replace)
+
+	run("agent", "create", "web", "--here")
+
+	assert len(seen) == 1, "the rename was never seen, so nothing here was asked"
+
+	[(on_the_disk, listed, ignored)] = seen
+
+	assert on_the_disk, "renamed before it reached the disk"
+	assert ".settings.local." not in listed, listed
+	assert ignored, "git would add the staged file"
+
+
+@requires_git
+def test_here_says_when_the_tools_reach_another_connection (
+	two: Remote,
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3585`: named after the connection a write goes to, and promised to the tools.
+
+	The plugin's server binds the configured default unless the plugin names a connection
+	(`#276`), so a credential for ``work`` reached the shell alone while this said
+	``subroutine_whoami`` would name the agent.
+	"""
+
+	checkout = _checkout(tmp_path, monkeypatch)
+
+	made = " ".join(run("-c", "work", "agent", "create", "web", "--here").output.split())
+
+	assert "SUBROUTINE_TOKEN_WORK" in _settings_of(checkout)["env"], made
+	assert "'subroutine_whoami' does too only where the 'subroutine' plugin runs the tools" in made
+	assert "with 'work' named as its connection" in made, made
+	assert "it reaches 'local', this machine's default" in made, made
+	assert "and 'subroutine_whoami' does too" not in made, "promised only where the tools reach it"
 
 
 def test_agent_create_without_a_hand_over_names_the_variable_to_use (

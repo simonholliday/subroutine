@@ -2552,11 +2552,14 @@ def agent_create (
 		try:
 			placed = subroutine.claude_code.write(handover, variable, minted.token)
 
-		except OSError as error:
+		# **Whatever stopped it** (`#3585`). Only a failure of the disk was caught, so any other -
+		# the settings' own text, say - left a live credential that was recorded nowhere and shown
+		# to nobody.
+		except Exception as error:
 			_shown_once(minted.token)
 			_stop(
 				f"The credential could not be written to {handover.settings}: "
-				f"{error.strerror or error}.",
+				f"{getattr(error, 'strerror', None) or error}.",
 				f"Put it in that file by hand as {variable}, as docs/connecting.md shows, or "
 				f"stop it working with 'subroutine token revoke {minted.prefix}'.",
 			)
@@ -2616,11 +2619,29 @@ def agent_create (
 		# with '--scope local' they install nothing, so updating stays once per machine. Nothing
 		# here writes those settings: whether the plugin is installed is not ours to see, and
 		# switching 'subroutine-remote' off without it would leave the project with no tools.
-		_say(
-			f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
-		)
-		_say("where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs")
-		_say("them, switch this directory to 'subroutine', then reload:")
+		#
+		# **And only where they reach this connection** (`#3585`). A plugin naming none binds the
+		# configured default (`#276`), while the variable is named after the connection a write goes
+		# to, which `use` and a `.subroutine` marker move: where the two differed, the tools went
+		# on as before and this said they would not.
+		bound = subroutine.connections.roster(_settings()).default
+
+		if connection.name == bound:
+			_say(
+				f"Then 'subroutine whoami' names {minted.username}, and 'subroutine_whoami' does too"
+			)
+			_say("where the 'subroutine' plugin runs the tools. Where 'subroutine-remote' runs")
+			_say("them, switch this directory to 'subroutine', then reload:")
+
+		else:
+			_say(
+				f"Then 'subroutine whoami' names {minted.username}. 'subroutine_whoami' does too only"
+			)
+			_say(f"where the 'subroutine' plugin runs the tools with '{connection.name}' named as its")
+			_say(f"connection: naming none, it reaches '{bound}', this machine's default, and")
+			_say("acts there as before. Where 'subroutine-remote' runs them, switch this")
+			_say("directory to 'subroutine', then reload:")
+
 		_say("  claude plugin enable subroutine@subroutine --scope local")
 		_say("  claude plugin disable subroutine-remote@subroutine --scope local")
 		_say("That needs 'subroutine' installed here, and uv; docs/connecting.md has the rest.")
