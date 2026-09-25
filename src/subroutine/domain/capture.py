@@ -201,6 +201,21 @@ _WRITTEN_DAY = (
 	r"|\d{4}-\d{2}-\d{2}(?![T ]?\d))"
 )
 
+#: **Four digits after a written date**, which is the one place :data:`_WRITTEN_YEAR` reads a
+#: year - found on its own, so the rule for which are years lives in one function
+#: (:func:`subroutine.domain.dates.is_written_year`) rather than in every pattern that carries it.
+_DATED_DIGITS = re.compile(
+	rf"(?:\d{{1,2}}{_ORDINAL}\s+(?:{_MONTH_ALTERNATION})"
+	rf"|(?:{_MONTH_ALTERNATION})\s+\d{{1,2}}{_ORDINAL}),?\s+(?P<year>\d{{4}})(?![\w'])",
+	re.IGNORECASE,
+)
+
+#: What stands in for each digit of four that are not a year while the line is read, and back.
+#: **One character for one**, so every span still indexes the line as written, and characters
+#: from the private use area, which nobody types and no pattern here reads as a digit.
+_STANDING_IN = str.maketrans({str(digit): chr(0xE000 + digit) for digit in range(10)})
+_STOOD_DOWN = str.maketrans({chr(0xE000 + digit): str(digit) for digit in range(10)})
+
 #: ``from 2nd October to 12th October``, ``on Monday until Wednesday``, ``from 2 October -
 #: 12 October``: an opening word, a date, a joint and a date.
 _WORDED_SPAN = re.compile(
@@ -828,6 +843,30 @@ def summarise (capture: Capture) -> str | None:
 	return " ".join(parts) or None
 
 
+def _not_years (text: str, *, today: datetime.date) -> tuple[str, list[str]]:
+	"""Hide every four digits after a written date that are not a year, and return them.
+
+	**A written year is one from last year to fifty years ahead** (`#3579`, Simon's rule). Read as
+	any four digits, *Standup on 5 March 0930* began in the year 930 and *Deliver by 1 March 1500
+	chairs* was due in the year 1500, both without a word, and *9999* after a span was a 500. What
+	is hidden here is not read by any rule, so the date before it is read as though it had no
+	year, and the digits stay in the title and are reported.
+	"""
+
+	hidden: list[str] = []
+	kept = list(text)
+
+	for match in _DATED_DIGITS.finditer(text):
+		if subroutine.domain.dates.is_written_year(int(match["year"]), today=today):
+			continue
+
+		start, end = match.span("year")
+		kept[start:end] = match["year"].translate(_STANDING_IN)
+		hidden.append(match["year"])
+
+	return "".join(kept), hidden
+
+
 def parse (
 	text: str, *, now: datetime.datetime, timezone: str = subroutine.domain.schedule.DEFAULT_TIMEZONE
 ) -> Capture:
@@ -838,6 +877,10 @@ def parse (
 	"""
 
 	today = subroutine.domain.schedule.local_date(now, timezone)
+	# **Four digits that are not a year are hidden before anything reads the line** (`#3579`), and
+	# given back at the end - to the title, and to what is reported - so no rule below has to know
+	# which years are years.
+	text, hidden = _not_years(text, today=today)
 	claimed: list[tuple[int, int]] = []
 	fields: dict[str, typing.Any] = {}
 	tags: list[str] = []
@@ -978,11 +1021,17 @@ def parse (
 		if not any(start < match.end() and match.start() < end for start, end in claimed)
 	)
 
+	unparsed.extend(hidden)
+	restored: dict[str, typing.Any] = {
+		name: value.translate(_STOOD_DOWN) if isinstance(value, str) else value
+		for name, value in fields.items()
+	}
+
 	return Capture(
-		title=_remaining(text, claimed),
-		tags=tuple(tags),
-		unparsed=tuple(unparsed),
-		**fields,
+		title=_remaining(text, claimed).translate(_STOOD_DOWN),
+		tags=tuple(tag.translate(_STOOD_DOWN) for tag in tags),
+		unparsed=tuple(piece.translate(_STOOD_DOWN) for piece in unparsed),
+		**restored,
 	)
 
 

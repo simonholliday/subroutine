@@ -139,6 +139,8 @@ upgrade involves.
   command line did the same. The year is now read with the date it follows - `14 March 2028` or
   `March 14, 2028` - and a year written once at the end of a span is both days', so *from 2
   October to 12 October 2027* is in 2027. A written date with no year is still the next one.
+  Four digits after a date count as its year from last year to fifty years ahead; anything else,
+  such as a time written `0930` or *1500 chairs*, stays in the title and is reported.
 
 - **After you add something in the browser, the note saying so links to it.** It named the
   new item's number and title in plain text, so going to it meant finding it in the list. The

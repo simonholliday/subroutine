@@ -485,6 +485,26 @@ def test_a_written_date_with_its_year_is_that_day_in_that_year (
 	) == expected
 
 
+def test_four_digits_outside_the_window_are_not_a_written_year () -> None:
+	"""`SR#3579`: *3 June 1700* was a deadline in the year 1700, and *5 March 0930* a day in 930.
+
+	``plan``, ``defer`` and ``--due`` read a written date here, so outside the window it is no date
+	at all and the command refuses it by name, as it did before a year was read.
+	"""
+
+	today = datetime.date(2026, 9, 24)
+
+	assert subroutine.domain.dates.written_date("3 june 1700", today=today) is None
+	assert subroutine.domain.dates.day_named("5 March 0930", today=today) is None
+	assert subroutine.domain.dates.written_date("1 june 2077", today=today) is None
+	assert subroutine.domain.dates.written_date("1 march 2025", today=today) == datetime.date(
+		2025, 3, 1
+	)
+	assert subroutine.domain.dates.written_date("1 june 2076", today=today) == datetime.date(
+		2076, 6, 1
+	)
+
+
 @pytest.mark.parametrize(
 	("written", "until", "expected"),
 	[

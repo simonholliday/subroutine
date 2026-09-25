@@ -114,8 +114,9 @@ MONTHS: dict[str, int] = {
 #: People write the year in words exactly when a date is a year or more away, and stopping before
 #: it read *by 31 March 2028* as the next 31 March, a year early, with ``2028`` left in the title:
 #: a date set from the wreckage, which §6.13 rule 1 forbids. With no year it is still the next
-#: one, which is what the spelling is for - a bill in September, a birthday in March. Four
-#: digits, so a time of day, which needs a colon or ``am``, is never read as one.
+#: one, which is what the spelling is for - a bill in September, a birthday in March. **Four
+#: digits are a year only where :func:`is_written_year` says so** (`#3579`): this said a time of
+#: day, needing a colon or ``am``, could never be one, and *5 March 0930* began in the year 930.
 _WRITTEN_DATE = re.compile(
 	r"^(?:"
 	r"(?P<day_first>\d{1,2})(?:st|nd|rd|th)?\s+(?P<month_after>[a-z]+)"
@@ -131,6 +132,13 @@ _WRITTEN_DATE = re.compile(
 #: produces. Written exclusive first, which put the search one year short of the only case it
 #: was widened for — measured from 2096, where the answer is 2104.
 _LEAP_SEARCH = 8
+
+#: **A written year is one from last year to fifty years ahead** (Simon, 2026-09-24, `#3579`).
+#: Four digits after a written date outside that are a time, a quantity or a slip - *5 March
+#: 0930*, *1 March 1500 chairs* - and read as a year they dated an item to the year 930 or 1500
+#: without a word, or past the end of the calendar.
+WRITTEN_YEARS_BEFORE = 1
+WRITTEN_YEARS_AHEAD = 50
 
 
 _TERM = re.compile(r"([+-])(\d+)([a-zA-Z]+)")
@@ -152,6 +160,12 @@ WHOLE_DAY_KEYWORDS = frozenset({"today", "tomorrow", "yesterday"})
 
 _VALID_KEYWORDS = ", ".join(f"`{keyword}`" for keyword in KEYWORDS)
 _VALID_UNITS = "`m` minutes, `h` hours, `d` days, `w` weeks, `M` months, `y` years"
+
+
+def is_written_year (year: int, *, today: datetime.date) -> bool:
+	"""Report whether four digits written after a date are its year, by the window above."""
+
+	return today.year - WRITTEN_YEARS_BEFORE <= year <= today.year + WRITTEN_YEARS_AHEAD
 
 
 def day_named (written: str, *, today: datetime.date) -> datetime.date | None:
@@ -235,6 +249,11 @@ def written_date (written: str, *, today: datetime.date) -> datetime.date | None
 	day, month, written_year = parts
 
 	if written_year is not None:
+		# **Only a year in the window** (`#3579`). Four digits outside it are no date at all here,
+		# so a caller refuses them by name; quick capture hides them before they get this far.
+		if not is_written_year(written_year, today=today):
+			return None
+
 		try:
 			return datetime.date(written_year, month, day)
 

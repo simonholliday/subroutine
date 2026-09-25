@@ -2256,6 +2256,10 @@ def test_the_end_of_a_span_is_resolved_from_its_start () -> None:
 		# **A year already gone is taken as written**, as an ISO date is.
 		("File the return by 31 January 2026", "File the return", "due",
 			datetime.date(2026, 1, 31)),
+		# **The edges of the window** (`SR#3579`): last year, and fifty years ahead.
+		("File the return by 31 January 2025", "File the return", "due",
+			datetime.date(2025, 1, 31)),
+		("Renew the lease by 1 June 2076", "Renew the lease", "due", datetime.date(2076, 6, 1)),
 		# **A day that year has not got is handed on whole**, exactly as *31 February* is, for the
 		# create to refuse by name - and never dated to the leap day after it.
 		("Ship the beta by 29 February 2027", "Ship the beta", "due", "29 February 2027"),
@@ -2276,6 +2280,48 @@ def test_a_written_year_is_read_with_the_date_it_follows (
 	assert read.title == title, f"the year was left in the title: {read.title!r}"
 	assert getattr(read, field) == expected, f"{line!r} set {field}={getattr(read, field)!r}"
 	assert read.unparsed == (), read.unparsed
+
+
+@pytest.mark.parametrize(
+	("line", "title", "field", "expected", "left"),
+	[
+		# **A time written as four digits**, which is the case this was filed on.
+		("Standup on 5 March 0930", "Standup 0930", "starts_at", datetime.date(2027, 3, 5), "0930"),
+		("Call on March 5 1230 about it", "Call 1230 about it", "starts_at",
+			datetime.date(2027, 3, 5), "1230"),
+		("Workshop from 2 October 0900 to 1700", "Workshop 0900 to 1700", "snooze",
+			datetime.date(2026, 10, 2), "0900"),
+		# **A quantity**, after a comma or not.
+		("Deliver by 1 March 1500 chairs", "Deliver 1500 chairs", "due", datetime.date(2027, 3, 1),
+			"1500"),
+		("Pay by 1 March, 2500 GBP", "Pay, 2500 GBP", "due", datetime.date(2027, 3, 1), "2500"),
+		# **Just outside the window**, at either end.
+		("File the return by 31 January 2024", "File the return 2024", "due",
+			datetime.date(2027, 1, 31), "2024"),
+		("Renew the lease by 1 June 2077", "Renew the lease 2077", "due", datetime.date(2027, 6, 1),
+			"2077"),
+		# **And the two that were no answer at all**: a 500 after a span, and a parse that raised.
+		("Holiday 2-12 October 9999", "Holiday 9999", "starts_at", datetime.date(2026, 10, 2), "9999"),
+		("Standup on 5 March 0000", "Standup 0000", "starts_at", datetime.date(2027, 3, 5), "0000"),
+	],
+)
+def test_four_digits_that_are_not_a_year_stay_in_the_title_and_are_reported (
+	line: str, title: str, field: str, expected: object, left: str
+) -> None:
+	"""`SR#3579`: any four digits after a written date were taken for its year.
+
+	*Standup on 5 March 0930* began in the year 930 and *Deliver by 1 March 1500 chairs* was due
+	in the year 1500, both without a word, and *9999* after a span was a 500. **A written year is
+	one from last year to fifty years ahead** (Simon, 2026-09-24): anything else after a date
+	leaves that date to be read as though no year were written, stays in the title, and is
+	reported.
+	"""
+
+	read = _parse(line)
+
+	assert read.title == title, f"{line!r} left {read.title!r}"
+	assert getattr(read, field) == expected, f"{line!r} set {field}={getattr(read, field)!r}"
+	assert read.unparsed == (left,), read.unparsed
 
 
 @pytest.mark.parametrize(
