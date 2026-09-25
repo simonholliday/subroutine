@@ -97,6 +97,11 @@ upgrade involves.
 - **A credential narrowed to some projects cannot change what a shared view says**, as it could
   already not share one.
 
+- **A filter refused for its operator says what that field takes.** The advice written for a
+  timestamp was given to every field: `ref.gte` was told to use `ref.gte`, `ref.ne` that a ref is
+  stored to the microsecond, and `created_at.is` that `created_at` takes `is`. A range is now
+  suggested only for a field that takes one, and `is` on a field that always has a value says so.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

@@ -1809,7 +1809,7 @@ def understood (
 			raise _no_such_operator(name, field, operator)
 
 		if operator not in found.operators:
-			raise _wrong_operator_for_the_field(name, field, operator, found.kind)
+			raise _wrong_operator_for_the_field(name, field, operator, found)
 
 		comparisons.append(
 			Comparison(name=name, field=field, operator=operator, against=found, value=value)
@@ -2813,31 +2813,47 @@ def _unreadable (
 
 
 def _wrong_operator_for_the_field (
-	name: str, field: str, operator: str, kind: Kind
+	name: str, field: str, operator: str, found: Filterable
 ) -> subroutine.errors.ValidationError:
 	"""Refuse a real operator on a field where it would not mean anything.
 
 	**The refusal a caller most needs, because the alternative is silence.** ``eq`` on a
 	timestamp is the case this exists for: it parses, it runs, and it matches nothing, which
 	reads as an empty backlog rather than as a question the server did not understand.
+
+	**Everything it says is about this field** (`#3627`). Written for that timestamp, it told
+	every field it was stored to the microsecond and should be asked a range - ``ref.gte`` was
+	told to use ``ref.gte`` - and listed its *kind's* operators, where the check it reports on
+	reads the field's own: so ``created_at.is`` was refused and then offered ``is``.
 	"""
+
+	takes = found.operators
+	ranged = {"gte", "lt"} <= takes
+
+	# **A kind's ``is`` is taken away where the column cannot be empty** (:func:`_allowed`), so
+	# refused here it is a field that always has a value rather than an operator it never had.
+	always_set = operator == IS and IS in found.kind.operators
+
+	if always_set:
+		message = f"{field!r} always has a value, so {operator!r} would match everything or nothing."
+	elif ranged and operator in {"eq", "ne"}:
+		message = (
+			f"{field!r} is stored to the microsecond, so {operator!r} would compare "
+			f"against one instant and almost always match nothing."
+		)
+	else:
+		message = f"{operator!r} does not apply to {field!r}."
+
+	hint = f"This field takes {', '.join(sorted(takes))}."
+
+	if ranged and not always_set:
+		hint = f"Use a range: {field}.gte and {field}.lt. {hint}"
 
 	return subroutine.errors.ValidationError(
 		f"{field!r} cannot be filtered with {operator!r}.",
 		errors=[
 			subroutine.errors.FieldError(
-				field=name,
-				code="invalid_field_value",
-				message=(
-					f"{field!r} is stored to the microsecond, so {operator!r} would compare "
-					f"against one instant and almost always match nothing."
-					if operator in {"eq", "ne"}
-					else f"{operator!r} does not apply to {field!r}."
-				),
-				hint=(
-					f"Use a range: {field}.gte and {field}.lt. "
-					f"This field takes {', '.join(sorted(kind.operators))}."
-				),
+				field=name, code="invalid_field_value", message=message, hint=hint
 			)
 		],
 	)

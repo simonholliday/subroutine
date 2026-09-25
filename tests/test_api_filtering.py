@@ -274,6 +274,29 @@ def test_equality_on_a_timestamp_is_refused_over_the_wire (world: World) -> None
 	assert "created_at.gte" in answer.text, "the refusal did not say what to write instead"
 
 
+def test_a_refused_operator_names_only_what_that_field_takes_over_the_wire (world: World) -> None:
+	"""`SR#3627`, reaching a caller: a ref was advised a range, and a timestamp offered ``is``."""
+
+	ref = world.call("GET", "/v1/tasks?ref.gte=3577")
+	said = ref.json()["errors"][0]
+
+	assert ref.status_code == 422, ref.text
+	assert said["hint"] == "This field takes eq, in.", said
+	assert "microsecond" not in world.call("GET", "/v1/tasks?ref.ne=3577").text
+
+	always = world.call("GET", "/v1/tasks?created_at.is=unset")
+	said = always.json()["errors"][0]
+
+	assert always.status_code == 422, always.text
+	assert "always has a value" in said["message"], said
+	assert said["hint"] == "This field takes gt, gte, lt, lte.", said
+
+	# **The case it was written for keeps its advice.**
+	assert "created_at.gte and created_at.lt" in world.call(
+		"GET", "/v1/tasks?created_at.eq=2026-08-03"
+	).text
+
+
 def _readerless () -> list[str]:
 	"""Return every `/v1` collection this application serves that declares no filter reader.
 

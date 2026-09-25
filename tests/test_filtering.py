@@ -131,6 +131,45 @@ def test_equality_on_a_timestamp_is_refused_rather_than_answered_emptily () -> N
 	assert _sql("estimate_minutes.eq", "2h")
 
 
+def test_a_refused_operator_is_answered_with_what_that_field_takes () -> None:
+	"""`SR#3627`: the advice written for a timestamp was given to every field.
+
+	``ref.gte`` was told to use ``ref.gte``, ``ref.ne`` that a ref is stored to the microsecond,
+	and ``created_at.is`` that ``created_at`` takes ``is``. **Every operator every field refuses,
+	on every listing**, because each refusal is built from the field it names, and one built
+	from the wrong thing is right on exactly the field it was written for.
+	"""
+
+	refused = 0
+
+	for entity, fields in subroutine.domain.filtering.FILTERS.items():
+		for field, found in fields.items():
+			ranged = {"gte", "lt"} <= found.operators
+
+			for operator in sorted(subroutine.domain.filtering.EVERY_OPERATOR - found.operators):
+				with pytest.raises(subroutine.errors.ValidationError) as caught:
+					subroutine.domain.filtering.understood([(f"{field}.{operator}", "x")], entity=entity)
+
+				refused += 1
+				said = caught.value.errors[0]
+				asked = f"{entity} {field}.{operator}"
+				takes = (said.hint or "").rsplit("This field takes ", 1)[-1].rstrip(".").split(", ")
+
+				assert set(takes) == found.operators, (asked, said.hint)
+				assert (f"{field}.gte" in (said.hint or "")) == (ranged and operator != "is"), (
+					asked, said.hint
+				)
+				assert ("microsecond" in said.message) == (ranged and operator in {"eq", "ne"}), (
+					asked, said.message
+				)
+				assert ("always has a value" in said.message) == (
+					operator == "is" and "is" in found.kind.operators
+				), (asked, said.message)
+
+	# A walk that reached nothing would pass every assertion above.
+	assert refused > 50, refused
+
+
 def test_is_not_reaches_the_rows_nobody_has_ranked () -> None:
 	"""`SR#2284`. ``column != value`` is NULL, and so false, for a column nobody has set.
 
