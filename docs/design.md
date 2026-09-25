@@ -685,6 +685,10 @@ units, not a fourth entity. So the expected shape is three levels and one view.
   task when the work has an owner and an estimate; use a project when it needs its own key,
   its own privacy, or its own numbering context. A project is a container, a feature is
   usually a unit of work.
+- *Replaced since this was frozen: a milestone is a type of item of its own, and what counts
+  toward it is an `includes` link rather than its blockers - a link that holds nothing up, so no
+  work is hidden or held back for being counted. `subroutine explain milestones` describes the
+  model as built. The entry below is the design as it stood.*
 - **A milestone is an item, and its contents are its blockers.** "The milestone is reached
   when all of these are done" *is* the definition of unblocked (§6.5a), so the model costs one
   item type and no schema, and `?ready=true` answers "is the release achievable yet" with no
@@ -4030,6 +4034,9 @@ token = "sr_1b4e77d0_…"
 
 1. `SUBROUTINE_TOKEN_<NAME>` in the environment — `<NAME>` upper-cased, non-alphanumerics
    as underscores. `SUBROUTINE_TOKEN` alone applies to the default connection.
+   *Since this was frozen: where the `subroutine` plugin starts the program, `SUBROUTINE_TOKEN`
+   is the token of the connection that plugin names, which need not be the default.
+   `docs/connecting.md` says where each token comes from.*
 2. `token_env = "…"` on the connection, naming a variable explicitly.
 3. `token_command = "…"` on the connection: a command whose stdout is the token.
 4. The connection's entry in `credentials.toml`.
@@ -7090,6 +7097,8 @@ that the project is about to keep its own plan in a database it can no longer re
   present — but `GET /v1/tasks/{id_or_ref}/rollup` is unbuilt, which is the endpoint that turns
   it into "how long is this phase", and the seeded task vocabulary has no `milestone` (a seed
   row and a version bump, not a migration).
+  - *Since this was frozen, every workspace is given a `milestone` type, by a migration, and
+    `subroutine explain milestones` describes what it does.*
 - **Front-matter is the agreed shape for §12.2b's editor, and `rename` is not a separate
   command.** The hazard is §6.13's, restated: if the exported front-matter omits a writable
   field, writing the file back destroys it silently. So either export every writable field or
