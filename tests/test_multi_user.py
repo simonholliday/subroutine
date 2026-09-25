@@ -726,6 +726,27 @@ def test_a_way_in_refused_after_the_account_still_shows_what_was_made (
 	assert "subroutine login link --username tom" in linkless, linkless
 
 
+@pytest.mark.parametrize("asked", ["--browser", "--terminal"])
+def test_json_is_refused_beside_a_secret_before_anything_is_made (
+	run: typing.Callable[..., typer.testing.Result], asked: str
+) -> None:
+	"""`SR#3639`: ``user create --json`` printed the account and nothing else.
+
+	So the credential ``--terminal`` minted was live - ``token list`` showed it - and had been
+	shown to nobody, and ``--browser``'s link the same. **Checked by what exists afterwards**,
+	not by the wording: nothing was made, so the name is still free.
+	"""
+
+	run("init", "--workspace", "Acme")
+
+	refused = run("user", "create", "tim", asked, "--json", expect=1).output
+
+	assert "--json cannot go with --browser or --terminal" in " ".join(refused.split()), refused
+	assert "tim" not in run("user", "list").output, "the account was made before the refusal"
+	assert "tim" not in run("token", "list").output, "a credential was minted before the refusal"
+	assert "Created tim" in run("user", "create", "tim", asked).output, "and the name is free"
+
+
 def test_a_machine_identity_is_refused_a_browser_before_anything_is_written (
 	run: typing.Callable[..., typer.testing.Result],
 ) -> None:

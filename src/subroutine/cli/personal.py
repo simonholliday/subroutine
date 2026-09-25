@@ -1883,6 +1883,27 @@ def _an_agent_has_no_browser () -> subroutine.errors.ValidationError:
 	)
 
 
+def _a_secret_is_not_json () -> subroutine.errors.ValidationError:
+	"""Return the refusal for ``--json`` beside a sign-in link or a credential - `#3639`.
+
+	**Refused before anything is made**, because the JSON is the account and nothing else: a
+	link or a credential minted beside it was printed nowhere, and a secret shown to nobody is a
+	live one nobody has - ``token list`` showed it, and nothing could recover it.
+
+	**Carrying it in the JSON was the other answer, and was not taken.** Nothing here prints a
+	secret for a script to read - ``token create`` has no ``--json`` at all - because what a
+	script reads is what ends up in its log.
+	"""
+
+	return subroutine.errors.ValidationError(
+		"--json prints the account, and a sign-in link or a credential is shown once to whoever "
+		"runs this, so --json cannot go with --browser or --terminal.",
+		code="invalid_field_value",
+		hint="Leave out --json, or make the account with --json and the rest afterwards with "
+		"'subroutine login link' and 'subroutine token create'.",
+	)
+
+
 def _handed_over (
 	where: Reached,
 	settings: subroutine.config.Settings,
@@ -8819,6 +8840,9 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 		if agent and browser:
 			program.fail(_an_agent_has_no_browser())
 
+		if json_output and (browser or terminal):
+			program.fail(_a_secret_is_not_json())
+
 		with program.opened() as world:
 			where = world.writing_to()
 
@@ -8892,9 +8916,6 @@ def _register_users (app: typer.Typer, program: Program) -> None:
 
 		if json_output:
 			program.say(json.dumps(created.model_dump(mode="json"), indent=2))
-
-			if unmade is not None:
-				program.stop(*unmade)
 
 			return
 

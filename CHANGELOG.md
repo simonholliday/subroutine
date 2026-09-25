@@ -137,6 +137,11 @@ upgrade involves.
   sign-in link made and never shown. The refusal now names what stands, and the command that
   finishes the rest.
 
+- **`user create --json` with `--browser` or `--terminal` is refused before anything is made.**
+  It printed the account alone, so the sign-in link or credential it had just made was live and
+  had been shown to nobody. `--json` goes with neither now: a secret is shown once, to a person,
+  and not to a script.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added
