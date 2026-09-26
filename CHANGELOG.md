@@ -142,6 +142,15 @@ upgrade involves.
   had been shown to nobody. `--json` goes with neither now: a secret is shown once, to a person,
   and not to a script.
 
+- **The `subroutine` plugin passes its token field under a name of its own,
+  `SUBROUTINE_PLUGIN_TOKEN`.** The field travelled as `SUBROUTINE_TOKEN`, which is also the
+  variable you may export in a shell for your default connection. An editor that left an empty
+  field's variable unset, rather than set and empty, would have let a token you exported be
+  taken for the field and sent to whichever instance the plugin names, and the tools could not
+  have said that the field had emptied. With this release and a refreshed plugin, neither can
+  happen. The plugin passes the field as `SUBROUTINE_TOKEN` as well, so an older program goes on
+  reading it.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added

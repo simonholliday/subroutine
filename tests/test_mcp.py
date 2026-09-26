@@ -5594,14 +5594,24 @@ def test_the_binding_does_not_follow_subroutine_use (
 	assert handed == ["local"], "the binding follows default_connection, not 'subroutine use'"
 
 
-def _a_plugin (tmp_path: pathlib.Path, name: str) -> pathlib.Path:
-	"""Return a plugin root whose manifest names ``name``, as the editor's cache holds one."""
+def _a_plugin (
+	tmp_path: pathlib.Path, name: str, *, passing: tuple[str, ...] = ()
+) -> pathlib.Path:
+	"""Return a plugin root whose manifest names ``name``, as the editor's cache holds one.
+
+	``passing`` names the variables its ``.mcp.json`` fills from the token field. None is a plugin
+	from before `SR#3600`, whose field the program reads as ``SUBROUTINE_TOKEN``.
+	"""
 
 	root = tmp_path / "plugins" / name
 	(root / ".claude-plugin").mkdir(parents=True)
 	(root / ".claude-plugin" / "plugin.json").write_text(
 		json.dumps({"name": name, "version": "0.9.5"}), encoding="utf-8"
 	)
+
+	if passing:
+		servers = {"tools": {"command": "uvx", "env": dict.fromkeys(passing, "${user_config.token}")}}
+		(root / ".mcp.json").write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
 
 	return root
 
@@ -5628,10 +5638,10 @@ def test_the_plugins_token_field_is_the_token_of_the_connection_it_names (
 ) -> None:
 	"""`#3522`: a *Which instance* other than the default skipped the plugin's token field.
 
-	The plugin passes its field as ``SUBROUTINE_TOKEN``, which is the default connection's token,
-	so pointed at any other connection its tools acted as the person ``credentials.toml`` held
-	there, and nothing said so. Started by the plugin, the variable is the field, and belongs to
-	the connection the session was started for.
+	A plugin from before 0.9.9 passes its field as ``SUBROUTINE_TOKEN``, which is the default
+	connection's token, so pointed at any other connection its tools acted as the person
+	``credentials.toml`` held there, and nothing said so. Started by such a plugin, the variable
+	is the field, and belongs to the connection the session was started for.
 	"""
 
 	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
@@ -5655,10 +5665,11 @@ def test_the_plugins_field_left_empty_or_unset_falls_back_to_what_is_stored (
 	**Empty is the ordinary blank field**, and falls back to what this machine stores for the
 	connection - as whitespace does, where any other variable holding only whitespace is refused
 	by name: Claude Code empties this one on a sign-out, and `SR#3517`'s notice speaks for that.
-	**Absent reads the same, and that is the hazard `SR#3600` names**: a token exported
-	in a shell would stand in for an absent field, and nothing here can tell the two apart - so
-	this pins what happens, for whoever changes it to see it change. The emptied-field notice
-	goes quiet for an absent variable too, which is pinned beside it.
+	**Absent reads the same from a plugin before 0.9.9, and that is the hazard `SR#3600` names**:
+	a token exported in a shell would stand in for an absent field, and nothing here can tell the
+	two apart - so this pins what happens, for whoever changes it to see it change. The
+	emptied-field notice goes quiet for an absent variable too, which is pinned beside it. The
+	0.9.9 plugin's own variable closes both, below.
 	"""
 
 	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
@@ -5719,6 +5730,137 @@ def test_an_exported_token_is_never_offered_to_another_instance (
 
 		assert work.token == "sr_bbbbbbbb_person", f"offered to work, started by {root}"
 		assert home.token == "sr_eeeeeeee_exported"
+
+
+#: What the 0.9.9 plugin fills from its token field (`SR#3600`): a variable of its own, and the
+#: old one beside it for the programs from before it.
+BOTH = (subroutine.credentials.PLUGIN_VARIABLE, subroutine.credentials.DEFAULT_VARIABLE)
+
+
+def _started_by_the_plugin_now (tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	"""Start this process as the 0.9.9 plugin does: from a root whose ``.mcp.json`` passes both."""
+
+	monkeypatch.setenv(
+		subroutine.installations.PLUGIN_ROOT,
+		str(_a_plugin(tmp_path, "subroutine", passing=BOTH)),
+	)
+
+
+def test_the_plugins_own_variable_is_the_token_of_the_connection_it_names (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3600`: since 0.9.9 the field travels as ``SUBROUTINE_PLUGIN_TOKEN``, for any connection."""
+
+	_started_by_the_plugin_now(tmp_path, monkeypatch)
+
+	for variable in BOTH:
+		monkeypatch.setenv(variable, "sr_cccccccc_the_field")
+
+	for name in ("home", "work"):
+		held = subroutine.mcp.relay.credential(two_instances.require(name), two_instances)
+
+		assert held.token == "sr_cccccccc_the_field", f"{name} answered from {held.source}"
+		assert held.source == subroutine.credentials.PLUGIN_FIELD, held.source
+
+
+@pytest.mark.parametrize("field", ["", "  ", None], ids=["empty", "blank", "absent"])
+def test_a_token_exported_for_the_default_never_stands_in_for_the_plugins_own_field (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	field: str | None,
+) -> None:
+	"""`SR#3600`'s hazard, closed: an empty field is empty, whatever the shell exported.
+
+	An editor may leave an empty field's variable out rather than set it empty, and the process
+	then inherits whatever the shell exported under that name. Read as ``SUBROUTINE_TOKEN``, a
+	token exported for the default connection arrived where the field should have, and was
+	offered to whichever connection the plugin names - handing it to that instance's operator.
+	Under a name of the plugin's own, a missing variable is an empty field, and
+	``SUBROUTINE_TOKEN`` keeps its meaning: the default's token, and nobody else's.
+	"""
+
+	_started_by_the_plugin_now(tmp_path, monkeypatch)
+	monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, "sr_eeeeeeee_exported")
+
+	if field is None:
+		monkeypatch.delenv(subroutine.credentials.PLUGIN_VARIABLE, raising=False)
+
+	else:
+		monkeypatch.setenv(subroutine.credentials.PLUGIN_VARIABLE, field)
+
+	work = subroutine.mcp.relay.credential(two_instances.require("work"), two_instances)
+	home = subroutine.mcp.relay.credential(two_instances.require("home"), two_instances)
+
+	assert work.token == "sr_bbbbbbbb_person", f"work was offered the token from {work.source}"
+	assert home.token == "sr_eeeeeeee_exported", home.source
+
+
+def test_the_plugins_own_field_is_said_to_have_emptied_when_its_variable_does_not_arrive (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3600`'s second half: a variable that does not arrive is an emptied field, and is said.
+
+	Read as ``SUBROUTINE_TOKEN``, an absent variable could not be told from a process with no field
+	at all, so `SR#3517`'s notice would have gone quiet exactly where an editor left an emptied
+	field's variable out. The plugin's ``.mcp.json`` says it passes one, so a missing one is empty.
+	"""
+
+	_started_by_the_plugin_now(tmp_path, monkeypatch)
+	work = two_instances.require("work")
+	monkeypatch.setenv(subroutine.credentials.PLUGIN_VARIABLE, "sr_cccccccc_the_field")
+
+	assert subroutine.mcp.relay._emptied(work) is None, "a field holding a token was called empty"
+
+	monkeypatch.delenv(subroutine.credentials.PLUGIN_VARIABLE)
+
+	assert subroutine.mcp.relay._emptied(work) == "cccccccc"
+
+
+def test_a_projects_own_variable_answers_before_the_plugins_own_field (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""``--here``'s ``SUBROUTINE_TOKEN_<NAME>`` still wins over the field under its new name."""
+
+	_started_by_the_plugin_now(tmp_path, monkeypatch)
+	monkeypatch.setenv(subroutine.credentials.PLUGIN_VARIABLE, "sr_cccccccc_the_field")
+	monkeypatch.setenv("SUBROUTINE_TOKEN_WORK", "sr_dddddddd_the_project")
+
+	held = subroutine.mcp.relay.credential(two_instances.require("work"), two_instances)
+
+	assert held.token == "sr_dddddddd_the_project", held.source
+
+
+def test_the_plugin_this_repository_ships_is_read_as_passing_its_own_variable (
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""The program and the shipped manifest agree on the name, so the real plugin takes the new path.
+
+	Driven against ``plugins/subroutine`` itself: a manifest that stopped passing the variable, or
+	a program that looked for another name, would each put the plugin back on ``SUBROUTINE_TOKEN``
+	with every test above still passing against its stand-in. A plugin from before 0.9.9, and a
+	process no plugin started, are read as passing nothing.
+	"""
+
+	ours = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(ours))
+
+	assert subroutine.installations.started_by(subroutine.mcp.relay.PLUGIN)
+	assert subroutine.installations.plugin_sets(subroutine.credentials.PLUGIN_VARIABLE)
+
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
+
+	assert not subroutine.installations.plugin_sets(subroutine.credentials.PLUGIN_VARIABLE)
+
+	monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT)
+
+	assert not subroutine.installations.plugin_sets(subroutine.credentials.PLUGIN_VARIABLE)
 
 
 def test_search_is_a_verb_of_its_own (bound: subroutine.mcp.protocol.Server) -> None:

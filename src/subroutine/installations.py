@@ -43,6 +43,9 @@ PLUGIN_ROOT = "CLAUDE_PLUGIN_ROOT"
 #: Where a plugin keeps its manifest, relative to that root.
 MANIFEST = pathlib.Path(".claude-plugin") / "plugin.json"
 
+#: Where a plugin declares the servers it starts, and what goes into their environment.
+SERVERS = pathlib.Path(".mcp.json")
+
 
 def program () -> str:
 	"""Report the version of the program answering, as it was installed.
@@ -105,10 +108,41 @@ def started_by (name: str) -> bool:
 	The name is read from the manifest under ``CLAUDE_PLUGIN_ROOT``, for :func:`plugin`'s reason:
 	a directory name is the editor's cache layout and not a promise to us. `#3522` needs to know
 	which plugin it was, because only the ``subroutine`` plugin passes its token field to this
-	program, and so only there does ``SUBROUTINE_TOKEN`` mean that field.
+	program; :func:`plugin_sets` says under which name (`#3600`).
 	"""
 
 	return _manifest().get("name") == name
+
+
+def plugin_sets (variable: str) -> bool:
+	"""Report whether the plugin that started this process sets ``variable`` for its servers.
+
+	**Read from the plugin's own ``.mcp.json``, never from the environment** (`#3600`). A variable
+	a plugin fills from a field left empty reaches the process set and empty or not at all,
+	depending on the editor, so its absence cannot say which plugin, at which version, started
+	this. The declaration can.
+	"""
+
+	root = os.environ.get(PLUGIN_ROOT)
+
+	if not root:
+		return False
+
+	try:
+		declared = json.loads((pathlib.Path(root) / SERVERS).read_text(encoding="utf-8"))
+
+	except (OSError, ValueError):
+		return False
+
+	servers = declared.get("mcpServers") if isinstance(declared, dict) else None
+
+	if not isinstance(servers, dict):
+		return False
+
+	return any(
+		isinstance(server, dict) and isinstance(server.get("env"), dict) and variable in server["env"]
+		for server in servers.values()
+	)
 
 
 def _manifest () -> dict[str, typing.Any]:

@@ -60,9 +60,10 @@ PATH = "/mcp"
 #: sentence fails the test that drives this rather than silently leaving the wrong label.
 _THE_LABEL = re.compile(r"(on connection ')([^']*)(')")
 
-#: The plugin that passes its *Agent token* field to this program as ``SUBROUTINE_TOKEN``
-#: (`#3522`). Its ``.mcp.json`` sets the variable in the server's own environment, empty or not,
-#: so in a process that plugin started, the variable is the field and nothing inherited.
+#: The plugin that passes its *Agent token* field to this program: as ``SUBROUTINE_PLUGIN_TOKEN``
+#: since 0.9.9 (`#3600`), and as ``SUBROUTINE_TOKEN`` before it (`#3522`). Its ``.mcp.json`` sets
+#: the variable in the server's own environment, so in a process that plugin started, the
+#: variable is the field.
 PLUGIN = "subroutine"
 
 #: Where this machine keeps, per connection, whether the plugin's token field held a token
@@ -81,26 +82,35 @@ def credential (
 
 	``SUBROUTINE_TOKEN`` is the *default* connection's token, deliberately: a token somebody
 	exported in a shell for one instance must never be offered to another, which would hand it
-	to that instance's operator. But the ``subroutine`` plugin passes its token field as that
-	variable whichever connection its *Which instance* field names. So a plugin pointed at any
-	other connection had its token skipped, and its tools acted as whoever ``credentials.toml``
-	held there - the person, usually, and nothing said so.
+	to that instance's operator. But the ``subroutine`` plugin passes its token field whichever
+	connection its *Which instance* field names, and it passed the field as that variable - so a
+	plugin pointed at any other connection had its token skipped, and its tools acted as whoever
+	``credentials.toml`` held there, the person usually, with nothing said.
 
-	**Where that plugin started this process, the variable is its field**, set in the server's own
-	environment over anything inherited, so it is read as the token of the connection the
-	session was started for. Started any other way, it keeps its meaning.
+	**Where that plugin started this process, its field is the token of the connection the session
+	was started for.** Since plugin 0.9.9 the field travels as ``SUBROUTINE_PLUGIN_TOKEN``, a name
+	nobody exports for a shell, and ``SUBROUTINE_TOKEN`` keeps its meaning beside it (`#3600`).
+	**Which variable carries the field is read from the plugin's own ``.mcp.json``**, never from
+	which variables are set: an editor may pass an empty field as a set, empty variable or as none
+	at all, so an absent one cannot say which plugin started this.
 
-	**That rests on Claude Code setting the variable whether the field is filled or not** - seen
-	set and empty on nuc14 when the field was (`#3244`), and not measured against a version
-	(`#3600`). A version that left an empty field unset would let a token exported in the shell
-	stand in for it here, offered to the named connection; and :func:`_emptied` would go quiet at
-	the same moment, since an absent variable is the case it cannot tell from no plugin setting at
-	all. `#3600` carries the remedy, a variable of the plugin's own that no shell exports.
+	**A plugin from before 0.9.9 passes the field as ``SUBROUTINE_TOKEN``**, which is then read as
+	the field. That rests on Claude Code setting the variable whether the field is filled or not -
+	seen set and empty on nuc14 when the field was (`#3244`), and not measured against a version.
+	One that left an empty field unset would let a token exported in the shell stand in for it,
+	offered to the named connection. The 0.9.9 plugin still sets that variable too, for the
+	programs from before it, which read nothing else.
 	"""
 
-	default = connection.name if subroutine.installations.started_by(PLUGIN) else roster.default
+	if not subroutine.installations.started_by(PLUGIN):
+		return subroutine.credentials.resolve(connection, default_connection=roster.default)
 
-	return subroutine.credentials.resolve(connection, default_connection=default)
+	if subroutine.installations.plugin_sets(subroutine.credentials.PLUGIN_VARIABLE):
+		return subroutine.credentials.resolve(
+			connection, default_connection=roster.default, plugin_field=True
+		)
+
+	return subroutine.credentials.resolve(connection, default_connection=connection.name)
 
 
 def answering (
@@ -358,9 +368,10 @@ def _emptied (connection: subroutine.connections.Connection) -> str | None:
 	"""Return the prefix the plugin's token field held last time, where it is empty now (`#3517`).
 
 	The string is empty where the field held something that was not a token. ``None`` means there
-	is nothing to say: the plugin did not start this process; its field holds a token, which is
-	kept for next time; it was empty last time too; or a project's own
-	``SUBROUTINE_TOKEN_<NAME>`` answers anyway, so the field changes nothing here.
+	is nothing to say: the plugin did not start this process, or one from before 0.9.9 did and
+	passed no variable to read (:func:`_field`); its field holds a token, which is kept for next
+	time; it was empty last time too; or a project's own ``SUBROUTINE_TOKEN_<NAME>`` answers
+	anyway, so the field changes nothing here.
 
 	**The case it is for, measured on `#3496`:** Claude Code empties the field when you sign out
 	of it, uninstall the plugin or remove its marketplace. The program then resolves whatever this
@@ -375,7 +386,7 @@ def _emptied (connection: subroutine.connections.Connection) -> str | None:
 	if not subroutine.installations.started_by(PLUGIN):
 		return None
 
-	field = os.environ.get(subroutine.credentials.DEFAULT_VARIABLE)
+	field = _field()
 
 	if field is None:
 		return None
@@ -390,6 +401,21 @@ def _emptied (connection: subroutine.connections.Connection) -> str | None:
 		return None
 
 	return _held().get(connection.name)
+
+
+def _field () -> str | None:
+	"""Return the plugin's token field as this process has it, or ``None`` where that cannot be told.
+
+	**Since plugin 0.9.9 an absent variable is an empty field** (`#3600`): the plugin's own
+	``.mcp.json`` says it passes one, so a variable that did not arrive can only be a field the
+	editor left out for being empty. Before, the field travelled as ``SUBROUTINE_TOKEN``, and an
+	absent one cannot be told from no field at all.
+	"""
+
+	if subroutine.installations.plugin_sets(subroutine.credentials.PLUGIN_VARIABLE):
+		return os.environ.get(subroutine.credentials.PLUGIN_VARIABLE, "")
+
+	return os.environ.get(subroutine.credentials.DEFAULT_VARIABLE)
 
 
 def _told (connection: subroutine.connections.Connection, prefix: str) -> str:

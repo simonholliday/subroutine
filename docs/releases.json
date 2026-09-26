@@ -1,6 +1,6 @@
 {
   "plugins": {
-    "subroutine": "0.9.8",
+    "subroutine": "0.9.9",
     "subroutine-remote": "0.9.8"
   },
   "releases": [

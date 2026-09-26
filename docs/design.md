@@ -4034,9 +4034,10 @@ token = "sr_1b4e77d0_…"
 
 1. `SUBROUTINE_TOKEN_<NAME>` in the environment — `<NAME>` upper-cased, non-alphanumerics
    as underscores. `SUBROUTINE_TOKEN` alone applies to the default connection.
-   *Since this was frozen: where the `subroutine` plugin starts the program, `SUBROUTINE_TOKEN`
-   is the token of the connection that plugin names, which need not be the default.
-   `docs/connecting.md` says where each token comes from.*
+   *Since this was frozen: where the `subroutine` plugin starts the program, the plugin's token
+   field is the token of the connection that plugin names, which need not be the default. It
+   arrives as `SUBROUTINE_PLUGIN_TOKEN`, and as `SUBROUTINE_TOKEN` from a plugin older than
+   0.9.9. `docs/connecting.md` says where each token comes from.*
 2. `token_env = "…"` on the connection, naming a variable explicitly.
 3. `token_command = "…"` on the connection: a command whose stdout is the token.
 4. The connection's entry in `credentials.toml`.

@@ -1169,14 +1169,14 @@ order:
 
 1. `SUBROUTINE_TOKEN_<CONNECTION>` in the environment - the connection name upper-cased, with
    anything that is not a letter or a digit as an underscore
-2. `SUBROUTINE_TOKEN`, for the default connection only - except in a server the `subroutine`
-   plugin started, where it is the plugin's token field and belongs to whichever connection the
-   plugin names
-3. whatever the connection's own `token_env` or `token_command` names
-4. `credentials.toml` - the **agent's** token where one is stored and this is an agent's
+2. in a server the `subroutine` plugin started, the plugin's token field, which belongs to
+   whichever connection the plugin names
+3. `SUBROUTINE_TOKEN`, for the default connection only
+4. whatever the connection's own `token_env` or `token_command` names
+5. `credentials.toml` - the **agent's** token where one is stored and this is an agent's
    process, and yours otherwise
 
-The first wins. Step 4 is where the two of you stop sharing a name, because it is the only step
+The first wins. Step 5 is where the two of you stop sharing a name, because it is the only step
 that can tell you apart: you are the same account, in the same directory, reading the same
 files, and the one thing that differs is the environment each process was started in.
 

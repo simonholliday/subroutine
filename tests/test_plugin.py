@@ -27,6 +27,7 @@ import subroutine.cli.topics
 import subroutine.clients.local
 import subroutine.config
 import subroutine.connections
+import subroutine.credentials
 import subroutine.domain.projects
 import subroutine.errors
 import subroutine.installations
@@ -597,10 +598,45 @@ def test_the_token_travels_in_the_environment_and_is_held_as_a_secret () -> None
 	up in shell history.
 	"""
 
-	assert _read(SERVERS)["mcpServers"]["tools"]["env"]["SUBROUTINE_TOKEN"] == (
+	assert _read(SERVERS)["mcpServers"]["tools"]["env"][subroutine.credentials.PLUGIN_VARIABLE] == (
 		"${user_config.token}"
 	)
 	assert _read(PLUGIN)["userConfig"]["token"]["sensitive"] is True
+
+
+#: The first release that reads the plugin's field as ``SUBROUTINE_PLUGIN_TOKEN`` (`SR#3600`): the
+#: one after 0.9.8, which can be no lower than the manifest that began passing it.
+FIRST_TO_READ_ITS_OWN = (0, 9, 9)
+
+
+def test_the_field_also_travels_as_the_old_variable_until_the_pin_passes_what_needs_it () -> None:
+	"""`SR#3600`: the field is passed under both names, and the old one goes when nothing reads it.
+
+	**Both, because the plugin and the program move separately.** The marketplace serves
+	``plugins/`` from ``main``, and ``uvx`` runs whichever release of the pinned series it has, so
+	a 0.9.9 plugin meets 0.9.8 programs, which read the field as ``SUBROUTINE_TOKEN`` alone. Passed
+	under its new name only, an agent's token would stop reaching them without a word, and their
+	tools would act as the person - `SR#3496`'s harm, done by an update.
+
+	**And the old name goes once the pin admits no program that needs it**, because while the
+	plugin sets it, a ``SUBROUTINE_TOKEN`` somebody exported never reaches the plugin's tools. So
+	this fails on the release that moves the pin past 0.9, which is the one to take it out.
+	"""
+
+	server = _read(SERVERS)["mcpServers"]["tools"]
+	pinned = next(argument for argument in server["args"] if argument.startswith("subroutine~="))
+	floor = tuple(int(part) for part in pinned.removeprefix("subroutine~=").split("."))
+
+	if floor < FIRST_TO_READ_ITS_OWN:
+		assert server["env"].get("SUBROUTINE_TOKEN") == "${user_config.token}", (
+			f"{pinned} admits programs that read the plugin's field as SUBROUTINE_TOKEN alone"
+		)
+
+	else:
+		assert "SUBROUTINE_TOKEN" not in server["env"], (
+			f"{pinned} admits no program that reads the field as SUBROUTINE_TOKEN, so the plugin "
+			"should stop setting it"
+		)
 
 
 @pytest.mark.parametrize("option", ["connection", "workspace", "token"])
@@ -619,9 +655,9 @@ def test_every_declared_option_is_substituted_somewhere (option: str) -> None:
 def test_an_optional_value_left_empty_is_safe (option: str) -> None:
 	"""Every option but the command may honestly be left blank, and blank must mean "as before".
 
-	Verified against the program rather than assumed: an empty ``SUBROUTINE_TOKEN`` falls
-	through the truthiness checks in ``credentials.resolve`` to whatever would have been used
-	anyway, and ``subroutine mcp --connection ""`` becomes ``connection=None``, which is the
+	Verified against the program rather than assumed: an empty token field, under either name
+	the plugin passes it in, falls through ``credentials.resolve`` to whatever would have been
+	used anyway, and ``subroutine mcp --connection ""`` becomes ``connection=None``, which is the
 	current one. So the argument list can be fixed rather than assembled conditionally, and a
 	dialog somebody skipped behaves like a dialog nobody ever saw.
 	"""

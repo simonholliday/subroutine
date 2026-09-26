@@ -61,6 +61,17 @@ COMMAND_TIMEOUT_SECONDS = 30.0
 #: instance and one exported secret.
 DEFAULT_VARIABLE = "SUBROUTINE_TOKEN"
 
+#: The variable the ``subroutine`` plugin passes its token field in, since plugin 0.9.9 (`#3600`).
+#: **A name of the plugin's own, which nobody exports for a shell.** The field travelled as
+#: :data:`DEFAULT_VARIABLE` before, so wherever an editor left an empty field's variable unset, a
+#: token exported for the default connection could stand in for the field and be offered to
+#: whichever connection the plugin names.
+PLUGIN_VARIABLE = "SUBROUTINE_PLUGIN_TOKEN"
+
+#: Where :func:`resolve` says a token came from when that field supplied it: the field somebody
+#: filled in, rather than a variable nobody set by hand.
+PLUGIN_FIELD = "the Subroutine plugin's token field"
+
 #: Non-alphanumerics become underscores, so ``[connections.my-work]`` is
 #: ``SUBROUTINE_TOKEN_MY_WORK``. A hyphen cannot appear in a shell variable name, and a
 #: person who has to discover that by trial is a person who gives up.
@@ -196,12 +207,15 @@ def resolve (
 	*,
 	default_connection: str,
 	describe_only: bool = False,
+	plugin_field: bool = False,
 ) -> Resolved:
 	"""Find one connection's token, in §12.3a's order, first hit winning.
 
 	1. ``SUBROUTINE_TOKEN_<NAME>`` in the environment — ``<NAME>`` upper-cased, with
 	   non-alphanumerics as underscores. ``SUBROUTINE_TOKEN`` alone applies to the default
-	   connection.
+	   connection. Between the two, where ``plugin_field`` says the ``subroutine`` plugin
+	   started this process and passes its token field as :data:`PLUGIN_VARIABLE`, that field,
+	   for this connection whichever it is (`#3600`).
 	2. ``token_env`` on the connection, naming a variable explicitly.
 	3. ``token_command`` on the connection: a command whose standard output is the token.
 	4. The connection's entry in ``credentials.toml`` — the **agent's** token where one is
@@ -230,6 +244,16 @@ def resolve (
 
 	if specific:
 		return Resolved(token=specific, source=variable_for(connection.name))
+
+	# **The plugin's field comes after a project's own variable and before everything else**
+	# (`#3600`): `--here` hands a project its agent through the variable above, and the field is
+	# what somebody filled in for the plugin's tools. Blank reads as unset, as the default's does:
+	# Claude Code empties the field on a sign-out, and `#3517`'s notice is what speaks for that.
+	if plugin_field:
+		field = _held_in(PLUGIN_VARIABLE, blank_is_unset=True)
+
+		if field:
+			return Resolved(token=field, source=PLUGIN_FIELD)
 
 	# **Required, not defaulted.** It fell back to `"local"`, which is wrong exactly when
 	# `local` is not the default — and `connections._default_name` returns the first declared

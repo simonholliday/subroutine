@@ -9,6 +9,7 @@
         "--workspace", "${user_config.workspace}"
       ],
       "env": {
+        "SUBROUTINE_PLUGIN_TOKEN": "${user_config.token}",
         "SUBROUTINE_TOKEN": "${user_config.token}"
       }
     }

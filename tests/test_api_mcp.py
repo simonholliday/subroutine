@@ -624,6 +624,27 @@ def _an_agents_token (world: test_api_tasks.World) -> str:
 	return str(issued.json()["token"])
 
 
+def _the_field (monkeypatch: pytest.MonkeyPatch, holding: str | None) -> None:
+	"""Fill the plugin's token field as its ``.mcp.json`` passes it, or leave it out (``None``).
+
+	**Every variable the shipped manifest fills from the field**, read from it rather than listed,
+	so these tests follow the plugin that ships: since `SR#3600` that is ``SUBROUTINE_PLUGIN_TOKEN``,
+	with ``SUBROUTINE_TOKEN`` beside it for older programs.
+	"""
+
+	passed = json.loads((OURS / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]["tools"]
+	filled = [name for name, value in passed["env"].items() if value == "${user_config.token}"]
+
+	assert filled, "the plugin passes its token field in no variable"
+
+	for variable in filled:
+		if holding is None:
+			monkeypatch.delenv(variable, raising=False)
+
+		else:
+			monkeypatch.setenv(variable, holding)
+
+
 def test_the_tools_say_so_when_the_plugins_token_field_has_emptied (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -640,14 +661,14 @@ def test_the_tools_say_so_when_the_plugins_token_field_has_emptied (
 
 	assert parsed is not None
 
-	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+	_the_field(monkeypatch, token)
 	before = _a_session(world, monkeypatch)
 	said = _everything_said(before(_asking("subroutine_whoami")))
 
 	assert said.startswith("claudebot"), said
 	assert NOTICE not in said, "a field holding a token was reported as empty"
 
-	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	_the_field(monkeypatch, "")
 	after = _a_session(world, monkeypatch)
 	who = _everything_said(after(_asking("subroutine_whoami")))
 
@@ -691,9 +712,9 @@ def test_a_refused_write_leaves_the_notice_for_the_next_one (
 	none. All eight notice cases stayed green with the check taken out.
 	"""
 
-	monkeypatch.setenv("SUBROUTINE_TOKEN", _an_agents_token(world))
+	_the_field(monkeypatch, _an_agents_token(world))
 	_a_session(world, monkeypatch)(_asking("subroutine_whoami"))
-	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	_the_field(monkeypatch, "")
 	session = _a_session(world, monkeypatch)
 
 	refused = session(_asking("subroutine_update", ref=99999, title="Nothing"))
@@ -710,11 +731,30 @@ def test_a_token_field_that_was_always_empty_says_nothing (
 ) -> None:
 	"""Blank is the recommended setup, so only a change is worth a sentence."""
 
-	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	_the_field(monkeypatch, "")
 	session = _a_session(world, monkeypatch)
 
 	assert NOTICE not in _everything_said(session(_asking("subroutine_whoami")))
 	assert NOTICE not in _everything_said(session(_asking("subroutine_add", text="Buy milk")))
+
+
+def test_the_notice_is_given_where_the_emptied_field_arrives_as_no_variable (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3600`: an editor that leaves an emptied field's variable out is still reported.
+
+	Read as ``SUBROUTINE_TOKEN``, a variable that did not arrive looked like a process with no
+	field at all, so the notice went quiet in exactly that case. The shipped plugin passes the
+	field under a name of its own and says so in its ``.mcp.json``, so a missing one is empty.
+	"""
+
+	_the_field(monkeypatch, _an_agents_token(world))
+	_a_session(world, monkeypatch)
+	_the_field(monkeypatch, None)
+
+	said = _everything_said(_a_session(world, monkeypatch)(_asking("subroutine_whoami")))
+
+	assert NOTICE in said, said
 
 
 def test_a_project_with_an_agent_of_its_own_is_not_told_and_the_next_one_is (
@@ -723,10 +763,10 @@ def test_a_project_with_an_agent_of_its_own_is_not_told_and_the_next_one_is (
 	"""Where ``--here``'s variable answers, the field changes nothing, so nothing is said or kept."""
 
 	token = _an_agents_token(world)
-	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+	_the_field(monkeypatch, token)
 	_a_session(world, monkeypatch)
 
-	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	_the_field(monkeypatch, "")
 	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", token)
 	here = _a_session(world, monkeypatch)
 
@@ -747,7 +787,7 @@ def test_what_is_kept_about_the_field_is_a_prefix_and_only_for_the_plugin (
 
 	token = _an_agents_token(world)
 	kept = subroutine.config.state_home() / subroutine.mcp.relay.FIELD_STATE
-	monkeypatch.setenv("SUBROUTINE_TOKEN", token)
+	_the_field(monkeypatch, token)
 
 	_a_session(world, monkeypatch, by_the_plugin=False)
 
