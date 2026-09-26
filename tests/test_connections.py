@@ -611,6 +611,31 @@ def test_a_token_stopped_part_way_leaves_the_stored_ones_whole (
 	)
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="the superuser writes whatever a mode says")
+def test_a_directory_that_takes_no_new_file_is_written_in_place (
+	config_home: pathlib.Path,
+) -> None:
+	"""`SR#3599`: ``write_private``'s fallback, which no test reached.
+
+	A new file and a rename is the rule (`#3514`), and a directory that will not take a new file -
+	where somebody may change a file and not add one - gets the old write rather than a refusal
+	to save a setting at all.
+	"""
+
+	config_home.mkdir(parents=True, exist_ok=True)
+	path = config_home / "config.toml"
+	path.write_text("before = 1\n", encoding="utf-8")
+	config_home.chmod(0o555)
+
+	try:
+		subroutine.config.write_private(path, "after = 2\n")
+
+	finally:
+		config_home.chmod(0o755)
+
+	assert path.read_text(encoding="utf-8") == "after = 2\n"
+
+
 def test_a_setting_stopped_part_way_leaves_the_configuration_whole (
 	config_home: pathlib.Path,
 ) -> None:

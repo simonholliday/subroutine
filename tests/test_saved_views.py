@@ -668,6 +668,41 @@ def test_a_credential_narrowed_to_some_projects_cannot_share_a_view (
 	).status_code == 403
 
 
+def test_a_credential_narrowed_in_what_it_writes_cannot_share_a_view (
+	world: test_api_tasks.World,
+) -> None:
+	"""`SR#3599`: `SR#3151`'s rule has two halves, and only the reading one was tested.
+
+	A credential narrowed in what it may *write* - ``--write``, with what it reads untouched - is
+	as much narrower than its maker as one narrowed in what it reads, so it cannot put a view in
+	front of the whole workspace either. **Keeping one of its own is untouched.**
+	"""
+
+	inbox = world.call("GET", "/v1/projects/inbox").json()["id"]
+	_row, issued = subroutine.domain.authentication.issue_token(
+		world.session, user=world.user, title="Writes to the Inbox", project_write_scope=[inbox]
+	)
+	world.session.flush()
+	narrow = str(issued.value.get_secret_value())
+
+	shared = _as(
+		world,
+		narrow,
+		"POST",
+		"/v1/views",
+		json={"title": "Everyone's", "arrangement": "list", "shared": True},
+	)
+
+	assert shared.status_code == 403, shared.text
+	assert "cannot share a view" in shared.text, shared.text
+
+	kept = _as(
+		world, narrow, "POST", "/v1/views", json={"title": "Just mine", "arrangement": "list"}
+	)
+
+	assert kept.status_code == 201, kept.text
+
+
 def test_a_view_whose_query_names_its_reader_says_so (world: test_api_tasks.World) -> None:
 	"""`SR#3150`, Simon's decision of 2026-09-22: allowed, and labelled where it is listed.
 

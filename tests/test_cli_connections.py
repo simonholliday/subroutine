@@ -3547,6 +3547,44 @@ def _settings_that_lead_outside_the_checkout (checkout: pathlib.Path) -> None:
 	(checkout / ".claude" / "settings.local.json").symlink_to(elsewhere / "settings.json")
 
 
+def _settings_that_are_a_list (checkout: pathlib.Path) -> None:
+	"""Leave settings that parse, and are not the object Claude Code reads (`SR#3599`)."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text("[]\n", encoding="utf-8")
+
+
+def _settings_whose_env_is_not_an_object (checkout: pathlib.Path) -> None:
+	"""Leave settings whose ``env`` a variable cannot be added to (`SR#3599`)."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text('{"env": []}\n', encoding="utf-8")
+
+
+def _nobody_may (path: pathlib.Path, mode: int) -> None:
+	"""Take permissions away from ``path``, where taking them away means anything (`SR#3599`)."""
+
+	if os.geteuid() == 0:
+		pytest.skip("the superuser reads and writes whatever a mode says")
+
+	path.chmod(mode)
+
+
+def _settings_nobody_may_read (checkout: pathlib.Path) -> None:
+	"""Leave a settings file that cannot be read (`SR#3599`)."""
+
+	(checkout / ".claude").mkdir()
+	(checkout / ".claude" / "settings.local.json").write_text("{}\n", encoding="utf-8")
+	_nobody_may(checkout / ".claude" / "settings.local.json", 0)
+
+
+def _an_ignore_file_nobody_may_write (checkout: pathlib.Path) -> None:
+	"""Leave a ``.gitignore`` the missing rule cannot be added to (`SR#3599`)."""
+
+	(checkout / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+	_nobody_may(checkout / ".gitignore", 0o444)
+
+
 def _nothing (checkout: pathlib.Path) -> None:
 	"""Leave the checkout as it is."""
 
@@ -3574,6 +3612,14 @@ def _nothing (checkout: pathlib.Path) -> None:
 			id="half-a-character",
 		),
 		pytest.param(_settings_that_lead_outside_the_checkout, (), "leads to", id="led-outside"),
+		pytest.param(_settings_that_are_a_list, (), "holds a JSON list", id="a-list"),
+		pytest.param(
+			_settings_whose_env_is_not_an_object, (), "is not an object", id="env-not-an-object"
+		),
+		pytest.param(_settings_nobody_may_read, (), "could not be read", id="unreadable"),
+		pytest.param(
+			_an_ignore_file_nobody_may_write, (), "could not be written", id="unwritable-ignore-file"
+		),
 	],
 )
 def test_here_refuses_before_minting_what_it_could_not_finish (
@@ -3891,6 +3937,153 @@ def test_here_says_when_the_tools_reach_another_connection (
 	assert "with 'work' named as its connection" in made, made
 	assert "it reaches 'local', this machine's default" in made, made
 	assert "and 'subroutine_whoami' does too" not in made, "promised only where the tools reach it"
+
+
+def _a_git (directory: pathlib.Path, script: str | None) -> str:
+	"""Return a ``PATH`` whose git runs ``script``, or on which there is no git at all."""
+
+	place = directory / "bin"
+	place.mkdir()
+
+	if script is None:
+		return str(place)
+
+	git = place / "git"
+	git.write_text(f"#!/bin/sh\n{script}\n", encoding="utf-8")
+	git.chmod(0o755)
+
+	return os.pathsep.join([str(place), "/usr/bin", "/bin"])
+
+
+@requires_git
+@pytest.mark.parametrize(
+	("script", "refused"),
+	[
+		pytest.param(None, "git is not installed here", id="no-git"),
+		pytest.param(
+			'echo "fatal: detected dubious ownership in repository" >&2; exit 128',
+			"detected dubious ownership",
+			id="declined",
+		),
+		pytest.param("sleep 5", "git could not be asked", id="too-slow"),
+	],
+)
+def test_here_refuses_before_minting_when_git_cannot_answer (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	script: str | None,
+	refused: str,
+) -> None:
+	"""`SR#3599`: every way git can fail to answer ends before anything is minted.
+
+	None of these was reached by a test: a checkout on a machine with no git, a repository git
+	declines to read - one somebody else owns - and git taking too long to say.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	_checkout(tmp_path, monkeypatch)
+	monkeypatch.setattr(subroutine.claude_code, "GIT_TIMEOUT_SECONDS", 0.5)
+	monkeypatch.setenv("PATH", _a_git(tmp_path, script))
+
+	said = " ".join(run("agent", "create", "web", "--here", expect=1).output.split())
+
+	assert refused in said, said
+	assert "sr_" not in said
+	assert "web agent" not in run("token", "list").output, "nothing was minted"
+
+
+@requires_git
+def test_a_rule_in_this_clone_alone_does_not_count_for_the_repository (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3599`: ``.git/info/exclude`` protects one clone, as a person's own ignore file does.
+
+	The rule was written for exactly this and no test reached it, so a checkout whose clone
+	excluded the file got no rule of its own, and the next clone had nothing keeping it out.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	(checkout / ".git" / "info").mkdir(exist_ok=True)
+	(checkout / ".git" / "info" / "exclude").write_text(
+		".claude/settings.local.json\n", encoding="utf-8"
+	)
+
+	assert _ignored(checkout, ".claude/settings.local.json"), "the arrangement: this clone ignores it"
+
+	made = run("agent", "create", "web", "--here").output
+
+	assert "Added .claude/settings.local.json" in made, made
+	assert _git(checkout, "check-ignore", "-v", "--", ".claude/settings.local.json").startswith(
+		".gitignore:"
+	)
+
+
+@requires_git
+def test_a_git_dir_left_behind_does_not_answer_for_the_checkout (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3599`: ``GIT_DIR`` and its neighbours are dropped before git is asked anything.
+
+	Left in the environment by a hook or a script, ``GIT_DIR`` answers for another checkout
+	entirely - here one that commits the settings file, so this one was refused as though it
+	already carried a credential. **Nothing tested the dropping**, because the helper arranging
+	these tests drops the same variables itself.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	elsewhere = tmp_path / "elsewhere"
+	(elsewhere / ".claude").mkdir(parents=True)
+	_git(elsewhere, "init", "--quiet")
+	(elsewhere / ".claude" / "settings.local.json").write_text("{}\n", encoding="utf-8")
+	_git(elsewhere, "add", ".claude/settings.local.json")
+	monkeypatch.setenv("GIT_DIR", str(elsewhere / ".git"))
+
+	made = run("agent", "create", "web", "--here").output
+
+	monkeypatch.delenv("GIT_DIR")
+
+	assert "Written to" in made, made
+	assert _ignored(checkout, ".claude/settings.local.json"), "and the checkout's own rule is in"
+
+
+@requires_git
+def test_a_write_that_fails_leaves_nothing_staged_behind (
+	run: typing.Callable[..., typer.testing.Result],
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""`SR#3599`: the directory a credential is staged in goes, whatever stopped the write.
+
+	It holds the credential until the rename, so a failure before it would leave a copy nobody
+	asked for. Nothing failed with the clean-up taken out.
+	"""
+
+	run("init", "--username", "si", "--workspace", "Personal")
+	checkout = _checkout(tmp_path, monkeypatch)
+	renaming = os.replace
+
+	def full (source: typing.Any, destination: typing.Any) -> None:
+		"""Fail the rename into place as a full disk would, and let every other through."""
+
+		if ".settings.local." in str(source):
+			raise OSError(28, "No space left on device")
+
+		renaming(source, destination)
+
+	monkeypatch.setattr(os, "replace", full)
+
+	said = run("agent", "create", "web", "--here", expect=1).output
+
+	assert "No space left on device" in said, said
+	assert "sr_" in said, "the credential exists, so it is shown"
+	assert list((checkout / ".claude").iterdir()) == [], "the staged credential was left behind"
 
 
 def test_agent_create_without_a_hand_over_names_the_variable_to_use (

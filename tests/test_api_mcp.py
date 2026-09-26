@@ -681,6 +681,30 @@ def test_the_tools_say_so_when_the_plugins_token_field_has_emptied (
 	)
 
 
+def test_a_refused_write_leaves_the_notice_for_the_next_one (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3599`: the notice rides on the first write that goes through, not the first asked for.
+
+	A refused write wrote nothing under the wrong name, so the notice on it would be about nothing
+	- and, recorded as said, the write after it, which did go out under the wrong name, carried
+	none. All eight notice cases stayed green with the check taken out.
+	"""
+
+	monkeypatch.setenv("SUBROUTINE_TOKEN", _an_agents_token(world))
+	_a_session(world, monkeypatch)(_asking("subroutine_whoami"))
+	monkeypatch.setenv("SUBROUTINE_TOKEN", "")
+	session = _a_session(world, monkeypatch)
+
+	refused = session(_asking("subroutine_update", ref=99999, title="Nothing"))
+
+	assert refused is not None and refused["result"].get("isError"), refused
+	assert NOTICE not in _everything_said(refused), "a write that was refused carried the notice"
+	assert NOTICE in _everything_said(session(_asking("subroutine_add", text="Buy milk"))), (
+		"the refused write spent the notice, and the first write that went through went without it"
+	)
+
+
 def test_a_token_field_that_was_always_empty_says_nothing (
 	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
 ) -> None:

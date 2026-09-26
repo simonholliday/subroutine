@@ -17,6 +17,7 @@ than in what the domain could express — every service these commands call alre
 import json
 import os
 import pathlib
+import types
 import typing
 
 import pytest
@@ -670,6 +671,42 @@ def test_naming_no_way_in_succeeds_and_names_both (
 
 	assert "login link --username thomas" in said
 	assert "token create --username thomas" in said
+
+
+@pytest.mark.parametrize(
+	("holder", "said"),
+	[
+		pytest.param(
+			None,
+			("the workspace's zone or the instance's", "since nobody it answers to has set one"),
+			id="nobody",
+		),
+		pytest.param("alpha", ("alpha's zone", "since alpha is its account parent"), id="parent"),
+		pytest.param(
+			"si", ("si's zone", "the nearest account above it to have set one"), id="further-up"
+		),
+	],
+)
+def test_an_agent_is_told_whose_zone_its_days_follow (
+	holder: str | None, said: tuple[str, str]
+) -> None:
+	"""`SR#3599`: all three answers, where the instance names who set the zone.
+
+	An agent follows the nearest account above it to have said a zone (`SR#2974`), which may be
+	its parent, somebody further up, or nobody. The third of those was reached by no test: said as
+	though it were the parent, nothing failed.
+	"""
+
+	where = typing.cast(
+		subroutine.cli.personal.Reached,
+		types.SimpleNamespace(
+			client=types.SimpleNamespace(
+				me=lambda: types.SimpleNamespace(reader_timezone_set_by=holder)
+			)
+		),
+	)
+
+	assert subroutine.cli.personal._whose_zone(where, "alpha") == said
 
 
 def test_a_way_in_is_produced_in_the_same_command (

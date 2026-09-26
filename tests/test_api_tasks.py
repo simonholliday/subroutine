@@ -2930,6 +2930,64 @@ def test_a_milestone_s_row_says_how_much_of_it_is_done (world: World) -> None:
 	assert not read["included_done"], "a completed milestone goes on asking to be decided"
 
 
+def test_what_a_milestone_counts_leaves_withdrawn_links_and_trashed_projects (
+	world: World,
+) -> None:
+	"""`SR#3599`: two rules of the count that no test failed without.
+
+	**A withdrawn link is not counted**, since the link is kept, marked withdrawn; and **work in
+	a project in the trash is not counted**, as it is in no listing. Each was one clause in the
+	query, and taking either out left every test green.
+	"""
+
+	launch = _milestone(world, "Launch")
+	world.call("POST", "/v1/projects", json={"key": "side", "title": "Side"})
+	kept, withdrawn = (
+		world.call("POST", "/v1/tasks", json={"title": title}).json()
+		for title in ("Kept", "Withdrawn")
+	)
+	trashed = world.call(
+		"POST", "/v1/tasks", json={"title": "In the trash", "project": "side"}
+	).json()
+	joined = {
+		part["ref"]: _link_from(world, launch["ref"], part["ref"], "includes").json()
+		for part in (kept, withdrawn, trashed)
+	}
+
+	assert world.call("GET", f"/v1/tasks/{launch['ref']}").json()["included_count"] == 3
+
+	world.call("DELETE", f"/v1/tasks/{launch['ref']}/links/{joined[withdrawn['ref']]['id']}")
+	world.call("DELETE", "/v1/projects/side")
+
+	read = world.call("GET", f"/v1/tasks/{launch['ref']}").json()
+
+	assert read["included_count"] == 1, read
+	assert not read["included_unseen"], "work in the trash was counted as work nobody may see"
+
+
+def test_a_milestone_s_links_block_a_retype_only_while_they_stand (world: World) -> None:
+	"""`SR#3599`: `SR#3395`'s refusal, at its two edges.
+
+	**A milestone may be given a milestone's type again**, since nothing stops being one - the
+	check runs whenever a type is sent, and the early answer for a target type was reached by no
+	test. **And a withdrawn link does not hold it**, since withdrawing is exactly the remedy the
+	refusal names.
+	"""
+
+	launch = _milestone(world, "Launch")
+	part = world.call("POST", "/v1/tasks", json={"title": "Some work"}).json()
+	joined = _link_from(world, launch["ref"], part["ref"], "includes").json()
+
+	again = world.call("PATCH", f"/v1/tasks/{launch['ref']}", json={"type": "milestone"})
+
+	assert again.status_code == 200, again.text
+
+	world.call("DELETE", f"/v1/tasks/{launch['ref']}/links/{joined['id']}")
+	retyped = world.call("PATCH", f"/v1/tasks/{launch['ref']}", json={"type": "feature"})
+
+	assert retyped.status_code == 200, retyped.text
+
+
 def test_only_a_milestone_includes_and_only_work_is_included (world: World) -> None:
 	"""`SR#3395`, decision `SR#3391`: the relation's two rules, each refused by name.
 

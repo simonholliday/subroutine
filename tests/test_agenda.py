@@ -790,6 +790,27 @@ def test_a_milestone_is_on_the_agenda_by_its_date_and_never_offered_as_work (
 	)
 
 
+def test_a_milestone_dated_past_the_page_is_not_one_with_no_date (
+	session: sqlalchemy.orm.Session,
+) -> None:
+	"""`SR#3599`: *milestones with no date* is counted by the date, not by the page.
+
+	A milestone dated beyond the look-ahead is in no section, as one with no date is, and only
+	the two date clauses kept it out of the count - which no test reached, since no fixture
+	dated a milestone past the page.
+	"""
+
+	world = World(session)
+
+	world.task("A year out", type_key="milestone")
+	world.task("Next winter", type_key="milestone", due=datetime.date(2026, 12, 1))
+	world.task("Next spring", type_key="milestone", starts=datetime.date(2027, 3, 1))
+
+	agenda = world.agenda(horizon_days=7)
+
+	assert agenda.undated_milestones_total == 1, agenda.undated_milestones_total
+
+
 def test_a_milestone_somebody_else_holds_up_is_not_work_waiting_on_them (
 	session: sqlalchemy.orm.Session,
 ) -> None:
