@@ -190,6 +190,17 @@ whether it is set or not. `claude mcp list` says whether each server connected, 
 `subroutine_whoami` says who the tools are. Those two answer the question without anybody
 reading a credential.
 
+**Before you sign out on purpose, ask the agent who it is.** In the project, `subroutine_whoami`
+and `subroutine whoami`, run in the agent's shell, should both name the agent. Where the
+`subroutine` plugin's tools are acting with the token in its field, `subroutine_whoami` says so
+in a line of its own - that is what a sign-out would take - so give the project an agent of its
+own with `--here` first. With no such line and both naming the agent, nothing a sign-out removes
+is holding either. An older plugin or program gives no such line either way - an older plugin
+passes its field as `SUBROUTINE_TOKEN`, which a shell may export too, so nothing can tell which
+of them answered. There, run `subroutine connections` in the agent's shell: if it names
+`SUBROUTINE_TOKEN_<CONNECTION>`, the project's own agent answers the tools as well, since that
+variable is read before the field.
+
 ## Just this machine
 
 **You are the only person who needs this, your work stays on your own disk, and nothing is

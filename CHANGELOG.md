@@ -12,6 +12,19 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
+## Unreleased
+
+- **`subroutine_whoami` says beforehand when a sign-out would change who the tools are.** Where
+  the `subroutine` plugin's tools act with the token in its *Agent token* field, it adds a line
+  saying so: Claude Code deletes that field when you sign out of Claude Code, uninstall the
+  plugin or remove its marketplace, and the tools then act as whoever this machine's own
+  credentials name. An agent of the project's own, from `agent create --here`, is out of reach of
+  all three. It takes a plugin that passes its field under a name of its own, as current ones
+  do; an older one cannot tell the field from a token set any other way, and says nothing.
+- **What to check before signing out on purpose** is in
+  [docs/connecting.md](docs/connecting.md#where-your-token-is-kept-and-what-removes-it), and
+  the skill tells an agent what the new line means and what to offer.
+
 ## 0.9.9 — 2026-09-26
 
 ### Fixed

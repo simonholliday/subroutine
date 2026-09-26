@@ -22,10 +22,12 @@ Two ways to reach "there", and they differ only in how the request travels:
 end, or this adapter becomes the second implementation it exists to remove — the shape `#530`
 is about, one layer up.
 
-**One thing is added on the way back, and only on this machine's say-so** (`#3517`). This
-process is the one the ``subroutine`` plugin starts, so it is the only place that sees the
-plugin's token field, and it says when that field has emptied since the tools last started.
-It reads a message to decide where to say it, and never refuses one for how it reads.
+**Two things may be added on the way back, and only on this machine's say-so.** This process
+is the one the ``subroutine`` plugin starts, so it is the only place that sees the plugin's
+token field: it says when that field has emptied since the tools last started (`#3517`), and,
+while the field is what the tools act with, that a sign-out of Claude Code would empty it
+(`#3603`). It reads a message to decide where to say either, and never refuses one for how it
+reads.
 """
 
 import contextlib
@@ -122,14 +124,18 @@ def answering (
 ) -> typing.Callable[[str], dict[str, typing.Any] | None]:
 	"""Return something that answers one raw JSON-RPC message from the chosen instance."""
 
+	# **Resolved once, here, and handed to whichever forwarder is built.** A credential can come
+	# from a `token_command` - `pass show`, `gpg` - and asking per message would run it on every
+	# tool call and could prompt for a passphrase in the middle of one. Asking a second time to
+	# learn where it came from, which the notice below needs (`#3603`), would prompt twice.
+	held = credential(connection, roster)
 	forward = (
-		_in_process(connection, roster, settings, workspace=workspace)
+		_in_process(held, settings, workspace=workspace)
 		if connection.is_local
-		else _over_http(connection, roster, workspace=workspace)
+		else _over_http(connection, held, workspace=workspace)
 	)
 	elsewhere = tuple(name for name in roster.names if name != connection.name)
-	emptied = _emptied(connection)
-	notice = None if emptied is None else _Notice(connection.name, _told(connection, emptied))
+	notice = _notice(connection, held)
 
 	def answer (raw: str) -> dict[str, typing.Any] | None:
 		"""Forward one message and return what came back, in this machine's terms."""
@@ -216,13 +222,11 @@ def answering (
 
 def _over_http (
 	connection: subroutine.connections.Connection,
-	roster: subroutine.connections.Roster,
+	resolved: subroutine.credentials.Resolved,
 	*,
 	workspace: str | None,
 ) -> typing.Callable[[str], tuple[int, str]]:
-	"""Return a forwarder that posts to a served instance."""
-
-	resolved = credential(connection, roster)
+	"""Return a forwarder that posts to a served instance, presenting this credential."""
 
 	if resolved.token is None:
 		raise subroutine.errors.Unauthenticated(
@@ -289,8 +293,7 @@ def _over_http (
 
 
 def _in_process (
-	connection: subroutine.connections.Connection,
-	roster: subroutine.connections.Roster,
+	held: subroutine.credentials.Resolved,
 	settings: subroutine.config.Settings,
 	*,
 	workspace: str | None,
@@ -319,11 +322,6 @@ def _in_process (
 	from subroutine.domain import local as principals
 
 	application = api.create_app(settings=settings)
-
-	# **Resolved once, outside the closure.** A credential can come from a `token_command` —
-	# `pass show`, `gpg` — and asking per message would run it on every tool call and could
-	# prompt for a passphrase in the middle of one.
-	held = credential(connection, roster)
 
 	def resolve (
 		session: sqlalchemy.orm.Session,
@@ -438,25 +436,49 @@ def _told (connection: subroutine.connections.Connection, prefix: str) -> str:
 	)
 
 
+def _at_risk (connection: subroutine.connections.Connection) -> str:
+	"""Say that the tools act with the plugin's token field, which a sign-out empties (`#3603`).
+
+	**Said while nothing is wrong, because afterwards is too late to be useful.** Once the field is
+	empty, `#3517`'s notice reports the change - after writes have gone out under another name.
+	Simon asked on 2026-09-24 for people who sign out as a matter of course to know beforehand
+	what it will cost them, and this is the one place that knows the field is what answers.
+	"""
+
+	return (
+		"This session's token is the one in the Subroutine plugin's token field. Claude Code "
+		"deletes that field when you sign out of Claude Code, uninstall the plugin or remove its "
+		"marketplace, and these tools then act as whoever this machine's own credentials name for "
+		f"'{connection.label}'. None of the three touches an agent of this project's own: "
+		"'subroutine agent create <name> --workspace <workspace> --here', run in the project's "
+		"directory."
+	)
+
+
 class _Notice:
-	"""Carry one notice on every ``subroutine_whoami`` answer, and on the first write's (`#3517`).
+	"""Carry one notice on every ``subroutine_whoami`` answer, and on the first write's if asked.
 
 	**Which tools write is learned, not listed**, from the ``readOnlyHint`` each tool declares in
 	the ``tools/list`` answer passing through - so this adapter still holds no catalogue. A tool
 	it has not seen declared as reading is taken to write, so a session that never asked for the
 	list is told at its first call of any kind.
 
-	**Said on a write, then recorded.** The first write's answer is where the wrong name shows
-	up, so once one has carried the notice the field is recorded as empty and the next session
-	says nothing. ``subroutine_whoami`` keeps saying it for the rest of this session, because it
-	stays true.
+	**Said on a write, then recorded** (`#3517`). The first write's answer is where the wrong
+	name shows up, so once one has carried the notice the field is recorded as empty and the next
+	session says nothing. ``subroutine_whoami`` keeps saying it for the rest of this session,
+	because it stays true.
+
+	**Where nothing has changed hands yet, it is said on ``subroutine_whoami`` alone** (`#3603`).
+	``on_a_write`` is false for that one: every write is going out under the right name, so none
+	of them is the moment to interrupt, and nothing is recorded.
 	"""
 
-	def __init__ (self, connection: str, text: str) -> None:
-		"""Hold the notice for one connection's session."""
+	def __init__ (self, connection: str, text: str, *, on_a_write: bool = True) -> None:
+		"""Hold the notice for one connection's session, and whether a write carries it too."""
 
 		self.connection = connection
 		self.text = text
+		self.on_a_write = on_a_write
 		self.reads: set[str] = set()
 		self.written = False
 
@@ -488,7 +510,7 @@ class _Notice:
 
 		writing = name != _WHO and name not in self.reads and not result.get("isError")
 
-		if name != _WHO and not (writing and not self.written):
+		if name != _WHO and not (self.on_a_write and writing and not self.written):
 			return answered
 
 		content.append({"type": "text", "text": self.text})
@@ -510,6 +532,34 @@ class _Notice:
 
 			if isinstance(hints, dict) and hints.get("readOnlyHint") is True:
 				self.reads.add(str(tool.get("name")))
+
+
+def _notice (
+	connection: subroutine.connections.Connection, held: subroutine.credentials.Resolved
+) -> _Notice | None:
+	"""Return what this session says about the plugin's token field, if anything.
+
+	**Two cases, and they cannot both hold.** A field that has emptied since the tools last
+	started is a change of hands that has already happened, so the first write says it too
+	(`#3517`). A field that is what the tools act with is a change a sign-out *would* make, so it
+	is said only where somebody asks who the session is (`#3603`). The field is empty in the first
+	case and answers in the second.
+
+	**Only where the field answered**, which the credential's source says: not where a project's
+	own ``SUBROUTINE_TOKEN_<NAME>`` answered before it, which a sign-out leaves alone. A plugin from
+	before 0.9.9 passes the field as ``SUBROUTINE_TOKEN``, which a shell may export too and which
+	survives a sign-out, so there nothing can tell the two apart and nothing is said.
+	"""
+
+	emptied = _emptied(connection)
+
+	if emptied is not None:
+		return _Notice(connection.name, _told(connection, emptied))
+
+	if held.source == subroutine.credentials.PLUGIN_FIELD:
+		return _Notice(connection.name, _at_risk(connection), on_a_write=False)
+
+	return None
 
 
 def _state () -> pathlib.Path:

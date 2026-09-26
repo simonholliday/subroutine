@@ -216,7 +216,7 @@ It names the account, the credential by its title, what that credential is limit
 versions of everything in play and, for an agent, its *account parent* — whom a question goes to
 when nobody assigned you the work. One machine commonly holds more than one credential — the
 person's own, and one per agent — so the answer is not obvious and is not something to assume.
-Four answers are worth acting on:
+Five answers are worth acting on:
 
 - **A person's name where you expected an agent's** means your work is being recorded as
   theirs. Say so rather than carrying on: attribution is the reason a person hands over work
@@ -226,6 +226,15 @@ Four answers are worth acting on:
   emptied: Claude Code empties it when the person signs out of Claude Code, uninstalls the
   plugin or removes its marketplace. Say that too. Entering the token again brings the agent
   back, and an agent of this project's own is out of that field's reach.
+- **A line saying this session's token is the one in the plugin's token field** means the
+  session's name goes with a sign-out: Claude Code deletes that field when the person signs out
+  of Claude Code, uninstalls the plugin or removes its marketplace, and these tools then act as
+  whoever the machine's own credentials name. Nothing is wrong yet, so say it once rather than
+  stopping, and offer what none of the three can reach, an agent of this project's own: *An
+  agent of this project's own*, below. **If the person asks whether signing out is safe**, the
+  answer is this line's absence, with `subroutine_whoami` and `subroutine whoami` in a shell both
+  naming the agent. Only a plugin and a program recent enough to tell the field apart can say
+  it, so where either is older the absence proves nothing.
 - **`No workspace here can be read with this credential`** means the credential reaches
   nothing. Every other command will report that as an empty instance, which reads as "there is
   no work" rather than "you cannot see it".

@@ -558,6 +558,9 @@ OURS = pathlib.Path(__file__).resolve().parent.parent / "plugins" / "subroutine"
 #: The words the notice opens with, and the ones it must carry.
 NOTICE = "The Subroutine plugin's token field held"
 
+#: The words `SR#3603`'s line opens with, said while the field is what the tools act with.
+AT_RISK = "This session's token is the one in the Subroutine plugin's token field"
+
 LISTING = '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 
 
@@ -575,19 +578,24 @@ def _asking (name: str, **arguments: typing.Any) -> str:
 
 
 def _a_session (
-	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, *, by_the_plugin: bool = True
+	world: test_api_tasks.World,
+	monkeypatch: pytest.MonkeyPatch,
+	*,
+	by_the_plugin: bool = True,
+	root: pathlib.Path = OURS,
 ) -> typing.Callable[[str], dict[str, typing.Any] | None]:
 	"""Start one ``subroutine mcp`` session onto this world, and return what answers it.
 
 	**One adapter for the whole session**, unlike :func:`_through_the_adapter`, because what is
 	said depends on what the session has said already. It asks for the tool list first, as an
-	editor does, which is how the adapter learns which tools only read.
+	editor does, which is how the adapter learns which tools only read. ``root`` is the plugin
+	that started it, where one did.
 	"""
 
 	monkeypatch.setattr(subroutine.api.app, "create_app", lambda **kwargs: world.application)
 
 	if by_the_plugin:
-		monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(OURS))
+		monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(root))
 
 	else:
 		monkeypatch.delenv(subroutine.installations.PLUGIN_ROOT, raising=False)
@@ -799,6 +807,93 @@ def test_what_is_kept_about_the_field_is_a_prefix_and_only_for_the_plugin (
 	assert parsed is not None
 	assert json.loads(kept.read_text(encoding="utf-8")) == {"local": parsed[0]}
 	assert parsed[1] not in kept.read_text(encoding="utf-8")
+
+
+def test_whoami_says_beforehand_that_a_sign_out_would_take_the_field_the_tools_act_with (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+	"""`SR#3603`, Simon's: say what a sign-out will cost before it happens, not after.
+
+	A sign-out empties every plugin's token field, and `SR#3517`'s notice can report that only
+	afterwards, once writes have gone out under another name. So while the field is what the tools
+	act with, ``subroutine_whoami`` says so, with the remedy - and nothing else does, since nothing
+	is wrong yet: not a write, not a read, and nothing is recorded.
+	"""
+
+	_the_field(monkeypatch, _an_agents_token(world))
+	session = _a_session(world, monkeypatch)
+	who = _everything_said(session(_asking("subroutine_whoami")))
+
+	assert who.startswith("claudebot"), who
+	assert AT_RISK in who, who
+	assert NOTICE not in who, "a field holding the token was reported as emptied"
+
+	line = who.split(AT_RISK, 1)[1]
+
+	for words in (
+		"sign out of Claude Code",
+		"uninstall the plugin",
+		"remove its marketplace",
+		"'subroutine agent create <name> --workspace <workspace> --here'",
+	):
+		assert words in line, f"the line does not say {words!r}"
+
+	assert AT_RISK not in _everything_said(session(_asking("subroutine_add", text="Buy milk"))), (
+		"a write carried a line about a sign-out that has not happened"
+	)
+	assert AT_RISK not in _everything_said(session(_asking("subroutine_list"))), "a read carried it"
+	assert AT_RISK in _everything_said(session(_asking("subroutine_whoami"))), (
+		"who the session is stopped saying so, though it is still true"
+	)
+
+
+def test_whoami_names_no_sign_out_where_the_field_is_not_what_answers (
+	world: test_api_tasks.World, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+	"""`SR#3603`: the line is said only where the plugin's field is the credential.
+
+	A project's own ``SUBROUTINE_TOKEN_<NAME>``, which `--here` writes, answers before the field and
+	a sign-out leaves it alone. A process the plugin did not start never reads the field. A plugin
+	from before 0.9.9 passes it as ``SUBROUTINE_TOKEN``, which a shell may export too and which
+	survives a sign-out, so nothing can tell which answered. And an emptied field answers nothing,
+	where `SR#3517`'s own notice speaks instead.
+	"""
+
+	token = _an_agents_token(world)
+	older = tmp_path / "older"
+	(older / ".claude-plugin").mkdir(parents=True)
+	(older / ".claude-plugin" / "plugin.json").write_text(
+		json.dumps({"name": "subroutine", "version": "0.9.8"}), encoding="utf-8"
+	)
+
+	def said (**started: typing.Any) -> str:
+		"""Return what ``subroutine_whoami`` says in a session started this way."""
+
+		session = _a_session(world, monkeypatch, **started)
+
+		return _everything_said(session(_asking("subroutine_whoami")))
+
+	_the_field(monkeypatch, token)
+	monkeypatch.setenv("SUBROUTINE_TOKEN_LOCAL", token)
+	own = said()
+
+	monkeypatch.delenv("SUBROUTINE_TOKEN_LOCAL")
+	unstarted = said(by_the_plugin=False)
+	older_plugin = said(root=older)
+
+	_the_field(monkeypatch, "")
+	emptied = said()
+
+	for case, text in (
+		("the project's own agent", own),
+		("a process the plugin did not start", unstarted),
+		("a plugin from before 0.9.9", older_plugin),
+	):
+		assert text.startswith("claudebot"), f"{case}: {text}"
+		assert AT_RISK not in text, f"{case} was told a sign-out takes a field it does not act with"
+
+	assert AT_RISK not in emptied, "an emptied field was named as the credential"
+	assert NOTICE in emptied, "the emptied field's own notice went quiet"
 
 
 def test_the_adapter_names_the_connection_the_caller_typed (
