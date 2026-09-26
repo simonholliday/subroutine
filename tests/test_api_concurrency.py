@@ -434,6 +434,10 @@ def test_two_writers_holding_the_same_version_do_not_both_win (
 	"""
 
 	factory = sqlalchemy.orm.sessionmaker(bind=engine, expire_on_commit=False)
+
+	# `None` until the setup's commit, so a setup that fails leaves the cleanup nothing to do,
+	# rather than a name it cannot read that hides the failure (`#3670`).
+	workspace_id: uuid.UUID | None = None
 	written: list[uuid.UUID] = []
 
 	try:
@@ -498,11 +502,12 @@ def test_two_writers_holding_the_same_version_do_not_both_win (
 		# is the recorded case of a test that cleaned up its workspace and not its accounts,
 		# and failed ten unrelated PostgreSQL tests only in a full run.
 		with factory() as tidy:
-			tidy.execute(
-				sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
-					subroutine.db.models.identity.Workspace.id == workspace_id
+			if workspace_id is not None:
+				tidy.execute(
+					sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
+						subroutine.db.models.identity.Workspace.id == workspace_id
+					)
 				)
-			)
 
 			for user_id in written:
 				tidy.execute(

@@ -1542,6 +1542,11 @@ def test_concurrent_ref_allocation_never_duplicates (
 	setup_engine = subroutine.db.session.create_engine(postgres_url)
 	factory = sqlalchemy.orm.sessionmaker(bind=setup_engine, expire_on_commit=False)
 
+	# `None` until the setup's commit, so a setup that fails leaves the cleanup nothing to do,
+	# rather than names it cannot read that hide the failure (`#3670`).
+	workspace_id: uuid.UUID | None = None
+	founder_id: uuid.UUID | None = None
+
 	try:
 		with factory() as setup:
 			# The founder is made here rather than inside `_workspace`, so that the cleanup
@@ -1591,20 +1596,28 @@ def test_concurrent_ref_allocation_never_duplicates (
 		# assertions, so the one outcome it most needed to survive — this test failing — was the
 		# one where it did not run. A test that commits to the shared database owns the whole of
 		# what it wrote, on every path.
-		with factory() as cleanup:
-			cleanup.execute(
-				sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
-					subroutine.db.models.identity.Workspace.id == workspace_id
-				)
-			)
-			cleanup.execute(
-				sqlalchemy.delete(subroutine.db.models.identity.User).where(
-					subroutine.db.models.identity.User.id == founder_id
-				)
-			)
-			cleanup.commit()
+		try:
+			with factory() as cleanup:
+				if workspace_id is not None:
+					cleanup.execute(
+						sqlalchemy.delete(subroutine.db.models.identity.Workspace).where(
+							subroutine.db.models.identity.Workspace.id == workspace_id
+						)
+					)
 
-		setup_engine.dispose()
+				if founder_id is not None:
+					cleanup.execute(
+						sqlalchemy.delete(subroutine.db.models.identity.User).where(
+							subroutine.db.models.identity.User.id == founder_id
+						)
+					)
+
+				cleanup.commit()
+
+		finally:
+			# Its own `finally`, so a cleanup that fails still closes the pool: a connection left
+			# open is a psycopg warning in some later test, and a session database nothing can drop.
+			setup_engine.dispose()
 
 
 def test_a_refused_update_changes_nothing (session: sqlalchemy.orm.Session) -> None:
