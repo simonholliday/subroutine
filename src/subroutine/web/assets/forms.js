@@ -43,7 +43,7 @@ export const PRIORITIES = [
 ];
 
 /*
-	**Three date fields, kept apart on purpose, in the words `subroutine explain dates` uses.**
+	**Four date fields, kept apart on purpose, in the words `subroutine explain dates` uses.**
 
 	`#769`: this said *Starts*, which is the one reading `snoozed_until` explicitly is not. Appendix
 	A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or *earliest
@@ -54,12 +54,17 @@ export const PRIORITIES = [
 	surface with no `explain` to check against: a terminal reader can ask and a browser reader
 	has only the label. `cli/topics.py` is the original and a test holds these against it.
 
-	**Left to right is chronological** — starts, then hidden until, then due. The middle one
-	is the odd member and is meant to look it: two of these say when the work happens and one
-	says when you want to be bothered about it.
+	**Left to right is chronological** — starts and until, then deferred until, then due. The
+	defer is the odd member and is meant to look it: three of these say when the work happens
+	and one says when you want to be bothered about it.
+
+	**Until sits beside Starts because the two are one span** (`#1238`). An end has no all-day
+	flag of its own (decision `#1235` §2), so a start and its end are timed together or not at
+	all, and the service refuses a pair that disagrees rather than this form offering a second
+	switch that would make that state look available.
 */
 /*
-	The three dates, and **which of them can carry a time** — `#798`.
+	The dates, and **which of them can carry a time** — `#798`.
 
 	Simon, driving `#755`: *"My appointment starts at 14:00 and finishes at 15:00 but I cannot
 	express that via the UI."* Every control was `<input type="date">`, which is a day and
@@ -71,7 +76,7 @@ export const PRIORITIES = [
 	false. So this is a control, and the `*_is_all_day` columns go on being written by the
 	server from what it was sent.
 
-	**All three carry a time since `#854`.** `starts` used to be the exception, because the
+	**Every one carries a time since `#854`**, and the end since `#1238`. `starts` used to be the exception, because the
 	column behind it was a bare `DATE` — and Simon read the missing time picker as an
 	inconsistency, which it was. The model was the limit rather than the form, and the note
 	here said so; the column is an instant now, so the exception is gone and an appointment
@@ -79,6 +84,7 @@ export const PRIORITIES = [
 */
 export const DATE_FIELDS = [
 	["starts", "Starts", "When it begins. This is what 'agenda' shows.", true],
+	["ends", "Until", "When it is over, for something that lasts a while.", true],
 	["snooze", "Deferred until", "The task does not appear at all before this.", true],
 	["due", "Due", "A deadline. The date something has to be finished by.", true],
 ];

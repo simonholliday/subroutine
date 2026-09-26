@@ -13,7 +13,7 @@ import {
 	PRODUCT, addressOf, encodedPath, parseAddress, shortVersion, withShowing,
 } from "./address.js";
 import { unrenderable } from "./answers.js";
-import { day, here, rankOf } from "./dates.js";
+import { day, here, rankOf, span } from "./dates.js";
 import { followed } from "./grouping.js";
 import { Icon } from "./marks.js";
 import { written } from "./requests.js";
@@ -550,7 +550,13 @@ export function Facts ({
 	   introduced: the form can set it, and a field a reader can write and never read back is
 	   `#515`'s shape — every step reports success and they are left confirming the wrong
 	   conclusion. The CLI has printed it as *from <date>* since M1. */
-	add("Starts", day(item.starts_at, item.timezone, item.starts_is_all_day));
+	/* **A span is one fact, not two rows** (`#1238`): *14 to 28 August* is what somebody
+	   wrote, and what they should read back. A start alone keeps its own word. */
+	if (item.starts_at && item.ends_at) {
+		add("When", span(item.starts_at, item.ends_at, item.timezone, item.starts_is_all_day));
+	} else {
+		add("Starts", day(item.starts_at, item.timezone, item.starts_is_all_day));
+	}
 	add("Due", day(item.due_at, item.timezone, item.due_is_all_day));
 	/* **Named for what it does rather than for the column it used to share** (`#854`). This
 	   line and the one above both read `snoozed_until` and `start_at` before the rename, so

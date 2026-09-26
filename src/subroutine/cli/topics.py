@@ -100,10 +100,10 @@ def _dates_body () -> str:
   due          A deadline. The date something has to be finished by.
   starts       When it begins. This is what 'agenda' shows.
                It takes a time, so 'monday at 14:00' is an appointment.
-  until        When it is over, for something that lasts more than a
-               moment - a holiday, a conference, a code freeze. Set it
-               with 'plan 7 "14 august" --until "28 august"', or write
-               it: 'Dentist on monday 2pm-3pm'. A calendar you have
+  until        When it is over, for something that lasts a while.
+               A holiday, a conference, a code freeze. Set it with
+               'plan 7 "14 august" --until "28 august"', or write it:
+               'Dentist on monday 2pm-3pm'. A calendar you have
                subscribed shows the whole run of days.
   deferred until
                The task does not appear at all before this. It is the

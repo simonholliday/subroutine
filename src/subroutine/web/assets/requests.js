@@ -1385,7 +1385,7 @@ export const SAID_AS_A_REF = ["parent"];
 
 export const SAID_AS_WRITTEN = [
 	"description", "project", "type", "status", "assignee",
-	"estimate", "starts", "snooze", "due",
+	"estimate", "starts", "ends", "snooze", "due",
 ];
 
 /*
@@ -1410,6 +1410,18 @@ export const SAID_AS_NUMBERS = ["importance", "urgency"];
 	was invisible to that check until this existed.
 */
 export const NEVER_CLEARED = ["title", "status", "type", "project"];
+
+function dateSaid (said, name) {
+	/*
+		A date control and its time box as the one field the wire takes (`#798`) - and **an end
+		given a time and no day ends on the day it starts** (`#1238`). An appointment is written
+		*Starts 27 Sep, 11:00* and *Until 13:00*, and a time with no day is otherwise nothing, so
+		the end would go unsaved without a word.
+	*/
+	const day = name === "ends" && !said(name) && said("ends_time") ? said("starts") : said(name);
+
+	return withTime(day, said(`${name}_time`));
+}
 
 export function filed (values, slug) {
 	/*
@@ -1449,7 +1461,7 @@ export function filed (values, slug) {
 
 	SAID_AS_WRITTEN.forEach((name) => {
 		const value = TIMED.includes(name)
-			? withTime(said(name), said(`${name}_time`))
+			? dateSaid(said, name)
 			: said(name);
 
 		if (value) body[name] = value;
@@ -1649,6 +1661,11 @@ export function fromItem (item) {
 		snooze_time: timeFor(said.snoozed_until, said.snoozed_is_all_day, said.timezone),
 		starts: dateFor(said.starts_at, said.starts_is_all_day, said.timezone),
 		starts_time: timeFor(said.starts_at, said.starts_is_all_day, said.timezone),
+		/* **An end is read with the start's flag, having none of its own** (decision `#1235`
+		   §2), so a timed span opens with a clock in both boxes and a span of whole days with
+		   neither. Every save sends this back, so a wrong reading here would move the end. */
+		ends: dateFor(said.ends_at, said.starts_is_all_day, said.timezone),
+		ends_time: timeFor(said.ends_at, said.starts_is_all_day, said.timezone),
 		due: dateFor(said.due_at, said.due_is_all_day, said.timezone),
 		due_time: timeFor(said.due_at, said.due_is_all_day, said.timezone),
 		tags: (said.tags || []).join(", "),
@@ -1747,7 +1764,7 @@ export function edited (values, item, appliesTo = null) {
 		if (NEVER_CLEARED.includes(name)) return;
 
 		body[name] = (TIMED.includes(name)
-			? withTime(said(name), said(`${name}_time`))
+			? dateSaid(said, name)
 			: said(name)) || null;
 	});
 

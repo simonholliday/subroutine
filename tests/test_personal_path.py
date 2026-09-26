@@ -1621,6 +1621,9 @@ def test_a_captured_deadline_on_an_event_is_refused_with_the_remedy (
 
 	assert "event cannot have a deadline" in refused.output, refused.output
 	assert "Give it a start instead" in refused.output, refused.output
+	# **And the end a deadline was standing in for** (`SR#3641`): *Give it a start instead* was
+	# said to somebody who had given one and meant the deadline as the time it finishes.
+	assert "set 'until' to when it is over" in refused.output, refused.output
 	assert json.loads(run("list", "--json").output) == [], "it was filed anyway"
 
 	run("add", "Anna's birthday on 14 March", "--type", "event")

@@ -356,7 +356,8 @@ def refuse_a_deadline_on_an_occasion (
 	**Decision `#1235` says an event is never due or overdue**, and until this nothing made it
 	true: a type and a deadline were each settable on anything, so an event could be given one
 	and land under *Overdue* and in a calendar as *Due: Anna's birthday*. Simon's answer of
-	2026-09-17 is to refuse it by name, with the remedy - an event happens, so it takes a start.
+	2026-09-17 is to refuse it by name, with the remedy - an event happens, so it takes a start,
+	and the end a deadline was standing in for is ``until`` (`#3641`).
 
 	**By category, as :func:`own_day_field` is**, so a workspace's own event type is refused
 	the same way.
@@ -374,7 +375,7 @@ def refuse_a_deadline_on_an_occasion (
 		raise subroutine.errors.ValidationError(
 			"An event cannot have a deadline: it happens on its day, and is never due or overdue.",
 			code="invalid_field_value",
-			hint="Give it a start instead.",
+			hint="Give it a start instead, and set 'until' to when it is over.",
 			errors=[
 				subroutine.errors.FieldError(
 					field="due",
@@ -387,7 +388,8 @@ def refuse_a_deadline_on_an_occasion (
 	raise subroutine.errors.ValidationError(
 		"An event cannot have a deadline, and this has one.",
 		code="invalid_field_value",
-		hint="Clear its deadline in the same change, or give it a start in its place.",
+		hint="Clear its deadline in the same change: a start says when it happens, and 'until' "
+		"when it is over.",
 		errors=[
 			subroutine.errors.FieldError(
 				field="type",

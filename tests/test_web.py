@@ -5044,6 +5044,9 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 		"due_at": "2126-08-16T06:59:59.999999Z",
 		"snoozed_until": "2126-08-10T07:00:00Z",
 		"starts_at": "2126-08-12T21:30:00Z",
+		# An end, which takes the start's flag (`SR#1238`): 22:00 on the same day there, and
+		# already the 13th in UTC, so an end read anywhere else opens on the wrong day.
+		"ends_at": "2126-08-13T05:00:00Z",
 		# **Stated rather than left out**, because `timeFor` tests `allDay !== false`: an item
 		# that never says is treated as a whole day, so an appointment would lose its clock.
 		"starts_is_all_day": False,
@@ -5060,6 +5063,9 @@ def test_a_form_opens_holding_what_the_item_already_says (tmp_path: pathlib.Path
 	# somebody's appointment by a day every time they edited anything else.
 	assert held["starts"] == "2126-08-12", "a start was read in the wrong zone"
 	assert held["starts_time"] == "14:30"
+	assert (held["ends"], held["ends_time"]) == ("2126-08-12", "22:00"), (
+		"an end was not read back where and when it is, so saving anything would move it"
+	)
 
 	# **Everything as the string a control holds**, because that is what comes back out of one.
 	assert held["importance"] == "4" and held["urgency"] == "3"
@@ -6761,7 +6767,7 @@ def test_which_statuses_a_project_hides_is_found_by_id_or_by_address (
 
 
 def _date_fields () -> list[tuple[str, str, str]]:
-	"""The browser's three date fields, as `(name, label, hint)`.
+	"""The browser's four date fields, as `(name, label, hint)`.
 
 	**A trailing flag is allowed and the sentence is not** (`SR#798`): the entry grew a fourth
 	member saying whether the control carries a time, and the three that describe the field to a
@@ -6777,12 +6783,12 @@ def _date_fields () -> list[tuple[str, str, str]]:
 		r'\["(\w+)", "([^"]+)",\s*"([^"]+)",?\s*(?:true|false)?\s*\]', found.group(1), re.S
 	)
 
-	assert len(fields) == 3, f"{len(fields)} date fields were read, and there are three"
+	assert len(fields) == 4, f"{len(fields)} date fields were read, and there are four"
 
 	return fields
 
 
-def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> None:
+def test_the_browser_calls_the_dates_what_the_terminal_calls_them () -> None:
 	"""`SR#769`. The browser said *Starts*, which is the one reading `snoozed_until` is not.
 
 	Appendix A's ambiguity A4 asked whether it means *work starts then*, *hide until then* or
@@ -6824,10 +6830,11 @@ def test_the_browser_calls_the_three_dates_what_the_terminal_calls_them () -> No
 		)
 
 	# **Chronological, and the reason is written down** so it is not reshuffled by taste: when
-	# it starts, then when you want to stop being shown it, then when it is due. The middle one
-	# is the odd member and is meant to look it — two of these say when the work happens and
-	# one says when you want to be bothered about it (`#854`).
-	assert [name for name, _label, _hint in fields] == ["starts", "snooze", "due"]
+	# it starts and when it is over, then when you want to stop being shown it, then when it is
+	# due. The defer is the odd member and is meant to look it — three of these say when the
+	# work happens and one says when you want to be bothered about it (`#854`). The end sits
+	# against the start because the two are one span with one flag (`SR#1238`).
+	assert [name for name, _label, _hint in fields] == ["starts", "ends", "snooze", "due"]
 
 
 def test_the_priority_scale_says_which_way_it_runs (tmp_path: pathlib.Path) -> None:
@@ -7372,14 +7379,6 @@ NOT_ON_THE_FORM = {
 	#
 	# **Deleting this entry is what closes `SR#1234`.**
 	"reminder": "the browser cannot set or show one at all yet — SR#1234",
-	# **A gap rather than a decision, so it is filed** (`SR#576`, and `SR#1238` is the item),
-	# and the same shape as `reminder` above: the field landed on the model, both clients, the
-	# terminal, MCP and the calendar feed in one commit, and a surface's worth of controls is
-	# its own. **The end has no all-day flag to go with it** — decision `SR#1235`, it shares
-	# `starts_is_all_day` — so this is one control rather than the pair above.
-	#
-	# **Deleting this entry is what closes `SR#1238`.**
-	"ends": "the browser cannot set or show a span yet — SR#1238",
 	# The chain is explicit -> user -> workspace -> instance and null means *not stated* at every
 	# level. A form field would be a fourth place to get it wrong, on the one surface that
 	# already knows the reader's zone.
@@ -14106,8 +14105,82 @@ def test_a_time_control_starts_empty_unless_the_item_has_one (tmp_path: pathlib.
 	assert absent == ""
 
 
+def test_an_end_goes_out_as_it_came_in_and_takes_the_day_it_starts (
+	tmp_path: pathlib.Path,
+) -> None:
+	"""`SR#1238`: an event that starts at 11:00 and is over at 13:00, written in the browser.
+
+	The report behind this item put its finishing time in *Due*, the only other date on the form,
+	and an event refuses a deadline. **An end given a time and no day ends on the day it
+	starts**, because that is how an appointment is written and a time with no day is otherwise
+	nothing (`SR#798`) - so the end would have gone unsaved without a word. An end with no start
+	to lend it a day is still nothing, and one given its own day keeps it.
+
+	**A span of whole days opens as two days and goes back out as them**, since every save sends
+	every date: read wrongly, saving a title would move somebody's holiday.
+	"""
+
+	appointment = {"text": "Dentist", "type": "event", "starts": "2026-09-27",
+		"starts_time": "11:00", "ends_time": "13:00"}
+	item = {"ref": 7, "version": 2, "title": "Dentist", "type": "event", "status": "open",
+		"project_key": "inbox"}
+	holiday = {"ref": 8, "version": 1, "title": "Holiday", "type": "event", "status": "open",
+		"project_key": "inbox", "timezone": "Europe/London", "starts_is_all_day": True,
+		"starts_at": "2026-10-01T23:00:00Z", "ends_at": "2026-10-12T22:59:59.999999Z"}
+
+	created, edited, alone, overnight, due, held = _views(tmp_path, [
+		("filed", {"slug": "projects", "values": appointment}),
+		("edited", {"item": item, "values": appointment}),
+		("filed", {"slug": "projects", "values": {"text": "Dentist", "ends_time": "13:00"}}),
+		("filed", {"slug": "projects", "values": {**appointment, "ends": "2026-09-28"}}),
+		("filed", {"slug": "projects", "values": {**appointment, "due_time": "17:00"}}),
+		("fromItem", {"item": holiday}),
+	])
+
+	assert (created["starts"], created["ends"]) == ("2026-09-27T11:00", "2026-09-27T13:00"), created
+	assert edited["ends"] == "2026-09-27T13:00", edited
+	assert "ends" not in alone, f"an end with no day to be on was sent: {alone}"
+	assert overnight["ends"] == "2026-09-28T13:00", "an end given its own day lost it"
+	assert "due" not in due, f"only the end borrows the start's day, and a deadline did: {due}"
+	assert (held["starts"], held["ends"], held["ends_time"]) == ("2026-10-02", "2026-10-12", ""), held
+
+	[back] = _views(tmp_path, [("edited", {"item": holiday, "values": held})])
+
+	assert (back["starts"], back["ends"]) == ("2026-10-02", "2026-10-12"), (
+		f"a holiday went back out as {back['starts']} to {back['ends']}"
+	)
+
+
+def test_the_item_page_shows_a_span_as_one_fact (tmp_path: pathlib.Path) -> None:
+	"""`SR#1238`: *14 to 28 August* is what somebody wrote, and one row is what they read back.
+
+	**Held to the row's own rendering of the span** rather than spelled, for `SR#2252`'s reason,
+	and a start alone keeps its word.
+	"""
+
+	item = {"ref": 42, "title": "Holiday", "kind": "task", "status": "open",
+		"timezone": "Europe/London", "starts_is_all_day": True,
+		"starts_at": "2027-10-01T23:00:00Z", "ends_at": "2027-10-12T22:59:59.999999Z"}
+
+	shown = _rendered(tmp_path, {"Facts": {"item": item}})["Facts"]
+	row = _rendered(tmp_path, {"Row": {"item": item, "workspace": "projects"}})["Row"]
+	spanned = re.search(r"\u2192 ([^<]+)<", row)
+
+	assert spanned is not None, f"the row showed no span: {row}"
+
+	after = shown.split("<dt>When<dd>", 1)
+
+	assert len(after) == 2, f"the span is not one fact on the page: {shown}"
+	assert spanned.group(1).strip() in after[1].split("<dt>", 1)[0], shown
+	assert "<dt>Starts<dd>" not in shown, "a span was shown as a start as well"
+
+	alone = _rendered(tmp_path, {"Facts": {"item": {**item, "ends_at": None}}})["Facts"]
+
+	assert "<dt>Starts<dd>" in alone and "<dt>When<dd>" not in alone, alone
+
+
 def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.Path) -> None:
-	"""`SR#798`, and `#854` widened it: all three dates are instants, so all three take a time.
+	"""`SR#798`, and `#854` widened it: every date is an instant, so every one takes a time.
 
 	**This test used to assert the opposite** — that `starts` was a day and offering a clock
 	there would be a promise the field could not keep. That was true of the column and Simon
@@ -14129,9 +14202,9 @@ def test_the_form_offers_a_time_where_a_time_means_something (tmp_path: pathlib.
 		if markup[at:markup.index("<small>", at)].count("<input>") == 2:
 			drawn.add(name)
 
-	assert drawn == {"starts", "snooze", "due"}, (
+	assert drawn == {"starts", "ends", "snooze", "due"}, (
 		f"the form offers a time on {sorted(drawn)} — every date a task carries is an instant "
-		f"since `#854`, so each of the three should have a clock beside it"
+		f"since `#854`, so each of them should have a clock beside it"
 	)
 
 	# **The two halves compared, which is the invariant rather than the spelling.** `TIMED` is

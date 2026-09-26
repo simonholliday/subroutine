@@ -155,6 +155,12 @@ upgrade involves.
   terminal and the browser said *Mon 4 Oct at 14:00 to Mon 4 Oct at 15:00*. A span across
   midnight still names both days, because there the second day is the news.
 
+- **An event can be given an end in the browser.** The form has *Until* beside *Starts*, so an
+  appointment from 11:00 to 13:00 is written there as it is at the terminal, and an end given a
+  time and no day ends on the day it starts. The item page shows a span as one fact. *Due* was
+  the only other date on the form, and an event refuses a deadline - which now says to set
+  *until* to when it is over, where it said only to give it a start.
+
 ## 0.9.8 — 2026-09-25
 
 ### Added
