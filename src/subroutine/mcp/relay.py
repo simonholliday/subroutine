@@ -89,6 +89,13 @@ def credential (
 	**Where that plugin started this process, the variable is its field**, set in the server's own
 	environment over anything inherited, so it is read as the token of the connection the
 	session was started for. Started any other way, it keeps its meaning.
+
+	**That rests on Claude Code setting the variable whether the field is filled or not** - seen
+	set and empty on nuc14 when the field was (`#3244`), and not measured against a version
+	(`#3600`). A version that left an empty field unset would let a token exported in the shell
+	stand in for it here, offered to the named connection; and :func:`_emptied` would go quiet at
+	the same moment, since an absent variable is the case it cannot tell from no plugin setting at
+	all. `#3600` carries the remedy, a variable of the plugin's own that no shell exports.
 	"""
 
 	default = connection.name if subroutine.installations.started_by(PLUGIN) else roster.default

@@ -5643,6 +5643,40 @@ def test_the_plugins_token_field_is_the_token_of_the_connection_it_names (
 		assert held.token == "sr_cccccccc_the_field", f"{name} answered from {held.source}"
 
 
+@pytest.mark.parametrize("field", ["", "  ", None], ids=["empty", "blank", "absent"])
+def test_the_plugins_field_left_empty_or_unset_falls_back_to_what_is_stored (
+	two_instances: subroutine.connections.Roster,
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	field: str | None,
+) -> None:
+	"""`SR#3600`: the field's other two states, beside the set one above.
+
+	**Empty is the ordinary blank field**, and falls back to what this machine stores for the
+	connection - as whitespace does, where any other variable holding only whitespace is refused
+	by name: Claude Code empties this one on a sign-out, and `SR#3517`'s notice speaks for that.
+	**Absent reads the same, and that is the hazard `SR#3600` names**: a token exported
+	in a shell would stand in for an absent field, and nothing here can tell the two apart - so
+	this pins what happens, for whoever changes it to see it change. The emptied-field notice
+	goes quiet for an absent variable too, which is pinned beside it.
+	"""
+
+	monkeypatch.setenv(subroutine.installations.PLUGIN_ROOT, str(_a_plugin(tmp_path, "subroutine")))
+
+	if field is None:
+		monkeypatch.delenv(subroutine.credentials.DEFAULT_VARIABLE, raising=False)
+
+	else:
+		monkeypatch.setenv(subroutine.credentials.DEFAULT_VARIABLE, field)
+
+	held = subroutine.mcp.relay.credential(two_instances.require("work"), two_instances)
+
+	assert held.token == "sr_bbbbbbbb_person", held.source
+
+	if field is None:
+		assert subroutine.mcp.relay._emptied(two_instances.require("work")) is None
+
+
 def test_a_projects_own_variable_still_answers_before_the_plugins_field (
 	two_instances: subroutine.connections.Roster,
 	tmp_path: pathlib.Path,
