@@ -12,7 +12,7 @@ The point of it is that you can *plan* a database upgrade instead of meeting one
 through installing something. See [docs/hosting.md](docs/hosting.md#upgrading) for what the
 upgrade involves.
 
-## Unreleased
+## 0.9.10 — 2026-09-26
 
 - **`subroutine_whoami` says beforehand when a sign-out would change who the tools are.** Where
   the `subroutine` plugin's tools act with the token in its *Agent token* field, it adds a line
